@@ -16,10 +16,11 @@ import i6_core.util as util
 
 from sisyphus import Job, Task, tk, gs
 
-from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_lm_combined_txt, _extract_audio_seq_len_file, _extract_text_seq_len_file, _get_corpus_text_dict, TextDictToTextLinesJob
-from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+from i6_experiments.users.schmitt.datasets.librispeech import get_librispeech_lm_combined_txt, _extract_audio_seq_len_file, _extract_text_seq_len_file, _get_corpus_text_dict, TextDictToTextLinesJob
+from i6_experiments.users.schmitt.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
+# from i6_experiments.users.mueller.experiments.language_models.n_gram import get_kenlm_n_gram
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 def get_binary_lm(arpa_path: tk.Path) -> tk.Path:
@@ -37,17 +38,18 @@ def get_binary_lm(arpa_path: tk.Path) -> tk.Path:
     )
     return arpa_binary_lm_job.out_lm
 
+# TODO: ask Marten what he used to compile the KenLM stuff
 def get_kenlm_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     assert vocab
-    
+
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
-    
+
     subword_nmt = get_returnn_subword_nmt()
-    
+
     lm_data = get_librispeech_lm_combined_txt()
-    
+
     bpe_text = ApplyBPEToTextJob(
         text_file=lm_data,
         bpe_codes=vocab.codes,
@@ -56,7 +58,7 @@ def get_kenlm_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         gzip_output=True,
         mini_task=False,
     ).out_bpe_text
-    
+
     lm_arpa = KenLMplzJob(
         text=[bpe_text],
         order=N_order,
@@ -66,7 +68,7 @@ def get_kenlm_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         pruning=None,
         vocabulary=None
     ).out_lm
-    
+
     return lm_arpa
 
 def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:    
@@ -355,7 +357,7 @@ class ApplyBPEToTextJob(Job):
 
             if self.bpe_vocab:
                 cmd += ["--vocabulary", self.bpe_vocab.get_path()]
-                
+
             util.create_executable("apply_bpe.sh", cmd)
             sp.run(cmd, check=True)
 
@@ -369,7 +371,8 @@ class ApplyBPEToTextJob(Job):
     def hash(cls, parsed_args):
         del parsed_args["mini_task"]
         return super().hash(parsed_args)
-    
+
+# TODO: ask Marten what he used to compile the KenLM stuff
 class KenLMplzJob(Job):
     """
     Run the lmplz command of the KenLM toolkit to create a gzip compressed ARPA-LM file
