@@ -763,6 +763,7 @@ def get_librispeech_task_raw_v2(
     
     vocab_ = vocab
     if isinstance(vocab, str):
+        # TODO: should the vocab really be dependent on whether we use the small dataset for init?
         vocab = get_vocab_by_str(vocab, train_small=init_small)
         
     if ds_sel == TrainDatasetSel.train_860h or (ds_sel == TrainDatasetSel.train_960h and init_small):

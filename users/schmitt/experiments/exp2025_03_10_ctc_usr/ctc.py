@@ -163,6 +163,7 @@ class ConfigParams:
     self_train_subset: Optional[int]
     model_config: Optional[Dict[str, Any]]
     batch_size: int
+    full_sum_from_scratch: bool
     # the following params are set after __init__ by __post_init__
     self_epochs: Optional[int] = dataclasses.field(init=False)
     decoder_hyperparameters: Optional[Dict[str, Any]] = dataclasses.field(init=False)
@@ -294,14 +295,9 @@ def py():
     configs = [
       ConfigParams(**config_params) for config_params in [
             config_params_v1,
-            # config_params_v2
+            config_params_v2
         ]
     ]
-    # configs.append(
-    #     ConfigParams(
-    #         **config_params_v1
-    #     )
-    # )
 
     for config in configs:
         assert not config.decode_every_step or (config.decode_every_step and config.decoder_lm_config["class"] == "FeedForwardLm" and config.empirical_prior)
@@ -394,9 +390,9 @@ def py():
                 if config.train_lm_config:
                     config.model_config["train_language_model"] = config.train_lm_config
 
-            alias_name = f"altLRedge1e-4-ctc-baseline" + \
+            alias_name = f"altLRedge1e-4-ctc-baseline_{config.epochs}-ep" + \
                 (sum_str if config.use_sum_criterion else "") + \
-                (f"-self_training_{config.self_training_rounds}" + ("_no_norm" if not config.use_norm_st_loss else "") + ("_keep_LR" if not config.reset_steps else "") + ("_SGD" if config.use_sgd else (f"_b1-{str(config.adamw_betas[0]).replace('.', '')}_b2-{str(config.adamw_betas[1]).replace('.', '')}" if config.adamw_betas else "")) + ("_from_scratch" if config.from_scratch else "") + (f"_s{config.self_train_subset}" if config.self_train_subset is not None else "") + (f"_e{config.self_epochs}" if config.self_epochs != 450 else "") if config.self_training_rounds > 0 else "") + \
+                (f"_self_training_{config.self_training_rounds}" + ("_no_norm" if not config.use_norm_st_loss else "") + ("_keep_LR" if not config.reset_steps else "") + ("_SGD" if config.use_sgd else (f"_b1-{str(config.adamw_betas[0]).replace('.', '')}_b2-{str(config.adamw_betas[1]).replace('.', '')}" if config.adamw_betas else "")) + ("_from_scratch" if config.from_scratch else "") + (f"_s{config.self_train_subset}" if config.self_train_subset is not None else "") + (f"_e{config.self_epochs}" if config.self_epochs != 450 else "") if config.self_training_rounds > 0 else "") + \
                 (f"-wo_aux_loss" if not config.aux_loss else "") + \
                 (f"-ds100h" if config.init_small else "") + \
                 (f"-pl960h" + ("_keep100h" if config.keep_small_labels else "") if not config.pseudo_label_small else "") + \
@@ -420,35 +416,47 @@ def py():
                 serialization.ExternalImport(tk.Path("/work/asr3/zeyer/schmitt/venvs/resampy_package"))
             ]
 
-            train_exp(
-                name=alias_name,
-                config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-                decoder_def=decoder_def,
-                decoder_hyperparameters=config.decoder_hyperparameters,
-                hyperparamters_self_training=config.alt_decoder_hyperparameters if config.alt_decoder else None,
-                pseudo_nbest=config.pseudo_nbest,
-                model_config=config.model_config,
-                config_updates=config_updates,
-                config_updates_self_training=config_updates_self_training,
-                config_full_sum=config_full_sum if config.use_sum_criterion else None,
-                vocab=config.vocab,
-                self_training_rounds=config.self_training_rounds,
-                init_small=config.init_small,
-                pseudo_label_small=config.pseudo_label_small,
-                keep_small_labels=config.keep_small_labels,
-                with_prior=config.with_prior,
-                empirical_prior=config.empirical_prior,
-                prior_from_max=config.prior_from_max,
-                use_sum_criterion=config.use_sum_criterion,
-                aux_loss=config.aux_loss,
-                self_train_subset=config.self_train_subset,
-                calc_last_pseudo_labels=config.calc_last_pseudo_labels,
-                tune_hyperparameters=config.tune_hyperparameters,
-                from_scratch=config.from_scratch,
-                use_sgd=config.use_sgd,
-                reset_steps=config.reset_steps,
-                epilog=epilog,
-            )
+            if config.full_sum_from_scratch:
+                train_full_sum_from_scratch(
+                    name=alias_name,
+                    config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+                    model_config=config.model_config,
+                    config_updates=config_updates,
+                    config_updates_self_training=config_updates_self_training,
+                    config_full_sum=config_full_sum if config.use_sum_criterion else None,
+                    vocab=config.vocab,
+                    epilog=epilog,
+                )
+            else:
+                train_exp(
+                    name=alias_name,
+                    config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+                    decoder_def=decoder_def,
+                    decoder_hyperparameters=config.decoder_hyperparameters,
+                    hyperparamters_self_training=config.alt_decoder_hyperparameters if config.alt_decoder else None,
+                    pseudo_nbest=config.pseudo_nbest,
+                    model_config=config.model_config,
+                    config_updates=config_updates,
+                    config_updates_self_training=config_updates_self_training,
+                    config_full_sum=config_full_sum if config.use_sum_criterion else None,
+                    vocab=config.vocab,
+                    self_training_rounds=config.self_training_rounds,
+                    init_small=config.init_small,
+                    pseudo_label_small=config.pseudo_label_small,
+                    keep_small_labels=config.keep_small_labels,
+                    with_prior=config.with_prior,
+                    empirical_prior=config.empirical_prior,
+                    prior_from_max=config.prior_from_max,
+                    use_sum_criterion=config.use_sum_criterion,
+                    aux_loss=config.aux_loss,
+                    self_train_subset=config.self_train_subset,
+                    calc_last_pseudo_labels=config.calc_last_pseudo_labels,
+                    tune_hyperparameters=config.tune_hyperparameters,
+                    from_scratch=config.from_scratch,
+                    use_sgd=config.use_sgd,
+                    reset_steps=config.reset_steps,
+                    epilog=epilog,
+                )
     
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -503,7 +511,6 @@ def train_exp(
     from i6_experiments.users.schmitt.experiments.exp2025_03_10_ctc_usr.recog import recog_training_exp, GetBestTuneValue
     from i6_experiments.users.schmitt.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
 
-    print("Job Name:", name)
     if not enabled:
         return None
 
@@ -622,11 +629,13 @@ def train_exp(
         num_processes=num_processes,
         time_rqmt=time_rqmt if time_rqmt else (36 if init_small else 132),
     ))
-    return
+
     train_job = model_with_checkpoint[0].get_training_job()
     if env_updates:
         for k, v in env_updates.items():
             train_job.set_env(k, v)
+
+    return
 
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
@@ -838,6 +847,92 @@ def train_exp(
 
     _train_experiments[name] = model_with_checkpoint[-1]
     return model_with_checkpoint[-1]
+
+
+def train_full_sum_from_scratch(
+        name: str,
+        config: Dict[str, Any],
+        *,
+        vocab: str = "bpe10k",
+        train_vocab_opts: Optional[Dict[str, Any]] = None,
+        model_config: Optional[Dict[str, Any]] = None,
+        config_updates: Optional[Dict[str, Any]] = None,
+        config_updates_self_training: Optional[Dict[str, Any]] = None,
+        config_full_sum: Optional[Dict[str, Any]] = None,
+        config_deletes: Optional[Sequence[str]] = None,
+        post_config_updates: Optional[Dict[str, Any]] = None,
+        epilog: Sequence[serialization.SerializerObject] = (),
+        num_epochs: int = 2000,
+        gpu_mem: Optional[int] = 24,
+        num_processes: Optional[int] = None,
+        env_updates: Optional[Dict[str, str]] = None,
+) -> Optional[ModelWithCheckpoints]:
+    """
+    Train experiment
+    """
+    from i6_experiments.users.schmitt.experiments.exp2025_03_10_ctc_usr.train import train
+    from i6_experiments.users.schmitt.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
+
+    if _sis_prefix is None:
+        _sis_setup_global_prefix()
+    prefix = _sis_prefix + "/" + name + "_full-sum-from-scratch"
+
+    task, _, _ = get_librispeech_task_raw_v2(
+        vocab=vocab,
+        train_vocab_opts=train_vocab_opts,
+        ds_sel=TrainDatasetSel.train_960h,
+        init_small=False,
+        with_prior=True,
+        empirical_prior=True,
+        keep_small_labels=False,
+        train_subset=None,
+        eval_subset=3000,
+    )
+
+    emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab)
+
+    config = config.copy()
+    config = dict_update_deep(config, config_updates, config_deletes)
+    # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
+    if "__train_audio_preprocess" in config:
+        task: Task = copy.copy(task)
+        task.train_dataset = copy.copy(task.train_dataset)
+        task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
+
+    model_def = ctc_model_def
+    train_language_model = model_config["train_language_model"].copy()
+    train_lm = get_count_based_n_gram(task.train_dataset.vocab, train_language_model["order"])
+
+    train_def = ctc_sum_training
+    config_self = config.copy()
+    config_self = dict_update_deep(config_self, config_updates_self_training)
+    config_self = dict_update_deep(config_self, config_full_sum)
+    config_self["lm_path"] = train_lm
+
+    config_self["empirical_prior"] = emp_prior
+    config_self.pop("aux_loss_layers")
+    init_checkpoint = None
+    config_self["__num_processes"] = 1
+
+    model_with_checkpoint = train(
+        prefix,
+        task=task,
+        config=config_self,
+        post_config=dict_update_deep(post_config, post_config_updates),
+        epilog=epilog,
+        model_def=model_def,
+        train_def=train_def,
+        init_params=init_checkpoint,
+        reset_steps=False,
+        num_epochs=num_epochs,
+        gpu_mem=gpu_mem,
+        num_processes=num_processes,
+        time_rqmt=80,
+    )
+    train_job = model_with_checkpoint.get_training_job()
+    if env_updates:
+        for k, v in env_updates.items():
+            train_job.set_env(k, v)
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -1359,9 +1454,18 @@ def split_on_sep(tensor: torch.Tensor, sizes: torch.Tensor, vocab_dim: Dim, nbes
     combined_size = Dim(combined_size, name="out_spatial_comb", dyn_size_ext=combined_size)
     return ret, new_sizes, combined_size
 
-def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim, weights: rf.Tensor = None):
+def ctc_training(
+        *,
+        model: Model,
+        data: rf.Tensor,
+        data_spatial_dim: Dim,
+        targets: rf.Tensor,
+        targets_spatial_dim: Dim,
+        weights: rf.Tensor = None,
+):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
+    import os
 
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers")
@@ -1370,6 +1474,22 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     use_normalized_loss = config.bool("use_normalized_loss", True)
     nbest = config.int("ps_nbest", 1)
     decode_every_step = config.bool("decode_every_step", False)
+
+    if config.typed_value("use_tensorboard", False):
+        assert not config.typed_value("use_horovod", False), "Tensorboard not supported with multi-gpu training"
+        from torch.utils.tensorboard import SummaryWriter
+        tensorboard_writer = config.typed_value("tensorboard_writer", None)
+        if tensorboard_writer is None:
+            exp_dir = config.typed_value('model').split('work')[0]
+            log_dir = f"{exp_dir}/tensorboard_runs/{config.typed_value('alias')}"
+            print(f"Tensorboard log dir: {log_dir}")
+            assert not os.path.exists(log_dir)
+            tensorboard_writer = SummaryWriter(
+                log_dir=log_dir
+            )
+            config.set("tensorboard_writer", tensorboard_writer)
+    else:
+        tensorboard_writer = None
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -1523,12 +1643,23 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         targets_spatial_dim=targets_spatial_dim,
         blank_index=model.blank_idx,
     )
-    print(loss.raw_tensor[0])
+
     loss.mark_as_loss(
         "ctc",
         custom_inv_norm_factor=targets_spatial_dim.get_size_tensor() if not decode_every_step else targets_spatial_dim2.get_size_tensor(),
         use_normalized_loss=use_normalized_loss,
     )
+
+    if tensorboard_writer is not None and rf.get_run_ctx().step % 10 == 0 and rf.get_run_ctx().train_flag:
+        mean_loss = rf.reduce_sum(loss, axis=loss.dims)
+        custom_inv_norm_factor = targets_spatial_dim.get_size_tensor()
+        inv_norm = rf.reduce_sum(custom_inv_norm_factor, axis=custom_inv_norm_factor.dims)
+        inv_norm = rf.cast(inv_norm, loss.dtype)
+        inv_norm = rf.reciprocal(inv_norm)
+        inv_norm = rf.copy_to_device(inv_norm, loss.device)
+        mean_loss *= inv_norm
+
+        tensorboard_writer.add_scalar("ctc_train_loss", mean_loss.raw_tensor.item(), rf.get_run_ctx().step)
 
     if model.decoder:
         # potentially also other types but just assume

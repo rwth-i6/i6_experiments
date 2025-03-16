@@ -213,8 +213,8 @@ config_params_v1 = dict(
     vocab="bpe128",
     decoding_imp="albert-lm",
     batch_size=15_000 * _batch_size_factor,
-    epochs=50,  # 500,
-    self_training_rounds=1,
+    epochs=500,
+    self_training_rounds=0,
     reset_steps=True,
     init_small=True,
     pseudo_label_small=True,
@@ -238,7 +238,7 @@ config_params_v1 = dict(
     prior_gradient=False,
     empirical_prior_full_sum=False,
     prior_from_max_full_sum=False,
-    train_lm_config={"class": "ngram", "order": 3},
+    train_lm_config={"class": "ngram", "order": 2},
     top_k=1,
     version=2,
     print_gradients=True,
@@ -249,17 +249,21 @@ config_params_v1 = dict(
     use_sgd=False,
     adamw_betas=None,
     self_train_subset=18000,
-    model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
+    model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+    full_sum_from_scratch=False,
 )
 
+# from-scratch full-sum training
 config_params_v2 = dict_update_deep(
-  config_params_v1,
-  {
-    "model_config.train_language_model": {
-      "class": "ngram",
-      "order": 2,
-    },
-    "use_sum_criterion": True,
-    "self_training_rounds": 0,
-  }
+    config_params_v1,
+    {
+        "model_config.train_language_model": {
+            "class": "ngram",
+            "order": 2,
+        },
+        "use_sum_criterion": True,
+        "self_training_rounds": 1,
+        "from_scratch": True,
+        "full_sum_from_scratch": True,
+    }
 )

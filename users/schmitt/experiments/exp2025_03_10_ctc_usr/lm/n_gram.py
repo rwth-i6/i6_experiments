@@ -7,7 +7,8 @@ import tempfile
 import subprocess as sp
 import numpy as np
 
-from i6_core.lm.kenlm import CompileKenLMJob, CreateBinaryLMJob
+from i6_core.lm.kenlm import CompileKenLMJob, CreateBinaryLMJob, KenLMplzJob
+from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.util import uopen
 from i6_core.lib.lm import Lm
@@ -53,7 +54,8 @@ def get_kenlm_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     bpe_text = ApplyBPEToTextJob(
         text_file=lm_data,
         bpe_codes=vocab.codes,
-        bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+        # bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+        bpe_vocab=vocab.dummy_count_vocab,
         subword_nmt_repo=subword_nmt,
         gzip_output=True,
         mini_task=False,
@@ -63,7 +65,8 @@ def get_kenlm_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         text=[bpe_text],
         order=N_order,
         interpolate_unigrams=False,
-        use_discount_fallback=True,
+        # use_discount_fallback=True,
+        discount_fallback=[],
         kenlm_binary_folder=KENLM_BINARY_PATH,
         pruning=None,
         vocabulary=None
@@ -85,7 +88,8 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         ppl_text = ApplyBPEToTextJob(
             text_file=ppl_data,
             bpe_codes=vocab.codes,
-            bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+            # bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+            bpe_vocab=vocab.dummy_count_vocab,
             subword_nmt_repo=subword_nmt,
             gzip_output=True,
             mini_task=False,
@@ -123,7 +127,8 @@ def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], v
     bpe_text = ApplyBPEToTextJob(
         text_file=lm_data,
         bpe_codes=vocab.codes,
-        bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+        # bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+        bpe_vocab=vocab.dummy_count_vocab,
         subword_nmt_repo=subword_nmt,
         gzip_output=True,
         mini_task=False,
@@ -133,7 +138,8 @@ def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], v
         text=[bpe_text],
         order=1,
         interpolate_unigrams=False,
-        use_discount_fallback=True,
+        # use_discount_fallback=True,
+        discount_fallback=[],
         kenlm_binary_folder=KENLM_BINARY_PATH,
         pruning=None,
         vocabulary=None
@@ -295,162 +301,162 @@ class ExtractPrior(Job):
         with uopen(self.out_prior_tensor, "w") as f:
             np.savetxt(f, tensor, delimiter=" ")
             
-class ApplyBPEToTextJob(Job):
-    """
-    Apply BPE codes on a text file
-    """
-
-    __sis_hash_exclude__ = {"gzip_output": False}
-
-    def __init__(
-        self,
-        text_file: tk.Path,
-        bpe_codes: tk.Path,
-        bpe_vocab: Optional[tk.Path] = None,
-        subword_nmt_repo: Optional[tk.Path] = None,
-        gzip_output: bool = False,
-        mini_task=True,
-    ):
-        """
-        :param text_file: words text file to convert to bpe
-        :param bpe_codes: bpe codes file, e.g. ReturnnTrainBpeJob.out_bpe_codes
-        :param bpe_vocab: if provided, then merge operations that produce OOV are reverted,
-            use e.g. ReturnnTrainBpeJob.out_bpe_dummy_count_vocab
-        :param subword_nmt_repo: subword nmt repository path. see also `CloneGitRepositoryJob`
-        :param gzip_output: use gzip on the output text
-        :param mini_task: if the Job should run locally, e.g. only a small (<1M lines) text should be processed
-        """
-        self.text_file = text_file
-        self.bpe_codes = bpe_codes
-        self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = util.get_subword_nmt_repo(subword_nmt_repo)
-        self.gzip_output = gzip_output
-
-        self.out_bpe_text = self.output_path("words_to_bpe.txt.gz" if gzip_output else "words_to_bpe.txt")
-
-        self.mini_task = mini_task
-        self.rqmt = {"cpu": 2, "mem": 4, "time": 12}
-
-    def tasks(self):
-        if self.mini_task:
-            yield Task("run", mini_task=True)
-        else:
-            yield Task("run", rqmt=self.rqmt)
-
-    def run(self):
-        with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
-            input_file = self.text_file.get_path()
-            tmp_infile = os.path.join(tmp, "in_text.txt")
-            tmp_outfile = os.path.join(tmp, "out_text.txt")
-            with util.uopen(tmp_infile, "wt") as out:
-                sp.call(["zcat", "-f", input_file], stdout=out)
-            cmd = [
-                sys.executable,
-                os.path.join(self.subword_nmt_repo.get_path(), "apply_bpe.py"),
-                "--input",
-                tmp_infile,
-                "--codes",
-                self.bpe_codes.get_path(),
-                "--output",
-                tmp_outfile,
-            ]
-
-            if self.bpe_vocab:
-                cmd += ["--vocabulary", self.bpe_vocab.get_path()]
-
-            util.create_executable("apply_bpe.sh", cmd)
-            sp.run(cmd, check=True)
-
-            if self.gzip_output:
-                with util.uopen(tmp_outfile, "rt") as fin, util.uopen(self.out_bpe_text, "wb") as fout:
-                    sp.call(["gzip"], stdin=fin, stdout=fout)
-            else:
-                shutil.copy(tmp_outfile, self.out_bpe_text.get_path())
-
-    @classmethod
-    def hash(cls, parsed_args):
-        del parsed_args["mini_task"]
-        return super().hash(parsed_args)
-
-# TODO: ask Marten what he used to compile the KenLM stuff
-class KenLMplzJob(Job):
-    """
-    Run the lmplz command of the KenLM toolkit to create a gzip compressed ARPA-LM file
-    """
-
-    def __init__(
-        self,
-        *,
-        text: Union[tk.Path, List[tk.Path]],
-        order: int,
-        interpolate_unigrams: bool,
-        use_discount_fallback: bool,
-        pruning: Optional[List[int]],
-        vocabulary: Optional[tk.Path],
-        kenlm_binary_folder: tk.Path,
-        mem: float = 4.0,
-        time: float = 1.0,
-    ):
-        """
-
-        :param text: training text data
-        :param order: "N"-order of the "N"-gram LM
-        :param interpolate_unigrams: Set True for KenLM default, and False for SRILM-compatibility.
-            Having this as False will increase the share of the unknown probability
-        :param pruning: absolute pruning threshold for each order,
-            e.g. to remove 3-gram and 4-gram singletons in a 4th order model use [0, 0, 1, 1]
-        :param vocabulary: a "single word per line" file to determine valid words,
-            everything else will be treated as unknown
-        :param kenlm_binary_folder: output of the CompileKenLMJob, or a direct link to the build
-            dir of the KenLM repo
-        :param mem: memory rqmt, needs adjustment for large training corpora
-        :param time: time rqmt, might adjustment for very large training corpora and slow machines
-        """
-        self.text = text
-        self.order = order
-        self.interpolate_unigrams = interpolate_unigrams
-        self.pruning = pruning
-        self.vocabulary = vocabulary
-        self.kenlm_binary_folder = kenlm_binary_folder
-        self.use_discount_fallback = use_discount_fallback
-
-        self.out_lm = self.output_path("lm.gz")
-
-        self.rqmt = {"cpu": 1, "mem": mem, "time": time}
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
-            lmplz_command = [
-                os.path.join(self.kenlm_binary_folder.get_path(), "lmplz"),
-                "-o",
-                str(self.order),
-                "--interpolate_unigrams",
-                str(self.interpolate_unigrams),
-                "-S",
-                "%dG" % int(self.rqmt["mem"]),
-                "-T",
-                tmp,
-            ]
-            if self.use_discount_fallback:
-                lmplz_command += ["--discount_fallback"]
-            if self.pruning is not None:
-                lmplz_command += ["--prune"] + [str(p) for p in self.pruning]
-            if self.vocabulary is not None:
-                lmplz_command += ["--limit_vocab_file", self.vocabulary.get_path()]
-
-            zcat_command = ["zcat", "-f"] + [text.get_path() for text in self.text]
-            with uopen(self.out_lm, "wb") as lm_file:
-                p1 = sp.Popen(zcat_command, stdout=sp.PIPE)
-                p2 = sp.Popen(lmplz_command, stdin=p1.stdout, stdout=sp.PIPE)
-                sp.check_call("gzip", stdin=p2.stdout, stdout=lm_file)
-                if p2.returncode:
-                    raise sp.CalledProcessError(p2.returncode, cmd=lmplz_command)
-
-    @classmethod
-    def hash(cls, parsed_args):
-        del parsed_args["mem"]
-        del parsed_args["time"]
-        return super().hash(parsed_args)
+# class ApplyBPEToTextJob(Job):
+#     """
+#     Apply BPE codes on a text file
+#     """
+#
+#     __sis_hash_exclude__ = {"gzip_output": False}
+#
+#     def __init__(
+#         self,
+#         text_file: tk.Path,
+#         bpe_codes: tk.Path,
+#         bpe_vocab: Optional[tk.Path] = None,
+#         subword_nmt_repo: Optional[tk.Path] = None,
+#         gzip_output: bool = False,
+#         mini_task=True,
+#     ):
+#         """
+#         :param text_file: words text file to convert to bpe
+#         :param bpe_codes: bpe codes file, e.g. ReturnnTrainBpeJob.out_bpe_codes
+#         :param bpe_vocab: if provided, then merge operations that produce OOV are reverted,
+#             use e.g. ReturnnTrainBpeJob.out_bpe_dummy_count_vocab
+#         :param subword_nmt_repo: subword nmt repository path. see also `CloneGitRepositoryJob`
+#         :param gzip_output: use gzip on the output text
+#         :param mini_task: if the Job should run locally, e.g. only a small (<1M lines) text should be processed
+#         """
+#         self.text_file = text_file
+#         self.bpe_codes = bpe_codes
+#         self.bpe_vocab = bpe_vocab
+#         self.subword_nmt_repo = util.get_subword_nmt_repo(subword_nmt_repo)
+#         self.gzip_output = gzip_output
+#
+#         self.out_bpe_text = self.output_path("words_to_bpe.txt.gz" if gzip_output else "words_to_bpe.txt")
+#
+#         self.mini_task = mini_task
+#         self.rqmt = {"cpu": 2, "mem": 4, "time": 12}
+#
+#     def tasks(self):
+#         if self.mini_task:
+#             yield Task("run", mini_task=True)
+#         else:
+#             yield Task("run", rqmt=self.rqmt)
+#
+#     def run(self):
+#         with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
+#             input_file = self.text_file.get_path()
+#             tmp_infile = os.path.join(tmp, "in_text.txt")
+#             tmp_outfile = os.path.join(tmp, "out_text.txt")
+#             with util.uopen(tmp_infile, "wt") as out:
+#                 sp.call(["zcat", "-f", input_file], stdout=out)
+#             cmd = [
+#                 sys.executable,
+#                 os.path.join(self.subword_nmt_repo.get_path(), "apply_bpe.py"),
+#                 "--input",
+#                 tmp_infile,
+#                 "--codes",
+#                 self.bpe_codes.get_path(),
+#                 "--output",
+#                 tmp_outfile,
+#             ]
+#
+#             if self.bpe_vocab:
+#                 cmd += ["--vocabulary", self.bpe_vocab.get_path()]
+#
+#             util.create_executable("apply_bpe.sh", cmd)
+#             sp.run(cmd, check=True)
+#
+#             if self.gzip_output:
+#                 with util.uopen(tmp_outfile, "rt") as fin, util.uopen(self.out_bpe_text, "wb") as fout:
+#                     sp.call(["gzip"], stdin=fin, stdout=fout)
+#             else:
+#                 shutil.copy(tmp_outfile, self.out_bpe_text.get_path())
+#
+#     @classmethod
+#     def hash(cls, parsed_args):
+#         del parsed_args["mini_task"]
+#         return super().hash(parsed_args)
+#
+# # TODO: ask Marten what he used to compile the KenLM stuff
+# class KenLMplzJob(Job):
+#     """
+#     Run the lmplz command of the KenLM toolkit to create a gzip compressed ARPA-LM file
+#     """
+#
+#     def __init__(
+#         self,
+#         *,
+#         text: Union[tk.Path, List[tk.Path]],
+#         order: int,
+#         interpolate_unigrams: bool,
+#         use_discount_fallback: bool,
+#         pruning: Optional[List[int]],
+#         vocabulary: Optional[tk.Path],
+#         kenlm_binary_folder: tk.Path,
+#         mem: float = 4.0,
+#         time: float = 1.0,
+#     ):
+#         """
+#
+#         :param text: training text data
+#         :param order: "N"-order of the "N"-gram LM
+#         :param interpolate_unigrams: Set True for KenLM default, and False for SRILM-compatibility.
+#             Having this as False will increase the share of the unknown probability
+#         :param pruning: absolute pruning threshold for each order,
+#             e.g. to remove 3-gram and 4-gram singletons in a 4th order model use [0, 0, 1, 1]
+#         :param vocabulary: a "single word per line" file to determine valid words,
+#             everything else will be treated as unknown
+#         :param kenlm_binary_folder: output of the CompileKenLMJob, or a direct link to the build
+#             dir of the KenLM repo
+#         :param mem: memory rqmt, needs adjustment for large training corpora
+#         :param time: time rqmt, might adjustment for very large training corpora and slow machines
+#         """
+#         self.text = text
+#         self.order = order
+#         self.interpolate_unigrams = interpolate_unigrams
+#         self.pruning = pruning
+#         self.vocabulary = vocabulary
+#         self.kenlm_binary_folder = kenlm_binary_folder
+#         self.use_discount_fallback = use_discount_fallback
+#
+#         self.out_lm = self.output_path("lm.gz")
+#
+#         self.rqmt = {"cpu": 1, "mem": mem, "time": time}
+#
+#     def tasks(self):
+#         yield Task("run", mini_task=True)
+#
+#     def run(self):
+#         with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
+#             lmplz_command = [
+#                 os.path.join(self.kenlm_binary_folder.get_path(), "lmplz"),
+#                 "-o",
+#                 str(self.order),
+#                 "--interpolate_unigrams",
+#                 str(self.interpolate_unigrams),
+#                 "-S",
+#                 "%dG" % int(self.rqmt["mem"]),
+#                 "-T",
+#                 tmp,
+#             ]
+#             if self.use_discount_fallback:
+#                 lmplz_command += ["--discount_fallback"]
+#             if self.pruning is not None:
+#                 lmplz_command += ["--prune"] + [str(p) for p in self.pruning]
+#             if self.vocabulary is not None:
+#                 lmplz_command += ["--limit_vocab_file", self.vocabulary.get_path()]
+#
+#             zcat_command = ["zcat", "-f"] + [text.get_path() for text in self.text]
+#             with uopen(self.out_lm, "wb") as lm_file:
+#                 p1 = sp.Popen(zcat_command, stdout=sp.PIPE)
+#                 p2 = sp.Popen(lmplz_command, stdin=p1.stdout, stdout=sp.PIPE)
+#                 sp.check_call("gzip", stdin=p2.stdout, stdout=lm_file)
+#                 if p2.returncode:
+#                     raise sp.CalledProcessError(p2.returncode, cmd=lmplz_command)
+#
+#     @classmethod
+#     def hash(cls, parsed_args):
+#         del parsed_args["mem"]
+#         del parsed_args["time"]
+#         return super().hash(parsed_args)

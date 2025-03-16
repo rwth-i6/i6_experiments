@@ -17,6 +17,7 @@ class Bpe(VocabConfig):
         bos_idx: Optional[int] = None,
         unknown_label: Optional[str] = None,
         other_opts: Optional[Dict[str, Any]] = None,
+        dummy_count_vocab: Optional[Path] = None,
     ):
         super(Bpe, self).__init__()
         self.dim = dim
@@ -26,6 +27,7 @@ class Bpe(VocabConfig):
         self.bos_idx = bos_idx
         self.unknown_label = unknown_label
         self.other_opts = other_opts
+        self.dummy_count_vocab = dummy_count_vocab
 
     def get_num_classes(self) -> int:
         """

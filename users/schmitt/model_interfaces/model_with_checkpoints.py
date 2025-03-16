@@ -96,6 +96,7 @@ class ModelWithCheckpoints:
             # However, we don't want to perform recognition on all, so we fall back to the default kept epochs.
             # In the case it is enabled, but "keep" is not specified, the default is used,
             # so this is correct as well.
+            # TODO: why would we want to do recog on these random epochs?
             keep_epochs = default_returnn_keep_epochs(num_epochs=num_epochs)
         fixed_kept_epochs.update(keep_epochs)
         # Only the epochs which are also stored are kept.
