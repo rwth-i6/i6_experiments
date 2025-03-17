@@ -695,7 +695,7 @@ def run_scf_stage1():
         alignment=ctc_alignment,
         features="waveform_pcm",
     )
-    returnn_args = {
+    returnn_base_args = {
         "batch_size": 15000,
         "datasets": returnn_datasets_align_ctc,
         "extra_args": {
@@ -717,7 +717,6 @@ def run_scf_stage1():
                 "classes": {"dim": 88, "dtype": "int8", "sparse": True},
             },
         },
-        "specaug_old": {"max_feature": 15},
     }
 
     feature_args = {
@@ -752,15 +751,19 @@ def run_scf_stage1():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_align-ctc-conf-e400": dict(
-                returnn_args=returnn_args,
+                returnn_args={
+                    **returnn_base_args,
+                    "specaug_old": {"max_feature": 15},
+                }
                 report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
             "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
                 returnn_args={
-                    **returnn_args,
+                    **returnn_base_args,
+                    "specaug_old": {"max_feature": 15},
                     "extra_args": {
-                        **returnn_args["extra_args"],
+                        **returnn_base_args["extra_args"],
                         "preload_from_files": preload_dict,
                     },
                 },
@@ -769,14 +772,33 @@ def run_scf_stage1():
             ),
             "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
                 returnn_args={
-                    **returnn_args,
+                    **returnn_base_args,
+                    "specaug_old": {"max_feature": 15},
                     "extra_args": {
-                        **returnn_args["extra_args"],
+                        **returnn_base_args["extra_args"],
                         "preload_from_files": preload_dict,
                     },
                     "staged_opts": {1: "freeze_features"},
                 },
                 report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+            "bs15k_align_lgm-feat-ctc_stft": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                        "alignment_experiment" : "lgm_align",
+                    },
+                    "specaug_stft": {
+                        "max_feature": 15,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
                 **common_args,
             ),
         },
