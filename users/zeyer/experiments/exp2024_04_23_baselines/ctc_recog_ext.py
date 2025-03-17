@@ -20,6 +20,7 @@ from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollect
 
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
+from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
 
@@ -1243,7 +1244,7 @@ def ctc_recog_labelwise_prior_auto_scale(
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
-    then calc scores with framewise prior and LM on N-best list,
+    then calc scores with labelwise prior and LM on N-best list,
     then tune optimal scales on N-best list,
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog``) with those scales.
@@ -1343,6 +1344,293 @@ def ctc_recog_labelwise_prior_auto_scale(
             # So when the beam size is larger, reduce batch size.
             # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
             "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)),
+        },
+        search_rqmt=first_pass_search_rqmt,
+        name=f"{prefix}/recog-opt-1stpass",
+    )
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
+    return res
+
+
+def ctc_recog_recomb_labelwise_prior_auto_scale(
+    *,
+    prefix: str,
+    task: Task,
+    ctc_model: ModelWithCheckpoint,
+    labelwise_prior: Prior,
+    lm: ModelWithCheckpoint,
+    vocab_file: tk.Path,
+    vocab_opts_file: tk.Path,
+    n_best_list_size: int,
+    first_pass_recog_beam_size: int,
+    first_pass_search_rqmt: Optional[Dict[str, int]] = None,
+    recomb_type: str = "max",
+) -> ScoreResultCollection:
+    """
+    Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
+    then calc scores with framewise prior and LM on N-best list,
+    then tune optimal scales on N-best list,
+    then rescore on all ``task.eval_datasets`` using those scales,
+    and also do first-pass recog (``model_recog_with_recomb``) with those scales.
+    """
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import (
+        lm_labelwise_prior_rescore,
+        prior_score,
+        lm_score,
+    )
+    from .recog_ext.ctc import model_recog_with_recomb
+
+    base_config = {
+        "behavior_version": 24,  # should make it independent from batch size
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+        "recog_version": 9,
+        "recog_recomb": recomb_type,
+    }
+
+    # see recog_model, lm_labelwise_prior_rescore
+    dataset = task.dev_dataset
+    asr_scores = search_dataset(
+        dataset=dataset,
+        model=ctc_model,
+        recog_def=model_recog_with_recomb,
+        config={**base_config, "beam_size": n_best_list_size},
+        keep_beam=True,
+    )
+    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
+    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        asr_scores = f(asr_scores)
+        prior_scores = f(prior_scores)
+        lm_scores = f(lm_scores)
+        ref = f(ref)
+
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+    opt_scales_job = ScaleTuningJob(
+        scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+        ref=ref.output,
+        fixed_scales={"am": 1.0},
+        negative_scales={"prior"},
+        scale_relative_to={"prior": "lm"},
+        evaluation="edit_distance",
+    )
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
+    # We use the real scales.
+    # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
+    # (The DelayedBase logic on the Sis Variable should handle this.)
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
+
+    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    res = recog_model(
+        task=task,
+        model=ctc_model,
+        recog_def=model_recog_with_recomb,
+        config={**base_config, "beam_size": n_best_list_size},
+        recog_pre_post_proc_funcs_ext=[
+            functools.partial(
+                lm_labelwise_prior_rescore,
+                # framewise standard prior
+                prior=labelwise_prior,
+                prior_scale=prior_scale,
+                lm=lm,
+                lm_scale=lm_scale,
+                lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                vocab=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+            )
+        ],
+    )
+    tk.register_output(f"{prefix}/rescore-res.txt", res.output)
+
+    model = get_ctc_with_lm_and_labelwise_prior(
+        ctc_model=ctc_model,
+        prior=labelwise_prior.file,
+        prior_type=labelwise_prior.type,
+        prior_scale=prior_scale,
+        language_model=lm,
+        lm_scale=lm_scale,
+    )
+    first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
+    first_pass_search_rqmt.setdefault("time", 24)
+    res = recog_model(
+        task=task,
+        model=model,
+        recog_def=model_recog_with_recomb,
+        config={
+            **base_config,
+            "beam_size": first_pass_recog_beam_size,
+            # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
+            # So when the beam size is larger, reduce batch size.
+            # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
+            "batch_size": int(
+                20_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+            ),
+        },
+        search_rqmt=first_pass_search_rqmt,
+        name=f"{prefix}/recog-opt-1stpass",
+    )
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
+    return res
+
+
+def ctc_labelwise_recog_auto_scale(
+    *,
+    prefix: str,
+    task: Task,
+    ctc_model: ModelWithCheckpoint,
+    labelwise_prior: Prior,
+    lm: ModelWithCheckpoint,
+    vocab_file: tk.Path,
+    vocab_opts_file: tk.Path,
+    n_best_list_size: int,
+    first_pass_recog_beam_size: int,
+    first_pass_search_rqmt: Optional[Dict[str, int]] = None,
+    extra_config: Optional[Dict[str, Any]] = None,
+    extra_config_n_best_list: Optional[Dict[str, Any]] = None,
+) -> ScoreResultCollection:
+    """
+    Recog with ``model_recog_label_sync_v2`` (without LM) to get N-best list on ``task.dev_dataset``,
+    then calc scores with labelwise prior and LM on N-best list,
+    then tune optimal scales on N-best list,
+    then rescore on all ``task.eval_datasets`` using those scales,
+    and also do first-pass recog (``model_recog_label_sync_v2``) with those scales.
+    """
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import (
+        lm_labelwise_prior_rescore,
+        prior_score,
+        lm_score,
+    )
+    from .recog_ext.ctc_label_sync_espnet import model_recog_label_sync_v2
+    from i6_core.returnn.search import SearchTakeBestJob
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+    from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import sclite_score_recog_out_to_ref
+
+    dataset = task.dev_dataset
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        ref = f(ref)
+
+    # Note: Still requires lots of memory. E.g. batch size 64, without LM, with ctc_soft_collapse_threshold,
+    # takes more than 40GB.
+    # Could maybe use forward_auto_split_batch_on_oom when we are sure that the batch size does not matter.
+    base_config = {
+        "behavior_version": 24,  # should make it independent from batch size
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+    }
+    if extra_config:
+        config_dict_update_(base_config, extra_config)
+    config_n_best = {**base_config, "beam_size": n_best_list_size}
+    if extra_config_n_best_list:
+        config_dict_update_(config_n_best, extra_config_n_best_list)
+
+    # see recog_model, lm_labelwise_prior_rescore
+    asr_scores = search_dataset(
+        dataset=dataset,
+        model=ctc_model,
+        recog_def=model_recog_label_sync_v2,
+        config=config_n_best,
+        keep_beam=True,
+    )
+    asr_scores_labels = asr_scores
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        asr_scores = f(asr_scores)
+
+    # Calc WER as a sanity check.
+    first_score = sclite_score_recog_out_to_ref(
+        recog_output=RecogOutput(output=SearchTakeBestJob(asr_scores.output, output_gzip=True).out_best_search_results),
+        ref=ref,
+        corpus_name=dataset.get_main_name(),
+    )
+    tk.register_output(f"{prefix}/without-lm-{first_score.dataset_name}.txt", first_score.main_measure_value)
+
+    prior_scores = prior_score(asr_scores_labels, prior=labelwise_prior)
+    lm_scores = lm_score(asr_scores_labels, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        prior_scores = f(prior_scores)
+        lm_scores = f(lm_scores)
+
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+    opt_scales_job = ScaleTuningJob(
+        scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+        ref=ref.output,
+        fixed_scales={"am": 1.0},
+        negative_scales={"prior"},
+        scale_relative_to={"prior": "lm"},
+        evaluation="edit_distance",
+    )
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
+    # We use the real scales.
+    # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
+    # (The DelayedBase logic on the Sis Variable should handle this.)
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
+
+    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    res = recog_model(
+        task=task,
+        model=ctc_model,
+        recog_def=model_recog_label_sync_v2,
+        config=config_n_best,
+        recog_pre_post_proc_funcs_ext=[
+            functools.partial(
+                lm_labelwise_prior_rescore,
+                # framewise standard prior
+                prior=labelwise_prior,
+                prior_scale=prior_scale,
+                lm=lm,
+                lm_scale=lm_scale,
+                lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                vocab=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+            )
+        ],
+    )
+    tk.register_output(f"{prefix}/rescore-res.txt", res.output)
+
+    model = get_ctc_with_lm_and_labelwise_prior(
+        ctc_model=ctc_model,
+        prior=labelwise_prior.file,
+        prior_type=labelwise_prior.type,
+        prior_scale=prior_scale,
+        language_model=lm,
+        lm_scale=lm_scale,
+    )
+    first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
+    first_pass_search_rqmt.setdefault("time", 24)
+    res = recog_model(
+        task=task,
+        model=model,
+        recog_def=model_recog_label_sync_v2,
+        config={
+            **base_config,
+            "beam_size": first_pass_recog_beam_size,
+            # TODO better batch size?
+            # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
+            # So when the beam size is larger, reduce batch size.
+            # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
+            "batch_size": int(
+                20_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+            ),
         },
         search_rqmt=first_pass_search_rqmt,
         name=f"{prefix}/recog-opt-1stpass",
