@@ -476,7 +476,7 @@ def model_recog_label_sync_v2(
         lm: TransformerDecoder = model.lm
         # noinspection PyUnresolvedReferences
         lm_scale: float = model.lm_scale
-        lm_state = lm.default_initial_state(batch_dims=batch_dims)  # Batch, InBeam, ...
+        lm_state = lm.default_initial_state(batch_dims=[ctc_beam_dim] + batch_dims)  # Batch, InBeam, ...
 
     labelwise_prior: Optional[rf.Parameter] = getattr(model, "labelwise_prior", None)
 
