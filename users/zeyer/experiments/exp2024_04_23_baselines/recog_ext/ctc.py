@@ -238,7 +238,7 @@ def model_recog_with_recomb(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 9
+    assert version == 10
     recomb = config.typed_value("recog_recomb", None)  # None, "max", "sum"
 
     # RETURNN version is like "1.20250115.110555"
@@ -261,7 +261,7 @@ def model_recog_with_recomb(
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
-        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=neg_inf),
     )
     label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
 
@@ -429,6 +429,13 @@ def model_recog_with_recomb(
         seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
     out_spatial_dim = enc_spatial_dim
     seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
+
+    # Select valid.
+    mask = rf.is_finite(seq_log_prob)  # Batch, Beam
+    mask_cpu = rf.copy_to_device(mask, "cpu")
+    (seq_targets_wb, seq_log_prob, out_spatial_dim), beam_dim, _ = rf.nested.masked_select_nested(
+        (seq_targets_wb, seq_log_prob, out_spatial_dim), mask=mask, mask_cpu=mask_cpu, dims=[beam_dim]
+    )
 
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
 

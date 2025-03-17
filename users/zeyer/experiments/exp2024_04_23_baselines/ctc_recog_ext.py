@@ -1383,7 +1383,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
-        "recog_version": 9,
+        "recog_version": 10,
         "recog_recomb": recomb_type,
     }
 
