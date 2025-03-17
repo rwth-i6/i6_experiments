@@ -237,8 +237,15 @@ def get_relevant_epochs_from_training_learning_rate_scores(
         if not _chkpt_exists(model_dir=model_dir, model_name=model_name, epoch=ep):
             print("Model does not exist (anymore):", suggested_epochs, file=log_stream)
             suggested_epochs.remove(ep)
-    assert suggested_epochs, f"none of suggested epochs {suggested_epochs_} exists from job {model_dir.creator}"
+    if not suggested_epochs:
+        raise GetRelevantEpochsFromTrainingLearningRateScoresException(
+            f"none of suggested epochs {suggested_epochs_} exists from job {model_dir.creator}"
+        )
     return sorted(suggested_epochs)
+
+
+class GetRelevantEpochsFromTrainingLearningRateScoresException(Exception):
+    """potentially expected exceptions from :class:`get_relevant_epochs_from_training_learning_rate_scores`"""
 
 
 def _chkpt_exists(*, model_dir: tk.Path, model_name: str = "epoch", epoch: int) -> bool:
