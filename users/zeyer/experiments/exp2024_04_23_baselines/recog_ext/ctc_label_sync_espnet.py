@@ -465,22 +465,51 @@ def model_recog_label_sync_v2(
     ended = rf.constant(False, dims=[ctc_beam_dim] + batch_dims)
     out_seq_len = rf.constant(0, dims=[ctc_beam_dim] + batch_dims)
 
+    if getattr(model, "lm", None) is None:
+        lm: Optional[TransformerDecoder] = None
+        lm_scale: Optional[float] = None
+        lm_state = None
+
+    else:
+        # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+        # noinspection PyUnresolvedReferences
+        lm: TransformerDecoder = model.lm
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = model.lm_scale
+        lm_state = lm.default_initial_state(batch_dims=batch_dims)  # Batch, InBeam, ...
+
+    labelwise_prior: Optional[rf.Parameter] = getattr(model, "labelwise_prior", None)
+
     max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)
 
     i = 0
     seq_targets = []
     seq_backrefs = []
     while True:
-        ctc_prefix_log_prob, ctc_prefix_scorer_state = ctc_prefix_scorer.score_and_update_state(
+        label_log_prob, ctc_prefix_scorer_state = ctc_prefix_scorer.score_and_update_state(
             prev_label=target, prev_state=ctc_prefix_scorer_state, beam_dim=ctc_beam_dim
         )
+
+        if lm is not None:
+            lm_logits, lm_state = lm(
+                target,
+                spatial_dim=single_step_dim,
+                state=lm_state,
+            )  # Batch, InBeam, Vocab / ...
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+            lm_log_probs *= lm_scale
+            label_log_prob += lm_log_probs  # Batch, InBeam, Vocab
+
+        if labelwise_prior is not None:
+            label_log_prob -= labelwise_prior  # prior scale already applied
+
         # Filter out finished beams
-        ctc_prefix_log_prob = rf.where(
+        label_log_prob = rf.where(
             ended,
             rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=neg_inf),
-            ctc_prefix_log_prob,
+            label_log_prob,
         )
-        ctc_seq_log_prob = ctc_seq_log_prob + ctc_prefix_log_prob  # Batch, InBeam, Vocab
+        ctc_seq_log_prob = ctc_seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
 
         if ctc_top_k_with_random_sampling:
             ctc_seq_log_prob, (backrefs, target), ctc_beam_dim = top_k_and_random_choice_without_replacement(
