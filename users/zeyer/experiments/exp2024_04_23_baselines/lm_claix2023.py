@@ -28,7 +28,7 @@ def py():
     # I think 20k without factor is reasonable with bf16 AMP.
     # with pure bf16, 30k seems to be fine.
 
-    # 35.3 PPL (!!!)
+    # 35.3 spm PPL
     train(
         "lm/trafo-n96-d512-gelu-drop0-b400_20k-spm10k",
         config=dict_update_deep(
@@ -58,7 +58,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(
+    train(  # 33.9 (!!)
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
