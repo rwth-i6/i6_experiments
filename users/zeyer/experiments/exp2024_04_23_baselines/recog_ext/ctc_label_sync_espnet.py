@@ -531,6 +531,8 @@ def model_recog_label_sync_v2(
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         ctc_prefix_scorer_state = rf.nested.gather_nested(ctc_prefix_scorer_state, indices=backrefs)
+        if lm is not None:
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
 
         i += 1
         ended = rf.logical_or(ended, target == model.eos_idx)
