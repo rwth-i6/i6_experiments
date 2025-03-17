@@ -33,17 +33,24 @@ _setup()
 
 
 def main():
-    arg_parser = argparse.ArgumentParser()
+    import textwrap
+    import sisyphus.logging_format
+    from sisyphus.loader import config_manager
+    import sisyphus.toolkit as tk
+
+    # First line in cleanup_unused.__doc__ indentation is broken...
+    cleanup_unused_doc_lines = tk.cleaner.cleanup_unused.__doc__.splitlines()
+    cleanup_unused_doc = cleanup_unused_doc_lines[0] + "\n" + textwrap.dedent("\n".join(cleanup_unused_doc_lines[1:]))
+    arg_parser = argparse.ArgumentParser(
+        description=f"{__doc__}\n\ntk.cleaner.cleanup_unused:\n\n{cleanup_unused_doc}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     arg_parser.add_argument("config")
     arg_parser.add_argument("--log-level", type=int, default=20)
     arg_parser.add_argument("--mode", default="dryrun", help="dryrun (default), remove, move")
     args = arg_parser.parse_args()
 
     # See Sisyphus __main__ for reference.
-
-    import sisyphus.logging_format
-    from sisyphus.loader import config_manager
-    import sisyphus.toolkit as tk
 
     sisyphus.logging_format.add_coloring_to_logging()
     logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=args.log_level)

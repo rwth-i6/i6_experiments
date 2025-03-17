@@ -603,6 +603,12 @@ def analyze_encoder(
     param.trainable = True
   rf.set_requires_gradient(data)
 
+  enc_numel = 0
+  for name, param in model.encoder.named_parameters():
+    enc_numel += param.raw_tensor.numel()
+
+  print("NUMBER OF ENCODER PARAMETERS: ", enc_numel)
+
   ref_alignment_hdf = Path(config.typed_value("ref_alignment_hdf", str))
   ref_alignment_blank_idx = config.typed_value("ref_alignment_blank_idx", int)
   ref_alignment_vocab_path = Path(config.typed_value("ref_alignment_vocab_path", str))

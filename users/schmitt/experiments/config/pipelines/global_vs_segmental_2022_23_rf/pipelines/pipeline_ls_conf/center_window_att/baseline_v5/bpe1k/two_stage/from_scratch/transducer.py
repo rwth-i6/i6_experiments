@@ -153,6 +153,7 @@ def run_exps():
             checkpoint=fixed_path_checkpoint,
             checkpoint_aliases=checkpoint_aliases,
           )
+
           if win_size is None and "long" in alias:
             pipeline = recog.center_window_returnn_frame_wise_beam_search(
               alias=fixed_path_train_alias,
@@ -268,6 +269,17 @@ def run_exps():
               config_builder=config_builder,
               checkpoint=full_sum_checkpoint,
             )
+
+            if alias == "v1_long_two-stage":
+              checkpoint_aliases = ("best-4-avg",)
+
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=full_sum_train_alias,
+                config_builder=config_builder,
+                checkpoint=full_sum_checkpoint,
+                checkpoint_aliases=checkpoint_aliases,
+                beam_size_list=(100,)
+              )
 
             if alias == "v1_long_two-stage" and gpu_mem_rqmt == 24:
               recog.center_window_returnn_frame_wise_beam_search(

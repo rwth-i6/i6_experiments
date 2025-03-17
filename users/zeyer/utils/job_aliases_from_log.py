@@ -8,6 +8,12 @@ from .job_dir import get_job_base_dir
 
 def get_job_aliases(job: str) -> Optional[List[str]]:
     """
+    Read the job aliases from the log files.
+    Also looks into log files inside the finished.tar.gz file if it exists.
+
+    Note: This is not necessarily needed. We can also read the aliases from the job info file.
+    See :func:`job_aliases_from_info.get_job_aliases`.
+
     :param job: without "work/" prefix
     """
     job_dir = get_job_base_dir(job)

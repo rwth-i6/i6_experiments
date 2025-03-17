@@ -39,7 +39,7 @@ from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 
 import numpy as np
 
-from .utils import PartialImportCustom, ReturnnConfigCustom
+from .utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
 from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert
 from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
@@ -373,7 +373,8 @@ def recog_model(
             search_alias_name=f"{name}/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             num_shards=num_shards,
-            cache_manager=cache_manager
+            cache_manager=cache_manager,
+            # count_repeated_path=f"{name.replace('/search/', '/repeated_count/')}" if dataset_name == "dev-other" else None
         )
         if calculate_scores:
             if dataset_name.startswith("train"):
@@ -454,7 +455,8 @@ def search_dataset(
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     num_shards: Optional[int] = None,
-    cache_manager: bool = True
+    cache_manager: bool = True,
+    count_repeated_path: Optional[str] = None
 ) -> tuple[RecogOutput, tk.Path]:
     """
     Recog on the specific dataset using RETURNN.
@@ -487,12 +489,12 @@ def search_dataset(
             search_post_config and search_post_config.pop("__env_updates", None)
         )
     if save_pseudo_labels:
-        time_rqmt = 8.0
+        time_rqmt = 16.0
         cpu_rqmt = 4
         if search_mem_rqmt < 8:
             search_mem_rqmt = 8
     else:
-        time_rqmt = 12.0
+        time_rqmt = 16.0
         cpu_rqmt = 4
         if search_mem_rqmt < 8:
             search_mem_rqmt = 24
@@ -584,6 +586,9 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    if count_repeated_path:
+        cnt = DataSetStatsJob(res).out_count_results
+        tk.register_output(count_repeated_path, cnt)
     return RecogOutput(output=res), beam_res
 
 
@@ -911,20 +916,20 @@ def search_config_v2(
             
         args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
         if lexicon:
-            args_cached["lexicon"] = DelayedCodeWrapper("`cf {}`", lexicon.get_path())
+            args_cached["lexicon"] = DelayedCodeWrapper("cf('{}')", lexicon.get_path())
         if lm:
-            args_cached["arpa_4gram_lm"] = DelayedCodeWrapper("`cf {}`", lm.get_path())
+            args_cached["arpa_4gram_lm"] = DelayedCodeWrapper("cf('{}')", lm.get_path())
     
         if prior_path:
             args["prior_file"] = prior_path
-            args_cached["prior_file"] = DelayedCodeWrapper("`cf {}`", prior_path.get_path())
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
     elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
         args = {"hyperparameters": decoder_hyperparameters}
         if prior_path:
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
-        if recog_def is model_recog_lm_albert:
-            args["version"] = 3
+        # if recog_def is model_recog_lm_albert or recog_def is model_recog_flashlight:
+        #     args["version"] = 1
     else:
         args = {}
 
@@ -1080,7 +1085,11 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         default_target_key = config.typed_value("target")
         targets = extern_data[default_target_key]
         extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
-    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
+    if recog_def.func is model_recog_lm_albert or recog_def.func is model_recog_flashlight:
+        seq_tags = extern_data["seq_tag"]
+        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, seq_tags=seq_tags, **extra)
+    else:
+        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
     if len(recog_out) == 5:
         # recog results including beam {batch, beam, out_spatial},
         # log probs {batch, beam},

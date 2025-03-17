@@ -853,7 +853,7 @@ def get_librispeech_task_text_only(
         score_recog_output_func=_score_recog_out_v2,
         recog_post_proc_funcs=vocab_to_words,
     )
-    _librispeech_task_raw_v2_cache[cache_key] = task
+    _librispeech_task_text_only_cache[cache_key] = task
     return task
 
 

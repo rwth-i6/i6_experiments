@@ -819,9 +819,9 @@ class PlotSelfAttentionWeightsOverEpochsJob(Job):
       num_rows = 1
       num_cols = num_plots
 
-    title_fontsize = 38
-    ticklabel_fontsize = 28
-    axlabel_fontsize = 34
+    title_fontsize = 30  # 38
+    ticklabel_fontsize = 24  # 28
+    axlabel_fontsize = 26  # 34
 
     for seq_tag in att_weights_dicts[0]:
       # fig, axes = plt.subplots(
@@ -837,16 +837,22 @@ class PlotSelfAttentionWeightsOverEpochsJob(Job):
         epoch = self.epochs[i]
         time_len = att_weights.shape[0]
 
-        ax = axes[row, col]
+        if num_rows == 2:
+          ax = axes[row, col]
+        elif num_plots == 1:
+          ax = axes
+        else:
+          ax = axes[col]
         ax.matshow(att_weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
 
-        ax.set_title(f"Epoch {epoch * 4 / 20}", fontsize=title_fontsize, pad=7)
+        if num_plots != 1:
+          ax.set_title(f"Epoch {epoch * 4 / 20}", fontsize=title_fontsize, pad=7)
 
         time_step_size = 1 / 60 * 1000
         time_ticks = np.arange(0, time_len, time_step_size)
         tick_labels = [(time_tick * 60) / 1000 for time_tick in time_ticks]
 
-        if row == 0:
+        if row == 0 and num_rows == 2:
           ax.set_xticks([])
         else:
           ax.set_xticks(time_ticks)
@@ -863,12 +869,20 @@ class PlotSelfAttentionWeightsOverEpochsJob(Job):
 
         ax.invert_yaxis()
 
-      fig.text(0.5, 0.01, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
-      fig.text(0.06, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
+      # fig.text(0.5, 0.01, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
+      # fig.text(0.06, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
+      fig.text(0.5, -0.15, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
+      fig.text(-0.15, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
       # fig.tight_layout()
 
-      plt.savefig(os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.png"), bbox_inches='tight')
-      plt.savefig(os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.pdf"), bbox_inches='tight')
+      plt.savefig(
+        os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.png"),
+        bbox_inches='tight'
+      )
+      plt.savefig(
+        os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.pdf"),
+        bbox_inches='tight'
+      )
       plt.close()
 
 

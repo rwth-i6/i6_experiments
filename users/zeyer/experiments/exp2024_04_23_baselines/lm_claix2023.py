@@ -59,7 +59,39 @@ def py():
     )
 
     train(
-        f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-laplace100k-shuffleBatch100-spm10k",
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    train(  # 38.28
+        f"lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -96,8 +128,8 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    train(
-        f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-laplace1k-spm10k",
+    train(  # 37.45
+        f"lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-laplace1k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {

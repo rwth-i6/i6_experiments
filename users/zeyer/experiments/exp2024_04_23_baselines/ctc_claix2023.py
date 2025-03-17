@@ -20,14 +20,110 @@ from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
-from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerPositionwiseFeedForward
+from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerPositionwiseFeedForward
 
 
 def py():
     from returnn.frontend.encoder.conformer import ConformerConvSubsample
+
+    # Should have no effect here (I tested this), but better to have anyway.
+    use_instanciate_delayed_copy_instead_of_inplace()
+
+    # TODO train a few new good baselines
+    #  see aed_claix2023 for better large GPU settings
+
+    ctc_train_exp(
+        "n16-spm10k-auxAED-b150k",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+            "num_enc_layers": 16,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            # purely used for training
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
+
+    for num_layers, num_dims, batch_size in [
+        (16, 512, 150_000),
+        (16, 768, 100_000),
+        (16, 1024, 100_000),
+        (20, 512, 150_000),
+        (32, 512, 100_000),
+    ]:
+        ctc_train_exp(
+            f"L{num_layers}-D{num_dims}-spm10k-auxAED-b{batch_size // 1000}k",
+            config_96gb_bf16_accgrad1,
+            model_config={
+                "enc_build_dict": rf.build_dict(
+                    # ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
+                    ConformerEncoder,
+                    input_layer=rf.build_dict(
+                        ConformerConvSubsample,
+                        out_dims=[32, 64, 64],
+                        filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                        pool_sizes=[(1, 2)],
+                        strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                    ),
+                    num_layers=num_layers,
+                    out_dim=num_dims,
+                    encoder_layer=rf.build_dict(
+                        ConformerEncoderLayer,
+                        ff=rf.build_dict(
+                            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                        ),
+                        num_heads=8,
+                    ),
+                ),
+                "feature_batch_norm": True,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 100, batch_size_factor=_batch_size_factor),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                # purely used for training
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+                "max_seq_length_default_target": None,
+                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                # out of 281241 seqs in train, we removed only 71 seqs.
+                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+            # avoid OOM
+            # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+        )
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
@@ -39,9 +135,12 @@ def py():
         (
             {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm10k"},
             [
-                None,
-                {"cr_loss_scale": 0.1},
-                {"cr_loss_scale": 0.2},
+                None,  # 5.89
+                {"cr_loss_scale": 0.1},  # 5.91
+                {"cr_loss_scale": 0.2},  # 5.89
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True, "aed_loss_scale": 0.5},
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True, "use_normalized_loss": False},
             ],
         ),
         # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
@@ -53,10 +152,12 @@ def py():
         (
             {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
             [
-                None,
-                {"cr_loss_scale": 0.1},
-                {"cr_loss_scale": 0.2},
-                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},
+                None,  # 6.18
+                {"cr_loss_scale": 0.1},  # 5.94
+                {"cr_loss_scale": 0.2},  # 5.96
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},  # 5.93
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True, "aux_attention_decoder": None},
+                # {"cr_loss_scale": 0.5},  # 6.05
             ],
         ),
         # {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
@@ -69,6 +170,12 @@ def py():
                 name = f"crLoss{cr_ctc['cr_loss_scale']}"
                 if cr_ctc.get("cr_loss_on_aux_probs"):
                     name += "_withAux"
+                if "aux_attention_decoder" in cr_ctc and cr_ctc["aux_attention_decoder"] is None:
+                    name += "_noAuxAed"
+                elif cr_ctc.get("aed_loss_scale", 1.0) != 1.0:
+                    name += f"_aedLoss{cr_ctc['aed_loss_scale']}"
+                if cr_ctc.get("use_normalized_loss") is False:
+                    name += "_noLossNorm"
                 name += "-"
             else:
                 name = ""
@@ -121,7 +228,11 @@ def py():
                     "__train_audio_preprocess": speed_pert_librosa_config,
                     "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                     # purely used for training
-                    "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+                    "aux_attention_decoder": cr_ctc["aux_attention_decoder"]
+                    if use_cr_ctc and "aux_attention_decoder" in cr_ctc
+                    else opts["aux_attention_decoder"]
+                    if "aux_attention_decoder" in opts
+                    else rf.build_dict(TransformerDecoder, num_layers=6),
                     **(cr_ctc if use_cr_ctc else {}),
                     **({"use_fixed_ctc_grad": "v2", "aed_loss_bug_fix": True} if use_cr_ctc else {}),
                     "max_seq_length_default_target": None,

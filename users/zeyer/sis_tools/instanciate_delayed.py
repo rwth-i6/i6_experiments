@@ -45,6 +45,8 @@ def instanciate_delayed_inplace_with_warning(f: Callable[[], Any]) -> Any:
     :return: f() with all DelayedBase objects replaced by their .get() value
     """
     o = f()
+    if _use_instanciate_delayed_copy_instead_of_inplace:
+        return instanciate_delayed_copy(o)
     h = short_hash(o)
     o_ = instanciate_delayed_inplace(o)
     if h != short_hash(f()):
@@ -94,3 +96,17 @@ def print_instanciate_delayed_warning(*, obj: Any = _not_specified, func: Any = 
         "With fixed behavior, all of exp1, exp2 and exp3 will get the same hash. "
         "However, note that also exp4 might get a new hash than before."
     )
+
+
+_use_instanciate_delayed_copy_instead_of_inplace = False
+
+
+def use_instanciate_delayed_copy_instead_of_inplace(value: bool = True):
+    """
+    If you want to use the new behavior, you can call this function at the beginning of your script.
+
+    Note: If you have some old experiments run without this,
+    consider using the :mod:`hash_fix` script to fix (symlink) the hashes.
+    """
+    global _use_instanciate_delayed_copy_instead_of_inplace
+    _use_instanciate_delayed_copy_instead_of_inplace = value

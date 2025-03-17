@@ -220,7 +220,8 @@ class ConvertARPAtoTensor(Job):
             if ret_tensor is None:
                 ret_tensor = tensor
             else:
-                ret_tensor[*[0]*(self.N_order - N + 1)] = tensor[0]
+                # ret_tensor[*[0]*(self.N_order - N + 1)] = tensor[0]
+                ret_tensor[tuple([0] * (self.N_order - N + 1))] = tensor[0]
             
         with uopen(self.out_lm_tensor, "wb") as f:
             torch.save(ret_tensor, f)

@@ -293,6 +293,16 @@ def run_exps():
               behavior_version=21,
             )
 
+        if alias in ("v5_big", "v3_big"):
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            corpus_keys=("dev-other", "test-other"),
+            checkpoint_aliases=("last",),
+            beam_size_list=(100,)
+          )
+
         if alias in (
                 # "v5_big",
                 "v8_big",

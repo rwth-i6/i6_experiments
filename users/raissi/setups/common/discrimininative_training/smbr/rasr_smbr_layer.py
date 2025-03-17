@@ -312,6 +312,7 @@ def augment_for_smbr(
     )
     rasr_cfg_job = rasr.WriteRasrConfigJob(config, post_config)
 
+
     returnn_config.config.pop("chunking", None)
     returnn_config.config["network"][smbr_layer_name] = {
             "class": "copy",

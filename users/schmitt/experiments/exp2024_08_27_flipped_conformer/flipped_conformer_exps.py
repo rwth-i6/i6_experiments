@@ -37,7 +37,19 @@ BPE1K_OPTS = dict(
     "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/"
     "ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
   ),
-  num_labels=1056,
+  num_labels=1_056,
+  bos_idx=0,
+  eos_idx=0,
+)
+
+BPE10K_OPTS = dict(
+  bpe_codes_path=Path(
+    "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes"
+  ),
+  vocab_path=Path(
+    "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"
+  ),
+  num_labels=10_025,
   bos_idx=0,
   eos_idx=0,
 )
@@ -88,7 +100,7 @@ def _run_recogs(
     checkpoint_to_wer[(checkpoint_alias, checkpoint)] = score_job.out_wer
 
   best_checkpoint_job = GetCheckpointWithBestWer(checkpoint_to_wer)
-  best_checkpoint_job.add_alias(f"{base_exp_alias}/best-wer-checkpoint")
+  best_checkpoint_job.add_alias(f"{base_exp_alias}/get-best-checkpoint")
   tk.register_output(best_checkpoint_job.get_one_alias(), best_checkpoint_job.out_checkpoint)
 
   recog_checkpoints.update({"best-wer": best_checkpoint_job.out_checkpoint})
@@ -102,7 +114,10 @@ def py():
 
   configs = []
 
-  # --------------------------------------- 11GB multi-GPU experiments ---------------------------------------
+  # Configs for experiments
+  # comment out the configs you do not want to run
+
+  # --------------------------------------- 11GB multi-GPU 1K BPE experiments ---------------------------------------
 
   # # Baseline v1
   # configs.append(dict(
@@ -155,7 +170,7 @@ def py():
   #   alias="models/v1_11gb_mgpu/17-layers_400-dim",
   # ))
   #
-  # # Mod. baseline v1: use CTC loss after 4th and 8th layer
+  # # Mod. baseline v1: use CTC loss after 4th and 8th encoder layer
   # configs.append(dict(
   #   model_opts=config_11gb_mgpu_v1["model_opts"],
   #   train_opts=dict_update_deep(
@@ -196,15 +211,16 @@ def py():
   #   alias="models/v1_11gb_mgpu/conformer-layers-wo-final-layer-norm",
   # ))
 
-  # --------------------------------------- 24GB single-GPU experiments ---------------------------------------
+  # --------------------------------------- 24GB single-GPU 1K BPE experiments ---------------------------------------
   # Baseline v1
   configs.append(dict(
     model_opts=config_24gb_v1["model_opts"],
     train_opts=config_24gb_v1["train_opts"],
     alias="models/v1_24gb/baseline",
+    vocab_opts=BPE1K_OPTS,
   ))
   #
-  # # Mod. baseline v1: different random seeds
+  # Mod. baseline v1: different random seeds
   # configs += [dict(
   #   model_opts=config_24gb_v1["model_opts"],
   #   train_opts=dict_update_deep(
@@ -213,12 +229,44 @@ def py():
   #     ["max_seq_length"]
   #   ),
   #   alias=f"models/v1_24gb/rand-seed-{seed}",
+  #   vocab_opts=BPE1K_OPTS,
   # ) for seed in (1337, 8264, 2160, 2222, 5678)]
+  #
+  # # Mod. baseline v1: use CTC loss after 4th and 8th encoder layer
+  # configs.append(dict(
+  #   model_opts=config_24gb_v1["model_opts"],
+  #   train_opts=dict_update_deep(
+  #     config_24gb_v1["train_opts"],
+  #     {"aux_loss_layers": (4, 8)},
+  #   ),
+  #   alias="models/v1_24gb/use-ctc-loss",
+  #   vocab_opts=BPE1K_OPTS,
+  # ))
+  #
+  # # Mod. baseline v1: disable self-attention for 1st epoch
+  # configs.append(dict(
+  #   model_opts=dict_update_deep(
+  #     config_24gb_v1["model_opts"],
+  #     {"encoder_opts.disable_self_attention": {"num_epochs": 20}},
+  #   ),
+  #   train_opts=config_24gb_v1["train_opts"],
+  #   alias="models/v1_24gb/disable-self-att-1st-epoch",
+  #   vocab_opts=BPE1K_OPTS,
+  # ))
+
+  # --------------------------------------- 24GB single-GPU 10K BPE experiments ---------------------------------------
+  # Baseline v1
+  # configs.append(dict(
+  #   model_opts=config_24gb_v1["model_opts"],
+  #   train_opts=config_24gb_v1["train_opts"],
+  #   alias="models/v1_24gb/baseline",
+  #   vocab_opts=BPE10K_OPTS,
+  # ))
 
   for config in configs:
     config_builder = AEDConfigBuilder(
       dataset=LIBRISPEECH_CORPUS,
-      vocab_opts=BPE1K_OPTS,
+      vocab_opts=config["vocab_opts"],
       model_def=aed_model_def,
       get_model_func=_returnn_v2_get_model,
     )
@@ -257,10 +305,8 @@ def py():
     recog_exp = RecogExperiment(
       alias=config["alias"],
       config_builder=config_builder,
-      # checkpoint=recog_checkpoints["best-wer"],
-      # checkpoint_alias="best-wer",
-      checkpoint=checkpoints[518],
-      checkpoint_alias=f"epoch-518",
+      checkpoint=recog_checkpoints["best-wer"],
+      checkpoint_alias="best-wer",
       recog_opts=recog_opts,
       search_rqmt=dict(cpu=4)
     )

@@ -336,14 +336,66 @@ class AEDConfigBuilder(ConfigBuilder):
     python_prolog = copy.deepcopy(self.python_prolog)
     python_epilog = copy.deepcopy(self.python_epilog)
 
-    dataset_opts = opts.get("dataset_opts", {})
+    config_dict["forward_data"] = {
+      "class": "MetaDataset",
+      "datasets": {
+        "zip_dataset": {
+          "audio": {
+              "features": "raw",
+              "peak_normalization": True,
+              "pre_process": None,
+              "preemphasis": None,
+          },
+          "class": "OggZipDataset",
+          "epoch_wise_filter": None,
+          "fixed_random_subset": None,
+          "partition_epoch": 1,
+          "path": [
+              "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.NSdIHfk1iw2M/output/out.ogg.zip"
+          ],
+          "segment_file": None,
+          "seq_ordering": "sorted_reverse",
+          "targets": opts["vocab_opts"],
+          "use_cache_manager": True,
+        },
+        "hyps": {
+              "class": "TextDictDataset",
+              "filename": opts["n_best_path"],
+              "vocab": opts["vocab_opts"],
+          },
+        },
+      "data_map": {
+          "data": ("zip_dataset", "data"),
+          "data_flat": ("hyps", "data_flat"),
+          "data_seq_lens": ("hyps", "data_seq_lens"),
+      },
+      "seq_order_control_dataset": "hyps",
+    }
     config_dict.update(dict(
       task="forward",
       search_output_layer="decision",
-      batching=opts.get("batching", "random")
+      batching=opts.get("batching", "random"),
+      target="data_flat"
     ))
-    config_dict.update(dict(forward_data=self.get_dataset(dataset_opts=dataset_opts, type_='search')))
-    extern_data_raw = self.get_extern_data_dict()
+
+    from returnn.tensor import Dim, batch_dim
+    _beam_dim = Dim(None, name="beam")
+    _data_flat_spatial_dim = Dim(None, name="data_flat_spatial")
+    extern_data_raw = {
+      "data_flat": {
+          "dims": [batch_dim, _data_flat_spatial_dim],
+          "dtype": "int32",
+          "vocab": opts["vocab_opts"],
+      },
+      "data_seq_lens": {"dims": [batch_dim, _beam_dim], "dtype": "int32"},
+      "data": {
+          "dim_tags": [
+              batch_dim,
+              Dim(None, name="time", kind=Dim.Types.Spatial),
+              Dim(1, name="audio", kind=Dim.Types.Feature),
+          ]
+      },
+    }
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor

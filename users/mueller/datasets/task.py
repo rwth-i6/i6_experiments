@@ -7,7 +7,7 @@ from typing import Dict, Callable, Sequence, Optional
 import dataclasses
 
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
-from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
+from i6_experiments.users.schmitt.datasets.score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
 @dataclasses.dataclass

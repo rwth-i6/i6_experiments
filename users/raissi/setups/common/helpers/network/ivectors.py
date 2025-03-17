@@ -14,6 +14,7 @@ def add_ivectors_to_conformer_encoder(
     num_ivec_input: int,
     subsampling_factor: int = 4,
     n_ivec_transform: int = 512,
+    input_layer: str = "specaug"
 ):
     """
     The method follows: https://arxiv.org/pdf/2206.12955
@@ -83,6 +84,6 @@ def add_ivectors_to_conformer_encoder(
     }
 
     network["conformer_1_mhsamod_self_attention"]["from"] = "mhsa_ivec_input"
-    network["specaug"]["from"] = "source_features"
+    network[input_layer]["from"] = "source_features"
 
     return network

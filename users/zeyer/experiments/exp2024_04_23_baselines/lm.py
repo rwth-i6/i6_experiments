@@ -331,7 +331,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
 
-    train(
+    train(  # 34.04 (!!)
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k",
         config=dict_update_deep(
             config_11gb_lm_v1,

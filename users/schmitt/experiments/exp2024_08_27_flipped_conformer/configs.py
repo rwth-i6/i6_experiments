@@ -38,7 +38,7 @@ config_24gb_v1 = dict(
           with_pos_bias=False,
           learnable_pos_emb=True,
           separate_pos_emb_per_head=False,
-          pos_emb_dropout=0.0,
+          pos_emb_dropout=0.0,  # 0.1
         ),
         self_att=rf.build_dict(rf.RelPosSelfAttention),
         ff_activation=rf.build_dict(rf.relu_square),
@@ -64,7 +64,7 @@ config_24gb_v1 = dict(
     gradient_clip_global_norm=5.0,
     optimizer={
       "class": "adamw",
-      "epsilon": 1e-8,
+      "epsilon": 1e-8,  # 1e-16
       "weight_decay": 1e-6,
       "weight_decay_modules_blacklist": [
         "rf.Embedding",
