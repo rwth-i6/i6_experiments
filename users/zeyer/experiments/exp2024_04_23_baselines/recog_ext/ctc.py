@@ -74,25 +74,33 @@ def model_recog(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
     )  # Batch, InBeam -> VocabWB
 
-    # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
-    # noinspection PyUnresolvedReferences
-    lm: TransformerDecoder = model.lm
-    # noinspection PyUnresolvedReferences
-    lm_scale: float = model.lm_scale
+    if getattr(model, "lm", None) is None:
+        lm: Optional[TransformerDecoder] = None
+        lm_scale: Optional[float] = None
+        lm_log_probs = None
+        lm_state = None
+        labelwise_prior = None
 
-    # noinspection PyUnresolvedReferences
-    labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+    else:
+        # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+        # noinspection PyUnresolvedReferences
+        lm: TransformerDecoder = model.lm
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = model.lm_scale
 
-    lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-    lm_logits, lm_state = lm(
-        target,
-        spatial_dim=single_step_dim,
-        state=lm_state,
-    )  # Batch, InBeam, Vocab / ...
-    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-    lm_log_probs *= lm_scale
-    if labelwise_prior is not None:
-        lm_log_probs -= labelwise_prior  # prior scale already applied
+        # noinspection PyUnresolvedReferences
+        labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+
+        lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+        lm_logits, lm_state = lm(
+            target,
+            spatial_dim=single_step_dim,
+            state=lm_state,
+        )  # Batch, InBeam, Vocab / ...
+        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs *= lm_scale
+        if labelwise_prior is not None:
+            lm_log_probs -= labelwise_prior  # prior scale already applied
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -103,18 +111,19 @@ def model_recog(
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
-        # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
-        seq_log_prob += rf.where(
-            (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-            _target_dense_extend_blank(
-                lm_log_probs,
-                target_dim=model.target_dim,
-                wb_target_dim=model.wb_target_dim,
-                blank_idx=model.blank_idx,
-                value=0.0,
-            ),
-            0.0,
-        )  # Batch, InBeam, VocabWB
+        if lm is not None:
+            # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+            seq_log_prob += rf.where(
+                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                _target_dense_extend_blank(
+                    lm_log_probs,
+                    target_dim=model.target_dim,
+                    wb_target_dim=model.wb_target_dim,
+                    blank_idx=model.blank_idx,
+                    value=0.0,
+                ),
+                0.0,
+            )  # Batch, InBeam, VocabWB
 
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
@@ -125,8 +134,9 @@ def model_recog(
         seq_targets_wb.append(target_wb)
         seq_backrefs.append(backrefs)
 
-        lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
-        lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+        if lm is not None:
+            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
         prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
         prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
         got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
@@ -138,41 +148,43 @@ def model_recog(
             prev_target,
         )  # Batch, Beam -> Vocab
 
-        got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-        if got_new_label_cpu.raw_tensor.sum().item() > 0:
-            (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                (target, lm_state),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
-                dims=batch_dims + [beam_dim],
-            )
-            # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-            assert packed_new_label_dim.get_dim_value() > 0
+        if lm is not None:
+            got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+            if got_new_label_cpu.raw_tensor.sum().item() > 0:
+                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                    (target, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                )
+                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+                assert packed_new_label_dim.get_dim_value() > 0
 
-            lm_logits_, lm_state_ = lm(
-                target_,
-                spatial_dim=single_step_dim,
-                state=lm_state_,
-            )  # Flat_Batch_Beam, Vocab / ...
-            lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-            lm_log_probs_ *= lm_scale
-            if labelwise_prior is not None:
-                lm_log_probs_ -= labelwise_prior  # prior scale already applied
+                lm_logits_, lm_state_ = lm(
+                    target_,
+                    spatial_dim=single_step_dim,
+                    state=lm_state_,
+                )  # Flat_Batch_Beam, Vocab / ...
+                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ *= lm_scale
+                if labelwise_prior is not None:
+                    lm_log_probs_ -= labelwise_prior  # prior scale already applied
 
-            lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                (lm_log_probs_, lm_state_),
-                (lm_log_probs, lm_state),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
-                dims=batch_dims + [beam_dim],
-                in_dim=packed_new_label_dim,
-                masked_select_dim_map=packed_new_label_dim_map,
-            )  # Batch, Beam, Vocab / ...
+                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                    (lm_log_probs_, lm_state_),
+                    (lm_log_probs, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                    in_dim=packed_new_label_dim,
+                    masked_select_dim_map=packed_new_label_dim_map,
+                )  # Batch, Beam, Vocab / ...
 
-    # seq_log_prob, lm_log_probs: Batch, Beam
-    # Add LM EOS score at the end.
-    lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
-    seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+    if lm is not None:
+        # seq_log_prob, lm_log_probs: Batch, Beam
+        # Add LM EOS score at the end.
+        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_wb_ = []
