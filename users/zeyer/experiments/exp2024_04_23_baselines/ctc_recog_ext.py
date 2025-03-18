@@ -1365,6 +1365,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     first_pass_recog_beam_size: int,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     recomb_type: str = "max",
+    extra_config: Optional[Dict[str, Any]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
@@ -1378,6 +1379,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         prior_score,
         lm_score,
     )
+    from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from .recog_ext.ctc import model_recog_with_recomb
 
     base_config = {
@@ -1386,6 +1388,8 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         "recog_version": 10,
         "recog_recomb": recomb_type,
     }
+    if extra_config:
+        base_config = dict_update_deep(base_config, extra_config)
 
     # see recog_model, lm_labelwise_prior_rescore
     dataset = task.dev_dataset
