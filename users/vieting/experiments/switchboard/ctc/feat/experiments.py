@@ -1334,7 +1334,6 @@ def run_specaug_stft_experiments():
 def run_scf_combination_experiments():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
-    _, nn_system = run_scf_baseline()
     _, nn_system_stft_specaug = run_specaug_stft_experiments()
 
     (
