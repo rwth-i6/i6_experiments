@@ -56,6 +56,7 @@ _lms = {
     "n24-d512": "trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k",
     "n96-d512": "trafo-n96-d512-gelu-drop0-b32_1k",
     "n32-d1024": "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k",
+    "n32-d1024-claix2023": "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
 }
 
 
@@ -677,6 +678,7 @@ _called_lm_py_once = False
 
 def _get_lm_model(name: str) -> ModelWithCheckpoint:
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import py as lm_py
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm_claix2023 import py as lm_claix2023_py
     from i6_experiments.users.zeyer.train_v3 import train_models_by_prefix
 
     global _called_lm_py_once
@@ -689,6 +691,7 @@ def _get_lm_model(name: str) -> ModelWithCheckpoint:
 
         with disable_register_output():
             lm_py()
+            lm_claix2023_py()
         _called_lm_py_once = True
 
     exp = train_models_by_prefix["lm/" + name]
