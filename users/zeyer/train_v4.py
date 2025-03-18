@@ -187,7 +187,12 @@ def train(
             returnn_train_job.set_env(k, v)
     tk.register_output(prefix_name + "/train_scores", returnn_train_job.out_learning_rates)
 
-    return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
+    res = ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
+    train_models_by_prefix[prefix_name] = res
+    return res
+
+
+train_models_by_prefix: Dict[str, ModelWithCheckpoints] = {}
 
 
 def _returnn_get_model(*, epoch: int, model_def: ModelT, **_kwargs_unused):

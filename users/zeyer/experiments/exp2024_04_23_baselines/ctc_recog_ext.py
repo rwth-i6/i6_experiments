@@ -3,6 +3,8 @@ CTC recognition with LM
 """
 
 from __future__ import annotations
+
+from collections import namedtuple
 from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Dict
 import functools
 import numpy as np
@@ -51,12 +53,15 @@ _dep_bound_hash_by_ctc_model_name = {
 # trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40: 35.60
 # ...
 # trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k
+_Lm = namedtuple("Lm", ["name", "train_version", "setup"])
 # _lm_name = "trafo-n96-d512-gelu-drop0-b32_1k"
 _lms = {
-    "n24-d512": "trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k",
-    "n96-d512": "trafo-n96-d512-gelu-drop0-b32_1k",
-    "n32-d1024": "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k",
-    "n32-d1024-claix2023": "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+    "n24-d512": _Lm("trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k", "v3", "lm"),
+    "n96-d512": _Lm("trafo-n96-d512-gelu-drop0-b32_1k", "v3", "lm"),
+    "n32-d1024": _Lm("trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k", "v3", "lm"),
+    "n32-d1024-claix2023": _Lm(
+        "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k", "v4", "lm_claix2023"
+    ),
 }
 
 
@@ -674,29 +679,40 @@ def _get_ctc_model(name: str, *, use_dependency_boundary: bool = True) -> ModelW
 
 _lm_cache_by_name = {}
 _called_lm_py_once = False
+_called_lm_claix2023_py_once = False
 
 
-def _get_lm_model(name: str) -> ModelWithCheckpoint:
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import py as lm_py
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm_claix2023 import py as lm_claix2023_py
-    from i6_experiments.users.zeyer.train_v3 import train_models_by_prefix
+def _get_lm_model(lm: _Lm) -> ModelWithCheckpoint:
+    from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+    from i6_experiments.users.zeyer.train_v3 import train_models_by_prefix as train_v3_models_by_prefix
+    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models_by_prefix
 
-    global _called_lm_py_once
+    global _called_lm_py_once, _called_lm_claix2023_py_once
 
-    if name in _lm_cache_by_name:
-        return _lm_cache_by_name[name]
+    if lm.name in _lm_cache_by_name:
+        return _lm_cache_by_name[lm.name]
 
-    if not _called_lm_py_once:
-        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+    if lm.setup == "lm":
+        if not _called_lm_py_once:
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import py as lm_py
 
-        with disable_register_output():
-            lm_py()
-            lm_claix2023_py()
-        _called_lm_py_once = True
+            with disable_register_output():
+                lm_py()
+            _called_lm_py_once = True
+    elif lm.setup == "lm_claix2023":
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm_claix2023 import py as lm_claix2023_py
 
-    exp = train_models_by_prefix["lm/" + name]
+        if not _called_lm_claix2023_py_once:
+            with disable_register_output():
+                lm_claix2023_py()
+            _called_lm_claix2023_py_once = True
+    else:
+        raise ValueError(f"unknown setup {lm.setup!r}")
+
+    train_models_by_prefix = {"v3": train_v3_models_by_prefix, "v4": train_v4_models_by_prefix}[lm.train_version]
+    exp = train_models_by_prefix["lm/" + lm.name]
     model = exp.get_last_fixed_epoch()
-    _lm_cache_by_name[name] = model
+    _lm_cache_by_name[lm.name] = model
     return model
 
 
