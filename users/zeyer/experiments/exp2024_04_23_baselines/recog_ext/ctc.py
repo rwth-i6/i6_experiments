@@ -234,12 +234,15 @@ def model_recog_with_recomb(
     """
     import returnn
     from returnn.config import get_global_config
+    from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
 
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
     assert version == 10
     recomb = config.typed_value("recog_recomb", None)  # None, "max", "sum"
+    ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
+    ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")
 
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
@@ -258,6 +261,14 @@ def model_recog_with_recomb(
 
     # The label log probs include the AM and the (scaled) prior.
     label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+    if ctc_soft_collapse_threshold is not None:
+        label_log_prob, enc_spatial_dim = soft_collapse_repeated(
+            label_log_prob,
+            spatial_dim=enc_spatial_dim,
+            classes_dim=model.wb_target_dim,
+            threshold=ctc_soft_collapse_threshold,
+            reduce_type=ctc_soft_collapse_reduce_type,
+        )
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
