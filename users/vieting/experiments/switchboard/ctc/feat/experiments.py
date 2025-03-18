@@ -1298,6 +1298,17 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
+            "bs10k_scf_stft10ms_fmask_5_8of256_pre1": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8},
+                    "batch_size": 10000,
+                    "extra_args": {},
+                },
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 1.0},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[24, 350, 390, 400, 410, 420, 430, 440, 450],
@@ -1456,12 +1467,7 @@ def run_scf_combination_experiments():
         "scf_bs10k_stft_specaug_tempo_pre1": dict(
             returnn_args={
                 **returnn_args,
-                "specaug_stft": {
-                    "max_feature": 8,
-                    "frame_size": 400,
-                    "frame_shift": 160,
-                    "fft_size": 512,
-                },
+                "specaug_stft": {"max_feature": 8},
                 "batch_size": 10000,
                 "extra_args": {
                     "conv_pad_seq_len_to_power": 1.5,
@@ -1472,7 +1478,7 @@ def run_scf_combination_experiments():
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system_stft_specaug.train_jobs[
-                                "conformer_bs10k_scf_stft20ms_fmask_5_8of512_pre1"
+                                "conformer_bs10k_scf_stft10ms_fmask_5_8of256_pre1"
                             ].out_checkpoints[24],
                             "init_for_train": True,
                         }
