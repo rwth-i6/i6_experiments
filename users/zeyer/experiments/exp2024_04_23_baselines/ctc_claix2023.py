@@ -1724,7 +1724,7 @@ def recog_ext_with_lm(*, ctc_model_name: str):
     lm_out_name = "n32-d1024"
 
     ctc_recog_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/{ctc_model_name}/recog-beam128-fp128-lm_{lm_out_name}-labelprior",
+        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-beam128-fp128-lm_{lm_out_name}",
         task=task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
@@ -1747,7 +1747,7 @@ def recog_ext_with_lm(*, ctc_model_name: str):
                 }
             )
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/{ctc_model_name}/recog-recomb-beam64-fp64-lm_{lm_out_name}-labelprior",
+            prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_out_name}{name_postfix}",
             task=task,
             ctc_model=ctc_model,
             labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
