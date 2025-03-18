@@ -1676,7 +1676,14 @@ def py():
 
 
 def recog_ext_with_lm(*, ctc_model_name: str):
-    from .ctc_recog_ext import ctc_recog_labelwise_prior_auto_scale, _get_lm_model, _lms, get_ctc_prior_probs
+    from .ctc_recog_ext import (
+        ctc_recog_labelwise_prior_auto_scale,
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+        ctc_labelwise_recog_auto_scale,
+        _get_lm_model,
+        _lms,
+        get_ctc_prior_probs,
+    )
     from .ctc import _train_experiments, _ctc_model_def_blank_idx, model_recog
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
@@ -1715,6 +1722,7 @@ def recog_ext_with_lm(*, ctc_model_name: str):
     ).out_prior
     tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
     lm_out_name = "n32-d1024"
+
     ctc_recog_labelwise_prior_auto_scale(
         prefix=f"{prefix}/{ctc_model_name}/recog-beam128-fp128-lm_{lm_out_name}-labelprior",
         task=task,
@@ -1725,5 +1733,66 @@ def recog_ext_with_lm(*, ctc_model_name: str):
         vocab_opts_file=vocab_opts_file,
         n_best_list_size=128,
         first_pass_recog_beam_size=128,
-        # first_pass_search_rqmt={"gpu_mem": 24 if lm_out_name in {"n96-d512", "n32-d1024"} else 11},
     )
+
+    for sct in [None, 0.7, 0.8]:
+        name_postfix = ""
+        extra_config = {}
+        if sct is not None:
+            name_postfix += f"-sct{sct}"
+            extra_config.update(
+                {
+                    "ctc_soft_collapse_threshold": sct,
+                    "ctc_soft_collapse_reduce_type": "max_renorm",
+                }
+            )
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/{ctc_model_name}/recog-recomb-beam64-fp64-lm_{lm_out_name}-labelprior",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            lm=_get_lm_model(_lms[lm_out_name]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            n_best_list_size=64,
+            first_pass_recog_beam_size=64,
+            extra_config=extra_config,
+        )
+
+    for sct, smp_top_p, smp_mnp in [
+        (0.7, 0.95, None),
+        (0.6, None, None),
+        (0.7, None, None),
+        (0.7, 0.95, None),
+        (0.7, 0.95, 10),
+        (0.8, None, None),
+    ]:
+        name_postfix = f"-sct{sct}"
+        extra_config_n_best_list = {}
+        if smp_top_p:
+            extra_config_n_best_list.update(
+                {
+                    "ctc_top_k_with_random_sampling": 1.0,
+                    "ctc_top_k_with_random_sampling_opts": {"top_p": smp_top_p},
+                }
+            )
+            name_postfix += f"-smpTopP{smp_top_p}"
+            if smp_mnp:
+                extra_config_n_best_list["ctc_top_k_with_random_sampling_opts"]["max_noise_point"] = smp_mnp
+                name_postfix += f"-smpMnp{smp_mnp}"
+        ctc_labelwise_recog_auto_scale(
+            prefix=f"{prefix}/{ctc_model_name}/recog-labelsync-beam64-fp64-lm_{lm_out_name}{name_postfix}",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            lm=_get_lm_model(_lms[lm_out_name]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            n_best_list_size=64,
+            first_pass_recog_beam_size=64,
+            extra_config={
+                "ctc_soft_collapse_threshold": sct,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            },
+            extra_config_n_best_list=extra_config_n_best_list,
+        )
