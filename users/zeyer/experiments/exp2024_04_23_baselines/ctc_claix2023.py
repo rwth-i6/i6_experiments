@@ -95,6 +95,7 @@ def py():
     recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 4.07
     recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.91
     recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.93
+    recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
