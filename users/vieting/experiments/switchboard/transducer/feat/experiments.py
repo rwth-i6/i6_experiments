@@ -695,6 +695,10 @@ def run_scf_stage1():
         alignment=ctc_alignment,
         features="waveform_pcm",
     )
+
+    # get_lgm_ctc_alignment_for_scf_viterbi is a dummy
+    returnn_datasets_align_ctc_lgm = get_lgm_ctc_alignment_for_scf_viterbi()
+
     returnn_base_args = {
         "batch_size": 15000,
         "datasets": returnn_datasets_align_ctc,
@@ -786,10 +790,10 @@ def run_scf_stage1():
             "bs15k_align_lgm-feat-ctc_stft": dict(
                 returnn_args={
                     **returnn_base_args,
+                    "datasets": returnn_datasets_align_ctc_lgm,
                     "extra_args": {
                         **returnn_base_args["extra_args"],
                         "preload_from_files": preload_dict,
-                        "alignment_experiment" : "lgm_align",
                     },
                     "specaug_stft": {
                         "max_feature": 15,
