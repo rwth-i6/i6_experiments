@@ -1303,9 +1303,9 @@ def run_specaug_stft_experiments():
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8},
                     "batch_size": 10000,
-                    "extra_args": {},
+                    "extra_args": {"conv_pad_seq_len_to_power": 1.5},
                 },
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 1.0},
+                feature_args={**feature_args_scf, "preemphasis": 1.0},
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
@@ -1372,8 +1372,18 @@ def run_scf_combination_experiments():
         "final_epochs": 0,
     }
 
+    feature_args_scf = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97}
+
+    def _preload_dict_helper(train_name, epoch):
+        return {
+            "existing-model": {
+                "filename": nn_system_stft_specaug.train_jobs[train_name].out_checkpoints[epoch],
+                "init_for_train": True,
+            },
+        }
+
     nn_base_args = {
-        "scf_bs2x5k_stft_specaug_tempo": dict(
+        "scf_bs2x5k_stft20ms_fmask_5_8of512_tempo": dict(
             returnn_args={
                 **returnn_args,
                 "specaug_stft": {
@@ -1386,24 +1396,14 @@ def run_scf_combination_experiments():
                     **returnn_args["extra_args"],
                     "audio_perturb_args": {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
                     "preload_from_files": {
-                        "existing-model": {
-                            "filename": nn_system_stft_specaug.train_jobs[
-                                "conformer_bs2x5k_scf_stft20ms_fmask_5_8of512"
-                            ].out_checkpoints[24],
-                            "init_for_train": True,
-                        }
+                        _preload_dict_helper("conformer_bs2x5k_scf_stft20ms_fmask_5_8of512", 24)
                     },
                 },
             },
-            feature_args={
-                "class": "ScfNetwork",
-                "size_tf": 256 // 2,
-                "stride_tf": 10 // 2,
-                "preemphasis": 0.97,
-            },
+            feature_args=feature_args_scf,
             lr_args=lr_args,
         ),
-        "scf_bs10k_stft_specaug_tempo_nonlinear": dict(
+        "scf_bs10k_stft10ms_fmask_5_8of256_tempo_nonlinear_preemphasis": dict(
             returnn_args={
                 **returnn_args,
                 "specaug_stft": {"max_feature": 8},
@@ -1417,24 +1417,14 @@ def run_scf_combination_experiments():
                         "non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1, "default": 1},
                     },
                     "preload_from_files": {
-                        "existing-model": {
-                            "filename": nn_system_stft_specaug.train_jobs[
-                                "conformer_bs10k_scf_stft10ms_fmask_5_8of256"
-                            ].out_checkpoints[24],
-                            "init_for_train": True,
-                        }
+                        _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24)
                     },
                 },
             },
-            feature_args={
-                "class": "ScfNetwork",
-                "size_tf": 256 // 2,
-                "stride_tf": 10 // 2,
-                "preemphasis": 0.97,
-            },
+            feature_args=feature_args_scf,
             lr_args=lr_args,
         ),
-        "scf_bs10k_stft_specaug_tempo": dict(
+        "scf_bs10k_stft10ms_fmask_5_8of256_tempo": dict(
             returnn_args={
                 **returnn_args,
                 "specaug_stft": {"max_feature": 8},
@@ -1446,24 +1436,14 @@ def run_scf_combination_experiments():
                         "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
                     },
                     "preload_from_files": {
-                        "existing-model": {
-                            "filename": nn_system_stft_specaug.train_jobs[
-                                "conformer_bs10k_scf_stft10ms_fmask_5_8of256"
-                            ].out_checkpoints[24],
-                            "init_for_train": True,
-                        }
+                        _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24)
                     },
                 },
             },
-            feature_args={
-                "class": "ScfNetwork",
-                "size_tf": 256 // 2,
-                "stride_tf": 10 // 2,
-                "preemphasis": 0.97,
-            },
+            feature_args=feature_args_scf,
             lr_args=lr_args,
         ),
-        "scf_bs10k_stft_specaug_tempo_pre1": dict(
+        "scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1": dict(
             returnn_args={
                 **returnn_args,
                 "specaug_stft": {"max_feature": 8},
@@ -1475,21 +1455,11 @@ def run_scf_combination_experiments():
                         "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
                     },
                     "preload_from_files": {
-                        "existing-model": {
-                            "filename": nn_system_stft_specaug.train_jobs[
-                                "conformer_bs10k_scf_stft10ms_fmask_5_8of256_pre1"
-                            ].out_checkpoints[24],
-                            "init_for_train": True,
-                        }
+                        _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256_pre1", 24)
                     },
                 },
             },
-            feature_args={
-                "class": "ScfNetwork",
-                "size_tf": 256 // 2,
-                "stride_tf": 10 // 2,
-                "preemphasis": 1.0,
-            },
+            feature_args={**feature_args_scf, "preemphasis": 1.0},
             lr_args=lr_args,
         ),
     }
