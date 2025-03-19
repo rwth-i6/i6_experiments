@@ -92,9 +92,9 @@ def py():
 
     # recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b150k")
     recog_ext_with_lm_exps(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024")
-    recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")
-    recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")
-    recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")
+    recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 4.07
+    recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.91
+    recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.93
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
@@ -1807,7 +1807,13 @@ def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
         first_pass_recog_beam_size=128,
     )
 
-    for sct in [None, 0.7, 0.8]:
+    # Commented numbers are for ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024".
+
+    for sct in [
+        None,  # 3.96
+        0.7,  # 3.95
+        0.8,  # 3.96
+    ]:
         name_postfix = ""
         extra_config = {}
         if sct is not None:
@@ -1832,12 +1838,11 @@ def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
         )
 
     for sct, smp_top_p, smp_mnp in [
-        (0.7, 0.95, None),
-        (0.6, None, None),
-        (0.7, None, None),
-        (0.7, 0.95, None),
-        (0.7, 0.95, 10),
-        (0.8, None, None),
+        (0.6, None, None),  # 3.98
+        (0.7, None, None),  # 3.97
+        (0.7, 0.95, None),  # 3.98 (other test sets are slightly better, but not much diff overall)
+        (0.7, 0.95, 10),  # 3.98 (no diff with max_noise_point...)
+        (0.8, None, None),  # 3.97
     ]:
         name_postfix = f"-sct{sct}"
         extra_config_n_best_list = {}
