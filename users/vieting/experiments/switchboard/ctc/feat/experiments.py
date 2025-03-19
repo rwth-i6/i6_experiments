@@ -1396,7 +1396,7 @@ def run_scf_combination_experiments():
                     **returnn_args["extra_args"],
                     "audio_perturb_args": {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
                     "preload_from_files": {
-                        _preload_dict_helper("conformer_bs2x5k_scf_stft20ms_fmask_5_8of512", 24)
+                        **_preload_dict_helper("conformer_bs2x5k_scf_stft20ms_fmask_5_8of512", 24)
                     },
                 },
             },
@@ -1417,7 +1417,7 @@ def run_scf_combination_experiments():
                         "non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1, "default": 1},
                     },
                     "preload_from_files": {
-                        _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24)
+                        **_preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24)
                     },
                 },
             },
@@ -1436,7 +1436,7 @@ def run_scf_combination_experiments():
                         "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
                     },
                     "preload_from_files": {
-                        _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24)
+                        **_preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24)
                     },
                 },
             },
@@ -1455,7 +1455,7 @@ def run_scf_combination_experiments():
                         "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
                     },
                     "preload_from_files": {
-                        _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256_pre1", 24)
+                        **_preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256_pre1", 24)
                     },
                 },
             },
