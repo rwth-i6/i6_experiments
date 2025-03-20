@@ -1298,6 +1298,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
+            # tested for paper since perturbation exps used alpha=1, result same as with 0.97
             "bs10k_scf_stft10ms_fmask_5_8of256_pre1": dict(
                 returnn_args={
                     **returnn_args,
