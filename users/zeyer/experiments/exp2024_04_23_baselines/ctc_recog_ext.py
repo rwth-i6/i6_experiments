@@ -1490,6 +1490,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     )
     first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
     first_pass_search_rqmt.setdefault("time", 24)
+    first_pass_search_rqmt.setdefault("mem", 50)
     res = recog_model(
         task=task,
         model=model,
