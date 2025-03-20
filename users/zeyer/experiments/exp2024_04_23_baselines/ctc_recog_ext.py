@@ -62,6 +62,9 @@ _lms = {
     "n32-d1024-claix2023": _Lm(
         "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k", "v4", "lm_claix2023"
     ),
+    "n32-d1280-claix2023": _Lm(
+        "trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k", "v4", "lm_claix2023"
+    ),
 }
 
 
