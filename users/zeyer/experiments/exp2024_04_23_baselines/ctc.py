@@ -1676,12 +1676,15 @@ def train_exp(
         train_def = ctc_training
     serialization_version = config.get("__serialization_version", None)
     train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
+    train_kwargs = {}
+    if epilog:
+        assert train is train_v3
+        train_kwargs["epilog"] = epilog
     model_with_checkpoints = train(
         prefix,
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
-        epilog=epilog,
         model_def=model_def,
         train_def=train_def,
         num_epochs=num_epochs,
@@ -1689,6 +1692,7 @@ def train_exp(
         num_processes=num_processes,
         time_rqmt=time_rqmt,
         env_updates=env_updates,
+        **train_kwargs,
     )
 
     recog_post_proc_funcs = []
