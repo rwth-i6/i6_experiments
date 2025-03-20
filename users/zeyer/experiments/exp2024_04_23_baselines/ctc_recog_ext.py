@@ -1472,7 +1472,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
                 prior_scale=prior_scale,
                 lm=lm,
                 lm_scale=lm_scale,
-                lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
             )
