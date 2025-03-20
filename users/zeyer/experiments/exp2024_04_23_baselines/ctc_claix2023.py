@@ -20,7 +20,6 @@ from .configs import (
 from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
-from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
 
 import returnn.frontend as rf
