@@ -1626,6 +1626,7 @@ def train_exp(
     *,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
+    task: Optional[Task] = None,
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
@@ -1644,7 +1645,8 @@ def train_exp(
     """
     Train experiment
     """
-    from i6_experiments.users.zeyer.train_v3 import train
+    from i6_experiments.users.zeyer.train_v3 import train as train_v3
+    from i6_experiments.users.zeyer.train_v4 import train as train_v4
     from i6_experiments.users.zeyer.recog import recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
@@ -1655,13 +1657,15 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
+    if not task:
+        task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
     if "__train_audio_preprocess" in config:
         task: Task = copy.copy(task)
         task.train_dataset = copy.copy(task.train_dataset)
+        assert hasattr(task.train_dataset, "train_audio_preprocess")  # e.g. LibrispeechOggZip
         task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
     if not model_def:
@@ -1670,7 +1674,9 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = ctc_training
-    model_with_checkpoint = train(
+    serialization_version = config.get("__serialization_version", None)
+    train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
+    model_with_checkpoints = train(
         prefix,
         task=task,
         config=config,
@@ -1688,12 +1694,20 @@ def train_exp(
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
+    search_config = None
+    if serialization_version is not None:
+        search_config = {"__serialization_version": serialization_version}
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+        prefix,
+        task,
+        model_with_checkpoints,
+        recog_def=model_recog,
+        search_config=search_config,
+        recog_post_proc_funcs=recog_post_proc_funcs,
     )
 
-    _train_experiments[name] = model_with_checkpoint
-    return model_with_checkpoint
+    _train_experiments[name] = model_with_checkpoints
+    return model_with_checkpoints
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
