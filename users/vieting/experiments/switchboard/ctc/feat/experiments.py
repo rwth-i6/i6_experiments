@@ -1298,6 +1298,18 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
+            # tested for paper since perturbation exps used alpha=1, result same as with 0.97
+            "bs10k_scf_stft10ms_fmask_5_8of256_pre1": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8},
+                    "batch_size": 10000,
+                    "extra_args": {"conv_pad_seq_len_to_power": 1.5},
+                },
+                feature_args={**feature_args_scf, "preemphasis": 1.0},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[24, 350, 390, 400, 410, 420, 430, 440, 450],
@@ -1316,6 +1328,156 @@ def run_specaug_stft_experiments():
         "report_specaug_stft.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [24, 350, 390, 400, 410, 420, 430, 440, 450]},
+    )
+    return report, ctc_nn_system
+
+
+def run_scf_combination_experiments():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    _, nn_system_stft_specaug = run_specaug_stft_experiments()
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets(use_multi_proc_dataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "audio_perturbation": True,
+        "use_multi_proc_dataset": True,
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
+            "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+        },
+    }
+
+    # usually the lr args would need to be adapted to fit with the checkpoint,
+    # but experiments showed that restarting the scheduling is better
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    feature_args_scf = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97}
+
+    def _preload_dict_helper(train_name, epoch):
+        return {
+            "existing-model": {
+                "filename": nn_system_stft_specaug.train_jobs[train_name].out_checkpoints[epoch],
+                "init_for_train": True,
+            },
+        }
+
+    nn_base_args = {
+        # Final result in Max' Thesis 
+        "scf_bs2x5k_stft20ms_fmask_5_8of512_tempo": dict(
+            returnn_args={
+                **returnn_args,
+                "specaug_stft": {
+                    "max_feature": 8,
+                    "frame_size": 400,
+                    "frame_shift": 160,
+                    "fft_size": 512,
+                },
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+                    "preload_from_files": _preload_dict_helper("conformer_bs2x5k_scf_stft20ms_fmask_5_8of512", 24),
+                },
+            },
+            feature_args=feature_args_scf,
+            lr_args=lr_args,
+        ),
+        # tested for paper, but performed worse than just tempo
+        "scf_bs10k_stft10ms_fmask_5_8of256_tempo_nonlinear_preemphasis": dict(
+            returnn_args={
+                **returnn_args,
+                "specaug_stft": {"max_feature": 8},
+                "batch_size": 10000,
+                "extra_args": {
+                    "conv_pad_seq_len_to_power": 1.5,
+                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+                    "audio_perturb_args": {
+                        "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
+                        "preemphasis": {"prob": 0.7, "minimum": -0.05, "maximum": 0.05, "default": 0.0},
+                        "non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1, "default": 1},
+                    },
+                    "preload_from_files": _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24),
+                },
+            },
+            feature_args=feature_args_scf,
+            lr_args=lr_args,
+        ),
+        # Used in paper as combined result
+        "scf_bs10k_stft10ms_fmask_5_8of256_tempo": dict(
+            returnn_args={
+                **returnn_args,
+                "specaug_stft": {"max_feature": 8},
+                "batch_size": 10000,
+                "extra_args": {
+                    "conv_pad_seq_len_to_power": 1.5,
+                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+                    "audio_perturb_args": {
+                        "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
+                    },
+                    "preload_from_files": _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256", 24),
+                },
+            },
+            feature_args=feature_args_scf,
+            lr_args=lr_args,
+        ),
+        # Tested since other audio perturbation results are unsing preemphasis 1 
+        "scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1": dict(
+            returnn_args={
+                **returnn_args,
+                "specaug_stft": {"max_feature": 8},
+                "batch_size": 10000,
+                "extra_args": {
+                    "conv_pad_seq_len_to_power": 1.5,
+                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+                    "audio_perturb_args": {
+                        "tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3},
+                    },
+                    "preload_from_files": _preload_dict_helper("conformer_bs10k_scf_stft10ms_fmask_5_8of256_pre1", 24),
+                },
+            },
+            feature_args={**feature_args_scf, "preemphasis": 1.0},
+            lr_args=lr_args,
+        ),
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args=nn_base_args,
+        num_epochs=426,
+        evaluation_epochs=[24, 376, 386, 396, 406, 426],
+        prefix="conformer_",
+    )
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        returnn_root=returnn_root,
+        recog_args={"epochs": [376, 386, 396, 406, 426]},
     )
     return report, ctc_nn_system
 
