@@ -36,7 +36,7 @@ class Bitarray:
 
 THandleEndOfData = Literal["exception", "wrap_around", "early_exit"]
 
-
+'''
 class MixingDataset(CachedDataset2):
     """
     This mixes two datasets. They are expected to provide the same data-keys and data-dimensions.
@@ -439,6 +439,7 @@ class MixingDataset(CachedDataset2):
             if how == "wrap_around":
                 fracs[i] = 0.0
         return min(1.0, max(fracs))
+'''
 
 
 class MixingDataset2(CachedDataset2):
@@ -486,7 +487,7 @@ class MixingDataset2(CachedDataset2):
         assert datasets.keys() == how_to_handle_end_of_data.keys()
         # TODO we could allow mixing_ratio = 0 with some additional logic, but I don't think this is necessary to implement
         assert all([0.0 < mixing_ratio for mixing_ratio in mixing_ratios.values()])
-        # TODO a sum = 1 would have a nice probabilistic interpretability, but maybe this is too annoying for a user to ensure
+        # TODO a sum = 1 would have a nice probabilistic interpretation, but maybe this is too annoying for a user to calculate
         # imagine 5 different mixing ratios, and having to adjust all even when you only want to adjust the proportion of a single dataset
         assert sum(mixing_ratios.values()) > 0
         assert len(how_to_handle_end_of_data) == len(datasets)
@@ -526,38 +527,41 @@ class MixingDataset2(CachedDataset2):
         # here we estimate num_seqs of this MixingDataset, we don't really need this but it has been helpful for debugging
         # we consider each child dataset individually, and calculate how much total num_seqs we have seen when the child dataset has exhausted for the first time
         # this estimate assumes that the average `_data_metric` of all datasets is equal, which is not always true in practice
-        finish_seqs_arr = []
-        for i, ds in enumerate(self.datasets):
-            completion_frac_of_other_datasets = 0
-            for i2, ds2 in enumerate(self.datasets):
-                if i == i2:
-                    continue
-                completion_frac_of_other_datasets += self.mixing_ratios[i2] / self.mixing_ratios[i]
-            est = ds.num_seqs * (1 + completion_frac_of_other_datasets)
-            finish_seqs_arr.append(est)
+        try:
+            finish_seqs_arr = []
+            for i, ds in enumerate(self.datasets):
+                completion_frac_of_other_datasets = 0
+                for i2, ds2 in enumerate(self.datasets):
+                    if i == i2:
+                        continue
+                    completion_frac_of_other_datasets += self.mixing_ratios[i2] / self.mixing_ratios[i]
+                est = ds.num_seqs * (1 + completion_frac_of_other_datasets)
+                finish_seqs_arr.append(est)
 
-        num_seqs_estimate = 0
-        if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
-            # epoch terminates if any dataset finishes
-            num_seqs_estimate = math.ceil(min(finish_seqs_arr))
-        elif all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
-            # epoch terminates if all datasets finish
-            num_seqs_estimate = math.ceil(max(finish_seqs_arr))
-        else:  # mix
-            for i, how in enumerate(self.how_to_handle_end_of_data):
-                if how == "wrap_around":  # this dataset will never cause an epoch end
-                    finish_seqs_arr[i] = float("inf")
-            num_seqs_estimate = math.ceil(min(finish_seqs_arr))
+            num_seqs_estimate = 0
+            if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
+                # epoch terminates if any dataset finishes
+                num_seqs_estimate = math.ceil(min(finish_seqs_arr))
+            elif all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
+                # epoch terminates if all datasets finish
+                num_seqs_estimate = math.ceil(max(finish_seqs_arr))
+            else:  # mix
+                for i, how in enumerate(self.how_to_handle_end_of_data):
+                    if how == "wrap_around":  # this dataset will never cause an epoch end
+                        finish_seqs_arr[i] = float("inf")
+                num_seqs_estimate = math.ceil(min(finish_seqs_arr))
 
-        assert not math.isnan(num_seqs_estimate) and not math.isinf(num_seqs_estimate)
-        self._estimated_num_seqs = num_seqs_estimate
+            assert not math.isnan(num_seqs_estimate) and not math.isinf(num_seqs_estimate)
+            self._estimated_num_seqs = num_seqs_estimate
+        except NotImplementedError:
+            pass  # num_seqs not implemented
         print(
-            f"MixingDataset init: {" + ".join([ds.num_seqs() for ds in self.datasets])}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
+            f"MixingDataset init: {" + ".join([ds.num_seqs for ds in self.datasets])}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
             file=log.v4,
         )
 
         assert (
-            self._estimated_num_seqs < 2**31
+            self._estimated_num_seqs is None or self._estimated_num_seqs < 2**31
         ), "unreasonably large num_seqs estimate, adjust mixing ratios and/or `how_to_handle_end_of_data`"  # TODO do we still need this assert?
 
         # up until which point we have chosen
@@ -717,7 +721,7 @@ class MixingDataset2(CachedDataset2):
 
         ran_ids = self._run_seq_idx(seq_idx)
         if seq_idx >= self.chooser_index or ran_ids is None:
-            return None  # we could not progress to the desired seq_idx, epoch ends here
+            return None, None  # we could not progress to the desired seq_idx, epoch ends here
 
         assert self.chooser_index == seq_idx + 1
         # reverse last decision to get actual indices
@@ -725,20 +729,11 @@ class MixingDataset2(CachedDataset2):
         idxs[self._last_decision] -= 1
         return tuple(idxs), self._last_decision
 
-    def _get_childindices_and_decision_at_seq_idx(self, seq_idx):
-        result, decision = self._get_raw_childindices_and_decision_at_seq_idx(seq_idx)
-        if result is None:
-            return result
-        result = list(result)
-        for i, idx in enumerate(result):
-            result[i] = result[i] % self.datasets[i].num_seqs
-
-        return tuple(result), decision
-
     def _get_dataset_and_childindex_at_seq_idx(self, seq_idx):
-        indices, decision = self._get_childindices_and_decision_at_seq_idx(seq_idx)
-        assert indices is not None and decision is not None
-        return decision, indices[decision]
+        result, decision = self._get_raw_childindices_and_decision_at_seq_idx(seq_idx)
+        assert result is not None and decision is not None
+
+        return decision, result[decision] % self.datasets[decision].num_seqs
 
     def _collect_single_seq(self, seq_idx):
         """
@@ -759,7 +754,7 @@ class MixingDataset2(CachedDataset2):
             return False
         # TODO this could potentially lead to a bug because the following function can only go forward
         # then we fail when this function steps too far forward and we can't get the indices when we want to access the data
-        ids, decision = self._get_childindices_and_decision_at_seq_idx(seq_idx)
+        ids, decision = self._get_raw_childindices_and_decision_at_seq_idx(seq_idx)
         return ids is not None
 
     @property
@@ -823,7 +818,7 @@ class MixingDataset2(CachedDataset2):
     ) -> Optional[float]:
         # we need to get the raw ones (so not wrapped around) because `datasets_exhausted` is only set to true once we actually access that index
         # so we would read 0% completion when we are actually one decision away from ending the epoch, which also breaks monotonicity of this function
-        indices = self._get_raw_childindices_and_decision_at_seq_idx(sorted_seq_idx)
+        indices, decision = self._get_raw_childindices_and_decision_at_seq_idx(sorted_seq_idx)
         if indices is None:
             return 1.0  # we are done
 
@@ -833,12 +828,13 @@ class MixingDataset2(CachedDataset2):
                 fracs.append(1.0)
             else:
                 try:
-                    fracs.append(
-                        ds.get_complete_frac(
-                            max(0, indices[i] - 1), allow_only_lr_suitable=allow_only_lr_suitable, **kwargs
-                        )
+                    frac = ds.get_complete_frac(
+                        max(0, indices[i] - 1), allow_only_lr_suitable=allow_only_lr_suitable, **kwargs
                     )
-                except:
+                    if frac is None:
+                        raise NotImplementedError()
+                    fracs.append(frac)
+                except NotImplementedError:
                     assert ds.num_seqs > 0
                     fracs.append(max(0, indices[i] - 1) / ds.num_seqs)
         if all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
