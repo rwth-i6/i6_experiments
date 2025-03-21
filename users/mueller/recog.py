@@ -374,7 +374,7 @@ def recog_model(
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             num_shards=num_shards,
             cache_manager=cache_manager,
-            # count_repeated_path=f"{name.replace('/search/', '/repeated_count/')}" if dataset_name == "dev-other" else None
+            # dataset_stats_path=f"{name.replace('/search/', '/ds_stats/')}/{dataset_name}" if name and "/125" in name and not "/tune/" in name else None
         )
         if calculate_scores:
             if dataset_name.startswith("train"):
@@ -456,7 +456,7 @@ def search_dataset(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     num_shards: Optional[int] = None,
     cache_manager: bool = True,
-    count_repeated_path: Optional[str] = None
+    dataset_stats_path: Optional[str] = None
 ) -> tuple[RecogOutput, tk.Path]:
     """
     Recog on the specific dataset using RETURNN.
@@ -575,6 +575,9 @@ def search_dataset(
                 # Also assume we should collapse repeated labels first.
                 res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
             res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+        if dataset_stats_path is not None:
+            cnt = DataSetStatsJob(res).out_count_results
+            tk.register_output(dataset_stats_path, cnt)
         for f in recog_post_proc_funcs:  # for example BPE to words
             res = f(RecogOutput(output=res)).output
         if recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
@@ -586,9 +589,6 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    if count_repeated_path:
-        cnt = DataSetStatsJob(res).out_count_results
-        tk.register_output(count_repeated_path, cnt)
     return RecogOutput(output=res), beam_res
 
 

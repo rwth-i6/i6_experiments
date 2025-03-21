@@ -289,7 +289,6 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             data_spatial_dim=data_spatial_dim,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
-            weights = extern_data["weights"] if "weights" in extern_data else None
         )
 
 

@@ -1,5 +1,6 @@
 import string
 import copy
+import statistics
 
 from i6_core.returnn import ReturnnConfig as RF
 from i6_core.util import instanciate_delayed
@@ -7,6 +8,7 @@ from i6_experiments.common.setups.serialization import PartialImport as PI
 from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 from sisyphus.hash import sis_hash_helper
 from sisyphus import Job, Task, tk
+from sisyphus import tools as sis_tools
 from i6_core.util import uopen
 from i6_experiments.users.mueller.datasets.librispeech import _get_corpus_text_dict, TextDictToTextLinesJob
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
@@ -83,13 +85,16 @@ class ReturnnConfigCustom(RF):
     
 class DataSetStatsJob(Job):
 
-    def __init__(self, bpe_text: tk.Path):
+    def __init__(self, bpe_text: tk.Path, extract_repeated: bool = False):
         """
         :param search_py_output: a search output file from RETURNN in python format (single or n-best)
         :param output_gzip: gzip the output
         """
         self.bpe_text = bpe_text
         self.out_count_results = self.output_path("count_results.py")
+        if extract_repeated:
+            self.out_repeated = self.output_path("repeated.txt")
+        self.extract_repeated = extract_repeated
 
     def tasks(self):
         """task"""
@@ -98,13 +103,18 @@ class DataSetStatsJob(Job):
     def run(self):
         """run"""
         f = uopen(self.bpe_text.get_path(), "rt").read()
-        if isinstance(f, str):
-            d = f.split("\n")
-            assert isinstance(d, list)
-        else:
+        try:
             d = eval(f, {"nan": float("nan"), "inf": float("inf")})
             assert isinstance(d, dict)  # seq_tag -> bpe string
-            d = d.items()
+            d = list(d.values())
+        except Exception as e:
+            d = f.split("\n")
+            assert len(d[-1]) == 0
+            d = d[:-1]
+        assert isinstance(d, list)
+        
+        repeated = []
+        
         with uopen(self.out_count_results, "wt") as out:
             out.write("{\n")
             num_repeated = 0
@@ -113,12 +123,14 @@ class DataSetStatsJob(Job):
             nbest = 0
             max_seq_len = 0
             min_seq_len = 10000000000
+            lengths = []
             for entry in d:
                 if isinstance(entry, list):
                     # n-best list as [(score, text), ...]
                     nbest=len(entry)
                     for score, text in entry:
                         prev = len(text.split(" "))
+                        lengths.append(prev)
                         if prev > max_seq_len:
                             max_seq_len = prev
                         if prev < min_seq_len:
@@ -129,27 +141,54 @@ class DataSetStatsJob(Job):
                 else:
                     nbest=1
                     prev = len(entry.split(" "))
+                    lengths.append(prev)
                     if prev > max_seq_len:
                         max_seq_len = prev
                     if prev < min_seq_len:
                         min_seq_len = prev
                     num_words_total += prev
                     new = len(self._filter(entry).split(" "))
+                    if self.extract_repeated and prev != new:
+                        repeated.append(entry)
                     num_repeated += (prev - new)
             out.write("%r: %r,\n" % ("Repeated", num_repeated))
             out.write("%r: %r,\n" % ("Nr of BPEs", num_words_total))
             out.write("%r: %r,\n" % ("Repeated Percentage", (num_repeated / num_words_total) * 100))
             out.write("%r: %r,\n" % ("Nbest", nbest))
             out.write("%r: %r,\n" % ("Nr of Seqs", num_seqs_total))
-            out.write("%r: %r,\n" % ("BPEs per Seqs", (num_seqs_total / num_words_total)))
+            out.write("%r: %r,\n" % ("BPEs per Seqs", (num_words_total / num_seqs_total)))
+            out.write("%r: %r,\n" % ("Median BPEs per Seqs", statistics.median(lengths)))
+            out.write("%r: %r,\n" % ("Stdev BPEs per Seqs", statistics.stdev(lengths)))
+            assert min_seq_len == min(lengths)
             out.write("%r: %r,\n" % ("Min BPEs for Seqs", min_seq_len))
+            assert max_seq_len == max(lengths)
             out.write("%r: %r,\n" % ("Max BPEs for Seqs", max_seq_len))
             out.write("}\n")
+            
+        if self.extract_repeated:
+            with uopen(self.out_repeated, "wt") as out:
+                for r in repeated:
+                    out.write(r + "\n")
 
     def _filter(self, txt: str) -> str:
         tokens = txt.split(" ")
         tokens = [t1 for (t1, t2) in zip(tokens, [None] + tokens) if t1 != t2]
         return " ".join(tokens)
+    
+    @classmethod
+    def hash(cls, parsed_args) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        # Extend the default hash() function.
+        d = parsed_args.copy()
+        if not d["extract_repeated"]:
+            d.pop("extract_repeated")
+        
+        # Add this to the hash to change the hash.
+        d["_nr"] = 5
+        return sis_tools.sis_hash(d)
     
 def calc_stats(vocab: Bpe):
     subword_nmt = get_returnn_subword_nmt()
@@ -165,5 +204,6 @@ def calc_stats(vocab: Bpe):
             gzip_output=True,
             mini_task=False,
         ).out_bpe_text
-        cnt = DataSetStatsJob(t_text).out_count_results
-        tk.register_output(f"datasets/LibriSpeech/stats/{corpus}_ground_truth", cnt)
+        cnt = DataSetStatsJob(t_text, False)
+        tk.register_output(f"datasets/LibriSpeech/stats/{corpus}_ground_truth", cnt.out_count_results)
+        # tk.register_output(f"datasets/LibriSpeech/stats/{corpus}_repeated", cnt.out_repeated)

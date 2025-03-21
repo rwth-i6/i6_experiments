@@ -15,7 +15,7 @@ class CorpusReplaceOrthFromPyDictJob(Job):
     Merge HDF pseudo labels back into a bliss corpus
     """
 
-    def __init__(self, bliss_corpus, recog_words_file, segment_file=None, return_scores=False):
+    def __init__(self, bliss_corpus, recog_words_file, segment_file=None):
         """
         :param Path bliss_corpus: Bliss corpus
         :param Path recog_words_file: a recog_words file
@@ -27,9 +27,6 @@ class CorpusReplaceOrthFromPyDictJob(Job):
 
         self.out_corpus = self.output_path("corpus.xml.gz")
         self.scores_file = None
-        if return_scores:
-            self.scores_file = self.output_path("scores.hdf")
-        self.return_scores = return_scores
 
     def tasks(self):
         yield SisTask("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
@@ -54,9 +51,9 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         assert isinstance(d, dict), "only search output file with dict format is supported"
         
         j = 0
-        if self.return_scores:
-            SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
-            out_hdf = SimpleHDFWriter(filename=self.scores_file.get_path(), dim=None)
+        # if self.return_scores:
+        #     SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
+        #     out_hdf = SimpleHDFWriter(filename=self.scores_file.get_path(), dim=None)
         for segment in segment_iterator:
             assert segment.fullname() in d, f"Segment {segment.fullname()} not in search output"
             line = d[segment.fullname()]
@@ -68,9 +65,7 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                 j += 1
             else:
                 if isinstance(line, list):
-                    assert self.return_scores
                     lines = []
-                    scores = []
                     for e in line:
                         new_str = e[1].strip()
                         if new_str:
@@ -78,40 +73,25 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                                 raise ValueError(f"Duplicate pseudo label {new_str} in segment {segment.fullname()}")
                             else:
                                 lines.append(new_str)
-                                scores.append(e[0])
                         else:
                             print(f"Empty pseudo label in segment {segment.fullname()}")
                             lines.append("")
-                            scores.append(e[0])
                     line = " ZZZZZ ".join(lines)
-                    out_hdf.insert_batch(
-                        inputs=np.array(scores, dtype=np.float32).reshape(1, -1),
-                        seq_len=[len(scores)],
-                        seq_tag=[segment.fullname()],
-                    )
+                    # out_hdf.insert_batch(
+                    #     inputs=np.array(scores, dtype=np.float32).reshape(1, -1),
+                    #     seq_len=[len(scores)],
+                    #     seq_tag=[segment.fullname()],
+                    # )
                 segment.orth = line.strip()
         n = len(c.recordings)
         m = len(d)
         assert m == n + j, f"Number of segments in corpus ({n+j}) does not match number of segments in search output ({m})"
         
-        if self.return_scores:
-            out_hdf.close()
+        # if self.return_scores:
+        #     out_hdf.close()
         
         print(f"Number of segments with empty pseudo label: {j} out of {m}, Percentage: {j/m}")
         c.dump(self.out_corpus.get_path())
-        
-    @classmethod
-    def hash(cls, parsed_args: Dict[str, Any]) -> str:
-        """
-        :param parsed_args:
-        :return: hash for job given the arguments
-        """
-        # Extend the default hash() function.
-        d = parsed_args.copy()
-        if not d["return_scores"]:
-            d.pop("return_scores")
-        
-        return sis_tools.sis_hash(d)
         
 class GetScoresDummy(Job):
     """
