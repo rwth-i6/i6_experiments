@@ -4,7 +4,7 @@ Config for RWTH IPC CLAIX-2023 cluster experiments for CTC
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Optional, Any, Dict
 from sisyphus import tk
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
@@ -25,6 +25,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanc
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerPositionwiseFeedForward
+from ...model_interfaces import ModelWithCheckpoint
 
 
 def py():
@@ -1679,7 +1680,7 @@ def py():
     # TODO ctc without aux
 
 
-def recog_ext_with_lm(*, ctc_model_name: str, lm_name: str):
+def recog_ext_with_lm(*, ctc_model_name: str, ctc_model: Optional[ModelWithCheckpoint] = None, lm_name: str):
     from .ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         _get_lm_model,
@@ -1696,7 +1697,7 @@ def recog_ext_with_lm(*, ctc_model_name: str, lm_name: str):
     )
 
     prefix = "ctc"
-    ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
+    ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
     prior = get_ctc_prior_probs(
