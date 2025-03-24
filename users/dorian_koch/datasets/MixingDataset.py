@@ -504,7 +504,8 @@ class MixingDataset2(CachedDataset2):
             self.child_ds_lens.append(None)
 
         if control_dataset is not None:
-            self.control_dataset = self.datasets[control_dataset]
+            assert control_dataset in self.dataset_name_to_idx
+            self.control_dataset = self.datasets[self.dataset_name_to_idx[control_dataset]]
         else:
             self.control_dataset = self.datasets[0]
         self.num_inputs = make_hashable(
@@ -532,7 +533,7 @@ class MixingDataset2(CachedDataset2):
             except NotImplementedError:
                 pass  # num_seqs not implemented
 
-        if all([l is not None for l in child_ds_lens]):
+        if all([l is not None for l in self.child_ds_lens]):
             finish_seqs_arr = []
             for i, ds in enumerate(self.datasets):
                 completion_frac_of_other_datasets = 0
@@ -582,7 +583,7 @@ class MixingDataset2(CachedDataset2):
         # we use Decimal here to make floating point operations deterministic
         self.bias = [Decimal(0.0)] * len(self.datasets)
         # total number of data units used from each dataset
-        self.datalens = [0] * len(self.datasets)
+        self.datalens = [Decimal(0.0)] * len(self.datasets)
         self._get_raw_childindices_and_decision_at_seq_idx.cache_clear()
 
     def init_seq_order(self, epoch=None, seq_list=None, seq_order=None):
@@ -656,8 +657,8 @@ class MixingDataset2(CachedDataset2):
             chosen_dataset = self.datasets[dataset_index]
 
             is_idx_at_end = False
+            cur_idx = self.chooser_childindices[dataset_index]
             if self.child_ds_lens[dataset_index] is not None:
-                cur_idx = self.chooser_childindices[dataset_index]
                 is_idx_at_end = cur_idx > 0 and cur_idx % self.child_ds_lens[dataset_index] == 0
             else:  # we don't know where our child ds ends
                 is_idx_at_end = not chosen_dataset.is_less_than_num_seqs(cur_idx)
@@ -696,13 +697,9 @@ class MixingDataset2(CachedDataset2):
                 else:
                     assert False, f"{self.how_to_handle_end_of_data[dataset_index]} not implemented"
 
-            self._make_sure_idx_is_loaded_in_child_ds(
-                dataset_index, self.chooser_childindices[dataset_index] % self.child_ds_lens[dataset_index]
-            )
+            self._make_sure_idx_is_loaded_in_child_ds(dataset_index, cur_idx % self.child_ds_lens[dataset_index])
             datalen = self._data_metric(
-                chosen_dataset.get_data(
-                    self.chooser_childindices[dataset_index] % self.child_ds_lens[dataset_index], self.data_key
-                )
+                chosen_dataset.get_data(cur_idx % self.child_ds_lens[dataset_index], self.data_key)
             )
             # print(f"({dataset_index}) datalen={datalen} shape={data.shape}")
             self.bias[dataset_index] -= max(datalen, 1) / self.mixing_ratios[dataset_index]
@@ -712,7 +709,7 @@ class MixingDataset2(CachedDataset2):
             if self.bias[dataset_index] < -100:  # -100 is arbitrary
                 # if we don't shift back to 0 our biases will go towards negative infinity
                 adjust = min(self.bias)
-                self.bias = [b - adjust for b in bias]
+                self.bias = [b - adjust for b in self.bias]
             self.datalens[dataset_index] += datalen
             self.chooser_childindices[dataset_index] += 1
             self.chooser_index += 1
@@ -738,6 +735,7 @@ class MixingDataset2(CachedDataset2):
         assert self.chooser_index == seq_idx + 1
         # reverse last decision to get actual indices
         idxs = list(ran_ids)
+        assert self._last_decision is not None
         idxs[self._last_decision] -= 1
         return tuple(idxs), self._last_decision
 
@@ -837,13 +835,13 @@ class MixingDataset2(CachedDataset2):
             return 1.0  # we are done
 
         fracs = []
-        for i, ds in enumerate(self.datasets):
-            if self.datasets_exhausted[i]:
+        for ds_idx, ds in enumerate(self.datasets):
+            if self.datasets_exhausted[ds_idx]:
                 fracs.append(1.0)
             else:
                 try:
                     frac = ds.get_complete_frac(
-                        max(0, indices[i] - 1), allow_only_lr_suitable=allow_only_lr_suitable, **kwargs
+                        max(0, indices[ds_idx] - 1), allow_only_lr_suitable=allow_only_lr_suitable, **kwargs
                     )
                     if frac is None:
                         raise NotImplementedError()
@@ -854,7 +852,7 @@ class MixingDataset2(CachedDataset2):
                     if self.child_ds_lens[ds_idx] == 0:
                         fracs.append(1.0)  # TODO maybe we should consider this an error
                     else:
-                        fracs.append(max(0, indices[i] - 1) / self.child_ds_lens[ds_idx])
+                        fracs.append(max(0, indices[ds_idx] - 1) / self.child_ds_lens[ds_idx])
         if all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
             return min(fracs)
         if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
