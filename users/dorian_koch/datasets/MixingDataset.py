@@ -36,7 +36,7 @@ class Bitarray:
 
 THandleEndOfData = Literal["exception", "wrap_around", "early_exit"]
 
-
+'''
 class MixingDataset(CachedDataset2):
     """
     This mixes two datasets. They are expected to provide the same data-keys and data-dimensions.
@@ -439,6 +439,13 @@ class MixingDataset(CachedDataset2):
             if how == "wrap_around":
                 fracs[i] = 0.0
         return min(1.0, max(fracs))
+'''
+
+
+def modulo_optional(x: int, modulus: Optional[int]):
+    if modulus is None:
+        return x
+    return x % modulus
 
 
 class MixingDataset2(CachedDataset2):
@@ -495,11 +502,13 @@ class MixingDataset2(CachedDataset2):
         self.datasets = []
         self.mixing_ratios = []
         self.how_to_handle_end_of_data = []
+        self.child_ds_lens = []
         for name, dataset in datasets.items():
             self.dataset_name_to_idx[name] = len(self.datasets)
             self.datasets.append(init_dataset(dataset, parent_dataset=self))
             self.mixing_ratios.append(Decimal(mixing_ratios[name]))
             self.how_to_handle_end_of_data.append(how_to_handle_end_of_data[name])
+            self.child_ds_lens.append(None)
 
         if control_dataset is not None:
             self.control_dataset = self.datasets[control_dataset]
@@ -516,17 +525,21 @@ class MixingDataset2(CachedDataset2):
         for ds in self.datasets:  # TODO maybe we can relax these restrictions to <=
             assert self.num_inputs == make_hashable(ds.num_inputs)
             assert self.num_outputs == make_hashable(ds.num_outputs)
+
         self._reset_params()
 
-    def _reset_params(self):
-        assert all(
-            [not (0 < ds.num_seqs < 10) for ds in self.datasets]
-        ), "mixing can go wrong when one dataset has very few seqs"
-
+    def _reset_seqs(self):
         # here we estimate num_seqs of this MixingDataset, we don't really need this but it has been helpful for debugging
         # we consider each child dataset individually, and calculate how much total num_seqs we have seen when the child dataset has exhausted for the first time
         # this estimate assumes that the average `_data_metric` of all datasets is equal, which is not always true in practice
-        try:
+        for i, ds in enumerate(self.datasets):
+            self.child_ds_lens[i] = None
+            try:
+                self.child_ds_lens[i] = ds.num_seqs
+            except NotImplementedError:
+                pass  # num_seqs not implemented
+
+        if all([l is not None for l in child_ds_lens]):
             finish_seqs_arr = []
             for i, ds in enumerate(self.datasets):
                 completion_frac_of_other_datasets = 0
@@ -534,7 +547,7 @@ class MixingDataset2(CachedDataset2):
                     if i == j:
                         continue
                     completion_frac_of_other_datasets += self.mixing_ratios[j] / self.mixing_ratios[i]
-                est = ds.num_seqs * (1 + completion_frac_of_other_datasets)
+                est = self.child_ds_lens[i] * (1 + completion_frac_of_other_datasets)
                 finish_seqs_arr.append(est)
 
             num_seqs_estimate = 0
@@ -552,17 +565,17 @@ class MixingDataset2(CachedDataset2):
 
             assert not math.isnan(num_seqs_estimate) and not math.isinf(num_seqs_estimate)
             self._estimated_num_seqs = num_seqs_estimate
-        except NotImplementedError:
-            pass  # num_seqs not implemented
-        print(
-            f"MixingDataset init: {" + ".join([ds.num_seqs for ds in self.datasets])}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
-            file=log.v4,
-        )
 
         assert (
             self._estimated_num_seqs is None or self._estimated_num_seqs < 2**31
         ), "unreasonably large num_seqs estimate, adjust mixing ratios and/or `how_to_handle_end_of_data`"  # TODO do we still need this assert?
 
+        print(
+            f"MixingDataset init: {" + ".join(self.child_ds_lens)}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
+            file=log.v4,
+        )
+
+    def _reset_params(self):
         # up until which point we have chosen
         self.chooser_index = 0
         self.is_chooser_done = False
@@ -600,6 +613,7 @@ class MixingDataset2(CachedDataset2):
         for ds in self.datasets:
             ds.init_seq_order(epoch=epoch)
         self._reset_params()
+        self._reset_seqs()
         return True
 
     def _data_metric(self, v: numpy.ndarray):
@@ -610,21 +624,23 @@ class MixingDataset2(CachedDataset2):
         This makes sure that we can access the data at seq_idx in the child dataset
         """
         chosen_dataset = self.datasets[dataset_index]
-        child_len = chosen_dataset.num_seqs
 
         # this is needed because CachedDatasets wants to be accessed in a strictly increasing (iterator-like) order
         # therefore we need to reinitialize it before we start accessing from the beginning again
         # TODO: maybe theres a less hacky way to fix this?
         if hasattr(chosen_dataset, "expected_load_seq_start") and seq_idx < chosen_dataset.expected_load_seq_start:
-            prev_num_seqs = chosen_dataset.num_seqs
+            prev_num_seqs = self.child_ds_lens[dataset_index]
             chosen_dataset.init_seq_order(epoch=self.epoch)
+            try:
+                self.child_ds_lens[dataset_index] = chosen_dataset.num_seqs
+            except NotImplementedError:
+                pass
             assert (
-                chosen_dataset.num_seqs == prev_num_seqs
+                self.child_ds_lens[dataset_index] == prev_num_seqs
             ), "data in ds has changed even though we reinitialized the same epoch. this code is only supposed to reset the state back to index zero, not change the data"
             self.datasets_loaded_until[dataset_index] = 0
 
         if self.datasets_loaded_until[dataset_index] <= seq_idx:
-            # loading up to 512 seqs because why not TODO figure out if this actually improves performance
             start = self.datasets_loaded_until[dataset_index]
             end = seq_idx + 1
             assert start < end
@@ -640,24 +656,30 @@ class MixingDataset2(CachedDataset2):
             raise Exception("seq_idx < chooser_index")
         assert not self.is_chooser_done
 
-        child_lens = [ds.num_seqs for ds in self.datasets]
         while seq_idx >= self.chooser_index:
             # we need to choose
             dataset_index = max(range(len(self.bias)), key=self.bias.__getitem__)  # dataset idx with highest bias
             self._last_decision = dataset_index
             chosen_dataset = self.datasets[dataset_index]
 
-            if (
-                self.chooser_childindices[dataset_index] % child_lens[dataset_index] == 0
-                and self.chooser_childindices[dataset_index] > 0
-            ):
+            is_idx_at_end = False
+            if self.child_ds_lens[dataset_index] is not None:
+                cur_idx = self.chooser_childindices[dataset_index]
+                is_idx_at_end = cur_idx > 0 and cur_idx % self.child_ds_lens[dataset_index] == 0
+            else:  # we don't know where our child ds ends
+                is_idx_at_end = not chosen_dataset.is_less_than_num_seqs(cur_idx)
+                if is_idx_at_end:
+                    assert cur_idx > 0, "empty dataset"
+                    assert chosen_dataset.is_less_than_num_seqs(cur_idx - 1)  # we expect cur_idx == num_seqs
+                    self.child_ds_lens[dataset_index] = cur_idx
+            if is_idx_at_end:
                 self.datasets_exhausted[dataset_index] = True
                 print(f"MixingDataset: ({dataset_index}) exhausted", file=log.v4)
                 self._print_progress()
                 """
                 TODO: implement this optimal mixing ratio calc for more than two datasets
-                c0 = self.chooser_childindices[0] / max(1, child_lens[0])
-                c1 = self.chooser_childindices[1] / max(1, child_lens[1])
+                c0 = self.chooser_childindices[0] / max(1, self.child_ds_lens[0])
+                c1 = self.chooser_childindices[1] / max(1, self.child_ds_lens[1])
                 print(
                     f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)} (assuming uniform random distribution)",
                     file=log.v4,
@@ -682,11 +704,11 @@ class MixingDataset2(CachedDataset2):
                     assert False, f"{self.how_to_handle_end_of_data[dataset_index]} not implemented"
 
             self._make_sure_idx_is_loaded_in_child_ds(
-                dataset_index, self.chooser_childindices[dataset_index] % child_lens[dataset_index]
+                dataset_index, self.chooser_childindices[dataset_index] % self.child_ds_lens[dataset_index]
             )
             datalen = self._data_metric(
                 chosen_dataset.get_data(
-                    self.chooser_childindices[dataset_index] % child_lens[dataset_index], self.data_key
+                    self.chooser_childindices[dataset_index] % self.child_ds_lens[dataset_index], self.data_key
                 )
             )
             # print(f"({dataset_index}) datalen={datalen} shape={data.shape}")
@@ -730,7 +752,9 @@ class MixingDataset2(CachedDataset2):
         result, decision = self._get_raw_childindices_and_decision_at_seq_idx(seq_idx)
         assert result is not None and decision is not None
 
-        return decision, result[decision] % self.datasets[decision].num_seqs
+        if self.child_ds_lens[decision] is None:
+            return decision, result[decision]
+        return decision, result[decision] % self.child_ds_lens[decision]
 
     def _collect_single_seq(self, seq_idx):
         """
@@ -777,13 +801,13 @@ class MixingDataset2(CachedDataset2):
         for ds_name, ds_idx in self.dataset_name_to_idx.items():
             ds = self.datasets[ds_idx]
             prefix = f"MixingDataset: [{ds_idx}]'{ds_name}'"
-            if ds.num_seqs > 0:
+            if self.child_ds_lens[ds_idx] == 0:
+                print(f"{prefix}: empty", file=log.v4)
+            else:
                 print(
-                    f"{prefix}: {self.chooser_childindices[ds_idx]}/{ds.num_seqs} ({self.chooser_childindices[ds_idx] / ds.num_seqs * 100}%) exhausted={self.datasets_exhausted[ds_idx]}, avg_datalen={self.datalens[ds_idx]/max(1, self.chooser_childindices[ds_idx])}",
+                    f"{prefix}: {self.chooser_childindices[ds_idx]}/{self.child_ds_lens[ds_idx]} ({self.chooser_childindices[ds_idx] / self.child_ds_lens[ds_idx] * 100}%) exhausted={self.datasets_exhausted[ds_idx]}, avg_datalen={self.datalens[ds_idx]/max(1, self.chooser_childindices[ds_idx])}",
                     file=log.v4,
                 )
-            else:
-                print(f"{prefix}: empty", file=log.v4)
 
     def finish_epoch(self, *, free_resources: bool = False):
         """finish epoch"""
@@ -832,8 +856,12 @@ class MixingDataset2(CachedDataset2):
                         raise NotImplementedError()
                     fracs.append(frac)
                 except NotImplementedError:
-                    assert ds.num_seqs > 0
-                    fracs.append(max(0, indices[i] - 1) / ds.num_seqs)
+                    if self.child_ds_lens[ds_idx] is None:
+                        raise NotImplementedError()  # we can't give a good value here
+                    if self.child_ds_lens[ds_idx] == 0:
+                        fracs.append(1.0)  # TODO maybe we should consider this an error
+                    else:
+                        fracs.append(max(0, indices[i] - 1) / self.child_ds_lens[ds_idx])
         if all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
             return min(fracs)
         if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
