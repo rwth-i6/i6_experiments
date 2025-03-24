@@ -9,6 +9,7 @@ from i6_core.returnn import Checkpoint
 from i6_experiments.users.vieting.tools.report import Report
 from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
 from i6_experiments.users.vieting.util.returnn import iterate_returnn_datasets
+from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import (
     run_mel_baseline as run_mel_baseline_ctc,
     run_scf_baseline as run_scf_baseline_ctc,
@@ -696,8 +697,11 @@ def run_scf_stage1():
         features="waveform_pcm",
     )
 
-    # get_lgm_ctc_alignment_for_scf_viterbi is a dummy
-    returnn_datasets_align_ctc_lgm = get_lgm_ctc_alignment_for_scf_viterbi()
+    alignment = tk.Path("/work/asr3/vieting/share/kannen/swb_alignment_ctc_lgm_to_scf.hdf")
+    returnn_datasets_align_ctc_lgm = copy.deepcopy(returnn_datasets_align_ctc)
+    for key in ["train", "dev"]:
+        returnn_datasets_align_ctc_lgm[key]["datasets"]["align"]["files"] = [alignment]
+    returnn_datasets_align_ctc_lgm["eval_datasets"]["devtrain"]["datasets"]["align"]["files"] = [alignment]
 
     returnn_base_args = {
         "batch_size": 15000,
@@ -758,7 +762,7 @@ def run_scf_stage1():
                 returnn_args={
                     **returnn_base_args,
                     "specaug_old": {"max_feature": 15},
-                }
+                },
                 report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
@@ -787,7 +791,7 @@ def run_scf_stage1():
                 report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
-            "bs15k_align_lgm-feat-ctc_stft": dict(
+            "bs15k_align_lgm-ctc_stft20ms_fmask_15of512": dict(
                 returnn_args={
                     **returnn_base_args,
                     "datasets": returnn_datasets_align_ctc_lgm,
@@ -797,6 +801,58 @@ def run_scf_stage1():
                     },
                     "specaug_stft": {
                         "max_feature": 15,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
+                **common_args,
+            ),
+            "bs15k_align_lgm-ctc-feat-stft20ms_fmask_8of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "datasets": returnn_datasets_align_ctc_lgm,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "max_feature": 8,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
+                **common_args,
+            ),
+            "bs15k_align_scf-ctc-feat_stft20ms_fmask_15of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "max_feature": 15,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
+                **common_args,
+            ),
+            "bs15k_align_scf-ctc-feat_stft20ms_fmask_8of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "max_feature": 8,
                         "frame_size": 400,
                         "frame_shift": 160,
                         "fft_size": 512,
