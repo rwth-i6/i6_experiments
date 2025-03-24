@@ -539,6 +539,8 @@ def make_conformer_transducer_model(
                 "frame_shift": frame_shift,
                 "fft_size": fft_size,
             }
+        elif specaug_old is False:
+            python_code = []  # no specaugment
         elif specaug_old is not None:
 
             sort_layer2 = specaug_old.pop("sort_layer2", False)
@@ -551,8 +553,6 @@ def make_conformer_transducer_model(
                 **specaug_old,
             }
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)      
-        elif specaug_old is False:
-            python_code = []  # no specaugment
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 

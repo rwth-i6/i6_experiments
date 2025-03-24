@@ -949,8 +949,8 @@ def run_scf_stage2():
             ),
             "bs3k_v1_align-lgm_stft20ms_fmask_15of512": dict(
                 returnn_args={
-                    "preload_checkpoint": nn_system_stage1_testing.train_jobs[
-                        "viterbi_scf_bs15k_align_lgm-ctc-feat_stft20ms_fmask_15of512"
+                    "preload_checkpoint": nn_system_stage1.train_jobs[
+                        "viterbi_scf_bs15k_align_lgm-ctc_stft20ms_fmask_15of512"
                     ].out_checkpoints[300],
                     "specaug_stft": {
                         "max_feature": 15,
@@ -965,7 +965,7 @@ def run_scf_stage2():
             ),
             "bs3k_v1_align-scf_stft20ms_fmask_15of512": dict(
                 returnn_args={
-                    "preload_checkpoint": nn_system_stage1_testing.train_jobs[
+                    "preload_checkpoint": nn_system_stage1.train_jobs[
                         "viterbi_scf_bs15k_align_scf-ctc-feat_stft20ms_fmask_15of512"
                     ].out_checkpoints[300],
                     "specaug_stft": {
