@@ -36,7 +36,7 @@ class Bitarray:
 
 THandleEndOfData = Literal["exception", "wrap_around", "early_exit"]
 
-'''
+
 class MixingDataset(CachedDataset2):
     """
     This mixes two datasets. They are expected to provide the same data-keys and data-dimensions.
@@ -439,13 +439,6 @@ class MixingDataset(CachedDataset2):
             if how == "wrap_around":
                 fracs[i] = 0.0
         return min(1.0, max(fracs))
-'''
-
-
-def modulo_optional(x: int, modulus: Optional[int]):
-    if modulus is None:
-        return x
-    return x % modulus
 
 
 class MixingDataset2(CachedDataset2):
