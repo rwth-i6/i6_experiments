@@ -909,7 +909,7 @@ def run_scf_stage2():
                 "max-batch-size": 256,
                 "reduction-factors": 80 * 4,
                 # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RASR needs -1.
-                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1, 
+                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1,
                 "start-label-index": 89,
                 "transform-output-negate": True,
                 "use-start-label": True,
@@ -962,6 +962,7 @@ def run_scf_stage2():
     for training_name in nn_system.train_jobs:
         nn_system.train_jobs[training_name].rqmt["gpu_mem"] = 24
     return nn_system, report
+
 
 def run_scf_stage3():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
@@ -1018,9 +1019,9 @@ def run_scf_stage3():
         "label_scorer_type": "tf-ffnn-transducer",
         "epochs": [210],
     }
-    nn_system_stage2.returnn_configs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].recog_configs["recog"].config["network"]["output"][
-        "unit"
-    ]["label_context"][
+    nn_system_stage2.returnn_configs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].recog_configs["recog"].config[
+        "network"
+    ]["output"]["unit"]["label_context"][
         "from"
     ] = "output"  # no ILM, just SF
     nn_system_stage2.run_recogs_for_corpora(
@@ -1108,7 +1109,9 @@ def run_scf_stage3():
         "specaug_old": False,
         "rasr_loss_args": {"transducer_training_stage": "mbr"},
         "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
-        "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].out_checkpoints[210],
+        "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].out_checkpoints[
+            210
+        ],
     }
     feature_args = {
         "class": "ScfNetwork",
