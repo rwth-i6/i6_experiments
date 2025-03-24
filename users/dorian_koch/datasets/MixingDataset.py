@@ -36,7 +36,7 @@ class Bitarray:
 
 THandleEndOfData = Literal["exception", "wrap_around", "early_exit"]
 
-'''
+
 class MixingDataset(CachedDataset2):
     """
     This mixes two datasets. They are expected to provide the same data-keys and data-dimensions.
@@ -439,7 +439,6 @@ class MixingDataset(CachedDataset2):
             if how == "wrap_around":
                 fracs[i] = 0.0
         return min(1.0, max(fracs))
-'''
 
 
 class MixingDataset2(CachedDataset2):
@@ -531,21 +530,21 @@ class MixingDataset2(CachedDataset2):
             finish_seqs_arr = []
             for i, ds in enumerate(self.datasets):
                 completion_frac_of_other_datasets = 0
-                for i2, ds2 in enumerate(self.datasets):
-                    if i == i2:
+                for j in range(len(self.datasets)):
+                    if i == j:
                         continue
-                    completion_frac_of_other_datasets += self.mixing_ratios[i2] / self.mixing_ratios[i]
+                    completion_frac_of_other_datasets += self.mixing_ratios[j] / self.mixing_ratios[i]
                 est = ds.num_seqs * (1 + completion_frac_of_other_datasets)
                 finish_seqs_arr.append(est)
 
             num_seqs_estimate = 0
             if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
-                # epoch terminates if any dataset finishes
+                # epoch terminates iff any dataset finishes
                 num_seqs_estimate = math.ceil(min(finish_seqs_arr))
             elif all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
-                # epoch terminates if all datasets finish
+                # epoch terminates iff all datasets finish
                 num_seqs_estimate = math.ceil(max(finish_seqs_arr))
-            else:  # mix
+            else:  # mix, similar to first case but exclude all ds with "wrap_around"
                 for i, how in enumerate(self.how_to_handle_end_of_data):
                     if how == "wrap_around":  # this dataset will never cause an epoch end
                         finish_seqs_arr[i] = float("inf")
@@ -574,6 +573,7 @@ class MixingDataset2(CachedDataset2):
         self.datasets_loaded_until = [0] * len(self.datasets)
 
         # TODO the name `bias` can be misleading, find a better name
+        # we use Decimal here to make floating point operations deterministic
         self.bias = [Decimal(0.0)] * len(self.datasets)
         # total number of data units used from each dataset
         self.datalens = [0] * len(self.datasets)
@@ -612,8 +612,9 @@ class MixingDataset2(CachedDataset2):
         chosen_dataset = self.datasets[dataset_index]
         child_len = chosen_dataset.num_seqs
 
-        # TODO this is needed because CachedDatasets wants to be accessed in a strictly increasing (iterator-like) order
+        # this is needed because CachedDatasets wants to be accessed in a strictly increasing (iterator-like) order
         # therefore we need to reinitialize it before we start accessing from the beginning again
+        # TODO: maybe theres a less hacky way to fix this?
         if hasattr(chosen_dataset, "expected_load_seq_start") and seq_idx < chosen_dataset.expected_load_seq_start:
             prev_num_seqs = chosen_dataset.num_seqs
             chosen_dataset.init_seq_order(epoch=self.epoch)
@@ -624,19 +625,15 @@ class MixingDataset2(CachedDataset2):
 
         if self.datasets_loaded_until[dataset_index] <= seq_idx:
             # loading up to 512 seqs because why not TODO figure out if this actually improves performance
-            start = seq_idx
-            end = (seq_idx + min(child_len - 1, 512)) % child_len
+            start = self.datasets_loaded_until[dataset_index]
+            end = seq_idx + 1
+            assert start < end
+            assert (
+                end - start < 16
+            )  # there is no reason why we would suddenly skip a large chunk of data, probably a bug
 
-            if end < start:  # end exceeds num_seqs of the child dataset, so only load until the end
-                # print(f"({dataset_index}) end < start: loading segs from {start} to {child_len}", file=log.v4)
-                chosen_dataset.load_seqs(start, child_len)
-                self.datasets_loaded_until[dataset_index] = child_len
-                assert self.datasets_loaded_until[dataset_index] >= seq_idx
-                # not sure if we should also load from 0 to end here, it may erase the data from start to child_lens? idk
-            else:
-                # print(f"({dataset_index}) just loading segs from {start} to {end}", file=log.v4)
-                chosen_dataset.load_seqs(start, end)
-                self.datasets_loaded_until[dataset_index] = end
+            chosen_dataset.load_seqs(start, end)
+            self.datasets_loaded_until[dataset_index] = end
 
     def _run_seq_idx(self, seq_idx):
         if seq_idx < self.chooser_index:
@@ -671,7 +668,7 @@ class MixingDataset2(CachedDataset2):
                     self._last_decision = None
                     raise Exception("MixingDataset: end of dataset %d %r" % (dataset_index, chosen_dataset))
                 elif self.how_to_handle_end_of_data[dataset_index] == "early_exit":
-                    # the last decision can not be used to get more data (index is beyond the end of the dataset),
+                    # the last decision can not be used to get more data (index of chosen dataset is beyond the end of the dataset),
                     # so we break here
                     self.is_chooser_done = True
                     self._last_decision = None
@@ -698,7 +695,7 @@ class MixingDataset2(CachedDataset2):
                 self.bias[dataset_index]
             )  # this should never ever happen
             if self.bias[dataset_index] < -100:  # -100 is arbitrary
-                # if we don't shift back to 0 our bias will go towards negative infinity
+                # if we don't shift back to 0 our biases will go towards negative infinity
                 adjust = min(self.bias)
                 self.bias = [b - adjust for b in bias]
             self.datalens[dataset_index] += datalen
