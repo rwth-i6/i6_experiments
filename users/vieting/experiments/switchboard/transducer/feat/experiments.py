@@ -9,7 +9,6 @@ from i6_core.returnn import Checkpoint
 from i6_experiments.users.vieting.tools.report import Report
 from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
 from i6_experiments.users.vieting.util.returnn import iterate_returnn_datasets
-from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import (
     run_mel_baseline as run_mel_baseline_ctc,
     run_scf_baseline as run_scf_baseline_ctc,
