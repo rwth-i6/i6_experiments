@@ -898,7 +898,8 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 log_stream=log_stream,
             ):
                 self._add_recog(epoch)
-            log_stream.close()
+            if log_stream != sys.stdout:
+                log_stream.close()
             self._update_checked_relevant_epochs = True
 
     def _add_recog(self, epoch: int):
