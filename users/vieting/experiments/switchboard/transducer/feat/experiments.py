@@ -696,7 +696,10 @@ def run_scf_stage1():
         features="waveform_pcm",
     )
 
-    alignment = tk.Path("/work/asr3/vieting/share/kannen/swb_alignment_ctc_lgm_to_scf.hdf")
+    alignment = tk.Path(
+        "/work/asr3/vieting/share/kannen/swb_alignment_ctc_lgm_to_scf.hdf",
+        hash_overwrite="swb_alignment_ctc_lgm_to_scf.hdf",
+    )
     returnn_datasets_align_ctc_lgm = copy.deepcopy(returnn_datasets_align_ctc)
     for key in ["train", "dev"]:
         returnn_datasets_align_ctc_lgm[key]["datasets"]["align"]["files"] = [alignment]
