@@ -1203,7 +1203,7 @@ def run_scf_stage3():
                     "fullsum_scf_bs3k_v1_align-lgm_stft20ms_fmask_15of512"
                 ].out_checkpoints[210],
             },
-            report_args={"stage": "mbr", "model": "lgm_stft"},
+            report_args={"stage": "mbr", "model": "scf_align-lgm_stft"},
             **common_args,
         ),
         "bs2k_v1_scf_stage3": dict(
