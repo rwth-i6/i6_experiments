@@ -802,7 +802,6 @@ def run_scf_stage1():
                         "preload_from_files": preload_dict,
                     },
                     "specaug_stft": {
-                        "max_feature": 15,
                         "frame_size": 400,
                         "frame_shift": 160,
                         "fft_size": 512,
@@ -837,7 +836,6 @@ def run_scf_stage1():
                         "preload_from_files": preload_dict,
                     },
                     "specaug_stft": {
-                        "max_feature": 15,
                         "frame_size": 400,
                         "frame_shift": 160,
                         "fft_size": 512,
@@ -955,7 +953,6 @@ def run_scf_stage2():
                         "viterbi_scf_bs15k_align_lgm-ctc_stft20ms_fmask_15of512"
                     ].out_checkpoints[300],
                     "specaug_stft": {
-                        "max_feature": 15,
                         "frame_size": 400,
                         "frame_shift": 160,
                         "fft_size": 512,
@@ -971,7 +968,6 @@ def run_scf_stage2():
                         "viterbi_scf_bs15k_align_scf-ctc-feat_stft20ms_fmask_15of512"
                     ].out_checkpoints[300],
                     "specaug_stft": {
-                        "max_feature": 15,
                         "frame_size": 400,
                         "frame_shift": 160,
                         "fft_size": 512,

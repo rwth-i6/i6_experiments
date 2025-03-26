@@ -515,7 +515,7 @@ def make_conformer_transducer_model(
                 "max_time_num": 1,
                 "max_time": 15,
                 "max_feature_num": 5,
-                "max_feature": 4,
+                "max_feature": 15,
                 **specaug_stft,
             }
 
