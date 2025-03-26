@@ -1054,10 +1054,7 @@ def run_scf_stage3():
         "epochs": [210],
     }
     nn_system_stage2.returnn_configs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].recog_configs["recog"].config[
-        "network"
-    ]["output"]["unit"]["label_context"][
-        "from"
-    ] = "output"  # no ILM, just SF
+        "network"]["output"]["unit"]["label_context"]["from"] = "output"  # no ILM, just SF
     nn_system_stage2.run_recogs_for_corpora(
         ["train"], "fullsum_scf_bs3k_v1_align-ctc-conf-e400", SearchTypes.GenericSeq2SeqSearchJob, **recog_args_nbest
     )
