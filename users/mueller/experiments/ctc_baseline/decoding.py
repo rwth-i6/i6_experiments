@@ -51,7 +51,6 @@ def recog_flashlight_ngram(
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     
     hyp_params = copy.copy(hyperparameters)
-    hyp_params.pop("version", 0)
     lm_name = hyp_params.pop("lm_order", None)
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
@@ -919,8 +918,7 @@ def recog_ffnn(
     
     if int(beam_dim.get_dim_value()) >= n_best:
         if n_best > 1:
-            if not recomb_after_topk:
-                pass # TODO update hash
+            assert recomb_after_topk and recomb_blank # TODO update hash also in the other cases
             
             seq_log_prob, indices, beam_dim_new = rf.top_k(
                 seq_log_prob, k_dim=Dim(n_best, name=f"nbest-beam"), axis=beam_dim

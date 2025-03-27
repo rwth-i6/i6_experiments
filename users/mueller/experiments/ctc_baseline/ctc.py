@@ -45,78 +45,82 @@ num_shards_prior_init = None
 calculate_pseudo_label_scores = True
 calculate_pseudo_label_scores_init = True
 decode_nbest_epochs = 0
-decode_nbest_epochs_init = 0
+decode_nbest_epochs_init = 2
 decode_all_fixed_epochs = True
-decode_all_fixed_epochs_init = False
+decode_all_fixed_epochs_init = True
 exclude_epochs = True
 cache_manager = True
 
 def py():
     """Sisyphus entry point"""
+
+    # Training config
+    vocab = "bpe128"                            # Vocab, e.g. "bpe128", "spm20k", "char", "bpe10k"
+    epochs = 500                                # Training epochs, might be changed later dependent on self-training iterations
+    self_training_rounds = 4                    # Self-supervised training rounds
+    reset_steps = False                         # Whether to reset step count after the first self-training round (affects LR schedule)
+    init_small = False                          # 100h supervised initialization
+    from_scratch = False                        # Self-training starts from scratch
+    pseudo_label_small = False                  # 860h pseudo-labels if True, 960h pseudo-labels if False
+    keep_small_labels = True                    # Keep true labels of 100h data during self-training
+    pseudo_nbest = 1                            # Number of pseudo-label sequences
+    norm_nbest_rescore = False                  # Normalize the LM and Prior values for each pseudo label sequence before adding them up
+    calc_last_pseudo_labels = False             # Calculate the pseudo labels after the last iteration of self-training
+    decode_every_step = False                   # Decode every step during self-training
+    accum_grad_multiple_step = 1                # Accumulate gradients over multiple steps
+    aux_loss = True                             # Whether to use the auxiliary loss
+    use_norm_st_loss = True                     # Use normalized loss during self-training
+    use_ce_loss = False                         # Use CE loss instead of CTC loss
+    
+    # Decoder config (more further down)
+    decoding_imp = "albert-lm"                  # Decoding implementation, e.g. "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy""
+    with_prior = True                           # Whether to use a prior during decoding
+    empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
+    prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
+    alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
+    tune_hyperparameters = False                # Tune decoder hyperparameters in between self-training rounds
+    # decoder_lm_config = {}                    # LM selection for decoding, empty for word-level 4-gram
+    decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding, empty for word-level 4-gram
+    # decoder_lm_config = {"class": "ngram", "order": 2} # LM selection for decoding, empty for word-level 4-gram
+    use_recombination = True                    # Use recombination during decoding (only albert-lm)
+    recombine_blank = True                      # Recombine sequences ending on blank with last seen same label (only albert-lm)
+    recombine_after_topk = True                 # Recombine after top-k extraction instead of before (only albert-lm)
+    
+    # Configs for full-sum training
+    use_sum_criterion = False                   # Use full-sum criterion
+    horizontal_prior = False                    # Use prior for transitions with label repetitions which get collapsed to one label
+    blank_prior = False                         # Use prior for blank transitions
+    prior_gradient = False                      # If the prior is calculated for each batch, we can add this to the gradient
+    empirical_prior_full_sum = True             # Use empirical prior for full-sum criterion
+    prior_from_max_full_sum = False             # Use max instead of softmax for prior calculation used during full-sum training
+    # train_lm_config = {"class": "FeedForwardLm", "context_size": 3} # LM selection for full-sum training
+    train_lm_config = {"class": "ngram", "order": 2} # LM selection for full-sum training
+    top_k = 0                                   # Whether to use top-k approximation instead of full-sum, 0 for full-sum
+    alignment_topk = False                      # Apply top-k on alignment level instead of output level (the scores are recombined)
+    version = 1                                 # Version for full-sum added to change the hash
+    print_gradients = True                      # Print gradients for a few sequences
+    blank_correction_version = 0                # Which version of blank correction we want to use, 0 for no correction
+    correction_in_final_score = False           # Apply the correction in the final score as well instad of just using the corrections duing top-k
+    am_lm_prior = (1.0, 1.0, 1.0)               # Weights for the AM, LM and Prior in the full-sum criterion
+    
+    # Configs for the optimizer
+    use_sgd = False                             # Use SGD instead of AdamW
+    adamw_betas = None # (0.5, 0.98) # None     # AdamW betas
+    self_train_subset = None # 18000            # Train on a subset of the data
+    # TODO gradient_clip_global_norm
+    
+    assert not decode_every_step or (decode_every_step and decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
+    assert pseudo_nbest == 1 or (decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
+    assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
         rf.encoder.conformer.ConformerEncoderLayer,
         ff_activation=rf.build_dict(rf.relu_square),
         num_heads=8,
     )
-
-    # Config
-    vocab = "bpe128"                            # "spm20k", "char", "bpe10k"
-    decoding_imp = "flashlight"                 # "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy""
-    epochs = 500                                # Training epochs
-    self_training_rounds = 0                    # Self-supevised training rounds
-    reset_steps = False                          # Whether to reset steps after the first self-training round
-    init_small = True                           # 100h supervised initialization
-    pseudo_label_small = True                   # 860h pseudo-labels
-    keep_small_labels = False                   # Keep true labels of 100h data during self-training
-    pseudo_nbest = 1                            # Number of pseudo-labels
-    with_prior = True
-    empirical_prior = True
-    prior_from_max = False
-    aux_loss = True
-    alt_decoder = False
-    calc_last_pseudo_labels = False
-    tune_hyperparameters = False
-    from_scratch = True
-    decode_every_step = False
-    accum_grad_multiple_step = 1
-    # decoder_lm_config = {}
-    # decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8}
-    decoder_lm_config = {"class": "ngram", "order": 2}
-    use_norm_st_loss = True
-    # only relevant in alberts LM decoding
-    use_recombination = True
-    recombine_blank = True
-    recombine_after_topk = True
-    
-    use_sum_criterion = False
-    horizontal_prior = False
-    blank_prior = False
-    prior_gradient = False
-    empirical_prior_full_sum = True
-    prior_from_max_full_sum = False
-    # train_lm_config = {"class": "FeedForwardLm", "context_size": 3}
-    train_lm_config = {"class": "ngram", "order": 2}
-    top_k = 0
-    version = 1
-    print_gradients = True
-    alignment_topk = False
-    blank_correction_version = 0
-    correction_in_final_score = False
-    am_lm_prior = [
-        (1.0, 0.3, 0.12)
-    ]
-    
-    use_sgd = False
-    adamw_betas = None # (0.5, 0.98) # None
-    self_train_subset = None # 18000
-    # TODO gradient_cli_global_norm
-    
-    assert not decode_every_step or (decode_every_step and decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
-    assert pseudo_nbest == 1 or (decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
-    assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
     model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
     
+    # Read out correct number of epochs dependent on self-training iterations
     if init_small:
         epochs = 50
     if self_training_rounds > 0:
@@ -128,6 +132,7 @@ def py():
         if self_train_subset:
             self_epochs = 56
     
+    # Create decoder hyperparameters
     decoder_hyperparameters = {}
     if decoding_imp == "marten-greedy":
         decoder_hyperparameters = {
@@ -143,15 +148,14 @@ def py():
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
-            "beam_size": 80,
-            "lm_weight": 0.02, # NOTE: weights are exponentials of the probs
+            "beam_size": 10,
+            "lm_weight": 0.8,
             "use_logsoftmax": True,
             "use_lm": True,
             "use_lexicon": True,
-            # "version": 1,
         }
         if with_prior:
-            decoder_hyperparameters["prior_weight"] = 0.0 # 0.2 if not using emprirical prior
+            decoder_hyperparameters["prior_weight"] = 0.3 # 0.2 if not using emprirical prior
         if decoder_lm_config:
             decoder_hyperparameters["lm_order"] = decoder_lm_config["order"] if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}"
             decoder_hyperparameters["use_lexicon"] = False
@@ -168,7 +172,7 @@ def py():
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
-        p2 = f"n{pseudo_nbest}"
+        p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "")
         p3 = f"b{decoder_hyperparameters['beam_size']}"
         p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "")
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
@@ -228,23 +232,31 @@ def py():
         "max_seq_length_default_target": None,
         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
     }
-    config_updates_self_training = {
-        **_get_cfg_lrlin_oclr_by_bs_nep(15_000, self_epochs),
-        "optimizer.weight_decay": 1e-2,
-        "__train_audio_preprocess": speed_pert_librosa_config,
-        "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-        "max_seq_length_default_target": None,
-        "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-    } if self_training_rounds > 0 else None
     
-    if config_updates_self_training:
+    config_updates_self_training = None
+    config_deletes_self_training = None
+    LR_str = ""
+    
+    # Create self-training config
+    if self_training_rounds > 0:
+        config_deletes_self_training = []
+        config_updates_self_training = {
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, self_epochs),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+        }
         if adamw_betas:
             config_updates_self_training["optimizer.betas"] = adamw_betas
         if not reset_steps:
             if pseudo_label_small:
-                config_updates_self_training["learning_rate_piecewise_steps"] = [253_000, 506_000, 562_000]
+                config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 506_000, 562_000]
             else:
-                config_updates_self_training["learning_rate_piecewise_steps"] = [279_000, 558_000, 620_000]
+                config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 558_000, 620_000]
+            peak_lr = 5e-4
+            config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 2e-2, peak_lr, peak_lr * 2e-2, peak_lr * 2e-3]
+            # add something to hash so first training is different and correct epochs are saved
+            if self_training_rounds != 4:
+                config_updates_self_training["_st_rounds"] = self_training_rounds
         if decode_every_step:
             config_updates_self_training["decode_every_step"] = decode_every_step
             assert every_step_hyperparameters
@@ -252,23 +264,52 @@ def py():
         if pseudo_nbest > 1:
             config_updates_self_training["ps_nbest"] = pseudo_nbest
             config_updates_self_training["hyperparameters_decoder"] = decoder_hyperparameters.copy()
+            if norm_nbest_rescore:
+                config_updates_self_training["norm_rescore"] = norm_nbest_rescore
         if accum_grad_multiple_step > 1:
             config_updates_self_training["accum_grad_multiple_step"] = accum_grad_multiple_step
         if not use_norm_st_loss:
             config_updates_self_training["use_normalized_loss"] = use_norm_st_loss
-
-    for am, lm, prior in am_lm_prior:
-        if use_sum_criterion:
-            if am != 1.0 or lm != 1.0 or prior != 1.0:
-                scales_not_std = True
-                config_full_sum = {
-                    "am_scale": am,
-                    "lm_scale": lm,
-                    "prior_scale": prior
-                }
+        if use_ce_loss:
+            config_deletes_self_training.append("speed_pert_discrete_values")
+            config_updates_self_training.pop("__train_audio_preprocess")
+        if not aux_loss:
+            config_deletes_self_training.append("aux_loss_layers")
+        if use_sgd:
+            config_updates_self_training["optimizer"] = {
+                "class": "sgd"
+            }
+        if self_train_subset is not None:
+            # When testing on a smaller subset we only want one gpu
+            config_updates_self_training["__num_processes"] = 1
+            # config_updates_self_training["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
+            config_updates_self_training["learning_rate_piecewise_steps"] = [2_250, 4_500, 5_000]
+            
+            if not use_sgd:
+                # peak_lr = 3e-5
+                # config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 1e-1, peak_lr * 1e-2]
+                # LR_str = "_LRwu-3e5"
+                peak_lr = 1e-4
+                # config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+                # LR_str = "_LRwu-e4"
+                # config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr, peak_lr]
+                # LR_str = "_LRall-e4"
+                config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 0.27, peak_lr * 0.1]
+                LR_str = "_LRedge-e4"
             else:
-                scales_not_std = False
-                config_full_sum = {}
+                peak_lr = 1e-2
+                config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
+        # else:
+        #     peak_lr = 1e-4
+        #     config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 0.27, peak_lr * 0.1]
+        #     LR_str = "_LRedge-e4"
+
+        if use_sum_criterion:
+            config_full_sum = {
+                "am_scale": am_lm_prior[0],
+                "lm_scale": am_lm_prior[1],
+                "prior_scale": am_lm_prior[2]
+            }
             
             if not horizontal_prior:
                 config_full_sum["horizontal_prior"] = horizontal_prior
@@ -294,8 +335,10 @@ def py():
             # This is to change the hash when we made chnages in the loss function
             config_full_sum["version"] = version
             
+            config_updates_self_training.update(config_full_sum)
+            
             sum_str = f"-full_sum" + \
-                (f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" if scales_not_std else "") + \
+                f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" + \
                 (f"_LMorder{train_lm_config['order']}" if train_lm_config["class"] == "ngram" and train_lm_config["order"] > 2 else (f"_ffnn{train_lm_config['context_size']}" if train_lm_config["class"] == "FeedForwardLm" else "")) + \
                 (f"_topK{top_k}" + ("_align" if alignment_topk else "") + (f"_bc{blank_correction_version}" + ("sc" if correction_in_final_score else "") if blank_correction_version > 0 else "") if top_k > 0 else "") + \
                 ("_emp" if empirical_prior_full_sum else "") + \
@@ -306,55 +349,54 @@ def py():
                 
             if train_lm_config:
                 model_config["train_language_model"] = train_lm_config
+    
+    alias_name = ("ctc" if not use_ce_loss else "ce") + \
+        (sum_str if use_sum_criterion else "") + \
+        (f"-st_{self_training_rounds}" + LR_str + ("_no_norm" if not use_norm_st_loss else "") + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else (f"_b1-{str(adamw_betas[0]).replace('.', '')}_b2-{str(adamw_betas[1]).replace('.', '')}" if adamw_betas else "")) + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+        (f"-wo_aux_loss" if not aux_loss else "") + \
+        (f"-ds100h" if init_small else "") + \
+        (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
+        f"-{vocab}" + \
+        f"{decoding_str}"
         
-        alias_name = f"ctc" + \
-            (sum_str if use_sum_criterion else "") + \
-            (f"-st_{self_training_rounds}" + (f"_LRedge-e4" if False else "") + ("_no_norm" if not use_norm_st_loss else "") + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else (f"_b1-{str(adamw_betas[0]).replace('.', '')}_b2-{str(adamw_betas[1]).replace('.', '')}" if adamw_betas else "")) + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
-            (f"-wo_aux_loss" if not aux_loss else "") + \
-            (f"-ds100h" if init_small else "") + \
-            (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
-            f"-{vocab}" + \
-            f"{decoding_str}"
-            
-        if decoding_imp in ["flashlight", "marten-greedy"]:
-            decoder_def = model_recog_lm
-        elif decoding_imp == "albert-greedy":
-            decoder_def = model_recog
-        elif decoding_imp == "albert-flashlight":
-            decoder_def = model_recog_flashlight
-        elif decoding_imp == "albert-lm":
-            decoder_def = model_recog_lm_albert
-        else:
-            raise ValueError(f"Unknown decoder selection: {decoding_imp}")
+    if decoding_imp in ["flashlight", "marten-greedy"]:
+        decoder_def = model_recog_lm
+    elif decoding_imp == "albert-greedy":
+        decoder_def = model_recog
+    elif decoding_imp == "albert-flashlight":
+        decoder_def = model_recog_flashlight
+    elif decoding_imp == "albert-lm":
+        decoder_def = model_recog_lm_albert
+    else:
+        raise ValueError(f"Unknown decoder selection: {decoding_imp}")
 
-        train_exp(
-            name = alias_name,
-            config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            decoder_def = decoder_def,
-            decoder_hyperparameters = decoder_hyperparameters,
-            hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
-            pseudo_nbest=pseudo_nbest,
-            model_config = model_config,
-            config_updates = config_updates,
-            config_updates_self_training = config_updates_self_training,
-            config_full_sum=config_full_sum if use_sum_criterion else None,
-            vocab = vocab,
-            self_training_rounds = self_training_rounds,
-            init_small = init_small,
-            pseudo_label_small = pseudo_label_small,
-            keep_small_labels = keep_small_labels,
-            with_prior = with_prior,
-            empirical_prior=empirical_prior,
-            prior_from_max=prior_from_max,
-            use_sum_criterion=use_sum_criterion,
-            aux_loss=aux_loss,
-            self_train_subset=self_train_subset,
-            calc_last_pseudo_labels=calc_last_pseudo_labels,
-            tune_hyperparameters=tune_hyperparameters,
-            from_scratch=from_scratch,
-            use_sgd=use_sgd,
-            reset_steps=reset_steps,
-        )
+    train_exp(
+        name = alias_name,
+        config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        decoder_def = decoder_def,
+        decoder_hyperparameters = decoder_hyperparameters,
+        hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
+        pseudo_nbest=pseudo_nbest,
+        model_config = model_config,
+        config_updates = config_updates,
+        config_updates_self_training = config_updates_self_training,
+        config_deletes_self_training = config_deletes_self_training,
+        vocab = vocab,
+        self_training_rounds = self_training_rounds,
+        init_small = init_small,
+        pseudo_label_small = pseudo_label_small,
+        keep_small_labels = keep_small_labels,
+        with_prior = with_prior,
+        empirical_prior=empirical_prior,
+        prior_from_max=prior_from_max,
+        use_sum_criterion=use_sum_criterion,
+        use_ce_loss=use_ce_loss,
+        self_train_subset=self_train_subset,
+        calc_last_pseudo_labels=calc_last_pseudo_labels,
+        tune_hyperparameters=tune_hyperparameters,
+        from_scratch=from_scratch,
+        reset_steps=reset_steps,
+    )
     
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -375,9 +417,9 @@ def train_exp(
     train_def: Optional[TrainDef[Model]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
-    config_updates_self_training: Optional[Dict[str, Any]] = None,
-    config_full_sum: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
+    config_updates_self_training: Optional[Dict[str, Any]] = None,
+    config_deletes_self_training: Optional[Sequence[str]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
     num_epochs: int = 2000,
@@ -394,12 +436,11 @@ def train_exp(
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     use_sum_criterion: bool = False,
-    aux_loss: bool = False,
+    use_ce_loss: bool = False,
     self_train_subset: Optional[int] = None,
     calc_last_pseudo_labels: bool = False,
     tune_hyperparameters: bool = False,
     from_scratch: bool = False,
-    use_sgd: bool = False,
     reset_steps: bool = True,
 ) -> Optional[ModelWithCheckpoints]:
     """
@@ -545,6 +586,7 @@ def train_exp(
         recog_def=decoder_def,
         decoder_hyperparameters=decoder_hyperparameters,
         save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
+        pseudo_label_alignment=use_ce_loss,
         pseudo_nbest=pseudo_nbest,
         calculate_pseudo_label_scores=calculate_pseudo_label_scores_init, # NOTE: breaks hash
         search_config=search_config,
@@ -572,67 +614,39 @@ def train_exp(
             with_prior=with_prior,
             empirical_prior=empirical_prior,
             pseudo_label_path = pseudo_label_path_dict,
+            pseudo_label_alignment = use_ce_loss,
             keep_small_labels = keep_small_labels,
             train_subset = self_train_subset,
-            eval_subset = 300 if self_train_subset else 3000,
+            eval_subset = 0 if use_ce_loss else (300 if self_train_subset else 3000),
+            train_epoch_wise_filter = None
         )
         
         config_self = config.copy()
-        config_self = dict_update_deep(config_self, config_updates_self_training)
+        config_self = dict_update_deep(config_self, config_updates_self_training, config_deletes_self_training)
         # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
         if "__train_audio_preprocess" in config_self:
             task: Task = copy.copy(task)
             task.train_dataset = copy.copy(task.train_dataset)
             task.train_dataset.train_audio_preprocess = config_self.pop("__train_audio_preprocess")
+        else:
+            task: Task = copy.copy(task)
+            task.train_dataset = copy.copy(task.train_dataset)
+            task.train_dataset.train_audio_preprocess = None
         
         if use_sum_criterion:
             train_def = ctc_sum_training
-            config_self = dict_update_deep(config_self, config_full_sum)
             if train_lm:
                 config_self["lm_path"] = train_lm
             else:
                 config_self["lm_path"] = "ffnn" + str(model_config["train_language_model"]["context_size"])
+        elif use_ce_loss:
+            train_def = ce_training
             
         if config_self.get("empirical_prior", False) or config_self.get("decode_every_step", False) or config_self.get("ps_nbest", 1) > 1:
             config_self["empirical_prior"] = emp_prior
-                
-        if use_sgd:
-            config_self["optimizer"] = {
-                "class": "sgd"
-            }
-            
-        # When testing on a smaller subset we only want one gpu
-        if self_train_subset is not None:
-            config_self["__num_processes"] = 1
-            # config_self["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
-            config_self["learning_rate_piecewise_steps"] = [2_250, 4_500, 5_000]
-            if not use_sgd:
-                # peak_lr = 1e-4
-                # config_self["learning_rate_piecewise_values"] = [peak_lr * 1.001e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
-                # peak_lr = 3e-5
-                # config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 1e-1, peak_lr * 1e-2]
-                peak_lr = 1e-4
-                # config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr, peak_lr]
-                config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 0.27, peak_lr * 0.1]
-            else:
-                peak_lr = 1e-2
-                config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
-        # else:
-        #     peak_lr = 1e-4
-        #     config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 0.27, peak_lr * 0.1]
-        if not aux_loss:
-            config_self.pop("aux_loss_layers")
-
-        if not reset_steps:
-            peak_lr = 5e-4
-            config_self["learning_rate_piecewise_values"] = [peak_lr * 2e-2, peak_lr, peak_lr * 2e-2, peak_lr * 2e-3]
-            if config_self["learning_rate_piecewise_steps"][0] > 20_000:
-                config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
-            # add something to hash so first training is different and correct epochs are saved
-            if self_training_rounds != 4:
-                config_self["_st_rounds"] = self_training_rounds
+        
         # Use different LR if second iteration, NOTE: this is very specific to 860h training
-        elif i > 0:
+        if i > 0 and reset_steps:
             # if i > 2:
             #     peak_lr = 4e-4
             #     config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
@@ -738,6 +752,7 @@ def train_exp(
             recog_def=decoder_def,
             decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
             save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
+            pseudo_label_alignment=use_ce_loss,
             pseudo_nbest=pseudo_nbest,
             calculate_pseudo_label_scores=calculate_pseudo_label_scores,
             search_config=search_config,

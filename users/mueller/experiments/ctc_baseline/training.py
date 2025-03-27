@@ -13,158 +13,8 @@ from sisyphus import tk
 from i6_core.util import uopen
 
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model
+from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_ffnn
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
-
-def _is_separator(tensor: torch.Tensor, vocab: Vocabulary, nbest: int) -> list[list, list]:
-    with torch.no_grad():
-        batch_size = tensor.size(0)
-        start_sep = vocab.label_to_id("Z@@")
-        end_sep = vocab.label_to_id("Z")
-        idxs = torch.where(tensor == start_sep)
-        n = len(idxs[1])
-        m = tensor.size(1)
-        final_idxs = [[], []]
-        idxs_cnt = dict.fromkeys(list(range(batch_size)), 0)
-        i = 0
-        for b in range(batch_size):
-            for _ in range(nbest - 1):
-                found_all = 0
-                first_idx = None
-                while found_all == 0:
-                    for j in range(4):
-                        if i >= n or idxs[0][i].item() != b:
-                            idxs_cnt[b] += 1
-                            final_idxs[0].append(torch.tensor(b, device=tensor.device))
-                            final_idxs[1].append(torch.tensor(-1, device=tensor.device))
-                            found_all = 2
-                            break
-                        else:
-                            if j > 0 and idxs[1][i - 1] + 1 != idxs[1][i]:
-                                break
-                            elif j == 3:
-                                found_all = 1
-                                break
-                            elif j == 0:
-                                first_idx = i
-                            i += 1
-                    if found_all == 1:
-                        if tensor[idxs[0][i], idxs[1][i] + 1] == end_sep:
-                            idxs_cnt[b] += 1
-                            final_idxs[0].append(idxs[0][first_idx])
-                            final_idxs[1].append(idxs[1][first_idx])
-                            i += 1
-                        else:
-                            found_all = 0
-                            i = first_idx + 1
-        for b in range(batch_size):
-            assert idxs_cnt[b] == nbest - 1, f"Batch {b} has {idxs_cnt[b]} separators, should have {nbest - 1}"
-        return final_idxs
-    
-def _split_on_sep(tensor: torch.Tensor, sizes: torch.Tensor, vocab_dim: Dim, nbest: int) -> tuple[list[rf.Tensor], list[Dim]]:
-    idxs = _is_separator(tensor, vocab_dim.vocab, nbest)
-    batch_size = tensor.size(0)
-    assert len(idxs[0]) == batch_size * (nbest - 1), f"Not enough separators found: {len(idxs[0])}, should be {batch_size * (nbest - 1)}"
-    ret = []
-    new_sizes = []
-    old_lengths = [-5] * batch_size
-    for n in range(nbest):
-        if n < nbest - 1:
-            lengths = [(idxs[1][i] if idxs[1][i].item() != -1 else sizes[int((i - n) / (nbest - 1))]) for i in range(len(idxs[0])) if (i - n) % (nbest - 1) == 0]
-        else:
-            lengths = [sizes[i] for i in range(batch_size)]
-        assert len(lengths) == batch_size, f"Lengths: {len(lengths)}, should be {batch_size}"
-        new_list = []
-        for i in range(batch_size):
-            if lengths[i].item() == -1:
-                new_list.append(torch.tensor([], dtype=tensor.dtype, device=tensor.device))
-            else:
-                t_slice = tensor[i, (old_lengths[i] + 5):lengths[i]]
-                new_list.append(t_slice)
-        new_s = [l.size(0) for l in new_list]
-        max_length = max(new_s)
-        new_list = [torch.cat([t_slice, torch.tensor([0] * (max_length - t_slice.size(0)), device=tensor.device)]) for t_slice in new_list]
-        new_tensor = torch.stack(new_list, dim=0)
-        new_tensor = new_tensor.to(torch.int32)
-        new_s = torch.tensor(new_s, dtype=torch.int32, device=tensor.device)
-        new_s = rf.convert_to_tensor(new_s, dims=(batch_dim,))
-        new_s = Dim(new_s, name="out_spatial", dyn_size_ext=new_s)
-        new_tensor = rf.convert_to_tensor(new_tensor, dims=(batch_dim, new_s), sparse_dim=vocab_dim)
-        ret.append(new_tensor)
-        new_sizes.append(new_s)
-        old_lengths = lengths
-    return ret, new_sizes
-
-def _rescore(
-    targets: rf.Tensor,
-    targets_spatial_dim: Dim,
-    model: Model,
-    hyperparameters: dict,
-    prior_file: tk.Path = None,
-) -> rf.Tensor:
-    import json
-    
-    hyp_params = copy.copy(hyperparameters)
-    lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-    
-    dev_s = rf.get_default_device()
-    dev = torch.device(dev_s)
-    
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
-        
-    # Subtract prior of labels if available
-    if prior_file and prior_weight > 0.0:
-        prior = np.loadtxt(prior_file, dtype="float32")
-        prior *= prior_weight
-        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-        prior[model.blank_idx] = float("-inf")
-        prior = torch.log_softmax(prior, dim=-1)
-        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
-        
-    assert lm_name.startswith("ffnn")
-    assert model.train_language_model
-    assert model.train_language_model.vocab_dim == model.target_dim
-    lm: FeedForwardLm = model.train_language_model
-    # noinspection PyUnresolvedReferences
-    lm_scale: float = hyp_params["lm_weight"]
-    
-    targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
-    )
-    
-    batch_dims = targets.remaining_dims(targets_spatial_dim)
-    lm_state = lm.default_initial_state(batch_dims=batch_dims)
-    lm_logits, lm_state = lm(
-        targets,
-        spatial_dim=targets_spatial_dim,
-        out_spatial_dim=targets_w_eos_spatial_dim,
-        state=lm_state,
-    )  # Flat_Batch_Beam, Vocab / ...
-    logits_packed, pack_dim = rf.pack_padded(
-        lm_logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
-    ) # TODO necessary?
-    assert logits_packed.dims == (*batch_dims, pack_dim, model.target_dim)
-    lm_log_probs = rf.log_softmax(logits_packed, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-    lm_log_probs *= lm_scale
-    if prior_file and prior_weight > 0.0:
-        lm_log_probs = lm_log_probs - prior
-    lm_log_probs = rf.gather(lm_log_probs, axis=model.target_dim, indices=targets_w_eos)
-    lm_log_probs = rf.reduce_sum(lm_log_probs, axis=pack_dim)
-    return lm_log_probs
 
 
 def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim):
@@ -236,10 +86,14 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         
         hyperparameters = config.typed_value("hyperparameters_decoder").copy()
         prior_file = config.typed_value("empirical_prior")
+        norm_rescore = config.bool("norm_rescore", False)
         assert hyperparameters and prior_file
         
         tensor_ls, sizes_ls = _split_on_sep(targets.raw_tensor, targets_spatial_dim.dyn_size_ext.raw_tensor, model.target_dim, nbest)
         n = len(tensor_ls)
+        
+        if norm_rescore:
+            lm_prior_scores_norm = _norm_rescore(tensor_ls, sizes_ls, model, hyperparameters, prior_file)
         
         loss_sum = None
         if aux_loss_layers:
@@ -255,7 +109,10 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             targets_spatial_dim_s = sizes_ls[j]
             
             # TODO add alignment prior
-            lm_prior_score = _rescore(targets_s, targets_spatial_dim_s, model, hyperparameters, prior_file).raw_tensor
+            if norm_rescore:
+                lm_prior_score = lm_prior_scores_norm[j]
+            else:
+                lm_prior_score = _rescore(targets_s, targets_spatial_dim_s, model, hyperparameters, prior_file).raw_tensor
             
             if config.bool("use_eos_postfix", False):
                 targets_s, (targets_spatial_dim_s,) = rf.pad(
@@ -704,6 +561,12 @@ def ce_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: r
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     
+    assert torch.equal(enc_spatial_dim.dyn_size_ext.raw_tensor, targets_spatial_dim.dyn_size_ext.raw_tensor)
+    
+    logits = rf.replace_dim_v2(logits, in_dim=enc_spatial_dim, out_dim=targets_spatial_dim, allow_expand=False, allow_shrink=False)
+    enc_spatial_dim = targets_spatial_dim
+    targets = rf.set_sparse_dim(targets, model.wb_target_dim)
+    
     # batch_dims = data.remaining_dims(data_spatial_dim)
     # logits, pack_dim = rf.pack_padded(
     #     logits, dims=batch_dims + [enc_spatial_dim], enforce_sorted=False
@@ -711,6 +574,7 @@ def ce_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: r
     log_probs = model.log_probs_wb_from_logits(logits)
     
     if decode_every_step:
+        raise NotImplementedError("decode_every_step not implemented for CE loss")
         def _output_hyps(hyp: list) -> list:
             prev = None
             ls = []
@@ -736,7 +600,7 @@ def ce_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: r
             print("LM weight:", hyperparameters["lm_weight"])
         with torch.no_grad():
             batch_dims = data.remaining_dims(data_spatial_dim)
-            hyps = decode_albert(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, train_lm=True)
+            hyps = recog_ffnn(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, train_lm=True)
         assert len(hyps[0]) == 1
         hyps = [_output_hyps(hyps_batch[0]) for hyps_batch in hyps]
         if len(hyps[0]) < 2:
@@ -755,6 +619,7 @@ def ce_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: r
         targets = rf.convert_to_tensor(hyps, dims=(batch_dim, targets_spatial_dim), sparse_dim=model.target_dim)
     
     if nbest > 1:
+        raise NotImplementedError("nbest > 1 not implemented for CE loss")
         from .sum_criterion import safe_logaddexp
         
         hyperparameters = config.typed_value("hyperparameters_decoder").copy()
@@ -858,7 +723,186 @@ def ce_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: r
     )
     loss.mark_as_loss("ce", use_normalized_loss=use_normalized_loss)
 
-    best = rf.reduce_argmax(logits, axis=model.wb_target_dim)
+    best = rf.reduce_argmax(log_probs, axis=model.wb_target_dim)
     frame_error = best != targets
     frame_error.mark_as_loss(name="fer", as_error=True)
 
+
+# Helper functions ------------------------------------------------------
+
+def _is_separator(tensor: torch.Tensor, vocab: Vocabulary, nbest: int) -> list[list, list]:
+    with torch.no_grad():
+        batch_size = tensor.size(0)
+        start_sep = vocab.label_to_id("Z@@")
+        end_sep = vocab.label_to_id("Z")
+        idxs = torch.where(tensor == start_sep)
+        n = len(idxs[1])
+        m = tensor.size(1)
+        final_idxs = [[], []]
+        idxs_cnt = dict.fromkeys(list(range(batch_size)), 0)
+        i = 0
+        for b in range(batch_size):
+            for _ in range(nbest - 1):
+                found_all = 0
+                first_idx = None
+                while found_all == 0:
+                    for j in range(4):
+                        if i >= n or idxs[0][i].item() != b:
+                            idxs_cnt[b] += 1
+                            final_idxs[0].append(torch.tensor(b, device=tensor.device))
+                            final_idxs[1].append(torch.tensor(-1, device=tensor.device))
+                            found_all = 2
+                            break
+                        else:
+                            if j > 0 and idxs[1][i - 1] + 1 != idxs[1][i]:
+                                break
+                            elif j == 3:
+                                found_all = 1
+                                break
+                            elif j == 0:
+                                first_idx = i
+                            i += 1
+                    if found_all == 1:
+                        if tensor[idxs[0][i], idxs[1][i] + 1] == end_sep:
+                            idxs_cnt[b] += 1
+                            final_idxs[0].append(idxs[0][first_idx])
+                            final_idxs[1].append(idxs[1][first_idx])
+                            i += 1
+                        else:
+                            found_all = 0
+                            i = first_idx + 1
+        for b in range(batch_size):
+            assert idxs_cnt[b] == nbest - 1, f"Batch {b} has {idxs_cnt[b]} separators, should have {nbest - 1}"
+        return final_idxs
+    
+def _split_on_sep(tensor: torch.Tensor, sizes: torch.Tensor, vocab_dim: Dim, nbest: int) -> tuple[list[rf.Tensor], list[Dim]]:
+    idxs = _is_separator(tensor, vocab_dim.vocab, nbest)
+    batch_size = tensor.size(0)
+    assert len(idxs[0]) == batch_size * (nbest - 1), f"Not enough separators found: {len(idxs[0])}, should be {batch_size * (nbest - 1)}"
+    ret = []
+    new_sizes = []
+    old_lengths = [-5] * batch_size
+    for n in range(nbest):
+        if n < nbest - 1:
+            lengths = [(idxs[1][i] if idxs[1][i].item() != -1 else sizes[int((i - n) / (nbest - 1))]) for i in range(len(idxs[0])) if (i - n) % (nbest - 1) == 0]
+        else:
+            lengths = [sizes[i] for i in range(batch_size)]
+        assert len(lengths) == batch_size, f"Lengths: {len(lengths)}, should be {batch_size}"
+        new_list = []
+        for i in range(batch_size):
+            if lengths[i].item() == -1:
+                new_list.append(torch.tensor([], dtype=tensor.dtype, device=tensor.device))
+            else:
+                t_slice = tensor[i, (old_lengths[i] + 5):lengths[i]]
+                new_list.append(t_slice)
+        new_s = [l.size(0) for l in new_list]
+        max_length = max(new_s)
+        new_list = [torch.cat([t_slice, torch.tensor([0] * (max_length - t_slice.size(0)), device=tensor.device)]) for t_slice in new_list]
+        new_tensor = torch.stack(new_list, dim=0)
+        new_tensor = new_tensor.to(torch.int32)
+        new_s = torch.tensor(new_s, dtype=torch.int32, device=tensor.device)
+        new_s = rf.convert_to_tensor(new_s, dims=(batch_dim,))
+        new_s = Dim(new_s, name="out_spatial", dyn_size_ext=new_s)
+        new_tensor = rf.convert_to_tensor(new_tensor, dims=(batch_dim, new_s), sparse_dim=vocab_dim)
+        ret.append(new_tensor)
+        new_sizes.append(new_s)
+        old_lengths = lengths
+    return ret, new_sizes
+
+def _rescore(
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+    model: Model,
+    hyperparameters: dict,
+    prior_file: tk.Path = None,
+) -> rf.Tensor:
+    import json
+    
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+    
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+        
+    # Subtract prior of labels if available
+    if prior_file and prior_weight > 0.0:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior *= prior_weight
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        assert model.blank_idx == prior.size(0) - 1
+        # prior[model.blank_idx] = float("-inf")
+        prior = prior[:-1]
+        prior = torch.log_softmax(prior, dim=-1)
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+        
+    assert lm_name.startswith("ffnn")
+    assert model.train_language_model
+    assert model.train_language_model.vocab_dim == model.target_dim
+    lm: FeedForwardLm = model.train_language_model
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = hyp_params["lm_weight"]
+    
+    targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+    )
+    
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    lm_state = lm.default_initial_state(batch_dims=batch_dims)
+    lm_logits, lm_state = lm(
+        targets,
+        spatial_dim=targets_spatial_dim,
+        out_spatial_dim=targets_w_eos_spatial_dim,
+        state=lm_state,
+    )  # Flat_Batch_Beam, Vocab / ...
+    # logits_packed, pack_dim = rf.pack_padded(
+    #     lm_logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+    # )
+    assert lm_logits.dims == (*batch_dims, targets_w_eos_spatial_dim, model.target_dim)
+    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+    lm_log_probs *= lm_scale
+    if prior_file and prior_weight > 0.0:
+        lm_log_probs = lm_log_probs - prior
+    lm_log_probs = rf.gather(lm_log_probs, axis=model.target_dim, indices=targets_w_eos)
+    lm_log_probs = rf.reduce_sum(lm_log_probs, axis=targets_w_eos_spatial_dim)
+    return lm_log_probs
+
+def _norm_rescore(
+    targets_ls: list[rf.Tensor],
+    targets_spatial_dim_ls: list[Dim],
+    model: Model,
+    hyperparameters: dict,
+    prior_file: tk.Path = None,
+) -> list[torch.Tensor]:
+    n = len(targets_ls)
+    lm_prior_scores = []
+    for j in range(n):
+        targets_s = targets_ls[j]
+        targets_spatial_dim_s = targets_spatial_dim_ls[j]
+        
+        # TODO add alignment prior
+        lm_prior_scores.append(_rescore(targets_s, targets_spatial_dim_s, model, hyperparameters, prior_file).raw_tensor)
+        
+    # renormalize
+    lm_prior_scores = torch.stack(lm_prior_scores, dim=0)
+    lm_prior_scores = torch.log_softmax(lm_prior_scores, dim = 0)
+    
+    return torch.unbind(lm_prior_scores, dim=0)
+    
+    

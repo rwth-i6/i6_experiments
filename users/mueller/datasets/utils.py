@@ -70,7 +70,8 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                         new_str = e[1].strip()
                         if new_str:
                             if new_str in lines:
-                                raise ValueError(f"Duplicate pseudo label {new_str} in segment {segment.fullname()}")
+                                lines.append("")
+                                # raise ValueError(f"Duplicate pseudo label {new_str} in segment {segment.fullname()}")
                             else:
                                 lines.append(new_str)
                         else:
@@ -82,7 +83,9 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                     #     seq_len=[len(scores)],
                     #     seq_tag=[segment.fullname()],
                     # )
-                segment.orth = line.strip()
+                    segment.orth = line
+                else:
+                    segment.orth = line.strip()
         n = len(c.recordings)
         m = len(d)
         assert m == n + j, f"Number of segments in corpus ({n+j}) does not match number of segments in search output ({m})"
@@ -92,7 +95,50 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         
         print(f"Number of segments with empty pseudo label: {j} out of {m}, Percentage: {j/m}")
         c.dump(self.out_corpus.get_path())
+
+class GetAlignmentTargets(Job):
+    def __init__(self, corpus_name: str, recog_words_file: tk.Path, vocab_file: tk.Path):
+        """
+        :param Path bliss_corpus: Bliss corpus
+        """
+        self.corpus_name = corpus_name
+        self.recog_words_file = recog_words_file
+        self.out_file = self.output_path("align_targets.hdf")
+        self.vocab_file = vocab_file
+
+    def tasks(self):
+        yield SisTask("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
+
+    def run(self):
+        d = eval(uopen(self.recog_words_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "Has to be a dict containing the path to the search output file"
         
+        assert self.corpus_name in d["path"], "Corpus not in search output"
+        
+        d = eval(uopen(d["path"][self.corpus_name], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "only search output file with dict format is supported"
+        
+        vocab = eval(uopen(self.vocab_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
+        assert len(vocab) == 185
+        vocab["<blank>"] = 184
+        
+        SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
+        out_hdf = SimpleHDFWriter(filename=self.out_file.get_path(), dim=None)
+        for k, v in d.items():
+            assert isinstance(v, list)
+            # assert len(v) > 0
+            assert len(v) == 1
+            v = v[0]
+            l = v[1].strip().split(" ")
+            l = [vocab[e] for e in l]
+            out_hdf.insert_batch(
+                inputs=np.array(l, dtype=np.int32).reshape(1, -1),
+                seq_len=[len(l)],
+                seq_tag=[k],
+            )
+        out_hdf.close()
+
 class GetScoresDummy(Job):
     """
     Creates a dummy with scores for corpus without pseudo labels

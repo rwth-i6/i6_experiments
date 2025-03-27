@@ -40,7 +40,7 @@ from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 import numpy as np
 
 from .utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
-from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert
+from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog
 from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from .scoring import ComputeWERJob, _score_recog
@@ -57,6 +57,7 @@ def recog_training_exp(
     *,
     decoder_hyperparameters: Optional[dict] = None,
     save_pseudo_labels: Optional[tuple[dict, Optional[LibrispeechOggZip]]] = None,
+    pseudo_label_alignment: bool = False,
     pseudo_nbest: int = 1,
     calculate_pseudo_label_scores: bool = True,
     search_config: Dict[str, Any] = None,
@@ -139,6 +140,7 @@ def recog_training_exp(
             model,
             recog_def,
             save_pseudo_labels=pseudo_labels_ds,
+            pseudo_label_alignment=pseudo_label_alignment,
             calculate_scores=calculate_pseudo_label_scores,
             search_config=search_config,
             search_post_config=search_post_config,
@@ -155,6 +157,7 @@ def recog_training_exp(
             pseudo_recog_func=pseudo_label_recog_func,
             recog_input=summarize_job.out_summary_json,
             calculate_score=False,
+            pseudo_label_alignment=pseudo_label_alignment
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
         if is_last:
@@ -213,6 +216,7 @@ class _RecogAndScoreFunc:
         recog_def: RecogDef,
         *,
         save_pseudo_labels: Optional[dict] = None,
+        pseudo_label_alignment: bool = False,
         calculate_scores: bool = True,
         search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
@@ -236,6 +240,7 @@ class _RecogAndScoreFunc:
         self.recog_post_proc_funcs = recog_post_proc_funcs
         self.search_mem_rqmt = search_mem_rqmt
         self.save_pseudo_labels = save_pseudo_labels
+        self.pseudo_label_alignment = pseudo_label_alignment
         self.calculate_scores = calculate_scores
         self.num_shards_recog = num_shards_recog
         self.num_shards_prior = num_shards_prior
@@ -277,6 +282,7 @@ class _RecogAndScoreFunc:
             self.decoder_hyperparameters,
             prior_path,
             save_pseudo_labels=True if self.save_pseudo_labels else False,
+            pseudo_label_alignment=self.pseudo_label_alignment,
             calculate_scores=self.calculate_scores,
             config=self.search_config,
             search_post_config=self.search_post_config,
@@ -302,6 +308,10 @@ class _RecogAndScoreFunc:
         del d["num_shards_recog"]
         del d["register_output"]
         del d["cache_manager"]
+        if not self.pseudo_label_alignment:
+            del d["pseudo_label_alignment"]
+        else:
+            d["align_version"] = 1
         if not self.search_config:
             del d["search_config"]  # compat
         else:
@@ -339,6 +349,7 @@ def recog_model(
     prior_path: tk.Path,
     *,
     save_pseudo_labels: bool = False,
+    pseudo_label_alignment: bool = False,
     calculate_scores: bool = True,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -366,6 +377,7 @@ def recog_model(
             recog_def=recog_def,
             prior_path=prior_path,
             save_pseudo_labels=save_pseudo_labels,
+            pseudo_label_alignment=pseudo_label_alignment,
             config=config,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
@@ -384,7 +396,7 @@ def recog_model(
                 score_out = task.score_recog_output_func(dataset, recog_out)
             outputs[dataset_name] = score_out
         if save_pseudo_labels:
-            if "ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1:
+            if ("ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1) or pseudo_label_alignment:
                 recog_paths[dataset_name] = beam_recog_out
             else:
                 recog_paths[dataset_name] = recog_out.output
@@ -448,6 +460,7 @@ def search_dataset(
     recog_def: RecogDef,
     prior_path: tk.Path,
     save_pseudo_labels: bool = False,
+    pseudo_label_alignment: bool = False,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 8,
@@ -569,6 +582,8 @@ def search_dataset(
         search_job.add_alias(search_alias_name)
         
     use_lexicon = decoder_hyperparameters.get("use_lexicon", False) # if we have lexicon we already have the full words
+    if pseudo_label_alignment:
+        beam_res = res
     if not use_lexicon:
         if recog_def.output_blank_label:
             if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
@@ -580,10 +595,11 @@ def search_dataset(
             tk.register_output(dataset_stats_path, cnt)
         for f in recog_post_proc_funcs:  # for example BPE to words
             res = f(RecogOutput(output=res)).output
-        if recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
+        if recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog:
             from i6_core.returnn.search import SearchOutputRawReplaceJob
             res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
-    beam_res = res
+    if not pseudo_label_alignment:
+        beam_res = res
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
@@ -929,7 +945,8 @@ def search_config_v2(
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
         # if recog_def is model_recog_lm_albert or recog_def is model_recog_flashlight:
-        #     args["version"] = 1
+        #     if "ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1:
+        #         args["version"] = 1
     else:
         args = {}
 
@@ -1380,6 +1397,7 @@ class ExtractPseudoLabels(sisyphus.Job):
         pseudo_recog_func: Optional[Callable[[int], ScoreResultCollection]],
         recog_input: tk.Path,
         calculate_score: bool,
+        pseudo_label_alignment: bool
     ):
         super(ExtractPseudoLabels, self).__init__()
         self.pseudo_recog_func = pseudo_recog_func
@@ -1388,6 +1406,7 @@ class ExtractPseudoLabels(sisyphus.Job):
         self._recog_score = None
         self._recog_label_paths = None
         self.calculate_score = calculate_score
+        self.pseudo_label_alignment = pseudo_label_alignment
 
     def update(self):
         if self._recog_label_paths:
@@ -1437,8 +1456,13 @@ class ExtractPseudoLabels(sisyphus.Job):
         # Extend the default hash() function.
         d = parsed_args.copy()
         
+        if not d["pseudo_label_alignment"]:
+            d["_nr"] = 1
+        else:
+            d["_nr"] = 2
+        d.pop("pseudo_label_alignment")
+        
         # Add this to the hash to change the hash.
-        d["_nr"] = 1
         return sis_tools.sis_hash(d)
     
 class GetScoreJob(sisyphus.Job):
