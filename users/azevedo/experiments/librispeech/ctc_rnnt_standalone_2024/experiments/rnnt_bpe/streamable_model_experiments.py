@@ -387,7 +387,7 @@ def streaming_ls960_0225_low_bpe_from_scratch():
                 "lookahead_size": [8],
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
-                "carry_over_size": [2],
+                "carry_over_size": [0, 1, 2, 1000],
                 "training_strategy": [str(TrainingStrategy.STREAMING)],
                 "dual_mode": [False],
             },

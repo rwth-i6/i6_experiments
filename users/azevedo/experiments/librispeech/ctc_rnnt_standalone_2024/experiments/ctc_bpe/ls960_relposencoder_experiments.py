@@ -11,8 +11,9 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import add_ctc_model
+from ...pipeline import training, prepare_asr_model, search, force_align, ASRModel
+from ...storage import add_ctc_model, add_ctc_forced_alignment
+from ...latency import BPEToWordAlignmentsJob
 
 from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy
 
@@ -398,6 +399,36 @@ def run_experiments(**kwargs):
                 prior_scales=[0, 0.2, 0.3, 0.4, 0.6, 0.8],
                 decoder_module="ctc.decoder.lah_carryover_decoder"
             )
+
+            if model_config.training_strategy == str(TrainingStrategy.UNIFIED):
+                dev_dataset_tuples_withlabels = {}
+                for testset in ["dev-clean", "dev-other"]:
+                    dev_dataset_tuples_withlabels[testset] = build_test_dataset(
+                        dataset_key=testset,
+                        settings=train_settings,
+                        label_datastream=label_datastream_bpe
+                    )
+
+                aligner_config = copy.deepcopy(offline_decoder_config_bpe128)
+                aligner_config.prior_scale = 0.2
+                search_name = training_name + "/prior%.1f" % aligner_config.prior_scale
+                align_jobs = force_align(
+                    search_name,
+                    forward_config={},
+                    asr_model=asr_model,
+                    decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
+                    decoder_args={"config": asdict(aligner_config)},
+                    test_dataset_tuples=dev_dataset_tuples_withlabels,
+                    **default_returnn,
+                )
+                # add_ctc_forced_alignment("dev-other", align_jobs["dev-other"].out_files["aligns_out.json"])
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                add_ctc_forced_alignment("dev-other", word_aligns_job.word_alignments)
+
+
 
 
 def ls960_ctc_relpos_streaming_0924_low_bpe_from_scratch():

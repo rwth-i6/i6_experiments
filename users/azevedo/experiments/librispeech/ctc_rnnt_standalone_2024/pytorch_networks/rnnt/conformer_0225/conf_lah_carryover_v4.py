@@ -365,7 +365,7 @@ class StreamableConformerConvolutionV1(StreamableModule):
             if i > 0:
                 # how many past chunks needed for conv
                 conv_carry = math.ceil(kernel_radius / (chunk_sz - lookahead_sz))
-                # dont go over predefined carryover
+                # don't go over predefined carryover
                 conv_carry = min(carry_over_size, conv_carry)
                 carry_no_fac = chunks_no_fac[:, max(0, i-conv_carry): i].flatten(1, 2)
                 carry_no_fac = carry_no_fac[:, :kernel_radius]

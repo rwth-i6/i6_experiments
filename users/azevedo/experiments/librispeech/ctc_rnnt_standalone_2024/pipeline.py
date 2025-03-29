@@ -5,7 +5,7 @@ import copy
 import enum
 from dataclasses import dataclass, asdict
 import os.path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sisyphus import tk
 
@@ -18,9 +18,11 @@ from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpoints
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+from .latency import LatencyJob
 
 
 @dataclass
@@ -42,6 +44,109 @@ class NeuralLM:
     bpe_codes: Optional[tk.Path] = None
 
 
+
+
+def latency_single(
+    prefix_name: str,
+    ref_path: str,
+    hyp_path: str,
+):
+    latency_job = LatencyJob(ref_path=ref_path, hyp_path=hyp_path)
+    latency_job.add_alias(prefix_name + "/latency")
+    tk.register_output(prefix_name + "/latency", latency_job.out_path)
+
+    return latency_job
+
+def latency(
+    prefix_name: str,
+    asr_model: ASRModel,
+    ref_paths: Dict[str, str],
+    hyp_paths: Dict[str, str],
+):
+    latency_jobs = {}
+    for key in ref_paths:
+        latency_job = latency_single(
+            prefix_name + "/%s" % key,
+            ref_paths[key],
+            hyp_paths[key],
+        )
+        latency_jobs[key] = latency_job
+
+    return latency_jobs
+
+
+
+def force_align_single(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    recognition_dataset: Dataset,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: float = 12,
+    use_gpu: bool = False,
+):
+    returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=6.0 if use_gpu else 12,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=int(((mem_rqmt + 1.99) // 4) * 2),
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["aligns_out.json"],
+    )
+    
+    search_job.add_alias(prefix_name + "/align_job")
+    tk.register_output(prefix_name + "/align_job/alignment", search_job.out_files["aligns_out.json"])
+    return search_job
+    
+
+def force_align(
+    prefix_name: str,
+    forward_config: Dict[str, Any],
+    asr_model: ASRModel,
+    decoder_module: str,
+    decoder_args: Dict[str, Any],
+    test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    use_gpu: bool = False,
+    debug: bool = False,
+):
+    if asr_model.prior_file is not None:
+        decoder_args["config"]["prior_file"] = asr_model.prior_file
+
+    returnn_align_config = get_forward_config(
+        network_module=asr_model.network_module,
+        config=forward_config,
+        net_args=asr_model.net_args,
+        decoder_args=decoder_args,
+        decoder=decoder_module,
+        debug=debug,
+    )
+
+    align_jobs = {}
+    for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
+        align_name = prefix_name + "/%s" % key
+        align_job = force_align_single(
+            align_name,
+            returnn_align_config,
+            asr_model.checkpoint,
+            test_dataset,
+            returnn_exe,
+            returnn_root,
+            use_gpu=use_gpu,
+        )
+        align_jobs[key] = align_job
+
+    return align_jobs
+
+
 def search_single(
     prefix_name: str,
     returnn_config: ReturnnConfig,
@@ -52,6 +157,7 @@ def search_single(
     returnn_root: tk.Path,
     mem_rqmt: float = 12,
     use_gpu: bool = False,
+    with_align: bool = False,
 ):
     """
     Run search for a specific test dataset
@@ -66,6 +172,7 @@ def search_single(
     :param mem_rqmt: some search jobs might need more memory
     :param use_gpu: if to do GPU decoding
     """
+    out_files = ["search_out.py", "aligns_out.json"] if with_align else ["search_out.py"]
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
     search_job = ReturnnForwardJobV2(
@@ -78,9 +185,11 @@ def search_single(
         cpu_rqmt=int(((mem_rqmt + 1.99) // 4) * 2),
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["search_out.py"],
+        output_files=out_files,
     )
     search_job.add_alias(prefix_name + "/search_job")
+    if with_align:
+        tk.register_output(prefix_name + "/search_job/alignment", search_job.out_files["aligns_out.json"])
 
     search_ctm = SearchWordsToCTMJob(
         recog_words_file=search_job.out_files["search_out.py"],
@@ -108,6 +217,7 @@ def search(
     returnn_root: tk.Path,
     use_gpu: bool = False,
     debug: bool = False,
+    with_align: bool = False,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -137,7 +247,7 @@ def search(
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     wers = {}
-    search_jobs = []
+    search_jobs = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         search_name = prefix_name + "/%s" % key
         wers[search_name], search_job = search_single(
@@ -149,8 +259,9 @@ def search(
             returnn_exe,
             returnn_root,
             use_gpu=use_gpu,
+            with_align=with_align,
         )
-        search_jobs.append(search_job)
+        search_jobs[key] = search_job
 
     return search_jobs, wers
 

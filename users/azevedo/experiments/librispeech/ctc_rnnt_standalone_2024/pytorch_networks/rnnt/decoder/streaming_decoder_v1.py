@@ -22,7 +22,7 @@ class DecoderConfig:
     # search related options:
     beam_size: int
 
-    mode: Mode
+    mode: Union[Mode, str]
 
     # streaming definitions if mode == Mode.STREAMING
     chunk_size: Optional[int] = None
@@ -154,7 +154,6 @@ def forward_init_hook(run_ctx, **kwargs):
     print("create RNNT model...")
     model = run_ctx.engine._model
     model.joiner.set_mode(config.mode)
-    # model.joiner.set_mode(Mode.STREAMING)  # FIXME
 
     rnnt_model = RNNT(
         transcriber=Transcriber(

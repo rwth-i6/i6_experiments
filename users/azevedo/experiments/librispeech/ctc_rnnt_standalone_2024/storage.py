@@ -13,7 +13,7 @@ from .pipeline import ASRModel, NeuralLM
 # CTC Models for RNN-T init --------------------------------------------------------------------------------------------
 
 _ctc_models: Dict[str, tk.Path] = {}
-
+_ctc_alignment: Dict[str, tk.Path] = {}
 
 def add_ctc_model(name: str, asr_model: ASRModel):
     global _ctc_models
@@ -25,6 +25,15 @@ def get_ctc_model(name: str) -> ASRModel:
     global _ctc_models
     return _ctc_models[name]
 
+
+def add_ctc_forced_alignment(name: str, alignment_path: tk.Path):
+    global _ctc_alignment
+    assert name not in _ctc_alignment.keys()
+    _ctc_alignment[name] = alignment_path
+
+def get_ctc_forced_alignment(name: str) -> tk.Path:
+    global _ctc_alignment
+    return _ctc_alignment[name]
 
 # Neural LM Models --------------------------------------------------------------------------------------------
 

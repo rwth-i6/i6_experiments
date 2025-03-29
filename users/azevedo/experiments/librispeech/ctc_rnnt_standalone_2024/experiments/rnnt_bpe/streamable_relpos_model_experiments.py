@@ -13,8 +13,9 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import get_ctc_model
+from ...pipeline import training, prepare_asr_model, search, ASRModel, latency
+from ...storage import get_ctc_model, get_ctc_forced_alignment
+from ...latency import BPEToWordAlignmentsJob
 
 
 from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy, Mode
@@ -106,6 +107,7 @@ def run_experiments(**kwargs):
         decoder_module: str,
         beam_size: int = 1,
         use_gpu=False,
+        with_align=False,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -130,8 +132,11 @@ def run_experiments(**kwargs):
             test_dataset_tuples={**dev_dataset_tuples},  # **test_dataset_tuples},
             use_gpu=use_gpu,
             **default_returnn,
-            debug=False
+            debug=False,
+            with_align=with_align
         )
+
+        return search_jobs
 
     from ...pytorch_networks.rnnt.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
         SpecaugConfig,
@@ -320,6 +325,33 @@ def run_experiments(**kwargs):
                     use_gpu=True,
                     beam_size=12,
                     decoder_module="rnnt.decoder.streaming_decoder_v1",
+                )
+            
+            #
+            # search job + alignments
+            #
+            if model_config.training_strategy == str(TrainingStrategy.UNIFIED):
+                decoder_align_config = copy.deepcopy(decoder_config_streaming)
+                decoder_align_config.test_version = 0.2
+                search_jobs = evaluate_helper(
+                    training_name + "/keepv2_%i" % keep,
+                    asr_model,
+                    decoder_align_config,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
+                    with_align=True
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                latency(
+                    training_name + "/latency",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                    labels=label_datastream_bpe,
                 )
 
 

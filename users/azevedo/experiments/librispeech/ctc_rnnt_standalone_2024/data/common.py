@@ -179,6 +179,7 @@ def build_training_datasets(
 def build_test_dataset(
     dataset_key: str,
     settings: DatasetSettings,
+    label_datastream: LabelDatastream = None,
 ) -> Tuple[Dataset, tk.Path]:
     """
     Create ASR test set that only contains the audio stream
@@ -193,11 +194,18 @@ def build_test_dataset(
 
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
-    data_map = {"raw_audio": ("zip_dataset", "data")}
+    if label_datastream is not None:
+        data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+        test_zip_dataset = OggZipDataset(
+            files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse",
+            target_options=label_datastream.as_returnn_targets_opts()
+        )
+    else:
+        data_map = {"raw_audio": ("zip_dataset", "data")}
+        test_zip_dataset = OggZipDataset(
+            files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse",
+        )
 
-    test_zip_dataset = OggZipDataset(
-        files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
-    )
     test_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
     )
