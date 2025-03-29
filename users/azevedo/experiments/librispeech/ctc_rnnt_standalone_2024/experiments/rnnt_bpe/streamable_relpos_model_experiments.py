@@ -346,12 +346,12 @@ def run_experiments(**kwargs):
                     alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
                     labels_path=label_datastream_bpe.vocab
                 )
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/word_aligns_job")
                 latency(
                     training_name + "/latency",
                     None,
                     ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
                     hyp_paths={"dev-other": word_aligns_job.word_alignments},
-                    labels=label_datastream_bpe,
                 )
 
 

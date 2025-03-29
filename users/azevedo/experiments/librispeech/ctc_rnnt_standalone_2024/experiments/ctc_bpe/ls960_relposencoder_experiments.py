@@ -426,6 +426,7 @@ def run_experiments(**kwargs):
                     alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
                     labels_path=label_datastream_bpe.vocab
                 )
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/word_aligns_job")
                 add_ctc_forced_alignment("dev-other", word_aligns_job.word_alignments)
 
 

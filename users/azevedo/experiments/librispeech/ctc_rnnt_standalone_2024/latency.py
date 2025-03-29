@@ -36,13 +36,12 @@ class BPEToWordAlignmentsJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        with open(self.ref_path) as f:
+        with open(self.alignment_path) as f:
             token_als: Dict[str, Alignment] = json.load(f)
-        
+
         with open(self.labels_path) as f:
             # skipping "{", "'<s>': 0," and "}"
             to_labels = [line.split(":")[0][1:-1] for line in f.readlines()[2:-1]]
-
         print(to_labels)
 
         word_als = {utt_id: self.to_word_level(token_als[utt_id], to_labels) for utt_id in token_als}
@@ -110,52 +109,31 @@ class LatencyJob(Job):
         self,
         ref_path: tk.Path,
         hyp_path: tk.Path,
-        labels_path: tk.Path,
     ) -> None:
         """
         :param ref_path: path to BPE alignment reference (e.g. CTC forced alignment)
         :param hyp_path: path to alignment hypothesis (e.g. obtained from beam search)
-        :param labels_path: path to dict containing BPE-token to index mappings
         """
 
         self.ref_path = ref_path
         self.hyp_path = hyp_path
-        self.labels_path = labels_path
 
         self.out_path = self.output_path("latency_statistics.csv")
-        self.p_ref_word_als = self.output_path("ref_word_alignments.json")
-        self.p_hyp_word_als = self.output_path("hyp_word_alignments.json")
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
         records = []
-        ref_word_als: Dict[str, Alignment] = {}
-        hyp_word_als: Dict[str, Alignment] = {}
 
         with open(self.ref_path) as f_ref, open(self.hyp_path) as f_hyp:
             refs: Dict[str, Alignment] = json.load(f_ref)
             hyps: Dict[str, Alignment] = json.load(f_hyp)
-        
-        with open(self.labels_path) as f:
-            # skipping "{", "'<s>': 0," and "}"
-            to_labels = [line.split(":")[0][1:-1] for line in f.readlines()[2:-1]]
-
-        print(to_labels)
 
         assert hyps.keys() <= refs.keys(), "All utterance IDs in hyp must be in ref."
 
         for utt_id in hyps:
             ref_al, hyp_al = refs[utt_id], hyps[utt_id]
-
-            # same word-level seq can have different bpe seqs => map to word seq
-            ref_al = BPEToWordAlignmentsJob.to_word_level(ref_al, to_labels)
-            hyp_al = BPEToWordAlignmentsJob.to_word_level(hyp_al, to_labels)
-
-            # TODO: remove this (just for testing), make own job for this
-            ref_word_als[utt_id] = ref_al
-            hyp_word_als[utt_id] = hyp_al
 
             # check if ref sequence equals hyp sequence
             if " ".join(t["word"] for t in ref_al) != " ".join(t["word"] for t in hyp_al):
@@ -183,9 +161,3 @@ class LatencyJob(Job):
         }
         df = pd.DataFrame(records).astype(dtype_mapping)
         df.to_csv(self.out_path, index=False)
-
-
-        # TODO: remove this (just for testing)
-        with open(self.p_ref_word_als, "w") as f_ref, open(self.p_hyp_word_als, "w") as f_hyp:
-            json.dump(ref_word_als, f_ref, indent=4)
-            json.dump(hyp_word_als, f_hyp, indent=4)
