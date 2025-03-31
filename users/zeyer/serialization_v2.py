@@ -43,7 +43,8 @@ import re
 import math
 import builtins
 from typing import Optional, Union, Any, Sequence, Collection, Dict, List, Tuple
-from types import FunctionType, BuiltinFunctionType, ModuleType
+import types
+from types import FunctionType, BuiltinFunctionType, MethodType, ModuleType
 from dataclasses import dataclass
 import subprocess
 
@@ -474,8 +475,10 @@ class _Serializer:
             return self._serialize_module(value, name)
         if isinstance(value, functools.partial):
             return self._serialize_functools_partial(value, name)
+        if isinstance(value, MethodType):
+            return self._serialize_method(value, name)
 
-        if isinstance(value, (type, FunctionType, BuiltinFunctionType, ModuleType)) or (
+        if isinstance(value, (type, FunctionType, BuiltinFunctionType)) or (
             getattr(value, "__module__", None) and getattr(value, "__qualname__", None)
         ):
             return self._serialize_global(value=value, name=name)
@@ -802,6 +805,15 @@ class _Serializer:
         args_ss = "".join(f", {arg_s.py_inline()}" for arg_s in args_s)
         dictitems_ss = "".join(f", {k}={v.py_inline()}" for k, v in dictitems_s)
         return PyEvalCode(f"{mod_s.py_inline()}.partial({func_s.py_inline()}{args_ss}{dictitems_ss})")
+
+    def _serialize_method(self, value: MethodType, name: str) -> PyEvalCode:
+        mod_s = self._serialize_value(types, prefix="types")
+        assert isinstance(mod_s, PyEvalCode)
+        func_s = self._serialize_value(value.__func__, prefix=f"{name}_func", recursive=True)
+        assert isinstance(func_s, PyEvalCode)
+        self_s = self._serialize_value(value.__self__, prefix=f"{name}_self", recursive=True)
+        assert isinstance(self_s, PyEvalCode)
+        return PyEvalCode(f"{mod_s.py_inline()}.MethodType({func_s.py_inline()}, {self_s.py_inline()})")
 
     def _serialize_sis_path(self, value: Path) -> PyEvalCode:
         assert isinstance(value, Path)
