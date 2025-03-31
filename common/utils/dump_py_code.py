@@ -6,7 +6,8 @@ import re
 import sys
 import os
 from typing import Any, Optional, TextIO
-from types import FunctionType, BuiltinFunctionType, ModuleType
+import types
+from types import FunctionType, BuiltinFunctionType, MethodType, ModuleType
 import dataclasses
 
 import sisyphus
@@ -29,6 +30,7 @@ _valid_primitive_types = (
     type,
     FunctionType,
     BuiltinFunctionType,
+    MethodType,
     ModuleType,
 )
 
@@ -259,13 +261,22 @@ class PythonCodeDumper:
             if not obj:
                 return "set()"
             return f"{{{', '.join(sorted([self._py_repr(v) for v in obj], key=sis_hash_helper))}}}"
-        if isinstance(obj, (type, FunctionType, BuiltinFunctionType, ModuleType)) or (
+        if isinstance(obj, ModuleType):
+            self._import_user_mod(obj.__name__)
+            assert sys.modules[obj.__name__] is obj
+            return f"{obj.__name__}"
+        if isinstance(obj, MethodType):
+            return f"{self._py_repr(types)}.MethodType({self._py_repr(obj.__func__)}, {self._py_repr(obj.__self__)})"
+        if isinstance(obj, (type, FunctionType, BuiltinFunctionType)) or (
             getattr(obj, "__module__", None) and getattr(obj, "__qualname__", None)
         ):
             self._import_user_mod(obj.__module__)
-            assert (
-                getattr(sys.modules[obj.__module__], obj.__qualname__, None) is obj
-            ), f"{obj!r} not found under {obj.__module__}.{obj.__qualname__}"
+            obj_ = sys.modules[obj.__module__]
+            for part in obj.__qualname__.split("."):
+                obj_ = getattr(obj_, part, None)
+                if obj_ is None:
+                    break
+            assert obj_ is obj, f"{obj!r} not found under {obj.__module__}.{obj.__qualname__}"
             return f"{obj.__module__}.{obj.__qualname__}"
         if isinstance(obj, str):
             for name in {"BASE_DIR", "RASR_ROOT"}:

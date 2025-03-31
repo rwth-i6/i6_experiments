@@ -4,7 +4,7 @@ Test the dump_py_code module. This is used by dependency_boundary.
 Als see test_serialization_v2 for very similar tests.
 """
 
-from typing import Any
+from typing import Any, Callable
 from textwrap import dedent
 from io import StringIO
 import dataclasses
@@ -102,3 +102,37 @@ def test_dataclass_frozen():
     assert isinstance(obj_, _FrozenDemoData)
     assert obj_.value == 42
     assert obj_ == obj
+
+
+@dataclasses.dataclass
+class _DataclassWithBoundMethod:
+    name: str
+
+    def default_collect_score_results(self, x: str) -> str:
+        return self.name + " " + x
+
+    collect_score_results_func: Callable[[str], str] = None
+
+    def __post_init__(self):
+        if self.collect_score_results_func is None:
+            self.collect_score_results_func = self.default_collect_score_results  # bound method
+
+
+def test_bound_method():
+    obj = _DataclassWithBoundMethod("foo")
+    assert obj.collect_score_results_func("bar") == "foo bar"
+    assert obj.collect_score_results_func.__self__ is obj
+    code = serialize(obj)
+    print(code)
+    scope = {}
+    exec(code, scope)
+    obj_ = scope["obj"]
+    assert obj_ is not obj
+    assert isinstance(obj_, _DataclassWithBoundMethod)
+    assert obj_.collect_score_results_func is not obj.collect_score_results_func
+    assert (
+        obj_.default_collect_score_results.__func__
+        is obj.default_collect_score_results.__func__
+        is _DataclassWithBoundMethod.default_collect_score_results
+    )
+    assert obj_.collect_score_results_func.__self__ is obj_
