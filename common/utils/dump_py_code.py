@@ -9,6 +9,7 @@ from typing import Any, Optional, TextIO
 import types
 from types import FunctionType, BuiltinFunctionType, MethodType, ModuleType
 import dataclasses
+import functools
 
 import sisyphus
 from sisyphus import gs, tk
@@ -32,6 +33,7 @@ _valid_primitive_types = (
     BuiltinFunctionType,
     MethodType,
     ModuleType,
+    functools.partial,
 )
 
 
@@ -278,6 +280,8 @@ class PythonCodeDumper:
                     break
             assert obj_ is obj, f"{obj!r} not found under {obj.__module__}.{obj.__qualname__}"
             return f"{obj.__module__}.{obj.__qualname__}"
+        if isinstance(obj, functools.partial):
+            return self._py_repr_functools_partial(obj)
         if isinstance(obj, str):
             for name in {"BASE_DIR", "RASR_ROOT"}:
                 v = getattr(gs, name, None)
@@ -323,6 +327,22 @@ class PythonCodeDumper:
             args.append(f"available={self._py_repr(p._available)}")
         self._import_reserved("tk")
         return f"tk.Path({', '.join(args)})"
+
+    def _py_repr_functools_partial(self, value: functools.partial) -> str:
+        # The generic fallback using __reduce__ would also work with this.
+        # However, we currently do not use the generic __reduce__ here but a simplified version which does not work.
+        # Also, the following is a bit nicer in the generated code.
+        mod_s = self._py_repr(functools)
+        func_s = self._py_repr(value.func)
+        args_s = [self._py_repr(arg) for arg in value.args]
+        dictitems_s = []
+        for key, value_ in value.keywords.items():
+            assert isinstance(key, str) and is_valid_python_identifier_name(key)
+            serialized_value = self._py_repr(value_)
+            dictitems_s.append((key, serialized_value))
+        args_ss = "".join(f", {arg_s}" for arg_s in args_s)
+        dictitems_ss = "".join(f", {k}={v}" for k, v in dictitems_s)
+        return f"{mod_s}.partial({func_s}{args_ss}{dictitems_ss})"
 
     def _name_for_obj(self, obj: Any) -> str:
         if id(obj) in self._id_to_obj_name:

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from textwrap import dedent
 from io import StringIO
 import dataclasses
+import functools
 
 from i6_experiments.common.utils.dump_py_code import PythonCodeDumper
 
@@ -136,3 +137,24 @@ def test_bound_method():
         is _DataclassWithBoundMethod.default_collect_score_results
     )
     assert obj_.collect_score_results_func.__self__ is obj_
+
+
+def _func(a, *, b):
+    return a + b
+
+
+def test_functools_partial():
+    f_orig = functools.partial(_func, b=1)
+    code = serialize(f_orig)
+    print(code)
+    # Not really checking the exact serialized code here,
+    # but instead just testing to execute it.
+    scope = {}
+    exec(code, scope)
+    f = scope["obj"]
+    assert f is not f_orig
+    assert isinstance(f, functools.partial)
+    assert f.func is _func
+    assert not f.args
+    assert f.keywords == {"b": 1}
+    assert f(2) == 3
