@@ -35,13 +35,13 @@ def py():
     use_instanciate_delayed_copy_instead_of_inplace()
 
     for num_layers, num_dims, batch_size in [
-        (16, 512, 150_000),  # {"dev-clean": 2.39, "dev-other": 5.5, "test-clean": 2.5, "test-other": 5.67}
-        (16, 512, 100_000),
+        # (16, 512, 150_000),  # {"dev-clean": 2.39, "dev-other": 5.5, "test-clean": 2.5, "test-other": 5.67}
+        (16, 512, 100_000),  # {"dev-clean": 2.32, "dev-other": 5.42, "test-clean": 2.52, "test-other": 5.57}
         (16, 768, 100_000),  # {"dev-clean": 2.26, "dev-other": 5.09, "test-clean": 2.41, "test-other": 5.41}
-        (16, 1024, 100_000),
-        (16, 1280, 100_000),
-        (20, 512, 150_000),
-        (32, 512, 100_000),
+        (16, 1024, 100_000),  # {"dev-clean": 2.27, "dev-other": 5.04, "test-clean": 2.43, "test-other": 5.34}
+        (16, 1280, 100_000),  # {"dev-clean": 2.28, "dev-other": 4.96, "test-clean": 2.33, "test-other": 5.3}
+        # (20, 512, 150_000),  # {"dev-clean": 2.34, "dev-other": 5.45, "test-clean": 2.51, "test-other": 5.75}
+        # (32, 512, 100_000),  # {"dev-clean": 2.44, "dev-other": 5.87, "test-clean": 2.61, "test-other": 6.03}
     ]:
         ctc_train_exp(
             f"L{num_layers}-D{num_dims}-spm10k-auxAED-b{batch_size // 1000}k",
