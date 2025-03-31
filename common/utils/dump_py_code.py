@@ -2,10 +2,11 @@
 Dump to Python code utils
 """
 
+from __future__ import annotations
 import re
 import sys
 import os
-from typing import Any, Optional, TextIO
+from typing import TYPE_CHECKING, Any, Optional, TextIO
 import types
 from types import FunctionType, BuiltinFunctionType, MethodType, ModuleType
 import dataclasses
@@ -19,6 +20,9 @@ import i6_core.util
 import i6_core.rasr as rasr
 
 from .python import is_valid_python_identifier_name
+
+if TYPE_CHECKING:
+    from returnn.tensor import Dim
 
 
 _valid_primitive_types = (
@@ -36,6 +40,8 @@ _valid_primitive_types = (
     functools.partial,
 )
 
+_lazy_valid_primitive_type_strs = {"returnn.tensor.dim.Dim"}
+
 
 class PythonCodeDumper:
     """
@@ -46,8 +52,10 @@ class PythonCodeDumper:
         "gs",
         "tk",
         "rasr",
+        "os",
         "i6_core",
         "i6_experiments",
+        "returnn",
         "make_fake_job",
     }
 
@@ -111,7 +119,10 @@ class PythonCodeDumper:
                 lines.append(")")
                 print("\n".join(lines), file=self.file)
             self._register_obj(obj, name=lhs)
-        elif isinstance(obj, _valid_primitive_types):
+        elif (
+            isinstance(obj, _valid_primitive_types)
+            or _try_get_global_name(type(obj)) in _lazy_valid_primitive_type_strs
+        ):
             print(f"{lhs} = {self._py_repr(obj)}", file=self.file)
         else:
             # We follow a similar logic as pickle does (but simplified).
@@ -300,6 +311,9 @@ class PythonCodeDumper:
             return repr(obj)
         if isinstance(obj, _valid_primitive_types):
             return repr(obj)
+        obj_type_global_name = _try_get_global_name(type(obj))
+        if obj_type_global_name == "returnn.tensor.dim.Dim":
+            return self._py_repr_returnn_dim(obj)
         return self._name_for_obj(obj)
 
     def _py_repr_path(self, p: tk.Path) -> str:
@@ -343,6 +357,45 @@ class PythonCodeDumper:
         args_ss = "".join(f", {arg_s}" for arg_s in args_s)
         dictitems_ss = "".join(f", {k}={v}" for k, v in dictitems_s)
         return f"{mod_s}.partial({func_s}{args_ss}{dictitems_ss})"
+
+    def _py_repr_returnn_dim(self, dim: Dim) -> str:
+        from returnn.tensor import Dim, batch_dim, single_step_dim
+
+        assert isinstance(dim, Dim)
+        # See also returnn_common.nn.naming.ReturnnDimTagsProxy.dim_ref_repr
+        # and returnn_common.nn.naming.ReturnnDimTagsProxy.DimRefProxy.dim_repr.
+        self._import_user_mod("returnn.tensor")
+        if dim == batch_dim:
+            return "returnn.tensor.batch_dim"
+        if dim == single_step_dim:
+            return "returnn.tensor.single_step_dim"
+
+        if dim.match_priority:
+            base_dim_str = self._py_repr_returnn_dim(dim.copy(match_priority=0))
+            return f"{base_dim_str}.copy(match_priority={dim.match_priority})"
+        if not dim.derived_from_op and dim.get_same_base().derived_from_op:
+            dim = dim.get_same_base()
+
+        if dim.derived_from_op:
+            if dim.derived_from_op.kind == "constant":
+                v = dim.derived_from_op.attribs["value"]
+                return str(v)
+            func_map = {"truediv_left": "div_left", "ceildiv_left": "ceildiv_left", "ceildiv_right": "ceildiv_right"}
+            inputs_s = [self._py_repr_returnn_dim(x) for x in dim.derived_from_op.inputs]
+            if dim.derived_from_op.kind in func_map:
+                assert len(dim.derived_from_op.inputs) == 2
+                a, b = inputs_s
+                return f"{a}.{func_map[dim.derived_from_op.kind]}({b})"
+            op_str = {"add": "+", "mul": "*", "truediv_right": "//", "floordiv_right": "//"}[dim.derived_from_op.kind]
+            return "(%s)" % f" {op_str} ".join(inputs_s)
+
+        # generic fallback
+        dim_type_str = "returnn.tensor.Dim"
+        kwargs = {"name": repr(dim.name)}
+        if dim.kind is not None:
+            kind_s = {Dim.Types.Batch: "Batch", Dim.Types.Spatial: "Spatial", Dim.Types.Feature: "Feature"}[dim.kind]
+            kwargs["kind"] = f"{dim_type_str}.Types.{kind_s}"
+        return f"{dim_type_str}({dim.dimension}, {', '.join(f'{key}={value}' for key, value in kwargs.items())})"
 
     def _name_for_obj(self, obj: Any) -> str:
         if id(obj) in self._id_to_obj_name:
@@ -407,3 +460,16 @@ def _is_frozen_dataclass(obj) -> bool:
             if dc_params.frozen:
                 return True
     return False
+
+
+def _try_get_global_name(obj: Any) -> Optional[str]:
+    if getattr(obj, "__module__", None) is None or getattr(obj, "__qualname__", None) is None:
+        return None
+    obj_ = sys.modules[obj.__module__]
+    for part in obj.__qualname__.split("."):
+        obj_ = getattr(obj_, part, None)
+        if obj_ is None:
+            break
+    if obj_ is obj:
+        return f"{obj.__module__}.{obj.__qualname__}"
+    return None

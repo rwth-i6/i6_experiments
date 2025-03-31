@@ -95,7 +95,6 @@ class _FrozenDemoData:
 def test_dataclass_frozen():
     obj = _FrozenDemoData(42)
     code = serialize(obj)
-    print(code)
     scope = {}
     exec(code, scope)
     obj_ = scope["obj"]
@@ -124,7 +123,6 @@ def test_bound_method():
     assert obj.collect_score_results_func("bar") == "foo bar"
     assert obj.collect_score_results_func.__self__ is obj
     code = serialize(obj)
-    print(code)
     scope = {}
     exec(code, scope)
     obj_ = scope["obj"]
@@ -146,7 +144,6 @@ def _func(a, *, b):
 def test_functools_partial():
     f_orig = functools.partial(_func, b=1)
     code = serialize(f_orig)
-    print(code)
     # Not really checking the exact serialized code here,
     # but instead just testing to execute it.
     scope = {}
@@ -158,3 +155,35 @@ def test_functools_partial():
     assert not f.args
     assert f.keywords == {"b": 1}
     assert f(2) == 3
+
+
+def test_batch_dim():
+    from returnn.tensor import batch_dim
+
+    code = serialize(batch_dim)
+    scope = {}
+    exec(code, scope)
+    f = scope["obj"]
+    assert f is batch_dim
+
+
+def test_dim():
+    from returnn.tensor import Dim, batch_dim
+
+    time_dim = Dim(None, name="time")
+    feat_dim = Dim(42, name="feature")
+    dims = [batch_dim, time_dim, feat_dim]
+    code = serialize(dims)
+    scope = {}
+    exec(code, scope)
+    dims_ = scope["obj"]
+    assert dims_ is not dims
+    assert len(dims_) == 3
+    assert dims_[0] is batch_dim
+    _, time_dim2, feat_dim2 = dims_
+    assert time_dim2 is not time_dim
+    assert time_dim2.size == time_dim.size
+    assert time_dim2.name == time_dim.name
+    assert feat_dim2 is not feat_dim
+    assert feat_dim2.size == feat_dim.size
+    assert feat_dim2.name == feat_dim.name
