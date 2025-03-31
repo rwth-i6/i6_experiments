@@ -690,7 +690,7 @@ class _Serializer:
             )
         if len(qualname_parts) > 1:
             base_obj_repr = self._serialize_value(obj[-2], prefix=name + "_base")
-            return PyEvalCode(f"{base_obj_repr}.{qualname_parts[-1]}")
+            return PyEvalCode(f"{base_obj_repr.py_inline()}.{qualname_parts[-1]}")
         if "." in mod_name:
             # Maybe we can shorten the import.
             # Check if some of the parent modules already import the object.
