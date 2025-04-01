@@ -31,6 +31,9 @@ class DownloadModel(Job):
     Downloads a model via the Coqui-ai TTS api.
     See: https://github.com/coqui-ai/TTS?tab=readme-ov-file#-python-api
 
+    To use it later, set the ``TTS_HOME`` env var to ``out_tts_data_dir.get_path()``.
+    Also, set the env var ``COQUI_TOS_AGREED=1``.
+
     Thus, it requires the TTS repo (with TTS source code; e.g. via :func:`get_default_tts_repo_dir`),
     and then will use that Python API.
     Thus, it requires the TTS dependencies: https://github.com/coqui-ai/TTS/blob/dev/requirements.txt
