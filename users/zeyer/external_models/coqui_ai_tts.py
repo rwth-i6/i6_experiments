@@ -74,7 +74,6 @@ class DownloadModel(Job):
         import os
         import tempfile
         import shutil
-        import stat
         from sisyphus import gs
 
         sys.path.insert(0, self.tts_repo_dir.get_path())
