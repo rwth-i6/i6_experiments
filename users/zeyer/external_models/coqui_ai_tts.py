@@ -71,6 +71,7 @@ class DownloadModel(Job):
         import os
         import tempfile
         import shutil
+        import stat
         from sisyphus import gs
 
         sys.path.insert(0, self.tts_repo_dir.get_path())
@@ -90,6 +91,12 @@ class DownloadModel(Job):
             print(".../tts dir content:", dir_content)
             assert dir_content  # non-empty
             shutil.copytree(tts.manager.output_prefix, self.out_tts_data_dir.get_path() + "/tts")
+
+        # Make read-only, to ensure we don't modify it further.
+        for root, dirs, files in os.walk(self.out_tts_data_dir.get_path()):
+            for fn in dirs + files:
+                fn_ = os.path.join(root, fn)
+                os.chmod(fn_, os.stat(fn_).st_mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
 
 
 def get_default_tts_repo_dir() -> Path:
