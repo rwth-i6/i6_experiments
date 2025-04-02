@@ -55,11 +55,12 @@ post_config = dict(
 # or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
 # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
 # making sure the last number is slightly below the real total number of steps.
+# ~1245 /steps/ep
 _lrlin_oclr_steps_by_bs_nep = {
-    (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
-    (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
-    (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
-    (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+    (15, 9): [5_000, 10_100, 11_200],  # total steps after 9 epochs: ~11k
+    (15, 10): [5_600, 11_200, 12_450],  # total steps after 10 epochs: ~12k
+    (15, 18): [10_000, 20_200, 22_400],  # total steps after 18 epochs: ~22k
+    (15, 20): [11_200, 22_400, 24_900],  # total steps after 20 epochs: ~25k
     (15, 45): [25_200, 50_400, 56_000],  # total steps after 45 epochs: ~56k
     (15, 50): [27_900, 55_800, 62_000],  # total steps after 50 epochs: ~62k
     (15, 56): [31_500, 63_000, 70_000],  # total steps after 113 epochs: ~140k
@@ -67,14 +68,8 @@ _lrlin_oclr_steps_by_bs_nep = {
     (15, 113): [63_000, 126_000, 140_000],  # total steps after 113 epochs: ~140k
     (15, 125): [70_000, 140_000, 155_000],  # total steps after 125 epochs: ~155k
     (15, 225): [126_000, 252_000, 280_000],  # total steps after 225 epochs: ~281k
-    (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
     (15, 450): [253_000, 506_000, 562_000],  # total steps after 450 epochs: ~562k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
-    (15, 600): [352_000, 704_000, 782_000],  # total steps after 600 epochs: ~782k
-    (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
-    (20, 2000): [878_000, 1_757_000, 1_952_000],  # total steps after 2000 epochs: 1.952.394
-    (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps after 2000 epochs: 1.305.182
-    (40, 2000): [450_000, 900_000, 982_000],  # total steps after 2000 epochs: 982.312
 }
 
 

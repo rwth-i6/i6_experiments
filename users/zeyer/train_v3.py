@@ -77,7 +77,7 @@ def train(
         elif "partition_epoch" in train_dataset_dict:
             train_epoch_split = train_dataset_dict["partition_epoch"]
     # Usually always apply MultiProcDataset. But some exceptions for now:
-    apply_multi_proc = train_dataset_dict["class"] != "LmDataset"
+    apply_multi_proc = train_dataset_dict["class"] not in {"LmDataset", "DistributeFilesDataset"}
     del train_dataset_dict
     del task
 
@@ -93,6 +93,8 @@ def train(
         kwargs["mem_rqmt"] = config.pop("__mem_rqmt")
     if "__cpu_rqmt" in config:
         kwargs["cpu_rqmt"] = config.pop("__cpu_rqmt")
+    if "__time_rqmt" in config:
+        kwargs["time_rqmt"] = config.pop("__time_rqmt")
     if not kwargs.get("distributed_launch_cmd"):
         kwargs["distributed_launch_cmd"] = "torchrun" if num_processes else "mpirun"
     if "__train_audio_preprocess" in config:

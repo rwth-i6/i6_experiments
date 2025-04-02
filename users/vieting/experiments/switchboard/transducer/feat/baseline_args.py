@@ -152,6 +152,7 @@ def get_returnn_config(
     conformer_type: str = "wei",
     conformer_args: Optional[Dict] = None,
     specaug_old: Optional[Dict[str, Any]] = None,
+    specaug_stft: Optional[Dict[str, Any]] = None,
     am_args: Optional[Dict[str, Any]] = None,
     batch_size: Union[int, Dict[str, int]] = 10000,
     sample_rate: int = 8000,
@@ -220,11 +221,14 @@ def get_returnn_config(
         },
         conformer_type=conformer_type,
         specaug_old=specaug_old,
+        specaug_stft=specaug_stft,
         recognition=recognition,
     )
 
     if feature_net is not None:
         for layer in list(network.keys()):
+            if layer in ("stft"):
+                continue
             if network[layer]["from"] == "data":
                 network[layer]["from"] = "features"
             elif isinstance(network[layer]["from"], list) and "data" in network[layer]["from"]:
@@ -241,6 +245,8 @@ def get_returnn_config(
             prolog += get_code_for_perturbation()
         if "dynamic_learning_rate" in lr_args:
             prolog += [lr_args["dynamic_learning_rate"]]
+        if specaug_stft is not None:
+            feature_net["from"] = "istft"
 
     if isinstance(batch_size, int) and feature_net is not None:
         # If batch size is int, adapt to waveform. If it is dict, assume it is already correct.

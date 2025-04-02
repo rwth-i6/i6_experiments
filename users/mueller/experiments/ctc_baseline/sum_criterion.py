@@ -5,6 +5,7 @@ Implement lattice-free MMI training for CTC
 import os
 import torch
 import numpy as np
+# from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 
 ####### Be careful about stuffs related to EOS and blank index with the BPE setup
 def sum_loss(
@@ -313,7 +314,7 @@ def sum_loss(
 def sum_loss2(
     *,
     log_probs: torch.Tensor, # (T, B, V)
-    log_lm_probs: torch.Tensor, # (V, V)
+    log_lm_probs: torch.Tensor, # | FeedForwardLm, # (V, V)
     log_prior: torch.Tensor | None, # (V,)
     input_lengths: torch.Tensor, # (B,)
     top_k: int = 0,
@@ -382,7 +383,11 @@ def sum_loss2(
     
     old_device = log_probs.device
     log_probs = log_probs.to(device)
-    log_lm_probs = log_lm_probs.to(device)
+    if False:#isinstance(log_lm_probs, FeedForwardLm):
+        lm_ffnn = True
+    else:
+        lm_ffnn = False
+        log_lm_probs = log_lm_probs.to(device)
     if use_prior:
         log_prior = log_prior.to(device)
     input_lengths = input_lengths.to(device)
@@ -415,7 +420,8 @@ def sum_loss2(
     assert log_lm_probs.size() == (vocab_size + 2,) * LM_order, f"LM shape is not correct, should be {vocab_size + 2} in all dimensions but is {log_lm_probs.size()}"
     if use_prior:
         assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
-        assert horizontal_prior, "Not using the horizontal prior is not implemented"
+        if top_k > 0:
+            assert horizontal_prior, "Not using the horizontal prior is not implemented for top_k > 0"
 
     # Unbind the log_probs for each timestep so it is faster during backprop
     log_probs = log_probs.unbind(0)
@@ -519,7 +525,7 @@ def sum_loss2(
                 m_idx[m_idx > 0] += 1
                 a_idx = m_idx.clone()
                 a_idx[a_idx == 0] = blank_idx
-                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()}
+                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()} # TODO AM greedy score
                 for k in range(top_k):
                     if k == 5:
                         break
@@ -606,6 +612,8 @@ def sum_loss2(
                         topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
         else:
             log_mass_horizontal = log_q_label
+            if use_prior and horizontal_prior:
+                log_mass_horizontal = log_mass_horizontal - log_prior_wo_bos
         
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
@@ -627,6 +635,8 @@ def sum_loss2(
                 topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
         else:
             log_mass_diagonal = log_matmul(log_q_blank, log_lm_probs_wo_last_eos) # (B, V) @ (V, V) -> (B, V)
+            if use_prior:
+                log_mass_diagonal = log_mass_diagonal - log_prior_wo_bos
         
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         if top_k > 0:
@@ -645,13 +655,14 @@ def sum_loss2(
                 topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
         else:
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_diag) # (B, V) @ (V, V) -> (B, V)
+            if use_prior:
+                log_mass_skip = log_mass_skip - log_prior_wo_bos
         
         # add up the three transition types
         if top_k <= 0:
             new_log_q_label = safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
-        
-        # correct the prior
-        if use_prior:
+        # correct the prior for topK
+        elif use_prior:
             new_log_q_label -= log_prior_wo_bos
         
         # multiply with p_AM(u|x_t)
@@ -841,6 +852,8 @@ def sum_loss3(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
+    # TODO maybe use masked scatter
+    
     use_prior = log_prior is not None
     
     old_device = log_probs.device
@@ -954,11 +967,13 @@ def sum_loss3(
                 raise NotImplementedError(f"Blank correction version {blank_correction_version} is not implemented")
             tmp_log_q = safe_logaddexp(log_q_label, tmp_log_q_blank)
         
-        topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1, sorted=False)
+        log_q, topk_idx = torch.topk(tmp_log_q, top_k, dim=1, sorted=False)
         if alignment_topk:
             topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2)
-        # print(topk_idx.shape)
+        log_q_label = log_q_label.gather(1, topk_idx)
+        log_q_blank = log_q_blank.gather(1, topk_idx)
         
+        # Calculate the k*V indices we have to consider for the next timestep
         new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
         new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
         new_idx = torch.cat([new_idx, new_last_idx], dim=2)
@@ -1016,14 +1031,11 @@ def sum_loss3(
         if top_k > 0:
             log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
     
-    # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
-    
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
         if top_k > 0:
             # Only consider blanks following top k sequences
-            new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
                 new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
@@ -1031,7 +1043,7 @@ def sum_loss3(
                 # We could already have entries from the topk labels, so we have to add
                 new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)])
             else:
-                new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
+                new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
         else:
             new_log_q_blank = log_q + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
         if use_prior and blank_prior:
@@ -1042,15 +1054,12 @@ def sum_loss3(
         
         # horizontal transition Q(t-1, u, non-blank)
         if top_k > 0:
-            new_log_q_label = torch.full_like(log_q, log_zero, device=device)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
-                topk_log_q_label = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 new_log_q_label[label_topk_idx] = log_q_label[label_topk_idx] # TODO maybe we need gather instead
             else:
-                new_log_q_label.scatter_(1, topk_idx, log_q_label.gather(1, topk_idx))
+                new_log_q_label = log_q_label
                 if blank_correction_version > 0 and blank_correction_version % 2 == 0:
-                    topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
+                    topk_log_q_label = log_q_label + log_lm_probs_w_eos.gather(1, topk_idx)
         else:
             log_mass_horizontal = log_q_label
         
@@ -1064,8 +1073,9 @@ def sum_loss3(
                 log_q_blank_topk = log_q_blank.gather(1, blank_topk_idx) # (B, K)
                 log_lm_probs_topk = log_lm_probs_topk.gather(1, blank_topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V-1)
             else:
-                log_q_blank_topk = log_q_blank.gather(1, topk_idx) # (B, K)
+                log_q_blank_topk = log_q_blank # (B, K)
                 log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V)
+            # TODO map to own indexes and then cumsum or scatter logsumexp
             log_q_blank_topk = log_q_blank_topk.unsqueeze(-1).expand_as(log_lm_probs_topk)
             log_mass_diagonal_add = log_q_blank_topk + log_lm_probs_topk # (B, K, V)
             log_mass_diagonal_add = log_mass_diagonal_add.view(batch_size, -1)
@@ -1145,6 +1155,7 @@ def sum_loss3(
             topk_scores = torch.where(time_mask.expand_as(topk_scores), new_topk_scores, topk_scores)
             topk_idx = torch.where(time_mask.expand_as(topk_idx), new_topk_idx, topk_idx)
 
+            # Calculate the k*V indices we have to consider for the next timestep
             new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
             new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
             new_idx = torch.cat([new_idx, new_last_idx], dim=2)
@@ -1443,10 +1454,70 @@ def get_bpes(tokens):
     tokens = tokens.replace("@@ ", "")
     return tokens
 
-def plot_gradients(gradients: np.ndarray, savename: str, title: str = "Text"):
+def plot_gradients(gradients: np.ndarray, savename: str, title: str = "Text", all_timesteps=False, forwards: np.ndarray = None, norm: str = None):
     import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
     from datetime import datetime
-    if gradients.ndim == 1:
+    if all_timesteps:
+        if forwards is not None:
+            if "logits" in savename:
+                fig, ax = plt.subplots(figsize=(15, 15))
+                fig.supylabel("Vocab")
+                fig.supxlabel("Timestep")
+                ax.imshow(gradients.T, origin="lower", cmap=cm.gray)
+                ax.set_yticks(np.arange(0, 185, 10))
+                ax.set_title("Gradients " + title[0])
+                g_min = -1 * gradients.min()
+                g_max = -1 * gradients.max()
+                ax.text(2, -10, f'black: {g_min}, white: {g_max}', bbox={'facecolor': 'white', 'pad': 10})
+            else:
+                fig, axs = plt.subplots(1, 5, figsize=(15 + gradients.shape[0] / 4, 15))
+                fig.supylabel("Vocab")
+                fig.supxlabel("Timestep")
+                axs[0].imshow(gradients.T, origin="lower", cmap=cm.gray)
+                axs[0].set_yticks(np.arange(0, 185, 10))
+                axs[0].set_title("Gradients " + title[0])
+                g_min = -1 * gradients.min()
+                g_max = gradients.max()
+                if g_max != 0.0:
+                    g_max = -g_max
+                axs[0].text(2, -10, f'black: {g_min}, white: {g_max}', bbox={'facecolor': 'white', 'pad': 10})
+                log_gr = np.log((-gradients))
+                axs[1].imshow(-log_gr.T, origin="lower", cmap=cm.gray)
+                axs[1].set_yticks(np.arange(0, 185, 10))
+                axs[1].set_title("Log Gradients " + title[0])
+                axs[1].text(2, -10, f'black: {log_gr.max()}, white: {log_gr.min()}', bbox={'facecolor': 'white', 'pad': 10})
+                # argmax = np.argmax(forwards, axis=1)
+                # one_hot = np.eye(forwards.shape[1])[argmax]
+                # one_hot = -one_hot
+                # axs[2].imshow(one_hot.T, origin="lower", cmap=cm.gray, norm=norm)
+                # axs[2].set_yticks(np.arange(0, 185, 10))
+                # axs[2].set_title("Argmax Inputs " + title[0])
+                forwards_exp = np.exp(forwards)
+                f_min = forwards_exp.min()
+                f_max = forwards_exp.max()
+                axs[2].imshow(-forwards_exp.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[2].set_yticks(np.arange(0, 185, 10))
+                axs[2].set_title("Probs " + title[0])
+                axs[2].text(2, -10, f'black: {f_max}, white: {f_min}', bbox={'facecolor': 'white', 'pad': 10})
+                fw = -1 * forwards
+                axs[3].imshow(fw.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[3].set_yticks(np.arange(0, 185, 10))
+                axs[3].set_title("Inputs " + title[0])
+                axs[3].text(2, -10, f'black: {forwards.max()}, white: {forwards.min()}', bbox={'facecolor': 'white', 'pad': 10})
+                diff = forwards_exp + gradients
+                axs[4].imshow(diff.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[4].set_yticks(np.arange(0, 185, 10))
+                axs[4].set_title("Diff Inputs - Gradients " + title[0])
+                axs[4].text(2, -10, f'black: {-diff.min()}, white: {-diff.max()}', bbox={'facecolor': 'white', 'pad': 10})
+        else:
+            fig, ax = plt.subplots(figsize=(15, 7))
+            ax.imshow(gradients, origin="lower", cmap=cm.gray)
+            fig.supxlabel("Vocab")
+            fig.supylabel("Timestep")
+            ax.set_xticks(np.arange(0, 185, 10))
+            ax.set_title("Gradients " + title[0])
+    elif gradients.ndim == 1:
         notzero = np.where(gradients != 0)[0]
         if len(notzero) > 10:
             notzero = np.argpartition(np.abs(gradients), -10)[-10:]
@@ -1478,11 +1549,14 @@ def plot_gradients(gradients: np.ndarray, savename: str, title: str = "Text"):
 
 class PrintGradients(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, name, prefix, print_input, mean_dim = None, batch_idx = None, timesteps = [], title: list = []):
+    def forward(ctx, x, name, prefix, print_input, mean_dim = None, all_steps = True, batch_idx = None, timesteps = [], title: list = [], length: int = None, norm: str = None):
         ctx.name = name
         ctx.prefix = prefix
         ctx.print_input = print_input
         ctx.mean_dim = mean_dim
+        ctx.all_steps = all_steps
+        ctx.length = length
+        ctx.norm = norm
         if batch_idx is not None:
             if type(batch_idx) == int:
                 ctx.batch_idx = [batch_idx]
@@ -1511,6 +1585,17 @@ class PrintGradients(torch.autograd.Function):
                 #     print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nInput: {x[ctx.batch_idx].mean(dim=ctx.mean_dim).cpu().numpy()}\nNaN's: {torch.isnan(g).sum()}")
                 # else:
                 #     print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nNaN's: {torch.isnan(g).sum()}")
+            elif ctx.all_steps:
+                if ctx.length is not None:
+                    l = ctx.length
+                    if l > 50:
+                        l = 50
+                    g = grad_output[ctx.batch_idx, :l].detach().squeeze(0).cpu().numpy()
+                    f = x[ctx.batch_idx, :l].detach().squeeze(0).cpu().numpy()
+                else:
+                    g = grad_output[ctx.batch_idx].detach().squeeze(0).cpu().numpy()
+                    f = x[ctx.batch_idx].detach().squeeze(0).cpu().numpy()
+                plot_gradients(g, prefix + name + "_all", ctx.title, True, f, ctx.norm)
             else:
                 np.set_printoptions(threshold=10000)
                 g = grad_output[ctx.batch_idx, ctx.timesteps].squeeze(0).cpu().numpy()
@@ -1529,7 +1614,178 @@ class PrintGradients(torch.autograd.Function):
                 print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nInput: {x.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim else (x[ctx.batch_idx] if ctx.batch_idx else x)}\nNaN's: {torch.isnan(grad_output).sum()}")
             else:
                 print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nNaN's: {torch.isnan(grad_output).sum()}")
-        return grad_output, None, None, None, None, None, None, None
+        return grad_output, None, None, None, None, None, None, None, None, None, None
+    
+def plot_gradients2(gradients: np.ndarray, savename: str, title: str = "Text", all_timesteps=False, forwards: np.ndarray = None, norm: str = None):
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+    from datetime import datetime
+    if all_timesteps:
+        if forwards is not None:
+            if "logits" in savename:
+                fig, ax = plt.subplots(figsize=(15, 15))
+                fig.supylabel("Vocab")
+                fig.supxlabel("Timestep")
+                ax.imshow(gradients.T, origin="lower", cmap=cm.gray)
+                ax.set_yticks(np.arange(0, 185, 10))
+                ax.set_title("Gradients " + title[0])
+                g_min = -1 * gradients.min()
+                g_max = -1 * gradients.max()
+                ax.text(2, -10, f'black: {g_min}, white: {g_max}', bbox={'facecolor': 'white', 'pad': 10})
+            else:
+                fig, axs = plt.subplots(1, 6, figsize=(15 + gradients.shape[0] / 3, 15))
+                fig.supylabel("Vocab")
+                fig.supxlabel("Timestep")
+                axs[0].imshow(gradients.T, origin="lower", cmap=cm.gray)
+                axs[0].set_yticks(np.arange(0, 185, 10))
+                axs[0].set_title("Gradients " + title[0])
+                g_min = -1 * gradients.min()
+                g_max = gradients.max()
+                if g_max != 0.0:
+                    g_max = -g_max
+                axs[0].text(2, -10, f'black: {g_min}, white: {g_max}', bbox={'facecolor': 'white', 'pad': 10})
+                log_gr = np.log((-gradients))
+                axs[1].imshow(-log_gr.T, origin="lower", cmap=cm.gray)
+                axs[1].set_yticks(np.arange(0, 185, 10))
+                axs[1].set_title("Log Gradients " + title[0])
+                axs[1].text(2, -10, f'black: {log_gr.max()}, white: {log_gr.min()}', bbox={'facecolor': 'white', 'pad': 10})
+                # argmax = np.argmax(forwards, axis=1)
+                # one_hot = np.eye(forwards.shape[1])[argmax]
+                # one_hot = -one_hot
+                # axs[2].imshow(one_hot.T, origin="lower", cmap=cm.gray, norm=norm)
+                # axs[2].set_yticks(np.arange(0, 185, 10))
+                # axs[2].set_title("Argmax Inputs " + title[0])
+                forwards_exp = np.exp(forwards)
+                f_min = forwards_exp.min()
+                f_max = forwards_exp.max()
+                axs[2].imshow(-forwards_exp.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[2].set_yticks(np.arange(0, 185, 10))
+                axs[2].set_title("Probs " + title[0])
+                axs[2].text(2, -10, f'black: {f_max}, white: {f_min}', bbox={'facecolor': 'white', 'pad': 10})
+                fw = -1 * forwards
+                axs[3].imshow(fw.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[3].set_yticks(np.arange(0, 185, 10))
+                axs[3].set_title("Inputs " + title[0])
+                axs[3].text(2, -10, f'black: {forwards.max()}, white: {forwards.min()}', bbox={'facecolor': 'white', 'pad': 10})
+                diff = forwards_exp + gradients
+                axs[4].imshow(diff.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[4].set_yticks(np.arange(0, 185, 10))
+                axs[4].set_title("Diff Inputs - Gradients " + title[0])
+                axs[4].text(2, -10, f'black: {-diff.min()}, white: {-diff.max()}', bbox={'facecolor': 'white', 'pad': 10})
+            
+                argmax_probs = np.take(gradients, argmax, axis=1)
+                ls_argmax = argmax.tolist()
+                ls_argmax = [a for a in ls_argmax if a != 184]
+                axs[5].imshow(diff.T, origin="lower", cmap=cm.gray, norm=norm)
+                axs[5].set_yticks(np.arange(0, 185, 10))
+                axs[5].set_xticks(np.arange(0, len(ls_argmax), 1))
+                axs[5].set_title("Argmax comparison " + title[0])
+                axs[5].text(2, -10, f'black: {diff.min()}, white: {diff.max()}', bbox={'facecolor': 'white', 'pad': 10})
+        else:
+            fig, ax = plt.subplots(figsize=(15, 7))
+            ax.imshow(gradients, origin="lower", cmap=cm.gray)
+            fig.supxlabel("Vocab")
+            fig.supylabel("Timestep")
+            ax.set_xticks(np.arange(0, 185, 10))
+            ax.set_title("Gradients " + title[0])
+    elif gradients.ndim == 1:
+        notzero = np.where(gradients != 0)[0]
+        if len(notzero) > 10:
+            notzero = np.argpartition(np.abs(gradients), -10)[-10:]
+        fig = plt.figure(figsize=(10, 5))
+        plt.plot(gradients, ".-", linewidth=1, markersize=3)
+        plt.xticks(np.arange(0, 185, 10))
+        plt.title(title)
+        plt.xlabel("Vocab")
+        plt.ylabel("Gradients")
+        for idx in notzero:
+            plt.text(idx - 3, gradients[idx], get_bpe_from_dict(idx), rotation = "vertical", fontsize = "x-small")
+    elif gradients.ndim == 2:
+        fig, axs = plt.subplots(gradients.shape[0], 1, figsize=(10, 5 * gradients.shape[0]))
+        fig.supxlabel("Vocab")
+        fig.supylabel("Gradients")
+        for t in range(gradients.shape[0]):
+            notzero = np.where(gradients[t] != 0)[0]
+            if len(notzero) > 10:
+                notzero = np.argpartition(np.abs(gradients[t]), -10)[-10:]
+            axs[t].plot(gradients[t], ".-", linewidth=1, markersize=3)
+            axs[t].set_xticks(np.arange(0, 185, 10))
+            axs[t].set_title(title[t])
+            for idx in notzero:
+                axs[t].text(idx - 3, gradients[t][idx], get_bpe_from_dict(idx), rotation = "vertical", fontsize = "x-small")
+    else:
+        raise NotImplementedError("Only 2D gradients are supported")
+    now = datetime.now()
+    fig.savefig(savename + now.strftime("_%H:%M:%S_%d-%m") + ".png")
+
+class PrintGradients2(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, name, prefix, print_input, mean_dim = None, all_steps = True, batch_idx = None, timesteps = [], title: list = [], length: int = None, norm: str = None):
+        ctx.name = name
+        ctx.prefix = prefix
+        ctx.print_input = print_input
+        ctx.mean_dim = mean_dim
+        ctx.all_steps = all_steps
+        ctx.length = length
+        ctx.norm = norm
+        if batch_idx is not None:
+            if type(batch_idx) == int:
+                ctx.batch_idx = [batch_idx]
+            else:
+                ctx.batch_idx = batch_idx
+        ctx.timesteps = timesteps
+        ctx.title = title
+        ctx.save_for_backward(x)
+        return x
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        name = ctx.name
+        prefix = ctx.prefix
+        print_input = ctx.print_input
+        x, = ctx.saved_tensors
+        if ctx.batch_idx is not None:
+            prefix += "/"
+            prefix = "/u/marten.mueller/dev/ctc_baseline/output/" + prefix
+            if not os.path.exists(prefix):
+                os.makedirs(prefix)
+            if ctx.mean_dim is not None:
+                g = grad_output[ctx.batch_idx]
+                plot_gradients2(g.mean(dim=ctx.mean_dim).squeeze(0).cpu().numpy(), prefix + name, "")
+                # if print_input:
+                #     print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nInput: {x[ctx.batch_idx].mean(dim=ctx.mean_dim).cpu().numpy()}\nNaN's: {torch.isnan(g).sum()}")
+                # else:
+                #     print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nNaN's: {torch.isnan(g).sum()}")
+            elif ctx.all_steps:
+                if ctx.length is not None:
+                    l = ctx.length
+                    if l > 50:
+                        l = 50
+                    g = grad_output[ctx.batch_idx, :l].squeeze(0).cpu().numpy()
+                    f = x[ctx.batch_idx, :l].detach().squeeze(0).cpu().numpy()
+                else:
+                    g = grad_output[ctx.batch_idx].squeeze(0).cpu().numpy()
+                    f = x[ctx.batch_idx].detach().squeeze(0).cpu().numpy()
+                plot_gradients2(g, prefix + name + "_all", ctx.title, True, f, ctx.norm)
+            else:
+                np.set_printoptions(threshold=10000)
+                g = grad_output[ctx.batch_idx, ctx.timesteps].squeeze(0).cpu().numpy()
+                plot_gradients2(g, prefix + name + "_ts", ctx.title)
+                # if print_input:
+                #     x_b = x[ctx.batch_idx, ctx.timesteps].squeeze(0).cpu().numpy()
+                #     print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
+                #     for j, i in zip(ctx.timesteps, range(len(ctx.timesteps))):
+                #         print(f"{j}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}\nInput: {x_b[i]} Max: {x_b[i].max()} Sum: {x_b[i].sum()}")
+                # else:
+                #     print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
+                #     for j, i in zip(ctx.timesteps, range(len(ctx.timesteps))):
+                #         print(f"{j}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}")
+        else:
+            if print_input:
+                print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nInput: {x.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim else (x[ctx.batch_idx] if ctx.batch_idx else x)}\nNaN's: {torch.isnan(grad_output).sum()}")
+            else:
+                print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nNaN's: {torch.isnan(grad_output).sum()}")
+        return grad_output, None, None, None, None, None, None, None, None, None, None
     
 class AssertGradients(torch.autograd.Function):
     @staticmethod
@@ -1549,6 +1805,20 @@ class AssertGradients(torch.autograd.Function):
         else:
             assert not torch.isnan(grad_output).any(), f"{torch.isnan(grad_output).sum()} NaN's in gradients of {name}, see {grad_output}"
         return grad_output, None, None
+    
+class NormGradients(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        return x
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        print("Before Norm", grad_output[0].sum(dim=-1), grad_output.shape)
+        # grad = torch.softmax(grad_output, dim=-1)
+        # grad_output = grad_output / grad_output.norm(dim=-1, keepdim=True)
+        grad_output = torch.nn.functional.normalize(grad_output, p=1, dim=-1)
+        print("After Norm", grad_output[0].sum(dim=-1), grad_output.shape)
+        return grad_output
 
 # ------------------------------------------------------------
 
@@ -1688,8 +1958,8 @@ def test():
     # torch.autograd.set_detect_anomaly(True)
     # torch.cuda.set_sync_debug_mode(1)
     
-    device = torch.device("cuda:0")
-    # device = torch.device("cpu")
+    # device = torch.device("cuda:0")
+    device = torch.device("cpu")
     
     batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
     vocab_size = 185
@@ -1698,8 +1968,9 @@ def test():
     
     torch.manual_seed(0)
     # torch.cuda.manual_seed_all(0)
-    ag = AssertGradients.apply
-    # ag = PrintGradients.apply
+    # ag = AssertGradients.apply
+    ag = PrintGradients.apply
+    ng = NormGradients.apply
     
     # lm = torch.randn((vocab_size - 1,) * LM_order, device=device)
     # lm = torch.nn.functional.log_softmax(lm, dim=-1)
@@ -1711,6 +1982,8 @@ def test():
         lm_path = "/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.XxvP7yk50Q8u/output/lm.pt"
     with open(lm_path, "rb") as f:
         lm = torch.load(f)
+        
+    lm = torch.log_softmax(lm, dim=-1)
     
     l = torch.tensor([0.0], device=device)
     s1 = time.time()
@@ -1720,6 +1993,11 @@ def test():
         # am[0, 0, vocab_size - 1] = float(3)
         # am[2, 0, vocab_size - 1] = float(3)
         am.requires_grad = True
+        
+        am = am.permute(1, 0, 2)
+        # am = ag(am, "logits", "/u/marten.mueller/dev/ctc_baseline/recipe/i6_experiments/users/mueller/experiments/ctc_baseline", False, None, True, 0, [],  ["Logits"], frames)
+        am = am.permute(1, 0, 2)
+        
         am = torch.cat([torch.full((1,1,2), float("-inf"), device=device).expand(frames, batch_size, 2), torch.nn.functional.log_softmax(am[:, :, 2:], dim=-1)], dim = -1)
         
         # res = 0.0
@@ -1739,8 +2017,10 @@ def test():
         # am = am.permute(1, 0, 2)
         
         am = am.permute(1, 0, 2)
-        # am = ag(am, "AM", False, None, 0, [0, 1, 34])
-        am = ag(am, "AM", False)
+        # x, name, prefix, print_input, mean_dim = None, all_steps = True, batch_idx = None, timesteps = [], title: list = []
+        # am = ag(am, "log_probs", "/u/marten.mueller/dev/ctc_baseline/recipe/i6_experiments/users/mueller/experiments/ctc_baseline", False, None, True, 0, [],  ["Log Probs"], frames)
+        # am = ng(am)
+        # am = ag(am, "AM", False)
         am = am.permute(1, 0, 2)
         # prior = ag(prior, "prior", False)
         
@@ -1749,52 +2029,53 @@ def test():
             log_lm_probs=lm,
             log_prior=prior,
             input_lengths=length,
-            top_k=2,
+            top_k=0,
             LM_order=LM_order,
             am_scale=1.0,
-            lm_scale=1.0,
-            prior_scale=0.0,
+            lm_scale=0.0,
+            prior_scale=0.3,
             horizontal_prior=True,
             blank_prior=True,
             blank_idx=184,
             eos_idx=0,
             print_best_path_for_idx=[0],
             alignment_topk=False,
-            blank_correction_version = 16,
+            blank_correction_version = 0,
             correction_in_final_score = False
         )
         print("OUT", (-loss[0]).tolist(), (-loss[0]).exp().tolist())
-        l += (loss / frames).mean()
+        # l += (loss / frames).mean()
+        l = loss
         
         # del loss, am, prior
         # torch.cuda.empty_cache()
         print("Time:", time.time() - s)
         
-        targets = torch.tensor(
-            [ 34,  34, 117,  31,  67,  12, 146, 107, 154,  45,  45, 123,  17,  53,
-            35,  97,  97, 120,  48, 135, 103,  20,  75, 117,  96, 120,  58,   9,
-            30,  27,  13,  28, 162, 175, 123, 151,  65,  70, 145, 109, 103,  76,
-            99, 156, 141, 157, 173,  62,  44,  89, 155, 159,  58,   6,  19, 126,
-            138, 152, 152,  44, 111, 122,  14,  50, 146, 122, 179,   4,  36,  55,
-            117,  99,  42, 171, 157, 137,  21, 128,   9,  78,  19,  31,  37, 140,
-            16,  30, 109, 102,  32,  72, 146,  37, 126, 130, 147,  83,  19, 137,
-            13,  14]
-        )
-        targets = targets - 2
-        greedy_probs, greedy_idx = torch.max(am[:, 0:1], dim=-1)
-        # print(greedy_idx.squeeze(-1))
-        # print(greedy_probs.sum())
-        targets = targets.unsqueeze(0)
-        target_lengths = torch.tensor([targets.size(1)])
-        ctc_loss = torch.nn.functional.ctc_loss(
-            log_probs=am[:, 0:1],
-            targets=targets,
-            input_lengths=length[0:1],
-            target_lengths=target_lengths,
-            blank=184,
-            reduction="none"
-        )
-        print(ctc_loss)
+        # targets = torch.tensor(
+        #     [ 34,  34, 117,  31,  67,  12, 146, 107, 154,  45,  45, 123,  17,  53,
+        #     35,  97,  97, 120,  48, 135, 103,  20,  75, 117,  96, 120,  58,   9,
+        #     30,  27,  13,  28, 162, 175, 123, 151,  65,  70, 145, 109, 103,  76,
+        #     99, 156, 141, 157, 173,  62,  44,  89, 155, 159,  58,   6,  19, 126,
+        #     138, 152, 152,  44, 111, 122,  14,  50, 146, 122, 179,   4,  36,  55,
+        #     117,  99,  42, 171, 157, 137,  21, 128,   9,  78,  19,  31,  37, 140,
+        #     16,  30, 109, 102,  32,  72, 146,  37, 126, 130, 147,  83,  19, 137,
+        #     13,  14]
+        # )
+        # targets = targets - 2
+        # greedy_probs, greedy_idx = torch.max(am[:, 0:1], dim=-1)
+        # # print(greedy_idx.squeeze(-1))
+        # # print(greedy_probs.sum())
+        # targets = targets.unsqueeze(0)
+        # target_lengths = torch.tensor([targets.size(1)])
+        # ctc_loss = torch.nn.functional.ctc_loss(
+        #     log_probs=am[:, 0:1],
+        #     targets=targets,
+        #     input_lengths=length[0:1],
+        #     target_lengths=target_lengths,
+        #     blank=184,
+        #     reduction="none"
+        # )
+        # print(ctc_loss)
         
         
     l.backward(torch.ones_like(l, device=device))
@@ -1818,11 +2099,14 @@ def test():
     # print(f"CTC loss took {time.strftime('%H:%M:%S', time.gmtime(e2 - s2))}: {(ctc_loss / frames).mean()}") # 0:08 mins
 
 def test_LM():
-    # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.wuVkNuDg8B55/output/lm.pt", "rb") as f: # 2-gram
+    with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.wuVkNuDg8B55/output/lm.pt", "rb") as f: # 2-gram
     # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.S9n2YtP1JzJ5/output/lm.pt", "rb") as f: # 3-gram
-    with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.XxvP7yk50Q8u/output/lm.pt", "rb") as f: # 4-gram
+    # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.XxvP7yk50Q8u/output/lm.pt", "rb") as f: # 4-gram
         t = torch.load(f)
-    print(safe_logsumexp(safe_logsumexp(safe_logsumexp(t, dim=-1), dim=-1), dim=-1))
+    # print(safe_logsumexp(safe_logsumexp(safe_logsumexp(t, dim=-1), dim=-1), dim=-1))
+    print(t.shape)
+    t = torch.log_softmax(t, dim=-1)
+    print(safe_logsumexp(t, dim=-1))
     
 def test_get_bpes():
     tokens = "[117] [117] [117] [117] [117] [117] [117] [46] [46] [46] [46] [21] [35] [35] [55] [55] [120] [120] [120] [26] [26] [76] [13] [26] [10] [10] [74] [116] [7] [7] [19] [13] [53] [57] [57] [108] [108] [10] [10] [10] [42] [42] [24] [24] [34] [34] [34] [55] [25] [14] [14] [18] [18] [18] [18] [18] [156] [156] [9] [81] [81] [13] [15] [21] [50] [50] [23] [23] [113] [113] [113] [28] [77] [77] [27] [27] [39] [170] [2] [18] [18] [20] [20] [142] [142] [142] [170] [170] [170] [106] [106] [7] [7] [33] [33] [162] [162] [162] [52] [52] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18]"

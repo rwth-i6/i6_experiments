@@ -955,6 +955,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             if softmax_type == SingleSoftmaxType.TRAIN:
                 prepare_for_train = True
 
+        
         assert state_tying in [
             RasrStateTying.monophone,
             RasrStateTying.diphone,

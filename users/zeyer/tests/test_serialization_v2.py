@@ -3,6 +3,7 @@ Tests for serialization_v2.
 """
 
 import os
+from typing import Callable
 import textwrap
 import functools
 import dataclasses
@@ -335,3 +336,38 @@ def test_dataclass_frozen():
 def test_inf():
     d = {"num": float("inf")}
     assert serialize_config(d).as_serialized_code() == "num = float('inf')\n"
+
+
+@dataclasses.dataclass
+class _DataclassWithBoundMethod:
+    name: str
+
+    def default_collect_score_results(self, x: str) -> str:
+        return self.name + " " + x
+
+    collect_score_results_func: Callable[[str], str] = None
+
+    def __post_init__(self):
+        if self.collect_score_results_func is None:
+            self.collect_score_results_func = self.default_collect_score_results  # bound method
+
+
+def test_bound_method():
+    obj = _DataclassWithBoundMethod("foo")
+    assert obj.collect_score_results_func("bar") == "foo bar"
+    assert obj.collect_score_results_func.__self__ is obj
+    serialized = serialize_config({"task": obj})
+    code = serialized.as_serialized_code()
+    print(code)
+    scope = {}
+    exec(code, scope)
+    obj_ = scope["task"]
+    assert obj_ is not obj
+    assert isinstance(obj_, _DataclassWithBoundMethod)
+    assert obj_.collect_score_results_func is not obj.collect_score_results_func
+    assert (
+        obj_.default_collect_score_results.__func__
+        is obj.default_collect_score_results.__func__
+        is _DataclassWithBoundMethod.default_collect_score_results
+    )
+    assert obj_.collect_score_results_func.__self__ is obj_

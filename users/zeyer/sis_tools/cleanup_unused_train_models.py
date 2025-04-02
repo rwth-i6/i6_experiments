@@ -53,7 +53,10 @@ def main():
     from i6_core.returnn.training import ReturnnTrainingJob
     from i6_experiments.users.zeyer.utils import job_aliases_from_info
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
-    from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+    from i6_experiments.users.zeyer.returnn.training import (
+        get_relevant_epochs_from_training_learning_rate_scores,
+        GetRelevantEpochsFromTrainingLearningRateScoresException,
+    )
     from returnn.util import better_exchook
     from returnn.util.basic import human_bytes_size
 
@@ -196,9 +199,13 @@ def main():
     for job in active_train_job_finished_list:
         job: ReturnnTrainingJob
         name = job.get_one_alias() or job.job_id()
-        relevant_epochs = get_relevant_epochs_from_training_learning_rate_scores(
-            model_dir=job.out_model_dir, scores_and_learning_rates=job.out_learning_rates, log_stream=None
-        )
+        try:
+            relevant_epochs = get_relevant_epochs_from_training_learning_rate_scores(
+                model_dir=job.out_model_dir, scores_and_learning_rates=job.out_learning_rates, log_stream=None
+            )
+        except GetRelevantEpochsFromTrainingLearningRateScoresException as exc:
+            print(f"  Job {name}, warning: {exc}, skipping.")
+            continue
         # Relevant epochs so far only contains the best from the learning rate scores.
         # Those are not necessarily e.g. the final epochs, or other fixed kept epochs.
         # Always keep the 10 last epochs.

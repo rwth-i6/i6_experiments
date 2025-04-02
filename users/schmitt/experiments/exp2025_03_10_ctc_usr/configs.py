@@ -262,8 +262,13 @@ config_params_v2 = dict_update_deep(
             "order": 2,
         },
         "use_sum_criterion": True,
-        "self_training_rounds": 1,
+        "self_training_rounds": 0,
         "from_scratch": True,
         "full_sum_from_scratch": True,
+        "self_train_subset": None,
+        "epochs": 2000,
+        "top_k": 0,
+        "init_small": False,
+        "print_gradients": False,
     }
 )

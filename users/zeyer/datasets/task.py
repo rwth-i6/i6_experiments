@@ -3,6 +3,8 @@ Dataset / task interface
 """
 
 from __future__ import annotations
+
+import types
 from typing import Dict, Callable, Sequence
 import dataclasses
 
@@ -54,3 +56,10 @@ class Task:
     def __post_init__(self):
         if self.collect_score_results_func is None:
             self.collect_score_results_func = self.default_collect_score_results
+        elif isinstance(self.collect_score_results_func, types.MethodType) and isinstance(
+            self.collect_score_results_func.__self__, Task
+        ):
+            # When we do dataclasses.replace to copy the task,
+            # we would have the bound method bound to the wrong Task instance.
+            # This is very likely unintended, so we rebind it to self.
+            self.collect_score_results_func = types.MethodType(self.collect_score_results_func.__func__, self)
