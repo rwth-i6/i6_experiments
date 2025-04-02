@@ -631,7 +631,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
-        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},   
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
@@ -1017,7 +1017,7 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
-        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},   
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
@@ -1356,7 +1356,7 @@ def run_scf_combination_experiments():
         }
 
     nn_base_args = {
-        # Final result in Max' Thesis 
+        # Final result in Max' Thesis
         "scf_bs2x5k_stft20ms_fmask_5_8of512_tempo": dict(
             returnn_args={
                 **returnn_args,
@@ -1413,7 +1413,7 @@ def run_scf_combination_experiments():
             feature_args=feature_args_scf,
             lr_args=lr_args,
         ),
-        # Tested since other audio perturbation results are unsing preemphasis 1 
+        # Tested since other audio perturbation results are unsing preemphasis 1
         "scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1": dict(
             returnn_args={
                 **returnn_args,
