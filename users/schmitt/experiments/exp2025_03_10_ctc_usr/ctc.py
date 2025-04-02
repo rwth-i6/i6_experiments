@@ -912,7 +912,12 @@ def train_full_sum_from_scratch(
     config_self["empirical_prior"] = emp_prior
     config_self.pop("aux_loss_layers")
     init_checkpoint = None
-    config_self["__num_processes"] = 1
+
+    config_self["use_tensorboard"] = True
+
+    # use single gpu
+    del config_self["__num_processes"]
+    del config_self["torch_distributed"]
 
     model_with_checkpoint = train(
         prefix,
@@ -1774,6 +1779,23 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     blank_correction_version = config.int("blank_correction_version", 0)
     correction_in_final_score = config.bool("correction_in_final_score", False)
     use_prior = prior_scale > 0.0
+
+    if config.typed_value("use_tensorboard", False):
+        assert not config.typed_value("use_horovod", False), "Tensorboard not supported with multi-gpu training"
+        from torch.utils.tensorboard import SummaryWriter
+        import os
+        tensorboard_writer = config.typed_value("tensorboard_writer", None)
+        if tensorboard_writer is None:
+            exp_dir = config.typed_value('model').split('work')[0]
+            log_dir = f"{exp_dir}/tensorboard_runs/{config.typed_value('alias')}"
+            print(f"Tensorboard log dir: {log_dir}")
+            assert not os.path.exists(log_dir)
+            tensorboard_writer = SummaryWriter(
+                log_dir=log_dir
+            )
+            config.set("tensorboard_writer", tensorboard_writer)
+    else:
+        tensorboard_writer = None
     
     print_gradients = config.bool("print_gradients", False)
     version = config.int("version", 2)
@@ -1980,6 +2002,24 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
             custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
             use_normalized_loss=use_normalized_loss,
         )
+
+        if rf.get_run_ctx().step % 10 == 0:
+            log_probs_ = model.log_probs_wb_from_logits(logits)
+            argmax = rf.reduce_argmax(log_probs_, axis=model.wb_target_dim)
+            argmax = argmax.copy_transpose([batch_dim, enc_spatial_dim])
+            enc_size = enc_spatial_dim.get_size_tensor().raw_tensor
+            print("Greedy:", argmax.raw_tensor[0, :enc_size[0]].detach().cpu().numpy())
+
+        if tensorboard_writer is not None and rf.get_run_ctx().step % 10 == 0 and rf.get_run_ctx().train_flag:
+            mean_loss = rf.reduce_sum(loss, axis=loss.dims)
+            custom_inv_norm_factor = enc_spatial_dim.get_size_tensor()
+            inv_norm = rf.reduce_sum(custom_inv_norm_factor, axis=custom_inv_norm_factor.dims)
+            inv_norm = rf.cast(inv_norm, loss.dtype)
+            inv_norm = rf.reciprocal(inv_norm)
+            inv_norm = rf.copy_to_device(inv_norm, loss.device)
+            mean_loss *= inv_norm
+
+            tensorboard_writer.add_scalar("ctc_train_full-sum_loss", mean_loss.raw_tensor.item(), rf.get_run_ctx().step)
 
 ctc_sum_training: ExtendedTrainDef[Model]
 ctc_sum_training.learning_rate_control_error_measure = "full_sum"

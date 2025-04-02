@@ -17,19 +17,27 @@ def get_prolog_augment_network_to_joint_triphone_softmax(
     label_info: LabelInfo,
     out_joint_score_layer: str,
     log_softmax: bool,
-    joint_softmax_layer: str = "output",
+    left_context_softmax_layer: str = "left-output",
+    center_state_softmax_layer: str = "center-output",
     right_context_softmax_layer: str = "right-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
 ) -> Network:
-
-    dim_prolog, r_spatial_dim, r_range_dim = get_context_dim_tag_prolog(
-        spatial_size=label_info.n_contexts * label_info.get_n_state_classes(),
-        feature_size=label_info.get_n_state_classes(),
+    dim_prolog_di, c_spatial_dim, l_range_dim = get_context_dim_tag_prolog(
+        spatial_size=label_info.get_n_state_classes(),
+        feature_size=label_info.n_contexts,
+        context_type="L",
+        spatial_dim_variable_name="__center_state_spatial",
+        feature_dim_variable_name="__left_feature",
+    )
+    dim_prolog_tri, dense_spatial_dim, r_range_dim = get_context_dim_tag_prolog(
+        spatial_size=label_info.get_n_of_dense_classes(),
+        feature_size=label_info.n_contexts,
         context_type="R",
-        spatial_dim_variable_name="__right_spatial",
+        spatial_dim_variable_name="__dense_spatial",
         feature_dim_variable_name="__right_feature",
     )
+    dim_prolog = dim_prolog_di+dim_prolog_tri
 
     for layer in network.values():
         layer.pop("target", None)
@@ -37,68 +45,70 @@ def get_prolog_augment_network_to_joint_triphone_softmax(
         layer.pop("loss_scale", None)
         layer.pop("loss_opts", None)
 
-    for softmax_layer in [joint_softmax_layer, right_context_softmax_layer]:
+    for softmax_layer in [right_context_softmax_layer, center_state_softmax_layer, left_context_softmax_layer]:
         network[softmax_layer] = {
             **network[softmax_layer],
             "class": "linear",
             "activation": "log_softmax" if log_softmax else "softmax",
         }
 
-    # Preparation of expanded center-state
-    network[f"{encoder_output_layer}_expanded"] = {
-        "class": "expand_dims",
-        "from": encoder_output_layer,
-        "axis": "spatial",
-        "dim": r_spatial_dim,
+    #Repeating the left context
+    network["pastLabelRange"] = {
+        "class": "range",
+        "dtype": "int32",
+        "start": 0,
+        "limit": label_info.n_contexts,
+        "sparse": True,
+        "out_spatial_dim": l_range_dim,
     }
-    network["currentStateRange"] = {
+    network["pastLabel"] = {
+        "class": "reinterpret_data",
+        "from": "pastLabelRange",
+        "set_sparse_dim": l_range_dim,
+    }
+    network["pastEmbed"]["in_dim"] = l_range_dim
+    network["pastEmbed"]["from"] = "pastLabel"
+
+    # Repeating the right context
+    network["futureLabelRange"] = {
         "class": "range",
         "dtype": "int32",
         "start": 0,
         "limit": label_info.get_n_state_classes(),
         "sparse": True,
-        "out_spatial_dim": r_spatial_dim,
+        "out_spatial_dim": c_spatial_dim,
     }
-    network["currentState"] = {
+    network["futureLabel"] = {
         "class": "reinterpret_data",
-        "from": "currentStateRange",
-        "set_sparse_dim": r_range_dim,
+        "from": "futureLabelRange",
+        "set_sparse_dim": c_spatial_dim,
     }
-    network["currentState"]["in_dim"] = r_range_dim
+    network["currentState"]["in_dim"] = c_spatial_dim
     network["currentState"]["from"] = "futureLabel"
 
-    network["linear1-triphone"]["from"] = [f"{encoder_output_layer}_expanded", "currentState", "pastEmbed"]
-    network[f"{joint_softmax_layer}_transposed"] = {
-        # Transpose the center output because in diphone-no-tying-dense, the left context is
-        # the trailing index. So we have for every center state all left contexts next to each
-        # other, not for every left context all center states.
-        "class": "swap_axes",
-        "axis1": 2,
-        "axis2": 3,
-        "from": joint_softmax_layer,
-    }
 
-    # Left context just needs to be repeated |center_state| number of times
-    network[f"{right_context_softmax_layer}_expanded"] = {
-        "class": "expand_dims",
-        "from": right_context_softmax_layer,
-        "axis": "spatial",
-    }
+    network["left-output"].pop("n_out", None)
+    network["left-output"]["out_dim"] = l_range_dim
+
+    network["right-output"].pop("n_out", None)
+    network["right-output"]["out_dim"] = r_range_dim
+
+
+    network["linear1-triphone"]["from"] = [f"{encoder_output_layer}", "currentState", "pastEmbed"]
 
     # Compute scores and flatten output
     network[f"{out_joint_score_layer}_scores"] = {
         "class": "combine",
-        "from": [f"{joint_softmax_layer}_transposed", f"{right_context_softmax_layer}_expanded"],
+        "from": [right_context_softmax_layer, center_state_softmax_layer, left_context_softmax_layer],
         "kind": "add" if log_softmax else "mul",
     }
     network[out_joint_score_layer] = {
         "class": "merge_dims",
-        "axes": [f"dim:{label_info.get_n_state_classes()*label_info.n_contexts}", f"dim:{label_info.n_contexts}"],
+        "axes": [c_spatial_dim, l_range_dim, r_range_dim],
         "keep_order": True,
         "from": f"{out_joint_score_layer}_scores",
+        "out_dim": dense_spatial_dim,
     }
-    from IPython import embed
-    #embed()
 
     if prepare_for_train:
         # To train numerically stable RETURNN needs a softmax activation at the end.
@@ -125,7 +135,8 @@ def augment_returnn_config_to_joint_triphone_softmax(
     label_info: LabelInfo,
     out_joint_score_layer: str,
     log_softmax: bool,
-    joint_softmax_layer: str = "output",
+    left_context_softmax_layer: str = "left-output",
+    center_state_softmax_layer: str = "center-output",
     right_context_softmax_layer: str = "right-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
@@ -155,7 +166,8 @@ def augment_returnn_config_to_joint_triphone_softmax(
         label_info=label_info,
         out_joint_score_layer=out_joint_score_layer,
         log_softmax=log_softmax,
-        joint_softmax_layer=joint_softmax_layer,
+        center_state_softmax_layer=center_state_softmax_layer,
+        left_context_softmax_layer=left_context_softmax_layer,
         right_context_softmax_layer=right_context_softmax_layer,
         encoder_output_layer=encoder_output_layer,
         prepare_for_train=prepare_for_train,

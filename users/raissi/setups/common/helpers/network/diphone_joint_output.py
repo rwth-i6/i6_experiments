@@ -10,6 +10,7 @@ from i6_experiments.users.raissi.setups.common.helpers.network.augment import Ne
 
 from i6_experiments.users.raissi.setups.common.helpers.train.returnn_time_tag import get_context_dim_tag_prolog
 
+from IPython import embed
 
 def get_prolog_augment_network_to_joint_diphone_softmax(
     network: Network,
@@ -120,7 +121,6 @@ def get_prolog_augment_network_to_joint_diphone_softmax(
 
     return dim_prolog, network
 
-
 def augment_returnn_config_to_joint_diphone_softmax(
     returnn_config: returnn.ReturnnConfig,
     label_info: LabelInfo,
@@ -173,6 +173,155 @@ def augment_returnn_config_to_joint_diphone_softmax(
     returnn_config.update(update_cfg)
 
     return returnn_config
+
+
+def get_prolog_augment_network_to_joint_diphone_softmax_albert(
+    network: Network,
+    label_info: LabelInfo,
+    out_joint_score_layer: str,
+    log_softmax: bool,
+    center_state_softmax_layer: str = "center-output",
+    left_context_softmax_layer: str = "left-output",
+    encoder_output_layer: str = "encoder-output",
+    prepare_for_train: bool = False,
+    keep_right_context: bool = False,
+) -> Network:
+
+    dim_prolog, c_spatial_dim, c_range_dim = get_context_dim_tag_prolog(
+        spatial_size=label_info.n_contexts,
+        feature_size=label_info.get_n_state_classes(),
+        context_type="L",
+        spatial_dim_variable_name="__center_state_spatial",
+        feature_dim_variable_name="__center_state_feature",
+    )
+
+    if not keep_right_context:
+        for k in ["linear1-triphone", "linear2-triphone", "right-output"]:
+            # reduce error surface, remove all triphone-related stuff
+            network.pop(k, None)
+    for layer in network.values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
+
+    for softmax_layer in [center_state_softmax_layer, left_context_softmax_layer]:
+        network[softmax_layer] = {
+            **network[softmax_layer],
+            "class": "linear",
+            "activation": "log_softmax" if log_softmax else "softmax",
+        }
+
+    # Preparation of expanded center-state
+    network["pastLabelRange"] = {
+        "class": "range",
+        "dtype": "int32",
+        "start": 0,
+        "limit": label_info.n_contexts,
+        "sparse": True,
+        "out_spatial_dim": c_spatial_dim,
+    }
+    network["pastLabel"] = {
+        "class": "reinterpret_data",
+        "from": "pastLabelRange",
+        "set_sparse_dim": c_spatial_dim,
+    }
+    network["pastEmbed"]["in_dim"] = c_spatial_dim
+    network["pastEmbed"]["from"] = "pastLabel"
+    network["linear1-diphone"]["from"] = [f"{encoder_output_layer}", "pastEmbed"]
+
+    network["left-output"].pop("n_out", None)
+    network["left-output"]["out_dim"] = c_spatial_dim
+    # Left context just needs to be repeated |center_state| number of times
+
+    # Compute scores and flatten output
+    network[f"{out_joint_score_layer}_scores"] = {
+        "class": "combine",
+        "from": [f"{center_state_softmax_layer}", f"{left_context_softmax_layer}"],
+        "kind": "add" if log_softmax else "mul",
+    }
+    network[out_joint_score_layer] = {
+        "class": "merge_dims",
+        "axes": [c_range_dim, c_spatial_dim],
+        "keep_order": True,
+        "from": f"{out_joint_score_layer}_scores",
+    }
+
+    if prepare_for_train:
+        # To train numerically stable RETURNN needs a softmax activation at the end.
+        #
+        # Here we're using the fact that softmax(log_softmax(x)) = x to add a softmax
+        # layer w/o actually running two softmaxes on top of each other.
+
+        assert log_softmax
+
+        network[f"{out_joint_score_layer}_merged"] = network[out_joint_score_layer]
+        network[out_joint_score_layer] = {
+            "class": "activation",
+            "activation": "softmax",
+            "from": f"{out_joint_score_layer}_merged",
+        }
+
+    network[out_joint_score_layer]["register_as_extern_data"] = out_joint_score_layer
+
+    return dim_prolog, network
+
+def augment_returnn_config_to_joint_diphone_softmax_albert(
+    returnn_config: returnn.ReturnnConfig,
+    label_info: LabelInfo,
+    out_joint_score_layer: str,
+    log_softmax: bool,
+    center_state_softmax_layer: str = "center-output",
+    left_context_softmax_layer: str = "left-output",
+    encoder_output_layer: str = "encoder-output",
+    prepare_for_train: bool = False,
+    keep_right_context: bool = False,
+) -> returnn.ReturnnConfig:
+    """
+    Assumes a diphone FH model and expands the model to calculate the scores for the joint
+    posteriors `p(c, l)` instead of having two outputs `p(c | l)` and `p(l)`.
+
+    The output layer contains normalized (log) acoustic scores.
+    """
+
+    assert not prepare_for_train or log_softmax, "training preparation implies log-softmax"
+
+    returnn_config = copy.deepcopy(returnn_config)
+
+    returnn_config.config["forward_output_layer"] = out_joint_score_layer
+
+    extern_data = returnn_config.config["extern_data"]
+    for k in ["centerState", "singleStateCenter", "futureLabel", "pastLabel"]:
+        if k in extern_data:
+            extern_data.pop(k, None)
+    if "classes" in extern_data:
+        extern_data["classes"].pop("same_dim_tags_as", None)
+    extern_data[out_joint_score_layer] = {
+        "available_for_inference": True,
+        "dim": label_info.get_n_state_classes() * label_info.n_contexts,
+        "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
+    }
+
+    dim_prolog, network = get_prolog_augment_network_to_joint_diphone_softmax_albert(
+        network=returnn_config.config["network"],
+        label_info=label_info,
+        out_joint_score_layer=out_joint_score_layer,
+        log_softmax=log_softmax,
+        center_state_softmax_layer=center_state_softmax_layer,
+        left_context_softmax_layer=left_context_softmax_layer,
+        encoder_output_layer=encoder_output_layer,
+        prepare_for_train=prepare_for_train,
+        keep_right_context=keep_right_context,
+    )
+
+    update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)
+    returnn_config.update(update_cfg)
+
+    return returnn_config
+
+
+
+
 
 
 def get_prolog_augment_network_to_joint_factored_monophone_softmax(

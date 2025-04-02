@@ -13,6 +13,7 @@ import typing
 from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
 import math
 from returnn.log import log
+from decimal import Decimal
 
 
 class Bitarray:
@@ -32,7 +33,9 @@ class Bitarray:
     def __len__(self):
         return self.size
 
+
 THandleEndOfData = Literal["exception", "wrap_around", "early_exit"]
+
 
 class MixingDataset(CachedDataset2):
     """
@@ -60,7 +63,7 @@ class MixingDataset(CachedDataset2):
         right_dataset: Dict[str, Any],
         mixing_ratio: float = 0.5,
         how_to_handle_end_of_data: Optional[List[THandleEndOfData]] = None,
-        how_to_handle_end_of_data_from_one_dataset: Optional[THandleEndOfData] = "wrap_around", # deprecated
+        how_to_handle_end_of_data_from_one_dataset: Optional[THandleEndOfData] = "wrap_around",  # deprecated
         *,
         data_key: str = "data",
         control_dataset: str = "left",
@@ -120,7 +123,7 @@ class MixingDataset(CachedDataset2):
         elif all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
             # epoch terminates if all datasets finish
             self.total_num_seqs_upper_bound = math.ceil(max(finish_seqs_arr))
-        else: # mix
+        else:  # mix
             for i, how in enumerate(self.how_to_handle_end_of_data):
                 if how == "wrap_around":
                     finish_seqs_arr[i] = float("inf")
@@ -427,6 +430,429 @@ class MixingDataset(CachedDataset2):
         frac_left = indices[0] / self.left_dataset.num_seqs
         frac_right = indices[1] / self.right_dataset.num_seqs
         fracs = [frac_left, frac_right]
+        if all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
+            return min(fracs)
+        if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
+            return min(1.0, max(fracs))
+        # mix
+        for i, how in enumerate(self.how_to_handle_end_of_data):
+            if how == "wrap_around":
+                fracs[i] = 0.0
+        return min(1.0, max(fracs))
+
+
+class MixingDataset2(CachedDataset2):
+    """
+    This mixes multiple datasets. They are expected to provide the same data-keys and data-dimensions.
+    They must not share the same sequence tags. # TODO why?
+
+    Sequences are chosen based on mixing factors. The docstring for __init__ explains how to set them correctly.
+    The % is based on the size of the data, not the amount of sequences. TODO it should be possible to change this behaviour
+    So even with a 50/50 split, it may be possible to get a minibatch with a single long sequence from the first dataset and many short sequences from the second dataset.
+
+    All datasets work in steplock, meaning that they are at the same epoch number at all times.
+    A logical conclusion of this is that either some datasets will not be fully used (skipped to next epoch before all data could be read),
+    or that the data from the other dataset is reused (index wraps around back to the beginning)
+    This behaviour can be controlled via `how_to_handle_end_of_data`
+    """
+
+    def __init__(
+        self,
+        datasets: Dict[str, Dict[str, Any]],
+        mixing_ratios: Dict[str, float],
+        how_to_handle_end_of_data: Dict[str, THandleEndOfData],  # TODO maybe rename to how_to_handle_end_of_epoch
+        *,
+        data_key: str = "data",
+        control_dataset: Optional[str] = None,
+        **kwargs,
+    ):
+        """
+        :param datasets
+        :param mixing_ratios: how much to sample from a specific dataset
+            Lets say we have mixing_ratios = {"a": 0.5, "b": 1, c: "3"}
+            then for every one unit of data we sample from a, we would on average see 2 units from b and 6 units from c
+            How much a unit is depends on what we want to consider as data size, see function `_data_metric` below
+        :param data_key: key for the mixing process, mixing considers the size of this data key only
+        :param how_to_handle_end_of_data: what to do when a child dataset is exhausted (reached the end of its epoch)
+            exception: raise an exception (not very useful)
+            wrap_around: wrap around to the beginning of the dataset that is exhausted.
+                If all datasets have this property, then the MixinDataset epoch ends when all child datasets have wrapped around at least once
+            early_exit: end MixingDataset epoch when this dataset has been exhausted
+        :param control_dataset: which dataset is used for i.e. `get_data_dtype`
+        """
+        super().__init__(**kwargs)
+        assert len(datasets) > 1
+        assert datasets.keys() == mixing_ratios.keys()
+        assert datasets.keys() == how_to_handle_end_of_data.keys()
+        # TODO we could allow mixing_ratio = 0 with some additional logic, but I don't think this is necessary to implement
+        assert all([0.0 < mixing_ratio for mixing_ratio in mixing_ratios.values()])
+        # TODO a sum = 1 would have a nice probabilistic interpretation, but maybe this is too annoying for a user to calculate
+        # imagine 5 different mixing ratios, and having to adjust all even when you only want to adjust the proportion of a single dataset
+        assert sum(mixing_ratios.values()) > 0
+        assert len(how_to_handle_end_of_data) == len(datasets)
+
+        self.dataset_name_to_idx = {}
+        self.datasets = []
+        self.mixing_ratios = []
+        self.how_to_handle_end_of_data = []
+        self.child_ds_lens = []
+        for name, dataset in datasets.items():
+            self.dataset_name_to_idx[name] = len(self.datasets)
+            self.datasets.append(init_dataset(dataset, parent_dataset=self))
+            self.mixing_ratios.append(Decimal(mixing_ratios[name]))
+            self.how_to_handle_end_of_data.append(how_to_handle_end_of_data[name])
+            self.child_ds_lens.append(None)
+
+        if control_dataset is not None:
+            assert control_dataset in self.dataset_name_to_idx
+            self.control_dataset = self.datasets[self.dataset_name_to_idx[control_dataset]]
+        else:
+            self.control_dataset = self.datasets[0]
+        self.num_inputs = make_hashable(
+            self.control_dataset.num_inputs
+        )  # make_hashable normalizes lists/tuples to just tuples
+        self.num_outputs = make_hashable(self.control_dataset.num_outputs)
+        self.labels = self.control_dataset.labels
+        self.data_key = data_key
+        self._last_decision = None
+
+        for ds in self.datasets:  # TODO maybe we can relax these restrictions to <=
+            assert self.num_inputs == make_hashable(ds.num_inputs)
+            assert self.num_outputs == make_hashable(ds.num_outputs)
+
+        self._reset_params()
+
+    def _reset_seqs(self):
+        # here we estimate num_seqs of this MixingDataset, we don't really need this but it has been helpful for debugging
+        # we consider each child dataset individually, and calculate how much total num_seqs we have seen when the child dataset has exhausted for the first time
+        # this estimate assumes that the average `_data_metric` of all datasets is equal, which is not always true in practice
+        for i, ds in enumerate(self.datasets):
+            self.child_ds_lens[i] = None
+            try:
+                self.child_ds_lens[i] = ds.num_seqs
+            except NotImplementedError:
+                pass  # num_seqs not implemented
+
+        if all([l is not None for l in self.child_ds_lens]):
+            finish_seqs_arr = []
+            for i, ds in enumerate(self.datasets):
+                completion_frac_of_other_datasets = 0
+                for j in range(len(self.datasets)):
+                    if i == j:
+                        continue
+                    completion_frac_of_other_datasets += self.mixing_ratios[j] / self.mixing_ratios[i]
+                est = self.child_ds_lens[i] * (1 + completion_frac_of_other_datasets)
+                finish_seqs_arr.append(est)
+
+            num_seqs_estimate = 0
+            if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
+                # epoch terminates iff any dataset finishes
+                num_seqs_estimate = math.ceil(min(finish_seqs_arr))
+            elif all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
+                # epoch terminates iff all datasets finish
+                num_seqs_estimate = math.ceil(max(finish_seqs_arr))
+            else:  # mix, similar to first case but exclude all ds with "wrap_around"
+                for i, how in enumerate(self.how_to_handle_end_of_data):
+                    if how == "wrap_around":  # this dataset will never cause an epoch end
+                        finish_seqs_arr[i] = float("inf")
+                num_seqs_estimate = math.ceil(min(finish_seqs_arr))
+
+            assert not math.isnan(num_seqs_estimate) and not math.isinf(num_seqs_estimate)
+            self._estimated_num_seqs = num_seqs_estimate
+
+        assert (
+            self._estimated_num_seqs is None or self._estimated_num_seqs < 2**31
+        ), "unreasonably large num_seqs estimate, adjust mixing ratios and/or `how_to_handle_end_of_data`"  # TODO do we still need this assert?
+
+        print(
+            f"MixingDataset init: {" + ".join(self.child_ds_lens)}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
+            file=log.v4,
+        )
+
+    def _reset_params(self):
+        # up until which point we have chosen
+        self.chooser_index = 0
+        self.is_chooser_done = False
+        # the indices where the chooser loop will continue
+        self.chooser_childindices = [0] * len(self.datasets)
+        self.datasets_exhausted = [False] * len(self.datasets)
+        # we need to _load_seqs the datasets TODO i think we can remove this if we only ever load one seq in advance
+        self.datasets_loaded_until = [0] * len(self.datasets)
+
+        # TODO the name `bias` can be misleading, find a better name
+        # we use Decimal here to make floating point operations deterministic
+        self.bias = [Decimal(0.0)] * len(self.datasets)
+        # total number of data units used from each dataset
+        self.datalens = [Decimal(0.0)] * len(self.datasets)
+        self._get_raw_childindices_and_decision_at_seq_idx.cache_clear()
+
+    def init_seq_order(self, epoch=None, seq_list=None, seq_order=None):
+        """
+        :type epoch: int|None
+        :param list[str]|None seq_list: List of sequence tags, to set a predefined order.
+        :param list[int]|None seq_order: List of corpus sequence indices, to set a predefined order.
+        """
+        need_reinit = self.epoch is None or self.epoch != epoch
+        super().init_seq_order(epoch=epoch, seq_list=seq_list, seq_order=seq_order)
+        if not need_reinit:
+            return False
+
+        if seq_order is not None:
+            raise NotImplementedError("Predefined order via sequence indices for MixingDataset")
+        if seq_list is not None:
+            raise NotImplementedError("Predefined order via sequence tags for MixingDataset")
+        elif self.seq_ordering != "default":
+            raise NotImplementedError("seq_ordering %s" % self.seq_ordering)
+
+        for ds in self.datasets:
+            ds.init_seq_order(epoch=epoch)
+        self._reset_params()
+        self._reset_seqs()
+        return True
+
+    def _data_metric(self, v: numpy.ndarray):
+        return Decimal(v.shape[0] if v.ndim >= 1 else 1)
+
+    def _make_sure_idx_is_loaded_in_child_ds(self, dataset_index, seq_idx):
+        """
+        This makes sure that we can access the data at seq_idx in the child dataset
+        """
+        chosen_dataset = self.datasets[dataset_index]
+
+        # this is needed because CachedDatasets wants to be accessed in a strictly increasing (iterator-like) order
+        # therefore we need to reinitialize it before we start accessing from the beginning again
+        # TODO: maybe theres a less hacky way to fix this?
+        if hasattr(chosen_dataset, "expected_load_seq_start") and seq_idx < chosen_dataset.expected_load_seq_start:
+            prev_num_seqs = self.child_ds_lens[dataset_index]
+            chosen_dataset.init_seq_order(epoch=self.epoch)
+            try:
+                self.child_ds_lens[dataset_index] = chosen_dataset.num_seqs
+            except NotImplementedError:
+                pass
+            assert (
+                self.child_ds_lens[dataset_index] == prev_num_seqs
+            ), "data in ds has changed even though we reinitialized the same epoch. this code is only supposed to reset the state back to index zero, not change the data"
+            self.datasets_loaded_until[dataset_index] = 0
+
+        if self.datasets_loaded_until[dataset_index] <= seq_idx:
+            start = self.datasets_loaded_until[dataset_index]
+            end = seq_idx + 1
+            assert start < end
+            assert (
+                end - start < 16
+            )  # there is no reason why we would suddenly skip a large chunk of data, probably a bug
+
+            chosen_dataset.load_seqs(start, end)
+            self.datasets_loaded_until[dataset_index] = end
+
+    def _run_seq_idx(self, seq_idx):
+        if seq_idx < self.chooser_index:
+            raise Exception("seq_idx < chooser_index")
+        assert not self.is_chooser_done
+
+        while seq_idx >= self.chooser_index:
+            # we need to choose
+            dataset_index = max(range(len(self.bias)), key=self.bias.__getitem__)  # dataset idx with highest bias
+            self._last_decision = dataset_index
+            chosen_dataset = self.datasets[dataset_index]
+
+            is_idx_at_end = False
+            cur_idx = self.chooser_childindices[dataset_index]
+            if self.child_ds_lens[dataset_index] is not None:
+                is_idx_at_end = cur_idx > 0 and cur_idx % self.child_ds_lens[dataset_index] == 0
+            else:  # we don't know where our child ds ends
+                is_idx_at_end = not chosen_dataset.is_less_than_num_seqs(cur_idx)
+                if is_idx_at_end:
+                    assert cur_idx > 0, "empty dataset"
+                    assert chosen_dataset.is_less_than_num_seqs(cur_idx - 1)  # we expect cur_idx == num_seqs
+                    self.child_ds_lens[dataset_index] = cur_idx
+            if is_idx_at_end:
+                self.datasets_exhausted[dataset_index] = True
+                print(f"MixingDataset: ({dataset_index}) exhausted", file=log.v4)
+                self._print_progress()
+                """
+                TODO: implement this optimal mixing ratio calc for more than two datasets
+                c0 = self.chooser_childindices[0] / max(1, self.child_ds_lens[0])
+                c1 = self.chooser_childindices[1] / max(1, self.child_ds_lens[1])
+                print(
+                    f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)} (assuming uniform random distribution)",
+                    file=log.v4,
+                )
+                """
+                if self.how_to_handle_end_of_data[dataset_index] == "exception":
+                    self.is_chooser_done = True
+                    self._last_decision = None
+                    raise Exception("MixingDataset: end of dataset %d %r" % (dataset_index, chosen_dataset))
+                elif self.how_to_handle_end_of_data[dataset_index] == "early_exit":
+                    # the last decision can not be used to get more data (index of chosen dataset is beyond the end of the dataset),
+                    # so we break here
+                    self.is_chooser_done = True
+                    self._last_decision = None
+                    break
+                elif self.how_to_handle_end_of_data[dataset_index] == "wrap_around":
+                    if all(self.datasets_exhausted):  # this only happens when all datasets are set to `wrap_around`
+                        self.is_chooser_done = True
+                        self._last_decision = None
+                        break
+                else:
+                    assert False, f"{self.how_to_handle_end_of_data[dataset_index]} not implemented"
+
+            self._make_sure_idx_is_loaded_in_child_ds(dataset_index, cur_idx % self.child_ds_lens[dataset_index])
+            datalen = self._data_metric(
+                chosen_dataset.get_data(cur_idx % self.child_ds_lens[dataset_index], self.data_key)
+            )
+            # print(f"({dataset_index}) datalen={datalen} shape={data.shape}")
+            self.bias[dataset_index] -= max(datalen, 1) / self.mixing_ratios[dataset_index]
+            assert not math.isnan(self.bias[dataset_index]) and not math.isinf(
+                self.bias[dataset_index]
+            )  # this should never ever happen
+            if self.bias[dataset_index] < -100:  # -100 is arbitrary
+                # if we don't shift back to 0 our biases will go towards negative infinity
+                adjust = min(self.bias)
+                self.bias = [b - adjust for b in self.bias]
+            self.datalens[dataset_index] += datalen
+            self.chooser_childindices[dataset_index] += 1
+            self.chooser_index += 1
+
+        if self.is_chooser_done:
+            return None  # we exhausted before we could reach the seq_idx
+
+        # note: these could exceed num_seqs of the child datasets (use modulo)
+        return tuple(self.chooser_childindices)
+
+    @lru_cache(maxsize=1)
+    def _get_raw_childindices_and_decision_at_seq_idx(self, seq_idx):
+        """
+        May return None if we could not progress to the desired seq_idx.
+        """
+        assert seq_idx >= 0
+        assert seq_idx >= self.chooser_index, "you may only access data iterator-like (no random access)"
+
+        ran_ids = self._run_seq_idx(seq_idx)
+        if seq_idx >= self.chooser_index or ran_ids is None:
+            return None, None  # we could not progress to the desired seq_idx, epoch ends here
+
+        assert self.chooser_index == seq_idx + 1
+        # reverse last decision to get actual indices
+        idxs = list(ran_ids)
+        assert self._last_decision is not None
+        idxs[self._last_decision] -= 1
+        return tuple(idxs), self._last_decision
+
+    def _get_dataset_and_childindex_at_seq_idx(self, seq_idx):
+        result, decision = self._get_raw_childindices_and_decision_at_seq_idx(seq_idx)
+        assert result is not None and decision is not None
+
+        if self.child_ds_lens[decision] is None:
+            return decision, result[decision]
+        return decision, result[decision] % self.child_ds_lens[decision]
+
+    def _collect_single_seq(self, seq_idx):
+        """
+        :param int seq_idx:
+        :rtype: DatasetSeq
+        """
+        dataset_idx, dataset_seq_idx = self._get_dataset_and_childindex_at_seq_idx(seq_idx)
+        self._make_sure_idx_is_loaded_in_child_ds(dataset_idx, dataset_seq_idx)
+        dataset = self.datasets[dataset_idx]
+        seq_tag = dataset.get_tag(dataset_seq_idx)
+        features = {k: dataset.get_data(dataset_seq_idx, k) for k in dataset.get_data_keys()}
+        return DatasetSeq(seq_idx=seq_idx, seq_tag=seq_tag, features=features)
+
+    def is_less_than_num_seqs(self, seq_idx: int):
+        if seq_idx < self.chooser_index:
+            return True
+        if self.is_chooser_done:
+            return False
+        # TODO this could potentially lead to a bug because the following function can only go forward
+        # then we fail when this function steps too far forward and we can't get the indices when we want to access the data
+        ids, decision = self._get_raw_childindices_and_decision_at_seq_idx(seq_idx)
+        return ids is not None
+
+    @property
+    def num_seqs(self):
+        """
+        :rtype: int
+        """
+        if self.is_chooser_done:
+            return self.chooser_index
+        raise NotImplementedError()
+
+    def get_target_list(self):
+        """
+        :rtype: list[str]
+        """
+        return self.control_dataset.get_target_list()
+
+    def get_data_keys(self) -> List[str]:
+        """data keys"""
+        return self.control_dataset.get_data_keys()
+
+    def _print_progress(self):
+        for ds_name, ds_idx in self.dataset_name_to_idx.items():
+            ds = self.datasets[ds_idx]
+            prefix = f"MixingDataset: [{ds_idx}]'{ds_name}'"
+            if self.child_ds_lens[ds_idx] == 0:
+                print(f"{prefix}: empty", file=log.v4)
+            else:
+                print(
+                    f"{prefix}: {self.chooser_childindices[ds_idx]}/{self.child_ds_lens[ds_idx]} ({self.chooser_childindices[ds_idx] / self.child_ds_lens[ds_idx] * 100}%) exhausted={self.datasets_exhausted[ds_idx]}, avg_datalen={self.datalens[ds_idx]/max(1, self.chooser_childindices[ds_idx])}",
+                    file=log.v4,
+                )
+
+    def finish_epoch(self, *, free_resources: bool = False):
+        """finish epoch"""
+        super().finish_epoch(free_resources=free_resources)
+        print("MixingDataset: finishing epoch! Datasets:", file=log.v4)
+        self._print_progress()
+
+        for ds in self.datasets:
+            ds.finish_epoch(free_resources=free_resources)
+
+    def get_data_dim(self, key: str) -> int:
+        """data dim"""
+        return self.control_dataset.get_data_dim(key)
+
+    def get_data_shape(self, data_key: str) -> List[int]:
+        """data shape"""
+        return self.control_dataset.get_data_shape(data_key)
+
+    def get_data_dtype(self, key: str) -> str:
+        """data dtype"""
+        return self.control_dataset.get_data_dtype(key)
+
+    def is_data_sparse(self, key: str) -> bool:
+        """is data sparse"""
+        return self.control_dataset.is_data_sparse(key)
+
+    def get_complete_frac(
+        self, sorted_seq_idx: int, *, allow_only_lr_suitable: bool = False, **kwargs
+    ) -> Optional[float]:
+        # we need to get the raw ones (so not wrapped around) because `datasets_exhausted` is only set to true once we actually access that index
+        # so we would read 0% completion when we are actually one decision away from ending the epoch, which also breaks monotonicity of this function
+        indices, decision = self._get_raw_childindices_and_decision_at_seq_idx(sorted_seq_idx)
+        if indices is None:
+            return 1.0  # we are done
+
+        fracs = []
+        for ds_idx, ds in enumerate(self.datasets):
+            if self.datasets_exhausted[ds_idx]:
+                fracs.append(1.0)
+            else:
+                try:
+                    frac = ds.get_complete_frac(
+                        max(0, indices[ds_idx] - 1), allow_only_lr_suitable=allow_only_lr_suitable, **kwargs
+                    )
+                    if frac is None:
+                        raise NotImplementedError()
+                    fracs.append(frac)
+                except NotImplementedError:
+                    if self.child_ds_lens[ds_idx] is None:
+                        raise NotImplementedError()  # we can't give a good value here
+                    if self.child_ds_lens[ds_idx] == 0:
+                        fracs.append(1.0)  # TODO maybe we should consider this an error
+                    else:
+                        fracs.append(max(0, indices[ds_idx] - 1) / self.child_ds_lens[ds_idx])
         if all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
             return min(fracs)
         if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):

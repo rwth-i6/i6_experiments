@@ -436,21 +436,20 @@ def sum_loss2(
     # Init Q for t=0
     # Q(0, u, blank) = 0
     # Q(0, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    # log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab].unsqueeze(0)
     log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[tuple([eos_symbol] * (LM_order - 1) + [out_idx_vocab])].unsqueeze(0)
     if use_prior:
         log_q_label_init = log_q_label_init - log_prior[out_idx_vocab].unsqueeze(0)
     # We have to prepend the BoS symbol even though it is not used in the q_label calculation, but it is need for higher order LMs
     log_q_label_init = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_q_label_init], dim=1)
     log_q_label = torch.full((batch_size, *(vocab_size + 1,) * (LM_order - 1)), log_zero, device=device) # (B, V, ..., V), no blank in vocab dims
-    log_q_label[:, tuple((0,) * (LM_order - 2))] = log_q_label_init
+    log_q_label[tuple((slice(None),) + (0,) * (LM_order - 2))] = log_q_label_init
     log_q_blank = torch.full_like(log_q_label, log_zero, device=device) # (B, V, ..., V)
     # Calculate partial empty sequence score
     # Empty am score = sum log prob blank, lm score = p_LM(eos | bos), prior score = p_PR(eos)
     log_partial_empty_seq_prob = log_probs[0][:, blank_idx]
     if use_prior and blank_prior:
         log_partial_empty_seq_prob = log_partial_empty_seq_prob - log_prior[blank_idx]
-    log_q_blank[:, tuple((0,) * (LM_order - 1))] = log_partial_empty_seq_prob
+    log_q_blank[tuple((slice(None),) + (0,) * (LM_order - 1))] = log_partial_empty_seq_prob
     log_q = safe_logaddexp(log_q_label, log_q_blank)
     original_shape = log_q.shape
     
@@ -563,7 +562,7 @@ def sum_loss2(
         log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
     # Prepare prior
     if use_prior:
-        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[:, tuple((None,) * (LM_order - 2)), :].expand(original_shape)
+        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[tuple((slice(None),) + (None,) * (LM_order - 2))].expand(original_shape)
         if top_k > 0:
             log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
     
@@ -577,14 +576,14 @@ def sum_loss2(
             new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
-                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][:, tuple((None,) * (LM_order - 1))]
+                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][tuple((slice(None),) + (None,) * (LM_order - 1))]
                 blank_topk_idx = topk_idx[topk_idx[-1] == 1][:-1]
                 # We could already have entries from the topk labels, so we have to add
-                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][:, tuple((None,) * (LM_order - 1))])
+                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][tuple((slice(None),) + (None,) * (LM_order - 1))])
             else:
                 new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
         else:
-            new_log_q_blank = log_q + log_probs[t][:, blank_idx][:, tuple((None,) * (LM_order - 1))]
+            new_log_q_blank = log_q + log_probs[t][:, blank_idx][tuple((slice(None),) + (None,) * (LM_order - 1))]
         if use_prior and blank_prior:
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
@@ -657,15 +656,15 @@ def sum_loss2(
         
         # multiply with p_AM(u|x_t)
         if top_k > 0:
-            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, tuple((None,) * (LM_order - 2)), :].expand(original_shape).reshape(batch_size, -1)
+            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[tuple((slice(None),) + (None,) * (LM_order - 2))].expand(original_shape).reshape(batch_size, -1)
             new_log_q_label += label_am
             if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label += label_am
         else:
-            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, tuple((None,) * (LM_order - 2)), :]
+            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[tuple((slice(None),) + (None,) * (LM_order - 2))]
         
         # set masked results to log_q
-        time_mask = (t < input_lengths)[:, tuple((None,) * (LM_order - 1))] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
+        time_mask = (t < input_lengths)[tuple((slice(None),) + (None,) * (LM_order - 1))] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
         log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
@@ -737,7 +736,7 @@ def sum_loss2(
                     best_path_print[idx]["str"] += f" {m_idx.tolist()}"
                     best_path_print[idx]["am_str"] += " {:.2f}".format(log_probs[t][idx][a_idx[-1]].tolist())
                     best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0)
-                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[:, tuple(max_idx[idx])], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
+                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[(slice(None),) + tuple(max_idx[idx])], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
                     for k in range(top_k):
@@ -900,20 +899,20 @@ def sum_loss3(
     # Init Q for t=0
     # Q(0, u, blank) = 0
     # Q(0, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab].unsqueeze(0)
+    log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[tuple([eos_symbol] * (LM_order - 1) + [out_idx_vocab])].unsqueeze(0)
     if use_prior:
         log_q_label_init = log_q_label_init - log_prior[out_idx_vocab].unsqueeze(0)
     # We have to prepend the BoS symbol even though it is not used in the q_label calculation, but it is need for higher order LMs
     log_q_label_init = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_q_label_init], dim=1)
     log_q_label = torch.full((batch_size, *(vocab_size + 1,) * (LM_order - 1)), log_zero, device=device) # (B, V, ..., V), no blank in vocab dims
-    log_q_label[:, *(0,) * (LM_order - 2)] = log_q_label_init
+    log_q_label[(slice(None),) + tuple((0,) * (LM_order - 2))] = log_q_label_init
     log_q_blank = torch.full_like(log_q_label, log_zero, device=device) # (B, V, ..., V)
     # Calculate partial empty sequence score
     # Empty am score = sum log prob blank, lm score = p_LM(eos | bos), prior score = p_PR(eos)
     log_partial_empty_seq_prob = log_probs[0][:, blank_idx]
     if use_prior and blank_prior:
         log_partial_empty_seq_prob = log_partial_empty_seq_prob - log_prior[blank_idx]
-    log_q_blank[:, *(0,) * (LM_order - 1)] = log_partial_empty_seq_prob
+    log_q_blank[(slice(None),) + tuple((0,) * (LM_order - 1))] = log_partial_empty_seq_prob
     log_q = safe_logaddexp(log_q_label, log_q_blank)
     original_shape = log_q.shape
     
@@ -931,7 +930,7 @@ def sum_loss3(
         
         if blank_correction_version > 0:
             tmp_log_q_blank = log_q_blank.clone()
-            first_lm_probs = log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab_w_eos]
+            first_lm_probs = log_lm_probs[tuple([eos_symbol] * (LM_order - 1)), out_idx_vocab_w_eos]
             if blank_correction_version in [1, 2]: # mean next lm prob
                 vocab_size_log = torch.log(torch.tensor(vocab_size + 1, device=device, dtype=log_probs[0].dtype))
                 tmp_log_q_blank[:, 0] += safe_logsumexp(first_lm_probs, dim=-1) - vocab_size_log
@@ -978,7 +977,7 @@ def sum_loss3(
                 m_idx[m_idx > 0] += 1
                 a_idx = m_idx.clone()
                 a_idx[a_idx == 0] = blank_idx
-                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()}
+                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[tuple([eos_symbol] * (LM_order - 1)) + (m_idx[-1],)].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()}
     
     if blank_correction_version > 0 and top_k > 0:
         # Prepare lm tensor for blank transition
@@ -1013,7 +1012,7 @@ def sum_loss3(
         log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
     # Prepare prior
     if use_prior:
-        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[:, *(None,) * (LM_order - 2), :].expand(original_shape)
+        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[(slice(None),) + tuple((None,) * (LM_order - 2))].expand(original_shape)
         if top_k > 0:
             log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
     
@@ -1027,14 +1026,14 @@ def sum_loss3(
             new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
-                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
+                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][(slice(None),) + tuple((None,) * (LM_order - 1))]
                 blank_topk_idx = topk_idx[topk_idx[-1] == 1][:-1]
                 # We could already have entries from the topk labels, so we have to add
-                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)])
+                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][(slice(None),) + tuple((None,) * (LM_order - 1))])
             else:
                 new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
         else:
-            new_log_q_blank = log_q + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
+            new_log_q_blank = log_q + log_probs[t][:, blank_idx][(slice(None),) + tuple((None,) * (LM_order - 1))]
         if use_prior and blank_prior:
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
@@ -1104,15 +1103,15 @@ def sum_loss3(
         
         # multiply with p_AM(u|x_t)
         if top_k > 0:
-            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
+            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[(slice(None),) + tuple((None,) * (LM_order - 2))].expand(original_shape).reshape(batch_size, -1)
             new_log_q_label += label_am
             if blank_correction_version > 0 and blank_correction_version % 2 == 0:
                 topk_log_q_label += label_am
         else:
-            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
+            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[(slice(None),) + tuple((None,) * (LM_order - 2))]
         
         # set masked results to log_q
-        time_mask = (t < input_lengths)[:, *(None,) * (LM_order - 1)] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
+        time_mask = (t < input_lengths)[(slice(None),) + tuple((None,) * (LM_order - 1))] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
         log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
@@ -1166,7 +1165,7 @@ def sum_loss3(
                     best_path_print[idx]["str"] += f" {m_idx.tolist()}"
                     best_path_print[idx]["am_str"] += " {:.2f}".format(log_probs[t][idx][a_idx[-1]].tolist())
                     best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0)
-                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[:, *max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
+                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[(slice(None),) + tuple(max_idx[idx])], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
         

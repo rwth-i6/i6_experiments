@@ -4,7 +4,8 @@ Config for RWTH IPC CLAIX-2023 cluster experiments for CTC
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Optional, Any, Dict
+from sisyphus import tk
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
@@ -19,12 +20,12 @@ from .configs import (
 from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
-from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerPositionwiseFeedForward
+from ...model_interfaces import ModelWithCheckpoint
 
 
 def py():
@@ -33,50 +34,14 @@ def py():
     # Should have no effect here (I tested this), but better to have anyway.
     use_instanciate_delayed_copy_instead_of_inplace()
 
-    # TODO train a few new good baselines
-    #  see aed_claix2023 for better large GPU settings
-
-    ctc_train_exp(
-        "n16-spm10k-auxAED-b150k",
-        config_96gb_bf16_accgrad1,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-            "num_enc_layers": 16,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            # purely used for training
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        # avoid OOM
-        # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
-
     for num_layers, num_dims, batch_size in [
-        (16, 512, 150_000),
-        (16, 768, 100_000),
-        (16, 1024, 100_000),
-        (20, 512, 150_000),
-        (32, 512, 100_000),
+        # (16, 512, 150_000),  # {"dev-clean": 2.39, "dev-other": 5.5, "test-clean": 2.5, "test-other": 5.67}
+        (16, 512, 100_000),  # {"dev-clean": 2.32, "dev-other": 5.42, "test-clean": 2.52, "test-other": 5.57}
+        (16, 768, 100_000),  # {"dev-clean": 2.26, "dev-other": 5.09, "test-clean": 2.41, "test-other": 5.41}
+        (16, 1024, 100_000),  # {"dev-clean": 2.27, "dev-other": 5.04, "test-clean": 2.43, "test-other": 5.34}
+        (16, 1280, 100_000),  # {"dev-clean": 2.28, "dev-other": 4.96, "test-clean": 2.33, "test-other": 5.3}
+        # (20, 512, 150_000),  # {"dev-clean": 2.34, "dev-other": 5.45, "test-clean": 2.51, "test-other": 5.75}
+        # (32, 512, 100_000),  # {"dev-clean": 2.44, "dev-other": 5.87, "test-clean": 2.61, "test-other": 6.03}
     ]:
         ctc_train_exp(
             f"L{num_layers}-D{num_dims}-spm10k-auxAED-b{batch_size // 1000}k",
@@ -124,6 +89,67 @@ def py():
             # avoid OOM
             # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
+
+    # recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b150k")
+    recog_ext_with_lm_exps(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024")
+    recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 4.07
+    recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.91
+    recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.93
+    recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.88
+    recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1280-claix2023")  # 3.88 (!!)
+
+    for n_ep in [100, 200]:
+        num_layers = 16
+        num_dims = 1024
+        batch_size = 100_000
+        name = f"L{num_layers}-D{num_dims}-spm10k-auxAED-b{batch_size // 1000}k-nep{n_ep}"
+        ctc_train_exp(
+            name,
+            config_96gb_bf16_accgrad1,
+            model_config={
+                "enc_build_dict": rf.build_dict(
+                    # ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
+                    ConformerEncoder,
+                    input_layer=rf.build_dict(
+                        ConformerConvSubsample,
+                        out_dims=[32, 64, 64],
+                        filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                        pool_sizes=[(1, 2)],
+                        strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                    ),
+                    num_layers=num_layers,
+                    out_dim=num_dims,
+                    encoder_layer=rf.build_dict(
+                        ConformerEncoderLayer,
+                        ff=rf.build_dict(
+                            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                        ),
+                        num_heads=8,
+                    ),
+                ),
+                "feature_batch_norm": True,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, n_ep, batch_size_factor=_batch_size_factor),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                # purely used for training
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+                "max_seq_length_default_target": None,
+                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                # out of 281241 seqs in train, we removed only 71 seqs.
+                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+            # avoid OOM
+            # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+        )
+        recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
@@ -1705,3 +1731,200 @@ def py():
     )
 
     # TODO ctc without aux
+
+
+def recog_ext_with_lm(*, ctc_model_name: str, ctc_model: Optional[ModelWithCheckpoint] = None, lm_name: str):
+    from .ctc_recog_ext import (
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+        _get_lm_model,
+        _lms,
+        get_ctc_prior_probs,
+    )
+    from .ctc import _train_experiments, _ctc_model_def_blank_idx, model_recog
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
+    from i6_experiments.users.zeyer.datasets.utils.vocab import (
+        ExtractVocabLabelsJob,
+        ExtractVocabSpecialLabelsJob,
+        ExtendVocabLabelsByNewLabelJob,
+    )
+
+    prefix = "ctc"
+    ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab)
+    prior = get_ctc_prior_probs(
+        ctc_model,
+        task.train_dataset.copy_train_as_static(),
+        config={"behavior_version": 24, "batch_size": 200_000 * _batch_size_factor, "max_seqs": 2000},
+    )
+    prior.creator.add_alias(f"{prefix}/{ctc_model_name}/prior")
+    tk.register_output(f"{prefix}/{ctc_model_name}/prior.txt", prior)
+    vocab_ = get_vocab_by_str(vocab)
+    vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab.txt.gz", vocab_file)
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
+    vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+        vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+    ).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+    log_prior_wo_blank = PriorRemoveLabelRenormJob(
+        prior_file=prior,
+        prior_type="prob",
+        vocab=vocab_w_blank_file,
+        remove_label=model_recog.output_blank_label,
+        out_prior_type="log_prob",
+    ).out_prior
+    tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
+
+    for sct in [0.8]:  #  [None, 0.7, 0.8]:
+        name_postfix = ""
+        extra_config = {}
+        if sct is not None:
+            name_postfix += f"-sct{sct}"
+            extra_config.update(
+                {
+                    "ctc_soft_collapse_threshold": sct,
+                    "ctc_soft_collapse_reduce_type": "max_renorm",
+                }
+            )
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            lm=_get_lm_model(_lms[lm_name]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            n_best_list_size=64,
+            first_pass_recog_beam_size=64,
+            extra_config=extra_config,
+        )
+
+
+def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
+    from .ctc_recog_ext import (
+        ctc_recog_labelwise_prior_auto_scale,
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+        ctc_labelwise_recog_auto_scale,
+        _get_lm_model,
+        _lms,
+        get_ctc_prior_probs,
+    )
+    from .ctc import _train_experiments, _ctc_model_def_blank_idx, model_recog
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
+    from i6_experiments.users.zeyer.datasets.utils.vocab import (
+        ExtractVocabLabelsJob,
+        ExtractVocabSpecialLabelsJob,
+        ExtendVocabLabelsByNewLabelJob,
+    )
+
+    prefix = "ctc"
+    ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab)
+    prior = get_ctc_prior_probs(
+        ctc_model,
+        task.train_dataset.copy_train_as_static(),
+        config={"behavior_version": 24, "batch_size": 200_000 * _batch_size_factor, "max_seqs": 2000},
+    )
+    prior.creator.add_alias(f"{prefix}/{ctc_model_name}/prior")
+    tk.register_output(f"{prefix}/{ctc_model_name}/prior.txt", prior)
+    vocab_ = get_vocab_by_str(vocab)
+    vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab.txt.gz", vocab_file)
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
+    vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+        vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+    ).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+    log_prior_wo_blank = PriorRemoveLabelRenormJob(
+        prior_file=prior,
+        prior_type="prob",
+        vocab=vocab_w_blank_file,
+        remove_label=model_recog.output_blank_label,
+        out_prior_type="log_prob",
+    ).out_prior
+    tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
+
+    ctc_recog_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-beam128-fp128-lm_{lm_name}",
+        task=task,
+        ctc_model=ctc_model,
+        labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+        lm=_get_lm_model(_lms[lm_name]),
+        vocab_file=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        n_best_list_size=128,
+        first_pass_recog_beam_size=128,
+    )
+
+    # Commented numbers are for ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024".
+
+    for sct in [
+        None,  # 3.96
+        0.7,  # 3.95
+        0.8,  # 3.96
+    ]:
+        name_postfix = ""
+        extra_config = {}
+        if sct is not None:
+            name_postfix += f"-sct{sct}"
+            extra_config.update(
+                {
+                    "ctc_soft_collapse_threshold": sct,
+                    "ctc_soft_collapse_reduce_type": "max_renorm",
+                }
+            )
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            lm=_get_lm_model(_lms[lm_name]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            n_best_list_size=64,
+            first_pass_recog_beam_size=64,
+            extra_config=extra_config,
+        )
+
+    for sct, smp_top_p, smp_mnp in [
+        (0.6, None, None),  # 3.98
+        (0.7, None, None),  # 3.97
+        (0.7, 0.95, None),  # 3.98 (other test sets are slightly better, but not much diff overall)
+        (0.7, 0.95, 10),  # 3.98 (no diff with max_noise_point...)
+        (0.8, None, None),  # 3.97
+    ]:
+        name_postfix = f"-sct{sct}"
+        extra_config_n_best_list = {}
+        if smp_top_p:
+            extra_config_n_best_list.update(
+                {
+                    "ctc_top_k_with_random_sampling": 1.0,
+                    "ctc_top_k_with_random_sampling_opts": {"top_p": smp_top_p},
+                }
+            )
+            name_postfix += f"-smpTopP{smp_top_p}"
+            if smp_mnp:
+                extra_config_n_best_list["ctc_top_k_with_random_sampling_opts"]["max_noise_point"] = smp_mnp
+                name_postfix += f"-smpMnp{smp_mnp}"
+        ctc_labelwise_recog_auto_scale(
+            prefix=f"{prefix}/{ctc_model_name}/recog-labelsync-beam64-fp64-lm_{lm_name}{name_postfix}",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            lm=_get_lm_model(_lms[lm_name]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            n_best_list_size=64,
+            first_pass_recog_beam_size=64,
+            extra_config={
+                "ctc_soft_collapse_threshold": sct,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            },
+            extra_config_n_best_list=extra_config_n_best_list,
+        )
