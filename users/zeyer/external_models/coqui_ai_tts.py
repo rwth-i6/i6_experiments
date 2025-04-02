@@ -338,7 +338,10 @@ def _demo():
     model_outputs = outputs["model_outputs"]  # for Vits: [B, 1, T_wav]
     y_mask = outputs["y_mask"]  # before the final waveform_decoder
     print(f"{model_outputs.shape = }")
-    print(f"{y_mask.shape = }")
+    print(f"{y_mask.shape = }")  # [B, 1, T_wav]
+    y_mask = y_mask.squeeze(1)  # [B, T_wav]
+    y_lens = torch.sum(y_mask.to(torch.int32), dim=1)  # [B]
+    print(f"{y_lens = }")
 
     # convert outputs to numpy. select first batch
     model_outputs = model_outputs[0].cpu().squeeze().numpy()  # [T_wav]
@@ -348,6 +351,38 @@ def _demo():
 
     # if hasattr(tts_model, "waveform_decoder"):
     #     print("waveform_decoder:", tts_model.waveform_decoder)
+
+    # Get generic output sizes.
+    from sympy.utilities.lambdify import lambdify
+
+    # noinspection PyProtectedMember
+    from torch._subclasses.fake_tensor import FakeTensorMode
+
+    from torch.fx.experimental.symbolic_shapes import ShapeEnv
+
+    # noinspection PyProtectedMember
+    from torch._dynamo.source import ConstantSource
+
+    shape_env = ShapeEnv(duck_shape=False)
+    with FakeTensorMode(allow_non_fake_inputs=True, shape_env=shape_env):
+        # Assuming that waveform_decoder is from Vits.
+        time_sym = shape_env.create_symbol(100, ConstantSource("T"))
+        time_sym_ = shape_env.create_symintnode(time_sym, hint=None)
+        fake_in = torch.empty(1, tts_model.waveform_decoder.conv_pre.in_channels, time_sym_)
+        if getattr(tts_model.waveform_decoder, "cond_layer", None):
+            fake_g_in = torch.empty(1, tts_model.waveform_decoder.cond_layer.in_channels, time_sym_)
+        else:
+            fake_g_in = None
+
+        out = tts_model.waveform_decoder(fake_in, g=fake_g_in)
+        print(f"{out.shape = }")
+        out_size = out.shape[-1]
+        assert isinstance(out_size, torch.SymInt)
+        out_sym = out_size.node.expr
+        out_sym_lambda = lambdify(time_sym, out_sym)
+
+    out_lens = out_sym_lambda(y_lens)
+    print(f"{out_lens = }")
 
 
 if __name__ == "__main__":
