@@ -149,6 +149,7 @@ def _demo():
     arg_parser.add_argument("--tts-repo-dir")
     arg_parser.add_argument("--device", default="cuda")
     arg_parser.add_argument("--language")
+    arg_parser.add_argument("--use-mean-emb", action="store_true")
     arg_parser.add_argument("--seed", type=int, default=42)
     args = arg_parser.parse_args()
 
@@ -224,7 +225,11 @@ def _demo():
         print("random speaker id:", speaker_id)
         emb = list(tts_model.speaker_manager.embeddings.values())[speaker_id]
         speaker = emb["name"]
-        speaker_embedding = np.array(emb["embedding"])  # [emb_dim]
+        if args.use_mean_emb:
+            speaker_embedding = tts_model.speaker_manager.get_mean_embedding(speaker)
+        else:
+            speaker_embedding = emb["embedding"]  # [emb_dim]
+        speaker_embedding = np.array(speaker_embedding, dtype=np.float32)
     print(f"speaker: {speaker!r}")
 
     print("emb_g:", tts_model.emb_g if hasattr(tts_model, "emb_g") else None)  # speaker embedding
