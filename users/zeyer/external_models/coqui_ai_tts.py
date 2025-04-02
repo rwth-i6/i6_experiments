@@ -148,13 +148,19 @@ def _demo():
     arg_parser.add_argument("--model-dir", default="output/external_models/coqui_ai_tts/your_tts")
     arg_parser.add_argument("--tts-repo-dir")
     arg_parser.add_argument("--device", default="cuda")
+    arg_parser.add_argument("--language")
+    arg_parser.add_argument("--seed", type=int, default=42)
     args = arg_parser.parse_args()
 
     print(f"{os.path.basename(__file__)} demo, {args=}")
 
+    import random
     import torch
+    import numpy as np
 
     dev = torch.device(args.device)
+    rnd = random.Random(args.seed)
+    torch.random.manual_seed(rnd.randint(0, 2**32 - 1))
 
     model_name = args.model_name
     model_dir = args.model_dir
@@ -174,6 +180,8 @@ def _demo():
 
     from TTS.api import TTS
     from TTS.utils.manage import ModelManager
+    from TTS.utils.synthesizer import synthesis
+    from TTS.utils.audio.numpy_transforms import save_wav
 
     def _disallowed_create_dir_and_download_model(*_args, **_kwargs):
         raise RuntimeError(
@@ -186,13 +194,78 @@ def _demo():
     ModelManager.create_dir_and_download_model = _disallowed_create_dir_and_download_model
 
     print("Loading TTS model...")
-    tts = TTS(model_name=model_name, progress_bar=False)
+    tts = TTS(model_name=model_name, progress_bar=False, gpu=dev.type == "cuda")
     tts.to(dev)
 
     # See tts.tts() func to how it generates audio.
     # This is a high-level wrapper, but we want to call it more directly to be able to use it in batch mode.
-    print(f"{type(tts.synthesizer.tts_model)=}")
-    print(f"{hasattr(tts.synthesizer.tts_model, "synthesize")=}")
+
+    tts_model = tts.synthesizer.tts_model
+    tts_config = tts.synthesizer.tts_config
+    use_cuda = tts.synthesizer.use_cuda
+    sample_rate = tts.synthesizer.output_sample_rate
+
+    print(f"{type(tts_model) = }")
+    speakers = tts.speakers
+    print(f"speakers: {speakers}")
+    speaker = rnd.choice(speakers) if speakers else None
+    print(f"speaker: {speaker!r}")
+
+    if hasattr(tts_model, "emb_g"):
+        print("emb_g:", tts_model.emb_g)  # speaker embedding
+    print(f"{tts_config.use_d_vector_file = }")
+    if tts_model.speaker_manager:
+        print(f"{len(tts_model.speaker_manager.embeddings) = }")
+        print("embedding keys:", list(tts_model.speaker_manager.embeddings.keys()))
+        for emb in tts_model.speaker_manager.embeddings.values():
+            print(f"  name={emb['name']!r}, keys:{list(emb.keys())}, dim:{len(emb['embedding'])}")
+
+    language = args.language
+    if tts_model.language_manager:
+        languages = tts_model.language_manager.language_names
+        print(f"{len(languages) = }, {languages = }")
+        if language is None:
+            language = rnd.choice(languages)
+            print("Picked random language:", language)
+        else:
+            assert language in languages, f"language {language} not in {languages}"
+    else:
+        print("No language manager")
+
+    print(f"{hasattr(tts_model, "synthesize") = }")  # if False, then it will call the synthesis func
+    assert not hasattr(tts_model, "synthesize")  # we assume that we can call the synthesis func
+    print(f"{use_cuda = }")
+    print(f"{sample_rate = }")
+
+    # could also take this from config test_sentences
+    txt = "It took me quite a long time to develop a voice, and now that I have it I'm not going to be silent."
+
+    # Test high-level API.
+    wav = tts.tts(txt, speaker=speaker, language=language)
+    print("tts() output:", type(wav))
+    # if tensor convert to numpy
+    if torch.is_tensor(wav):
+        wav = wav.cpu().numpy()
+    if isinstance(wav, list):
+        wav = np.array(wav)
+    assert isinstance(wav, np.ndarray)
+    print("shape:", wav.shape)
+
+    save_wav(wav=wav, path="demo.wav", sample_rate=sample_rate)
+
+    # outputs = synthesis(
+    #     model=tts_model,
+    #     text=txt,
+    #     CONFIG=tts_config,
+    #     use_cuda=use_cuda,
+    #     speaker_id=speaker_id,
+    #     style_wav=style_wav,
+    #     style_text=style_text,
+    #     use_griffin_lim=use_gl,
+    #     d_vector=speaker_embedding,
+    #     language_id=language_id,
+    # )
+    # waveform = outputs["wav"]
 
     ...  # TODO...
 
