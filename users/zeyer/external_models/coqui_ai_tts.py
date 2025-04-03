@@ -48,7 +48,7 @@ def download_model(model_name: str, *, tts_repo_dir: Optional[Path] = None):
     """
     if tts_repo_dir is None:
         tts_repo_dir = get_default_tts_repo_dir()
-    download_job = DownloadModel(model_name=model_name, tts_repo_dir=tts_repo_dir)
+    download_job = DownloadModelJob(model_name=model_name, tts_repo_dir=tts_repo_dir)
     return download_job.out_tts_data_dir
 
 
@@ -71,7 +71,7 @@ def get_upstream_tts_git_repo() -> Path:
     return clone_job.out_repository
 
 
-class DownloadModel(Job):
+class DownloadModelJob(Job):
     """
     Downloads a model via the Coqui-ai TTS api.
     See: https://github.com/coqui-ai/TTS?tab=readme-ov-file#-python-api
