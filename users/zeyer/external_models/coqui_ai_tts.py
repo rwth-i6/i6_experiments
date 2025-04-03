@@ -311,11 +311,53 @@ def _demo():
 
     # See also TTS.utils.synthesizer.synthesis().
 
-    print(f"{tts_model.tokenizer = }")
-    print(f"{tts_model.tokenizer.text_cleaner = }")
-    print(f"{tts_model.tokenizer.use_phonemes = }")
-    print(f"{tts_model.tokenizer.add_blank = }")
-    print(f"{tts_model.tokenizer.use_eos_bos = }")
+    print(f"{tts_model.tokenizer = }")  # <TTS.tts.utils.text.tokenizer.TTSTokenizer ...>
+    print(f"{tts_model.tokenizer.characters = }")  # YourTTS: <TTS.tts.models.vits.VitsCharacters ...>
+    print(f"{tts_model.tokenizer.text_cleaner = }")  # YourTTS: func multilingual_cleaners
+    print(f"{tts_model.tokenizer.use_phonemes = }")  # YourTTS: False
+    print(f"{tts_model.tokenizer.add_blank = }")  # YourTTS: True
+    print(f"{tts_model.tokenizer.characters.blank = }")  # YourTTS: '<BLNK>'
+    print(f"{tts_model.tokenizer.use_eos_bos = }")  # YourTTS: False
+
+    with open("demo-tts-vocab.txt", "w", encoding="utf8") as f:
+        for v in tts_model.tokenizer.characters.vocab:
+            f.write(f"{v}\n")
+
+    # For YourTTS specifically:
+    chars_vocab = {
+        "characters_class": "TTS.tts.models.vits.VitsCharacters",
+        "vocab_dict": None,
+        "pad": "_",
+        "eos": "&",
+        "bos": "*",
+        "blank": None,  # hardcoded in VitsCharacters to "<BLNK>"
+        "characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\u00af\u00b7\u00df\u00e0\u00e1\u00e2\u00e3\u00e4\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f9\u00fa\u00fb\u00fc\u00ff\u0101\u0105\u0107\u0113\u0119\u011b\u012b\u0131\u0142\u0144\u014d\u0151\u0153\u015b\u016b\u0171\u017a\u017c\u01ce\u01d0\u01d2\u01d4\u0430\u0431\u0432\u0433\u0434\u0435\u0436\u0437\u0438\u0439\u043a\u043b\u043c\u043d\u043e\u043f\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044a\u044b\u044c\u044d\u044e\u044f\u0451\u0454\u0456\u0457\u0491\u2013!'(),-.:;? ",
+        "punctuations": "!'(),-.:;? ",
+        "phonemes": "",
+        "is_unique": None,
+        "is_sorted": None
+    }
+    # VitsCharacters then:
+    # _vocab = [self._pad] + list(self._punctuations) + list(self._characters) + [self._blank]
+    # _char_to_id = {char: idx for idx, char in enumerate(_vocab)}
+    # text_to_ids:
+    #         if self.text_cleaner is not None:  # -- done in LmDataset preprocessing
+    #             text = self.text_cleaner(text)
+    #         if self.use_phonemes:  # -- not needed, assert False. could be done in LmDataset preprocessing
+    #             text = self.phonemizer.phonemize(text, separator="", language=language)
+    #         text = self.encode(text)  # char_to_id. can also remap in model if necessary
+    #         if self.add_blank:  # -- can be done in model
+    #             text = self.intersperse_blank_char(text, True)
+    #         if self.use_eos_bos:  # -- not needed, assert False. could be done in model
+    #             text = self.pad_with_bos_eos(text)
+
+    # Multiple texts, to test batching.
+    texts = [
+        text,
+        "I am a very long text, and I am not sure if it will be cut off or not.",
+        "Hello world, this is a test.",
+        "RETURNN is a framework for building neural networks. It is very flexible and powerful.",
+    ]
 
     # TODO batchify and gpuify this...
     # convert text to sequence of token IDs
