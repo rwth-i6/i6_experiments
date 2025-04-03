@@ -52,6 +52,25 @@ def download_model(model_name: str, *, tts_repo_dir: Optional[Path] = None):
     return download_job.out_tts_data_dir
 
 
+def get_default_tts_repo_dir() -> Path:
+    """
+    :return: upstream, via :func:`get_upstream_tts_git_repo`
+    """
+    return get_upstream_tts_git_repo()
+
+
+def get_upstream_tts_git_repo() -> Path:
+    """
+    :return: upstream, via :class:`CloneGitRepositoryJob`, from https://github.com/coqui-ai/TTS.git
+    """
+    from i6_core.tools.git import CloneGitRepositoryJob
+
+    clone_job = CloneGitRepositoryJob(
+        "https://github.com/coqui-ai/TTS.git", commit="dbf1a08a0d4e47fdad6172e433eeb34bc6b13b4e"
+    )
+    return clone_job.out_repository
+
+
 class DownloadModel(Job):
     """
     Downloads a model via the Coqui-ai TTS api.
@@ -119,25 +138,6 @@ class DownloadModel(Job):
             print(".../tts dir content:", dir_content)
             assert dir_content  # non-empty
             shutil.copytree(tts.manager.output_prefix, self.out_tts_data_dir.get_path() + "/tts")
-
-
-def get_default_tts_repo_dir() -> Path:
-    """
-    :return: upstream, via :func:`get_upstream_tts_git_repo`
-    """
-    return get_upstream_tts_git_repo()
-
-
-def get_upstream_tts_git_repo() -> Path:
-    """
-    :return: upstream, via :class:`CloneGitRepositoryJob`, from https://github.com/coqui-ai/TTS.git
-    """
-    from i6_core.tools.git import CloneGitRepositoryJob
-
-    clone_job = CloneGitRepositoryJob(
-        "https://github.com/coqui-ai/TTS.git", commit="dbf1a08a0d4e47fdad6172e433eeb34bc6b13b4e"
-    )
-    return clone_job.out_repository
 
 
 def _demo():
