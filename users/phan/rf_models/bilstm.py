@@ -23,6 +23,7 @@ class BiLSTM(rf.Module):
         self.out_dim = out_dim
         self.fwd_lstm = rf.LSTM(in_dim, out_dim, with_bias=with_bias)
         self.bwd_lstm = rf.LSTM(in_dim, out_dim, with_bias=with_bias)
+        self.blstm_out_dim = 2*self.out_dim
     
     def __call__(
         self,
@@ -56,7 +57,7 @@ class BiLSTM(rf.Module):
         spatial_dim.dyn_size_ext.raw_tensor = lengths_raw_tensor.to(gpu)
         bwd_out_rev = rf.array_.reverse_sequence(bwd_out, axis=spatial_dim)
         spatial_dim.dyn_size_ext.raw_tensor = lengths_raw_tensor.to(cpu)
-        out, concat_out_dim = rf.concat((fwd_out, self.out_dim), (bwd_out_rev, self.out_dim))
+        out, _ = rf.concat((fwd_out, self.out_dim), (bwd_out_rev, self.out_dim), out_dim=self.blstm_out_dim)
         return out, (new_fwd_state, new_bwd_state)
 
     

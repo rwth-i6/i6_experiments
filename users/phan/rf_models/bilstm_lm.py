@@ -9,11 +9,13 @@ import torch.nn as nn
 import hashlib
 import contextlib
 import functools
+import random
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
+from returnn.tensor import batch_dim
 
 from i6_experiments.users.gaudino.model_interfaces.supports_label_scorer_torch import (
     RFModelWithMakeLabelScorer,
@@ -88,12 +90,13 @@ class BiLSTMLMRF(rf.Module):
             )
             for idx in range(self.num_blstm_layers)
         )
+        blstm_final_hidden_dim = self.layers[-1].blstm_out_dim
         if self.use_bottleneck:
             self.bottleneck_dim = Dim(name="bottleneck", dimension=bottleneck_dim)
-            self.bottleneck = rf.Linear(self.blstm_hidden_dim, self.bottleneck_dim)
+            self.bottleneck = rf.Linear(blstm_final_hidden_dim, self.bottleneck_dim)
             self.final_linear = rf.Linear(self.bottleneck_dim, output_dim)
         else:
-            self.final_linear = rf.Linear(self.blstm_hidden_dim, output_dim)
+            self.final_linear = rf.Linear(blstm_final_hidden_dim, output_dim)
 
         for name, param in self.named_parameters():
             param.initial = rf.init.Normal(stddev=0.1) # mean already 0.0
@@ -143,7 +146,7 @@ class BiLSTMLMRF(rf.Module):
             layer: BiLSTM  # or similar
             blstm_out, _ = layer(
                 blstm_out, spatial_dim=spatial_dim,
-                state=layer.default_initial_state(batch_dims=[batch_dims]),
+                states=layer.default_initial_state(batch_dims=[batch_dims]),
             )
         if self.use_bottleneck:
             bottleneck_out = self.bottleneck(blstm_out)
@@ -182,44 +185,84 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 
 # TODO: adapt for bi lstm lm
-# def get_model(*, epoch: int, **_kwargs_unused):
-#     from returnn.config import get_global_config
+def get_model(*, epoch: int, **_kwargs_unused):
+    from returnn.config import get_global_config
 
-#     config = get_global_config()
-#     lm_cfg = config.typed_value("lm_cfg", {})
-#     lm_cls = lm_cfg.pop("class")
-#     assert lm_cls == "LSTMLMRF", "Only LSTM LM are supported"
-#     extern_data_dict = config.typed_value("extern_data")
-#     data = Tensor(name="data", **extern_data_dict["data"])
-#     return LSTMLMRF(
-#         label_target_size=data.sparse_dim,
-#         output_dim=data.sparse_dim,
-#         **lm_cfg,
-#     )
+    config = get_global_config()
+    lm_cfg = config.typed_value("lm_cfg", {})
+    lm_cls = lm_cfg.pop("class")
+    assert lm_cls == "BiLSTMLMRF", "Only bidirectional LSTM LM is supported"
+    extern_data_dict = config.typed_value("extern_data")
+    data = Tensor(name="data", **extern_data_dict["data"])
+    return BiLSTMLMRF(
+        input_dim=data.sparse_dim + 1, # +1 for <mask>
+        output_dim=data.sparse_dim,
+        **lm_cfg,
+    )
 
 # from returnn.tensor import batch_dim
 # from i6_experiments.users.phan.utils.masking import get_seq_mask
-# def train_step(*, model: LSTMLMRF, extern_data: TensorDict, **_kwargs_unused):
-#     targets = extern_data["data"]
-#     delayed = extern_data["delayed"]
-#     spatial_dim = delayed.get_time_dim_tag()
-#     targets_len_rf = spatial_dim.dyn_size_ext
-#     targets_len = targets_len_rf.raw_tensor
-#     out = model(delayed, spatial_dim=spatial_dim)
-#     logits: Tensor = out["output"]
-#     logits_raw = logits.raw_tensor # (T, B, V)
-#     targets_raw = targets.raw_tensor.long() # (B, T)
-#     ce = torch.nn.functional.cross_entropy(
-#         input = logits_raw.permute(1, 2, 0),
-#         target = targets_raw,
-#         reduction="none",
-#     )
-#     seq_mask = get_seq_mask(seq_lens=targets_len, max_seq_len=targets_len.max(), device=logits_raw.device)
-#     loss = (ce*seq_mask).sum()
-#     ppl = torch.exp(loss/targets_len.sum())
-#     rf.get_run_ctx().mark_as_loss(
-#         name="log_ppl", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
-#     )
-#     rf.get_run_ctx().mark_as_loss(
-#         name="ppl", loss=ppl, as_error=True,
-#     )
+from i6_experiments.users.phan.utils.pseudo_ppl import compute_log_pseudo_ppl_loop_s_rf_models
+from returnn.config import get_global_config
+def train_step(*, model: BiLSTMLMRF, phase:str, extern_data: TensorDict, **_kwargs_unused):
+    config = get_global_config()
+    targets = extern_data["data"]
+    spatial_dim = targets.get_time_dim_tag()
+    targets_len_rf = spatial_dim.dyn_size_ext
+    targets_len = targets_len_rf.raw_tensor
+    batch_size = targets_len.shape[0]
+    MASK_TOKEN = model.input_dim.capacity - 1 # <mask> is the last
+    torch_target_lengths = spatial_dim.dyn_size_ext.raw_tensor
+    if phase == "train":
+        # generate a mask, and ensure that for all seq, at least one position is masked
+        target_masking_rate = config.typed_value("target_masking_rate", None)
+        assert target_masking_rate is not None, "Must provide target_masking_rate in config"
+        max_seq_len = targets.raw_tensor.shape[1]
+        target_mask = (torch.rand((max_seq_len,)) < target_masking_rate).long() # (S,), 1 = mask, 0 = no mask
+
+        # randomly choosing one token smaller than min seq len to mask
+        min_seq_len = torch_target_lengths.min().item()
+        target_mask[random.randint(0, min_seq_len-1)] = 1
+
+        # Mask out targets
+        targets_raw_ = targets.raw_tensor.clone()
+        targets_raw_masked = targets_raw_.clone()
+        targets_raw_masked[:, target_mask.bool()] = MASK_TOKEN
+        targets.raw_tensor = targets_raw_masked
+        targets.sparse_dim = model.input_dim
+        out = model(targets, spatial_dim=spatial_dim, batch_dims=batch_dim)
+        logits: Tensor = out["output"]
+        logits_raw = logits.raw_tensor # (S, B, V)
+
+        ce = torch.nn.functional.cross_entropy( # (B, S)
+            input = logits_raw.permute(1, 2, 0),
+            target = targets_raw_.long(),
+            reduction="none",
+        )
+        mask_idxs = torch.nonzero(target_mask).squeeze(1).long() # (M,)
+        masks_inside_max_lengths = (mask_idxs.unsqueeze(0).expand(batch_size, -1) < targets_len.unsqueeze(-1).expand(-1, mask_idxs.shape[0])).float() # (B, M), 1 is inside, 0 is outside
+        ce_masked_pos = ce[:, target_mask.bool()] # (B, M)
+        loss = ce_masked_pos * masks_inside_max_lengths.to(ce_masked_pos.device)
+        rf.get_run_ctx().mark_as_loss(
+            name="masked_pos_ce", loss=loss,
+        )
+    elif phase == "eval":
+        targets.sparse_dim = model.input_dim
+        log_pseudo_ppl = compute_log_pseudo_ppl_loop_s_rf_models(
+            model,
+            targets,
+            spatial_dim,
+            mask_idx=MASK_TOKEN,
+            model_kwargs={"batch_dims": batch_dim},
+        )
+        rf.get_run_ctx().mark_as_loss(
+            loss=log_pseudo_ppl,
+            name="log_pseudo_ppl",
+            as_error=True,
+            custom_inv_norm_factor=spatial_dim.get_size_tensor(),
+        )
+        return
+    else:
+        raise ValueError("Phase must be either train or eval")
+
+    

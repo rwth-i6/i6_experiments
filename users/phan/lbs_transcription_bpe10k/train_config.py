@@ -86,6 +86,28 @@ def get_dataset(data):
         "partition_epoch": epoch_split[data]
     }
 
+def get_dataset_bi_lm(data):
+    seq_order = {
+        "train": "random",
+        "cv": "sorted",
+        "test": "default"
+    }
+    assert data in ["train", "cv", "test"]
+    return {
+        "class": "LmDataset",
+        "corpus_file": lambda: cf(data_files[data]),
+        "orth_symbols_map_file": lambda: cf(vocab_file),
+        "orth_replace_map_file": None,
+        "word_based": True,
+        "seq_end_symbol": '<sb>',
+        "auto_replace_unknown_symbol": False,
+        "unknown_symbol": None,
+        "add_delayed_seq_data": False,
+        "delayed_seq_data_start_symbol": None,
+        "seq_ordering": seq_order[data],
+        "partition_epoch": epoch_split[data]
+    }
+
 
 def train_lbs_bpe10k_transcription_lm(
     get_model: Callable,
@@ -171,6 +193,117 @@ def train_lbs_bpe10k_transcription_lm(
             serialization.Collection(
                 [
                     serialization.CodeFromFunction("get_dataset", func=get_dataset),
+                    serialization.PythonModelineNonhashedCode,
+                    serialization.NonhashedCode(
+                        textwrap.dedent(
+                            """
+                            dev = get_dataset("cv")
+                            train = get_dataset("train")
+                            """
+                        )
+                    ),
+                ]
+            )
+        ],
+        post_config=post_config,
+        sort_config=False,
+    )
+
+    returnn_train_config.config.update(hashed_config)
+    returnn_train_config.post_config.update(non_hashed_config)
+
+    returnn_train_job = ReturnnTrainingJob(
+        returnn_config=returnn_train_config,
+        log_verbosity=5,
+        num_epochs=num_epochs,
+    )
+    returnn_train_job.rqmt["gpu_mem"] = 11
+
+    return returnn_train_job
+
+
+def train_lbs_bpe10k_transcription_bidirectional_lm(
+    get_model: Callable,
+    train_step: Callable,
+    config: dict = lbs_bpe10k_trans_lm_base_config,
+    num_epochs: int = 10,
+    hashed_config: dict = {},
+    non_hashed_config: dict = {},
+    post_config_update: dict = {},
+):
+    """
+    Get a Returnn Config to train a transcription LM
+
+    :param hashed_config: Extra config to be hashed
+    :param non_hashed_config: Extra unhashed config
+    """
+    post_config = dict(  # not hashed
+        log_batch_size=True,
+        cleanup_old_models=True,
+        # debug_add_check_numerics_ops = True
+        # debug_add_check_numerics_on_output = True
+        # stop_on_nonfinite_train_score = False,
+        torch_log_memory_usage=True,
+        watch_memory=True,
+        use_lovely_tensors=True,
+        use_train_proc_manager=True,
+    )
+    post_config.update(post_config_update)
+    returnn_train_config = ReturnnConfig(
+        config=config,
+        python_prolog=[
+            serialization.Collection(
+                [   
+                    serialization.NonhashedCode(
+                        textwrap.dedent(
+                            """
+                            import os
+                            """
+                        )
+                    ),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    serialization.NonhashedCode(
+                        textwrap.dedent(
+                            """
+                            sys.path.insert(0, "/u/minh-nghia.phan/setups/rf_ctc/recipe")
+                            sys.path.insert(1, "/u/zeyer/setups/combined/2021-05-31/tools/sisyphus")
+                            """
+                        )
+                    ),
+                    
+                    serialization.NonhashedCode(
+                        textwrap.dedent(
+                            """
+                            from returnn.tensor import Dim, batch_dim
+                            target_spatial_dim = Dim(description="target-spatial", dimension=None, kind=Dim.Types.Spatial)
+                            vocab_dim = Dim(description="vocab", dimension=10025, kind=Dim.Types.Spatial)
+
+                            extern_data = {
+                                "data": {
+                                    "dim_tags": [batch_dim, target_spatial_dim],
+                                    "sparse_dim": vocab_dim,
+                                    "vocab": {
+                                        "bpe_file": "/u/minh-nghia.phan/setups/rf_ctc/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes",
+                                        "vocab_file": "/u/minh-nghia.phan/setups/rf_ctc/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab",
+                                        "unknown_label": None,
+                                        "bos_label": 0,
+                                        "eos_label": 0,
+                                    },
+                                },
+                            }
+                            """
+                        )
+                    ),
+                    serialization.Import(get_model, import_as="get_model"),
+                    serialization.Import(train_step, import_as="train_step"),
+                ]
+            )
+        ],
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.CodeFromFunction("get_dataset", func=get_dataset_bi_lm),
                     serialization.PythonModelineNonhashedCode,
                     serialization.NonhashedCode(
                         textwrap.dedent(

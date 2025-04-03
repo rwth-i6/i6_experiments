@@ -314,7 +314,7 @@ def ctc_lf_mmi_context_1_topk(
     return loss
 
 
-def ctc_lf_mmi_context_1_topk_strict(
+def ctc_lf_mmi_context_1_topk_strict_v2(
     log_probs, # (T, B, V)
     targets, # (B, S) # WITHOUT BOS EOS
     input_lengths, # (B,)
@@ -332,8 +332,8 @@ def ctc_lf_mmi_context_1_topk_strict(
     Seems to only work for eos=0, blank=last...
 
     This version tries to reduce mem usage by having top K hypotheses
-    at each time step AND ignore the horizontal transitions to
-    have a strict top K approximation.
+    at each time step AND ignore the horizontal transitions for hypothese
+    not in the top K to have a strict top K approximation.
 
     Lattice-free MMI training for CTC, given by
     L_MMI = q(target_seq) / sum_{all seq} q(seq)
@@ -432,14 +432,20 @@ def ctc_lf_mmi_context_1_topk_strict(
     topk_scores, topk_idx = torch.topk(all_hyp_scores, k=top_k, dim=-1) # (B, K)
     # log_bigram_probs_no_eos = log_bigram_probs.index_select(0, out_idx_vocab).index_select(1, out_idx_vocab)
     for t in range(1, max_audio_time):
+        # calculate top k mask, for horizontal transitions
+        topk_mask = torch.full_like(all_hyp_scores_label, fill_value=log_zero)
+        topk_mask.scatter_(1, topk_idx, 0.0)  # put 0.0 in log space (log(1) = 0) at top-k positions
+
         # case 1: emit a blank at t
-        all_hyp_scores_blank_new = all_hyp_scores + log_probs[t, :, blank_idx].unsqueeze(1).expand(-1, vocab_size)
+        all_hyp_scores_blank_new =  torch.logaddexp(
+            all_hyp_scores_blank,
+            all_hyp_scores_label + topk_mask,
+        ) + log_probs[t, :, blank_idx].unsqueeze(1).expand(-1, vocab_size)
         
         # case 2: emit a non-blank at t
 
         # horizontal transition Q(t-1, u, non-blank)
-        # we don't need this in this version
-        # log_mass_horizontal = all_hyp_scores_label # (B, V)
+        log_mass_horizontal = all_hyp_scores_label + topk_mask # (B, V)
 
         # diagonal transition sum_v Q(t-1, v, blank)*p_LM(u|v)
         topk_scores_blank = all_hyp_scores_blank.gather(1, topk_idx)
@@ -468,7 +474,7 @@ def ctc_lf_mmi_context_1_topk_strict(
         log_mass_skip = batch_log_matmul(topk_scores_label.unsqueeze(1), log_bigram_probs_masked_from_topk).squeeze(1) # (B, 1, K) @ (B, K, V) --> (B, V)
         
         # multiply with p_AM(u|x_t)
-        all_hyp_scores_label_new = log_probs[t, :, out_idx_vocab] + (torch.stack([log_mass_diagonal, log_mass_skip], dim=-1).logsumexp(dim=-1)) # (B, V)
+        all_hyp_scores_label_new = log_probs[t, :, out_idx_vocab] + (torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1).logsumexp(dim=-1)) # (B, V)
         # prepare for next time step
         time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size).to(device)
         all_hyp_scores_label = torch.where(time_mask, all_hyp_scores_label_new, all_hyp_scores_label)

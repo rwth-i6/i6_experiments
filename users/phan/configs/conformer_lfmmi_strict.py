@@ -80,17 +80,18 @@ config_24gb.update({"internal_language_model": default_bigram_config})
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     # back to 1e-5
-    lr_list = [1e-5, 1e-6]
+    # lr_list = [1e-5, 1e-6]
+    lr_list = [1e-6, 1e-7]
     ep_list = [20]
     recog_epoch = [2, 4, 6, 8, 12, 16, 20] # [20, 40, 80, 100]
     # ---------- lf mmi experiments ---------
-    am_scales = [1.0] # 1.5, 0.1 will diverge
+    am_scales = [1.0, 1.1, 1.2] # 1.5, 0.1 will diverge
     rel_scales = [0.1, 0.2, 0.3] # 0.35 from Willi's paper ????
     top_ks = [160]
     for lr, epoch, am_scale, rel_scale, top_k in itertools.product(lr_list, ep_list, am_scales, rel_scales, top_ks):
         lm_scale = round(am_scale*rel_scale, 3)
         train_exp( 
-            f"conformer_lfmmi_context1_strict-topk_noSpecAug_am-{am_scale}_lm-{lm_scale}_topk-{top_k}_lr_{lr}_ep_{epoch}",
+            f"conformer_lfmmi_context1_strict-topk_v2_noSpecAug_am-{am_scale}_lm-{lm_scale}_topk-{top_k}_lr_{lr}_ep_{epoch}",
             config_24gb,
             from_scratch_training_lfmmi_context_1,
             gpu_mem=24,
@@ -117,7 +118,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "am_scale": am_scale,
                 "lm_scale": lm_scale,
                 "top_k": top_k,
-                "using_strict_topk": True,
+                "using_strict_topk_v2": True,
                 "freeze_encoder": False,
                 "freeze_ilm": True,
                 "use_specaugment": False, # VERY IMPORTANT!!!
@@ -410,11 +411,15 @@ def train_exp(
     ilm_scales = [0.0]
     # lm_scales = [1.0, 1.1, 1.2, 1.3]
     # prior_scales = [0.5, 0.6, 0.7, 0.8]
-    lm_scales = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
+    lm_scales = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]
     prior_scales = [0.0, 0.3, 0.4, 0.5, 0.6]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
         if prior_scale >= lm_scale:
             continue       
+        if prior_scale == 0.0 and lm_scale > 1.0:
+            continue
+        if prior_scale > 0.0 and lm_scale < 0.9:
+            continue
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
@@ -439,7 +444,7 @@ def train_exp(
             # prior_config.pop("internal_language_model", None)
             prior_config["batch_size"] = int(25600000)
             prior_config["batching"] = "sorted_reverse"
-            prior_config["hash_override"] = "30/11/2024"
+            prior_config["hash_override"] = "18/03/2025"
         recog_training_exp(
             ted2_prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
             ted2_task,
@@ -447,7 +452,7 @@ def train_exp(
             search_config=ted2_recog_config_update_extra,
             recog_def=model_recog_time_sync_recomb_first_v2,
             model_avg=False,
-            exclude_epochs=[2, 4, 6, 8, 16, 20],
+            exclude_epochs=[],
             train_exp_name=name,
             dev_sets=["dev", "test"],
             # dev_sets=["dev"],

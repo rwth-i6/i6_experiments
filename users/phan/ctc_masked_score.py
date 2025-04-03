@@ -20,7 +20,7 @@ def ctc_masked_score(
     Note that in this implementation, all sequences in the
     batch will be masked by the same masking. This makes it
     feasible to implement forward-backward calculation efficiently.
-    Therefore, sequences in batch should have roughly the same lengths.
+    Therefore, target sequences in batch should have roughly the same lengths.
 
     Note that in the vocab dimension of the result there is no EOS, unlike
     the CTC prefix score, because EOS score can not be computed reliably
@@ -91,7 +91,7 @@ def ctc_masked_score(
     forward = torch.full((input_time_size, batch_size, max_seq_len+1, 2), log_zero).to(device) # (T, B, S+1, 2)
     # forward probs if a mask is replaced by a token
     forward_masked = torch.full((input_time_size, batch_size, n_masked_pos, n_out-1), log_zero).to(device) # (T, B, M, F-1)
-    prev_mask = torch.concat([torch.tensor([0]), mask[:-1]], dim=0) # is the previous position masked?
+    prev_mask = torch.concat([torch.tensor([0]).to(device), mask[:-1]], dim=0) # is the previous position masked?
     batch_prev_mask = prev_mask.unsqueeze(0).expand(batch_size, -1)
     prev_label_diff = torch.concat([torch.zeros(batch_size, 1).to(device), (targets[:, 1:] != targets[:, :-1])], dim=-1) # is this label same as the previous?
 
@@ -120,7 +120,7 @@ def ctc_masked_score(
     not_mask_prev_not_mask_idx = s_idx[not_mask_prev_not_mask.bool()]
     # Indices to access the M dimension of forward_masked array
     # These are to access the correct portion of which masks in the targets
-    full_midx = torch.arange(n_masked_pos)
+    full_midx = torch.arange(n_masked_pos).to(device)
 
     # Cur is masked, prev is masked case
     mask_prev_mask_midx = full_midx[mask_prev_mask[masked_pos].bool()]
@@ -128,7 +128,7 @@ def ctc_masked_score(
     # Cur is masked, prev is not masked
     mask_prev_not_mask_midx = full_midx[mask_prev_not_mask[masked_pos].bool()]
     # Cur is not masked, prev is masked
-    not_mask_prev_mask_midx = full_midx[torch.cat([not_mask_prev_mask[1:], torch.tensor([0])], dim=0)[masked_pos].bool()]
+    not_mask_prev_mask_midx = full_midx[torch.cat([not_mask_prev_mask[1:], torch.tensor([0]).to(device)], dim=0)[masked_pos].bool()]
 
     # what to put in torch.arange to get the true vocab without blank
     if BLANK_IS_FIRST:
@@ -225,7 +225,7 @@ def ctc_masked_score(
     backward = torch.full((input_time_size, batch_size, max_seq_len+1, 2), log_zero).to(device) # (T, B, S+1, 2)
     # backward probs if a mask is replaced by a token
     backward_masked = torch.full((input_time_size, batch_size, n_masked_pos, n_out-1), log_zero).to(device) # (T, B, M, F-1)
-    next_mask = torch.concat([mask[1:], torch.tensor([0])], dim=0) # is the next position masked?
+    next_mask = torch.concat([mask[1:], torch.tensor([0]).to(device)], dim=0) # is the next position masked?
     # batch_next_mask = next_mask.unsqueeze(0).expand(batch_size, -1)
     next_label_diff = torch.concat([(targets[:, :-1] != targets[:, 1:]), torch.zeros(batch_size, 1).to(device)], dim=-1) # is this label same as the next?
 
@@ -243,7 +243,7 @@ def ctc_masked_score(
     # than forward because the last label positions are not the same
 
     last_is_masked = torch.gather(batch_mask, 1, (target_lengths-1).unsqueeze(1)).squeeze(1) # (B,)
-    batch_idx = torch.arange(batch_size)
+    batch_idx = torch.arange(batch_size).to(device)
     last_label_idx = (target_lengths - 1) # (B,)
 
     # Init for batches where last pos is not masked
@@ -295,7 +295,7 @@ def ctc_masked_score(
     # Cur is masked, next is not masked
     mask_next_not_mask_midx = full_midx[mask_next_not_mask[masked_pos].bool()]
     # Cur is not masked, next is masked
-    not_mask_next_mask_midx = full_midx[torch.cat([torch.tensor([0]), not_mask_next_mask[:-1]], dim=0)[masked_pos].bool()]
+    not_mask_next_mask_midx = full_midx[torch.cat([torch.tensor([0]).to(device), not_mask_next_mask[:-1]], dim=0)[masked_pos].bool()]
 
     # This is used for case a_s = <mask>, a_{s+1} != <mask>
     targets_next = torch.concat([targets[:, 1:], torch.full((batch_size, 1), -9999).to(device)], dim=1)
@@ -406,7 +406,14 @@ def ctc_masked_score(
         dim=0
     )
     log_probs_all_masked = log_probs.unsqueeze(2).expand(-1, -1, n_masked_pos, -1)[:, :, :, out_idx_no_blank]
-    next_paths = backward_masked - log_probs_all_masked
+    next_paths = torch.where(
+        log_probs_all_masked != log_zero,
+        backward_masked - log_probs_all_masked,
+        log_zero
+    )
+    # print("backward masked", backward_masked)
+    # print("log probs all masked", log_probs_all_masked)
+    # print("next paths before log zero mask", next_paths)
     next_paths = torch.where(next_paths < log_zero, log_zero, next_paths)
 
     backward_paths = logsubstractexp(
@@ -422,29 +429,40 @@ def ctc_masked_score(
     denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1) # p(masked sequence | acoustic)
     log_masked_probs = numerator - denominator # p(mask = w | masked sequence, acoustic)
 
-    # # try changing denom calculation by forward. hopefully more robust?
-    # forward_last_frame = forward.logsumexp(-1).gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).expand(-1, -1, max_seq_len+1)).squeeze(0)
-    # denominator_batch_fwd = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
-    # # denominator = denominator_batch_fwd.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1)
-    # ctc = torch.nn.functional.ctc_loss(
-    #     log_probs,
-    #     targets,
-    #     input_lengths,
-    #     target_lengths,
-    #     blank=blank_idx,
-    #     reduction="none",
-    # )
+    # # # try changing denom calculation by forward. hopefully more robust?
+    # # forward_last_frame = forward.logsumexp(-1).gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).expand(-1, -1, max_seq_len+1)).squeeze(0)
+    # # denominator_batch_fwd = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
+    # # # denominator = denominator_batch_fwd.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1)
+    # # ctc = torch.nn.functional.ctc_loss(
+    # #     log_probs,
+    # #     targets,
+    # #     input_lengths,
+    # #     target_lengths,
+    # #     blank=blank_idx,
+    # #     reduction="none",
+    # # )
     # torch.set_printoptions(precision=4, threshold=10000, linewidth=100)
+    # # # print(mask)
+    # # # print(not_mask_next_not_mask_idx)
+    # # # print(torch.stack([denominator_batch, ctc], dim=-1))
+    # # targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
     # # print(mask)
-    # # print(not_mask_next_not_mask_idx)
-    # # print(torch.stack([denominator_batch, ctc], dim=-1))
-    # targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
-    # print(mask)
+    # # print(target_lengths)
+    # # print(torch.stack([numerator.logsumexp(-1).squeeze(-1), denominator_batch_fwd, denominator_batch, ctc], dim=-1)) # verify forward = backward = sum of numerators
+    # # mask_ground_truth = numerator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+    # # print(torch.cat([(mask_ground_truth-denominator_batch.unsqueeze(-1)).exp(), ctc.unsqueeze(-1), log_masked_probs.logsumexp(-1).exp()], dim=-1))
+    # # log_p_ground_truth = (mask_ground_truth-denominator_batch.unsqueeze(-1)).exp()
+    # # print(torch.stack([log_p_ground_truth, log_masked_probs.logsumexp(-1).exp()], dim=-1))
+    # print(log_masked_probs.shape)
+    # print(log_masked_probs)
+    # print(log_masked_probs.logsumexp(-1).exp())
     # print(target_lengths)
-    # print(torch.stack([numerator.logsumexp(-1).squeeze(-1), denominator_batch_fwd, denominator_batch, ctc], dim=-1)) # verify forward = backward = sum of numerators
-    # mask_ground_truth = numerator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
-    # print(torch.cat([(mask_ground_truth-denominator_batch.unsqueeze(-1)).exp(), ctc.unsqueeze(-1), log_masked_probs.logsumexp(-1).exp()], dim=-1))
-    # log_p_ground_truth = (mask_ground_truth-denominator_batch.unsqueeze(-1)).exp()
-    # print(torch.stack([log_p_ground_truth, log_masked_probs.logsumexp(-1).exp()], dim=-1))
-
+    # print(masked_pos)
+    # print(targets)
+    # print(numerator)
+    # # print(forward_masked)
+    # # print("backward paths", backward_paths)
+    # print("next paths", next_paths[0]) # this is SOMEHOW WRONG!!!!!!!! okay there is a division by zero
+    # # print("backward masked 1", backward_masked_1[0])
+    # # print(denominator) # denominator is good
     return log_masked_probs, forward, backward, forward_masked, backward_masked

@@ -206,7 +206,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     return model
 
 
-def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
+def _returnn_v2_train_step(*, model, extern_data: TensorDict, phase: str, **_kwargs_unused):
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -225,6 +225,7 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             data_spatial_dim=data_spatial_dim,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
+            phase=phase,
             align=align,
         )
     else:
@@ -234,4 +235,5 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             data_spatial_dim=data_spatial_dim,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
+            phase=phase,
         )

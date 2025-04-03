@@ -43,3 +43,13 @@ default_tedlium2_extern_lm_hardcoded_layers_config = {
     "lstm_input_dim": 128,
     "lstm_model_dim": 2048,
 }
+
+default_bidirectional_ilm_config = { # should be used for transcription LM as well
+    "class": "BiLSTMLMRF",
+    "symbol_embedding_dim": 128,
+    "emebdding_dropout": 0.0,
+    "num_blstm_layers": 1,
+    "blstm_hidden_dim": 1000,
+    "blstm_dropout": 0.0,
+    "use_bottleneck": False,
+}
