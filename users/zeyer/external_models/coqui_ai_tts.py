@@ -311,6 +311,13 @@ def _demo():
 
     # See also TTS.utils.synthesizer.synthesis().
 
+    print(f"{tts_model.tokenizer = }")
+    print(f"{tts_model.tokenizer.text_cleaner = }")
+    print(f"{tts_model.tokenizer.use_phonemes = }")
+    print(f"{tts_model.tokenizer.add_blank = }")
+    print(f"{tts_model.tokenizer.use_eos_bos = }")
+
+    # TODO batchify and gpuify this...
     # convert text to sequence of token IDs
     text_inputs = np.asarray(
         tts_model.tokenizer.text_to_ids(text, language=language),
