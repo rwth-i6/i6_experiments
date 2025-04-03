@@ -7,8 +7,7 @@ from __future__ import annotations
 import os
 import sys
 import functools
-from typing import Optional, TypeVar
-
+from typing import Optional, TypeVar, Iterator
 
 _my_dir = os.path.dirname(__file__)
 _base_dir = functools.reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
@@ -138,6 +137,60 @@ class DownloadModelJob(Job):
             print(".../tts dir content:", dir_content)
             assert dir_content  # non-empty
             shutil.copytree(tts.manager.output_prefix, self.out_tts_data_dir.get_path() + "/tts")
+
+
+class ExtractVocabFromModelJob(Job):
+    """
+    Extracts the vocab (as line-based txt file) from a TTS model.
+    """
+
+    def __init__(self, *, model_name: str, tts_model_dir: Path, tts_repo_dir: Path):
+        """
+        :param model_name: for example "tts_models/multilingual/multi-dataset/your_tts"
+        :param tts_model_dir: the ``out_tts_data_dir`` from a :class:`DownloadModelJob` job
+        :param tts_repo_dir: the TTS repo dir, e.g. from :func:`get_default_tts_repo_dir`
+        """
+        super().__init__()
+        self.model_name = model_name
+        self.tts_model_dir = tts_model_dir
+        self.tts_repo_dir = tts_repo_dir
+        self.out_vocab_file = self.output_path("vocab.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import sys
+        import os
+
+        sys.path.insert(0, self.tts_repo_dir.get_path())
+        os.environ["TTS_HOME"] = self.tts_model_dir.get_path()
+        os.environ["COQUI_TOS_AGREED"] = "1"
+
+        print("Importing TTS...")
+
+        from TTS.api import TTS
+        from TTS.utils.manage import ModelManager
+        from TTS.tts.models.vits import Vits  # just for typing, just as an example
+
+        def _disallowed_create_dir_and_download_model(*_args, **_kwargs):
+            raise RuntimeError(
+                f"Disallowed create_dir_and_download_model({_args}, {_kwargs}),"
+                f" model {self.model_name} not found, model dir {self.tts_model_dir} not valid? "
+            )
+
+        # patch to avoid any accidental download
+        assert hasattr(ModelManager, "create_dir_and_download_model")
+        ModelManager.create_dir_and_download_model = _disallowed_create_dir_and_download_model
+
+        print("Loading TTS model...")
+        tts = TTS(model_name=self.model_name, progress_bar=False)
+
+        tts_model: Vits = tts.synthesizer.tts_model  # typing Vits is just an example
+
+        with open(self.out_vocab_file.get_path(), "w", encoding="utf8") as f:
+            for v in tts_model.tokenizer.characters.vocab:
+                f.write(f"{v}\n")
 
 
 def _demo():
