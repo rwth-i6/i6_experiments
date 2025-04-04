@@ -485,14 +485,8 @@ def _demo():
     print(f"{model_outputs.shape = }")
     print(f"{y_mask.shape = }")  # [B, 1, T_wav]
     y_mask = y_mask.squeeze(1)  # [B, T_wav]
-    y_lens = torch.sum(y_mask.to(torch.int32), dim=1)  # [B]
+    y_lens = torch.sum(y_mask.to(torch.int32), dim=1).cpu()  # [B]
     print(f"{y_lens = }")
-
-    # convert outputs to numpy. select first batch
-    model_outputs = model_outputs[0].cpu().squeeze().numpy()  # [T_wav]
-    assert model_outputs.ndim == 1
-    wav = model_outputs
-    save_wav(wav=wav, path="demo3.wav", sample_rate=sample_rate)
 
     # if hasattr(tts_model, "waveform_decoder"):
     #     print("waveform_decoder:", tts_model.waveform_decoder)
@@ -528,6 +522,15 @@ def _demo():
 
     out_lens = out_sym_lambda(y_lens)
     print(f"{out_lens = }")
+    assert isinstance(out_lens, torch.Tensor) and out_lens.shape == (batch_size,)
+    assert torch.max(out_lens) == model_outputs.shape[-1]
+
+    for b in range(batch_size):
+        # convert outputs to numpy. select first batch
+        model_outputs = model_outputs[b, ..., : out_lens[b]].cpu().squeeze().numpy()  # [T_wav]
+        assert model_outputs.ndim == 1
+        wav = model_outputs
+        save_wav(wav=wav, path=f"demo3-batch{b}.wav", sample_rate=sample_rate)
 
 
 if __name__ == "__main__":
