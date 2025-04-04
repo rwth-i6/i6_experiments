@@ -192,9 +192,9 @@ class _Serializer:
         queue.reverse()  # we will pop from the end
         while queue:
             deferred_state: Optional[_DeferredStateQueueItem] = None
+            queue_item = queue[-1]
+            self._cur_added_refs.clear()
             try:
-                queue_item = queue[-1]
-                self._cur_added_refs.clear()
                 if isinstance(queue_item, _AssignQueueItem):
                     deferred_state = self._handle_next_queue_item(queue_item)
                 elif isinstance(queue_item, _DeferredStateQueueItem):
