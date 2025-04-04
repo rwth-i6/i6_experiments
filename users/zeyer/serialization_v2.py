@@ -317,7 +317,8 @@ class _Serializer:
                         assert isinstance(state_s, PyEvalCode)
                         code_lines.append(f"{name}.__dict__.update({state_s.py_inline()})\n")
                     if slotstate:
-                        raise NotImplementedError  # not handled yet
+                        # not handled yet
+                        raise NotImplementedError(f"serialize {rv.value!r} with slotstate {slotstate!r}")
 
             else:
                 raise NotImplementedError  # not handled yet
