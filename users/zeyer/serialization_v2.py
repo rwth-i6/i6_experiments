@@ -289,14 +289,14 @@ class _Serializer:
                 code_lines.append(f"{name}.append({item_s.py_inline()})\n")
 
         if dictitems is not None:
-            for key, value in dictitems:
+            for key, v in dictitems:
                 serialized_key = self._serialize_value(key, prefix=f"{name}_key", recursive=True)
                 assert isinstance(serialized_key, PyEvalCode)
                 if (isinstance(key, str) and is_valid_python_identifier_name(key)) or isinstance(key, (int, bool)):
                     prefix_name = str(key)
                 else:
                     prefix_name = "value"
-                serialized_value = self._serialize_value(value, prefix=f"{name}_{prefix_name}", recursive=True)
+                serialized_value = self._serialize_value(v, prefix=f"{name}_{prefix_name}", recursive=True)
                 assert isinstance(serialized_value, PyEvalCode)
                 code_lines.append(f"{name}[{serialized_key.py_inline()}] = {serialized_value.py_inline()}\n")
 
