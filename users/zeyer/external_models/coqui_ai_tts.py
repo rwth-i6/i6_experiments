@@ -436,17 +436,26 @@ def _demo():
     print("batch entries:", list(batch_.keys()))
     assert len(batch) == batch_["data"].shape[0] == len(texts)
     batch_size = len(batch)
+    blank_idx = ds.orth_vocab.label_to_id("<BLNK>")
+
+    text_inputs_ = batch_["data"]  # [B, T_in]
+    text_inputs_lens_ = batch_["data:seq_len"]  # [B]
+
+    # intersperse blank
+    text_inputs_lens = text_inputs_lens_ * 2 + 1
+    text_inputs = torch.full((batch_size, text_inputs_.shape[1] * 2 + 1), fill_value=blank_idx, dtype=torch.int32)
+    text_inputs[:, 1::2] = text_inputs_
 
     # Just checking our LmDataset preprocessing to the tokenizer.text_to_ids.
     for b, t in enumerate(texts):
         ref = torch.tensor(tts_model.tokenizer.text_to_ids(t, language=language), dtype=torch.int32)
-        ds_seq_len = batch_["data:seq_len"][b]
-        ds_seq = batch_["data"][b][:ds_seq_len]
-        assert ds_seq_len == len(ref) and np.array_equal(ref, ds_seq)
+        ds_seq_len = text_inputs_lens[b]
+        ds_seq = text_inputs[b, :ds_seq_len]
+        assert ds_seq_len == len(ref) and np.array_equal(ref, ds_seq), f"ref: {ref}, ds_seq: {ds_seq}"
 
-    text_inputs = batch_["data"].to(dev)  # [B, T_in]
     print(f"{text_inputs.shape = }")
-    text_inputs_lens = batch_["data:seq_len"].to(dev)  # [B]
+    text_inputs = text_inputs.to(dev)
+    text_inputs_lens = text_inputs_lens.to(dev)
     speaker_id = torch.tensor(speaker_id, device=dev).expand(batch_size) if speaker_id is not None else None  # [B]
     speaker_embedding = (
         torch.tensor(speaker_embedding, device=dev, dtype=torch.float32) if speaker_embedding is not None else None
