@@ -318,9 +318,12 @@ def _demo():
 
     # This is maybe Vits specific:
     print(f"{tts_model.length_scale = }")
-    tts_model.length_scale = 1.0  # overwrite (testing...)
     print(f"{tts_model.inference_noise_scale = }")
     print(f"{tts_model.inference_noise_scale_dp = }")
+    gen_opts_keys = ["length_scale", "inference_noise_scale", "inference_noise_scale_dp"]
+    orig_gen_opts = {k: getattr(tts_model, k) for k in gen_opts_keys}
+
+    tts_model.length_scale = 1.0  # overwrite (testing...)
 
     # Test high-level API.
     wav = tts.tts(text, speaker=speaker, language=language)
@@ -354,6 +357,39 @@ def _demo():
 
     # Now do the synthesis directly, also including batching.
     # See also TTS.utils.synthesizer.synthesis().
+
+    # if hasattr(tts_model, "waveform_decoder"):
+    #     print("waveform_decoder:", tts_model.waveform_decoder)
+
+    # Get generic output sizes.
+
+    from sympy.utilities.lambdify import lambdify
+
+    # noinspection PyProtectedMember
+    from torch._subclasses.fake_tensor import FakeTensorMode
+
+    from torch.fx.experimental.symbolic_shapes import ShapeEnv
+
+    # noinspection PyProtectedMember
+    from torch._dynamo.source import ConstantSource
+
+    shape_env = ShapeEnv(duck_shape=False)
+    with FakeTensorMode(allow_non_fake_inputs=True, shape_env=shape_env):
+        # Assuming that waveform_decoder is from Vits.
+        time_sym = shape_env.create_symbol(100, ConstantSource("T"))
+        time_sym_ = shape_env.create_symintnode(time_sym, hint=None)
+        fake_in = torch.empty(1, tts_model.waveform_decoder.conv_pre.in_channels, time_sym_)
+        if getattr(tts_model.waveform_decoder, "cond_layer", None):
+            fake_g_in = torch.empty(1, tts_model.waveform_decoder.cond_layer.in_channels, time_sym_)
+        else:
+            fake_g_in = None
+
+        out = tts_model.waveform_decoder(fake_in, g=fake_g_in)
+        print(f"{out.shape = }")
+        out_size = out.shape[-1]
+        assert isinstance(out_size, torch.SymInt)
+        out_sym = out_size.node.expr
+        out_sym_lambda = lambdify(time_sym, out_sym)
 
     # outputs = synthesis(
     #     model=tts_model,
@@ -469,68 +505,50 @@ def _demo():
         else None
     )  # [B]
 
-    outputs = tts_model.inference(
-        text_inputs,
-        aux_input={
-            "x_lengths": text_inputs_lens,
-            "speaker_ids": speaker_id,
-            "d_vectors": speaker_embedding,
-            "language_ids": language_id,
-        },
-    )
-    print(outputs)
+    for gen_opts in [
+        {},
+        {"length_scale": 1.0},
+        {"inference_noise_scale": 0.5},
+        {"inference_noise_scale_dp": 0.5},
+        {"inference_noise_scale": 0.1},
+        {"inference_noise_scale_dp": 0.1},
+    ]:
+        print(f"** {gen_opts = }")
+        for key in gen_opts_keys:
+            value = gen_opts.get(key, orig_gen_opts[key])
+            assert hasattr(tts_model, key)
+            setattr(tts_model, key, value)
 
-    model_outputs = outputs["model_outputs"]  # for Vits: [B, 1, T_wav]
-    y_mask = outputs["y_mask"]  # before the final waveform_decoder
-    print(f"{model_outputs.shape = }")
-    print(f"{y_mask.shape = }")  # [B, 1, T_wav]
-    y_mask = y_mask.squeeze(1)  # [B, T_wav]
-    y_lens = torch.sum(y_mask.to(torch.int32), dim=1).cpu()  # [B]
-    print(f"{y_lens = }")
+        outputs = tts_model.inference(
+            text_inputs,
+            aux_input={
+                "x_lengths": text_inputs_lens,
+                "speaker_ids": speaker_id,
+                "d_vectors": speaker_embedding,
+                "language_ids": language_id,
+            },
+        )
+        print(outputs)
 
-    # if hasattr(tts_model, "waveform_decoder"):
-    #     print("waveform_decoder:", tts_model.waveform_decoder)
+        model_outputs = outputs["model_outputs"]  # for Vits: [B, 1, T_wav]
+        y_mask = outputs["y_mask"]  # before the final waveform_decoder
+        print(f"{model_outputs.shape = }")
+        print(f"{y_mask.shape = }")  # [B, 1, T_wav]
+        y_mask = y_mask.squeeze(1)  # [B, T_wav]
+        y_lens = torch.sum(y_mask.to(torch.int32), dim=1).cpu()  # [B]
+        print(f"{y_lens = }")
 
-    # Get generic output sizes.
-    from sympy.utilities.lambdify import lambdify
+        out_lens = out_sym_lambda(y_lens)
+        print(f"{out_lens = }")
+        assert isinstance(out_lens, torch.Tensor) and out_lens.shape == (batch_size,)
+        assert torch.max(out_lens) == model_outputs.shape[-1]
 
-    # noinspection PyProtectedMember
-    from torch._subclasses.fake_tensor import FakeTensorMode
-
-    from torch.fx.experimental.symbolic_shapes import ShapeEnv
-
-    # noinspection PyProtectedMember
-    from torch._dynamo.source import ConstantSource
-
-    shape_env = ShapeEnv(duck_shape=False)
-    with FakeTensorMode(allow_non_fake_inputs=True, shape_env=shape_env):
-        # Assuming that waveform_decoder is from Vits.
-        time_sym = shape_env.create_symbol(100, ConstantSource("T"))
-        time_sym_ = shape_env.create_symintnode(time_sym, hint=None)
-        fake_in = torch.empty(1, tts_model.waveform_decoder.conv_pre.in_channels, time_sym_)
-        if getattr(tts_model.waveform_decoder, "cond_layer", None):
-            fake_g_in = torch.empty(1, tts_model.waveform_decoder.cond_layer.in_channels, time_sym_)
-        else:
-            fake_g_in = None
-
-        out = tts_model.waveform_decoder(fake_in, g=fake_g_in)
-        print(f"{out.shape = }")
-        out_size = out.shape[-1]
-        assert isinstance(out_size, torch.SymInt)
-        out_sym = out_size.node.expr
-        out_sym_lambda = lambdify(time_sym, out_sym)
-
-    out_lens = out_sym_lambda(y_lens)
-    print(f"{out_lens = }")
-    assert isinstance(out_lens, torch.Tensor) and out_lens.shape == (batch_size,)
-    assert torch.max(out_lens) == model_outputs.shape[-1]
-
-    for b in range(batch_size):
-        # convert outputs to numpy. select first batch
-        model_outputs_b = model_outputs[b, ..., : out_lens[b]].cpu().squeeze().numpy()  # [T_wav]
-        assert model_outputs_b.ndim == 1
-        wav = model_outputs_b
-        save_wav(wav=wav, path=f"demo3-batch{b}.wav", sample_rate=sample_rate)
+        for b in range(batch_size):
+            # convert outputs to numpy. select first batch
+            model_outputs_b = model_outputs[b, ..., : out_lens[b]].cpu().squeeze().numpy()  # [T_wav]
+            assert model_outputs_b.ndim == 1
+            wav = model_outputs_b
+            save_wav(wav=wav, path=f"demo3-{gen_opts}-batch{b}.wav", sample_rate=sample_rate)
 
 
 if __name__ == "__main__":
