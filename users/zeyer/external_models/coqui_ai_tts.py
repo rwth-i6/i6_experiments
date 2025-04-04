@@ -309,7 +309,7 @@ def _demo():
     else:
         print("No language manager")
 
-    print(f"{hasattr(tts_model, "synthesize") = }")  # if False, then it will call the synthesis func
+    print(f"{hasattr(tts_model, 'synthesize') = }")  # if False, then it will call the synthesis func
     assert not hasattr(tts_model, "synthesize")  # we assume that we can call the synthesis func
     print(f"{sample_rate = }")
 
@@ -448,9 +448,17 @@ def _demo():
     print(f"{text_inputs.shape = }")
     text_inputs_lens = batch_["data:seq_len"].to(dev)  # [B]
     speaker_id = torch.tensor(speaker_id, device=dev).expand(batch_size) if speaker_id is not None else None  # [B]
-    speaker_embedding = torch.tensor(speaker_embedding, device=dev, dtype=torch.float32) if speaker_embedding is not None else None
-    speaker_embedding = speaker_embedding.expand(batch_size, -1) if speaker_embedding is not None else None  # [B, emb_dim]
-    language_id = torch.tensor(tts_model.language_manager.name_to_id[language], device=dev).expand(batch_size) if language else None  # [B]
+    speaker_embedding = (
+        torch.tensor(speaker_embedding, device=dev, dtype=torch.float32) if speaker_embedding is not None else None
+    )
+    speaker_embedding = (
+        speaker_embedding.expand(batch_size, -1) if speaker_embedding is not None else None
+    )  # [B, emb_dim]
+    language_id = (
+        torch.tensor(tts_model.language_manager.name_to_id[language], device=dev).expand(batch_size)
+        if language
+        else None
+    )  # [B]
 
     outputs = tts_model.inference(
         text_inputs,
