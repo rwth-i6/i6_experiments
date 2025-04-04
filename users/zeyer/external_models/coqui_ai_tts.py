@@ -245,6 +245,7 @@ def _demo():
     from TTS.api import TTS
     from TTS.utils.manage import ModelManager
     from TTS.utils.synthesizer import synthesis
+    from TTS.tts.utils.text.cleaners import multilingual_cleaners
     from TTS.utils.audio.numpy_transforms import save_wav
     from TTS.tts.models.vits import Vits
 
@@ -385,6 +386,21 @@ def _demo():
         vocab_file.write(f"{v}\n")
     vocab_file.close()
 
+    # convert text to sequence of token IDs
+    # For YourTTS specifically, using VitsCharacters:
+    # _vocab = [self._pad] + list(self._punctuations) + list(self._characters) + [self._blank]
+    # _char_to_id = {char: idx for idx, char in enumerate(_vocab)}
+    # tokenizer.text_to_ids:
+    #         if self.text_cleaner is not None:  # -- done in LmDataset preprocessing
+    #             text = self.text_cleaner(text)
+    #         if self.use_phonemes:  # -- not needed, assert False. could be done in LmDataset preprocessing
+    #             text = self.phonemizer.phonemize(text, separator="", language=language)
+    #         text = self.encode(text)  # char_to_id. can also remap in model if necessary
+    #         if self.add_blank:  # -- can be done in model
+    #             text = self.intersperse_blank_char(text, True)
+    #         if self.use_eos_bos:  # -- not needed, assert False. could be done in model
+    #             text = self.pad_with_bos_eos(text)
+
     # Multiple texts, to test batching.
     texts = [
         text,
@@ -398,58 +414,43 @@ def _demo():
 
     from returnn.datasets.lm import LmDataset
 
-    ds = LmDataset(corpus_file=corpus_file.name, orth_vocab={
-        "class": "CharacterTargets",
-        "vocab_file": vocab_file.name,
-        "unknown_label": None,
-        "orth_post_process": ...,  # TODO... see get_post_processor_function
-        "dtype": "int32",
-    })
+    ds = LmDataset(
+        corpus_file=corpus_file.name,
+        orth_vocab={
+            "class": "CharacterTargets",
+            "vocab_file": vocab_file.name,
+            "unknown_label": None,
+        },
+        orth_post_process=multilingual_cleaners,
+        dtype="int32",
+    )
     ds.initialize()
-    ds.init_seq_order(epoch=1)
-    ds.load_seqs(0, len(texts))
 
-    # For YourTTS specifically:
-    chars_vocab = {
-        "characters_class": "TTS.tts.models.vits.VitsCharacters",
-        "vocab_dict": None,
-        "pad": "_",
-        "eos": "&",
-        "bos": "*",
-        "blank": None,  # hardcoded in VitsCharacters to "<BLNK>"
-        "characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\u00af\u00b7\u00df\u00e0\u00e1\u00e2\u00e3\u00e4\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f9\u00fa\u00fb\u00fc\u00ff\u0101\u0105\u0107\u0113\u0119\u011b\u012b\u0131\u0142\u0144\u014d\u0151\u0153\u015b\u016b\u0171\u017a\u017c\u01ce\u01d0\u01d2\u01d4\u0430\u0431\u0432\u0433\u0434\u0435\u0436\u0437\u0438\u0439\u043a\u043b\u043c\u043d\u043e\u043f\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044a\u044b\u044c\u044d\u044e\u044f\u0451\u0454\u0456\u0457\u0491\u2013!'(),-.:;? ",
-        "punctuations": "!'(),-.:;? ",
-        "phonemes": "",
-        "is_unique": None,
-        "is_sorted": None
-    }
-    # VitsCharacters then:
-    # _vocab = [self._pad] + list(self._punctuations) + list(self._characters) + [self._blank]
-    # _char_to_id = {char: idx for idx, char in enumerate(_vocab)}
-    # text_to_ids:
-    #         if self.text_cleaner is not None:  # -- done in LmDataset preprocessing
-    #             text = self.text_cleaner(text)
-    #         if self.use_phonemes:  # -- not needed, assert False. could be done in LmDataset preprocessing
-    #             text = self.phonemizer.phonemize(text, separator="", language=language)
-    #         text = self.encode(text)  # char_to_id. can also remap in model if necessary
-    #         if self.add_blank:  # -- can be done in model
-    #             text = self.intersperse_blank_char(text, True)
-    #         if self.use_eos_bos:  # -- not needed, assert False. could be done in model
-    #             text = self.pad_with_bos_eos(text)
+    from returnn.torch.data.returnn_dataset_wrapper import ReturnnDatasetIterDataPipe
+    from returnn.torch.data.pipeline import BatchingIterDataPipe, collate_batch
 
-    # TODO batchify and gpuify this...
-    # convert text to sequence of token IDs
-    text_inputs = np.asarray(
-        tts_model.tokenizer.text_to_ids(text, language=language),
-        dtype=np.int32,
-    )  # [T_in]
-    text_inputs = torch.tensor(text_inputs, dtype=torch.int32, device=dev)[None]  # [B,T_in]
+    ds_ = ReturnnDatasetIterDataPipe(ds)
+    ds_ = BatchingIterDataPipe(ds_, batch_size=None, max_seqs=None)
+    batch = next(iter(ds_))
+    batch_ = collate_batch(batch)
+    print("batch entries:", list(batch_.keys()))
+    assert len(batch) == batch_["data"].shape[0] == len(texts)
+    batch_size = len(batch)
+
+    # Just checking our LmDataset preprocessing to the tokenizer.text_to_ids.
+    for b, t in enumerate(texts):
+        ref = torch.tensor(tts_model.tokenizer.text_to_ids(t, language=language), dtype=torch.int32)
+        ds_seq_len = batch_["data:seq_len"][b]
+        ds_seq = batch_["data"][b][:ds_seq_len]
+        assert ds_seq_len == len(ref) and np.array_equal(ref, ds_seq)
+
+    text_inputs = batch_["data"].to(dev)  # [B, T_in]
     print(f"{text_inputs.shape = }")
-    text_inputs_lens = torch.tensor([text_inputs.shape[1]], device=dev)  # [B]
-    speaker_id = torch.tensor(speaker_id, device=dev)[None] if speaker_id is not None else None  # [B]
+    text_inputs_lens = batch_["data:seq_len"].to(dev)  # [B]
+    speaker_id = torch.tensor(speaker_id, device=dev).expand(batch_size) if speaker_id is not None else None  # [B]
     speaker_embedding = torch.tensor(speaker_embedding, device=dev, dtype=torch.float32) if speaker_embedding is not None else None
-    speaker_embedding = speaker_embedding[None] if speaker_embedding is not None else None  # [B, emb_dim]
-    language_id = torch.tensor(tts_model.language_manager.name_to_id[language], device=dev)[None] if language else None  # [B]
+    speaker_embedding = speaker_embedding.expand(batch_size, -1) if speaker_embedding is not None else None  # [B, emb_dim]
+    language_id = torch.tensor(tts_model.language_manager.name_to_id[language], device=dev).expand(batch_size) if language else None  # [B]
 
     outputs = tts_model.inference(
         text_inputs,
