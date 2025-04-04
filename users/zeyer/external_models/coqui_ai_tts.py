@@ -527,9 +527,9 @@ def _demo():
 
     for b in range(batch_size):
         # convert outputs to numpy. select first batch
-        model_outputs = model_outputs[b, ..., : out_lens[b]].cpu().squeeze().numpy()  # [T_wav]
-        assert model_outputs.ndim == 1
-        wav = model_outputs
+        model_outputs_b = model_outputs[b, ..., : out_lens[b]].cpu().squeeze().numpy()  # [T_wav]
+        assert model_outputs_b.ndim == 1
+        wav = model_outputs_b
         save_wav(wav=wav, path=f"demo3-batch{b}.wav", sample_rate=sample_rate)
 
 
