@@ -12,6 +12,7 @@ from typing import Optional, TypeVar, Iterator
 _my_dir = os.path.dirname(__file__)
 _base_dir = functools.reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
 _sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
+_returnn_dir = os.path.dirname(_base_dir) + "/tools/returnn"
 
 T = TypeVar("T")
 
@@ -24,6 +25,8 @@ def _setup():
             sys.path.append(_base_dir)
         if _sis_dir not in sys.path:
             sys.path.append(_sis_dir)
+        if _returnn_dir not in sys.path:
+            sys.path.append(_returnn_dir)
 
 
 _setup()
@@ -348,6 +351,9 @@ def _demo():
         else:
             speaker_embedding = None  # speaker_id is used
 
+    # Now do the synthesis directly, also including batching.
+    # See also TTS.utils.synthesizer.synthesis().
+
     # outputs = synthesis(
     #     model=tts_model,
     #     text=txt,
@@ -362,8 +368,6 @@ def _demo():
     # )
     # waveform = outputs["wav"]
 
-    # See also TTS.utils.synthesizer.synthesis().
-
     print(f"{tts_model.tokenizer = }")  # <TTS.tts.utils.text.tokenizer.TTSTokenizer ...>
     print(f"{tts_model.tokenizer.characters = }")  # YourTTS: <TTS.tts.models.vits.VitsCharacters ...>
     print(f"{tts_model.tokenizer.text_cleaner = }")  # YourTTS: func multilingual_cleaners
@@ -372,9 +376,38 @@ def _demo():
     print(f"{tts_model.tokenizer.characters.blank = }")  # YourTTS: '<BLNK>'
     print(f"{tts_model.tokenizer.use_eos_bos = }")  # YourTTS: False
 
-    with open("demo-tts-vocab.txt", "w", encoding="utf8") as f:
-        for v in tts_model.tokenizer.characters.vocab:
-            f.write(f"{v}\n")
+    import tempfile
+
+    vocab_file = tempfile.NamedTemporaryFile(suffix=".vocab.txt", mode="w", encoding="utf8", delete_on_close=False)
+    corpus_file = tempfile.NamedTemporaryFile(suffix=".corpus.txt", mode="w", encoding="utf8", delete_on_close=False)
+
+    for v in tts_model.tokenizer.characters.vocab:
+        vocab_file.write(f"{v}\n")
+    vocab_file.close()
+
+    # Multiple texts, to test batching.
+    texts = [
+        text,
+        "I am a very long text, and I am not sure if it will be cut off or not.",
+        "Hello world, this is a test.",
+        "RETURNN is a framework for building neural networks. It is very flexible and powerful.",
+    ]
+    for t in texts:
+        corpus_file.write(f"{t}\n")
+    corpus_file.close()
+
+    from returnn.datasets.lm import LmDataset
+
+    ds = LmDataset(corpus_file=corpus_file.name, orth_vocab={
+        "class": "CharacterTargets",
+        "vocab_file": vocab_file.name,
+        "unknown_label": None,
+        "orth_post_process": ...,  # TODO... see get_post_processor_function
+        "dtype": "int32",
+    })
+    ds.initialize()
+    ds.init_seq_order(epoch=1)
+    ds.load_seqs(0, len(texts))
 
     # For YourTTS specifically:
     chars_vocab = {
@@ -403,14 +436,6 @@ def _demo():
     #             text = self.intersperse_blank_char(text, True)
     #         if self.use_eos_bos:  # -- not needed, assert False. could be done in model
     #             text = self.pad_with_bos_eos(text)
-
-    # Multiple texts, to test batching.
-    texts = [
-        text,
-        "I am a very long text, and I am not sure if it will be cut off or not.",
-        "Hello world, this is a test.",
-        "RETURNN is a framework for building neural networks. It is very flexible and powerful.",
-    ]
 
     # TODO batchify and gpuify this...
     # convert text to sequence of token IDs
