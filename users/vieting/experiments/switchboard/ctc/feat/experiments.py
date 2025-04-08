@@ -621,20 +621,22 @@ def run_scf_audio_perturbation_from_checkpoint():
     }
 
     perturbation_args = [
-        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 10, "default": None}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 10, "default": None}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 20, "default": None}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 1, "maximum": 10, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 5, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 5, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 1, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 1, "maximum": 5, "default": None}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.7, "minimum": -3, "maximum": 3}},
+        {"pitch": {"prob": 0.7, "minimum": -4, "maximum": 4}},
         {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.3, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.7, "minimum": 0.88, "maximum": 1.12}},
@@ -645,6 +647,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         {"non_linearity": {"prob": 0.7, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.7, "minimum": 0.8, "maximum": 1.2}},
         # v2
         {"tempo": {"prob": 0.8, "minimum": 0.65, "maximum": 1.35}},
         {
@@ -656,15 +659,11 @@ def run_scf_audio_perturbation_from_checkpoint():
             "non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1},
         },
         {"non_linearity": {"prob": 0.3, "minimum": 0.85, "maximum": 1.15}},
-    ]
-
-    # seperated because the training needs a different network without preemphasis
-    perturbation_args_preemphasis = [
-        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
-        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.3, "minimum": -0.05, "maximum": 0.05, "default": 0.0}},
+        {"preemphasis": {"prob": 0.3, "minimum": -0.1, "maximum": 0.1, "default": 0.0}},
+        {"preemphasis": {"prob": 0.7, "minimum": -0.05, "maximum": 0.05, "default": 0.0}},
+        {"preemphasis": {"prob": 0.7, "minimum": -0.1, "maximum": 0.1, "default": 0.0}},
+        {"preemphasis": {"prob": 1, "minimum": -0.05, "maximum": 0.05, "default": 0.0}},
     ]
 
     nn_base_args = {}
@@ -683,7 +682,7 @@ def run_scf_audio_perturbation_from_checkpoint():
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs[
-                                "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
+                                "conformer_bs2x5k_scf_baseline_preemphasis1"
                             ].out_checkpoints[24],
                             "init_for_train": True,
                         }
@@ -694,37 +693,13 @@ def run_scf_audio_perturbation_from_checkpoint():
                 "class": "ScfNetwork",
                 "size_tf": 256 // 2,
                 "stride_tf": 10 // 2,
-                "preemphasis": 0.97,
-                "wave_norm": True,
+                "preemphasis": 1.0,
             },
             lr_args=lr_args,
             report_args=report_args,
         )
-    for args in perturbation_args_preemphasis:
-        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
 
-        # Construct the exp_name and report_args
-        exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
-        nn_base_args[exp_name] = dict(
-            returnn_args={
-                **returnn_args,
-                "extra_args": {
-                    **returnn_args["extra_args"],
-                    "audio_perturb_args": args,
-                    "preload_from_files": {
-                        "existing-model": {
-                            "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline"].out_checkpoints[24],
-                            "init_for_train": True,
-                        }
-                    },
-                },
-            },
-            feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
-            lr_args=lr_args,
-            report_args=report_args,
-        )
-    # comparison with wave norm
-    for args in perturbation_args_preemphasis:
+    for args in perturbation_args:
         exp_name_suffix, report_args = args_to_key_and_report_strings(args)
 
         # Construct the exp_name and report_args
@@ -737,17 +712,24 @@ def run_scf_audio_perturbation_from_checkpoint():
                     "audio_perturb_args": args,
                     "preload_from_files": {
                         "existing-model": {
-                            "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_wn"].out_checkpoints[24],
+                            "filename": nn_system.train_jobs[
+                                "conformer_bs2x5k_scf_baseline_preemphasis1_wn"
+                            ].out_checkpoints[24],
                             "init_for_train": True,
                         }
                     },
                 },
             },
-            feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
+            feature_args={
+                "class": "ScfNetwork",
+                "size_tf": 256 // 2,
+                "stride_tf": 10 // 2,
+                "preemphasis": 1.0,
+                "wave_norm": True,
+            },
             lr_args=lr_args,
             report_args=report_args,
         )
-
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args=nn_base_args,
         num_epochs=426,
@@ -759,7 +741,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report, _ = run_nn_args(
+    report, ctc_nn_system = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -767,7 +749,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         returnn_root=returnn_root,
         recog_args={"epochs": [376, 386, 396, 406, 426]},
     )
-    return report
+    return report, ctc_nn_system
 
 
 def run_scf_specaug():
@@ -1025,16 +1007,22 @@ def run_mel_audio_perturbation_from_checkpoint():
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     perturbation_args = [
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 5, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 5, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 1, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 1, "maximum": 5, "default": None}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.7, "minimum": -3, "maximum": 3}},
+        {"pitch": {"prob": 0.7, "minimum": -4, "maximum": 4}},
         {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.3, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.7, "minimum": 0.88, "maximum": 1.12}},
@@ -1045,15 +1033,23 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"non_linearity": {"prob": 0.7, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
-    ]
-
-    # seperated because the training needs a different network without preemphasis
-    perturbation_args_preemphasis = [
-        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
-        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"non_linearity": {"prob": 0.7, "minimum": 0.8, "maximum": 1.2}},
+        # v2
+        {"tempo": {"prob": 0.8, "minimum": 0.65, "maximum": 1.35}},
+        {
+            "tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3},
+            "non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1},
+        },
+        {
+            "tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3},
+            "non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1},
+        },
+        {"non_linearity": {"prob": 0.3, "minimum": 0.85, "maximum": 1.15}},
+        {"preemphasis": {"prob": 0.3, "minimum": -0.05, "maximum": 0.05, "default": 0.0}},
+        {"preemphasis": {"prob": 0.3, "minimum": -0.1, "maximum": 0.1, "default": 0.0}},
+        {"preemphasis": {"prob": 0.7, "minimum": -0.05, "maximum": 0.05, "default": 0.0}},
+        {"preemphasis": {"prob": 0.7, "minimum": -0.1, "maximum": 0.1, "default": 0.0}},
+        {"preemphasis": {"prob": 1, "minimum": -0.05, "maximum": 0.05, "default": 0.0}},
     ]
 
     nn_base_args = {}
@@ -1071,30 +1067,6 @@ def run_mel_audio_perturbation_from_checkpoint():
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[24],
-                            "init_for_train": True,
-                        }
-                    },
-                },
-                **returnn_args,
-            },
-            feature_args=feature_args,
-            lr_args=lr_args,
-            report_args=report_args,
-        )
-
-    for args in perturbation_args_preemphasis:
-        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
-
-        # Construct the exp_name and report_args
-        exp_name = f"mel_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
-        nn_base_args[exp_name] = dict(
-            returnn_args={
-                "extra_args": {
-                    **returnn_args["extra_args"],
-                    "audio_perturb_args": args,
-                    "preload_from_files": {
-                        "existing-model": {
-                            "filename": nn_system.train_jobs["bs2x5k_lgm80_baseline_preemphasis97"].out_checkpoints[24],
                             "init_for_train": True,
                         }
                     },
@@ -1384,7 +1356,7 @@ def run_scf_combination_experiments():
         }
 
     nn_base_args = {
-        # Final result in Max' Thesis 
+        # Final result in Max' Thesis
         "scf_bs2x5k_stft20ms_fmask_5_8of512_tempo": dict(
             returnn_args={
                 **returnn_args,
@@ -1441,7 +1413,7 @@ def run_scf_combination_experiments():
             feature_args=feature_args_scf,
             lr_args=lr_args,
         ),
-        # Tested since other audio perturbation results are unsing preemphasis 1 
+        # Tested since other audio perturbation results are unsing preemphasis 1
         "scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1": dict(
             returnn_args={
                 **returnn_args,
