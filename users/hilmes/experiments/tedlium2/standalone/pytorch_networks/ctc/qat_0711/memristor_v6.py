@@ -1,6 +1,7 @@
 """
 v4 adds num cycles
 v5 adds Conv
+v6 adds option for noise to weights
 """
 
 import math
@@ -21,8 +22,8 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .memristor_v5_cfg import (
-    QuantModelTrainConfigV5,
+from .memristor_v6_cfg import (
+    QuantModelTrainConfigV6,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
     ConformerConvolutionQuantV4Config,
@@ -31,8 +32,8 @@ from .memristor_v5_cfg import (
 )
 from .memristor_v5_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
 from torch.nn.quantized._reference.modules import Conv1d
-#from lovely_tensors import monkey_patch
 
+# from lovely_tensors import monkey_patch
 
 
 class ConformerPositionwiseFeedForwardQuant(nn.Module):
@@ -42,7 +43,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
     def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV4Config):
         super().__init__()
-        #monkey_patch()
+        # monkey_patch()
 
         self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
@@ -301,9 +302,7 @@ class ConformerConvolutionQuant(nn.Module):
         # conv layers expect shape [B,F,T] so we have to transpose here
         tensor = tensor.transpose(1, 2)  # [B,F,T]
         tensor = self.dconv_1_in_quant(tensor)
-        #print("Real", self.depth_tmp(tensor))
         tensor = self.depthwise_conv(tensor)
-        #print("Memristor", tensor)
         tensor = self.dconv_1_out_quant(tensor)
 
         tensor = self.norm(tensor)
@@ -357,7 +356,7 @@ class ConformerConvolutionQuant(nn.Module):
             conv_quant=self.depthwise_conv,
             num_cycles=self.model_cfg.num_cycles,
         )
-        #self.depth_tmp = self.depthwise_conv
+        # self.depth_tmp = self.depthwise_conv
         self.depthwise_conv = mem_conv
         self.pointwise_conv2.weight_quantizer.set_scale_and_zp()
         self.pconv_2_in_quant.set_scale_and_zp()
@@ -486,7 +485,7 @@ class Model(torch.nn.Module):
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
 
         super().__init__()
-        self.train_config = QuantModelTrainConfigV5.from_dict(model_config_dict)
+        self.train_config = QuantModelTrainConfigV6.from_dict(model_config_dict)
         fe_config = self.train_config.feature_extraction_config
         frontend_config = self.train_config.frontend_config
         conformer_size = self.train_config.conformer_size
@@ -658,6 +657,15 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B, N]
 
+
+    if model.train_config.weight_noise_func is not None and run_ctx.epoch >= model.train_config.weight_noise_start_epoch:
+        assert model.train_config.weight_noise_values is not None
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if "weight" in name:
+                    param.add_(
+                        model.train_config.weight_noise_func(**model.train_config.weight_noise_values, size=param.size()).to(param.device)
+                    )
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,

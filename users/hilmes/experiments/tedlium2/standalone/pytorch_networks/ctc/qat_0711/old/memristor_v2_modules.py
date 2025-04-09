@@ -8,7 +8,9 @@ from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union
-from .memristor_v1_cfg import QuantizedMultiheadAttentionV4Config
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.pytorch_networks.ctc.qat_0711.memristor_v1_cfg import (
+    QuantizedMultiheadAttentionV4Config,
+)
 import math
 from torch.ao.quantization.utils import check_min_max_valid
 

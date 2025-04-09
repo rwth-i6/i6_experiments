@@ -8,6 +8,7 @@ import math
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import init
 import copy
 from typing import Tuple
 
@@ -21,7 +22,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .baseline_qat_v4_cfg import (
+from .full_qat_v1_cfg import (
     QuantModelTrainConfigV4,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
@@ -29,7 +30,7 @@ from .baseline_qat_v4_cfg import (
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .baseline_qat_v4_modules import LinearQuant, QuantizedMultiheadAttention, Conv1dQuant, ActivationQuantizer
+from .full_qat_v1_modules import LinearQuant, QuantizedMultiheadAttention, Conv1dQuant, ActivationQuantizer
 from torch.nn.quantized._reference.modules import Linear, Conv1d
 
 
@@ -42,6 +43,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         super().__init__()
 
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
+
         self.linear_ff = LinearQuant(
             in_features=cfg.input_dim,
             out_features=cfg.hidden_dim,
@@ -99,21 +101,66 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             moving_avrg=cfg.moving_average,
             observer_only_in_train=cfg.observer_only_in_train,
         )
+
+        self.layer_norm_in_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
+        )
+        self.layer_norm_out_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
+        )
+        self.activation_in_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
+        )
+        self.activation_out_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
+        )
         self.dropout = cfg.dropout
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         """
         :param tensor: shape [B,T,F], F=input_dim
         :return: shape [B,T,F], F=input_dim
         """
-        tensor = self.layer_norm(tensor)
+        tensor = self.layer_norm_in_quant(tensor)
+        tmp = self.layer_norm(tensor)
+        tensor = tensor - torch.mean(tensor, dim=-1, keepdim=True)
+        tensor = tensor / (torch.sum(torch.abs(tensor), dim=-1, keepdim=True) / tensor.size(-1) + torch.tensor(1e-5))
+        tensor = tensor * self.layer_norm_scale + self.layer_norm_bias
+        # tensor = self.layer_norm(tensor)
+        tensor = self.layer_norm_out_quant(tensor)
         tensor = self.lin_1_in_quant(tensor)
-        tensor = self.linear_ff(tensor)  # [B,T,F]
+        tensor = self.linear_ff(tensor, self.lin_1_in_quant)  # [B,T,F]
         tensor = self.lin_1_out_quant(tensor)
+        tensor = self.activation_in_quant(tensor)
         tensor = self.activation(tensor)  # [B,T,F]
+        tensor = self.activation_out_quant(tensor)
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
         tensor = self.lin_2_in_quant(tensor)
-        tensor = self.linear_out(tensor)  # [B,T,F]
+        tensor = self.linear_out(tensor, self.lin_2_in_quant)  # [B,T,F]
         tensor = self.lin_2_out_quant(tensor)
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
         return tensor
@@ -123,7 +170,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.linear_ff = Linear.from_float(
             self.linear_ff,
             weight_qparams={
-                "qscheme": self.linear_ff.weight_quantizer.method,
+                "qscheme": self.linear_ff.weight_quant_method,
                 "dtype": self.linear_ff.weight_quant_dtype,
                 "zero_point": self.linear_ff.weight_quantizer.zero_point,
                 "scale": self.linear_ff.weight_quantizer.scale,
@@ -136,7 +183,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.linear_out = Linear.from_float(
             self.linear_out,
             weight_qparams={
-                "qscheme": self.linear_out.weight_quantizer.method,
+                "qscheme": self.linear_out.weight_quant_method,
                 "dtype": self.linear_out.weight_quant_dtype,
                 "zero_point": self.linear_out.weight_quantizer.zero_point,
                 "scale": self.linear_out.weight_quantizer.scale,
@@ -152,6 +199,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             self.lin_2_out_quant = nn.Identity()
 
     def prep_dequant(self):
+        raise NotImplementedError
         tmp = nn.Linear(self.linear_ff.in_features, self.linear_ff.out_features)
         tmp.weight = self.linear_ff.weight
         tmp.bias = self.linear_ff.bias
@@ -180,6 +228,26 @@ class ConformerMHSAQuant(torch.nn.Module):
         self.layernorm = torch.nn.LayerNorm(cfg.input_dim)
         self.mhsa = QuantizedMultiheadAttention(cfg=cfg)
         self.dropout = cfg.dropout
+        self.layer_norm_in_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
+        )
+        self.layer_norm_out_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
+        )
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
         """
@@ -190,7 +258,15 @@ class ConformerMHSAQuant(torch.nn.Module):
         which will be applied/added to dot product, used to mask padded key positions out
         """
         inv_sequence_mask = compat.logical_not(sequence_mask)
-        output_tensor = self.layernorm(input_tensor)  # [B,T,F]
+        input_tensor = self.layer_norm_in_quant(input_tensor)
+        input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
+        output_tensor = input_tensor / (torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5))
+        output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
+        # print(
+        #     "Post norm MHSA", output_tensor[0, 0, :10], torch.sum(torch.abs(output_tensor), dim=-1, keepdim=True)[0, 0]
+        # )
+        # output_tensor = self.layernorm(input_tensor)  # [B,T,F]
+        output_tensor = self.layer_norm_out_quant(output_tensor)
 
         output_tensor, _ = self.mhsa(output_tensor, output_tensor, output_tensor, mask=inv_sequence_mask)  # [B,T,F]
         output_tensor = torch.nn.functional.dropout(output_tensor, p=self.dropout, training=self.training)  # [B,T,F]
@@ -308,34 +384,114 @@ class ConformerConvolutionQuant(nn.Module):
             moving_avrg=model_cfg.moving_average,
             observer_only_in_train=model_cfg.observer_only_in_train,
         )
+        self.layer_norm_in_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
+        self.layer_norm_out_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
+        self.gelu_in_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
+        self.gelu_out_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
         self.layer_norm = nn.LayerNorm(model_cfg.channels)
         self.norm = copy.deepcopy(model_cfg.norm)
+        self.norm_in_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
+        self.norm_out_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
+        self.activation_in_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
+        self.activation_out_quant = ActivationQuantizer(
+            bit_precision=model_cfg.activation_bit_prec,
+            dtype=model_cfg.activation_quant_dtype,
+            method=model_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
+        )
         self.dropout = nn.Dropout(model_cfg.dropout)
         self.activation = model_cfg.activation
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(model_cfg.channels), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(model_cfg.channels), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         """
         :param tensor: input tensor of shape [B,T,F]
         :return: torch.Tensor of shape [B,T,F]
         """
-        tensor = self.layer_norm(tensor)
+        tensor = self.layer_norm_in_quant(tensor)
+        tensor = tensor - torch.mean(tensor, dim=-1, keepdim=True)
+        tensor = tensor / (torch.sum(torch.abs(tensor), dim=-1, keepdim=True) / tensor.size(-1) + torch.tensor(1e-5))
+        tensor = tensor * self.layer_norm_scale + self.layer_norm_bias
+        # print("Post norm Conv", tensor[0, 0, :10], torch.sum(torch.abs(tensor), dim=-1, keepdim=True)[0, 0])
+        # tensor = self.layer_norm(tensor)
+        tensor = self.layer_norm_out_quant(tensor)
         tensor = self.pconv_1_in_quant(tensor)
-        tensor = self.pointwise_conv1(tensor)  # [B,T,2F]
+        tensor = self.pointwise_conv1(tensor, self.pconv_1_in_quant)  # [B,T,2F]
         tensor = self.pconv_1_out_quant(tensor)
+        tensor = self.gelu_in_quant(tensor)
         tensor = nn.functional.glu(tensor, dim=-1)  # [B,T,F]
+        tensor = self.gelu_out_quant(tensor)
 
         # conv layers expect shape [B,F,T] so we have to transpose here
         tensor = tensor.transpose(1, 2)  # [B,F,T]
         tensor = self.dconv_1_in_quant(tensor)
-        tensor = self.depthwise_conv(tensor)
+        tensor = self.depthwise_conv(tensor, self.dconv_1_in_quant)
         tensor = self.dconv_1_out_quant(tensor)
 
+        tensor = self.norm_in_quant(tensor)
         tensor = self.norm(tensor)
+        tensor = self.norm_out_quant(tensor)
         tensor = tensor.transpose(1, 2)  # transpose back to [B,T,F]
 
+        tensor = self.activation_in_quant(tensor)
         tensor = self.activation(tensor)
+        tensor = self.activation_out_quant(tensor)
         tensor = self.pconv_2_in_quant(tensor)
-        tensor = self.pointwise_conv2(tensor)
+        tensor = self.pointwise_conv2(tensor, self.pconv_2_in_quant)
         tensor = self.pconv_2_out_quant(tensor)
 
         return self.dropout(tensor)
@@ -345,7 +501,7 @@ class ConformerConvolutionQuant(nn.Module):
         self.pointwise_conv1 = Linear.from_float(
             self.pointwise_conv1,
             weight_qparams={
-                "qscheme": self.pointwise_conv1.weight_quantizer.method,
+                "qscheme": self.pointwise_conv1.weight_quant_method,
                 "dtype": self.pointwise_conv1.weight_quant_dtype,
                 "zero_point": self.pointwise_conv1.weight_quantizer.zero_point,
                 "scale": self.pointwise_conv1.weight_quantizer.scale,
@@ -358,7 +514,7 @@ class ConformerConvolutionQuant(nn.Module):
         self.depthwise_conv = Conv1d.from_float(
             self.depthwise_conv,
             weight_qparams={
-                "qscheme": self.depthwise_conv.weight_quantizer.method,
+                "qscheme": self.depthwise_conv.weight_quant_method,
                 "dtype": self.depthwise_conv.weight_quant_dtype,
                 "zero_point": self.depthwise_conv.weight_quantizer.zero_point,
                 "scale": self.depthwise_conv.weight_quantizer.scale,
@@ -371,7 +527,7 @@ class ConformerConvolutionQuant(nn.Module):
         self.pointwise_conv2 = Linear.from_float(
             self.pointwise_conv2,
             weight_qparams={
-                "qscheme": self.pointwise_conv2.weight_quantizer.method,
+                "qscheme": self.pointwise_conv2.weight_quant_method,
                 "dtype": self.pointwise_conv2.weight_quant_dtype,
                 "zero_point": self.pointwise_conv2.weight_quantizer.zero_point,
                 "scale": self.pointwise_conv2.weight_quantizer.scale,
@@ -431,11 +587,95 @@ class ConformerBlockQuant(nn.Module):
         :param cfg: conformer block configuration with subunits for the different conformer parts
         """
         super().__init__()
+        self.add_1_in_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_1_out_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_2_in_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_2_out_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_3_in_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_3_out_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_4_in_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.add_4_out_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.ln_in_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
+        self.ln_out_quant = ActivationQuantizer(
+            bit_precision=cfg.ff_cfg.activation_bit_prec,
+            dtype=cfg.ff_cfg.activation_quant_dtype,
+            method=cfg.ff_cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.ff_cfg.moving_average,
+            observer_only_in_train=cfg.ff_cfg.observer_only_in_train,
+        )
         self.ff1 = ConformerPositionwiseFeedForwardQuant(cfg=cfg.ff_cfg)
         self.mhsa = ConformerMHSAQuant(cfg=cfg.mhsa_cfg)
         self.conv = ConformerConvolutionQuant(model_cfg=cfg.conv_cfg)
         self.ff2 = ConformerPositionwiseFeedForwardQuant(cfg=cfg.ff_cfg)
-        self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
+        # self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.ff_cfg.input_dim), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.ff_cfg.input_dim), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward(self, x: torch.Tensor, /, sequence_mask: torch.Tensor) -> torch.Tensor:
         """
@@ -443,11 +683,40 @@ class ConformerBlockQuant(nn.Module):
         :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside, shape: [B, T]
         :return: torch.Tensor of shape [B, T, F]
         """
-        x = 0.5 * self.ff1(x) + x  # [B, T, F]
-        x = self.mhsa(x, sequence_mask) + x  # [B, T, F]
-        x = self.conv(x) + x  # [B, T, F]
-        x = 0.5 * self.ff2(x) + x  # [B, T, F]
-        x = self.final_layer_norm(x)  # [B, T, F]
+        y = self.ff1(x)
+        y = self.add_1_in_quant(y)
+        x = self.add_1_in_quant(x)
+        x = 0.5 * y + x  # [B, T, F]
+        x = self.add_1_out_quant(x)
+        y = self.mhsa(x, sequence_mask)
+        y = self.add_2_in_quant(y)
+        x = self.add_2_in_quant(x)
+        x = y + x  # [B, T, F]
+        y = self.conv(x)
+        y = self.add_3_in_quant(y)
+        x = self.add_3_in_quant(x)
+        x = y + x  # [B, T, F]
+        x = self.add_3_out_quant(x)
+        y = self.ff2(x)
+        y = self.add_4_in_quant(y)
+        x = self.add_4_in_quant(x)
+        x = 0.5 * y + x  # [B, T, F]
+        x = self.add_4_out_quant(x)
+        x = self.ln_in_quant(x)
+        # print("Pre x", x[0, 0, :10])
+        # print("Pre mean", torch.mean(x, dim=-1, keepdim=True)[0, 0])
+        x = x - torch.mean(x, dim=-1, keepdim=True)
+        # print("Post mean", x[0, 0, :10])
+        # print("Post sum", torch.sum(torch.abs(x), dim=-1, keepdim=True)[0, 0])
+        # print("Rel diff post sum", x[0, 0, :10] / test[0, 0, :10])
+        x = x / (torch.sum(torch.abs(x), dim=-1, keepdim=True) / x.size(-1)  + torch.tensor(1e-5))
+        x = x * self.layer_norm_scale + self.layer_norm_bias
+        # print("Post norm main", x[0, 0, :10], torch.sum(torch.abs(x), dim=-1, keepdim=True)[0, 0])
+        # print("LN Value", test[0, 0, :10], torch.sum(torch.abs(test), dim=-1, keepdim=True)[0, 0])
+        # print("Rel diff", x[0, 0, :10] / test[0, 0, :10])
+        # assert False
+        # x = self.final_layer_norm(x)  # [B, T, F]
+        x = self.ln_out_quant(x)
         return x
 
     def prep_quant(self, extra_act_quant: bool, decompose: bool):
@@ -626,12 +895,28 @@ class Model(torch.nn.Module):
                 moving_avrg=self.train_config.moving_average,
                 observer_only_in_train=self.train_config.observer_only_in_train,
             )
-            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
         else:
             self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.train_config.final_dropout)
         self.specaug_start_epoch = self.train_config.specauc_start_epoch
         self.extra_act_quant = self.train_config.extra_act_quant
+
+        self.soft_in_quant = ActivationQuantizer(
+            bit_precision=self.train_config.activation_bit_prec,
+            dtype=self.train_config.activation_quant_dtype,
+            method=self.train_config.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=self.train_config.moving_average,
+            observer_only_in_train=self.train_config.observer_only_in_train,
+        )
+        self.soft_out_quant = ActivationQuantizer(
+            bit_precision=self.train_config.activation_bit_prec,
+            dtype=self.train_config.activation_quant_dtype,
+            method=self.train_config.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=self.train_config.moving_average,
+            observer_only_in_train=self.train_config.observer_only_in_train,
+        )
         # No particular weight init!
 
     def forward(
@@ -669,9 +954,16 @@ class Model(torch.nn.Module):
 
         conformer_out, out_mask = self.conformer(conformer_in, mask)
         conformer_out = self.final_dropout(conformer_out)
-        logits = self.final_linear(conformer_out)
+        if self.train_config.quantize_output is True:
+            logits = self.lin_out_in_quant(conformer_out)
+            logits = self.lin_out(logits, self.lin_out_in_quant)
+            logits = self.lin_out_out_quant(logits)
+        else:
+            logits = self.final_linear(conformer_out)
 
+        logits = self.soft_in_quant(logits)
         log_probs = torch.log_softmax(logits, dim=2)
+        log_probs = self.soft_out_quant(log_probs)
 
         return log_probs, torch.sum(out_mask, dim=1)
 
@@ -683,7 +975,7 @@ class Model(torch.nn.Module):
             self.lin_out = Linear.from_float(
                 self.lin_out,
                 weight_qparams={
-                    "qscheme": self.lin_out.weight_quantizer.method,
+                    "qscheme": self.lin_out.weight_quant_method,
                     "dtype": self.lin_out.weight_quant_dtype,
                     "zero_point": self.lin_out.weight_quantizer.zero_point,
                     "scale": self.lin_out.weight_quantizer.scale,

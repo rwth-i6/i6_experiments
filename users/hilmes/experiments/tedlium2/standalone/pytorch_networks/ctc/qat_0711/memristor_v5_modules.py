@@ -2,19 +2,15 @@
 Fixes mhsa norm
 """
 
-import copy
-
 import torch
 from torch import nn
 from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union
-from .baseline_qat_v4_cfg import QuantizedMultiheadAttentionV4Config
+from .memristor_v4_cfg import QuantizedMultiheadAttentionV4Config
 import math
-from returnn.torch.context import get_run_ctx
 from torch.ao.quantization.utils import check_min_max_valid
-from torch.nn.quantized._reference.modules import Linear
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):
@@ -23,20 +19,21 @@ def get_quantization_range_from_bit_precision(bits, dtype):
         quant_min = -1
         quant_max = 1
     elif bits == 2.5:
-        quant_min = -2
+        quant_min = -3
         quant_max = 3
     elif bits == 3.5:
-        quant_min = -4
-        quant_max = 4
+        quant_min = -7
+        quant_max = 7
     elif dtype == torch.qint8:
-        quant_min = -(2 ** (bits - 1))
+        quant_min = -(2 ** (bits - 1)) + 1
         quant_max = (2 ** (bits - 1)) - 1
     elif dtype == torch.quint8:
         quant_min = 0
         quant_max = (2**bits) - 1
     else:
         raise ValueError(f"Unrecognized dtype {dtype}")
-    return quant_min, quant_max
+
+    return torch.tensor(quant_min, dtype=torch.int32), torch.tensor(quant_max, dtype=torch.int32)
 
 
 class WeightQuantizer(nn.Module):
@@ -45,7 +42,6 @@ class WeightQuantizer(nn.Module):
         bit_precision: int,
         dtype: torch.dtype,
         method: str,
-        observer_only_in_train: bool,
         reduce_range: bool = False,
     ):
         super().__init__()
@@ -54,24 +50,20 @@ class WeightQuantizer(nn.Module):
         self.dtype = dtype
         self.reduce_range = reduce_range
         self.quant_fn, self.observer = None, None
-        self.method = None
         self.quant_fn, self.observer = self.__get_quant_fn_and_observer_for_method(method)
         self.scale = None
         self.zero_point = None
-        self.observer_only_in_train = observer_only_in_train
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if self.quant_fn is not None and self.observer is not None:
             return self.quant_fn, self.observer
         if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
-            self.method = torch.per_tensor_affine
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
         elif method == "per_tensor_symmetric":
             quant_fn = torch.fake_quantize_per_tensor_affine
-            self.method = torch.per_tensor_symmetric
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min,
                 quant_max=self.quant_max,
@@ -85,7 +77,7 @@ class WeightQuantizer(nn.Module):
         return quant_fn, observer
 
     def forward(self, tensor: torch.Tensor):
-        if self.observer_only_in_train is False or self.training:
+        if self.training:
             tensor = self.observer(tensor)
         self.set_scale_and_zp()
         assert self.scale is not None and self.zero_point is not None
@@ -108,7 +100,6 @@ class ActivationQuantizer(nn.Module):
         method: str,
         channel_axis: Optional[int],
         moving_avrg: Optional[float],  # default if enabled should be 0.01, if set enables moving average
-        observer_only_in_train: bool,
         reduce_range: bool = False,
     ):
         super().__init__()
@@ -121,7 +112,6 @@ class ActivationQuantizer(nn.Module):
         self.quant_fn, self.observer, self.base_observer_args = self.__get_quant_fn_and_observer_for_method(method)
         self.zero_point = None
         self.scale = None
-        self.observer_only_in_train = observer_only_in_train
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if all(x is not None for x in [self.quant_fn, self.base_observer_args, self.observer]):
@@ -188,7 +178,7 @@ class ActivationQuantizer(nn.Module):
         return quant_fn, observer, base_observer_args
 
     def forward(self, tensor: torch.Tensor):
-        if self.observer_only_in_train is False or self.training:
+        if self.training:
             tensor = self.observer(tensor)
         self.set_scale_and_zp()
         assert (
@@ -214,8 +204,6 @@ class LinearQuant(nn.Module):
         weight_quant_dtype: torch.dtype,
         weight_quant_method: str,
         bias: bool,
-        quantize_bias: Optional[str],
-        observer_only_in_train: bool,
     ):
         super().__init__()
         self.in_features = in_features
@@ -223,7 +211,8 @@ class LinearQuant(nn.Module):
         self.weight = nn.Parameter(torch.empty((out_features, in_features)), requires_grad=True)
         if bias:
             self.bias = nn.Parameter(torch.empty((out_features,)), requires_grad=True)
-
+        else:
+            self.bias = None
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
             fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
@@ -237,30 +226,10 @@ class LinearQuant(nn.Module):
             bit_precision=self.weight_bit_prec,
             dtype=self.weight_quant_dtype,
             method=self.weight_quant_method,
-            observer_only_in_train=observer_only_in_train,
         )
-        self.quantize_bias = quantize_bias
-        if self.quantize_bias == "weight" or self.quantize_bias == True:
-            self.bias_quantizer = WeightQuantizer(
-                bit_precision=self.weight_bit_prec,
-                dtype=self.weight_quant_dtype,
-                method=self.weight_quant_method,
-                observer_only_in_train=observer_only_in_train,
-            )
-        elif self.quantize_bias == "act":
-            assert False
-            self.bias_quantizer = WeightQuantizer(
-                bit_precision=self.weight_bit_prec,
-                dtype=self.weight_quant_dtype,
-                method=self.weight_quant_method,
-            )
 
     def forward(self, tensor: torch.Tensor):
-        if self.quantize_bias is not None:
-            bias = self.bias_quantizer(self.bias)
-        else:
-            bias = self.bias
-        lin = F.linear(tensor, self.weight_quantizer(self.weight), bias)
+        lin = F.linear(tensor, self.weight_quantizer(self.weight), self.bias)
         return lin
 
 
@@ -274,12 +243,10 @@ class Conv1dQuant(nn.Module):
         weight_quant_dtype: torch.dtype,
         weight_quant_method: str,
         bias: bool,
-        quantize_bias: Optional[str],
         stride: int,
         padding: Union[str, int],
         dilation: int,
         groups: int,
-        observer_only_in_train: bool,
         padding_mode: str = "zeros",  # TODO: refine this type
     ):
         super().__init__()
@@ -292,7 +259,7 @@ class Conv1dQuant(nn.Module):
         self.groups = groups
         self.padding_mode = padding_mode
 
-        self.weight = nn.Parameter(torch.empty(in_channels, out_channels // groups, kernel_size), requires_grad=True)
+        self.weight = nn.Parameter(torch.empty(out_channels, in_channels // groups, kernel_size), requires_grad=True)
         if bias:
             self.bias = nn.Parameter(torch.empty(out_channels))
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
@@ -309,38 +276,22 @@ class Conv1dQuant(nn.Module):
             bit_precision=self.weight_bit_prec,
             dtype=self.weight_quant_dtype,
             method=self.weight_quant_method,
-            observer_only_in_train=observer_only_in_train,
         )
-        self.quantize_bias = quantize_bias
-        if self.quantize_bias == "weight" or self.quantize_bias == True:
-            self.bias_quantizer = WeightQuantizer(
-                bit_precision=self.weight_bit_prec,
-                dtype=self.weight_quant_dtype,
-                method=self.weight_quant_method,
-                observer_only_in_train=observer_only_in_train,
-            )
-        elif self.quantize_bias == "act":
-            self.bias_quantizer = WeightQuantizer(
-                bit_precision=self.weight_bit_prec,
-                dtype=self.weight_quant_dtype,
-                method=self.weight_quant_method,
-                observer_only_in_train=observer_only_in_train,
-            )
 
     def forward(self, tensor: torch.Tensor):
-        if self.quantize_bias is True:
-            bias = self.bias_quantizer(self.bias)
-        else:
-            bias = self.bias
         result = F.conv1d(
-            tensor, self.weight_quantizer(self.weight), bias, self.stride, self.padding, self.dilation, self.groups
+            tensor, self.weight_quantizer(self.weight), self.bias, self.stride, self.padding, self.dilation, self.groups
         )
         return result
 
 
 class QuantizedMultiheadAttention(nn.Module):
-    def __init__(self, cfg: QuantizedMultiheadAttentionV4Config):
+    def __init__(
+        self,
+        cfg: QuantizedMultiheadAttentionV4Config,
+    ):
         super().__init__()
+        self.quant_in_linear = cfg.quant_in_linear
         self.cfg = cfg
         self.num_att_heads = cfg.num_att_heads
         self.input_dim = cfg.input_dim
@@ -356,10 +307,10 @@ class QuantizedMultiheadAttention(nn.Module):
         self.dot_quant_method = cfg.dot_quant_method
         self.Av_quant_dtype = cfg.Av_quant_dtype
         self.Av_quant_method = cfg.Av_quant_method
+        self.converter_hardware_settings = cfg.converter_hardware_settings
 
         self.out_proj = self._create_linear_layer(
             weight_bits=cfg.bit_prec_W_o,
-            act_bits=cfg.activation_bit_prec,
         )
         self.out_proj_in_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
@@ -367,7 +318,6 @@ class QuantizedMultiheadAttention(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         self.out_proj_out_quant = ActivationQuantizer(
@@ -376,20 +326,16 @@ class QuantizedMultiheadAttention(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         # For some reason pytorch saves the in_proj_weight and bias in this format not with . so we need to adjust
-        self.in_proj = self._create_linear_layer(
-            weight_bits=cfg.bit_prec_W_q, act_bits=cfg.activation_bit_prec, output_dim=3 * self.input_dim
-        )
+        self.in_proj = self._create_linear_layer(weight_bits=cfg.bit_prec_W_q, output_dim=3 * self.input_dim)
         self.in_proj_in_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         self.in_proj_out_quant = ActivationQuantizer(
@@ -398,7 +344,6 @@ class QuantizedMultiheadAttention(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
         )
         self.register_parameter("in_proj_weight", self.in_proj.weight)
         self.register_parameter("in_proj_bias", self.in_proj.bias)
@@ -410,7 +355,6 @@ class QuantizedMultiheadAttention(nn.Module):
                 self.dot_quant_method,
                 channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
                 moving_avrg=cfg.moving_average,
-                observer_only_in_train=cfg.observer_only_in_train,
             )
             self.k_quantizer = ActivationQuantizer(
                 self.bit_prec_dot,
@@ -418,29 +362,22 @@ class QuantizedMultiheadAttention(nn.Module):
                 self.dot_quant_method,
                 channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
                 moving_avrg=cfg.moving_average,
-                observer_only_in_train=cfg.observer_only_in_train,
             )
 
         if self.bit_prec_Av < 16:
-            self.a_quantizer = WeightQuantizer(
-                self.bit_prec_Av,
-                self.Av_quant_dtype,
-                self.Av_quant_method,
-                observer_only_in_train=cfg.observer_only_in_train,
-            )
+            self.a_quantizer = WeightQuantizer(self.bit_prec_Av, self.Av_quant_dtype, self.Av_quant_method)
             self.v_quantizer = ActivationQuantizer(
                 self.bit_prec_Av,
                 self.Av_quant_dtype,
                 self.Av_quant_method,
                 moving_avrg=cfg.moving_average,
                 channel_axis=None if self.dot_quant_method == "per_tensor" else NotImplementedError,
-                observer_only_in_train=cfg.observer_only_in_train,
             )
         self.norm = math.sqrt(self.dim_heads)
         self.softmax = nn.Softmax(-1)
         self.dropout = nn.Dropout(cfg.att_weights_dropout)
 
-    def _create_linear_layer(self, weight_bits, act_bits, output_dim=None):
+    def _create_linear_layer(self, weight_bits, output_dim=None):
         return LinearQuant(
             in_features=self.input_dim,
             out_features=output_dim or self.input_dim,
@@ -448,11 +385,15 @@ class QuantizedMultiheadAttention(nn.Module):
             weight_quant_dtype=self.weight_quant_dtype,
             weight_quant_method=self.weight_quant_method,
             bias=True,
-            quantize_bias=self.cfg.quantize_bias,
-            observer_only_in_train=self.cfg.observer_only_in_train,
         )
 
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: Optional[torch.Tensor] = None):
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ):
 
         batch_dim = query.shape[0]
 
@@ -461,9 +402,11 @@ class QuantizedMultiheadAttention(nn.Module):
         # value = self.W_v(value)
         assert query is value is key, "currently only this case is implemented"
 
-        query = self.in_proj_in_quant(query)
+        if self.quant_in_linear is True:  # TODO: I guess this is False in forward? Maybe just set to Identity?
+            query = self.in_proj_in_quant(query)
         x = self.in_proj(query)
-        x = self.in_proj_out_quant(x)
+        if self.quant_in_linear is True:
+            x = self.in_proj_out_quant(x)
         hidden_dim = query.size(-1)
         query, key, value = x.unflatten(-1, (3, hidden_dim)).unsqueeze(0).transpose(0, -2).squeeze(-2).contiguous()
 
@@ -496,57 +439,45 @@ class QuantizedMultiheadAttention(nn.Module):
         att_out = torch.matmul(alpha, value)  # [B, D//H, T, D']
         att_out = torch.transpose(att_out, 1, 2)  # [B, D//H, T, D']
         att_out = att_out.reshape(batch_dim, -1, self.input_dim)  # [B, T, D]
-        att_out = self.out_proj_in_quant(att_out)
+        if self.quant_in_linear is True:
+            att_out = self.out_proj_in_quant(att_out)
         att_out = self.out_proj(att_out)
-        att_out = self.out_proj_out_quant(att_out)
+        if self.quant_in_linear is True:
+            att_out = self.out_proj_out_quant(att_out)
 
         return att_out, alpha
 
-    def prep_quant(self, extra_act_quant, decompose):
-        self.out_proj.weight_quantizer.set_scale_and_zp()
-        self.out_proj = Linear.from_float(
-            self.out_proj,
-            weight_qparams={
-                "qscheme": self.out_proj.weight_quantizer.method,
-                "dtype": self.out_proj.weight_quant_dtype,
-                "zero_point": self.out_proj.weight_quantizer.zero_point,
-                "scale": self.out_proj.weight_quantizer.scale,
-                "quant_min": self.out_proj.weight_quantizer.quant_min,
-                "quant_max": self.out_proj.weight_quantizer.quant_max,
-                "decompose": decompose,
-            },
-        )
-        self.in_proj.weight_quantizer.set_scale_and_zp()
-        self.in_proj = Linear.from_float(
-            self.in_proj,
-            weight_qparams={
-                "qscheme": self.in_proj.weight_quantizer.method,
-                "dtype": self.in_proj.weight_quant_dtype,
-                "zero_point": self.in_proj.weight_quantizer.zero_point,
-                "scale": self.in_proj.weight_quantizer.scale,
-                "quant_min": self.in_proj.weight_quantizer.quant_min,
-                "quant_max": self.in_proj.weight_quantizer.quant_max,
-                "decompose": decompose,
-            },
-        )
-        if extra_act_quant is False:
-            self.in_proj_in_quant = nn.Identity()
-            self.in_proj_out_quant = nn.Identity()
-            self.out_proj_in_quant = nn.Identity()
-            self.out_proj_out_quant = nn.Identity()
+    def prep_quant(self):
+        from torch_memristor.memristor_modules import TiledMemristorLinear
 
-    def prep_dequant(self):
-        tmp = nn.Linear(self.out_proj.in_features, self.out_proj.out_features)
-        tmp.weight = self.out_proj.weight
-        tmp.bias = self.out_proj.bias
-        self.out_proj = tmp
-        del tmp
-        tmp = nn.Linear(self.in_proj.in_features, self.in_proj.out_features)
-        tmp.weight = self.in_proj.weight
-        tmp.bias = self.in_proj.bias
-        self.in_proj = tmp
-        del tmp
-        self.in_proj_in_quant = nn.Identity()
-        self.in_proj_out_quant = nn.Identity()
+        self.out_proj.weight_quantizer.set_scale_and_zp()
+        self.out_proj_in_quant.set_scale_and_zp()
+        mem_lin = TiledMemristorLinear(
+            in_features=self.out_proj.in_features,
+            out_features=self.out_proj.out_features,
+            weight_precision=self.out_proj.weight_bit_prec if not self.out_proj.weight_bit_prec == 1.5 else 2,
+            converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+        mem_lin.init_from_linear_quant(
+            activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj, num_cycles=self.cfg.num_cycles
+        )
+        self.out_proj = mem_lin
         self.out_proj_in_quant = nn.Identity()
-        self.out_proj_out_quant = nn.Identity()
+
+        self.in_proj.weight_quantizer.set_scale_and_zp()
+        self.in_proj_in_quant.set_scale_and_zp()
+        mem_lin = TiledMemristorLinear(
+            in_features=self.in_proj.in_features,
+            out_features=self.in_proj.out_features,
+            weight_precision=self.in_proj.weight_bit_prec if not self.in_proj.weight_bit_prec == 1.5 else 2,
+            converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+        mem_lin.init_from_linear_quant(
+            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj, num_cycles=self.cfg.num_cycles
+        )
+        self.in_proj = mem_lin
+        self.in_proj_in_quant = nn.Identity()

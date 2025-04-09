@@ -26,8 +26,9 @@ I6_MODELS_REPO_PATH.hash_overwrite = "TEDLIUM_STANDALONE_DEFAULT_I6_MODELS"
 
 TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
     url="git@git.rwth-aachen.de:mlhlt/torch-memristor.git",
-    commit="b555e6c14bfa9fe3dddf0b19e737b3b7cba6deda",
+    commit="9877e46fa38f98af5272b2a7edf16a9161ec9560",
     checkout_folder_name="torch_memristor",
+    branch="bene_cycle"
 ).out_repository.copy()
 TORCH_MEMRISTOR_PATH.hash_overwrite = "TEDLIUM_STANDALONE_DEFAULT_TORCH_MEMRISTOR"
 
