@@ -20,6 +20,9 @@ def ufal_kenlm():
     dev_other_text = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="ogg")["dev-other"]).out_txt
     tk.register_output(prefix + "/dev_other.txt", dev_other_text)
 
+    dev_clean_text = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="ogg")["dev-clean"]).out_txt
+    tk.register_output(prefix + "/dev_clean.txt", dev_clean_text)
+
     librispeech_lexicon = get_bliss_lexicon(use_stress_marker=False, add_silence=False)
 
     # Full medical text version 1
