@@ -14,11 +14,13 @@ class ScliteToWerDistributionGraph(Job):
         num_bins: int = 10,
         plot_title: Union[str, DelayedBase] = "WER distribution",
         plot_metrics: bool = True,
+        logscale: bool = True,
     ):
         self.report_dir = report_dir
         self.num_bins = num_bins
         self.plot_title = plot_title
         self.plot_metrics = plot_metrics
+        self.log_scale = logscale
 
         self.out_file = self.output_path("vals.csv")
         self.distrib_file = self.output_path("distrib.csv")
@@ -26,6 +28,12 @@ class ScliteToWerDistributionGraph(Job):
         self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
         self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
         self.out_plot_ylim10p = self.output_path("plot_ylim10p.png")
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = dict(**kwargs)
+        d['__version'] = 2
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -87,7 +95,13 @@ class ScliteToWerDistributionGraph(Job):
 
         plt.xlabel("WER")
         plt.ylabel("fraction")
-        plt.ylim(0, 1)
+
+        lower_lim = 0
+        if self.log_scale:
+            plt.yscale('symlog', linthresh=1e-3)
+            lower_lim = 1e-3
+        plt.ylim(lower_lim, 1)
+
         if isinstance(self.plot_title, DelayedBase):
             plt.title(self.plot_title.get())
         else:
@@ -102,9 +116,9 @@ class ScliteToWerDistributionGraph(Job):
         plt.autoscale(axis="y")
         plt.savefig(self.out_plot_no_ylim)
         new_ylim = max([count / total for count in bins[1:]]) * 1.1
-        plt.ylim(0, new_ylim)
+        plt.ylim(lower_lim, new_ylim)
         plt.savefig(self.out_plot_ylim_without_first_bin)
-        plt.ylim(0, 0.1)
+        plt.ylim(lower_lim, 0.1)
         plt.savefig(self.out_plot_ylim10p)
 
 
@@ -139,6 +153,12 @@ class CompareTwoScliteWerDistributions(Job):
         # self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
         # self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
         # self.out_plot_ylim10p = self.output_path("plot_ylim10p.png")
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = dict(**kwargs)
+        d['__version'] = 5
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -186,7 +206,7 @@ class CompareTwoScliteWerDistributions(Job):
                 label=f"avg: {avg / total:.2f}",
             )
             if num_offscreen > 0:
-                plt.text(0.0, 0.8, f"Offscreen: {num_offscreen}", fontsize=10)
+                plt.text(0.0, 0.8, f"Offscreen: {num_offscreen} instances", fontsize=10)
 
         plt.xlabel("WER difference")
         plt.ylabel("fraction")
@@ -219,8 +239,8 @@ class CompareTwoScliteWerDistributions(Job):
         # remove current plots
         if os.path.exists(self.out_plot):
             os.remove(self.out_plot)
-        if os.path.exists(self.out_plot_ratio):
-            os.remove(self.out_plot_ratio)
+        if os.path.exists(self.out_ratio_plot):
+            os.remove(self.out_ratio_plot)
 
         output_dirs = [rd.get_path() for rd in self.report_dirs]
 
@@ -272,7 +292,15 @@ class CompareTwoScliteWerDistributions(Job):
 
             if abs(wer0) > 1e-8:
                 wer_ratio = wer1 / wer0 - 1.0  # do -1.0 so we can just reuse the code for the wer diff
-                values_ratio.append(wer_ratio)
+                values_ratio.append((100 * wer_ratio, s+d+c))
+            elif wer0 == 0 and wer1 == 0:
+                wer_ratio = 0.0
+            else:
+                wer_ratio = math.nan
+            
+            print(
+                f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f} ({wer_diff:.2f}, {wer_ratio:.2f})"
+            )
 
         self.make_plot(values_diff, f"differences +-{self.x_extents}", self.out_plot, self.x_extents)
-        self.make_plot(values_ratio, f"relative diff +-{self.x_extents}", self.out_ratio_plot, self.x_extents)
+        self.make_plot(values_ratio, f"relative diff +-{self.x_extents}%", self.out_ratio_plot, self.x_extents)
