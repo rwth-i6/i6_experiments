@@ -200,8 +200,10 @@ def filter_based_masking(x, batch_axis, axis, probability_distribution, max_numb
 def transform(data, network, **config):
     import tensorflow as tf
 
+    conservative_step = 2000
     x = data.placeholder
     step = network.global_train_step
+    increase_flag = tf.where(tf.greater_equal(step, conservative_step), 0, 1)
     current_epoch = tf.cast(step / config["steps_per_epoch"], tf.int32)
     max_time_num_seq_len_divisor = tf.constant(config["max_time_num_seq_len_divisor"], dtype=tf.float32)
     specaug_params = config["specaug_params"]
@@ -243,20 +245,32 @@ def transform(data, network, **config):
         )
         max_time_num_seq_len = tf.cast(
             tf.math.floordiv(
-                tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32),
-                tf.cast(1.0, tf.float32) / max_time_num_seq_len_divisor * tf.cast(time_mask_max_size, tf.float32),
+                tf.cast(tf.shape(x)[data.time_dim_axis], tf.int32),
+                tf.cast(
+                    (tf.cast(1.0, tf.float32) / max_time_num_seq_len_divisor) * tf.cast(time_mask_max_size, tf.float32),
+                    tf.int32,
+                ),
             ),
             tf.int32,
         )
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(
-            tf.maximum(
-                time_mask_max_num,
-                max_time_num_seq_len,
+        actual_time_mask_max_num = tf.cond(
+            tf.equal(time_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(
+                tf.maximum(
+                    time_mask_max_num,
+                    max_time_num_seq_len,
+                ),
+                total_time_masks_max_frames // time_mask_max_size,
             ),
-            total_time_masks_max_frames // time_mask_max_size,
         )
-        actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+        # check if freq mask is 0
+        actual_freq_mask_max_num = tf.cond(
+            tf.equal(freq_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size),
+        )
 
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
@@ -264,12 +278,15 @@ def transform(data, network, **config):
             with tf.control_dependencies(
                 [
                     tf.print(
-                        "Specaug Log: ",
-                        current_epoch,
+                        "step",
+                        step,
+                        "Comparison Time: ",
+                        data.time_dim_axis,
                         actual_time_mask_max_num,
+                        time_mask_max_size,
+                        "Comparison Feature: ",
                         actual_freq_mask_max_num,
-                        max_time_num_seq_len,
-                        tf.shape(x)[data.time_dim_axis],
+                        freq_mask_max_size,
                         sep=", ",
                     )
                 ]
@@ -283,7 +300,7 @@ def transform(data, network, **config):
             batch_axis=data.batch_dim_axis,
             axis=data.time_dim_axis,
             min_num=0,
-            max_num=actual_time_mask_max_num,
+            max_num=actual_time_mask_max_num // (1 + increase_flag),
             max_dims=time_mask_max_size,
             sorted_indices=tf.range(tf.shape(x)[data.time_dim_axis]),
         )
@@ -292,7 +309,7 @@ def transform(data, network, **config):
             batch_axis=data.batch_dim_axis,
             axis=data.feature_dim_axis,
             min_num=0,
-            max_num=actual_freq_mask_max_num,
+            max_num=actual_freq_mask_max_num // (1 + increase_flag),
             max_dims=freq_mask_max_size,
             sorted_indices=sorted_indices,
         )
