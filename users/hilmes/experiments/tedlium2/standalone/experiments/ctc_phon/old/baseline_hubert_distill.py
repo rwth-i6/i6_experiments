@@ -9,13 +9,13 @@ from onnxruntime.quantization.quantize import QuantType, QuantFormat
 from onnxruntime.quantization.calibrate import CalibrationMethod
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-from ...data.common import DatasetSettings, build_test_dataset
-from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...lm import get_4gram_binary_lm
-from ...pipeline import training, generate_kd_hypothesis, calculate_blank_counts, calculate_blank_ratios
-from ...report import generate_report
-from .tune_eval import eval_model, build_hubert_report, build_hubert_distill_report
+from ....data.common import DatasetSettings, build_test_dataset
+from ....data.phon import build_eow_phon_training_datasets, get_text_lexicon
+from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from ....lm import get_4gram_binary_lm
+from ....pipeline import training, generate_kd_hypothesis, calculate_blank_counts, calculate_blank_ratios
+from ....report import generate_report
+from ..tune_eval import eval_model, build_hubert_report, build_hubert_distill_report
 from functools import partial
 
 

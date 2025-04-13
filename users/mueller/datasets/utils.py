@@ -115,6 +115,10 @@ class GetAlignmentTargets(Job):
         
         assert self.corpus_name in d["path"], "Corpus not in search output"
         
+        if d["path"][self.corpus_name].endswith(".hdf"):
+            os.symlink(d["path"][self.corpus_name], self.out_file.get_path())
+            return
+        
         d = eval(uopen(d["path"][self.corpus_name], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict), "only search output file with dict format is supported"
         
