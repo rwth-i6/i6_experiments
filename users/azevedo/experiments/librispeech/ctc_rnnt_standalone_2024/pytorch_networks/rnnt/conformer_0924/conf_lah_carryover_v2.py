@@ -114,6 +114,8 @@ class ConformerEncoderCOV2(torch.nn.Module):
             sequence_mask = sequence_mask.view(-1, sequence_mask.size(-1))
 
         x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # x shape: [B, T, F'] or [B*N, C', F']
+        num_frames = x.size(0) * x.size(1)  # B*N*C
+        # print(f">>> frontend out {x.shape = }")
 
         if use_chunks:
             # we are chunking, thus reshape to [B, N, C'+R, F'] where R = lookahead_size
@@ -137,6 +139,11 @@ class ConformerEncoderCOV2(torch.nn.Module):
         if use_chunks and lookahead_size > 0:
             x = x[:, :, :-lookahead_size].contiguous()
             sequence_mask = sequence_mask[:, :, :-lookahead_size].contiguous()
+
+        # print(f"{x.shape = } conformer out <<<\n")
+
+        if use_chunks:
+            assert x.size(0)*x.size(1)*x.size(2) == num_frames
 
         return x, sequence_mask     # [B, N, C', F']
 
@@ -163,6 +170,7 @@ class ConformerEncoderCOV2(torch.nn.Module):
         sequence_mask = sequence_mask.view(-1, chunk_size)   # (P, C)
 
         x, sequence_mask = self.frontend(input, sequence_mask)  # (P, C', F')
+        out_frontend_chunksz = x.size(1)
 
         if lookahead_size > 0:
             chunk = x[0]  # (C', F')
@@ -201,4 +209,5 @@ class ConformerEncoderCOV2(torch.nn.Module):
         
         x = x.unsqueeze(0)  # (1, C', F')
 
+        assert x.size(1) == out_frontend_chunksz, "ERROR: chunk size not equal to chunk size after frontend!"
         return x, sequence_mask, layer_outs

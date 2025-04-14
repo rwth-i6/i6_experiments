@@ -544,7 +544,6 @@ class StreamableConformerEncoderRelPosV2(StreamableModule):
         if self._mode != Mode.STREAMING:
             self.set_mode_cascaded(Mode.STREAMING)
 
-        print(f"{input.shape = }, {lengths.shape = }")
         # [P, C] where first P is current chunk and rest is for future ac ctx.
         sequence_mask = mask_tensor(tensor=input, seq_len=lengths)  # (1, P*C)
 

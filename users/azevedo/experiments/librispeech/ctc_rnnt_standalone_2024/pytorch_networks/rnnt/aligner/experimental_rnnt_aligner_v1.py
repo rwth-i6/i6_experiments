@@ -36,6 +36,8 @@ class DecoderConfig:
     # for new hash
     test_version: Optional[float] = None
 
+    save_hypos: Optional[bool] = False
+
     eos_penalty: Optional[float] = None
 
     # prior correction
@@ -91,9 +93,7 @@ class Transcriber(nn.Module):
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, lengths)
 
         # mask = mask_tensor(audio_features, audio_features_len)
-
         self.encoder.set_mode_cascaded(Mode.OFFLINE)
-        print(f"{audio_features.shape = }, {audio_features_len.shape = }")
         encoder_out, out_mask = self.encoder(
             audio_features, audio_features_len,
             lookahead_size=self.lookahead_size, carry_over_size=self.carry_over_size,
@@ -186,10 +186,17 @@ def forward_init_hook(run_ctx, **kwargs):
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
 
+    if config.save_hypos:
+        run_ctx.hypos_dict = {}
+
 
 def forward_finish_hook(run_ctx, **kwargs):
     with open("aligns_out.json", "w") as f:
         json.dump(run_ctx.alignments, f, indent=4)
+
+    if run_ctx.config.save_hypos:
+        with open("hypos_out.json", "w") as f:
+            json.dump(run_ctx.hypos_dict, f, indent=4)
 
     run_ctx.recognition_file.write("}\n")
     run_ctx.recognition_file.close()
@@ -249,26 +256,23 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
         hyps.append(hyp)
 
-        # merge duplicate tokens and remove blanks from final alignment info
+        # remove blanks from final alignment info
         blank = len(run_ctx.labels)
         tag = repr(tags[i])
         alignments[tag] = []
 
-        prev_token = blank
         start = 0
         for frame_idx, al_token in enumerate(hyp_alignment):
-            if al_token != prev_token:
-                if prev_token != blank: 
-                    alignments[tag].append({
-                        "token": prev_token,
-                        "start": start,
-                        "end": frame_idx,
-                        "score": score
-                    })
-                start = frame_idx
-
-            prev_token = al_token
-
+            # add new non-blank token
+            if al_token != blank:
+                alignments[tag].append({
+                    "token": al_token,
+                    "start": start,
+                    "end": start + 1,
+                    "score": score
+                })
+            else:
+                start += 1
 
     run_ctx.alignments.update(alignments)
 
@@ -283,3 +287,9 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         if run_ctx.print_hypothesis:
             print(text)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(text)))
+
+        if config.save_hypos:
+            run_ctx.hypos_dict[tag] = {
+                "labels": [idx for idx in hyp if idx < len(run_ctx.labels)],
+                "labels_len": sum(idx != config.pad_value for idx in hyp)
+            }

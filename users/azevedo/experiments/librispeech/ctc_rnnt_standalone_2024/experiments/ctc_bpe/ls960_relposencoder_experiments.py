@@ -15,7 +15,7 @@ from ...pipeline import training, prepare_asr_model, search, force_align, ASRMod
 from ...storage import add_ctc_model, add_ctc_forced_alignment
 from ...latency import BPEToWordAlignmentsJob
 
-from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy
+from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy, Mode
 
 
 def product_dict(**kwargs):
@@ -71,7 +71,7 @@ def get_train_config(model_config, keep, module, accum_grads=1, **kwargs):
         "config": train_config_24gbgpu,
         "network_module": network_module,
         "include_native_ops": True,
-        "debug": False,
+        "debug": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
 
@@ -283,6 +283,15 @@ def run_experiments(**kwargs):
     #
     # different encoder param experiments
     #
+
+    # datasets w/ labels
+    dev_dataset_tuples_withlabels = {}
+    for testset in ["dev-clean", "dev-other"]:
+        dev_dataset_tuples_withlabels[testset] = build_test_dataset(
+            dataset_key=testset,
+            settings=train_settings,
+            label_datastream=label_datastream_bpe
+        )
     for experiment in experiments_config:
         exp_config = experiments_config[experiment]
         model_params = exp_config["model_params"]
@@ -290,6 +299,11 @@ def run_experiments(**kwargs):
         param_combinations = product_dict(**model_params)
 
         for param_combi in param_combinations:
+            if experiment == 15:
+                fe_config.center = True
+            else:
+                fe_config.center = False
+
             model_config = ModelConfig(
                 feature_extraction_config=fe_config,
                 frontend_config=frontend_config,
@@ -400,20 +414,24 @@ def run_experiments(**kwargs):
                 decoder_module="ctc.decoder.lah_carryover_decoder"
             )
 
-            if model_config.training_strategy == str(TrainingStrategy.UNIFIED):
-                dev_dataset_tuples_withlabels = {}
-                for testset in ["dev-clean", "dev-other"]:
-                    dev_dataset_tuples_withlabels[testset] = build_test_dataset(
-                        dataset_key=testset,
-                        settings=train_settings,
-                        label_datastream=label_datastream_bpe
-                    )
+            from ...pytorch_networks.ctc.aligner.experimental_ctc_aligner_v1 import AlignerConfig
+            aligner_config = AlignerConfig(
+                returnn_vocab=label_datastream_bpe128.vocab,
+                prior_scale=0.2,
+                prior_file=asr_model.prior_file,
+                chunk_size=int(model_config.chunk_size),
+                lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                carry_over_size=model_config.carry_over_size,
+                test_version=0.0,
+            )
+            search_name = training_name + "/falign_prior%.1f" % aligner_config.prior_scale
+            if experiment == 10 and model_config.training_strategy == str(TrainingStrategy.UNIFIED):
+                add_ctc_model("unified_relpos_large", asr_model)
+                mode = Mode.OFFLINE
+                aligner_config.mode = str(mode)
 
-                aligner_config = copy.deepcopy(offline_decoder_config_bpe128)
-                aligner_config.prior_scale = 0.2
-                search_name = training_name + "/prior%.1f" % aligner_config.prior_scale
                 align_jobs = force_align(
-                    search_name,
+                    search_name + "/%s" % mode.name.lower(),
                     forward_config={},
                     asr_model=asr_model,
                     decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
@@ -421,15 +439,54 @@ def run_experiments(**kwargs):
                     test_dataset_tuples=dev_dataset_tuples_withlabels,
                     **default_returnn,
                 )
-                # add_ctc_forced_alignment("dev-other", align_jobs["dev-other"].out_files["aligns_out.json"])
                 word_aligns_job = BPEToWordAlignmentsJob(
                     alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
                     labels_path=label_datastream_bpe.vocab
                 )
                 word_aligns_job.add_alias(training_name + "/dev-other" + "/word_aligns_job")
                 add_ctc_forced_alignment("dev-other", word_aligns_job.word_alignments)
+            elif experiment == 20 and model_config.carry_over_size == 2:
+                mode = Mode.STREAMING
+                aligner_config.mode = str(mode)
 
-
+                # force align ctc on correct labels
+                align_jobs = force_align(
+                    search_name + "/%s" % mode.name.lower(),
+                    forward_config={},
+                    asr_model=asr_model,
+                    decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
+                    decoder_args={"config": asdict(aligner_config)},
+                    test_dataset_tuples=dev_dataset_tuples_withlabels,
+                    **default_returnn,
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/word_aligns_job")
+                add_ctc_forced_alignment("streaming/dev-other", word_aligns_job.word_alignments)
+            elif experiment == 15 and model_config.training_strategy == str(TrainingStrategy.UNIFIED):
+                for mode in [Mode.OFFLINE, Mode.STREAMING]:
+                    aligner_config.mode = str(mode)
+                    align_jobs = force_align(
+                        search_name + "/%s" % mode.name.lower(),
+                        forward_config={},
+                        asr_model=asr_model,
+                        decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
+                        decoder_args={"config": asdict(aligner_config)},
+                        test_dataset_tuples=dev_dataset_tuples_withlabels,
+                        **default_returnn,
+                    )
+                    word_aligns_job = BPEToWordAlignmentsJob(
+                        alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
+                        labels_path=label_datastream_bpe.vocab
+                    )
+                    word_aligns_job.add_alias(
+                        training_name + "/dev-other/%s" + mode.name.lower() + "/word_aligns_job"
+                    )
+                    add_ctc_forced_alignment(
+                        "2.39/%s/dev-other" % mode.name.lower(), word_aligns_job.word_alignments
+                    )
 
 
 def ls960_ctc_relpos_streaming_0924_low_bpe_from_scratch():
@@ -442,6 +499,23 @@ def ls960_ctc_relpos_streaming_0924_low_bpe_from_scratch():
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
                 "training_strategy": [str(TrainingStrategy.UNIFIED)]
+            },
+
+            "network_module": "model_relpos_streaming",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 500, 800, 950]
+        },
+
+        15: {
+            "model_params": {
+                "chunk_size": [2.39],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.UNIFIED), str(TrainingStrategy.STREAMING)]
             },
 
             "network_module": "model_relpos_streaming",

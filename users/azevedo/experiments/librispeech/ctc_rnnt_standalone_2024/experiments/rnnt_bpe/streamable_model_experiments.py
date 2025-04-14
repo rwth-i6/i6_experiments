@@ -13,8 +13,9 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import get_ctc_model
+from ...pipeline import training, prepare_asr_model, search, ASRModel, latency
+from ...storage import get_ctc_model, get_ctc_forced_alignment
+from ...latency import BPEToWordAlignmentsJob
 
 
 from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy, Mode
@@ -105,6 +106,7 @@ def run_experiments(**kwargs):
         decoder_module: str,
         beam_size: int = 1,
         use_gpu=False,
+        with_align=True,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -129,8 +131,11 @@ def run_experiments(**kwargs):
             test_dataset_tuples={**dev_dataset_tuples},  # **test_dataset_tuples},
             use_gpu=use_gpu,
             **default_returnn,
-            debug=False
+            debug=False,
+            with_align=with_align,
         )
+
+        return search_jobs
 
     from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import (
         SpecaugConfig,
@@ -306,41 +311,42 @@ def run_experiments(**kwargs):
                     decoder_module="rnnt.decoder.streaming_decoder_v1",
                 )
             
-            # #
-            # # Testing
-            # #
-            # decoder_config_offline_2 = copy.deepcopy(decoder_config_offline)
-            # decoder_config_offline_2.test_version = 0.1
-            # if experiment in [20, 30]:
-            #     evaluate_helper(
-            #         training_name + "/offline" + "/keep_%i" % 1000,
-            #         asr_model,
-            #         decoder_config_offline_2,
-            #         use_gpu=True,
-            #         beam_size=12,
-            #         decoder_module="rnnt.decoder.streaming_decoder_v1",
-            #     )
-
-            #     decoder_config_streaming_2 = copy.deepcopy(decoder_config_streaming)
-            #     decoder_config_streaming_2.test_version = 0.2
-            #     evaluate_helper(
-            #         training_name + "/keepv2_%i" % keep,
-            #         asr_model,
-            #         decoder_config_streaming_2,
-            #         use_gpu=True,
-            #         beam_size=12,
-            #         decoder_module="rnnt.decoder.streaming_decoder_v1"
-            #     )
-            
-            # if experiment == 10:
-            #     evaluate_helper(
-            #         training_name + "/offline" + "/keepv2_%i" % 1000,
-            #         asr_model,
-            #         decoder_config_offline_2,
-            #         use_gpu=True,
-            #         beam_size=12,
-            #         decoder_module="rnnt.decoder.streaming_decoder_v1",
-            #     )
+            if experiment == 20 and model_config.carry_over_size in [0, 2]:
+                decoder_align_config = copy.deepcopy(decoder_config_streaming)
+                decoder_align_config.test_version = 0.1
+                search_jobs = evaluate_helper(
+                    training_name + "/keepv2_%i" % keep,
+                    asr_model,
+                    decoder_align_config,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
+                    with_align=True,
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/word_aligns_job")
+                latency(
+                    training_name + "/latency",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+                # streaming ctc ground truth labels
+                latency(
+                    training_name + "/latency/streaming",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("streaming/dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+                latency(
+                    training_name + "/latency/ctc_vs_ctc",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": get_ctc_forced_alignment("streaming/dev-other")},
+                )
 
 
 

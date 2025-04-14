@@ -8,34 +8,38 @@ from dataclasses import dataclass
 import json
 import time
 import numpy as np
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 import torchaudio.functional as F
+import collections
+import math
 
 from ...rnnt.auxil.functional import Mode
+from ...rnnt.decoder.chunk_handler import AudioStreamer, StreamingASRContextManager
+from ..decoder.lah_carryover_decoder import infer
 
 
 @dataclass
-class DecoderConfig:
-    # search related options:
-    beam_size: int
-    beam_size_token: int
-    beam_threshold: float
-
+class AlignerConfig:
     # needed files
-    lexicon: str
     returnn_vocab: str
+    
+    mode: Union[Mode, str] = None
 
-    # additional search options
-    lm_weight: float = 0.0
-    sil_score: float = 0.0
-    word_score: float = 0.0
+    # streaming definitions if mode == Mode.STREAMING
+    chunk_size: Optional[int] = None
+    carry_over_size: Optional[float] = None
+    lookahead_size: Optional[int] = None
+    stride: Optional[int] = None
+
+    pad_value: Optional[float] = None
+
+    test_version: Optional[float] = 0.0
+
+    rnnt_hypo_path: Optional[str] = None
 
     # prior correction
-    blank_log_penalty: Optional[float] = None
     prior_scale: float = 0.0
     prior_file: Optional[str] = None
-
-    arpa_lm: Optional[str] = None
 
     use_torch_compile: bool = False
     torch_compile_options: Optional[Dict[str, Any]] = None
@@ -62,18 +66,14 @@ def forward_init_hook(run_ctx, **kwargs):
     from torchaudio.models.decoder import ctc_decoder
 
     from returnn.datasets.util.vocabulary import Vocabulary
-    from returnn.util.basic import cf
 
-    config = DecoderConfig(**kwargs["config"])
+    config = AlignerConfig(**kwargs["config"])
+    config.mode = {str(m): m for m in Mode}[config.mode]
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
 
+    run_ctx.config = config
     run_ctx.alignments = {}
-
-    if config.arpa_lm is not None:
-        lm = cf(config.arpa_lm)
-    else:
-        lm = None
 
     vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
     labels = vocab.labels
@@ -81,28 +81,15 @@ def forward_init_hook(run_ctx, **kwargs):
     print(f"Size of vocabulary: {len(run_ctx.labels)-1}")
     print(f"{run_ctx.labels[-2]} {run_ctx.labels[-1]}")
 
-    run_ctx.ctc_decoder = ctc_decoder(
-        lexicon=config.lexicon,
-        lm=lm,
-        lm_weight=config.lm_weight,
-        tokens=run_ctx.labels,
-        blank_token="[blank]",
-        sil_token="[blank]",
-        unk_word="[unknown]",
-        nbest=1,
-        beam_size=config.beam_size,
-        beam_size_token=config.beam_size_token,
-        beam_threshold=config.beam_threshold,
-        sil_score=config.sil_score,
-        word_score=config.word_score,
-    )
-    run_ctx.blank_log_penalty = config.blank_log_penalty
-
     if config.prior_file:
         run_ctx.prior = np.loadtxt(config.prior_file, dtype="float32")
         run_ctx.prior_scale = config.prior_scale
     else:
         run_ctx.prior = None
+
+    if config.rnnt_hypo_path:
+        with open(config.rnnt_hypo_path) as f:
+            run_ctx.rnnt_hypos = json.load(f)
 
     if config.use_torch_compile:
         options = config.torch_compile_options or {}
@@ -136,35 +123,82 @@ def forward_finish_hook(run_ctx, **kwargs):
 
 def forward_step(*, model, data, run_ctx, **kwargs):
     import torch
+    
+    config: AlignerConfig = run_ctx.config
 
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    labels = data["labels"]  # [B, N] (sparse)
-    labels_len = data["labels:size1"]  # [B, N]
+    tags = data["seq_tag"]
+    if config.rnnt_hypo_path:
+        labels = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(run_ctx.rnnt_hypos[tag]["labels"]) for tag in tags],
+            batch_first=True, padding_value=config.pad_value if config.pad_value else 0.0
+        )
+        labels_len = torch.tensor([run_ctx.rnnt_hypos[tag]["labels_len"] for tag in tags])
+    else:
+        labels = data["labels"]  # [B, N] (sparse)
+        labels_len = data["labels:size1"]  # [B, N]
 
     if run_ctx.print_rtf:
         audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000
         run_ctx.running_audio_len_s += audio_len_batch
 
-    if hasattr(model, "mode"):
-        model.mode = Mode.OFFLINE
-
     am_start = time.time()
-    logprobs, _ = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
-    )
+    if config.mode == Mode.OFFLINE:
+        model.mode = Mode.OFFLINE
+        logprobs, logprobs_lengths = model(
+            raw_audio=raw_audio,
+            raw_audio_len=raw_audio_len,
+        )
+    else:
+        model.mode = Mode.STREAMING
+        logprobs = []
+        logprobs_lengths = torch.zeros(raw_audio.size(0))
+        for i in range(raw_audio.size(0)):
+            chunk_streamer = AudioStreamer(
+                raw_audio=raw_audio[i],
+                raw_audio_len=raw_audio_len[i],
+                left_size=config.chunk_size,
+                right_size=config.lookahead_size,
+                stride=config.stride,
+                pad_value=config.pad_value,
+            )
 
-    tags = data["seq_tag"]
+            curr_logprobs = []
+            states = collections.deque(maxlen=math.ceil(config.carry_over_size))
+            for chunk, eff_chunk_len in chunk_streamer:
+                logsprobs_chunk, encoder_out_lengths, state = infer(
+                    model=model, 
+                    input=chunk.unsqueeze(0), 
+                    lengths=torch.tensor(eff_chunk_len).unsqueeze(0),
+                    states=tuple(states) if len(states) > 0 else None,
+                    chunk_size=config.chunk_size
+                )
+                states.append(state)
+
+                if isinstance(logsprobs_chunk, list):
+                    logsprobs_chunk = logsprobs_chunk[-1]
+
+                curr_logprobs.append(logsprobs_chunk)
+                logprobs_lengths[i] += encoder_out_lengths[0]
+
+            logprobs.append(torch.cat(curr_logprobs, dim=1))
+            
+        logprobs_padded = torch.full(
+            size=(raw_audio.size(0), max(l.size(1) for l in logprobs), *logprobs[0].shape[2:]), 
+            fill_value=float("-inf"), device=logprobs[0].device
+        )
+        for i, logs in enumerate(logprobs):
+            logprobs_padded[i, :logs.size(1)] = logs[0]
+        logprobs = logprobs_padded
+        print(f"> {logprobs.shape = }, {raw_audio.shape = }")
+        print(f"> {logprobs_lengths}\n")
 
     if isinstance(logprobs, list):
         logprobs = logprobs[-1]
 
-    logprobs_cpu = logprobs.cpu()
-    if run_ctx.blank_log_penalty is not None:
-        # assumes blank is last
-        logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
+    logprobs_cpu, logprobs_lengths = logprobs.cpu(), logprobs_lengths.cpu().int()
     if run_ctx.prior is not None:
         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
 
@@ -177,8 +211,13 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     def align(emissions, tokens):
         als, scores = [], []
         for i in range(emissions.size(0)):
+            if config.mode == Mode.STREAMING:
+                emission = emissions[i, :logprobs_lengths[i]].unsqueeze(0)
+            else:
+                emission = emissions[[i]]
+
             target_seq = tokens[i, :labels_len[i]].unsqueeze(0)
-            alignment, score = F.forced_align(emissions[[i]], target_seq, blank=len(run_ctx.labels)-1)
+            alignment, score = F.forced_align(emission, target_seq, blank=len(run_ctx.labels)-1)
 
             alignment, score = alignment[0], score[0]
             als.append(alignment)

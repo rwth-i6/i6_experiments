@@ -12,7 +12,6 @@ Path = setup_path(__package__)
 Alignment = List[Dict[str, Union[str, int]]]
 
 
-
 class BPEToWordAlignmentsJob(Job):
     """
     """
@@ -57,8 +56,8 @@ class BPEToWordAlignmentsJob(Job):
 
         word_al = []
         curr_word = ""
-        curr_start = -1
-        curr_end = -1
+        curr_start = None
+        curr_end = None
 
         for frame in al:
             token = labels[frame["token"]]
@@ -85,8 +84,8 @@ class BPEToWordAlignmentsJob(Job):
                 })
 
                 curr_word = ""
-                curr_start = -1
-                curr_end = -1
+                curr_start = None
+                curr_end = None
 
         # if for some reason bpe sequence ends with "@@"
         if curr_word:

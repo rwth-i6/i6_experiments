@@ -13,7 +13,7 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel, latency
+from ...pipeline import training, prepare_asr_model, search, ASRModel, latency, force_align
 from ...storage import get_ctc_model, get_ctc_forced_alignment
 from ...latency import BPEToWordAlignmentsJob
 
@@ -99,6 +99,8 @@ def run_experiments(**kwargs):
     }
 
     from ...pytorch_networks.rnnt.decoder.streaming_decoder_v1 import DecoderConfig
+    from ...pytorch_networks.rnnt.aligner.experimental_rnnt_aligner_v1 import DecoderConfig as RNNTAlignerConfig
+
 
     def evaluate_helper(
         training_name: str,
@@ -108,6 +110,7 @@ def run_experiments(**kwargs):
         beam_size: int = 1,
         use_gpu=False,
         with_align=False,
+        out_files=["search_out.py"]
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -133,7 +136,8 @@ def run_experiments(**kwargs):
             use_gpu=use_gpu,
             **default_returnn,
             debug=False,
-            with_align=with_align
+            with_align=with_align,
+            out_files=out_files
         )
 
         return search_jobs
@@ -213,6 +217,15 @@ def run_experiments(**kwargs):
     label_datastream_bpe = cast(LabelDatastream, train_data_bpe.datastreams["labels"])
     vocab_size_without_blank = label_datastream_bpe.vocab_size
 
+    # datasets w/ labels
+    dev_dataset_tuples_withlabels = {}
+    for testset in ["dev-clean", "dev-other"]:
+        dev_dataset_tuples_withlabels[testset] = build_test_dataset(
+            dataset_key=testset,
+            settings=train_settings,
+            label_datastream=label_datastream_bpe
+        )
+
     #
     # different encoder param experiments 
     #
@@ -223,6 +236,8 @@ def run_experiments(**kwargs):
         param_combinations = product_dict(**model_params)
 
         for param_combi in param_combinations:
+            fe_config.center = param_combi.get("fe_center", False)
+            
             model_config = ModelConfig(
                 feature_extraction_config=fe_config,
                 frontend_config=frontend_config,
@@ -331,8 +346,10 @@ def run_experiments(**kwargs):
             # search job + alignments
             #
             if model_config.training_strategy == str(TrainingStrategy.UNIFIED):
+                mode = Mode.STREAMING
+                
                 decoder_align_config = copy.deepcopy(decoder_config_streaming)
-                decoder_align_config.test_version = 0.2
+                decoder_align_config.test_version = 0.4
                 search_jobs = evaluate_helper(
                     training_name + "/keepv2_%i" % keep,
                     asr_model,
@@ -340,13 +357,14 @@ def run_experiments(**kwargs):
                     use_gpu=True,
                     beam_size=12,
                     decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
-                    with_align=True
+                    with_align=True,
+                    out_files=["search_out.py", "aligns_out.json"]
                 )
                 word_aligns_job = BPEToWordAlignmentsJob(
                     alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
                     labels_path=label_datastream_bpe.vocab
                 )
-                word_aligns_job.add_alias(training_name + "/dev-other" + "/word_aligns_job")
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/%s/word_aligns_job" % mode.name.lower())
                 latency(
                     training_name + "/latency",
                     None,
@@ -354,6 +372,188 @@ def run_experiments(**kwargs):
                     hyp_paths={"dev-other": word_aligns_job.word_alignments},
                 )
 
+                # offline
+                mode = Mode.OFFLINE
+                decoder_align_config.test_version = 0.3
+                search_jobs_offline = evaluate_helper(
+                    training_name + "/offline/keepv2_%i" % keep,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
+                    with_align=True
+                )
+                word_aligns_job_offline = BPEToWordAlignmentsJob(
+                    alignment_path=search_jobs_offline["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                word_aligns_job_offline.add_alias(training_name + "/dev-other" + "/%s/word_aligns_job" % mode.name.lower())
+                latency(
+                    training_name + "/latency/offline",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job_offline.word_alignments},
+                )
+
+                #
+                # ctc force aligned on rnnt hypos
+                #
+                # get rnnt hypos
+                from ...pytorch_networks.rnnt.decoder.streaming_decoder_v1 import DecoderConfig
+
+                rnnt_aligner_config = RNNTAlignerConfig(
+                    beam_size=12,
+                    mode=str(Mode.STREAMING),
+                    returnn_vocab=label_datastream_bpe.vocab,
+                    chunk_size=int(model_config.chunk_size),
+                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                    carry_over_size=model_config.carry_over_size,
+                    test_version=0.0,
+                    save_hypos=True
+                )
+                search_jobs = evaluate_helper(
+                    training_name + "/keepv3_%i" % keep,
+                    asr_model,
+                    rnnt_aligner_config,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
+                    with_align=True,
+                    out_files=["search_out.py", "aligns_out.json", "hypos_out.json"]
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+
+                # get ctc model
+                ctc_model = get_ctc_model("unified_relpos_large")
+                ctc_model_config = ctc_model.net_args["model_config_dict"]
+
+                # set up force alignment of ctc model on rnnt hypos
+                from ...pytorch_networks.ctc.aligner.experimental_ctc_aligner_v1 import AlignerConfig
+                ctc_aligner_config = AlignerConfig(
+                    returnn_vocab=label_datastream_bpe.vocab,
+                    prior_scale=0.2,
+                    prior_file=ctc_model.prior_file,
+                    chunk_size=int(ctc_model_config["chunk_size"]),
+                    lookahead_size=int(ctc_model_config["lookahead_size"] * 0.06 * 16e3),
+                    carry_over_size=ctc_model_config["carry_over_size"],
+                    test_version=0.0,
+                    rnnt_hypo_path=search_jobs["dev-other"].out_files["hypos_out.json"],
+                    mode=str(Mode.STREAMING)
+                )
+                search_name = training_name + "/falign_prior%.1f" % ctc_aligner_config.prior_scale
+                align_jobs = force_align(
+                    search_name + "/" + mode.name.lower(),
+                    forward_config={},
+                    asr_model=ctc_model,
+                    decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
+                    decoder_args={"config": asdict(ctc_aligner_config)},
+                    test_dataset_tuples=dev_dataset_tuples_withlabels,
+                    **default_returnn,
+                )
+                ctc_word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+
+                latency(
+                    training_name + "/latency/sctc_on_srnnt",
+                    None,
+                    ref_paths={"dev-other": ctc_word_aligns_job.word_alignments},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+
+            if experiment in [40, 50]:
+                mode = Mode.STREAMING
+
+                rnnt_aligner_config = RNNTAlignerConfig(
+                    beam_size=12,
+                    mode=str(mode),
+                    returnn_vocab=label_datastream_bpe.vocab,
+                    chunk_size=int(model_config.chunk_size),
+                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                    carry_over_size=model_config.carry_over_size,
+                    test_version=0.0,
+                    save_hypos=False,
+                )
+                search_jobs = evaluate_helper(
+                    training_name + "/keepv3_%i" % keep,
+                    asr_model,
+                    rnnt_aligner_config,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
+                    with_align=True,
+                    out_files=["search_out.py", "aligns_out.json"]
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/%s/word_aligns_job" % mode.name.lower())
+                latency(
+                    training_name + "/latency/octc_vs_srnnt",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+                latency(
+                    training_name + "/latency/2.39octc_vs_srnnt",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+
+            if experiment == 45:
+                mode = Mode.STREAMING
+
+                rnnt_aligner_config = RNNTAlignerConfig(
+                    beam_size=12,
+                    mode=str(mode),
+                    returnn_vocab=label_datastream_bpe.vocab,
+                    chunk_size=int(model_config.chunk_size),
+                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                    carry_over_size=model_config.carry_over_size,
+                    test_version=0.0,
+                    save_hypos=False,
+                )
+                search_jobs = evaluate_helper(
+                    training_name + "/keepv3_%i" % keep,
+                    asr_model,
+                    rnnt_aligner_config,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
+                    with_align=True,
+                    out_files=["search_out.py", "aligns_out.json"]
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                word_aligns_job.add_alias(training_name + "/dev-other" + "/%s/word_aligns_job" % mode.name.lower())
+                latency(
+                    training_name + "/latency/octc_vs_srnnt",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+                latency(
+                    training_name + "/latency/2.39octc_vs_srnnt",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+            
+            latency(
+                training_name + "/latency/octc_vs_sctc",
+                None,
+                ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                hyp_paths={"dev-other": get_ctc_forced_alignment("2.39/streaming/dev-other")},
+            )
 
 
 def relpos_streaming_ls960_0325_low_bpe_from_scratch():
@@ -406,6 +606,64 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
             },
 
             "network_module": "model_dual_0325_v1",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
+
+
+        # center = True for fe_config to reduce rounding errors
+        40: {
+            "model_params": {
+                "chunk_size": [2.39],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.STREAMING)],
+                "dual_mode": [False],
+            },
+
+            "network_module": "model_dual_0325_v1",
+            "fe_center": True,
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
+        45: {
+            "model_params": {
+                "chunk_size": [2.39],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.UNIFIED)],
+                "dual_mode": [False],
+            },
+
+            "network_module": "model_dual_0325_v1",
+            "fe_center": True,
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
+
+        50: {
+            "model_params": {
+                "chunk_size": [0.59],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [4],
+                "training_strategy": [str(TrainingStrategy.STREAMING)],
+                "dual_mode": [False],
+            },
+
+            "network_module": "model_dual_0325_v1",
+            "fe_center": True,
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,

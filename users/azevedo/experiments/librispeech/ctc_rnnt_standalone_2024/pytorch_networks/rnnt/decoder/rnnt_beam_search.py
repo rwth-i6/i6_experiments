@@ -225,6 +225,8 @@ class ModifiedRNNTBeamSearchV2(ModifiedRNNTBeamSearch):
         hypo: Optional[List[HypothesisV2]],
         beam_width: int,
     ) -> List[HypothesisV2]:
+        print(f"> {enc_out.shape = }")
+
         n_time_steps = enc_out.shape[1]
         device = enc_out.device
 

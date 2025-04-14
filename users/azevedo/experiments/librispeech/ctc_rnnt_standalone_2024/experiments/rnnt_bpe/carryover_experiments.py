@@ -14,8 +14,10 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import get_ctc_model
+from ...pipeline import training, prepare_asr_model, search, ASRModel, latency
+from ...storage import get_ctc_model, get_ctc_forced_alignment
+from ...latency import BPEToWordAlignmentsJob
+from ...pytorch_networks.rnnt.auxil.functional import Mode
 
 
 
@@ -104,6 +106,7 @@ def run_experiments(**kwargs):
         decoder_module: str,
         beam_size: int = 1,
         use_gpu=False,
+        with_align=False,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -128,10 +131,11 @@ def run_experiments(**kwargs):
             test_dataset_tuples={**dev_dataset_tuples},  # **test_dataset_tuples},
             use_gpu=use_gpu,
             **default_returnn,
-            debug=False
+            debug=False,
+            with_align=with_align,
         )
 
-        return wers
+        return search_jobs
 
     from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import (
         SpecaugConfig,
@@ -364,6 +368,7 @@ def run_experiments(**kwargs):
                         beam_size=beam_size,
                         decoder_module="rnnt.decoder.carryover_decoder_v2"
                     )
+
 
 
 def switching_lah_carryover_ls960_1023_low_bpe_from_scratch():

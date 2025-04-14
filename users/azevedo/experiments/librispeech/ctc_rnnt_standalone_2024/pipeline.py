@@ -44,8 +44,6 @@ class NeuralLM:
     bpe_codes: Optional[tk.Path] = None
 
 
-
-
 def latency_single(
     prefix_name: str,
     ref_path: str,
@@ -56,6 +54,7 @@ def latency_single(
     tk.register_output(prefix_name + "/latency", latency_job.out_path)
 
     return latency_job
+
 
 def latency(
     prefix_name: str,
@@ -73,7 +72,6 @@ def latency(
         latency_jobs[key] = latency_job
 
     return latency_jobs
-
 
 
 def force_align_single(
@@ -158,6 +156,7 @@ def search_single(
     mem_rqmt: float = 12,
     use_gpu: bool = False,
     with_align: bool = False,
+    out_files: List[str] = None
 ):
     """
     Run search for a specific test dataset
@@ -172,7 +171,9 @@ def search_single(
     :param mem_rqmt: some search jobs might need more memory
     :param use_gpu: if to do GPU decoding
     """
-    out_files = ["search_out.py", "aligns_out.json"] if with_align else ["search_out.py"]
+    if with_align and "aligns_out.json" not in out_files:
+        out_files = out_files + ["aligns_out.json"]
+
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
     search_job = ReturnnForwardJobV2(
@@ -218,6 +219,7 @@ def search(
     use_gpu: bool = False,
     debug: bool = False,
     with_align: bool = False,
+    out_files: List[str] = ["search_out.py"]
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -260,6 +262,7 @@ def search(
             returnn_root,
             use_gpu=use_gpu,
             with_align=with_align,
+            out_files=out_files
         )
         search_jobs[key] = search_job
 

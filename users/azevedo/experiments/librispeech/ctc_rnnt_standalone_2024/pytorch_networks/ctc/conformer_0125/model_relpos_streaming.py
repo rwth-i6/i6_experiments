@@ -155,14 +155,19 @@ class Model(torch.nn.Module):
         """
         assert self.mode is not None
 
-        conformer_in, mask = self.extract_features(raw_audio, raw_audio_len)
+        conformer_in, mask = self.extract_features(raw_audio, raw_audio_len)  # [B, T, F]
 
         if self.mode == Mode.STREAMING:
-            conformer_in, mask = self.prep_streaming_input(conformer_in, mask)
+            print(f"> {self.mode = }")
+            print(f"> before chunking {torch.sum(mask, dim=1) = }")
+            conformer_in, mask = self.prep_streaming_input(conformer_in, mask)  # [B, N, C, F]
+            print(f"> before frontend\n{conformer_in.shape = }, {mask.shape = }")
 
         conformer_out, out_mask = self.conformer(conformer_in, mask,
                                                  lookahead_size=self.lookahead_size,
-                                                 carry_over_size=self.carry_over_size)
+                                                 carry_over_size=self.carry_over_size)  # [B, N, C', F']
+
+        print(f"> after encoder\n{conformer_out.shape = }, {conformer_out.size(1) * conformer_out.size(2)}")
 
         if self.mode == Mode.STREAMING:
             conformer_out, out_mask = self.merge_chunks(conformer_out, out_mask)
@@ -172,7 +177,17 @@ class Model(torch.nn.Module):
         logits = self.final_linear(conformer_out)
         log_probs = torch.log_softmax(logits, dim=2)
 
-        return log_probs, torch.sum(out_mask, dim=1)
+        frame_lengths = torch.sum(out_mask, dim=1)
+
+        print(f"> raw_audio_len = \n\t{raw_audio_len}")
+        print(f"> frame_lens = \n\t{frame_lengths}")
+        audio_len_sec = raw_audio_len / 16e3
+        frame_len_sec = frame_lengths * 0.06
+        print(f"> audio lens [s] = \n\t{audio_len_sec}")
+        print(f"> frame lens [s] = \n\t{frame_len_sec}")
+        print(f"> audio lens - frame lens [s] = \n\t{audio_len_sec.cpu() - frame_len_sec.cpu()}\n\n")
+
+        return log_probs, frame_lengths
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):

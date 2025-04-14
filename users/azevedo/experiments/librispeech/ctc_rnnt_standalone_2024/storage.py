@@ -14,6 +14,7 @@ from .pipeline import ASRModel, NeuralLM
 
 _ctc_models: Dict[str, tk.Path] = {}
 _ctc_alignment: Dict[str, tk.Path] = {}
+_rnnt_hypos: Dict[str, tk.Path] = {}
 
 def add_ctc_model(name: str, asr_model: ASRModel):
     global _ctc_models
@@ -31,9 +32,21 @@ def add_ctc_forced_alignment(name: str, alignment_path: tk.Path):
     assert name not in _ctc_alignment.keys()
     _ctc_alignment[name] = alignment_path
 
+
 def get_ctc_forced_alignment(name: str) -> tk.Path:
     global _ctc_alignment
     return _ctc_alignment[name]
+
+
+def add_rnnt_hypo(name: str, hypo_path: tk.Path):
+    global _rnnt_hypos
+    assert name not in _rnnt_hypos.keys()
+    _rnnt_hypos[name] = hypo_path
+
+
+def get_rnnt_hypo(name: str) -> tk.Path:
+    global _rnnt_hypos
+    return _rnnt_hypos[name]
 
 # Neural LM Models --------------------------------------------------------------------------------------------
 
