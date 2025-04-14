@@ -123,6 +123,10 @@ def model_recog_time_sync_recomb_first_v2(
     batch_size = batch_dims[0].get_dim_value()
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
+    if config.typed_value("split_am_lm_score", False):
+        am_score = torch.zeros(batch_size, beam_size, dtype=torch.float32, device=enc_ctc.raw_tensor.device)
+        lm_score = torch.zeros(batch_size, beam_size, dtype=torch.float32, device=enc_ctc.raw_tensor.device)
+
     blank_index = model.target_dim.get_dim_value()
 
     ctc_out_raw = enc_ctc.copy_transpose(
@@ -391,6 +395,9 @@ def model_recog_time_sync_recomb_first_v2(
                     + search_args.get("lm_scale", 0.0)
                     * trafo_log_prob_raw  # still raw tensor for omt slicing etc
                 )
+                # store LM score of time step t
+                if config.typed_value("split_am_lm_score", False):
+                    lm_score_t = trafo_log_prob_raw
             elif isinstance(model.language_model, LSTM_LM_Model) or isinstance(model.language_model, LSTM_LM_Model_Hardcoded_Layers):
                 lstm_lm_out = model.language_model(target_1, state=lstm_lm_state_1, spatial_dim=single_step_dim)
                 lstm_lm_state = lstm_lm_out["state"]
@@ -403,6 +410,12 @@ def model_recog_time_sync_recomb_first_v2(
                 label_log_prob_non_blank = (
                     label_log_prob_non_blank + search_args.get("lm_scale", 0.0) * lstm_lm_log_prob.raw_tensor
                 )
+                # store LM score of time step t
+                if config.typed_value("split_am_lm_score", False):
+                    lm_score_t = lstm_lm_log_prob.raw_tensor
+            # expand last dim V to V+1 for easier top k later
+            if config.typed_value("split_am_lm_score", False):
+                lm_score_t = torch.nn.functional.pad(lm_score_t, (0, 1), "constant", 0.0) # (batch, beam , V+blank)
         # print("label_log_prob_non_blank", label_log_prob_non_blank)
 
         # ----------------------------------------------------------
@@ -490,6 +503,20 @@ def model_recog_time_sync_recomb_first_v2(
                 seq_log_prob_w_eos,
             ) # dont add it twice
             break
+
+        # simulate the op k on old seq log prob
+        seq_log_prob_raw_old = seq_log_prob.raw_tensor # (batch, beam)
+
+        # store AM score of time step t
+        # and mask out LM score of repeating targets
+        if config.typed_value("split_am_lm_score", False):
+            am_score_t = ctc_out_log_raw_step # (batch, beam, V+1)
+            lm_score_t = lm_score_t.scatter_(
+                2,
+                target.raw_tensor.unsqueeze(2).to(torch.int64),
+                torch.zeros_like(lm_score_t, device=lm_score_t.device),
+            )
+            # TODO: filter out finished beams: reach EOS or finished all time steps
         
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab (batch, beam, V)
 
@@ -571,11 +598,47 @@ def model_recog_time_sync_recomb_first_v2(
             axis=[beam_dim, model.target_dim_w_blank],
         )  # seq_log_prob, backrefs, target: Batch, Beam
         # print("seq_log_prob after top_k", seq_log_prob.raw_tensor)
-        # print("backrefs", backrefs)
+        # print("backrefs", backrefs.raw_tensor)
         # print("target", target.raw_tensor)
         batch_dims_ = batch_dims + [beam_dim]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
+
+        # do the top k on AM and LM score of this time step and add them to the tensor tracking these scores
+        if config.typed_value("split_am_lm_score", False):
+            # do a gather
+            backrefs_raw = backrefs.raw_tensor # (batch, beam)
+            target_raw = target.raw_tensor # (batch, beam)
+            V_w_blank = model.target_dim_w_blank.get_dim_value()
+            gather_idx = backrefs_raw*V_w_blank + target_raw # (batch, beam)
+
+            # seq_log_prob_raw_old_v1 = seq_log_prob_raw_old.unsqueeze(-1).expand(-1, -1, V_w_blank) + am_score_t + lm_score_t
+            # seq_log_prob_topk, topk_idx = torch.topk(seq_log_prob_raw_old_v1.flatten(start_dim=1, end_dim=2), beam_size, -1)
+            # print("simulated top k vs rf top k", torch.isclose(seq_log_prob_topk, seq_log_prob.raw_tensor, rtol=0.05)) # correct
+            # seq_log_prob_raw_old_v2 = seq_log_prob_raw_old.unsqueeze(-1).expand(-1, -1, V_w_blank) + label_log_prob.raw_tensor
+            # seq_log_prob_topk_v2, topk_idx = torch.topk(seq_log_prob_raw_old_v2.flatten(start_dim=1, end_dim=2), beam_size, -1)
+            # print("simulated seq_log_prob + label_log_prob top  vs rf top k", torch.isclose(seq_log_prob_topk_v2, seq_log_prob.raw_tensor, rtol=0.05))
+
+            # shuffle the am and lm score to get correct batch
+            am_score = torch.gather(am_score, dim=-1, index=backrefs_raw)
+            lm_score = torch.gather(lm_score, dim=-1, index=backrefs_raw)
+
+            # apply gather with top k indices on am and lm score at time t
+            am_score_t_topk = torch.gather(am_score_t.flatten(start_dim=1, end_dim=2), -1, gather_idx) # (B, beam)
+            am_score_t_topk = torch.where(ended.raw_tensor, torch.zeros_like(am_score_t_topk, device=am_score_t_topk.device), am_score_t_topk)
+            am_score += am_score_t_topk
+            lm_score_t_topk = torch.gather(lm_score_t.flatten(start_dim=1, end_dim=2), -1, gather_idx) # (B, beam)
+            lm_score_t_topk = torch.where(ended.raw_tensor, torch.zeros_like(lm_score_t_topk, device=lm_score_t_topk.device), lm_score_t_topk)
+            lm_score += lm_score_t_topk
+
+            # label_log_prob_equal = torch.isclose(label_log_prob.raw_tensor, am_score_t + lm_score_t* search_args.get("lm_scale", 0.0), rtol=0.01)
+            # print(label_log_prob_equal.all())
+            # torch.set_printoptions(threshold=10000, linewidth=1000, precision=2)
+            # print(f"label log prob time {i}", label_log_prob_equal)
+            # print("num equal label log prob", label_log_prob_equal.int().sum(), label_log_prob_equal.size().numel())
+            # print("wrong log prob", (~label_log_prob_equal).int().nonzero())
+            # print(f"all seq log prob time {i} equal", torch.isclose(seq_log_prob.raw_tensor, lm_score* search_args.get("lm_scale", 0.0) + am_score, rtol=0.01).all())
+            # print("diff seq log prob - am_score - lm_score", seq_log_prob.raw_tensor - am_score - lm_score)
 
         # Store each hypothesis, collapsed and blank removed
         hyps_label_idxs_prev = copy.deepcopy(hyps_label_idxs)
@@ -670,6 +733,27 @@ def model_recog_time_sync_recomb_first_v2(
         model.eos_idx,
     )
     # print(seq_targets.raw_tensor)
+
+    if config.typed_value("split_am_lm_score", False):
+        # assert torch.isclose(
+        #     seq_log_prob.raw_tensor,
+        #     am_score.raw_tensor + lm_score.raw_tensor
+        # )
+        am_score_rf = rf.Tensor(
+            name=f"am_score",
+            dims=batch_dims_,
+            dtype="float32",
+            raw_tensor=am_score,
+        )
+        lm_score_rf = rf.Tensor(
+            name=f"lm_score",
+            dims=batch_dims_,
+            dtype="float32",
+            raw_tensor=lm_score,
+        )
+        # print(f"Final seq log prob equal", torch.isclose(seq_log_prob.raw_tensor, lm_score* search_args.get("lm_scale", 0.0) + am_score, rtol=0.01))
+        return seq_targets, seq_log_prob, out_spatial_dim, beam_dim, am_score_rf, lm_score_rf
+
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 

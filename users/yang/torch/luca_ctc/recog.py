@@ -610,12 +610,17 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         assert len(recog_out) == 4, f"mismatch, got {len(recog_out)} outputs recog_def_ext=False"
         hyps, scores, out_spatial_dim, beam_dim = recog_out
         extra = {}
+    elif config.typed_value("split_am_lm_score", False):
+        hyps, scores, out_spatial_dim, beam_dim, am_score, lm_score = recog_out
     else:
         raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
     assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
     assert isinstance(out_spatial_dim, Dim) and isinstance(beam_dim, Dim)
     rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
     rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    if config.typed_value("split_am_lm_score", False):
+        rf.get_run_ctx().mark_as_output(am_score, "am_score", dims=[batch_dim, beam_dim])
+        rf.get_run_ctx().mark_as_output(lm_score, "lm_score", dims=[batch_dim, beam_dim])
     assert isinstance(extra, dict)
     for k, v in extra.items():
         assert isinstance(k, str) and isinstance(v, Tensor)
@@ -625,6 +630,7 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
 
 _v2_forward_out_filename = "output.py.gz"
 _v2_forward_ext_out_filename = "output_ext.py.gz"
+_v2_forward_out_plit_am_lm_score_filename = "output_split_am_lm_score.py.gz"
 
 
 def _returnn_v2_get_forward_callback():
@@ -640,6 +646,8 @@ def _returnn_v2_get_forward_callback():
         def __init__(self):
             self.out_file: Optional[TextIO] = None
             self.out_ext_file: Optional[TextIO] = None
+            if config.typed_value("split_am_lm_score", False):
+                self.out_split_am_lm_score_file: Optional[TextIO] = None
 
         def init(self, *, model):
             import gzip
@@ -650,6 +658,9 @@ def _returnn_v2_get_forward_callback():
             if recog_def_ext:
                 self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
                 self.out_ext_file.write("{\n")
+
+            if config.typed_value("split_am_lm_score", False):
+                self.out_split_am_lm_score_file = gzip.open(_v2_forward_out_plit_am_lm_score_filename, "wt")
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
@@ -682,12 +693,29 @@ def _returnn_v2_get_forward_callback():
                     self.out_ext_file.write(f"  {d!r},\n")
                 self.out_ext_file.write("],\n")
 
+            if config.typed_value("split_am_lm_score", False):
+                am_score: Tensor = outputs["am_score"].raw_tensor # [beam]
+                lm_score: Tensor = outputs["lm_score"].raw_tensor # [beam]
+                # output format: list of [{"am_score": am_score, "lm_score": lm_score}, str]
+                self.out_split_am_lm_score_file.write(f"{seq_tag!r}: [\n")
+                for i in range(num_beam):
+                    score = float(scores.raw_tensor[i])
+                    hyp_ids = hyps.raw_tensor[
+                        i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
+                    ]
+                    hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+                    self.out_split_am_lm_score_file.write(f"  ({{'am_score': {am_score[i]!r}, 'lm_score': {lm_score[i]!r}}}, {hyp_serialized!r}),\n")
+                self.out_split_am_lm_score_file.write("],\n")
+
         def finish(self):
             self.out_file.write("}\n")
             self.out_file.close()
             if self.out_ext_file:
                 self.out_ext_file.write("}\n")
                 self.out_ext_file.close()
+            if self.out_split_am_lm_score_file:
+                self.out_split_am_lm_score_file.write("}\n")
+                self.out_split_am_lm_score_file.close()
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
