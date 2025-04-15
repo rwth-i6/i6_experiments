@@ -110,7 +110,8 @@ def run_experiments(**kwargs):
         beam_size: int = 1,
         use_gpu=False,
         with_align=False,
-        out_files=["search_out.py"]
+        out_files=["search_out.py"],
+        debug=False
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -135,7 +136,7 @@ def run_experiments(**kwargs):
             test_dataset_tuples={**dev_dataset_tuples},  # **test_dataset_tuples},
             use_gpu=use_gpu,
             **default_returnn,
-            debug=False,
+            debug=debug,
             with_align=with_align,
             out_files=out_files
         )
@@ -341,9 +342,23 @@ def run_experiments(**kwargs):
                     beam_size=12,
                     decoder_module="rnnt.decoder.streaming_decoder_v1",
                 )
+            if experiment == 10:
+                keep = 1000
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/monotonic/offline" + "/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                )
             
             #
-            # search job + alignments
+            # latency job + alignments
             #
             if model_config.training_strategy == str(TrainingStrategy.UNIFIED):
                 mode = Mode.STREAMING
@@ -521,7 +536,7 @@ def run_experiments(**kwargs):
                     save_hypos=False,
                 )
                 search_jobs = evaluate_helper(
-                    training_name + "/keepv3_%i" % keep,
+                    training_name + "/keepv4_%i" % keep,
                     asr_model,
                     rnnt_aligner_config,
                     use_gpu=True,
@@ -534,7 +549,7 @@ def run_experiments(**kwargs):
                     alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
                     labels_path=label_datastream_bpe.vocab
                 )
-                word_aligns_job.add_alias(training_name + "/dev-other" + "/%s/word_aligns_job" % mode.name.lower())
+                # word_aligns_job.add_alias(training_name + "/dev-other" + "/%s/word_aligns_job" % mode.name.lower())
                 latency(
                     training_name + "/latency/octc_vs_srnnt",
                     None,

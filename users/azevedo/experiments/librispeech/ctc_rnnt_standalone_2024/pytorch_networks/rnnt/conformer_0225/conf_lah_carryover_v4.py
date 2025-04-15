@@ -54,10 +54,6 @@ class StreamableModule(nn.Module):
     def forward(self, *args, **kwargs):
         assert self._mode is not None, ""
 
-        # if not self.training:
-        #     raise NotImplementedError("how to deal with differing signature?")
-        #     return self.infer(x, *args, **kwargs)
-
         if self._mode == Mode.STREAMING:
             return self.forward_streaming(*args, **kwargs)
         else:

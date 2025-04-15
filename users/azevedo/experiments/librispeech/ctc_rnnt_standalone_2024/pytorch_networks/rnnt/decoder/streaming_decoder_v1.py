@@ -22,9 +22,9 @@ class DecoderConfig:
     # search related options:
     beam_size: int
 
-    mode: Union[Mode, str]
 
     # streaming definitions if mode == Mode.STREAMING
+    mode: Union[Mode, str]
     chunk_size: Optional[int] = None
     carry_over_size: Optional[float] = None
     lookahead_size: Optional[int] = None
