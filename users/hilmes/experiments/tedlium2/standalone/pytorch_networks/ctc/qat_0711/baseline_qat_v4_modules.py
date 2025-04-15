@@ -54,6 +54,7 @@ class WeightQuantizer(nn.Module):
         self.dtype = dtype
         self.reduce_range = reduce_range
         self.quant_fn, self.observer = None, None
+        self.method = None
         self.quant_fn, self.observer = self.__get_quant_fn_and_observer_for_method(method)
         self.scale = None
         self.zero_point = None
@@ -64,11 +65,13 @@ class WeightQuantizer(nn.Module):
             return self.quant_fn, self.observer
         if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_affine
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
         elif method == "per_tensor_symmetric":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_symmetric
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min,
                 quant_max=self.quant_max,
@@ -237,7 +240,7 @@ class LinearQuant(nn.Module):
             observer_only_in_train=observer_only_in_train,
         )
         self.quantize_bias = quantize_bias
-        if self.quantize_bias == "weight":
+        if self.quantize_bias == "weight" or self.quantize_bias == True:
             self.bias_quantizer = WeightQuantizer(
                 bit_precision=self.weight_bit_prec,
                 dtype=self.weight_quant_dtype,
@@ -309,7 +312,7 @@ class Conv1dQuant(nn.Module):
             observer_only_in_train=observer_only_in_train,
         )
         self.quantize_bias = quantize_bias
-        if self.quantize_bias == "weight":
+        if self.quantize_bias == "weight" or self.quantize_bias == True:
             self.bias_quantizer = WeightQuantizer(
                 bit_precision=self.weight_bit_prec,
                 dtype=self.weight_quant_dtype,
@@ -504,7 +507,7 @@ class QuantizedMultiheadAttention(nn.Module):
         self.out_proj = Linear.from_float(
             self.out_proj,
             weight_qparams={
-                "qscheme": self.out_proj.weight_quant_method,
+                "qscheme": self.out_proj.weight_quantizer.method,
                 "dtype": self.out_proj.weight_quant_dtype,
                 "zero_point": self.out_proj.weight_quantizer.zero_point,
                 "scale": self.out_proj.weight_quantizer.scale,
@@ -517,7 +520,7 @@ class QuantizedMultiheadAttention(nn.Module):
         self.in_proj = Linear.from_float(
             self.in_proj,
             weight_qparams={
-                "qscheme": self.in_proj.weight_quant_method,
+                "qscheme": self.in_proj.weight_quantizer.method,
                 "dtype": self.in_proj.weight_quant_dtype,
                 "zero_point": self.in_proj.weight_quantizer.zero_point,
                 "scale": self.in_proj.weight_quantizer.scale,

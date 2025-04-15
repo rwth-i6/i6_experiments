@@ -1421,7 +1421,7 @@ def run_scf_combination_experiments():
         }
 
     nn_base_args = {
-        # Final result in Max' Thesis 
+        # Final result in Max' Thesis
         "scf_bs2x5k_stft20ms_fmask_5_8of512_tempo": dict(
             returnn_args={
                 **returnn_args,
@@ -1478,7 +1478,7 @@ def run_scf_combination_experiments():
             feature_args=feature_args_scf,
             lr_args=lr_args,
         ),
-        # Tested since other audio perturbation results are unsing preemphasis 1 
+        # Tested since other audio perturbation results are unsing preemphasis 1
         "scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1": dict(
             returnn_args={
                 **returnn_args,

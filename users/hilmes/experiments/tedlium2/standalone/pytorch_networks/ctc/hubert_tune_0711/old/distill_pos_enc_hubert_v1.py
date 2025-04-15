@@ -1,5 +1,5 @@
 """
-V2 fixes error in KD calculation
+V1 moves to positional encoding conformer
 """
 
 import numpy as np
@@ -24,7 +24,10 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .distill_pos_enc_hubert_v1_cfg import ModelConfig, DistillConfig
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.pytorch_networks.ctc.hubert_tune_0711.distill_pos_enc_hubert_v1_cfg import (
+    ModelConfig,
+    DistillConfig,
+)
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -236,7 +239,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     if not isinstance(logprobs_list, list):
         logprobs_list = [logprobs_list]
     assert not isinstance(student_logits, list)
-    assert student_logits.shape[1] == logprobs_list[0].shape[1]
 
     for logprobs, layer_index, scale in zip(logprobs_list, model.return_layers, model.scales):
         if model.distill_config.warmup_loss is not None and run_ctx.epoch < model.distill_config.warmup_loss:
@@ -276,10 +278,10 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         loss.requires_grad_(True)
         run_ctx.mark_as_loss(name=f"Cosine Warmup loss", loss=loss, scale=1)
     elif model.distill_config.eliminate_blanks is True or model.distill_config.eliminate_blanks < run_ctx.epoch:
-        assert model.distill_config.eliminate_blanks is not False
         soft_targets_loss = 0
         num_phonemes = 0
-        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits, data["labels"]):
+        assert False, "Code is broken"
+        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits[-1], data["labels"]):
             if model.prior_file is not None:
                 teacher_log_soft = nn.functional.log_softmax(teacher_seq)
                 assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
@@ -411,47 +413,3 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
-
-
-def calc_blank_init_hook(run_ctx, **kwargs):
-    run_ctx.seqs = {}
-
-
-def calc_blank_finish_hook(run_ctx, **kwargs):
-    import pickle
-
-    with open("blank_counts.pkl", "wb") as f:
-        pickle.dump(run_ctx.seqs, f)
-
-
-def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
-
-    logprobs, audio_features_len, _, _ = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
-    )
-    for seq, tag in zip(logprobs, data["seq_tag"]):
-        pos = torch.argmax(seq, dim=-1)
-        pos_blank: torch.Tensor = pos == model.cfg.label_target_size
-        pos_non_blank: torch.Tensor = ~pos_blank
-        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device="cuda")
-        first_pos = pos_non_blank * idx
-        first_pos = torch.argmax(first_pos, 0, keepdim=True)
-        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device="cuda")
-        last_pos = pos_non_blank * idx
-        last_pos = torch.argmax(last_pos, 0, keepdim=True)
-        pos_blank = pos_blank[first_pos:last_pos]
-        groups = []
-        counter = 0
-        for pos in pos_blank:
-            if pos == 0:  # found non blank
-                if counter > 0:
-                    groups.append(counter)
-                counter = 0
-            elif pos == 1:  # another blank blank
-                counter += 1
-            else:
-                assert False, "Matrix is not boolean for some reason"
-        run_ctx.seqs[tag] = groups

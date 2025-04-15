@@ -246,7 +246,7 @@ def tune_and_evaluate_helper(
                             )
                             results.update(wers)
     pick_optimal_params_job = None
-    if run_test is True and test_dataset_tuples is not None:
+    if run_test is True and test_dataset_tuples is not None and False:
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
             pick_optimal_params_job = GetOptimalParametersAsVariableJob(
                 parameters=tune_parameters, values=tune_values, mode="minimize"
