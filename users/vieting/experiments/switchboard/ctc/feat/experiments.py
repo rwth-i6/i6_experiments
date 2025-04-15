@@ -302,6 +302,47 @@ def run_scf_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "7k"},
             ),
+            "bs10k_scf_baseline_preemphasis97": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "extra_args": 
+                        {
+                            "conv_pad_seq_len_to_power": 1.5,
+                        },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97_mask8": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "specaug_old": {"max_feature": 8},
+                    "extra_args": 
+                        {
+                            "conv_pad_seq_len_to_power": 1.5,
+                        },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97_mask8_30": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "specaug_old": {"max_feature": 8, "max_time": 30},
+                    "extra_args": 
+                        {
+                            "conv_pad_seq_len_to_power": 1.5,
+                        },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
