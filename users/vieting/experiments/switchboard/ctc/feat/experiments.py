@@ -190,6 +190,15 @@ def run_mel_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
+            "bs10k_lgm80_baseline_time_30": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 8, "max_time": 30},
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
             "bs5k_lgm80_baseline": dict(
                 returnn_args={**returnn_args, "batch_size": 5000},
                 feature_args=feature_args,
