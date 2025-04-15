@@ -457,7 +457,9 @@ def _returnn_forward_config_v2(
             config["backend"] = model_def.backend
         config["behavior_version"] = max(model_def.behavior_version, config.get("behavior_version", 0))
     else:
-        assert config and config.get("backend") and config.get("behavior_version")
+        assert (
+            config and config.get("backend") and config.get("behavior_version")
+        ), f"config: {config}\nbackend: {config.get('backend')}, behavior_version: {config.get('behavior_version')}"
 
     if isinstance(model_def, ModelDefWithCfg):
         config["_model_def"] = model_def.model_def
