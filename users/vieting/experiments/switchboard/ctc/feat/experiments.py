@@ -99,10 +99,16 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         },
         **(recog_args or {}),
     }
-    score_info = ScorerInfo()
-    score_info.ref_file = dev_corpora["hub5e00"].stm
-    score_info.job_type = Hub5ScoreJob
-    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+    # Initialize ScorerInfo for both hub5e00 and hub5e01
+    score_info_hub5e00 = ScorerInfo()
+    score_info_hub5e00.ref_file = dev_corpora["hub5e00"].stm
+    score_info_hub5e00.job_type = Hub5ScoreJob
+    score_info_hub5e00.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+
+    score_info_hub5e01 = ScorerInfo()
+    score_info_hub5e01.ref_file = dev_corpora["hub5e01"].stm
+    score_info_hub5e01.job_type = Hub5ScoreJob
+    score_info_hub5e01.score_kwargs = {"glm": dev_corpora["hub5e01"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
     ctc_nn_system = TransducerSystem(
         returnn_root=returnn_root or RETURNN_ROOT,
@@ -112,7 +118,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     )
     ctc_nn_system.init_system(
         returnn_configs=returnn_configs,
-        dev_keys=["hub5e00"],
+        dev_keys=["hub5e00", "hub5e01"],
         corpus_data=dev_corpora,
         am_args={
             "state_tying": "monophone",
@@ -122,15 +128,24 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             "phon_history_length": 0,
             "phon_future_length": 0,
         },
-        scorer_info=score_info,
+        scorer_info=None,
         report=Report(
             columns_start=["train_name"],
             columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
         ),
     )
+    ctc_nn_system._set_scorer("hub5e00", score_info_hub5e00)
+    ctc_nn_system._set_scorer("hub5e01", score_info_hub5e01)
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
+        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
+        cached=True,
+    )
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_from_lexicon = False
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_all = True
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_from_file = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         cached=True,
