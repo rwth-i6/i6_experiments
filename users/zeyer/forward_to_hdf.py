@@ -234,7 +234,9 @@ def _returnn_get_forward_callback():
             self.hdf_writer.insert_batch(
                 out.raw_tensor[None, :],
                 seq_len={
-                    i: [out.raw_tensor.shape[i]] for i, dim in enumerate(out.dims) if dim.dyn_size_ext or out.sparse
+                    i: [out.raw_tensor.shape[i]]
+                    for i, dim in enumerate(out.dims)
+                    if dim.dyn_size_ext is not None or out.sparse
                 },
                 seq_tag=[seq_tag],
                 extra={k: v.raw_tensor[None] for k, v in outputs.data.items() if k != "output"},
