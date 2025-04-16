@@ -33,14 +33,18 @@ def open_job_file_io(job: Union[str, Job], filename: str) -> Tuple[Optional[IO],
         yield open(fn_, "rb"), fn_
         return
     tar_fn = f"{job_dir}/finished.tar.gz"
+    tar_file_list = None
     if os.path.exists(tar_fn):
+        tar_file_list = []
         with tarfile.open(tar_fn) as tarf:
             while True:
                 f = tarf.next()
                 if not f:
                     break
+                tar_file_list.append(f.name)
                 if f.name == filename:
                     f_ = tarf.extractfile(f)
                     assert f_ is not None
                     yield f_, tar_fn
-    raise FileNotFoundError(f"File {filename} not found in {job_dir} or {tar_fn}")
+                    return
+    raise FileNotFoundError(f"File {filename} not found in {job_dir} or {tar_fn}. Tar content: {tar_file_list}")
