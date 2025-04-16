@@ -473,16 +473,23 @@ def _returnn_forward_config_v2(
             if k == input_key:
                 k = "output"
                 assert k not in extern_data
-            out_templ = Tensor(k, **v)
-            assert out_templ.dims and out_templ.dims[0] == batch_dim
-            assert all(
-                dim.dimension is not None for dim in out_templ.dims[2:]
-            ), f"all except the first dim (after batch dim) must be static, got {out_templ}"
-            if len(out_templ.dims) >= 3 and out_templ.dim != out_templ.dims[-1].dimension:
-                # Need new version because of new behavior when the out_templ.dim is not matching the last dim.
-                __forward_config_v2_extra_version = max(__forward_config_v2_extra_version, 3)
             model_outputs[k] = v
         config["model_outputs"] = model_outputs
+
+    # Do some sanity checks on model_outputs. Maybe also increase __forward_config_v2_extra_version.
+    assert "model_outputs" in config
+    model_outputs: Dict[str, Dict[str, Any]] = config["model_outputs"]
+    for k, v in model_outputs.items():
+        v_ = v.copy()
+        v_.pop("vocab", None)  # not needed here
+        out_templ = Tensor(k, **v_)
+        assert out_templ.dims and out_templ.dims[0] == batch_dim
+        assert all(
+            dim.dimension is not None for dim in out_templ.dims[2:]
+        ), f"all except the first dim (after batch dim) must be static, got {out_templ}"
+        if k != "output" and len(out_templ.dims) >= 3 and out_templ.dim != out_templ.dims[-1].dimension:
+            # Need new version because of new behavior when the out_templ.dim is not matching the last dim.
+            __forward_config_v2_extra_version = max(__forward_config_v2_extra_version, 3)
 
     if model_def:
         if "backend" not in config:
