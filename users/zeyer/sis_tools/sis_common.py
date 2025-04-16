@@ -74,6 +74,10 @@ def get_inputs(job: str) -> list[str]:
     inputs = []
     with open(work_dir_prefix + job + "/info") as f:
         for line in f.read().splitlines():
+            if line.endswith(":"):  # e.g. "STACKTRACE:"
+                continue
+            if line.startswith("  "):  # e.g. the stacktrace itself
+                continue
             key, value = line.split(": ", 1)
             if key != "INPUT":
                 continue
