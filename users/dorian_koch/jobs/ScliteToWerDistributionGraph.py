@@ -29,17 +29,17 @@ class ScliteToWerDistributionGraph(Job):
         if xlim is None:
             self.xlim = (0.0, 100.0)
 
-        #self.out_file = self.output_path("vals.csv")
-        #self.distrib_file = self.output_path("distrib.csv")
-        self.out_plot = self.output_path("plot.png")
-        self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
-        self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
-        self.out_plot_ylim10p = self.output_path("plot_ylim10p.png")
+        # self.out_file = self.output_path("vals.csv")
+        # self.distrib_file = self.output_path("distrib.csv")
+        self.out_plot = self.output_path("plot.pdf")
+        self.out_plot_no_ylim = self.output_path("plot_no_ylim.pdf")
+        self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.pdf")
+        self.out_plot_ylim10p = self.output_path("plot_ylim10p.pdf")
 
     @classmethod
     def hash(cls, kwargs):
         d = dict(**kwargs)
-        d['__version'] = 7
+        d["__version"] = 8
         return super().hash(d)
 
     def tasks(self):
@@ -84,7 +84,7 @@ class ScliteToWerDistributionGraph(Job):
             assert len(values) > 0
             print(f"Read {len(values)} lines")
 
-            #with uopen(self.out_file, "wt") as out:
+            # with uopen(self.out_file, "wt") as out:
             #    out.write("corrections,substitutions,deletions,insertions\n")
             #    for c, s, d, i in values:
             #        out.write(f"{c},{s},{d},{i}\n")
@@ -96,11 +96,11 @@ class ScliteToWerDistributionGraph(Job):
                     print("Warning: empty sequence")
                     continue
                 wer = 100.0 * (s + d + i) / (s + d + c)
-                binvals.append((wer, s+d+c))
-            name_with_wers[name] = binvals            
+                binvals.append((wer, s + d + c))
+            name_with_wers[name] = binvals
 
         print("WER distribution:")
-        #with uopen(self.distrib_file, "wt") as out:
+        # with uopen(self.distrib_file, "wt") as out:
         #    out.write("bin_start,bin_end,count,relative_count_weighed_by_ref_length\n")
         #    for i, count in enumerate(bins):
         ##        print(f"{i/self.num_bins:.4f}-{(i+1)/self.num_bins:.4f}: {count / total * 100:.3f}%")
@@ -108,29 +108,40 @@ class ScliteToWerDistributionGraph(Job):
 
         plt.figure(figsize=(8, 8))
         # show relative count
-        
-        colors = ["blue", "green", "orange",   "brown", "pink", "gray","purple","red"]
-        width = 0.8/len(name_with_wers)
+
+        colors = ["blue", "green", "orange", "brown", "pink", "gray", "purple", "red"]
+        width = 0.8 / len(name_with_wers)
         for i, name in enumerate(name_with_wers.keys()):
             binvals = name_with_wers[name]
             bins, avg, total, num_offscreen = self.make_bins(binvals)
             xs = range(self.num_bins)
             xs = [float(x) + i * width for x in xs]
-            plt.bar(xs, [count / total for count in bins], align="edge", width=width, label=name, color=colors[i % len(colors)])
+            plt.bar(
+                xs,
+                [count / total for count in bins],
+                align="edge",
+                width=width,
+                label=name,
+                color=colors[i % len(colors)],
+            )
 
             if self.plot_metrics:
                 # plot avg (this should be the wer score as reported by sclite)
-                plt.axvline(x=avg / total / 100 * self.num_bins, color=colors[(-i-1) % len(colors)], linestyle="--", label=f"WER {name}: {avg / total:.2f}")
+                plt.axvline(
+                    x=avg / total / 100 * self.num_bins,
+                    color=colors[(-i - 1) % len(colors)],
+                    linestyle="--",
+                    label=f"WER {name}: {avg / total:.2f}",
+                )
 
         plt.xlabel("WER")
         plt.ylabel("fraction")
 
         lower_lim = 0
         if self.log_scale:
-            plt.yscale('symlog', linthresh=1e-3)
+            plt.yscale("symlog", linthresh=1e-3)
             lower_lim = 1e-3
         plt.ylim(lower_lim, 1)
-        
 
         if isinstance(self.plot_title, DelayedBase):
             plt.title(self.plot_title.get())
@@ -146,9 +157,9 @@ class ScliteToWerDistributionGraph(Job):
         plt.savefig(self.out_plot)
         plt.autoscale(axis="y")
         plt.savefig(self.out_plot_no_ylim)
-        #new_ylim = max([count / total for count in bins[1:]]) * 1.1
-        #plt.ylim(lower_lim, new_ylim)
-        #plt.savefig(self.out_plot_ylim_without_first_bin)
+        # new_ylim = max([count / total for count in bins[1:]]) * 1.1
+        # plt.ylim(lower_lim, new_ylim)
+        # plt.savefig(self.out_plot_ylim_without_first_bin)
         plt.ylim(lower_lim, 0.1)
         plt.savefig(self.out_plot_ylim10p)
 
@@ -181,8 +192,8 @@ class CompareTwoScliteWerDistributions(Job):
 
         # self.out_file = self.output_path("vals.csv")
         # self.distrib_file = self.output_path("distrib.csv")
-        self.out_plot = self.output_path("plot.png")
-        self.out_ratio_plot = self.output_path("plot_ratio.png")
+        self.out_plot = self.output_path("plot.pdf")
+        self.out_ratio_plot = self.output_path("plot_ratio.pdf")
         # self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
         # self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
         # self.out_plot_ylim10p = self.output_path("plot_ylim10p.png")
@@ -190,7 +201,7 @@ class CompareTwoScliteWerDistributions(Job):
     @classmethod
     def hash(cls, kwargs):
         d = dict(**kwargs)
-        d['__version'] = 6
+        d["__version"] = 7
         return super().hash(d)
 
     def tasks(self):
@@ -326,15 +337,15 @@ class CompareTwoScliteWerDistributions(Job):
 
             if abs(wer0) > 1e-8:
                 wer_ratio = wer1 / wer0 - 1.0  # do -1.0 so we can just reuse the code for the wer diff
-                values_ratio.append((100 * wer_ratio, s+d+c))
+                values_ratio.append((100 * wer_ratio, s + d + c))
             elif wer0 == 0 and wer1 == 0:
                 wer_ratio = 0.0
             else:
                 wer_ratio = math.nan
-            
-            print(
-                f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f} ({wer_diff:.2f}, {wer_ratio:.2f})"
-            )
+
+            print(f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f} ({wer_diff:.2f}, {wer_ratio:.2f})")
 
         self.make_plot(values_diff, f"WER differences +-{self.x_extents}", self.out_plot, self.x_extents)
-        self.make_plot(values_ratio, f"relative WER difference +-{self.x_extents}%", self.out_ratio_plot, self.x_extents)
+        self.make_plot(
+            values_ratio, f"relative WER difference +-{self.x_extents}%", self.out_ratio_plot, self.x_extents
+        )
