@@ -57,7 +57,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
         "config": train_config,
         "network_module": module,
         "include_native_ops": True,
-        "debug": False,
+        "debug": True,
         "use_speed_perturbation": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
@@ -348,7 +348,7 @@ def ls960_mrnnt_relpos_streamable_0425_low_bpe_from_scratch():
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
-                "training_strategy": [TrainingStrategy.UNIFIED],
+                "training_strategy": [TrainingStrategy.STREAMING],
                 "dual_mode": [False],
             },
 
