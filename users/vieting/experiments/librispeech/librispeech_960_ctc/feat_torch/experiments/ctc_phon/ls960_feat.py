@@ -180,11 +180,8 @@ def eow_phon_ls960_relposencoder_0924_base():
         pos_emb_dropout=0.0,
     )
 
-    model_config = ModelConfig(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config,
+    model_base_args = dict(
         pos_emb_config=posemb_config,
-        specaug_config=specaug_config,
         label_target_size=vocab_size_without_blank,
         conformer_size=512,
         num_layers=12,
@@ -205,45 +202,56 @@ def eow_phon_ls960_relposencoder_0924_base():
         aux_ctc_loss_scales=None,
     )
 
-    network_module = "ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1"
-
-    train_config_24gbgpu_amp = {
-        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
-        "learning_rates": list(np.linspace(7e-6, 7e-4, 480)) + list(
-                np.linspace(7e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40)),
-        #############
-        "batch_size": 360 * 16000,
-        "max_seq_length": {"audio_features": 35 * 16000},
-        "accum_grad_multiple_step": 1,
-        "torch_amp_options": {"dtype": "bfloat16"},
-        "use_speed_perturbation": True,
-        "gradient_clip_norm": 1.0,
-    }
-
-    train_args = {
-        "config": train_config_24gbgpu_amp,
-        "network_module": network_module,
-        "net_args": {"model_config_dict": asdict(model_config)},
-        "debug": False,
-        "use_speed_perturbation": True,
-        "post_config": {"num_workers_per_gpu": 8},
-    }
-    
-    name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8"
-    training_name = prefix_name + "/" + network_module + name
-    train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 48
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data,
-        get_specific_checkpoint=1000
+    model_config = ModelConfig(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        **model_base_args,
     )
-    tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
+
+    def run_with_standard_settings(network_module, model_cfg):
+        train_config_24gbgpu_amp = {
+            "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
+            "learning_rates": list(np.linspace(7e-6, 7e-4, 480)) + list(
+                    np.linspace(7e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40)),
+            #############
+            "batch_size": 360 * 16000,
+            "max_seq_length": {"audio_features": 35 * 16000},
+            "accum_grad_multiple_step": 1,
+            "torch_amp_options": {"dtype": "bfloat16"},
+            "use_speed_perturbation": True,
+            "gradient_clip_norm": 1.0,
+        }
+
+        train_args = {
+            "config": train_config_24gbgpu_amp,
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_cfg)},
+            "debug": False,
+            "use_speed_perturbation": True,
+            "post_config": {"num_workers_per_gpu": 8},
+        }
+
+        name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8"
+        training_name = prefix_name + "/" + network_module + name
+        train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=1000
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
+        )
+        asr_model.returnn_vocab = label_datastream.vocab
+        asr_model.settings = train_settings
+        asr_model.label_datastream = label_datastream
+        add_ctc_model(network_module + ".eow_phon" + name, asr_model)
+
+    run_with_standard_settings(
+        network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1",
+        model_cfg=model_config,
     )
-    asr_model.returnn_vocab = label_datastream.vocab
-    asr_model.settings = train_settings
-    asr_model.label_datastream = label_datastream
-    add_ctc_model(network_module + ".eow_phon.512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8", asr_model)
 
     tk.register_report(
         os.path.join(prefix_name, "report.csv"),
