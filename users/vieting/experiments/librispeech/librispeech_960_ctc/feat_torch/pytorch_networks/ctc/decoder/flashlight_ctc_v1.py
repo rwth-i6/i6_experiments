@@ -7,7 +7,9 @@ includes handling of prior computation
 from dataclasses import dataclass
 import time
 import numpy as np
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
+from sisyphus.toolkit import Path
 
 
 @dataclass
@@ -18,8 +20,8 @@ class DecoderConfig():
     beam_threshold: float
 
     # needed files
-    lexicon: str
-    returnn_vocab: str
+    lexicon: Union[str, Path]
+    returnn_vocab: Union[str, Path]
 
     # additional search options
     lm_weight: float = 0.0
@@ -29,9 +31,9 @@ class DecoderConfig():
     # prior correction
     blank_log_penalty: Optional[float] = None
     prior_scale: float = 0.0
-    prior_file: Optional[str] = None
+    prior_file: Optional[Union[str, Path]] = None
 
-    arpa_lm: Optional[str] = None
+    arpa_lm: Optional[Union[str, Path]] = None
 
     use_torch_compile: bool = False
     torch_compile_options: Optional[Dict[str, Any]] = None
