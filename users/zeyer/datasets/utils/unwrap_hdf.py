@@ -46,6 +46,8 @@ def _wrap_extern_data_value_to_pp_dataset_map_outputs(data: Dict[str, Any]) -> D
 
 
 def _unwrap_hdf_extern_data(data: TensorDict, *, extern_data: Dict[str, Dict[str, Any]], **_other) -> TensorDict:
+    # See returnn.datasets.hdf.SimpleHDFWriter._insert_h5_other for reference.
+    # Also note that the handling for "data" is slightly different from for other keys.
     res = TensorDict()
     for key, out_data_template in extern_data.items():
         assert key in data.data
@@ -58,4 +60,10 @@ def _unwrap_hdf_extern_data(data: TensorDict, *, extern_data: Dict[str, Dict[str
             # TODO...
         out_data.raw_tensor = in_raw
         res.data[key] = out_data
+    # There might be other meta data in `data`, like "seq_tag", "complete_frac",
+    # which we should just copy over.
+    for key, in_data in data.data.items():
+        if key in res.data:
+            continue
+        res.data[key] = in_data
     return res
