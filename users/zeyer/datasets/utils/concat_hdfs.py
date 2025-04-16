@@ -18,9 +18,14 @@ def concat_hdfs(
 
     :return: new HDF
     """
+    from i6_experiments.users.zeyer.datasets.utils.unwrap_hdf import unwrap_hdf_dataset
+
+    hdf_dataset_dict = {"class": "HDFDataset", "files": list(hdf_files), "use_cache_manager": True}
+    unwrapped_ds_dict = unwrap_hdf_dataset(hdf_dataset_dict, extern_data=extern_data)
+
     ds = DatasetConfigStatic(
         main_name="hdfs",
-        main_dataset={"class": "HDFDataset", "files": list(hdf_files), "use_cache_manager": True},
+        main_dataset=unwrapped_ds_dict,
         extern_data=extern_data,
         default_input=default_input,
         use_deep_copy=True,
