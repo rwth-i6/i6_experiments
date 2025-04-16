@@ -43,7 +43,20 @@ def forward_to_hdf(
     _config_v2: bool = True,  # testing...
 ) -> tk.Path:
     """
-    forward on the specific dataset
+    Forward on the specific dataset,
+    via the forward_def/forward_step (or a no-op copy),
+    maybe optionally using a model,
+    into an HDF file (using :class:`SimpleHDFWriter`).
+
+    The default output ("output") is saved as "data" key in the HDF file.
+    All other outputs keep their name.
+
+    Note that HDF currently has some limitations:
+    For sparse data, we expect the shape [time], for dense data, we expect the shape [time] or [time, feat].
+    The :class:`SimpleHDFWriter` will automatically convert it as necessary, e.g. flattening the data.
+    When the data was flattened, there will be an additional key "sizes" which contains the original sizes
+    of e.g. some tensor [time1,time2].
+    This flattening logic is however only supported for the main key "data", not for any other keys.
 
     :param dataset: dataset to forward, using its get_main_dataset(),
         and also get_default_input() to define the default output,
