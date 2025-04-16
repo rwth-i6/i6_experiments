@@ -3,11 +3,13 @@ from sisyphus import tk
 import copy
 from dataclasses import asdict
 import numpy as np
+import os.path
 from typing import cast
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.vieting.tools.report import Report
 
 from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
@@ -19,7 +21,9 @@ from ...storage import add_ctc_model
 
 
 def eow_phon_ls960_relposencoder_0924_base():
-    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon_relposencoder"
+    prefix_name = "experiments/librispeech/librispeech_960_ctc_eow_phon/feat_torch/"
+
+    report = Report(columns_start=["training_name"], columns_end=["test-clean", "test-other"])
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -60,7 +64,10 @@ def eow_phon_ls960_relposencoder_0924_base():
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    def tune_and_evaluate_helper(training_name, asr_model, base_decoder_config, lm_scales, prior_scales, decoder_module="ctc.decoder.flashlight_ctc_v1"):
+    def tune_and_evaluate_helper(
+        training_name, asr_model, base_decoder_config, lm_scales, prior_scales,
+        decoder_module="ctc.decoder.flashlight_ctc_v1",
+    ):
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
@@ -85,7 +92,9 @@ def eow_phon_ls960_relposencoder_0924_base():
                 tune_values_other.append((wers[search_name + "/dev-other"]))
 
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
-            pick_optimal_params_job = GetOptimalParametersAsVariableJob(parameters=tune_parameters, values=tune_values, mode="minimize")
+            pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+                parameters=tune_parameters, values=tune_values, mode="minimize",
+            )
             pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
             decoder_config = copy.deepcopy(base_decoder_config)
             decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
@@ -105,6 +114,11 @@ def eow_phon_ls960_relposencoder_0924_base():
             tune_values_other=tune_values_other,
             report_values=report_values
         )
+        assert training_name.startswith(prefix_name)
+        report.add(dict(
+            training_name=training_name[len(prefix_name):].strip("/"),
+            **report_values
+        ))
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 
@@ -211,23 +225,28 @@ def eow_phon_ls960_relposencoder_0924_base():
         "network_module": network_module,
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
-        "use_speed_perturbation": True
+        "use_speed_perturbation": True,
+        "post_config": {"num_workers_per_gpu": 8},
     }
     
     name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8"
-    train_args_work8 = copy.deepcopy(train_args)
-    train_args_work8["post_config"] = {"num_workers_per_gpu": 8}
     training_name = prefix_name + "/" + network_module + name
-    train_job = training(training_name, train_data, train_args_work8, num_epochs=1000, **default_returnn)
+    train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args_work8, with_prior=True, datasets=train_data,
+        training_name, train_job, train_args, with_prior=True, datasets=train_data,
         get_specific_checkpoint=1000
     )
-    tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
+    )
     asr_model.returnn_vocab = label_datastream.vocab
     asr_model.settings = train_settings
     asr_model.label_datastream = label_datastream
     add_ctc_model(network_module + ".eow_phon.512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8", asr_model)
 
-
+    tk.register_report(
+        os.path.join(prefix_name, "report.csv"),
+        values=report.get_values(),
+        template=report.get_template(),
+    )
