@@ -190,18 +190,13 @@ class CompareTwoScliteWerDistributions(Job):
         self.log_scale = logscale
         assert len(self.report_dirs) == 2
 
-        # self.out_file = self.output_path("vals.csv")
-        # self.distrib_file = self.output_path("distrib.csv")
         self.out_plot = self.output_path("plot.pdf")
         self.out_ratio_plot = self.output_path("plot_ratio.pdf")
-        # self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
-        # self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
-        # self.out_plot_ylim10p = self.output_path("plot_ylim10p.png")
 
     @classmethod
     def hash(cls, kwargs):
         d = dict(**kwargs)
-        d["__version"] = 7
+        d["__version"] = 10
         return super().hash(d)
 
     def tasks(self):
@@ -227,7 +222,7 @@ class CompareTwoScliteWerDistributions(Job):
 
         return bins, avg, total, num_offscreen
 
-    def make_plot(self, values, title, out_path, extents):
+    def make_plot(self, values, title, out_path, extents, is_ratio=False):
         import matplotlib.pyplot as plt
 
         bins, avg, total, num_offscreen = self.make_bins(values, extents)
@@ -244,10 +239,10 @@ class CompareTwoScliteWerDistributions(Job):
         if self.plot_metrics:
             # plot avg (this should be the wer score as reported by sclite)
             plt.axvline(
-                x=avg / total / self.x_extents * self.num_bins_in_each_direction,
+                x=avg / total / extents * self.num_bins_in_each_direction,
                 color="red",
                 linestyle="--",
-                label=f"avg: {avg / total:.2f}",
+                label=f"avg: {avg / total + (1.0 if is_ratio else 0):.2f}",
             )
             if num_offscreen > 0:
                 plt.text(0.0, 0.8, f"Offscreen: {num_offscreen} instances", fontsize=10)
@@ -256,8 +251,10 @@ class CompareTwoScliteWerDistributions(Job):
         plt.ylabel("fraction")
         smallest_possible_val = 0.9 / total if total > 0 else eps
         plt.ylim(smallest_possible_val, 1)
+
         if self.log_scale:
             plt.yscale("log")
+            plt.ylim(1e-3, 1)
         if isinstance(self.plot_title, DelayedBase):
             plt.title(self.plot_title.get() + " " + title)
         else:
@@ -267,7 +264,10 @@ class CompareTwoScliteWerDistributions(Job):
             self.num_bins_in_each_direction + 1,
             max(1, 2 * self.num_bins_in_each_direction // 10),
         )
-        plt.xticks(x_range, [f"{i/self.num_bins_in_each_direction*self.x_extents:.2f}" for i in x_range])
+        if is_ratio:
+            plt.xticks(x_range, [f"{1.0 + i/self.num_bins_in_each_direction*extents:.2f}" for i in x_range])
+        else:
+            plt.xticks(x_range, [f"{i/self.num_bins_in_each_direction*extents:.2f}" for i in x_range])
         plt.grid(axis="y")
         plt.legend(loc="upper right")
         if self.ignore_perfect_seqs:
@@ -318,6 +318,7 @@ class CompareTwoScliteWerDistributions(Job):
 
         values_diff = []  # (value, weight)
         values_ratio = []
+        num_wers_ignored = 0
         for seq_tag in list(all_vals[0].keys()):
             (c, s, d, i) = all_vals[0][seq_tag]
             (c1, s1, d1, i1) = all_vals[1][seq_tag]
@@ -330,6 +331,7 @@ class CompareTwoScliteWerDistributions(Job):
             wer0 = 100.0 * (s + d + i) / (s + d + c)
             wer1 = 100.0 * (s1 + d1 + i1) / (s1 + d1 + c1)
             if self.ignore_perfect_seqs and wer0 == 0 and wer1 == 0:
+                num_wers_ignored += 1
                 continue
             wer_diff = wer1 - wer0
 
@@ -337,15 +339,19 @@ class CompareTwoScliteWerDistributions(Job):
 
             if abs(wer0) > 1e-8:
                 wer_ratio = wer1 / wer0 - 1.0  # do -1.0 so we can just reuse the code for the wer diff
-                values_ratio.append((100 * wer_ratio, s + d + c))
+                values_ratio.append((wer_ratio, s + d + c))
             elif wer0 == 0 and wer1 == 0:
                 wer_ratio = 0.0
             else:
                 wer_ratio = math.nan
 
             print(f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f} ({wer_diff:.2f}, {wer_ratio:.2f})")
+        if self.ignore_perfect_seqs:
+            print(
+                f"Ignored {num_wers_ignored} (of {len(all_vals[0].keys())}) because they were perfect and ignore_perfect_seqs=True"
+            )
 
         self.make_plot(values_diff, f"WER differences +-{self.x_extents}", self.out_plot, self.x_extents)
         self.make_plot(
-            values_ratio, f"relative WER difference +-{self.x_extents}%", self.out_ratio_plot, self.x_extents
+            values_ratio, f"relative WER difference", self.out_ratio_plot, self.x_extents / 100, is_ratio=True
         )
