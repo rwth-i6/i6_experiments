@@ -224,7 +224,9 @@ def _returnn_get_forward_callback():
                 dim=output.dim,
                 ndim=output.ndim,
                 labels=output.vocab and output.vocab.labels,
-                extra_type={k: (v.dim, v.ndim, v.dtype) for k, v in expected_outputs.data.items() if k != "output"},
+                extra_type={
+                    k: (v.shape[-1], v.ndim, v.dtype) for k, v in expected_outputs.data.items() if k != "output"
+                },
                 extra_labels={k: v.vocab.labels for k, v in expected_outputs.data.items() if k != "output" and v.vocab},
             )
 
@@ -443,10 +445,14 @@ def _returnn_forward_config_v2(
     Create config for collecting stats.
     """
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
+    from returnn.tensor import Tensor, batch_dim
 
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
     if not forward_def and not forward_step:
         forward_step = _returnn_forward_noop_step
+
+    # Version 2: Trigger new hash because of a serious bug.
+    __forward_config_v2_extra_version = 2
 
     config = dict(
         **(config or {}),
@@ -459,14 +465,23 @@ def _returnn_forward_config_v2(
 
     if forward_step is _returnn_forward_noop_step and "model_outputs" not in config:
         # Copy the extern_data to model_outputs.
-        model_outputs = config["extern_data"].copy()
-        assert all(v.get("dims") is not None or v.get("dim_tags") is not None for v in model_outputs.values())
-        # Map the default input key (e.g. "data") to the default RF output key (which is "output").
+        extern_data: Dict[str, Dict[str, Any]] = config["extern_data"]
+        model_outputs: Dict[str, Dict[str, Any]] = {}
         input_key = dataset.get_default_input()
-        if input_key:
-            assert input_key in model_outputs
-            assert "output" not in model_outputs
-            model_outputs["output"] = model_outputs.pop(input_key)
+        for k, v in extern_data.items():
+            # Map the default input key (e.g. "data") to the default RF output key (which is "output").
+            if k == input_key:
+                k = "output"
+                assert k not in extern_data
+            out_templ = Tensor(k, **v)
+            assert out_templ.dims and out_templ.dims[0] == batch_dim
+            assert all(
+                dim.dimension is not None for dim in out_templ.dims[2:]
+            ), f"all except the first dim (after batch dim) must be static, got {out_templ}"
+            if len(out_templ.dims) >= 3 and out_templ.dim != out_templ.dims[-1].dimension:
+                # Need new version because of new behavior when the out_templ.dim is not matching the last dim.
+                __forward_config_v2_extra_version = max(__forward_config_v2_extra_version, 3)
+            model_outputs[k] = v
         config["model_outputs"] = model_outputs
 
     if model_def:
@@ -529,8 +544,7 @@ def _returnn_forward_config_v2(
             continue
         post_config[k] = v
 
-    # Trigger new hash because of a serious bug.
-    config["__forward_config_v2_extra_version"] = 2
+    config["__forward_config_v2_extra_version"] = __forward_config_v2_extra_version
 
     return ReturnnConfigWithNewSerialization(config, post_config)
 
