@@ -129,7 +129,7 @@ class SupervisedConvolutionalFeatureExtractionV2(SupervisedConvolutionalFeatureE
 
         with torch.no_grad():
             if cfg.init_tf == "gammatone":
-                from ...features.gammatone import GammatoneFilterbank
+                from .gammatone import GammatoneFilterbank
                 gt_fbank = GammatoneFilterbank(cfg.scf_config.num_tf, cfg.scf_config.size_tf / 16000)
                 gt_fbank_tensor = torch.from_numpy(gt_fbank.get_gammatone_filterbank()).float()  # [T, C]
                 gt_fbank_tensor = gt_fbank_tensor.transpose(0, 1).unsqueeze(1)  # [C, 1, T]

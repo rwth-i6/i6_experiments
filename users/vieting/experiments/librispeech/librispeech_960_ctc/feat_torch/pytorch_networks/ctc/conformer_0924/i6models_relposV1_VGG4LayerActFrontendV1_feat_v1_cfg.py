@@ -16,6 +16,10 @@ from .i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
     SpecaugConfig,
     ConformerPosEmbConfig,
 )
+from ..features.scf import (
+    SupervisedConvolutionalFeatureExtractionV1Config,
+    SupervisedConvolutionalFeatureExtractionV2Config,
+)
 
 
 @dataclass

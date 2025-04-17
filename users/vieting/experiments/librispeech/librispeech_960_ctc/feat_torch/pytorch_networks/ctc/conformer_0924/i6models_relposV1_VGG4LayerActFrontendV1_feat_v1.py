@@ -24,9 +24,13 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import ModelConfig
+from .i6models_relposV1_VGG4LayerActFrontendV1_feat_v1_cfg import ModelConfig
 from .i6models_relposV1_VGG4LayerActFrontendV1_v1 import (
     mask_tensor, train_step, prior_init_hook, prior_finish_hook, prior_step
+)
+from ..features.scf import (
+    SupervisedConvolutionalFeatureExtractionV1,
+    SupervisedConvolutionalFeatureExtractionV2,
 )
 
 
