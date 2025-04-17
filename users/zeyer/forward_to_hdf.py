@@ -225,7 +225,9 @@ def _returnn_get_forward_callback():
                 ndim=output.ndim,
                 labels=output.vocab and output.vocab.labels,
                 extra_type={
-                    k: (v.shape[-1], v.ndim, v.dtype) for k, v in expected_outputs.data.items() if k != "output"
+                    k: (v.shape[-1] if v.shape else None, v.ndim, v.dtype)
+                    for k, v in expected_outputs.data.items()
+                    if k != "output"
                 },
                 extra_labels={k: v.vocab.labels for k, v in expected_outputs.data.items() if k != "output" and v.vocab},
             )
