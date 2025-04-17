@@ -209,7 +209,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         **model_base_args,
     )
 
-    def run_with_standard_settings(network_module, model_cfg):
+    def run_with_standard_settings(network_module, model_cfg, move_to_hpc=False):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
             "learning_rates": list(np.linspace(7e-6, 7e-4, 480)) + list(
@@ -236,6 +236,9 @@ def eow_phon_ls960_relposencoder_0924_base():
         training_name = prefix_name + "/" + network_module + name
         train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
+        if move_to_hpc:
+            train_job.hold()
+            train_job.move_to_hpc = True
         asr_model = prepare_asr_model(
             training_name, train_job, train_args, with_prior=True, datasets=train_data,
             get_specific_checkpoint=1000
@@ -287,7 +290,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
     run_with_standard_settings(
         network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
-        model_cfg=model_config,
+        model_cfg=model_config, move_to_hpc=True,
     )
 
     tk.register_report(
