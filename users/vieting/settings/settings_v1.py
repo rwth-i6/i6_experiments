@@ -238,11 +238,10 @@ def worker_wrapper(job, task_name, call):
     else:
         raise ValueError("Invalid CONTAINER_MODE %s" % CONTAINER_MODE)
 
-    # e = engine()  # Usually EngineSelector, but can be LocalEngine if no settings file is present
-    # if isinstance(e, EngineSelector):
-    #     e = engine().get_used_engine_by_rqmt(t.rqmt())
-    # if isinstance(e, LocalEngine):
-    #     return call
-    # else:
-    #     return command
-    return command
+    e = engine()  # Usually EngineSelector, but can be LocalEngine if no settings file is present
+    if isinstance(e, EngineSelector):
+        e = engine().get_used_engine_by_rqmt(t.rqmt())
+    if isinstance(e, LocalEngine):
+        return call
+    else:
+        return command
