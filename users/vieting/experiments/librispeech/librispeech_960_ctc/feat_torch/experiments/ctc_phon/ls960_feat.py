@@ -21,7 +21,7 @@ from ...storage import add_ctc_model
 
 
 def eow_phon_ls960_relposencoder_0924_base():
-    prefix_name = "experiments/librispeech/librispeech_960_ctc_eow_phon/feat_torch/"
+    prefix_name = "experiments/librispeech/librispeech_960_ctc_eow_phon/feat_torch"
 
     report = Report(columns_start=["training_name"], columns_end=["test-clean", "test-other"])
 
@@ -250,6 +250,43 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     run_with_standard_settings(
         network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1",
+        model_cfg=model_config,
+    )
+
+    from ...pytorch_networks.ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1_cfg import (
+        ModelConfig as CustomFeatureModelConfig,
+    )
+    from ...pytorch_networks.ctc.features.scf import (
+        SupervisedConvolutionalFeatureExtractionV1Config,
+        SupervisedConvolutionalFeatureExtractionV2Config,
+    )
+    scf_config_base = SupervisedConvolutionalFeatureExtractionV1Config(
+        wave_norm=True,
+        num_tf=150,
+        size_tf=256,
+        stride_tf=10,
+        num_env=5,
+        size_env=40,
+        stride_env=16,
+    )
+    scf_config = SupervisedConvolutionalFeatureExtractionV2Config(
+        module_class="SupervisedConvolutionalFeatureExtractionV2",
+        scf_config=scf_config_base,
+        convs=[(10, 320, 1), (10, 80, 1)],
+        init_tf="gammatone",
+        init_env="hann",
+        init_convs="ones",
+    )
+    model_base_args_feat = copy.deepcopy(model_base_args)
+    model_base_args_feat["specaug_start_epoch"] = model_base_args_feat.pop("specauc_start_epoch")
+    model_config = CustomFeatureModelConfig(
+        feature_extraction_config=scf_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        **model_base_args_feat,
+    )
+    run_with_standard_settings(
+        network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
         model_cfg=model_config,
     )
 
