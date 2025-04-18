@@ -868,7 +868,7 @@ def run_scf_specaug():
                     "extra_args": {
                         "conv_pad_seq_len_to_power": 1.5,
                     },
-                    "specaug_config": {"enable_sorting": True, "max_feature": 15, "steps_per_epoch": 4170},
+                    "specaug_config": {"enable_sorting": True, "max_feature": 15, "steps_per_epoch": 2090},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
