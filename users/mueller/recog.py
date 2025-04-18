@@ -13,6 +13,7 @@ from sisyphus import tk
 from sisyphus import tools as sis_tools
 from i6_core.util import instanciate_delayed, uopen
 
+from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
 from i6_core.returnn.search import (
@@ -40,7 +41,7 @@ from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 import numpy as np
 
 from .utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
-from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog
+from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog, model_recog_gradients
 from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from .scoring import ComputeWERJob, _score_recog
@@ -76,13 +77,24 @@ def recog_training_exp(
     cache_manager: bool = True,
     check_train_scores_nbest: int = 2
 ) -> Optional[tk.Path]:
+    if isinstance(recog_def, tuple):
+        recog_def_eval = recog_def[0]
+        recog_def_pl = recog_def[1]
+    else:
+        recog_def_eval = recog_def
+        recog_def_pl = recog_def
+        
+    eval_hyperparameters = decoder_hyperparameters.copy()
+    if "grad_nbest" in eval_hyperparameters:
+        eval_hyperparameters.pop("grad_nbest")
+    
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
-        decoder_hyperparameters,
+        eval_hyperparameters,
         task,
         model,
-        recog_def,
+        recog_def_eval,
         search_config=search_config,
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
@@ -138,7 +150,7 @@ def recog_training_exp(
             pseudo_hyperparameters,
             task_pseudo_labels,
             model,
-            recog_def,
+            recog_def_pl,
             save_pseudo_labels=pseudo_labels_ds,
             pseudo_label_alignment=pseudo_label_alignment,
             calculate_scores=calculate_pseudo_label_scores,
@@ -184,7 +196,7 @@ def recog_training_exp(
                 decoder_hyperparameters,
                 task_score,
                 model,
-                recog_def,
+                recog_def_pl,
                 save_pseudo_labels=None,
                 calculate_scores=True,
                 search_config=search_config,
@@ -396,7 +408,7 @@ def recog_model(
                 score_out = task.score_recog_output_func(dataset, recog_out)
             outputs[dataset_name] = score_out
         if save_pseudo_labels:
-            if ("ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1) or pseudo_label_alignment:
+            if ("ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1) or pseudo_label_alignment or recog_def is model_recog_gradients:
                 recog_paths[dataset_name] = beam_recog_out
             else:
                 recog_paths[dataset_name] = recog_out.output
@@ -555,7 +567,10 @@ def search_dataset(
                     for k, v in env_updates.items():
                         shard_search_job.set_env(k, v)
                 shard_search_res.append(res)
-            search_job = SearchCombineShardsJob(shard_search_res)
+            if recog_def is model_recog_gradients:
+                search_job = SearchCombineShardsToHDFJob(shard_search_res)
+            else:
+                search_job = SearchCombineShardsJob(shard_search_res)
             res = search_job.out_comined_results
         else:
             search_job = ReturnnForwardJobV2(
@@ -580,7 +595,9 @@ def search_dataset(
                 search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
-        
+    
+    if recog_def is model_recog_gradients:
+        return None, res
     use_lexicon = decoder_hyperparameters.get("use_lexicon", False) # if we have lexicon we already have the full words
     if pseudo_label_alignment:
         beam_res = res
@@ -939,7 +956,7 @@ def search_config_v2(
         if prior_path:
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
-    elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
+    elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog_gradients:
         args = {"hyperparameters": decoder_hyperparameters}
         if prior_path:
             args["prior_file"] = prior_path
@@ -1098,11 +1115,12 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
     extra = {}
+    beam_dim = None
     if config.bool("cheating", False):
         default_target_key = config.typed_value("target")
         targets = extern_data[default_target_key]
         extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
-    if recog_def.func is model_recog_lm_albert or recog_def.func is model_recog_flashlight:
+    if recog_def.func is model_recog_lm_albert or recog_def.func is model_recog_flashlight or recog_def.func is model_recog_gradients:
         seq_tags = extern_data["seq_tag"]
         recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, seq_tags=seq_tags, **extra)
     else:
@@ -1120,12 +1138,24 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         assert len(recog_out) == 4, f"mismatch, got {len(recog_out)} outputs recog_def_ext=False"
         hyps, scores, out_spatial_dim, beam_dim = recog_out
         extra = {}
+    elif len(recog_out) == 3:
+        # No beam dim given
+        assert len(recog_out) == 3, f"mismatch, got {len(recog_out)} outputs"
+        gradients_indices, scores, out_spatial_dim = recog_out
+        hyps = gradients_indices[0]
+        extra = {}
     else:
         raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
     assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
-    assert isinstance(out_spatial_dim, Dim) and isinstance(beam_dim, Dim)
-    rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
-    rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    assert isinstance(out_spatial_dim, Dim) and (isinstance(beam_dim, Dim) or beam_dim is None)
+    if beam_dim is not None:
+        rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
+        rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    else:
+        rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, out_spatial_dim, hyps.dims[-1]])
+        if gradients_indices[1] is not None:
+            rf.get_run_ctx().mark_as_output(gradients_indices[1], "indices", dims=[batch_dim, out_spatial_dim, hyps.dims[-1]])
+        rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim])
     assert isinstance(extra, dict)
     for k, v in extra.items():
         assert isinstance(k, str) and isinstance(v, Tensor)
@@ -1164,7 +1194,20 @@ def _returnn_v2_get_forward_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
-            if hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
+            if scores.raw_tensor.shape == () and hyps.raw_tensor.shape[0] > 1: # hyps hold gradients
+                self.out_file.write(f"{seq_tag!r}: [\n")
+                score = float(scores.raw_tensor)
+                tensor = hyps.raw_tensor.tolist()
+                if "indices" in outputs:
+                    indices: Tensor = outputs["indices"]
+                    indices = indices.raw_tensor.tolist()
+                    self.out_file.write(f"  ({score!r}, {tensor!r}, {indices!r}),\n")
+                else:
+                    self.out_file.write(f"  ({score!r}, {tensor!r}),\n")
+                self.out_file.write("],\n")
+
+                assert not self.out_ext_file, "not implemented"
+            elif hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
                 assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
                 assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
                 # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
@@ -1675,17 +1718,57 @@ class SearchCombineShardsJob(sisyphus.Job):
 
     def run(self):
         """run"""
-        res_dict = {}
+        with uopen(self.out_comined_results, "wt") as out:
+            out.write("{\n")
+            for path in self.shard_search_outputs:
+                d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+                assert isinstance(d, dict)  # seq_tag -> bpe string
+                for seq_tag, entry in d.items():
+                    assert isinstance(entry, list)
+                    out.write("%r: %r,\n" % (seq_tag, entry))
+            out.write("}\n")
+            
+class SearchCombineShardsToHDFJob(sisyphus.Job):
+
+    def __init__(self, shard_search_outputs: list[tk.Path]):
+        self.shard_search_outputs = shard_search_outputs
+        self.out_comined_results = self.output_path("combined.hdf")
+
+    def tasks(self):
+        """task"""
+        yield sisyphus.Task("run", rqmt={"cpu": 8, "mem": 32, "time": 4})
+
+    def run(self):
+        """run"""
+        SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
+        out_hdf = SimpleHDFWriter(filename=self.out_comined_results.get_path(), dim=None, ndim=2)
         for path in self.shard_search_outputs:
             d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
             assert isinstance(d, dict)  # seq_tag -> bpe string
-            res_dict.update(d)
-        with uopen(self.out_comined_results, "wt") as out:
-            out.write("{\n")
-            for seq_tag, entry in res_dict.items():
+            for seq_tag, entry in d.items():
                 assert isinstance(entry, list)
-                out.write("%r: %r,\n" % (seq_tag, entry))
-            out.write("}\n")
+                # assert len(entry) > 0
+                assert len(entry) == 1
+                v = entry[0]
+                assert isinstance(v[1], list)
+                l = v[1]
+                l = np.expand_dims(np.array(l, dtype=np.float32), axis=0)
+                if len(v) == 3:
+                    assert isinstance(v[2], list)
+                    indices = np.expand_dims(np.array(v[2], dtype=np.int32), axis=0)
+                    out_hdf.insert_batch(
+                        inputs=l,
+                        seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                        seq_tag=[seq_tag],
+                        extra={"indices": indices},
+                    )
+                else:
+                    out_hdf.insert_batch(
+                        inputs=l,
+                        seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                        seq_tag=[seq_tag],
+                    )
+        out_hdf.close()
             
 class PriorCombineShardsJob(sisyphus.Job):
     def __init__(self, shard_prior_frames_outputs: list[tk.Path], shard_prior_probs_outputs: list[tk.Path]):

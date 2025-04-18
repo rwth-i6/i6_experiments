@@ -5,14 +5,23 @@ import copy
 from sisyphus import tk
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-from .tune_eval import QuantArgs
-from ...data.common import DatasetSettings, build_test_dataset, build_st_test_dataset
-from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model
-from ...report import generate_report
-from .tune_eval import tune_and_evaluate_helper
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.experiments.ctc_phon.tune_eval import QuantArgs
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.data.common import (
+    DatasetSettings,
+    build_test_dataset,
+    build_st_test_dataset,
+)
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.data.phon import (
+    build_eow_phon_training_datasets,
+    get_text_lexicon,
+)
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.lm import get_4gram_binary_lm
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.pipeline import training, prepare_asr_model
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.report import generate_report
+from i6_experiments.users.hilmes.experiments.tedlium2.standalone.experiments.ctc_phon.tune_eval import (
+    tune_and_evaluate_helper,
+)
 
 
 def eow_phon_ted_distill_hubert():
@@ -120,7 +129,7 @@ def eow_phon_ted_distill_hubert():
                 conformer_size=dim,
                 num_layers=12,
                 num_heads=4,
-                ff_dim=4*dim,
+                ff_dim=4 * dim,
                 att_weights_dropout=0.2,
                 conv_dropout=0.2,
                 ff_dropout=0.2,
@@ -158,37 +167,69 @@ def eow_phon_ted_distill_hubert():
                 "debug": False,
             }
             train_args_decoding = copy.deepcopy(train_args)
-            train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding), "hubert_config_dict": asdict(teacher_config)}
+            train_args_decoding["net_args"] = {
+                "model_config_dict": asdict(model_config_decoding),
+                "hubert_config_dict": asdict(teacher_config),
+            }
             results = {}
             training_name = prefix_name + "/" + network_module + f"_{dim}_scale_{scale}"
             train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
             train_job.rqmt["gpu_mem"] = 24
             asr_model = prepare_asr_model(
-                training_name, train_job, train_args_decoding, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+                training_name,
+                train_job,
+                train_args_decoding,
+                with_prior=True,
+                datasets=train_data,
+                get_specific_checkpoint=250,
             )
             lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
             prior_scales = [0.7, 0.9]
             res, _ = tune_and_evaluate_helper(
-                training_name, asr_model, default_decoder_config, lm_scales=lm_scales,
-                prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples, decoder_module="ctc.decoder.flashlight_ctc_distill_v1",
+                training_name,
+                asr_model,
+                default_decoder_config,
+                lm_scales=lm_scales,
+                prior_scales=prior_scales,
+                dev_dataset_tuples=dev_dataset_tuples,
+                decoder_module="ctc.decoder.flashlight_ctc_distill_v1",
             )
             results.update(res)
             asr_model_best4 = prepare_asr_model(
-                training_name + "/best4", train_job, train_args_decoding, with_prior=True, datasets=train_data,
-                get_best_averaged_checkpoint=(4, "ctc_loss_layer12")
-            )
-            res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config,
-                                           lm_scales=lm_scales, prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples,
-                                              decoder_module="ctc.decoder.flashlight_ctc_distill_v1",)
-            results.update(res)
-            asr_model_best = prepare_asr_model(
-                training_name + "/best", train_job, train_args_decoding, with_prior=True, datasets=train_data,
-                get_best_averaged_checkpoint=(1, "ctc_loss_layer12")
+                training_name + "/best4",
+                train_job,
+                train_args_decoding,
+                with_prior=True,
+                datasets=train_data,
+                get_best_averaged_checkpoint=(4, "ctc_loss_layer12"),
             )
             res, _ = tune_and_evaluate_helper(
-                training_name + "/best", asr_model_best, default_decoder_config,
-                lm_scales=lm_scales, prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples,
-                decoder_module="ctc.decoder.flashlight_ctc_distill_v1",)
+                training_name + "/best4",
+                asr_model_best4,
+                default_decoder_config,
+                lm_scales=lm_scales,
+                prior_scales=prior_scales,
+                dev_dataset_tuples=dev_dataset_tuples,
+                decoder_module="ctc.decoder.flashlight_ctc_distill_v1",
+            )
+            results.update(res)
+            asr_model_best = prepare_asr_model(
+                training_name + "/best",
+                train_job,
+                train_args_decoding,
+                with_prior=True,
+                datasets=train_data,
+                get_best_averaged_checkpoint=(1, "ctc_loss_layer12"),
+            )
+            res, _ = tune_and_evaluate_helper(
+                training_name + "/best",
+                asr_model_best,
+                default_decoder_config,
+                lm_scales=lm_scales,
+                prior_scales=prior_scales,
+                dev_dataset_tuples=dev_dataset_tuples,
+                decoder_module="ctc.decoder.flashlight_ctc_distill_v1",
+            )
             results.update(res)
             generate_report(results=results, exp_name=training_name)
             del results

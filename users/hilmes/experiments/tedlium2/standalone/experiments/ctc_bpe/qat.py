@@ -4,6 +4,7 @@ import copy
 from dataclasses import asdict
 import numpy as np
 from typing import cast, List
+from functools import partial
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
@@ -15,8 +16,11 @@ from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 from ...report import generate_report
+from ...experiments.ctc_phon.tune_eval import build_qat_report
 
 from ..ctc_phon.tune_eval import eval_model
+
+
 def bpe_ted_0125_qat():
     prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/256/qat"
 
@@ -61,68 +65,6 @@ def bpe_ted_0125_qat():
 
     from ...pytorch_networks.ctc.decoder.flashlight_qat_phoneme_ctc import DecoderConfig
 
-    def tune_and_evaluate_helper(
-        training_name: str,
-        asr_model: ASRModel,
-        base_decoder_config: DecoderConfig,
-        lm_scales: List[float],
-        prior_scales: List[float],
-        eval_test: bool = False,
-    ):
-        """
-        Example helper to execute tuning over lm_scales and prior scales.
-        With the best values runs test-clean and test-other.
-
-        This is just a reference helper and can (should) be freely changed, copied, modified etc...
-
-        :param training_name: for alias and output names
-        :param asr_model: ASR model to use
-        :param base_decoder_config: any decoder config dataclass
-        :param lm_scales: lm scales for tuning
-        :param prior_scales: prior scales for tuning, same length as lm scales
-        """
-        tune_parameters = []
-        tune_values = []
-        results = {}
-        for lm_weight in lm_scales:
-            for prior_scale in prior_scales:
-                decoder_config = copy.deepcopy(base_decoder_config)
-                decoder_config.lm_weight = lm_weight
-                decoder_config.prior_scale = prior_scale
-                search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
-                search_jobs, wers = search(
-                    search_name,
-                    forward_config={},
-                    asr_model=asr_model,
-                    decoder_module="ctc.decoder.flashlight_ctc_v1",
-                    decoder_args={"config": asdict(decoder_config)},
-                    test_dataset_tuples=dev_dataset_tuples,
-                    **default_returnn,
-                )
-                tune_parameters.append((lm_weight, prior_scale))
-                tune_values.append((wers[search_name + "/dev"]))
-                results.update(wers)
-        if eval_test:
-            for key, tune_values in [("test", tune_values)]:
-                pick_optimal_params_job = GetOptimalParametersAsVariableJob(
-                    parameters=tune_parameters, values=tune_values, mode="minimize"
-                )
-                pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
-                decoder_config = copy.deepcopy(base_decoder_config)
-                decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
-                decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
-                search_jobs, wers = search(
-                    training_name,
-                    forward_config={},
-                    asr_model=asr_model,
-                    decoder_module="ctc.decoder.flashlight_ctc_v1",
-                    decoder_args={"config": asdict(decoder_config)},
-                    test_dataset_tuples={key: test_dataset_tuples[key]},
-                    **default_returnn,
-                )
-                results.update(wers)
-        return results
-
     default_decoder_config_bpe256 = DecoderConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, bpe_size=256),
         returnn_vocab=label_datastream_bpe256.vocab,
@@ -130,6 +72,22 @@ def bpe_ted_0125_qat():
         beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,  # Untuned
+    )
+    as_training_decoder_config = DecoderConfig(
+        lexicon=get_text_lexicon(prefix=prefix_name, bpe_size=256),
+        returnn_vocab=label_datastream_bpe256.vocab,
+        beam_size=1024,
+        beam_size_token=12,  # makes it much faster
+        arpa_lm=arpa_4gram_lm,
+        beam_threshold=14,
+        turn_off_quant="leave_as_is",
+    )
+
+    from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_v3 import DecoderConfig as GreedyCTCDecoderConfig
+
+    as_training_greedy_decoder_config = GreedyCTCDecoderConfig(
+        returnn_vocab=label_datastream_bpe256.vocab,
+        turn_off_quant="leave_as_is",
     )
 
     from ...pytorch_networks.ctc.qat_0711.full_qat_v1_cfg import (
@@ -172,7 +130,109 @@ def bpe_ted_0125_qat():
         out_features=384,
         activation=None,
     )
+    qat_report = {}
 
+    ####################################################################################################
+    # QAT Baseline
+    network_module_v4 = "ctc.qat_0711.baseline_qat_v4"
+    from ...pytorch_networks.ctc.qat_0711.baseline_qat_v4_cfg import QuantModelTrainConfigV4
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v4,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v4 + f"_8_8_later_spec"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    #########################################################################################
+    # Full Quant Baseline
     network_module_v1 = "ctc.qat_0711.full_qat_v1"
     from ...pytorch_networks.ctc.qat_0711.full_qat_v1_cfg import QuantModelTrainConfigV4
 
@@ -191,21 +251,21 @@ def bpe_ted_0125_qat():
         mhsa_dropout=0.2,
         conv_kernel_size=31,
         final_dropout=0.2,
-        specauc_start_epoch=1,
+        specauc_start_epoch=11,
         weight_quant_dtype="qint8",
-        weight_quant_method="per_tensor_symmetric",
+        weight_quant_method="per_tensor",
         activation_quant_dtype="qint8",
-        activation_quant_method="per_tensor_symmetric",
+        activation_quant_method="per_tensor",
         dot_quant_dtype="qint8",
-        dot_quant_method="per_tensor_symmetric",
+        dot_quant_method="per_tensor",
         Av_quant_dtype="qint8",
-        Av_quant_method="per_tensor_symmetric",
+        Av_quant_method="per_tensor",
         moving_average=None,
         weight_bit_prec=8,
         activation_bit_prec=8,
-        quantize_output=True,
-        quantize_bias=True,
+        quantize_output=False,
         extra_act_quant=False,
+        quantize_bias=None,
         observer_only_in_train=False,
     )
     train_config = {
@@ -242,7 +302,7 @@ def bpe_ted_0125_qat():
         train_job=train_job,
         train_args=train_args,
         train_data=train_data_bpe256,
-        decoder_config=default_decoder_config_bpe256,
+        decoder_config=as_training_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
         result_dict=results,
         decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
@@ -250,5 +310,1293 @@ def bpe_ted_0125_qat():
         lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
     )
     generate_report(results=results, exp_name=training_name)
-    #qat_report[training_name] = results
+    qat_report[training_name] = results
 
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    #########################################################################################
+    # Full Quant With Sym
+    network_module_v1 = "ctc.qat_0711.full_qat_v1"
+    from ...pytorch_networks.ctc.qat_0711.full_qat_v1_cfg import QuantModelTrainConfigV4
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor_symmetric",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor_symmetric",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor_symmetric",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor_symmetric",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=True,
+        quantize_bias=True,
+        extra_act_quant=False,
+        observer_only_in_train=False,
+    )
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1 + f"_{8}_{8}_sym"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    ########################################################################
+    # FF 512 and 1024
+    frontend_config_sub6_512 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6_512,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1024,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_1024"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    ########################################################################
+    # FF 512 and 512
+    frontend_config_sub6_512 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6_512,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=512,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_512"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    ########################################################################
+    # FF 512 and 1024 with mean abs
+    network_module_v1_mean = "ctc.qat_0711.full_qat_v1_mean_abs_norm"
+    frontend_config_sub6_512 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6_512,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1024,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_mean,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_mean + f"_8_8_512_1024"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+        run_best_4=False,
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+        run_best_4=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    ########################################################################
+    # FF 512 and 1024 with sym
+    frontend_config_sub6_512 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6_512,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1024,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor_symmetric",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor_symmetric",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor_symmetric",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor_symmetric",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_1024_sym"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    ########################################################################
+    # FF 512 and 1024 with sym bigger
+    frontend_config_sub6_512 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6_512,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=16,
+        num_heads=4,
+        ff_dim=1024,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor_symmetric",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor_symmetric",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor_symmetric",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor_symmetric",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_1024_sym_16l"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    ########################################################################
+    # FF 512 and 1024 with sym bigger RELU
+    network_module_v1_relu = "ctc.qat_0711.full_qat_v1_relu"
+    frontend_config_sub6_512 = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6_512,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=16,
+        num_heads=4,
+        ff_dim=1024,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor_symmetric",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor_symmetric",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor_symmetric",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor_symmetric",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_relu,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_relu + f"_8_8_512_1024_sym_16l"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    #############################################################################################
+    # ReLu
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_relu,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_relu + f"_8_8_relu"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    #############################################################################################
+    # ReLu bias variants
+    network_module_v1_relu_before = "ctc.qat_0711.full_qat_v1_rel_bias_before"
+    network_module_v1_relu_after = "ctc.qat_0711.full_qat_v1_rel_bias_after"
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_relu,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_relu + f"_8_8_relu"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_relu_before,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_relu_before + f"_8_8"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_relu_after,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_relu_after + f"_8_8"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    #############################################################################################
+    # Mean Absolute Norm
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_mean,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_mean + f"_8_8_meanabs"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    #############################################################################################
+    # No Norm
+    network_module_v1_no_norm = "ctc.qat_0711.full_qat_v1_no_norm"
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v1_no_norm,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v1_no_norm + f"_8_8"
+    train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "/greedy",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_bpe256,
+        decoder_config=as_training_greedy_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        prior_scales=[0.0],
+        lm_scales=[0.0],
+        with_prior=False,
+    )
+    generate_report(results=results, exp_name=training_name + "_greedy")
+    qat_report[training_name + "_greedy"] = results
+
+    tk.register_report("reports/qat_report_bpe", partial(build_qat_report, qat_report), required=qat_report)

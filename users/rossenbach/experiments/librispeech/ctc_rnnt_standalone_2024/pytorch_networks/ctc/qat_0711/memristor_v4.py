@@ -1,4 +1,5 @@
 """
+v4 adds num cycles
 """
 
 import math
@@ -19,7 +20,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .memristor_v1_cfg import (
+from .memristor_v4_cfg import (
     QuantModelTrainConfigV4,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
@@ -27,8 +28,7 @@ from .memristor_v1_cfg import (
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .memristor_v2_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
-from torch_memristor.memristor_modules import TiledMemristorLinear
+from .memristor_v4_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
 from torch.nn.quantized._reference.modules import Conv1d
 
 
@@ -40,6 +40,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
     def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV4Config):
         super().__init__()
 
+        self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
         self.linear_ff = LinearQuant(
             in_features=cfg.input_dim,
@@ -114,6 +115,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
         self.linear_ff.weight_quantizer.set_scale_and_zp()
         self.lin_1_in_quant.set_scale_and_zp()
+        from torch_memristor.memristor_modules import TiledMemristorLinear
+
         mem_lin = TiledMemristorLinear(
             in_features=self.linear_ff.in_features,
             out_features=self.linear_ff.out_features,
@@ -125,6 +128,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.lin_1_in_quant,
             linear_quant=self.linear_ff,
+            num_cycles=self.model_cfg.num_cycles,
         )
         self.linear_ff = mem_lin
 
@@ -138,7 +142,11 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             memristor_inputs=128,
             memristor_outputs=128,
         )
-        mem_lin.init_from_linear_quant(activation_quant=self.lin_2_in_quant, linear_quant=self.linear_out)
+        mem_lin.init_from_linear_quant(
+            activation_quant=self.lin_2_in_quant,
+            linear_quant=self.linear_out,
+            num_cycles=self.model_cfg.num_cycles,
+        )
         self.linear_out = mem_lin
         self.lin_1_in_quant = nn.Identity()
         self.lin_2_in_quant = nn.Identity()
@@ -305,6 +313,8 @@ class ConformerConvolutionQuant(nn.Module):
     def prep_quant(self, decompose: bool):
         self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
         self.pconv_1_in_quant.set_scale_and_zp()
+        from torch_memristor.memristor_modules import TiledMemristorLinear
+
         mem_lin = TiledMemristorLinear(
             in_features=self.pointwise_conv1.in_features,
             out_features=self.pointwise_conv1.out_features,
@@ -318,6 +328,7 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.pconv_1_in_quant,
             linear_quant=self.pointwise_conv1,
+            num_cycles=self.model_cfg.num_cycles,
         )
         self.pointwise_conv1 = mem_lin
 
@@ -350,6 +361,7 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.pconv_2_in_quant,
             linear_quant=self.pointwise_conv2,
+            num_cycles=self.model_cfg.num_cycles,
         )
         self.pointwise_conv2 = mem_lin
         self.pconv_1_in_quant = nn.Identity()
@@ -482,6 +494,7 @@ class Model(torch.nn.Module):
                     weight_bit_prec=self.train_config.weight_bit_prec,
                     activation_bit_prec=self.train_config.activation_bit_prec,
                     converter_hardware_settings=self.train_config.converter_hardware_settings,
+                    num_cycles=self.train_config.num_cycles,
                 ),
                 mhsa_cfg=QuantizedMultiheadAttentionV4Config(
                     input_dim=conformer_size,
@@ -506,6 +519,7 @@ class Model(torch.nn.Module):
                     moving_average=self.train_config.moving_average,
                     quant_in_linear=self.train_config.quant_in_linear,
                     converter_hardware_settings=self.train_config.converter_hardware_settings,
+                    num_cycles=self.train_config.num_cycles,
                 ),
                 conv_cfg=ConformerConvolutionQuantV4Config(
                     channels=conformer_size,
@@ -521,6 +535,7 @@ class Model(torch.nn.Module):
                     activation_quant_method=self.train_config.activation_quant_method,
                     moving_average=self.train_config.moving_average,
                     converter_hardware_settings=self.train_config.converter_hardware_settings,
+                    num_cycles=self.train_config.num_cycles,
                 ),
             ),
         )
@@ -602,6 +617,8 @@ class Model(torch.nn.Module):
         if self.train_config.quantize_output is True:
             self.lin_out.weight_quantizer.set_scale_and_zp()
             self.lin_out_in_quant.set_scale_and_zp()
+            from torch_memristor.memristor_modules import TiledMemristorLinear
+
             mem_lin = TiledMemristorLinear(
                 in_features=self.lin_out.in_features,
                 out_features=self.lin_out.out_features * 2,
@@ -613,6 +630,7 @@ class Model(torch.nn.Module):
             mem_lin.init_from_linear_quant(
                 activation_quant=self.lin_out_in_quant,
                 linear_quant=self.lin_out,
+                num_cycles=self.train_config.num_cycles,
             )
             self.final_linear = mem_lin
         self.conformer.prep_quant(decompose=decompose)

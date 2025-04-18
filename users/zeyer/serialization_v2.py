@@ -192,9 +192,9 @@ class _Serializer:
         queue.reverse()  # we will pop from the end
         while queue:
             deferred_state: Optional[_DeferredStateQueueItem] = None
+            queue_item = queue[-1]
+            self._cur_added_refs.clear()
             try:
-                queue_item = queue[-1]
-                self._cur_added_refs.clear()
                 if isinstance(queue_item, _AssignQueueItem):
                     deferred_state = self._handle_next_queue_item(queue_item)
                 elif isinstance(queue_item, _DeferredStateQueueItem):
@@ -204,6 +204,7 @@ class _Serializer:
                 assert queue[-1] is queue_item
                 queue.pop(-1)
             except _SerializationDependsOnNotYetSerializedOtherVarException as exc:
+                exc.queue_item.via_queue_item = queue_item
                 queue.append(exc.queue_item)
                 for code in self._cur_added_refs:
                     code.ref_count -= 1
@@ -223,13 +224,13 @@ class _Serializer:
                 assign.py_code = new_assign.py_code
         self._next_assignment_idx += 1
 
-    def _handle_next_queue_item(self, queue_item: _AssignQueueItem):
+    def _handle_next_queue_item(self, queue_item: _AssignQueueItem) -> Optional[_DeferredStateQueueItem]:
         value_ref = _Ref(queue_item.value)
         if queue_item.required_var_name:
             assert queue_item.required_var_name not in self.assignments_dict_by_name
         if not queue_item.required_var_name and value_ref in self.assignments_dict_by_value_ref:
             # No need to assign it again.
-            return
+            return None
         name = queue_item.required_var_name
         if not name and value_ref in _InternalReservedNamesByValueRef:
             name = self._get_unique_suggested_name(
@@ -247,10 +248,11 @@ class _Serializer:
         if not name:
             name = self._get_unique_suggested_name(self._suggest_name_from_value(queue_item.value))
         serialized = self._serialize_value_assignment(value=queue_item.value, name=name)
-        deferred_state = None
+        deferred_state: Optional[_DeferredStateQueueItem] = None
         if isinstance(serialized, _PyCodeWithDeferredStateQueueItem):
             serialized, deferred_state = serialized.code, serialized.extra
             serialized.has_later_state_setup = True
+            deferred_state.via_queue_item = queue_item
         assert isinstance(serialized, PyCode)
         serialized.idx = self._next_assignment_idx
         self._next_assignment_idx += 1
@@ -289,14 +291,14 @@ class _Serializer:
                 code_lines.append(f"{name}.append({item_s.py_inline()})\n")
 
         if dictitems is not None:
-            for key, value in dictitems:
+            for key, v in dictitems:
                 serialized_key = self._serialize_value(key, prefix=f"{name}_key", recursive=True)
                 assert isinstance(serialized_key, PyEvalCode)
                 if (isinstance(key, str) and is_valid_python_identifier_name(key)) or isinstance(key, (int, bool)):
                     prefix_name = str(key)
                 else:
                     prefix_name = "value"
-                serialized_value = self._serialize_value(value, prefix=f"{name}_{prefix_name}", recursive=True)
+                serialized_value = self._serialize_value(v, prefix=f"{name}_{prefix_name}", recursive=True)
                 assert isinstance(serialized_value, PyEvalCode)
                 code_lines.append(f"{name}[{serialized_key.py_inline()}] = {serialized_value.py_inline()}\n")
 
@@ -317,7 +319,11 @@ class _Serializer:
                         assert isinstance(state_s, PyEvalCode)
                         code_lines.append(f"{name}.__dict__.update({state_s.py_inline()})\n")
                     if slotstate:
-                        raise NotImplementedError  # not handled yet
+                        # not handled yet
+                        raise NotImplementedError(
+                            f"serialize {rv.py_name} = {rv.value!r} with slotstate {slotstate!r},"
+                            f" via {rv.debug_trace()}"
+                        )
 
             else:
                 raise NotImplementedError  # not handled yet
@@ -852,6 +858,16 @@ class _AssignQueueItem:
     required_var_name: Optional[str] = None
     suggested_var_name: Optional[str] = None
 
+    via_queue_item: Optional[_AssignQueueItem] = None  # for debugging
+
+    def debug_trace(self) -> str:
+        if self.via_queue_item:
+            return (
+                f"{self.required_var_name or self.suggested_var_name} <{type(self.value).__name__}>"
+                f" -> {self.via_queue_item.debug_trace()}"
+            )
+        return f"config {self.required_var_name or self.suggested_var_name} = {self.value!r}"
+
 
 @dataclass
 class PyCode(SerializerObject):
@@ -918,6 +934,13 @@ class _DeferredStateQueueItem:
     listitems: Optional[Sequence[Any]] = None
     dictitems: Optional[Sequence[Tuple[Any, Any]]] = None
     state_setter: Optional[Any] = None
+
+    via_queue_item: Optional[_AssignQueueItem] = None  # only for debugging
+
+    def debug_trace(self) -> str:
+        if self.via_queue_item:
+            return f"{self.py_name} <{type(self.value).__name__}> -> {self.via_queue_item.debug_trace()}"
+        return "<unknown>"
 
 
 class _Ref:

@@ -122,6 +122,7 @@ def aed_bpe_ls960_1024_base():
                 decoder_config: BeamSearchDecoderConfig,
                 seed: Optional[int] = None,
                 use_gpu: bool = False,
+                decoder_module: str = "aed.decoder.beam_search_single_v1"
         ):
             # remove prior if exists
             asr_model = copy.deepcopy(asr_model)
@@ -132,7 +133,7 @@ def aed_bpe_ls960_1024_base():
                 search_name,
                 forward_config={"max_seqs": 20} if seed is None else {"max_seqs": 20, "seed": seed},
                 asr_model=asr_model,
-                decoder_module="aed.decoder.beam_search_single_v1",
+                decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 use_gpu=use_gpu,
                 debug=True,
@@ -148,6 +149,7 @@ def aed_bpe_ls960_1024_base():
                 seed: Optional[int] = None,
                 use_gpu: bool = False,
                 dev_only=True,
+                decoder_module: str = "aed.decoder.beam_search_single_v1_with_lm",
         ):
             # remove prior if exists
             asr_model = copy.deepcopy(asr_model)
@@ -158,7 +160,7 @@ def aed_bpe_ls960_1024_base():
                 search_name,
                 forward_config={"max_seqs": 20} if seed is None else {"max_seqs": 20, "seed": seed},
                 asr_model=asr_model,
-                decoder_module="aed.decoder.beam_search_single_v1_with_lm",
+                decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 use_gpu=use_gpu,
                 debug=True,
@@ -378,6 +380,166 @@ def aed_bpe_ls960_1024_base():
                 use_gpu=True,
             )
 
+            from ...pytorch_networks.aed.decoder.beam_search_single_v1_with_zero_ilm import \
+                DecoderConfig as BeamSearchZeroLmDecoderConfig
+
+            if BPE_SIZE == 5000:
+                # Mini-LSTM training
+                from ...pytorch_networks.aed.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_LSTMDecoder_minilstm_v1_cfg import ModelConfig as MiniLstmModelConfig
+                d = asdict(model_zeineldeen_config)
+                d["mini_lstm_do_training"] = True
+                d["mini_lstm_hidden_size"] = 50
+                minilstm_config = MiniLstmModelConfig(**d)
+                train_config_mini_lstm = copy.deepcopy(train_config_24gbgpu_amp_july_baseline)
+                train_config_mini_lstm["learning_rates"] = list(np.linspace(5e-4, 1e-5, 50))
+                train_config_mini_lstm["import_model_train_epoch1"] = train_job.out_checkpoints[1000]
+                train_config_mini_lstm["load_ignore_missing_vars"] = True
+                train_args_mini_lstm = {
+                    "config": train_config_mini_lstm,
+                    "network_module": "aed.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_LSTMDecoder_minilstm_v1",
+                    "net_args": {"model_config_dict": asdict(minilstm_config)},
+                    "debug": True,
+                }
+                mini_training_name = prefix_name + "/" + network_module + ".512dim_sub6_48gbgpu4w_100eps_highlr_bs300_minilstm_train"
+                minilstm_train_job = training(mini_training_name, train_data_bpe_48gb, train_args_mini_lstm, num_epochs=50, **default_returnn)
+                minilstm_train_job.rqmt["gpu_mem"] = 24
+                asr_model_with_minilstm = prepare_asr_model(
+                    training_name, minilstm_train_job, train_args_mini_lstm, with_prior=False, datasets=train_data_bpe,
+                    get_specific_checkpoint=50,
+                )
+                
+                neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
+                for beam_size in [12, 32]:
+                    for lm_scale in [0.30, 0.35, 0.40, 0.45]:
+                        for ilm_scale in [0.1, 0.15, 0.2, 0.25]:
+                            beam_search_with_lm_prototype(
+                                training_name + "/minilstm_ilm/lm%.2f_minlstm_ilm%.2f_bs%i" % (lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model_with_minilstm,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_minilstm_ilm"
+                            )
+
+                d = asdict(model_zeineldeen_config)
+                d["mini_lstm_do_training"] = True
+                d["mini_lstm_hidden_size"] = 200
+                d["specauc_start_epoch"] = 1
+                d["label_smoothing_start_epoch"] = 1
+                minilstm_config = MiniLstmModelConfig(**d)
+                train_config_mini_lstm = copy.deepcopy(train_config_24gbgpu_amp_july_baseline)
+                train_config_mini_lstm["learning_rates"] = list(np.linspace(7e-4, 1e-5, 50))
+                train_config_mini_lstm["import_model_train_epoch1"] = train_job.out_checkpoints[1000]
+                train_config_mini_lstm["load_ignore_missing_vars"] = True
+                train_args_mini_lstm = {
+                    "config": train_config_mini_lstm,
+                    "network_module": "aed.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_LSTMDecoder_minilstm_v2",
+                    "net_args": {"model_config_dict": asdict(minilstm_config)},
+                    "debug": True,
+                }
+                mini_training_name = prefix_name + "/" + network_module + ".512dim_sub6_48gbgpu4w_100eps_highlr_bs300_minilstm_train_v2"
+                minilstm_train_job = training(mini_training_name, train_data_bpe_48gb, train_args_mini_lstm,
+                                              num_epochs=50, **default_returnn)
+                minilstm_train_job.rqmt["gpu_mem"] = 24
+                asr_model_with_minilstm = prepare_asr_model(
+                    training_name, minilstm_train_job, train_args_mini_lstm, with_prior=False, datasets=train_data_bpe,
+                    get_specific_checkpoint=50,
+                )
+
+                neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
+                for beam_size in [12, 32]:
+                    for lm_scale in [0.30, 0.35, 0.40, 0.45]:
+                        for ilm_scale in [0.1, 0.15, 0.2, 0.25]:
+                            beam_search_with_lm_prototype(
+                                training_name + "/minilstmv2_ilm/lm%.2f_minlstm_ilm%.2f_bs%i" % (
+                                lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model_with_minilstm,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_minilstm_ilm"
+                            )
+
+            if BPE_SIZE == 5000:
+                neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
+                for beam_size in [12]:
+                    for lm_scale in [0.30, 0.35, 0.40, 0.45]:
+                        for ilm_scale in [0.0, 0.05, 0.1, 0.15, 0.2, 0.25]:
+                            beam_search_with_lm_prototype(
+                                training_name + "/zeroilm/lm%.2f_ilm%.2f_bs%i" % (lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm"
+                            )
+                            beam_search_with_lm_prototype(
+                                training_name + "/zeroilm_deocder_state/lm%.2f_ilm%.2f_bs%i" % (lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm_decoder_state"
+                            )
+
+
+
             train_args_4worker_veryhighlr_bs300 = copy.deepcopy(train_args_4worker_highlr_bs300)
             train_args_4worker_veryhighlr_bs300["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-5, 20)) + list(
                 np.linspace(5e-5, 9e-4, 460)) + list(np.linspace(9e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40))
@@ -405,28 +567,77 @@ def aed_bpe_ls960_1024_base():
                 use_gpu=True,
             )
 
+            if BPE_SIZE == 5000:
+                neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
+                for beam_size in [12]:
+                    for lm_scale in [0.26, 0.28, 0.30, 0.32, 0.34]:
+                        beam_search_with_lm_prototype(
+                            training_name + "/lm3ep_%.2f_bs%i" % (lm_scale, beam_size),
+                            asr_model=asr_model,
+                            decoder_config=BeamSearchLmDecoderConfig(
+                                returnn_vocab=label_datastream_bpe5000.vocab,
+                                beam_search_opts=BeamSearchOpts(
+                                    beam_size=beam_size,
+                                    length_normalization_exponent=1.0,
+                                   length_reward=0.0,
+                                    bos_label=0,
+                                    eos_label=0,
+                                    num_labels=label_datastream_bpe5000.vocab_size,
+                                ),
+                                lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                lm_args=neural_lm.net_args,
+                                lm_checkpoint=neural_lm.checkpoint,
+                                lm_scale=lm_scale,
+                            ),
+                            use_gpu=True,
+                        )
+                    for lm_scale in [0.30, 0.35, 0.40, 0.45]:
+                        for ilm_scale in [0.1, 0.15, 0.2, 0.25]:
+                            beam_search_with_lm_prototype(
+                                training_name + "/zeroilm/lm%.2f_ilm%.2f_bs%i" % (lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm"
+                            )
+                    for lm_scale in [0.30, 0.35, 0.40, 0.45]:
+                        for ilm_scale in [0.1, 0.15, 0.2, 0.25]:
+                            beam_search_with_lm_prototype(
+                                training_name + "/avgilm/lm%.2f_ilm%.2f_bs%i" % (
+                                lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_avg_ilm"
+                            )
 
-
-        # neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
-        # for beam_size in [12]:
-        #     for lm_scale in [0.26, 0.28, 0.30, 0.32, 0.34]:
-        #         beam_search_with_lm_prototype(
-        #             training_name + "/lm3ep_%.2f_bs%i" % (lm_scale, beam_size),
-        #             asr_model=asr_model,
-        #             decoder_config=BeamSearchLmDecoderConfig(
-        #                 returnn_vocab=label_datastream_bpe5000.vocab,
-        #                 beam_search_opts=BeamSearchOpts(
-        #                     beam_size=beam_size,
-        #                     length_normalization_exponent=1.0,
-        #                    length_reward=0.0,
-        #                     bos_label=0,
-        #                     eos_label=0,
-        #                     num_labels=label_datastream_bpe5000.vocab_size,
-        #                 ),
-        #                 lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
-        #                 lm_args=neural_lm.net_args,
-        #                 lm_checkpoint=neural_lm.checkpoint,
-        #                 lm_scale=lm_scale,
-        #             ),
-        #             use_gpu=True,
-        #         )

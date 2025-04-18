@@ -12,7 +12,7 @@ from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from sisyphus import tk
 
 if TYPE_CHECKING:
-    from returnn.tensor import TensorDict, Tensor
+    from returnn.tensor import TensorDict, Tensor, Dim
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
@@ -282,6 +282,19 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
         )
+    elif train_def.__name__ == "ce_training":
+        targets_indices = None
+        if "targets_indices" in extern_data:
+            targets_indices = extern_data["targets_indices"]
+            
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            targets_indices=targets_indices
+        )
     else:
         train_def(
             model=model,
@@ -292,7 +305,7 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         )
 
 
-class ExtendedTrainDef(TrainDef):
+class SumTrainDef(TrainDef):
     """
     Extended version of TrainDef, which also allows to return some additional values.
     """
@@ -306,6 +319,23 @@ class ExtendedTrainDef(TrainDef):
         lm_path: tk.Path,
         seq_tags: Tensor = None,
         targets: Tensor,
-        targets_spatial_dim
+        targets_spatial_dim: Dim
+    ) -> Dict[str, Tensor]:
+        raise NotImplementedError
+    
+class CETrainDef(TrainDef):
+    """
+    Extended version of TrainDef, which also allows to return some additional values.
+    """
+
+    def __call__(
+        self,
+        *,
+        model: ModelT,
+        data: Tensor,
+        data_spatial_dim: Tensor,
+        targets: Tensor,
+        targets_spatial_dim: Dim,
+        targets_indices: Tensor = None
     ) -> Dict[str, Tensor]:
         raise NotImplementedError

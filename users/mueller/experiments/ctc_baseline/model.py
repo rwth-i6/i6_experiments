@@ -1,6 +1,9 @@
 import functools
 from typing import Optional, Tuple, Sequence, Dict, Any
 
+import numpy as np
+import torch
+
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
@@ -31,7 +34,8 @@ class Model(rf.Module):
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_other_opts: Optional[Dict[str, Any]] = None,
         train_language_model: Optional[FeedForwardLm] = None,
-        recog_language_model: Optional[FeedForwardLm] = None
+        recog_language_model: Optional[FeedForwardLm] = None,
+        output_bias_init: Optional[str] = None,
     ):
         super(Model, self).__init__()
 
@@ -89,9 +93,18 @@ class Model(rf.Module):
 
         if not wb_target_dim:
             wb_target_dim = target_dim + 1
+        bias_init = None
+        if output_bias_init is not None:
+            bias_init = np.loadtxt(output_bias_init, dtype="float32")
+            bias_init = rf.convert_to_tensor(torch.tensor(bias_init), dims=[wb_target_dim], dtype="float32", name="bias_init")
         for i in enc_aux_logits:
-            setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+            enc_aux_logits_tmp = rf.Linear(self.encoder.out_dim, wb_target_dim)
+            if bias_init is not None:
+                enc_aux_logits_tmp.bias.initial = bias_init
+            setattr(self, f"enc_aux_logits_{i}", enc_aux_logits_tmp)
         self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
+        if bias_init is not None:
+            self.enc_logits.bias.initial = bias_init
         self.wb_target_dim = wb_target_dim
         self.out_blank_separated = config.bool("out_blank_separated", False)
 

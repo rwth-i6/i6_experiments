@@ -1,9 +1,8 @@
 import copy
 from dataclasses import asdict
 import numpy as np
-from typing import cast, List
+from typing import cast
 
-from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from sisyphus import tk
 from functools import partial
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -15,14 +14,15 @@ from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, calculate_blank_counts
 from .tune_eval import build_base_report, eval_model, build_hubert_distill_report
 from ...report import generate_report
+import os
 
 
 def eow_phon_ls960_distill_base():
     prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon/baselines"
 
     train_settings = DatasetSettings(
-        preemphasis=0.97,  # TODO: Check if this is really useful
-        peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+        preemphasis=0.97,
+        peak_normalization=True,
         # training
         train_partition_epoch=10,
         train_seq_ordering="laplace:.1000",
@@ -92,135 +92,12 @@ def eow_phon_ls960_distill_base():
     )
 
     report = {}
-    if False:
-        for dim in [384, 512]:
-            for spec_start in [1]:
-                for epochs in [500, 1000]:
-                    for spec in [16]:
-                        for num_heads in [8]:
-                            if dim == 512 and num_heads == 12:
-                                continue
-                            frontend_config = VGG4LayerActFrontendV1Config_mod(
-                                in_features=80,
-                                conv1_channels=32,
-                                conv2_channels=64,
-                                conv3_channels=64,
-                                conv4_channels=32,
-                                conv_kernel_size=(3, 3),
-                                conv_padding=None,
-                                pool1_kernel_size=(2, 1),
-                                pool1_stride=(2, 1),
-                                pool1_padding=None,
-                                pool2_kernel_size=(2, 1),
-                                pool2_stride=(2, 1),
-                                pool2_padding=None,
-                                activation_str="ReLU",
-                                out_features=dim,
-                                activation=None,
-                            )
-                            specaug_config_test = SpecaugConfig(
-                                repeat_per_n_frames=25,
-                                max_dim_time=20,
-                                max_dim_feat=spec,
-                                num_repeat_feat=5,
-                            )
-                            pos_emb_cfg = ConformerPosEmbConfig(
-                                learnable_pos_emb=False,
-                                rel_pos_clip=16,
-                                with_linear_pos=True,
-                                with_pos_bias=True,
-                                separate_pos_emb_per_head=True,
-                                pos_emb_dropout=0.0,
-                            )
-                            model_config_pos_enc = RelPosModelConfigV1(
-                                feature_extraction_config=fe_config,
-                                frontend_config=frontend_config,
-                                specaug_config=specaug_config_test,
-                                label_target_size=vocab_size_without_blank,
-                                pos_emb_config=pos_emb_cfg,
-                                conformer_size=dim,
-                                num_layers=12,
-                                num_heads=num_heads,
-                                ff_dim=4 * dim,
-                                att_weights_dropout=0.1,
-                                conv_dropout=0.1,
-                                ff_dropout=0.1,
-                                mhsa_dropout=0.1,
-                                mhsa_with_bias=True,
-                                conv_kernel_size=31,
-                                final_dropout=0.1,
-                                dropout_broadcast_axes=None,
-                                specauc_start_epoch=spec_start,
-                                module_list=["ff", "conv", "mhsa", "ff"],
-                                module_scales=[0.5, 1.0, 1.0, 0.5],
-                                aux_ctc_loss_layers=None,
-                                aux_ctc_loss_scales=None,
-                            )
-                            network_module_pos_enc = (
-                                "ctc.conformer_distill_1007.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
-                            )
-                            train_config = {
-                                "optimizer": {
-                                    "class": "radam",
-                                    "epsilon": 1e-16,
-                                    "weight_decay": 1e-2,
-                                    "decoupled_weight_decay": True,
-                                },
-                                "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))  # try higher start
-                                + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
-                                + list(np.linspace(5e-5, 1e-7, 30)),
-                                #############
-                                "batch_size": 180 * 16000,
-                                "max_seq_length": {"audio_features": 35 * 16000},
-                                "accum_grad_multiple_step": 1,
-                            }
-                            train_args = {
-                                "config": train_config,
-                                "network_module": network_module_pos_enc,
-                                "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
-                                "debug": True,
-                            }
-                            results = {}
-                            training_name = (
-                                prefix_name
-                                + "/"
-                                + network_module_pos_enc
-                                + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
-                            )
-                            train_job = training(
-                                training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-                            )
-
-                            results = eval_model(
-                                training_name=training_name,
-                                train_job=train_job,
-                                train_args=train_args,
-                                train_data=train_data,
-                                decoder_config=default_decoder_config,
-                                dev_dataset_tuples=dev_dataset_tuples,
-                                result_dict=results,
-                                loss_name=f"ctc_loss_layer12",
-                                specific_epoch=epochs,
-                                lm_scales=[2.2, 2.4, 2.6, 2.8, 3.0],
-                                prior_scales=[0.1, 0.2, 0.3, 0.5],
-                                run_test=True,
-                                test_dataset_tuples=test_dataset_tuples,
-                            )
-                            generate_report(results=results, exp_name=training_name)
-                            report[training_name] = results
-                            del results
-        tk.register_report(
-            "reports/ls_baselines_report", partial(build_base_report, report), required=report, update_frequency=900
-        )
-    report = {}
     for dim in [384, 512]:
         for spec_start in [1]:
             for epochs in [500, 1000]:
                 for spec in [16]:
-                    for num_heads in [8, 12]:
-                        for drop in [0.1, 0.0]:
-                            if dim == 512 and num_heads == 12:
-                                continue
+                    for num_heads in [8]:
+                        for drop in [0.1]:
                             frontend_config = VGG4LayerActFrontendV1Config_mod(
                                 in_features=80,
                                 conv1_channels=32,
@@ -286,7 +163,7 @@ def eow_phon_ls960_distill_base():
                                 + list(np.linspace(5e-4, 5e-5, (epochs - 40) // 2))
                                 + list(np.linspace(5e-5, 1e-7, 40)),
                                 #############
-                                "batch_size": 300 * 16000,  # TODO check if batch causes issues
+                                "batch_size": 300 * 16000,
                                 "max_seq_length": {"audio_features": 35 * 16000},
                                 "accum_grad_multiple_step": 1,
                                 "torch_amp_options": {"dtype": "bfloat16"},
@@ -305,7 +182,7 @@ def eow_phon_ls960_distill_base():
                                 prefix_name
                                 + "/"
                                 + network_module_pos_enc
-                                + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}"
+                                + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_{drop}"
                             )
                             train_job = training(
                                 training_name, train_data, train_args, num_epochs=epochs, **default_returnn
@@ -343,287 +220,8 @@ def eow_phon_ls960_distill_base():
                             )
                             tk.register_output(training_name + "/" + "blank_counts", blank_counts)
 
-                            if (
-                                drop == 0.1
-                                and dim == 384
-                                and num_heads == 8
-                                and spec == 16
-                                and spec_start == 1
-                                and epochs == 500
-                            ):
-                                train_config_nowd = {
-                                    "optimizer": {"class": "adamw", "epsilon": 1e-16},
-                                    "learning_rates": list(
-                                        np.linspace(7e-6, 5e-4, (epochs - 40) // 2)
-                                    )  # try higher start
-                                    + list(np.linspace(5e-4, 5e-5, (epochs - 40) // 2))
-                                    + list(np.linspace(5e-5, 1e-7, 40)),
-                                    #############
-                                    "batch_size": 300 * 16000,  # TODO check if batch causes issues
-                                    "max_seq_length": {"audio_features": 35 * 16000},
-                                    "accum_grad_multiple_step": 1,
-                                    "torch_amp_options": {"dtype": "bfloat16"},
-                                    "gradient_clip_norm": 1.0,
-                                }
-                                # batch size, adamw, speed pert, gradient clip,
-                                train_args = {
-                                    "config": train_config_nowd,
-                                    "network_module": network_module_pos_enc,
-                                    "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
-                                    "debug": True,
-                                    "use_speed_perturbation": True,
-                                }
-                                results = {}
-                                training_name = (
-                                    prefix_name
-                                    + "/"
-                                    + network_module_pos_enc
-                                    + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}_nowd"
-                                )
-                                train_job = training(
-                                    training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-                                )
-                                if dim == 512:
-                                    train_job.rqmt["gpu_mem"] = 24
-                                elif dim == 384:
-                                    train_job.rqmt["gpu_mem"] = 48
-
-                                results = eval_model(
-                                    training_name=training_name,
-                                    train_job=train_job,
-                                    train_args=train_args,
-                                    train_data=train_data,
-                                    decoder_config=default_decoder_config,
-                                    dev_dataset_tuples=dev_dataset_tuples,
-                                    result_dict=results,
-                                    loss_name=f"ctc_loss_layer12",
-                                    specific_epoch=epochs,
-                                    lm_scales=[2.0, 2.2, 2.4, 2.6],
-                                    prior_scales=[0.1, 0.2, 0.3],
-                                    run_test=True,
-                                    test_dataset_tuples=test_dataset_tuples,
-                                )
-                                generate_report(results=results, exp_name=training_name)
-                                report[training_name] = results
-                                del results
-
-                                for feat, time in [(2, 12)]:
-                                    specaug_config_less = SpecaugConfig(
-                                        repeat_per_n_frames=feat,
-                                        max_dim_time=20,
-                                        max_dim_feat=spec,
-                                        num_repeat_feat=time,
-                                    )
-                                    model_config_pos_enc_lessspec = RelPosModelConfigV1(
-                                        feature_extraction_config=fe_config,
-                                        frontend_config=frontend_config,
-                                        specaug_config=specaug_config_less,
-                                        label_target_size=vocab_size_without_blank,
-                                        pos_emb_config=pos_emb_cfg,
-                                        conformer_size=dim,
-                                        num_layers=12,
-                                        num_heads=num_heads,
-                                        ff_dim=4 * dim,
-                                        att_weights_dropout=drop,
-                                        conv_dropout=drop,
-                                        ff_dropout=drop,
-                                        mhsa_dropout=drop,
-                                        mhsa_with_bias=True,
-                                        conv_kernel_size=31,
-                                        final_dropout=drop,
-                                        dropout_broadcast_axes=None,
-                                        specauc_start_epoch=spec_start,
-                                        module_list=["ff", "conv", "mhsa", "ff"],
-                                        module_scales=[0.5, 1.0, 1.0, 0.5],
-                                        aux_ctc_loss_layers=None,
-                                        aux_ctc_loss_scales=None,
-                                    )
-                                    network_module_pos_enc = (
-                                        "ctc.conformer_distill_1007.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
-                                    )
-                                    train_config = {
-                                        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
-                                        "learning_rates": list(
-                                            np.linspace(7e-6, 5e-4, (epochs - 40) // 2)
-                                        )  # try higher start
-                                        + list(np.linspace(5e-4, 5e-5, (epochs - 40) // 2))
-                                        + list(np.linspace(5e-5, 1e-7, 40)),
-                                        #############
-                                        "batch_size": 300 * 16000,  # TODO check if batch causes issues
-                                        "max_seq_length": {"audio_features": 35 * 16000},
-                                        "accum_grad_multiple_step": 1,
-                                        "torch_amp_options": {"dtype": "bfloat16"},
-                                        "gradient_clip_norm": 1.0,
-                                    }
-                                    # batch size, adamw, speed pert, gradient clip,
-                                    train_args = {
-                                        "config": train_config,
-                                        "network_module": network_module_pos_enc,
-                                        "net_args": {"model_config_dict": asdict(model_config_pos_enc_lessspec)},
-                                        "debug": True,
-                                        "use_speed_perturbation": True,
-                                    }
-                                    results = {}
-                                    training_name = (
-                                        prefix_name
-                                        + "/"
-                                        + network_module_pos_enc
-                                        + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}_lessspec"
-                                    )
-                                    train_job = training(
-                                        training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-                                    )
-                                    if dim == 512:
-                                        train_job.rqmt["gpu_mem"] = 24
-                                    elif dim == 384:
-                                        train_job.rqmt["gpu_mem"] = 48
-
-                                    results = eval_model(
-                                        training_name=training_name,
-                                        train_job=train_job,
-                                        train_args=train_args,
-                                        train_data=train_data,
-                                        decoder_config=default_decoder_config,
-                                        dev_dataset_tuples=dev_dataset_tuples,
-                                        result_dict=results,
-                                        loss_name=f"ctc_loss_layer12",
-                                        specific_epoch=epochs,
-                                        lm_scales=[2.0, 2.2, 2.4, 2.6],
-                                        prior_scales=[0.1, 0.2, 0.3],
-                                        run_test=True,
-                                        test_dataset_tuples=test_dataset_tuples,
-                                    )
-                                    generate_report(results=results, exp_name=training_name)
-                                    report[training_name] = results
-                                    del results
-
-    from ...pytorch_networks.ctc.conformer_distill_1007.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1_cfg import (
-        ModelConfig as ModelConfigAux,
-    )
-
-    for dim in [384]:
-        for spec_start in [1]:
-            for epochs in [500, 1000]:
-                for spec in [8]:
-                    for num_heads in [4, 8]:
-                        for drop in [0.2, 0.1, 0.0]:
-                            if dim == 512 and num_heads == 12:
-                                continue
-                            if num_heads > 4 and not drop == 0.1:
-                                continue
-                            frontend_config = VGG4LayerActFrontendV1Config_mod(
-                                in_features=80,
-                                conv1_channels=32,
-                                conv2_channels=64,
-                                conv3_channels=64,
-                                conv4_channels=32,
-                                conv_kernel_size=(3, 3),
-                                conv_padding=None,
-                                pool1_kernel_size=(2, 1),
-                                pool1_stride=(2, 1),
-                                pool1_padding=None,
-                                pool2_kernel_size=(2, 1),
-                                pool2_stride=(2, 1),
-                                pool2_padding=None,
-                                activation_str="ReLU",
-                                out_features=dim,
-                                activation=None,
-                            )
-                            specaug_config_test = SpecaugConfig(
-                                repeat_per_n_frames=25,
-                                max_dim_time=20,
-                                max_dim_feat=spec,
-                                num_repeat_feat=5,
-                            )
-                            model_config_aux = ModelConfigAux(
-                                feature_extraction_config=fe_config,
-                                frontend_config=frontend_config,
-                                specaug_config=specaug_config_test,
-                                label_target_size=vocab_size_without_blank,
-                                conformer_size=dim,
-                                num_layers=12,
-                                num_heads=num_heads,
-                                ff_dim=4 * dim,
-                                att_weights_dropout=drop,
-                                conv_dropout=drop,
-                                ff_dropout=drop,
-                                mhsa_dropout=drop,
-                                conv_kernel_size=31,
-                                final_dropout=drop,
-                                specauc_start_epoch=spec_start,
-                                module_list=["ff", "conv", "mhsa", "ff"],
-                                module_scales=[0.5, 1.0, 1.0, 0.5],
-                                aux_ctc_loss_layers=[3, 7, 11],  # 4, 8, 12 when counting from 1
-                                aux_ctc_loss_scales=[0.3, 0.3, 1.0],
-                            )
-                            model_config_decoding = copy.deepcopy(model_config_aux)
-                            model_config_decoding.aux_ctc_loss_scales = [
-                                0.0,
-                                0.0,
-                                1.0,
-                            ]  # for decoding use result only of last layer
-                            network_module_aux = (
-                                "ctc.conformer_distill_1007.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1"
-                            )
-                            train_config = {
-                                "optimizer": {
-                                    "class": "radam",
-                                    "epsilon": 1e-16,
-                                    "weight_decay": 1e-2,
-                                    "decoupled_weight_decay": True,
-                                },
-                                "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))  # try higher start
-                                + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
-                                + list(np.linspace(5e-5, 1e-7, 30)),
-                                #############
-                                "batch_size": 300 * 16000,
-                                "max_seq_length": {"audio_features": 35 * 16000},
-                                "accum_grad_multiple_step": 1,
-                                "torch_amp_options": {"dtype": "bfloat16"},
-                                "gradient_clip_norm": 1.0,
-                            }
-                            # batch size, adamw, speed pert, gradient clip,
-                            train_args = {
-                                "config": train_config,
-                                "network_module": network_module_aux,
-                                "net_args": {"model_config_dict": asdict(model_config_aux)},
-                                "debug": False,
-                                "use_speed_perturbation": True,
-                            }
-                            train_args_decoding = copy.deepcopy(train_args)
-                            train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding)}
-                            results = {}
-                            training_name = (
-                                prefix_name
-                                + "/"
-                                + network_module_aux
-                                + f"_baseline_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}"
-                            )
-                            train_job = training(
-                                training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-                            )
-                            train_job.rqmt["gpu_mem"] = 48
-                            results = eval_model(
-                                training_name=training_name,
-                                train_job=train_job,
-                                train_args=train_args_decoding,
-                                train_data=train_data,
-                                decoder_config=default_decoder_config,
-                                dev_dataset_tuples=dev_dataset_tuples,
-                                result_dict=results,
-                                loss_name=f"ctc_loss_layer12",
-                                specific_epoch=epochs,
-                                lm_scales=[2.0, 2.2, 2.4, 2.6],
-                                prior_scales=[0.1, 0.2, 0.3],
-                                run_test=True,
-                                test_dataset_tuples=test_dataset_tuples,
-                            )
-                            generate_report(results=results, exp_name=training_name)
-                            report[training_name] = results
-                            del results
-
     tk.register_report(
-        "reports/ls_best_report", partial(build_base_report, report), required=report, update_frequency=900
+        "reports/ls_baseline_report", partial(build_base_report, report), required=report, update_frequency=900
     )
     return report
 
@@ -632,8 +230,8 @@ def eow_phon_ls960_distill_hubert():
     prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon/hubert"
 
     train_settings = DatasetSettings(
-        preemphasis=0.97,  # TODO: Check if this is really useful
-        peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+        preemphasis=0.97,
+        peak_normalization=True,
         # training
         train_partition_epoch=10,
         train_seq_ordering="laplace:.1000",
@@ -820,15 +418,31 @@ def eow_phon_ls960_distill_hubert():
     baseline_module = "ctc.conformer_distill_1007.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
     for name, (chkpt, prior_file, prior_scale) in checkpoints.items():
         name, num, n_best = name.split("_")
-        for epochs in [500]:
+        for epochs in [500, 1000]:
             distill_report = {}
             distill_report["baselines"] = {}
             for dim, spec_start, spec, num_heads, layer_count, drop in [
-                # (512, 1, 16, 8, 12, 0.2),
                 (384, 1, 16, 8, 12, 0.1),
-                (384, 1, 16, 8, 12, 0.0),
-                # (384, 1, 16, 8, 12, 0.2),
+                (512, 1, 16, 8, 12, 0.1),
             ]:
+                if epochs > 500 and dim in [384]:
+                    continue
+                distill_report["baselines"][
+                    baseline_prefix + "/" + baseline_module + f"_500_{dim}_{num_heads}_{spec}_{spec_start}"
+                ] = baselines[
+                    baseline_prefix
+                    + "/"
+                    + baseline_module
+                    + f"_better_params_500_{dim}_{num_heads}_{spec}_{spec_start}_{drop}"
+                ]
+                distill_report["baselines"][
+                    baseline_prefix + "/" + baseline_module + f"_1000_{dim}_{num_heads}_{spec}_{spec_start}"
+                ] = baselines[
+                    baseline_prefix
+                    + "/"
+                    + baseline_module
+                    + f"_better_params_1000_{dim}_{num_heads}_{spec}_{spec_start}_{drop}"
+                ]
                 base_train_config_distill = {
                     "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
                     "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 40) // 2))  # try higher start
@@ -841,6 +455,8 @@ def eow_phon_ls960_distill_hubert():
                     "torch_amp_options": {"dtype": "bfloat16"},
                     "gradient_clip_norm": 1.0,
                 }
+                #######################################################################################################
+                ## TODO: update to v5
                 for distill_scale in [0.25, 0.9, 1.0]:
                     for T in [2]:
                         specaug_config = SpecaugConfig(
@@ -857,23 +473,6 @@ def eow_phon_ls960_distill_hubert():
                             separate_pos_emb_per_head=True,
                             pos_emb_dropout=0.0,
                         )
-                        for dropout in [0.0, 0.1]:
-                            distill_report["baselines"][
-                                baseline_prefix + "/" + baseline_module + f"_500_{dim}_{num_heads}_{spec}_{spec_start}"
-                            ] = baselines[
-                                baseline_prefix
-                                + "/"
-                                + baseline_module
-                                + f"_better_params_500_{dim}_{num_heads}_{spec}_{spec_start}_drop{dropout}"
-                            ]
-                            distill_report["baselines"][
-                                baseline_prefix + "/" + baseline_module + f"_1000_{dim}_{num_heads}_{spec}_{spec_start}"
-                            ] = baselines[
-                                baseline_prefix
-                                + "/"
-                                + baseline_module
-                                + f"_better_params_1000_{dim}_{num_heads}_{spec}_{spec_start}_drop{dropout}"
-                            ]
                         teacher_config = TeacherConfigV1(
                             distill_scale=distill_scale,
                             ctc_scale=1 - distill_scale,
@@ -931,6 +530,8 @@ def eow_phon_ls960_distill_hubert():
                             aux_ctc_loss_layers=None,
                             aux_ctc_loss_scales=None,
                         )
+                        #######################################################################################################
+                        ## Baseline distill
                         train_args_distill = {
                             "config": base_train_config_distill,
                             "network_module": distill_module_v2,
@@ -967,6 +568,10 @@ def eow_phon_ls960_distill_hubert():
                         train_job = training(
                             training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
                         )
+                        if not os.path.exists(
+                            f"{train_job._sis_path()}/finished.run.1") and epochs == 1000:  # sync back was successful
+                            train_job.hold()
+                            train_job.move_to_hpc = True
                         train_job.rqmt["gpu_mem"] = 48
                         results = eval_model(
                             training_name=training_name,
@@ -982,6 +587,8 @@ def eow_phon_ls960_distill_hubert():
                             prior_scales=[0.1, 0.2, 0.3],
                             run_test=True,
                             test_dataset_tuples=test_dataset_tuples,
+                            run_best=False,
+                            run_best_4=False,
                         )
                         generate_report(results=results, exp_name=training_name)
                         distill_report[training_name] = results
@@ -995,7 +602,8 @@ def eow_phon_ls960_distill_hubert():
                             debug=True,
                         )
                         tk.register_output(training_name + "/" + "blank_counts", blank_counts)
-
+                        #######################################################################################################
+                        ## Eliminate Blanks
                         teacher_config = TeacherConfigV1(
                             distill_scale=distill_scale,
                             ctc_scale=1 - distill_scale,
@@ -1049,6 +657,10 @@ def eow_phon_ls960_distill_hubert():
                         train_job = training(
                             training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
                         )
+                        if not os.path.exists(
+                            f"{train_job._sis_path()}/finished.run.1") and epochs == 1000:  # sync back was successful
+                            train_job.hold()
+                            train_job.move_to_hpc = True
                         train_job.rqmt["gpu_mem"] = 48
                         results = eval_model(
                             training_name=training_name,
@@ -1064,6 +676,8 @@ def eow_phon_ls960_distill_hubert():
                             prior_scales=[0.1, 0.2, 0.3],
                             run_test=True,
                             test_dataset_tuples=test_dataset_tuples,
+                            run_best=False,
+                            run_best_4=False,
                         )
                         generate_report(results=results, exp_name=training_name)
                         distill_report[training_name] = results
@@ -1077,81 +691,9 @@ def eow_phon_ls960_distill_hubert():
                             debug=True,
                         )
                         tk.register_output(training_name + "/" + "blank_counts", blank_counts)
-
-                        for keep in [1, 2, 3, 4, 5]:
-                            if keep not in [2, 4]:
-                                teacher_config = TeacherConfigV1(
-                                    distill_scale=distill_scale,
-                                    ctc_scale=1 - distill_scale,
-                                    t=T,
-                                    eliminate_blanks=True,
-                                    keep_some_blanks=keep,
-                                    model_name=name,
-                                    kd_hyps=None,
-                                    normalize_stud=False,
-                                    prior_file=None,
-                                    prior_scale=None,
-                                    warmup_loss=None,
-                                    mask_padding=False,
-                                    trim_blanks=False,
-                                )
-                                train_args_distill = {
-                                    "config": base_train_config_distill,
-                                    "network_module": distill_module_v2,
-                                    "net_args": {
-                                        "model_config_dict": asdict(student_config),
-                                        "distill_config_dict": asdict(teacher_config),
-                                    },
-                                    "debug": True,
-                                    "use_speed_perturbation": True,
-                                }
-                                train_args_distill["config"]["preload_from_files"] = {
-                                    "teacher": {
-                                        "filename": chkpt,
-                                        "init_for_train": True,
-                                        "ignore_missing": False,
-                                        "prefix": "teacher.",
-                                        "ignore_params_prefixes": [],
-                                    }
-                                }
-                                train_args_distill_decoding = copy.deepcopy(train_args_distill)
-                                train_args_distill_decoding["net_args"] = {
-                                    "model_config_dict": asdict(student_config),
-                                    "distill_config_dict": None,
-                                }
-                                del train_args_distill_decoding["config"]["preload_from_files"]
-
-                                decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-
-                                training_name = (
-                                    prefix_name + "/" + distill_module_v2 + f"_chkpt_{num}"
-                                    f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}keepsome{keep}"
-                                )
-                                train_job = training(
-                                    training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
-                                )
-                                train_job.rqmt["gpu_mem"] = 48
-                                results = eval_model(
-                                    training_name=training_name,
-                                    train_job=train_job,
-                                    train_args=train_args_distill_decoding,
-                                    train_data=train_data,
-                                    decoder_config=default_decoder_config,
-                                    dev_dataset_tuples=dev_dataset_tuples,
-                                    specific_epoch=epochs,
-                                    decoder_module=decoder_module,
-                                    loss_name=f"ctc_loss_layer{layer_count}",
-                                    lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
-                                    prior_scales=[0.1, 0.2, 0.3],
-                                    run_test=True,
-                                    test_dataset_tuples=test_dataset_tuples,
-                                )
-                                generate_report(results=results, exp_name=training_name)
-                                distill_report[training_name] = results
-                                del results
-
-                            if not drop == 0.1:
-                                continue
+                        #######################################################################################################
+                        ## Symmetric Selection
+                        for keep in [1, 2, 3, 4, 5, 6]:
                             teacher_config = TeacherConfigV3(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
@@ -1203,6 +745,10 @@ def eow_phon_ls960_distill_hubert():
                             train_job = training(
                                 training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
                             )
+                            if not os.path.exists(
+                                f"{train_job._sis_path()}/finished.run.1") and epochs == 1000:  # sync back was successful
+                                train_job.hold()
+                                train_job.move_to_hpc = True
                             train_job.rqmt["gpu_mem"] = 48
                             results = eval_model(
                                 training_name=training_name,
@@ -1218,6 +764,8 @@ def eow_phon_ls960_distill_hubert():
                                 prior_scales=[0.1, 0.2, 0.3],
                                 run_test=True,
                                 test_dataset_tuples=test_dataset_tuples,
+                                run_best=False,
+                                run_best_4=False,
                             )
                             generate_report(results=results, exp_name=training_name)
                             distill_report[training_name] = results
@@ -1231,13 +779,91 @@ def eow_phon_ls960_distill_hubert():
                                 debug=True,
                             )
                             tk.register_output(training_name + "/" + "blank_counts", blank_counts)
+                        #######################################################################################################
+                        ## Trim Blanks
+                        teacher_config = TeacherConfigV3(
+                            distill_scale=distill_scale,
+                            ctc_scale=1 - distill_scale,
+                            t=T,
+                            eliminate_blanks=True,
+                            keep_some_blanks=None,
+                            model_name=name,
+                            kd_hyps=None,
+                            normalize_stud=False,
+                            prior_file=None,
+                            prior_scale=None,
+                            warmup_loss=None,
+                            mask_padding=False,
+                            trim_blanks=True,
+                            increase_keepsome_epochs=None,
+                        )
+                        train_args_distill = {
+                            "config": base_train_config_distill,
+                            "network_module": distill_module_v3,
+                            "net_args": {
+                                "model_config_dict": asdict(student_config),
+                                "distill_config_dict": asdict(teacher_config),
+                            },
+                            "debug": True,
+                            "use_speed_perturbation": True,
+                        }
+                        train_args_distill["config"]["preload_from_files"] = {
+                            "teacher": {
+                                "filename": chkpt,
+                                "init_for_train": True,
+                                "ignore_missing": False,
+                                "prefix": "teacher.",
+                                "ignore_params_prefixes": [],
+                            }
+                        }
+                        train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                        train_args_distill_decoding["net_args"] = {
+                            "model_config_dict": asdict(student_config),
+                            "distill_config_dict": None,
+                        }
+                        del train_args_distill_decoding["config"]["preload_from_files"]
 
-                        if drop == 0.1:
-                            teacher_config = TeacherConfigV3(
+                        decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                        training_name = (
+                            prefix_name + "/" + distill_module_v3 + f"_chkpt_{num}"
+                            f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}_trim_blanks"
+                        )
+                        train_job = training(
+                            training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
+                        )
+                        if not os.path.exists(f"{train_job._sis_path()}/finished.run.1") and epochs == 1000:  # sync back was successful
+                            train_job.hold()
+                            train_job.move_to_hpc = True
+                        train_job.rqmt["gpu_mem"] = 48
+                        results = eval_model(
+                            training_name=training_name,
+                            train_job=train_job,
+                            train_args=train_args_distill_decoding,
+                            train_data=train_data,
+                            decoder_config=default_decoder_config,
+                            dev_dataset_tuples=dev_dataset_tuples,
+                            specific_epoch=epochs,
+                            decoder_module=decoder_module,
+                            loss_name=f"ctc_loss_layer{layer_count}",
+                            lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
+                            prior_scales=[0.1, 0.2, 0.3],
+                            run_test=True,
+                            test_dataset_tuples=test_dataset_tuples,
+                            run_best=False,
+                            run_best_4=False,
+                        )
+                        generate_report(results=results, exp_name=training_name)
+                        distill_report[training_name] = results
+                        del results
+                        #######################################################################################################
+                        ## Tresholding
+                        for thresh in [0.1, 0.2]:
+                            teacher_config = TeacherConfigV4(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
                                 t=T,
-                                eliminate_blanks=True,
+                                eliminate_blanks=False,
                                 keep_some_blanks=None,
                                 model_name=name,
                                 kd_hyps=None,
@@ -1246,12 +872,14 @@ def eow_phon_ls960_distill_hubert():
                                 prior_scale=None,
                                 warmup_loss=None,
                                 mask_padding=False,
-                                trim_blanks=True,
+                                trim_blanks=False,
                                 increase_keepsome_epochs=None,
+                                keep_random=None,
+                                keep_threshold=thresh,
                             )
                             train_args_distill = {
                                 "config": base_train_config_distill,
-                                "network_module": distill_module_v3,
+                                "network_module": distill_module_v4,
                                 "net_args": {
                                     "model_config_dict": asdict(student_config),
                                     "distill_config_dict": asdict(teacher_config),
@@ -1278,12 +906,16 @@ def eow_phon_ls960_distill_hubert():
                             decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
 
                             training_name = (
-                                prefix_name + "/" + distill_module_v3 + f"_chkpt_{num}"
-                                f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}_trim_blanks"
+                                prefix_name + "/" + distill_module_v4 + f"_chkpt_{num}"
+                                f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}_keep_thresh_{thresh}"
                             )
                             train_job = training(
                                 training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
                             )
+                            if not os.path.exists(
+                                f"{train_job._sis_path()}/finished.run.1") and epochs == 1000:  # sync back was successful
+                                train_job.hold()
+                                train_job.move_to_hpc = True
                             train_job.rqmt["gpu_mem"] = 48
                             results = eval_model(
                                 training_name=training_name,
@@ -1299,156 +931,93 @@ def eow_phon_ls960_distill_hubert():
                                 prior_scales=[0.1, 0.2, 0.3],
                                 run_test=True,
                                 test_dataset_tuples=test_dataset_tuples,
+                                run_best=False,
+                                run_best_4=False,
                             )
                             generate_report(results=results, exp_name=training_name)
                             distill_report[training_name] = results
                             del results
-                            for thresh in [0.1, 0.2]:
-                                teacher_config = TeacherConfigV4(
-                                    distill_scale=distill_scale,
-                                    ctc_scale=1 - distill_scale,
-                                    t=T,
-                                    eliminate_blanks=False,
-                                    keep_some_blanks=None,
-                                    model_name=name,
-                                    kd_hyps=None,
-                                    normalize_stud=False,
-                                    prior_file=None,
-                                    prior_scale=None,
-                                    warmup_loss=None,
-                                    mask_padding=False,
-                                    trim_blanks=False,
-                                    increase_keepsome_epochs=None,
-                                    keep_random=None,
-                                    keep_threshold=thresh,
-                                )
-                                train_args_distill = {
-                                    "config": base_train_config_distill,
-                                    "network_module": distill_module_v4,
-                                    "net_args": {
-                                        "model_config_dict": asdict(student_config),
-                                        "distill_config_dict": asdict(teacher_config),
-                                    },
-                                    "debug": True,
-                                    "use_speed_perturbation": True,
-                                }
-                                train_args_distill["config"]["preload_from_files"] = {
-                                    "teacher": {
-                                        "filename": chkpt,
-                                        "init_for_train": True,
-                                        "ignore_missing": False,
-                                        "prefix": "teacher.",
-                                        "ignore_params_prefixes": [],
-                                    }
-                                }
-                                train_args_distill_decoding = copy.deepcopy(train_args_distill)
-                                train_args_distill_decoding["net_args"] = {
+                        #######################################################################################################
+                        ## Random Selection
+                        for rnd in [0.5, 1.0, 2.0]:
+                            teacher_config = TeacherConfigV4(
+                                distill_scale=distill_scale,
+                                ctc_scale=1 - distill_scale,
+                                t=T,
+                                eliminate_blanks=False,
+                                keep_some_blanks=None,
+                                model_name=name,
+                                kd_hyps=None,
+                                normalize_stud=False,
+                                prior_file=None,
+                                prior_scale=None,
+                                warmup_loss=None,
+                                mask_padding=False,
+                                trim_blanks=False,
+                                increase_keepsome_epochs=None,
+                                keep_random=rnd,
+                                keep_threshold=None,
+                            )
+                            train_args_distill = {
+                                "config": base_train_config_distill,
+                                "network_module": distill_module_v4,
+                                "net_args": {
                                     "model_config_dict": asdict(student_config),
-                                    "distill_config_dict": None,
+                                    "distill_config_dict": asdict(teacher_config),
+                                },
+                                "debug": True,
+                                "use_speed_perturbation": True,
+                            }
+                            train_args_distill["config"]["preload_from_files"] = {
+                                "teacher": {
+                                    "filename": chkpt,
+                                    "init_for_train": True,
+                                    "ignore_missing": False,
+                                    "prefix": "teacher.",
+                                    "ignore_params_prefixes": [],
                                 }
-                                del train_args_distill_decoding["config"]["preload_from_files"]
+                            }
+                            train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                            train_args_distill_decoding["net_args"] = {
+                                "model_config_dict": asdict(student_config),
+                                "distill_config_dict": None,
+                            }
+                            del train_args_distill_decoding["config"]["preload_from_files"]
 
-                                decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+                            decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
 
-                                training_name = (
-                                    prefix_name + "/" + distill_module_v4 + f"_chkpt_{num}"
-                                    f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}_keep_thresh_{thresh}"
-                                )
-                                train_job = training(
-                                    training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
-                                )
-                                train_job.rqmt["gpu_mem"] = 48
-                                results = eval_model(
-                                    training_name=training_name,
-                                    train_job=train_job,
-                                    train_args=train_args_distill_decoding,
-                                    train_data=train_data,
-                                    decoder_config=default_decoder_config,
-                                    dev_dataset_tuples=dev_dataset_tuples,
-                                    specific_epoch=epochs,
-                                    decoder_module=decoder_module,
-                                    loss_name=f"ctc_loss_layer{layer_count}",
-                                    lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
-                                    prior_scales=[0.1, 0.2, 0.3],
-                                    run_test=True,
-                                    test_dataset_tuples=test_dataset_tuples,
-                                )
-                                generate_report(results=results, exp_name=training_name)
-                                distill_report[training_name] = results
-                                del results
-                            for rnd in [0.5, 1.0, 2.0]:
-                                teacher_config = TeacherConfigV4(
-                                    distill_scale=distill_scale,
-                                    ctc_scale=1 - distill_scale,
-                                    t=T,
-                                    eliminate_blanks=False,
-                                    keep_some_blanks=None,
-                                    model_name=name,
-                                    kd_hyps=None,
-                                    normalize_stud=False,
-                                    prior_file=None,
-                                    prior_scale=None,
-                                    warmup_loss=None,
-                                    mask_padding=False,
-                                    trim_blanks=False,
-                                    increase_keepsome_epochs=None,
-                                    keep_random=rnd,
-                                    keep_threshold=None,
-                                )
-                                train_args_distill = {
-                                    "config": base_train_config_distill,
-                                    "network_module": distill_module_v4,
-                                    "net_args": {
-                                        "model_config_dict": asdict(student_config),
-                                        "distill_config_dict": asdict(teacher_config),
-                                    },
-                                    "debug": True,
-                                    "use_speed_perturbation": True,
-                                }
-                                train_args_distill["config"]["preload_from_files"] = {
-                                    "teacher": {
-                                        "filename": chkpt,
-                                        "init_for_train": True,
-                                        "ignore_missing": False,
-                                        "prefix": "teacher.",
-                                        "ignore_params_prefixes": [],
-                                    }
-                                }
-                                train_args_distill_decoding = copy.deepcopy(train_args_distill)
-                                train_args_distill_decoding["net_args"] = {
-                                    "model_config_dict": asdict(student_config),
-                                    "distill_config_dict": None,
-                                }
-                                del train_args_distill_decoding["config"]["preload_from_files"]
-
-                                decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-
-                                training_name = (
-                                    prefix_name + "/" + distill_module_v4 + f"_chkpt_{num}"
-                                    f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}_keep_random_{rnd}"
-                                )
-                                train_job = training(
-                                    training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
-                                )
-                                train_job.rqmt["gpu_mem"] = 48
-                                results = eval_model(
-                                    training_name=training_name,
-                                    train_job=train_job,
-                                    train_args=train_args_distill_decoding,
-                                    train_data=train_data,
-                                    decoder_config=default_decoder_config,
-                                    dev_dataset_tuples=dev_dataset_tuples,
-                                    specific_epoch=epochs,
-                                    decoder_module=decoder_module,
-                                    loss_name=f"ctc_loss_layer{layer_count}",
-                                    lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
-                                    prior_scales=[0.1, 0.2, 0.3],
-                                    run_test=True,
-                                    test_dataset_tuples=test_dataset_tuples,
-                                )
-                                generate_report(results=results, exp_name=training_name)
-                                distill_report[training_name] = results
-                                del results
+                            training_name = (
+                                prefix_name + "/" + distill_module_v4 + f"_chkpt_{num}"
+                                f"_{epochs}_{layer_count}_{dim}_{num_heads}_{spec}_{spec_start}_{distill_scale}_{T}_drop{drop}_keep_random_{rnd}"
+                            )
+                            train_job = training(
+                                training_name, train_data, train_args_distill, num_epochs=epochs, **default_returnn
+                            )
+                            if not os.path.exists(
+                                f"{train_job._sis_path()}/finished.run.1") and epochs == 1000:  # sync back was successful
+                                train_job.hold()
+                                train_job.move_to_hpc = True
+                            train_job.rqmt["gpu_mem"] = 48
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args_distill_decoding,
+                                train_data=train_data,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                specific_epoch=epochs,
+                                decoder_module=decoder_module,
+                                loss_name=f"ctc_loss_layer{layer_count}",
+                                lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
+                                prior_scales=[0.1, 0.2, 0.3],
+                                run_test=True,
+                                test_dataset_tuples=test_dataset_tuples,
+                                run_best=False,
+                                run_best_4=False,
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            distill_report[training_name] = results
+                            del results
 
             # tk.register_report(
             #     f"reports/ls_distill_pos_enc_w_hubert_report_{epochs}",
@@ -1460,7 +1029,7 @@ def eow_phon_ls960_distill_hubert():
             for exp, dic in distill_report.items():
                 tmp = {}
                 for x in dic:
-                    if "250" in x.split("/")[6:] or "500" in x.split("/")[6:]:
+                    if str(epochs) in x.split("/")[6:]:
                         tmp[x] = dic[x]
                 assert len(tmp) > 0 or "baselines" in exp, exp
                 tmp_rep[exp] = tmp

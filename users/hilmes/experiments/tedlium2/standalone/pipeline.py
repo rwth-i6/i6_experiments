@@ -1,6 +1,7 @@
 """
 Pipeline parts to create the necessary jobs for training / forwarding / search etc...
 """
+
 import copy
 import enum
 from dataclasses import dataclass, asdict
@@ -42,6 +43,7 @@ def search_single(
     returnn_root: tk.Path,
     mem_rqmt: float = 10,
     use_gpu: bool = False,
+    additional_outputs: Optional[List[str]] = None,
 ):
     """
     Run search for a specific test dataset
@@ -58,6 +60,9 @@ def search_single(
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+    output_files = ["search_out.py"]
+    if additional_outputs is not None:
+        output_files += additional_outputs
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
@@ -68,7 +73,7 @@ def search_single(
         cpu_rqmt=8 if mem_rqmt < 30 else 16,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["search_out.py"],
+        output_files=output_files,
     )
     search_job.add_alias(prefix_name + "/search_job")
 
@@ -102,6 +107,7 @@ def search(
     use_gpu: bool = False,
     import_memristor: bool = False,
     debug: bool = False,
+    additional_outputs: Optional[List[str]] = None,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -136,12 +142,12 @@ def search(
         search_name = prefix_name + "/%s" % key
         if "hubert_tune" in search_name:
             mem = 30
-        elif "RelPosEnc" in search_name:
-            mem = 16
-        elif "cycle" in search_name:
-            mem = 16
+        elif "12288" in search_name or "24576" in search_name:
+            mem = 60
+        elif "rtf_amd" in search_name or "rtf_intel" in search_name:  # RTF with larger search space might need more mem
+            mem = 40
         else:
-            mem = 10
+            mem = 16
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -152,6 +158,7 @@ def search(
             returnn_root,
             mem_rqmt=mem,
             use_gpu=use_gpu,
+            additional_outputs=additional_outputs,
         )
         search_jobs.append(search_job)
 

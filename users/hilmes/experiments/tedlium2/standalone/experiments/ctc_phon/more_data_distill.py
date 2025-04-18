@@ -189,10 +189,10 @@ def eow_phon_ted_distill_more_data():
     )
     distill_module_v5_no_lab = "ctc.hubert_tune_0711.distill_pos_enc_hubert_v5_no_lab"
 
-    from .distill_auxloss import eow_phon_ted_auxloss_distill
+    from .pos_enc_baseline import eow_phon_ted_pos_enc_baseline
 
-    baselines, base_checkpoints = eow_phon_ted_auxloss_distill(get_report=True)
-    baseline_prefix = "experiments/tedlium2/ctc_rnnt_standalone_2024/ctc_eow_phon/distill_auxloss"
+    baselines, base_checkpoints = eow_phon_ted_pos_enc_baseline(get_report=True)
+    baseline_prefix = "experiments/tedlium2/ctc_rnnt_standalone_2024/ctc_eow_phon/pos_enc_baseline"
     baseline_module = "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
 
     for name, chkpt in checkpoints.items():

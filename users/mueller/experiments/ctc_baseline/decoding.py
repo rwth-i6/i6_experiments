@@ -16,6 +16,7 @@ from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
+from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn
 from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
 
 CHECK_DECODER_CONSISTENCY = False
@@ -942,3 +943,106 @@ def recog_ffnn(
         return seq_targets_wb.raw_tensor.transpose(0,1).transpose(1,2).tolist()
     else:
         return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
+    
+def recog_gradients(
+    *,
+    model: Model,
+    label_log_prob: Tensor,
+    enc_spatial_dim: Dim,
+    hyperparameters: dict,
+    prior_file: tk.Path = None,
+    train_lm: bool = False,
+    version: int = 1,
+    print_idx: list = []
+) -> Tuple[Tuple[Tensor, Tensor], Tensor, Dim]:
+    import json
+    
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    am_scale = hyp_params.pop("am_scale", 1.0)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    beam_size = hyp_params.pop("beam_size", 1)
+    n_best = hyp_params.pop("grad_nbest", 1)
+    use_recombination = hyp_params.pop("use_recombination", False)
+    recomb_blank = hyp_params.pop("recomb_blank", False)
+    recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
+    
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+    
+    # Read out prior
+    prior = None
+    if prior_file and prior_weight > 0.0:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+    
+    assert lm_name.startswith("ffnn")
+    context_size = int(lm_name[len("ffnn"):])
+    if train_lm:
+        assert model.train_language_model
+        assert model.train_language_model.vocab_dim == model.target_dim
+        lm: FeedForwardLm = model.train_language_model
+    else:
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        lm: FeedForwardLm = model.recog_language_model
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = hyp_params["lm_weight"]
+    
+    label_log_prob_raw = label_log_prob.raw_tensor
+    label_log_prob_raw.requires_grad = True
+    with torch.set_grad_enabled(True):
+        loss = sum_loss_ffnn(
+            model=model,
+            log_probs=label_log_prob,
+            lm=lm,
+            context_size=context_size,
+            log_prior=prior,
+            input_lengths=enc_spatial_dim,
+            top_k=beam_size,
+            am_scale=am_scale,
+            lm_scale=lm_scale,
+            prior_scale=prior_weight,
+            horizontal_prior=True,
+            blank_prior=True,
+            device=dev_s,
+            use_recombination=use_recombination,
+            recomb_blank=recomb_blank,
+            recomb_after_topk=recomb_after_topk,
+            recomb_with_sum=False,
+        )
+        
+        loss.backward(torch.ones_like(loss, device=dev))
+        gradients = -label_log_prob_raw.grad
+    
+    out_dims = label_log_prob.dims
+    indices = None
+    if n_best > 0:
+        top_k = torch.topk(gradients, k=n_best, dim=-1)
+        gradients = top_k.values
+        out_dims = out_dims[:-1] + (Dim(n_best, name="nbest"),)
+        indices = top_k.indices
+        indices = rf.convert_to_tensor(indices, dims=out_dims, dtype="int64", name="indices", sparse_dim=model.wb_target_dim)
+    
+    gradients = rf.convert_to_tensor(gradients, dims=out_dims, dtype = "float32", name="gradients")
+    loss = rf.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name="full_sum")
+    
+    return (gradients, indices), loss, enc_spatial_dim

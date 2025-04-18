@@ -13,7 +13,7 @@ from i6_experiments.common.tools.sctk import compile_sctk
 RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 MINI_RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/JackTemaki/MiniReturnn", commit="52da103a1b6c762fa25dfce592ee10b3490f5083"
+    "https://github.com/JackTemaki/MiniReturnn", commit="f9b9be691351f0edd60f2a3d0955c25f15cc2ccb"
 ).out_repository.copy()
 MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
@@ -47,4 +47,11 @@ SUBWORD_NMT_REPO.hash_overwrite = "I6_SUBWORD_NMT_V2"
 
 NISQA_REPO = CloneGitRepositoryJob("https://github.com/gabrielmittag/NISQA").out_repository.copy()
 NISQA_REPO.hash_overwrite = "LIBRISPEECH_DEFAULT_NISQA_REPO"
+
+TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
+    url="git@git.rwth-aachen.de:mlhlt/torch-memristor.git",
+    commit="b064e60120d96e7a542ac858591aae2ba600b797",
+    checkout_folder_name="torch_memristor",
+).out_repository.copy()
+TORCH_MEMRISTOR_PATH.hash_overwrite = "LIBRISPEECH_STANDALONE_DEFAULT_TORCH_MEMRISTOR_V2"
 

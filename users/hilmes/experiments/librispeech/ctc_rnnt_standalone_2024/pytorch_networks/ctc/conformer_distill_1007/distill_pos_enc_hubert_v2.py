@@ -442,10 +442,10 @@ def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
         pos = torch.argmax(seq, dim=-1)
         pos_blank: torch.Tensor = pos == model.cfg.label_target_size
         pos_non_blank: torch.Tensor = ~pos_blank
-        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device="cuda")
+        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device=logprobs.device)
         first_pos = pos_non_blank * idx
         first_pos = torch.argmax(first_pos, 0, keepdim=True)
-        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device="cuda")
+        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device=logprobs.device)
         last_pos = pos_non_blank * idx
         last_pos = torch.argmax(last_pos, 0, keepdim=True)
         pos_blank = pos_blank[first_pos:last_pos]

@@ -69,7 +69,7 @@ class Model(nn.Module):
     def forward(self, x, states):
         """
         Return logits of each batch at each time step
-        :param x: (B, S, F)
+        :param x: (B, S)
         :param states: tuple of h, c, with [batch, #layers, F] each
         """
         x = self.embed(x)

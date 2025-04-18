@@ -102,6 +102,8 @@ class RemoveSilenceFromAudioJob(tk.Job):
         ]
         sp.check_call(remove_sil_cmd, cwd=tmp_dir)
 
+        print("listdir:", os.listdir(tmp_dir))
+
         # in the manifest file, find the folders which are created by the fairseq script
         sub_paths = set()
         with open(audio_path_file, "r") as f:
@@ -111,6 +113,7 @@ class RemoveSilenceFromAudioJob(tk.Job):
               continue
             # all other lines are the paths below audio_dir leading to the individual audio files
             # and a tab-separated label
+            # path = "dirs/audio.ext" or "audio.ext"
             path, _ = line.split("\t")
             # sub_path is the path to the folder containing the audio file
             sub_path, _ = os.path.split(path)
@@ -118,20 +121,29 @@ class RemoveSilenceFromAudioJob(tk.Job):
             sub_paths.add(sub_path)
 
         for sub_path in sub_paths:
-          # the fairseq script only writes to out_dir, so we need to create subsub_paths by ourselves
-          subsub_path, out_dir = os.path.split(sub_path)
-
-          if subsub_path != "":
-            # extend the output_dir by the subsub_path
-            output_dir = os.path.join(output_dir_, subsub_path)
-            os.makedirs(output_dir, exist_ok=True)
+          if sub_path == "":
+            # in this case, the audio files are directly in the audio_dir and the output_dir_ was already created
+            # therefore, we just move the individual files to the output_dir
+            out_dir = os.path.split(audio_dir)[-1]
+            out_dir = os.path.join(tmp_dir, out_dir)
+            for audio_file in os.listdir(out_dir):
+              audio_path = os.path.join(out_dir, audio_file)
+              shutil.move(audio_path, output_dir_)
+            shutil.rmtree(out_dir)
           else:
-            output_dir = output_dir_
-          # move the created folders to the correct out_dir in order to keep the same structure as the input dirs
-          shutil.move(
-            f"{tmp_dir}/{out_dir}",
-            f"{output_dir}",
-          )
+            # the fairseq script only writes to out_dir, so we need to create subsub_paths by ourselves
+            subsub_path, out_dir = os.path.split(sub_path)
+            if subsub_path != "":
+              # extend the output_dir by the subsub_path
+              output_dir = os.path.join(output_dir_, subsub_path)
+              os.makedirs(output_dir, exist_ok=True)
+            else:
+              output_dir = output_dir_
+            # move the created folders to the correct out_dir in order to keep the same structure as the input dirs
+            shutil.move(
+              f"{tmp_dir}/{out_dir}",
+              f"{output_dir}",
+            )
         # remove the temporary files
         os.remove(audio_path_file)
         os.remove(vads_file)
