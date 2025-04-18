@@ -624,4 +624,6 @@ def _returnn_forward_noop_step(*, extern_data: TensorDict, **_kwargs_unused):
     for k, v in extern_data.data.items():
         if k == default_input_key:
             k = "output"
+        if k == "seq_tag":
+            continue  # ignore
         rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
