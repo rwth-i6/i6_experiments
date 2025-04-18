@@ -871,6 +871,7 @@ def run_scf_specaug():
                 report_args={
                     "batch_size": "10k",
                     "enable_sorting": True,
+                    "max_feature": 15,
                 },
             ),
             "bs10k_sorting": dict(
@@ -887,6 +888,7 @@ def run_scf_specaug():
                 report_args={
                     "batch_size": "10k",
                     "enable_sorting": True,
+                    "max_feature": 15,
                 },
             ),
         },
