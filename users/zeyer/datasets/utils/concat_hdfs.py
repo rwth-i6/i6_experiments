@@ -30,4 +30,6 @@ def concat_hdfs(
         default_input=default_input,
         use_deep_copy=True,
     )
-    return forward_to_hdf(dataset=ds, config={"backend": "torch", "behavior_version": 24}, forward_mem_rqmt=20)
+    return forward_to_hdf(
+        dataset=ds, config={"backend": "torch", "behavior_version": 24}, forward_rqmt={"mem": 20, "time": 24}
+    )
