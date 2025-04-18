@@ -861,6 +861,18 @@ def run_scf_specaug():
                     "max_number_masks_for_filter_based_specaug": 75,
                 },
             ),
+            "bs2x5k_sorting": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {"enable_sorting": True, "max_feature": 15, "steps_per_epoch": 4170},
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "10k",
+                    "enable_sorting": True,
+                },
+            ),
             "bs10k_sorting": dict(
                 returnn_args={
                     **base_returnn_args,
