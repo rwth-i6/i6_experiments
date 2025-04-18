@@ -3,7 +3,7 @@ from sisyphus import tk
 import copy
 from dataclasses import asdict
 import numpy as np
-from typing import cast, List
+from typing import cast, List, Optional
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
@@ -17,9 +17,9 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel, latency, 
 from ...storage import get_ctc_model, get_ctc_forced_alignment
 from ...latency import BPEToWordAlignmentsJob
 
-
 from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy, Mode
 
+from ... import PACKAGE
 
 
 def product_dict(**kwargs):
@@ -57,7 +57,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
         "config": train_config,
         "network_module": module,
         "include_native_ops": True,
-        "debug": True,
+        "debug": False,
         "use_speed_perturbation": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
@@ -97,15 +97,14 @@ def run_experiments(**kwargs):
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    from ...pytorch_networks.rnnt.decoder.monotonic_decoder_v1 import DecoderConfig
+    from ...pytorch_networks.rnnt.decoder.monotonic_decoder_v1 import DecoderConfig, ExtraConfig
     from ...pytorch_networks.rnnt.aligner.experimental_rnnt_aligner_v1 import DecoderConfig as RNNTAlignerConfig
-
-
     def evaluate_helper(
         training_name: str,
         asr_model: ASRModel,
         base_decoder_config: DecoderConfig,
         decoder_module: str,
+        unhashed_decoder_config: Optional[ExtraConfig] = None,
         beam_size: int = 1,
         use_gpu=False,
         with_align=False,
@@ -132,6 +131,7 @@ def run_experiments(**kwargs):
             asr_model=asr_model,
             decoder_module=decoder_module,
             decoder_args={"config": asdict(decoder_config)},
+            unhashed_decoder_args={"extra_config": asdict(unhashed_decoder_config)} if unhashed_decoder_config else None,
             test_dataset_tuples={**dev_dataset_tuples},  # **test_dataset_tuples},
             use_gpu=use_gpu,
             **default_returnn,
@@ -302,20 +302,32 @@ def run_experiments(**kwargs):
             #
             decoder_config_streaming = DecoderConfig(
                 beam_size=12,
-                mode=str(Mode.STREAMING),
                 returnn_vocab=label_datastream_bpe.vocab,
+                
+                lm_model_args=None,
+                lm_checkpoint=None,
+                lm_module=None,
+
+                mode=str(Mode.STREAMING),
                 chunk_size=int(model_config.chunk_size),
                 lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
                 carry_over_size=model_config.carry_over_size,
-                test_version=0.0,
+                test_version=0.2,
+
             )
             decoder_config_offline = DecoderConfig(
                 beam_size=12,  # greedy as default
-                mode=str(Mode.OFFLINE),
                 returnn_vocab=label_datastream_bpe.vocab,
+
+                lm_model_args=None,
+                lm_checkpoint=None,
+                lm_module=None,
+
+                mode=str(Mode.OFFLINE),
+                test_version=0.2,
             )
 
-            for keep in KEEP + [num_epochs]:
+            for keep in [num_epochs]:
                 asr_model = prepare_asr_model(
                     training_name, train_job, train_args, with_prior=False,
                     datasets=train_data_bpe, get_specific_checkpoint=keep
@@ -326,7 +338,8 @@ def run_experiments(**kwargs):
                     decoder_config_streaming,
                     use_gpu=True,
                     beam_size=12,
-                    decoder_module="rnnt.decoder.monotonic_decoder_v1"
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
                 )
                 evaluate_helper(
                     training_name + "/offline/keep_%i" % keep,
@@ -335,13 +348,615 @@ def run_experiments(**kwargs):
                     use_gpu=True,
                     beam_size=12,
                     decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+            #
+            # decodings with LM
+            #
+            from ...storage import get_lm_model, NeuralLM
+            lstm_2x1024: NeuralLM = get_lm_model("bpe%i_2x2024_kazuki_lstmlm_3ep" % bpe_size)
+            from ...pytorch_networks.rnnt.decoder.streaming_decoder_documented import DecoderConfig as DecoderConfigDC
+            from ...pytorch_networks.rnnt.decoder.streaming_decoder_documented import ExtraConfig as DecoderExtraConfigDC
+            from i6_core.returnn.config import CodeWrapper
+
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args, with_prior=False,
+                datasets=train_data_bpe, get_specific_checkpoint=1000
+            )
+            decoder_unhashed_config_dc = DecoderExtraConfigDC(lm_package=PACKAGE)
+            for lm_scale in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                zero_ilm_scale = 0.1
+                for ilm_scale in [0.0, 0.025, 0.05, 0.075, 0.1]:
+                    if not (0.4 <= lm_scale <= 0.8):
+                        continue
+                    if experiment == "streaming":
+                        zero_ilm_scale = ilm_scale
+
+                    decoder_config_bpeany_streaming = DecoderConfigDC(
+                        beam_size=12,
+                        returnn_vocab=label_datastream_bpe.vocab,
+
+                        lm_model_args=lstm_2x1024.net_args,
+                        lm_checkpoint=lstm_2x1024.checkpoint,
+                        lm_module="pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v2.Model",
+                        lm_scale=lm_scale,
+                        zero_ilm_scale=zero_ilm_scale,
+
+                        mode=str(Mode.STREAMING),
+                        chunk_size=int(model_config.chunk_size),
+                        lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                        carry_over_size=model_config.carry_over_size,
+                        test_version=0.0,
+                    )
+                    evaluate_helper(
+                        training_name + f"/lm{lm_scale:.1f}/ilm{zero_ilm_scale:.3f}" + "/keep_%i" % 1000,
+                        asr_model,
+                        decoder_config_bpeany_streaming,
+                        unhashed_decoder_config=decoder_unhashed_config_dc,
+                        use_gpu=True,
+                        beam_size=12,
+                        decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    )
+
+            if experiment == "baseline":
+                train_args_gradnorm5 = copy.deepcopy(train_args)
+                train_args_gradnorm5["config"]["gradient_clip_norm"] = 5.0
+
+                gpu_mem = exp_config["gpu_mem"]
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_gradnorm5" %
+                        (train_strat, model_config.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config.carry_over_size + "/" +
+                        "lah%i" % model_config.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_gradnorm5,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_gradnorm5, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+                train_args_epsil1e_16 = copy.deepcopy(train_args)
+                train_args_epsil1e_16["config"]["optimizer"]["epsilon"] = 1e-16
+
+                gpu_mem = exp_config["gpu_mem"]
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_epsil1e_16" %
+                        (train_strat, model_config.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config.carry_over_size + "/" +
+                        "lah%i" % model_config.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_epsil1e_16,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_epsil1e_16, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+
+                train_args_no_weight_decay = copy.deepcopy(train_args)
+                train_args_no_weight_decay["config"]["optimizer"]["weight_decay"] = .0
+
+                gpu_mem = exp_config["gpu_mem"]
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_no_weight_decay" %
+                        (train_strat, model_config.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config.carry_over_size + "/" +
+                        "lah%i" % model_config.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_no_weight_decay,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_no_weight_decay, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+                train_args_no_dropout = copy.deepcopy(train_args)
+                train_args_no_dropout["net_args"]["model_config_dict"].update({
+                    "att_weights_dropout": .0,
+                    "conv_dropout": .0,
+                    "ff_dropout": .0,
+                    "mhsa_dropout": .0,
+                    "final_dropout": .0,
+                    "joiner_dropout": .0
+                })
+                train_args_no_dropout["net_args"]["model_config_dict"]["predictor_config"].update({
+                    "lstm_dropout": .0
+                })
+
+                gpu_mem = exp_config["gpu_mem"]
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_no_dropout" %
+                        (train_strat, model_config.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config.carry_over_size + "/" +
+                        "lah%i" % model_config.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_no_dropout,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_no_dropout, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+                model_config_larger_ctc_scale = copy.deepcopy(model_config)
+                model_config_larger_ctc_scale.ctc_output_loss = 0.7
+
+                train_args_larger_ctc_scale = get_train_config(
+                    model_config_larger_ctc_scale, keep=KEEP,
+                    module=exp_config["network_module"],
+                    accum_grads=exp_config["accum_grads"],
+                    num_epochs=num_epochs
+                )
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args_larger_ctc_scale["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_ctc_scale_0.7" %
+                        (train_strat, model_config_larger_ctc_scale.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config_larger_ctc_scale.carry_over_size + "/" +
+                        "lah%i" % model_config_larger_ctc_scale.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_larger_ctc_scale,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_larger_ctc_scale, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+                model_config_specaug21 = copy.deepcopy(model_config)
+                model_config_specaug21.specauc_start_epoch = 21
+
+                train_args_specaug21 = get_train_config(
+                    model_config_specaug21, keep=KEEP,
+                    module=exp_config["network_module"],
+                    accum_grads=exp_config["accum_grads"],
+                    num_epochs=num_epochs
+                )
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args_specaug21["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d" %
+                        (train_strat, model_config_specaug21.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config_specaug21.carry_over_size + "/" +
+                        "lah%i" % model_config_specaug21.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_specaug21,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_specaug21, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+
+                model_config_specaug21_larger_ctc_scale = copy.deepcopy(model_config)
+                model_config_specaug21_larger_ctc_scale.specauc_start_epoch = 21
+                model_config_specaug21_larger_ctc_scale.ctc_output_loss = 0.7
+
+                train_args_specaug21_larger_ctc_scale = get_train_config(
+                    model_config_specaug21_larger_ctc_scale, keep=KEEP,
+                    module=exp_config["network_module"],
+                    accum_grads=exp_config["accum_grads"],
+                    num_epochs=num_epochs
+                )
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args_specaug21_larger_ctc_scale["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_ctc_scale_0.7" %
+                        (train_strat, model_config_specaug21_larger_ctc_scale.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config_specaug21_larger_ctc_scale.carry_over_size + "/" +
+                        "lah%i" % model_config_specaug21_larger_ctc_scale.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_specaug21_larger_ctc_scale,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_specaug21_larger_ctc_scale, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                decoder_config_offline_lm = copy.deepcopy(decoder_config_bpeany_streaming)
+                decoder_config_offline_lm.mode = str(Mode.OFFLINE)
+                decoder_config_streaming_lm = copy.deepcopy(decoder_config_bpeany_streaming)
+                for lm_scale in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                    for zero_ilm_scale in [0.0, 0.025, 0.05, 0.075, 0.1]:
+                        if not (0.4 <= lm_scale <= 0.8):
+                            continue
+
+                        decoder_config_offline_lm.lm_scale = lm_scale
+                        decoder_config_offline_lm.zero_ilm_scale = zero_ilm_scale
+                        evaluate_helper(
+                            training_name + f"/offline/lm{lm_scale:.1f}ilm{zero_ilm_scale:.3f}" + "/keep_%i" % 1000,
+                            asr_model,
+                            decoder_config_offline_lm,
+                            unhashed_decoder_config=decoder_unhashed_config_dc,
+                            use_gpu=True,
+                            beam_size=12,
+                            decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                        )
+                        decoder_config_streaming_lm.lm_scale = lm_scale
+                        decoder_config_streaming_lm.zero_ilm_scale = zero_ilm_scale
+                        evaluate_helper(
+                            training_name + f"/online/lm{lm_scale:.1f}ilm{zero_ilm_scale:.3f}" + "/keep_%i" % 1000,
+                            asr_model,
+                            decoder_config_streaming_lm,
+                            unhashed_decoder_config=decoder_unhashed_config_dc,
+                            use_gpu=True,
+                            beam_size=12,
+                            decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                        )
+
+
+                model_config_specaug21_larger_ctc_scale_nodropout = copy.deepcopy(model_config_specaug21_larger_ctc_scale)
+
+                train_args_specaug21_larger_ctc_scale_nodropout = get_train_config(
+                    model_config_specaug21_larger_ctc_scale_nodropout, keep=KEEP,
+                    module=exp_config["network_module"],
+                    accum_grads=exp_config["accum_grads"],
+                    num_epochs=num_epochs
+                )
+                train_args_specaug21_larger_ctc_scale_nodropout["net_args"]["model_config_dict"].update({
+                    "att_weights_dropout": .0,
+                    "conv_dropout": .0,
+                    "ff_dropout": .0,
+                    "mhsa_dropout": .0,
+                    "final_dropout": .0,
+                    "joiner_dropout": .0
+                })
+                train_args_specaug21_larger_ctc_scale_nodropout["net_args"]["model_config_dict"]["predictor_config"].update({
+                    "lstm_dropout": .0
+                })
+
+                training_name = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args_specaug21_larger_ctc_scale_nodropout["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_ctc_scale_0.7_no_dropout" %
+                        (train_strat, model_config_specaug21_larger_ctc_scale_nodropout.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config_specaug21_larger_ctc_scale_nodropout.carry_over_size + "/" +
+                        "lah%i" % model_config_specaug21_larger_ctc_scale_nodropout.lookahead_size
+                )
+                train_job = training(training_name, train_data_bpe, train_args_specaug21_larger_ctc_scale_nodropout,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job.rqmt["gpu_mem"] = gpu_mem
+                train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_specaug21_larger_ctc_scale_nodropout, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/online/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                    debug=False
+                )
+            
+            #
+            # modified model params and lm decoding
+            #
+            if experiment == "streaming":
+                model_config_specaug21_larger_ctc_scale = copy.deepcopy(model_config)
+                model_config_specaug21_larger_ctc_scale.specauc_start_epoch = 21
+                model_config_specaug21_larger_ctc_scale.ctc_output_loss = 0.7
+
+                train_args_specaug21_larger_ctc_scale = get_train_config(
+                    model_config_specaug21_larger_ctc_scale, keep=KEEP,
+                    module=exp_config["network_module"],
+                    accum_grads=exp_config["accum_grads"],
+                    num_epochs=num_epochs
+                )
+                training_name_alt = (
+                        prefix_name + "/" + str(bpe_size) + "/" +
+                        train_args_specaug21_larger_ctc_scale["network_module"] +
+                        ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                        "%deps_" % (num_epochs // 10) +
+                        "from_scratch_radamv1_%s_lah_co_specaug%d_ctc_scale_0.7" %
+                        (train_strat, model_config_specaug21_larger_ctc_scale.specauc_start_epoch) + "/" +
+                        str(param_combi["chunk_size"]) + "/" +
+                        "carry%.1f" % model_config_specaug21_larger_ctc_scale.carry_over_size + "/" +
+                        "lah%i" % model_config_specaug21_larger_ctc_scale.lookahead_size
+                )
+                train_job_alt = training(training_name_alt, train_data_bpe, train_args_specaug21_larger_ctc_scale,
+                                     num_epochs=num_epochs, **default_returnn)
+                train_job_alt.rqmt["gpu_mem"] = gpu_mem
+                train_job_alt.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+                asr_model = prepare_asr_model(
+                    training_name_alt, train_job_alt, train_args_specaug21_larger_ctc_scale, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                # decoding default
+                evaluate_helper(
+                    training_name_alt + "/online/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_streaming,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                )
+                # decoding with lm
+                decoder_config_streaming_lm = copy.deepcopy(decoder_config_bpeany_streaming)
+                decoder_config_offline_lm = copy.deepcopy(decoder_config_bpeany_streaming)
+                decoder_config_offline_lm.mode = str(Mode.OFFLINE)
+                for lm_scale in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                    for zero_ilm_scale in [0.0, 0.025, 0.05, 0.075, 0.1]:
+                        if not (0.4 <= lm_scale <= 0.8):
+                            continue
+                        
+                        decoder_config_streaming_lm.lm_scale = lm_scale
+                        decoder_config_streaming_lm.zero_ilm_scale = zero_ilm_scale
+                        evaluate_helper(
+                            training_name_alt + f"/online/lm{lm_scale:.1f}ilm{zero_ilm_scale:.3f}" + "/keep_%i" % 1000,
+                            asr_model,
+                            decoder_config_streaming_lm,
+                            unhashed_decoder_config=decoder_unhashed_config_dc,
+                            use_gpu=True,
+                            beam_size=12,
+                            decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                        )
+                        decoder_config_offline_lm.lm_scale = lm_scale
+                        zero_ilm_scale = 0  # TODO: delete
+                        decoder_config_offline_lm.zero_ilm_scale = zero_ilm_scale
+                        evaluate_helper(
+                            training_name_alt + f"/offline/lm{lm_scale:.1f}ilm{zero_ilm_scale:.3f}" + "/keep_%i" % 1000,
+                            asr_model,
+                            decoder_config_offline_lm,
+                            unhashed_decoder_config=decoder_unhashed_config_dc,
+                            use_gpu=True,
+                            beam_size=12,
+                            decoder_module="rnnt.decoder.monotonic_decoder_v1",
+                        )
+
+
+            #
+            # profiling
+            #
+            if experiment == "streaming":
+                decoder_config_streaming_profiling = DecoderConfigDC(
+                    beam_size=12,
+                    returnn_vocab=label_datastream_bpe.vocab,
+
+                    lm_model_args=None,
+                    lm_checkpoint=None,
+                    lm_module=None,
+
+                    mode=str(Mode.STREAMING),
+                    chunk_size=int(model_config.chunk_size),
+                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                    carry_over_size=model_config.carry_over_size,
+                    test_version=0.2,
+                )
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/profiling/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming_profiling,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.profiler.decoder_mrnnt",
                     debug=True
                 )
 
 
 def ls960_mrnnt_relpos_streamable_0425_low_bpe_from_scratch():
     experiment_configs = {
-        10: {
+        # TODO: uncomment
+        "baseline": {
+            "model_params": {
+                "chunk_size": [2.39],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [TrainingStrategy.OFFLINE],
+                "dual_mode": [False],
+            },
+
+            "network_module": "rnnt.conformer_0425.model_monotonic_0425_v1",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
+
+        "streaming": {
             "model_params": {
                 "chunk_size": [2.39],
                 "lookahead_size": [8],
@@ -350,6 +965,24 @@ def ls960_mrnnt_relpos_streamable_0425_low_bpe_from_scratch():
                 "carry_over_size": [2],
                 "training_strategy": [TrainingStrategy.STREAMING],
                 "dual_mode": [False],
+            },
+
+            "network_module": "rnnt.conformer_0425.model_monotonic_0425_v1",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
+
+        "unified": {
+            "model_params": {
+                "chunk_size": [2.39],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [TrainingStrategy.UNIFIED],
+                "dual_mode": [True],
             },
 
             "network_module": "rnnt.conformer_0425.model_monotonic_0425_v1",

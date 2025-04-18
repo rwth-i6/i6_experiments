@@ -138,14 +138,19 @@ class Model(nn.Module):
         :return: logprobs [B, T + N, #labels + blank]
         """
         assert self.mode is not None
+        print(f"\n[Mode: {self.mode}] Running Model...")
 
         self.feature_extraction.set_mode(self.mode)
         conformer_in, mask = self.feature_extraction(raw_audio, raw_audio_len, self.chunk_size)
+        print(f"Input shape after feature extraction: {conformer_in.shape}")
 
         self.conformer.set_mode_cascaded(self.mode)
-        conformer_out, out_mask = self.conformer(conformer_in, mask,
-                                                 lookahead_size=self.lookahead_size,
-                                                 carry_over_size=self.carry_over_size)
+        conformer_out, out_mask = self.conformer(
+            conformer_in, mask,
+            lookahead_size=self.lookahead_size,
+            carry_over_size=self.carry_over_size
+        )
+        print(f"Conformer output shape: {conformer_in.shape}")
 
         if self.mode == Mode.STREAMING:
             conformer_out = conformer_out.flatten(1, 2)  # [B, C'*N, F']

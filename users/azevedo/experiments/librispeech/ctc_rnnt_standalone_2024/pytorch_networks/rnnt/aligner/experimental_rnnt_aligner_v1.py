@@ -126,9 +126,10 @@ class Transcriber(nn.Module):
             )
 
             encoder_out = self.mapping(encoder_out)  # [1, C', F'']
-            encoder_out_lengths = torch.sum(out_mask, dim=1)  # [B, T] -> [B]
+            encoder_out_lengths = torch.sum(out_mask, dim=1)  # [1, T] -> [1]
 
-        return encoder_out, encoder_out_lengths, [state]
+        return encoder_out[:, :encoder_out_lengths[0]], encoder_out_lengths, [state]
+        # return encoder_out, encoder_out_lengths, [state]
 
 
 def forward_init_hook(run_ctx, **kwargs):
@@ -247,8 +248,11 @@ def forward_step(*, model, data, run_ctx, **kwargs):
             hypothesis = None
             # context manager for handling states of streaming inference (only need to pass chunk and its effective size)
             with StreamingASRContextManager(run_ctx.rnnt_decoder, carryover_sz=config.carry_over_size, beam_sz=run_ctx.beam_size) as cm:
+                enc_time_len = 0
                 for chunk, eff_chunk_sz in chunk_streamer:
-                    _, hypothesis = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz) 
+                    # _, (hypothesis, enc_out) = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz) 
+                    _, hypothesis = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz)
+                    # print(f"{enc_out.shape = }")
 
             hyp_alignment = hypothesis[0][4]
             score = hypothesis[0][3]
@@ -273,6 +277,8 @@ def forward_step(*, model, data, run_ctx, **kwargs):
                 })
             else:
                 start += 1
+
+        print(f"tag: {tag}, len: {start}")
 
     run_ctx.alignments.update(alignments)
 

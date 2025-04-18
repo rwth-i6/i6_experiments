@@ -225,8 +225,8 @@ class ModifiedRNNTBeamSearchV2(ModifiedRNNTBeamSearch):
         hypo: Optional[List[HypothesisV2]],
         beam_width: int,
     ) -> List[HypothesisV2]:
-        print(f"> {enc_out.shape = }")
-
+        
+        print(f"{enc_out.shape = }")
         n_time_steps = enc_out.shape[1]
         device = enc_out.device
 
@@ -261,10 +261,6 @@ class ModifiedRNNTBeamSearchV2(ModifiedRNNTBeamSearch):
 
             new_hypos = []
             for idx in sorted_idx:
-                # try:
-                #     al = _get_hypo_alignment(b_hypos[idx])
-                # except IndexError:
-                #     al = _get_hypo_tokens(b_hypos[idx])
                 new_hypos.append((
                     _get_hypo_tokens(b_hypos[idx]),
                     _get_hypo_predictor_out(b_hypos[idx]),

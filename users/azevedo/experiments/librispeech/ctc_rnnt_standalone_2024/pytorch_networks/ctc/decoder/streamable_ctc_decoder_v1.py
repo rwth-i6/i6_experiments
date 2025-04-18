@@ -174,7 +174,6 @@ def forward_streaming(model: StreamableModule, raw_audio, raw_audio_len, run_ctx
 
         for chunk, eff_chunk_len in chunk_streamer:      
             logprobs, audio_features_len, state = model.infer(
-                model=model,
                 input=chunk.unsqueeze(0), 
                 lengths=torch.tensor(eff_chunk_len).unsqueeze(0),
                 states=tuple(states) if len(states) > 0 else None,

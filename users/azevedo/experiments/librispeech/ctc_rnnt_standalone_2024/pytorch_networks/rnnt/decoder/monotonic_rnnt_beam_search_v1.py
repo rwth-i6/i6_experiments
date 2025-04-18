@@ -13,6 +13,7 @@ from torchaudio.models import RNNT
 @dataclass
 class Hypothesis:
     tokens: List[int]
+    alignment: List[int]
     predictor_output: torch.Tensor
     predictor_state: List[List[torch.Tensor]]
     score: float
@@ -160,7 +161,7 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
             lm_model: Optional[torch.nn.Module] = None,
             lm_sos_token_index: Optional[int] = None,
             lm_scale: Optional[float] = None,
-            zero_ilm_scale: Optional[float] = None,
+            zero_ilm_scale: Optional[float] = None
     ) -> None:
         super().__init__()
         self.model = model
@@ -224,6 +225,7 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
 
         init_hypo = Hypothesis(
             tokens=[token],
+            alignment=[token],
             predictor_output=pred_out[0].detach(),
             predictor_state=pred_state,
             score=0.0,
@@ -249,15 +251,17 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
         :param device:
         :return:
         """
-        one_tensor = torch.tensor([1], device=device)
+        one_tensor = torch.tensor([1]*len(hypos), device=device)
         predictor_out = torch.stack([h.predictor_output for h in hypos], dim=0)
+        joiner_in = enc_out.expand(len(hypos), -1, -1)
+
         joined_out, _, _ = self.model.join(
-            enc_out,
+            joiner_in,  # usually [beam_width, 1, E] (for single time-step w/o batching)
             one_tensor,
-            predictor_out,
+            predictor_out,  # usually [beam_width, 1, P] (for single time-step w/o batching)
             torch.tensor([1] * len(hypos), device=device),
-        )  # [beam_width, 1, 1, num_tokens]
-        logprobs_joiner = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=3)
+        )  # [beam_width, num_tokens]
+        logprobs_joiner = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=-1)
 
         # optional pass with zeros as encoder output for zero-ILM estimation
         if self.zero_ilm_scale != 0.0:
@@ -267,10 +271,8 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
                 predictor_out,
                 torch.tensor([1] * len(hypos), device=device),
             )
-            logprobs_zero = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=3)
+            logprobs_zero = torch.nn.functional.log_softmax(joined_out_zero / self.temperature, dim=-1)
             logprobs_joiner = logprobs_joiner - self.zero_ilm_scale * logprobs_zero
-
-        logprobs_joiner = logprobs_joiner[:, 0, 0]  # drop T and U
 
         if self.lm_model is not None:
             lm_out = torch.stack([h.lm_output for h in hypos], dim=0)
@@ -294,38 +296,41 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
             to_non_blank: Dict[str, Hypothesis],
     ) -> List[Hypothesis]:
         """
-
-        :param hypos: inner hypothesis to be converted
+        Realize horizontal transition in monotonic rnnt topology and update hypos accordingly.
+        
+        :param hypos: hypotheses to be converted
         :param next_token_probs: needed to retrieve the blank score to be added
         :param to_non_blank: list of existing token based keys related to hypos, used for detecting recombination
         :return:
         """
+        new_hypos = []
         for i in range(len(hypos)):
             hyp = hypos[i]
             append_blank_score = hyp.score + next_token_probs[i, -1]
             if _get_hypo_key(hyp) in to_non_blank:
                 # we have two hypothesis with identical labels but different scores, so perform recombination
                 hyp_old = to_non_blank[_get_hypo_key(hyp)]
-                _remove_hypo(hyp_old, hypos)
+                _remove_hypo(hyp_old, new_hypos)
                 # perform addition in logspace
                 score = float(torch.tensor(hyp_old.score).logaddexp(append_blank_score))
             else:
                 score = float(append_blank_score)
-            # to create an "outer" hypothesis from an inner hypothesis, we simply added the blank score
-            # so that the hypothesis ends in a "went to the next frame" state
-            # labels and label-based states are unchanged, also when recombination happens
+            
+            # horizontal transition: 
+            # add blank-score to hypos, move to next encoder timestep, prediction net stays at current state
             new_hypo = Hypothesis(
                 tokens=hyp.tokens,
+                alignment=hyp.alignment + [self.blank],
                 predictor_output=hyp.predictor_output,
                 predictor_state=hyp.predictor_state,
                 lm_output=hyp.lm_output,
                 lm_state=hyp.lm_state,
                 score=score,
             )
-            hypos.append(new_hypo)
+            new_hypos.append(new_hypo)
             to_non_blank[_get_hypo_key(new_hypo)] = new_hypo
-        _, sorted_idx = torch.tensor([hypo.score for hypo in hypos]).sort()
-        return [hypos[idx] for idx in sorted_idx]
+        _, sorted_idx = torch.tensor([hypo.score for hypo in new_hypos]).sort()
+        return [new_hypos[idx] for idx in sorted_idx]
 
     def _append_non_blank(
             self,
@@ -367,7 +372,9 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
             device: torch.device,
     ) -> List[Hypothesis]:
         """
-        Push our new best target labels through the predictor network
+        Realize diagonal transition in monotonic rnnt topology and update hypos accordingly. 
+        Move along label dimension by creating new prediction outputs.
+        We move along time dimension in `_search` loop.
 
         :param base_hypos:
         :param tokens:
@@ -393,9 +400,9 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
 
         new_hypos: List[Hypothesis] = []
         for i, hyp in enumerate(base_hypos):
-            new_tokens = hyp.tokens + [tokens[i]]
             new_hypo = Hypothesis(
-                tokens=new_tokens,
+                tokens=hyp.tokens + [tokens[i]],
+                alignment=hyp.alignment + [tokens[i]],
                 predictor_output=pred_out[i].detach(),
                 predictor_state=_slice_state(pred_states, i, device),
                 score=scores[i],
@@ -422,20 +429,17 @@ class MonotonicRNNTBeamSearch(torch.nn.Module):
         n_time_steps = enc_out.shape[1]
         device = enc_out.device
 
-        hypos: List[Hypothesis] = self._init_hypos(hypo, device)
+        hypos: List[Hypothesis] = self._init_hypos(hypo, device) if hypo is None else hypo
         for t in range(n_time_steps):
-            # we arrive at a new time step, so we are treating all former outer hypos as new inner hypos
-            # for vertical expansion
             to_non_blank: Dict[str, Hypothesis] = {}
 
             # get p(y_{t+1} | hypo[:], enc_out[t])
             with torch.no_grad():
-                next_token_probs = self._gen_next_token_probs(enc_out[:, t: t + 1], hypos, device)
-            next_token_probs = next_token_probs.cpu()
+                next_token_probs = self._gen_next_token_probs(enc_out[:, t: t + 1], hypos, device).cpu()
 
             # horizontal transition + recombination + pruning w.r.t. beam_width
             blank_end_hypos = self._append_blank(
-                hypos=copy.copy(hypos),
+                hypos=hypos,
                 next_token_probs=next_token_probs,
                 to_non_blank=to_non_blank,
             )

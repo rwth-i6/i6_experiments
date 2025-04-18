@@ -22,8 +22,16 @@ class DecoderConfig:
 
     # search related options:
     beam_size: int
-
+    
     mode: Union[Mode, str]
+
+    # LM vars e.g. "lm.lstm.some_lstm_variant_file.Model"
+    lm_module: Optional[str]
+    lm_model_args: Optional[Dict[str, Any]]
+    lm_checkpoint: Optional[str]
+    lm_scale: float = 0.0
+    zero_ilm_scale: float = 0.0
+
 
     # streaming definitions if mode == Mode.STREAMING
     chunk_size: Optional[int] = None
@@ -57,6 +65,9 @@ class ExtraConfig:
 
     # Hypothesis logging
     print_hypothesis: bool = True
+
+    # LM model package path
+    lm_package: Optional[str] = None
 
 
 class Transcriber(nn.Module):
@@ -166,11 +177,42 @@ def forward_init_hook(run_ctx, **kwargs):
         predictor=model.predictor,
         joiner=model.joiner,
     )
+
+    lm_model = None
+    if config.lm_module is not None:
+        # load LM
+        assert extra_config.lm_package is not None
+        lm_module_prefix = ".".join(config.lm_module.split(".")[:-1])
+        lm_module_class = config.lm_module.split(".")[-1]
+
+        LmModule = __import__(
+            ".".join([extra_config.lm_package, lm_module_prefix]),
+            fromlist=[lm_module_class],
+        )
+        LmClass = getattr(LmModule, lm_module_class)
+
+        lm_model = LmClass(**config.lm_model_args)
+        checkpoint_state = torch.load(
+            config.lm_checkpoint,
+            map_location=run_ctx.device,
+        )
+        lm_model.load_state_dict(checkpoint_state["model"])
+        lm_model.to(device=run_ctx.device)
+        lm_model.eval()
+
+
+        print("loaded external LM")
+        print()
+
     run_ctx.rnnt_decoder = MonotonicRNNTBeamSearch(
         model=rnnt_model,
         blank=model.cfg.label_target_size,
         blank_penalty=run_ctx.blank_log_penalty,
-        device=next(model.parameters()).device
+        device=next(model.parameters()).device,
+        lm_model=lm_model,
+        lm_scale =config.lm_scale,
+        zero_ilm_scale=config.zero_ilm_scale,
+        lm_sos_token_index=0,
     )
     print("done!")
 
@@ -239,7 +281,7 @@ def process_offline_sample(
         length=raw_audio_len,
         beam_width=run_ctx.beam_size,
     )
-    return hypothesis[0].tokens
+    return hypothesis[0].tokens[:-1]  # remove <S> token
 
 def process_streaming_sample(
         raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, config, run_ctx
@@ -259,4 +301,4 @@ def process_streaming_sample(
         for chunk, eff_chunk_sz in chunk_streamer:
             _, hypothesis = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz) 
 
-    return hypothesis[0].tokens
+    return hypothesis[0].tokens[:-1]

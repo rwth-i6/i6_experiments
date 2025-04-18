@@ -6,9 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from i6_models.util import compat
-
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config, filters
-
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_models.parts.conformer import ConformerMHSAV1Config, ConformerPositionwiseFeedForwardV1Config
 from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config, ConformerBlockV1Config
@@ -20,54 +18,13 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native import mask_tensor, Joiner
 from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import SpecaugConfig
+from .streamable_module import StreamableModule
 
 from ..auxil.functional import add_lookahead_v2, create_chunk_mask, Mode
 
 from returnn.torch.context import get_run_ctx
 
 
-class StreamableModule(nn.Module):
-    """
-    Abstract class for modules that operate differently in offline- and streaming inference mode
-    """
-    def __init__(self):
-        super().__init__()
-        self._mode = None
-
-    def set_mode(self, mode: Mode) -> None:
-        assert mode is not None, ""
-
-        self._mode = mode
-
-    def set_mode_cascaded(self, mode: Mode) -> None:
-        assert mode is not None, ""
-        
-        if self._mode == mode:
-            return
-
-        self._mode = mode
-
-        for m in self.modules():
-            if isinstance(m, StreamableModule):
-                m.set_mode(mode)
-
-    def forward(self, *args, **kwargs):
-        assert self._mode is not None, ""
-
-        if self._mode == Mode.STREAMING:
-            return self.forward_streaming(*args, **kwargs)
-        else:
-            return self.forward_offline(*args, **kwargs)
-
-    def forward_offline(self, *args, **kwargs):
-        raise NotImplementedError("Implement offline forward pass")
-
-    def forward_streaming(self, *args, **kwargs):
-        raise NotImplementedError("Implement streaming forward pass")
-    
-    def infer(self, *args, **kwargs):
-        raise NotImplementedError("Implement infer")
-    
 
 class StreamableFeatureExtractorV1(StreamableModule):
     def __init__(
@@ -105,8 +62,8 @@ class StreamableFeatureExtractorV1(StreamableModule):
 
     def forward_offline(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        :param raw_audio: [B, T', <?>] 
-        :param raw_audio_len: <= T' (in samples)
+        :param raw_audio: [B, T', 1] 
+        :param raw_audio_len: <= T' (in #samples)
 
         :return: [B, T, F] features
         """
@@ -173,8 +130,6 @@ class StreamableJoinerV1(StreamableModule):
         output_dim (int): output dimension.
         activation (str, optional): activation function to use in the joiner.
             Must be one of ("relu", "tanh"). (Default: "relu")
-
-    Taken directly from torchaudio
     """
 
     def __init__(

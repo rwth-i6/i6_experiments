@@ -22,7 +22,7 @@ from ...rnnt.conformer_0325.conf_dual_0325_v1 import (
 )
 from ...rnnt.conformer_1124.conf_relpos_streaming_v1 import ConformerConvolutionV2Config
 from ..conformer_0125.model_relpos_streaming import (
-    prior_init_hook, prior_step, prior_finish_hook
+    prior_init_hook, prior_finish_hook
 )
 
 from ...rnnt.auxil.functional import Mode, TrainingStrategy
@@ -163,7 +163,7 @@ class Model(StreamableModule):
             chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(chunk_size))
             audio_features, audio_features_len = self.feature_extraction.infer(input, lengths, chunk_size_frames)
 
-            encoder_out, out_mask, state = self.encoder.infer(
+            encoder_out, out_mask, state = self.conformer.infer(
                 audio_features, audio_features_len,
                 states,
                 chunk_size=chunk_size_frames,
@@ -242,3 +242,23 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             inv_norm_factor=num_phonemes,
             scale=loss_dict[loss_key]["scale"]
         )
+
+
+def prior_step(*, model: Model, data, run_ctx, **kwargs):
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+
+    model.set_mode_cascaded(
+        Mode.STREAMING if run_ctx.global_step % 2 == 0 else Mode.OFFLINE
+    )
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+
+    probs = torch.exp(logprobs)
+    run_ctx.sum_frames = run_ctx.sum_frames + torch.sum(audio_features_len)
+    if run_ctx.sum_probs is None:
+        run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
+    else:
+        run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))

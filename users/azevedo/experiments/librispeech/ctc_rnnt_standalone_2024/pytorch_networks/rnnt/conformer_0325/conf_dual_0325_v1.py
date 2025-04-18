@@ -7,28 +7,22 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from i6_models.util import compat
-
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
-
 from i6_models.parts.conformer import (
     ConformerConvolutionV2,
     ConformerMHSARelPosV1Config,
     ConformerPositionwiseFeedForwardV2,
     ConformerPositionwiseFeedForwardV2Config,
 )
-from ..conformer_1124.conf_relpos_streaming_v1 import ConformerRelPosBlockV1COV1Config
-
 from i6_models.parts.conformer import (
     ConformerConvolutionV1Config,
     ConformerPositionwiseFeedForwardV1,
 )
-
 from i6_models.parts.dropout import BroadcastDropout
-
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from ..conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 import Predictor, Joiner
-
+from ..conformer_1124.conf_relpos_streaming_v1 import ConformerRelPosBlockV1COV1Config
 from ..conformer_0225.conf_lah_carryover_v4 import (
     StreamableModule,
     StreamableLayerNormV1,
@@ -470,6 +464,7 @@ class StreamableConformerEncoderRelPosV2(StreamableModule):
         F: input feature dim, F': internal and output feature dim
         T': data time dim, T: down-sampled time dim (internal time dim)
         """
+        print(f"[Mode: {self._mode}] Running Conformer...")
         x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # [B, T, F']
         for module in self.module_list:
             x = module(x, sequence_mask)  # [B, T, F']
@@ -493,6 +488,7 @@ class StreamableConformerEncoderRelPosV2(StreamableModule):
             out_seq_mask is a torch.Tensor of shape [B, T]
         """
         assert data_tensor.dim() == 4, ""
+        print(f"[Mode: {self._mode}] Running Conformer...")
 
         batch_sz, num_chunks, _, _ = data_tensor.shape
         attn_mask = None

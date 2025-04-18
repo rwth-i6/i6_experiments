@@ -16,9 +16,6 @@ class StreamableModule(nn.Module):
 
     def set_mode_cascaded(self, mode: Mode) -> None:
         assert mode is not None, ""
-        
-        if self._mode == mode:
-            return
 
         self._mode = mode
 
@@ -29,6 +26,7 @@ class StreamableModule(nn.Module):
     def forward(self, *args, **kwargs):
         assert self._mode is not None, ""
 
+        print(f"[Mode: {self._mode}]")
         if self._mode == Mode.STREAMING:
             return self.forward_streaming(*args, **kwargs)
         else:

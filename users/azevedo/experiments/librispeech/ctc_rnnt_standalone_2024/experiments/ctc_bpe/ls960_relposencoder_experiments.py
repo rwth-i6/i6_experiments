@@ -474,7 +474,7 @@ def run_experiments(**kwargs):
                         asr_model=asr_model,
                         decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
                         decoder_args={"config": asdict(aligner_config)},
-                        test_dataset_tuples=dev_dataset_tuples_withlabels,
+                        test_dataset_tuples={"dev-other": dev_dataset_tuples_withlabels["dev-other"]},
                         **default_returnn,
                     )
                     word_aligns_job = BPEToWordAlignmentsJob(
@@ -487,6 +487,27 @@ def run_experiments(**kwargs):
                     add_ctc_forced_alignment(
                         "2.39/%s/dev-other" % mode.name.lower(), word_aligns_job.word_alignments
                     )
+            elif experiment == 15 and model_config.training_strategy == str(TrainingStrategy.STREAMING):
+                aligner_config.mode = str(Mode.STREAMING)
+                align_jobs = force_align(
+                    search_name + "/%s" % mode.name.lower(),
+                    forward_config={},
+                    asr_model=asr_model,
+                    decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
+                    decoder_args={"config": asdict(aligner_config)},
+                    test_dataset_tuples={"dev-other": dev_dataset_tuples_withlabels["dev-other"]},
+                    **default_returnn,
+                )
+                word_aligns_job = BPEToWordAlignmentsJob(
+                    alignment_path=align_jobs["dev-other"].out_files["aligns_out.json"],
+                    labels_path=label_datastream_bpe.vocab
+                )
+                word_aligns_job.add_alias(
+                    training_name + "/dev-other/%s" + mode.name.lower() + "/word_aligns_job"
+                )
+                add_ctc_forced_alignment(
+                    "fs/2.39/%s/dev-other" % mode.name.lower(), word_aligns_job.word_alignments
+                )
 
 
 def ls960_ctc_relpos_streaming_0924_low_bpe_from_scratch():

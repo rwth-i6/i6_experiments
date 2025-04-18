@@ -3,7 +3,7 @@ from sisyphus import tk
 import copy
 from dataclasses import asdict
 import numpy as np
-from typing import cast, List
+from typing import cast, List, Optional
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
@@ -17,9 +17,9 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel, latency, 
 from ...storage import get_ctc_model, get_ctc_forced_alignment
 from ...latency import BPEToWordAlignmentsJob
 
-
 from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy, Mode
 
+from ... import PACKAGE
 
 
 def product_dict(**kwargs):
@@ -53,10 +53,9 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
         }
     }
 
-    network_module = "rnnt.conformer_0325.%s" % module
     train_args_default = {
         "config": train_config,
-        "network_module": network_module,
+        "network_module": module,
         "include_native_ops": True,
         "debug": False,
         "use_speed_perturbation": True,
@@ -98,7 +97,7 @@ def run_experiments(**kwargs):
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    from ...pytorch_networks.rnnt.decoder.streaming_decoder_v1 import DecoderConfig
+    from ...pytorch_networks.rnnt.decoder.streaming_decoder_v1 import DecoderConfig, ExtraConfig
     from ...pytorch_networks.rnnt.aligner.experimental_rnnt_aligner_v1 import DecoderConfig as RNNTAlignerConfig
 
 
@@ -107,6 +106,7 @@ def run_experiments(**kwargs):
         asr_model: ASRModel,
         base_decoder_config: DecoderConfig,
         decoder_module: str,
+        unhashed_decoder_config: Optional[ExtraConfig] = None,
         beam_size: int = 1,
         use_gpu=False,
         with_align=False,
@@ -133,6 +133,7 @@ def run_experiments(**kwargs):
             asr_model=asr_model,
             decoder_module=decoder_module,
             decoder_args={"config": asdict(decoder_config)},
+            unhashed_decoder_args={"extra_config": asdict(unhashed_decoder_config)} if unhashed_decoder_config else None,
             test_dataset_tuples={**dev_dataset_tuples},  # **test_dataset_tuples},
             use_gpu=use_gpu,
             **default_returnn,
@@ -237,7 +238,7 @@ def run_experiments(**kwargs):
         param_combinations = product_dict(**model_params)
 
         for param_combi in param_combinations:
-            fe_config.center = param_combi.get("fe_center", False)
+            fe_config.center = exp_config.get("fe_center", False)
             
             model_config = ModelConfig(
                 feature_extraction_config=fe_config,
@@ -257,7 +258,7 @@ def run_experiments(**kwargs):
                 mhsa_with_bias=True,
                 conv_kernel_size=31,
                 final_dropout=0.1,
-                specauc_start_epoch=11,
+                specauc_start_epoch=param_combi["specauc_start_epoch"],
                 joiner_dim=640,
                 joiner_activation="relu",
                 joiner_dropout=0.1,
@@ -356,11 +357,53 @@ def run_experiments(**kwargs):
                     beam_size=12,
                     decoder_module="rnnt.decoder.monotonic_decoder_v1",
                 )
+            if experiment == 40:
+                from ...storage import get_lm_model, NeuralLM
+                lstm_2x1024: NeuralLM = get_lm_model("bpe%i_2x2024_kazuki_lstmlm_3ep" % bpe_size)
+                from ...pytorch_networks.rnnt.decoder.streaming_decoder_documented import DecoderConfig as DecoderConfigDC
+                from ...pytorch_networks.rnnt.decoder.streaming_decoder_documented import ExtraConfig as DecoderExtraConfigDC
+                from i6_core.returnn.config import CodeWrapper
+
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                decoder_unhashed_config_dc = DecoderExtraConfigDC(lm_package=PACKAGE,)
+                for lm_scale in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                    decoder_config_bpeany_streaming = DecoderConfigDC(
+                        beam_size=12,
+                        returnn_vocab=label_datastream_bpe.vocab,
+
+                        lm_model_args=lstm_2x1024.net_args,
+                        lm_checkpoint=lstm_2x1024.checkpoint,
+                        lm_module="pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v2.Model",
+                        lm_scale=lm_scale,
+                        zero_ilm_scale=0.1,
+
+                        # lm_model_args=None,
+                        # lm_checkpoint=None,
+                        # lm_module=None,
+
+                        mode=str(Mode.STREAMING),
+                        chunk_size=int(model_config.chunk_size),
+                        lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                        carry_over_size=model_config.carry_over_size,
+                        test_version=0.0,
+                    )
+                    evaluate_helper(
+                        training_name + f"/lm{lm_scale:.1f}" + "/keep_%i" % 1000,
+                        asr_model,
+                        decoder_config_bpeany_streaming,
+                        unhashed_decoder_config=decoder_unhashed_config_dc,
+                        use_gpu=True,
+                        beam_size=12,
+                        decoder_module="rnnt.decoder.streaming_decoder_documented",
+                    )
             
             #
             # latency job + alignments
             #
-            if model_config.training_strategy == str(TrainingStrategy.UNIFIED):
+            if experiment == 10:
                 mode = Mode.STREAMING
                 
                 decoder_align_config = copy.deepcopy(decoder_config_streaming)
@@ -466,7 +509,7 @@ def run_experiments(**kwargs):
                     asr_model=ctc_model,
                     decoder_module="ctc.aligner.experimental_ctc_aligner_v1",
                     decoder_args={"config": asdict(ctc_aligner_config)},
-                    test_dataset_tuples=dev_dataset_tuples_withlabels,
+                    test_dataset_tuples={"dev-other": dev_dataset_tuples_withlabels["dev-other"]},
                     **default_returnn,
                 )
                 ctc_word_aligns_job = BPEToWordAlignmentsJob(
@@ -491,7 +534,7 @@ def run_experiments(**kwargs):
                     chunk_size=int(model_config.chunk_size),
                     lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
                     carry_over_size=model_config.carry_over_size,
-                    test_version=0.0,
+                    test_version=0.4,
                     save_hypos=False,
                 )
                 search_jobs = evaluate_helper(
@@ -502,7 +545,8 @@ def run_experiments(**kwargs):
                     beam_size=12,
                     decoder_module="rnnt.aligner.experimental_rnnt_aligner_v1",
                     with_align=True,
-                    out_files=["search_out.py", "aligns_out.json"]
+                    out_files=["search_out.py", "aligns_out.json"],
+                    debug=True
                 )
                 word_aligns_job = BPEToWordAlignmentsJob(
                     alignment_path=search_jobs["dev-other"].out_files["aligns_out.json"],
@@ -519,6 +563,20 @@ def run_experiments(**kwargs):
                     training_name + "/latency/2.39octc_vs_srnnt",
                     None,
                     ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+
+                latency(
+                    training_name + "/latency/ctc0425_streaming_2.39_streaming_vs_rnnt0325_streaming_%.2f_streaming" % param_combi["chunk_size"],
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("ctc0425_streaming_2.39_streaming")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+                latency(
+                    training_name + "/latency/ctc0425_offline_2.39_unified_vs_rnnt0325_streaming_%.2f_streaming" %
+                    param_combi["chunk_size"],
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("ctc0425_offline_2.39_unified")},
                     hyp_paths={"dev-other": word_aligns_job.word_alignments},
                 )
 
@@ -562,13 +620,95 @@ def run_experiments(**kwargs):
                     ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
                     hyp_paths={"dev-other": word_aligns_job.word_alignments},
                 )
-            
-            latency(
-                training_name + "/latency/octc_vs_sctc",
-                None,
-                ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
-                hyp_paths={"dev-other": get_ctc_forced_alignment("2.39/streaming/dev-other")},
-            )
+
+
+                latency(
+                    training_name + "/latency/octc_vs_sctc",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                    hyp_paths={"dev-other": get_ctc_forced_alignment("2.39/streaming/dev-other")},
+                )
+                latency(
+                    training_name + "/latency/ouctc_vs_fssctc",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                    hyp_paths={"dev-other": get_ctc_forced_alignment("fs/2.39/streaming/dev-other")},
+                )
+                latency(
+                    training_name + "/latency/2.4ouctc_vs_2.39ouctc",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("dev-other")},
+                    hyp_paths={"dev-other": get_ctc_forced_alignment("2.39/offline/dev-other")},
+                )
+
+                latency(
+                    training_name + "/latency/ctc0425_streaming_2.39_streaming_vs_rnnt0325_streaming_2.39_unified",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("ctc0425_streaming_2.39_streaming")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+                latency(
+                    training_name + "/latency/ctc0425_offline_2.39_unified_vs_rnnt0325_streaming_2.39_unified",
+                    None,
+                    ref_paths={"dev-other": get_ctc_forced_alignment("ctc0425_offline_2.39_unified")},
+                    hyp_paths={"dev-other": word_aligns_job.word_alignments},
+                )
+
+
+            # used to profile documented_rnnt_beam_search
+            if experiment == 40:
+                decoder_config_streaming_profiling = DecoderConfigDC(
+                    beam_size=12,
+                    returnn_vocab=label_datastream_bpe.vocab,
+
+                    lm_model_args=None,
+                    lm_checkpoint=None,
+                    lm_module=None,
+
+                    mode=str(Mode.STREAMING),
+                    chunk_size=int(model_config.chunk_size),
+                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                    carry_over_size=model_config.carry_over_size,
+                    test_version=1.5,
+                )
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=1000
+                )
+                evaluate_helper(
+                    training_name + "/profiling/keep_%i" % 1000,
+                    asr_model,
+                    decoder_config_streaming_profiling,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.profiler.decoder_rnnt",
+                    debug=True
+                )
+
+                decoder_config_streaming_v2 = DecoderConfigDC(
+                    beam_size=12,
+                    returnn_vocab=label_datastream_bpe.vocab,
+                    
+                    lm_model_args=None,
+                    lm_checkpoint=None,
+                    lm_module=None,
+
+                    mode=str(Mode.STREAMING),
+                    chunk_size=int(model_config.chunk_size),
+                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+                    carry_over_size=model_config.carry_over_size,
+                    test_version=0.2,
+                )
+                evaluate_helper(
+                    training_name + "/verbose/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_streaming_v2,
+                    unhashed_decoder_config=decoder_unhashed_config_dc,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.streaming_decoder_documented"
+                )
+
 
 
 def relpos_streaming_ls960_0325_low_bpe_from_scratch():
@@ -584,7 +724,7 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
                 "dual_mode": [True],
             },
 
-            "network_module": "model_dual_0325_v1",
+            "network_module": "rnnt.conformer_0325.model_dual_0325_v1",
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
@@ -602,7 +742,7 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
                 "dual_mode": [False],
             },
 
-            "network_module": "model_dual_0325_v1",
+            "network_module": "rnnt.conformer_0325.model_dual_0325_v1",
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
@@ -620,7 +760,7 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
                 "dual_mode": [False],
             },
 
-            "network_module": "model_dual_0325_v1",
+            "network_module": "rnnt.conformer_0325.model_dual_0325_v1",
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
@@ -640,13 +780,14 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
                 "dual_mode": [False],
             },
 
-            "network_module": "model_dual_0325_v1",
+            "network_module": "rnnt.conformer_0325.model_dual_0325_v1",
             "fe_center": True,
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 800, 950, 980]
         },
+
         45: {
             "model_params": {
                 "chunk_size": [2.39],
@@ -658,33 +799,52 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
                 "dual_mode": [False],
             },
 
-            "network_module": "model_dual_0325_v1",
+            "network_module": "rnnt.conformer_0325.model_dual_0325_v1",
             "fe_center": True,
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 800, 950, 980]
         },
+        # test whether StreamableModule works (does work)
+        # 41: {
+        #     "model_params": {
+        #         "chunk_size": [2.39],
+        #         "lookahead_size": [8],
+        #         "kernel_size": [31],
+        #         "specauc_start_epoch": [21],
+        #         "carry_over_size": [2],
+        #         "training_strategy": [str(TrainingStrategy.UNIFIED)],
+        #         "dual_mode": [False],
+        #     },
 
-        50: {
+        #     "network_module": "rnnt.conformer_0325.model_dual_0325_v1",
+        #     "fe_center": True,
+        #     "accum_grads": 1,
+        #     "gpu_mem": 48,
+        #     "num_epochs": 1000,
+        #     "keep": [300, 980]
+        # },
+
+        # amplitude perturbation
+        60: {
             "model_params": {
-                "chunk_size": [0.59],
+                "chunk_size": [2.39],
                 "lookahead_size": [8],
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
-                "carry_over_size": [4],
+                "carry_over_size": [2],
                 "training_strategy": [str(TrainingStrategy.STREAMING)],
                 "dual_mode": [False],
             },
 
-            "network_module": "model_dual_0325_v1",
+            "network_module": "rnnt.conformer_0525.model_with_amplitude_perturbation",
             "fe_center": True,
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 800, 950, 980]
         },
-
     }
 
     run_experiments(experiments_config=experiment_configs, bpe_size=128)

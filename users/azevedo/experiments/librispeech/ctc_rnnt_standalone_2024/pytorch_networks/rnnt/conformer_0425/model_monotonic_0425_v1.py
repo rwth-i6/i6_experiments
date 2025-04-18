@@ -2,14 +2,12 @@ import torch
 from torch import nn
 from dataclasses import dataclass
 
-from ..conformer_0325.model_dual_0325_v1_cfg import ModelConfig
 from i6_models.config import ModuleFactoryV1
-
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
-
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.dropout import BroadcastDropout
 
+from ..conformer_0325.model_dual_0325_v1_cfg import ModelConfig
 from ..conformer_0325.conf_dual_0325_v1 import (
     StreamableConformerEncoderRelPosV2,
     StreamableConformerEncoderRelPosV2Config,
@@ -21,16 +19,10 @@ from ..conformer_1124.conf_relpos_streaming_v1 import (
     ConformerMHSARelPosV1Config,
     ConformerConvolutionV2Config,
 )
-
-
-from ..conformer_0325.conf_dual_0325_v1 import (
-    StreamableFeatureExtractorV1,
-    StreamableJoinerV1,
-)
+from ..conformer_0325.conf_dual_0325_v1 import StreamableFeatureExtractorV1
+from .streamable_monotonic_joiner_0425_v1 import StreamableMonotonicJoinerV1
 from ..conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 import Predictor
-
 # from ..conformer_0924.model_streaming_lah_carryover_v4 import train_step
-
 from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native import (
     prior_step,
     prior_init_hook,
@@ -98,8 +90,8 @@ class Model(nn.Module):
             output_dim=self.cfg.joiner_dim,
             dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
         )
-        self.joiner = StreamableJoinerV1(
-            input_dim=self.cfg.joiner_dim,
+        self.joiner = StreamableMonotonicJoinerV1(
+            input_dim=self.cfg.joiner_dim * 2,  # NOTE: this is different
             output_dim=self.cfg.label_target_size + 1,
             activation=self.cfg.joiner_activation,
             dropout=self.cfg.joiner_dropout,
@@ -139,7 +131,7 @@ class Model(nn.Module):
         """
         assert self.mode is not None
 
-        self.feature_extraction.set_mode(self.mode)
+        self.feature_extraction.set_mode_cascaded(self.mode)
         conformer_in, mask = self.feature_extraction(raw_audio, raw_audio_len, self.chunk_size)
 
         self.conformer.set_mode_cascaded(self.mode)
@@ -159,13 +151,13 @@ class Model(nn.Module):
             lengths=labels_len,
         )
 
-        self.joiner.set_mode(self.mode)
+        self.joiner.set_mode_cascaded(self.mode)
         output_logits, src_len, tgt_len = self.joiner(
             source_encodings=conformer_joiner_out,
             source_lengths=conformer_out_lengths,
             target_encodings=predict_out,
             target_lengths=labels_len,
-        )  # output is [B, T, N, #vocab]
+        )
 
         if self.cfg.ctc_output_loss > 0:
             encoder_ctc = self.encoder_ctc_on if self.mode == Mode.STREAMING else self.encoder_ctc_off
@@ -180,6 +172,7 @@ class Model(nn.Module):
 def train_step(*, model: Model, data, run_ctx, **kwargs):
     # import for training only, will fail on CPU servers
     from i6_native_ops import monotonic_rnnt
+    from i6_native_ops import warp_rnnt
 
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
@@ -202,15 +195,26 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             labels=prepended_targets, labels_len=prepended_target_lengths,
         )
 
-        logprobs = torch.log_softmax(logits, dim=-1)
+        has_mismatch = False
+        for b in range(audio_features_len.size(0)):
+            # check if T <= S, otherwise mismatch
+            if labels_len[b] > audio_features_len[b]:
+                assert False, "T <= S"
+                # print(
+                #     data["seq_tag"][b], "has", labels_len[b], "targets but only", audio_features_len[b], "encoder states"
+                # )
+                # has_mismatch = True
 
-        rnnt_loss = monotonic_rnnt.monotonic_rnnt_loss(
-            acts=logprobs,
-            labels=labels,
-            input_lengths=audio_features_len.to(dtype=torch.int32),
-            label_lengths=labels_len.to(dtype=torch.int32),
-            blank_label=model.cfg.label_target_size,
-        )
+        if not has_mismatch:
+            rnnt_loss = monotonic_rnnt.monotonic_rnnt_loss(
+                acts=logits.to(dtype=torch.float32),
+                labels=labels,
+                input_lengths=audio_features_len.to(dtype=torch.int32),
+                label_lengths=labels_len.to(dtype=torch.int32),
+                blank_label=model.cfg.label_target_size,
+            ).sum()
+        else:
+            rnnt_loss = torch.zeros([], dtype=torch.float32, device=logits.device)
 
         mode_str = encoder_mode.name.lower()[:3]
         ctc_loss = None
@@ -248,12 +252,17 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         switch_loss = _train_step_mode(encoder_mode, scale=1)
         return switch_loss
 
-    if model.cfg.training_strategy == TrainingStrategy.UNIFIED:
-        loss_dict = _train_step_unified()
-    elif model.cfg.training_strategy == TrainingStrategy.SWITCHING:
-        loss_dict = _train_step_switching()
-    else:
-        loss_dict = _train_step_mode(Mode.STREAMING, scale=1)
+    match model.cfg.training_strategy:
+        case TrainingStrategy.UNIFIED:
+            loss_dict = _train_step_unified()
+        case TrainingStrategy.SWITCHING:
+            loss_dict = _train_step_switching()
+        case TrainingStrategy.STREAMING:
+            loss_dict = _train_step_mode(Mode.STREAMING, scale=1)
+        case TrainingStrategy.OFFLINE:
+            loss_dict = _train_step_mode(Mode.OFFLINE, scale=1)
+        case _:
+            NotImplementedError("Training Strategy not available yet.")
 
     for loss_key in loss_dict:
         run_ctx.mark_as_loss(
