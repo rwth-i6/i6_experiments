@@ -281,7 +281,6 @@ def transform(data, network, **config):
                         "step",
                         step,
                         "Comparison Time: ",
-                        data.time_dim_axis,
                         actual_time_mask_max_num,
                         time_mask_max_size,
                         "Comparison Feature: ",
