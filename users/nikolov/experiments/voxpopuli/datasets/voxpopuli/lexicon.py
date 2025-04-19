@@ -1,123 +1,122 @@
-"""
-Functions related to lexicon creation
-"""
-__all__ = ["get_bliss_lexicon"]
-from sisyphus import tk
-
+__all__ = ["get_bpe_lexicon"]
 import os
+from typing import Optional
+from sisyphus import setup_path,gs,tk
 
-from i6_core.datasets.switchboard import (
-    DownloadSwitchboardTranscriptionAndDictJob,
-    CreateSwitchboardLexiconTextFileJob,
-)
-from i6_core.lexicon import LexiconFromTextFileJob
+import i6_core.returnn as returnn
+from i6_core.lexicon.bpe import CreateBPELexiconJob
+from i6_core.bpe.train import ReturnnTrainBpeJob
+from i6_core.lexicon.conversion import LexiconFromTextFileJob
 from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
-from i6_core.lib import lexicon
-from i6_core.text.processing import PipelineJob
+from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+import i6_core.lib.lexicon as lexicon
 
-from .constants import SUBDIR_PREFIX
 
-def get_special_lemma_lexicon() -> lexicon.Lexicon:
+SUBWORD_NMT_REPO = get_returnn_subword_nmt(
+    commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
+).copy()
+
+
+def get_special_lemma_lexicon(
+    add_unknown_phoneme_and_mapping: bool = True, add_silence: bool = True
+) -> lexicon.Lexicon:
     """
-    Generate the special phonemes/lemmas for Switchboard
+    Generate the special lemmas for Voxpopuli
+
+    Voxpopuli uses silence, sentence begin/end and unknown, but no other special tokens.
+
+    :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
+    :param bool add_silence: add [SILENCE] phoneme and lemma, otherwise do not include it at all (e.g. for CTC setups)
+    :return: the lexicon with special lemmas and phonemes
+    :rtype: lexicon.Lexicon
     """
     lex = lexicon.Lexicon()
-
-    tags = ["[SILENCE]", "[NOISE]", "[VOCALIZED-NOISE]", "[LAUGHTER]"]
-    tag_to_phon = {
-        "[SILENCE]": "[SILENCE]",
-        "[NOISE]": "[NOISE]",
-        "[VOCALIZED-NOISE]": "[VOCALIZEDNOISE]",
-        "[LAUGHTER]": "[LAUGHTER]",
-    }
-    for tag in tags:
-        lex.add_phoneme(tag_to_phon[tag], variation="none")
-
-    # add non-special lemmas
-    for tag in tags[1:]:  # silence is considered below
+    if add_silence:
         lex.add_lemma(
             lexicon.Lemma(
-                orth=[tag],
-                phon=[tag_to_phon[tag]],
+                orth=["[SILENCE]", ""],
+                phon=["[SILENCE]"],
                 synt=[],
+                special="silence",
                 eval=[[]],
             )
         )
-
-    # create special lemmas
-    lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-boundary"))
-
-    lex.add_lemma(
-        lexicon.Lemma(
-            orth=["[sentence-begin]"],
-            synt=["<s>"],
-            eval=[[]],
-            special="sentence-begin",
+    #lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-BEGIN]"], synt=["<s>"], special="sentence-begin"))
+    #lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-end"))
+    if add_unknown_phoneme_and_mapping:
+        lex.add_lemma(
+            lexicon.Lemma(
+                orth=["[UNKNOWN]"],
+                phon=["[UNKNOWN]"],
+                synt=["<UNK>"],
+                special="unknown",
+            )
         )
-    )
-
-    lex.add_lemma(lexicon.Lemma(orth=["[sentence-end]"], synt=["</s>"], eval=[[]], special="sentence-end"))
-
-    lex.add_lemma(
-        lexicon.Lemma(
-            orth=["[SILENCE]", ""],
-            phon=["[SILENCE]"],
-            synt=[],
-            eval=[[]],
-            special="silence",
+    else:
+        lex.add_lemma(
+            lexicon.Lemma(
+                orth=["[UNKNOWN]"],
+                synt=["<UNK>"],
+                special="unknown",
+            )
         )
-    )
 
-    lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], synt=["<unk>"], eval=[[]], special="unknown"))
-
+    if add_silence:
+        lex.add_phoneme("[SILENCE]", variation="none")
+    if add_unknown_phoneme_and_mapping:
+        lex.add_phoneme("[UNKNOWN]", variation="none")
     return lex
 
-def get_text_lexicon(subdir_prefix: str = SUBDIR_PREFIX):
-    """
-    :param subdir_prefix:
-    """
-    raw_lexicon_dir = DownloadSwitchboardTranscriptionAndDictJob()
 
-    # apply preprocessing on words to be consistent with the training corpus
-    mapped_raw_lexicon_file_job = CreateSwitchboardLexiconTextFileJob(raw_lexicon_dir.out_raw_dict)
-    mapped_raw_lexicon_file_job.add_alias(os.path.join(subdir_prefix, "create_lexicon_text_file_job"))
-    lowercase_raw_lexicon_file_job = PipelineJob(
-        mapped_raw_lexicon_file_job.out_dict,
-        ["tr '[:upper:]' '[:lower:]'", "sort -u"],
-        zip_output=False,
-        mini_task=True,
-    )
-    lowercase_raw_lexicon_file_job.add_alias(os.path.join(subdir_prefix, "lowercase_lexicon_text_file_job"))
 
-    return lowercase_raw_lexicon_file_job.out
-
-def get_bliss_lexicon(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
+def get_bliss_lexicon(
+    raw_lexicon_path: tk.Path,
+    full_text_path: tk.Path,
+    bpe_size: int,
+    subdir_prefix: str = "vox_lex") -> tk.Path:
     """
-    Creates Switchboard bliss xml lexicon. The special lemmas are added via `get_special_lemma_lexicon` function.
-    The original raw dictionary is downloaded from here:
-    http://www.openslr.org/resources/5/switchboard_word_alignments.tar.gz
+    Creates Voxpopuli bliss xml lexicon. The special lemmas are added via `get_special_lemma_lexicon` function.
 
     :param subdir_prefix: alias prefix name
-    :return: Path to switchboard bliss lexicon
+    :param raw_lexicon_path: tk.Path to .txt lexicon in the format  <WORD> <PHONEME1> <PHONEME2> ...
+    :param bpe_size: number of bpe tokens
+    :return: Path to voxpopuli bliss lexicon
     """
-    static_lexicon = get_special_lemma_lexicon()
+    static_lexicon = get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True)
     static_lexicon_job = WriteLexiconJob(static_lexicon=static_lexicon, sort_phonemes=True, sort_lemmata=False)
     static_lexicon_job.add_alias(os.path.join(subdir_prefix, "write_special_lemma_lexicon_job"))
 
-    mapped_raw_lexicon_file = get_text_lexicon(subdir_prefix=subdir_prefix)
+    mapped_raw_lexicon_file = raw_lexicon_path
 
     bliss_lexicon = LexiconFromTextFileJob(mapped_raw_lexicon_file, compressed=True)
     bliss_lexicon.add_alias(os.path.join(subdir_prefix, "create_lexicon_job"))
 
+    bpe_train_job = ReturnnTrainBpeJob(text_file=full_text_path, bpe_size=bpe_size, subword_nmt_repo=SUBWORD_NMT_REPO)
+
+    bpe_lexicon = CreateBPELexiconJob(
+        base_lexicon_path=bliss_lexicon.out_bliss_lexicon,
+        bpe_codes=bpe_train_job.out_bpe_codes,
+        bpe_vocab=bpe_train_job.out_bpe_vocab,
+        subword_nmt_repo=SUBWORD_NMT_REPO,
+        unk_label=bpe_train_job.unk_label,
+    )
+
+
+    bpe_lexicon.add_alias(os.path.join(subdir_prefix, "create_bpe_lexicon_job"))
+
     merge_lexicon_job = MergeLexiconJob(
         bliss_lexica=[
             static_lexicon_job.out_bliss_lexicon,
-            bliss_lexicon.out_bliss_lexicon,
+            bpe_lexicon.out_lexicon,
         ],
         sort_phonemes=True,
         sort_lemmata=False,
         compressed=True,
     )
     merge_lexicon_job.add_alias(os.path.join(subdir_prefix, "merge_lexicon_job"))
+    tk.register_output(
+                            f"voxpopuli_asr/lexicon",
+                            merge_lexicon_job.out_bliss_lexicon,
+    ) 
 
     return merge_lexicon_job.out_bliss_lexicon
