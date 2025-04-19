@@ -99,10 +99,16 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         },
         **(recog_args or {}),
     }
-    score_info = ScorerInfo()
-    score_info.ref_file = dev_corpora["hub5e00"].stm
-    score_info.job_type = Hub5ScoreJob
-    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+    # Initialize ScorerInfo for both hub5e00 and hub5e01
+    score_info_hub5e00 = ScorerInfo()
+    score_info_hub5e00.ref_file = dev_corpora["hub5e00"].stm
+    score_info_hub5e00.job_type = Hub5ScoreJob
+    score_info_hub5e00.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+
+    score_info_hub5e01 = ScorerInfo()
+    score_info_hub5e01.ref_file = dev_corpora["hub5e01"].stm
+    score_info_hub5e01.job_type = Hub5ScoreJob
+    score_info_hub5e01.score_kwargs = {"glm": dev_corpora["hub5e01"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
     ctc_nn_system = TransducerSystem(
         returnn_root=returnn_root or RETURNN_ROOT,
@@ -112,7 +118,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     )
     ctc_nn_system.init_system(
         returnn_configs=returnn_configs,
-        dev_keys=["hub5e00"],
+        dev_keys=["hub5e00", "hub5e01"],
         corpus_data=dev_corpora,
         am_args={
             "state_tying": "monophone",
@@ -122,15 +128,24 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             "phon_history_length": 0,
             "phon_future_length": 0,
         },
-        scorer_info=score_info,
+        scorer_info=None,
         report=Report(
             columns_start=["train_name"],
             columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
         ),
     )
+    ctc_nn_system._set_scorer("hub5e00", score_info_hub5e00)
+    ctc_nn_system._set_scorer("hub5e01", score_info_hub5e01)
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
+        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
+        cached=True,
+    )
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_from_lexicon = False
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_all = True
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_from_file = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         cached=True,
@@ -186,6 +201,15 @@ def run_mel_baseline():
         nn_base_args={
             "bs10k_lgm80_baseline": dict(
                 returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_lgm80_baseline_time_30": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 8, "max_time": 30},
+                },
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
@@ -301,6 +325,47 @@ def run_scf_baseline():
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={"batch_size": "7k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "extra_args": 
+                        {
+                            "conv_pad_seq_len_to_power": 1.5,
+                        },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97_mask8": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "specaug_old": {"max_feature": 8},
+                    "extra_args": 
+                        {
+                            "conv_pad_seq_len_to_power": 1.5,
+                        },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97_mask8_30": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "specaug_old": {"max_feature": 8, "max_time": 30},
+                    "extra_args": 
+                        {
+                            "conv_pad_seq_len_to_power": 1.5,
+                        },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
             ),
         },
         num_epochs=450,
@@ -631,7 +696,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
-        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},   
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
@@ -1017,7 +1082,7 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
-        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},   
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
