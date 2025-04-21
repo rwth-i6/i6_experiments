@@ -766,8 +766,10 @@ def train_exp(
     # lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
     # ilm_scales = [0.9, 1.0, 1.1, 1.2, 1.3] 
     # prior_scales = [0.0, 0.1, 0.2, 0.3, 0.4]
-    lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-    ilm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5] 
+    #lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+    #ilm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    lm_scales = [1.5]
+    ilm_scales = [0.9]
     prior_scales = [0.0]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
         if ilm_scale >= lm_scale:
@@ -799,6 +801,7 @@ def train_exp(
             train_exp_name=name,
             dev_sets=["dev", "test"],
         )
+        from
 
     return model_with_checkpoint
 

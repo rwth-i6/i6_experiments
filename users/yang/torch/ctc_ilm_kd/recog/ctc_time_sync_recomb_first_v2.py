@@ -2,6 +2,8 @@
 Modified to do recombination before pruning
 https://github.com/rwth-i6/i6_experiments/blob/main/users/gaudino/models/asr/rf/conformer_ctc/model_recog_ctc_ts.py
 """
+
+# hacky implementation to use trafo ILM
 from __future__ import annotations
 
 import copy
@@ -25,7 +27,8 @@ from i6_experiments.users.phan.recog.blank_collapse import (
     blank_collapse_batched,
 )
 
-from i6_experiments.users.phan.rf_models.trafo_lm_luca import Trafo_LM_Model
+#from i6_experiments.users.phan.rf_models.trafo_lm_luca import Trafo_LM_Model
+from i6_experiments.users.yang.torch.ctc_ilm_kd.trafo_lm import Trafo_LM_Model
 from i6_experiments.users.phan.rf_models.lstm_lm_luca import LSTM_LM_Model
 from i6_experiments.users.phan.rf_models.lstm_lm_luca_hardcoded_layers import LSTM_LM_Model_Hardcoded_Layers
 
@@ -106,8 +109,12 @@ def model_recog_time_sync_recomb_first_v2(
         else:
             raise NotImplementedError(f"External LM type {model.language_model.__class__.__name__} is not supported")
     if search_args.get("ilm_scale", 0.0) > 0:
-        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
-        prev_ilm_state = ilm_state
+
+        if isinstance(model.ilm, Trafo_LM_Model):
+            trafo_ilm_state = _get_init_trafo_state(model.ilm, batch_dims_)
+        else:
+            ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
+            prev_ilm_state = ilm_state
 
     initial_target = rf.constant(
         model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_blank
@@ -267,7 +274,7 @@ def model_recog_time_sync_recomb_first_v2(
                     lstm_lm_state = model.language_model.select_state(lstm_lm_state, backrefs)
                     prev_lstm_lm_state = model.language_model.select_state(lstm_lm_state_1, backrefs)
 
-            if search_args.get("ilm_scale", 0.0) > 0:  # TODO
+            if search_args.get("ilm_scale", 0.0) > 0 and isinstance(model.ilm, LSTM_LM_Model):  # TODO
                 ilm_state = model.ilm.select_state(ilm_state, backrefs)
                 prev_ilm_state = model.ilm.select_state(ilm_state_1, backrefs)
 
@@ -306,27 +313,36 @@ def model_recog_time_sync_recomb_first_v2(
                         prev_lstm_lm_state,
                     )
                     prev_lstm_lm_state = lstm_lm_state # Reset previous ilm state for next time step
-
         # ---------------------------------------------------------------
-        # Set the state of the ILM
+        # set the state for the trafo ILM, should be exactly the same as updating the external trafo LM
+        # ---------------------------------------------------------------
+        # Set the state of the LSTM ILM
         # Only use new state if there are some recombinations
         # ilm_state_1 should only exist inside this time step
         # ilm_state is the previous output ILM state from last time step
         # ---------------------------------------------------------------
         if search_args.get("ilm_scale", 0.0) > 0.0:
-            # if i > 0:
-            #     print("backrefs", backrefs.raw_tensor)
-            #     print("target", target.raw_tensor)
-            if not torch.any(mask_combined.raw_tensor) or i == 0: # no recombination
-                # select state happens to "synchronize" the beam dim (dec-step{n}-beam to dec-step{n+1}-beam)
-                ilm_state_1 = prev_ilm_state
-            else:
-                ilm_state_1 = tree.map_structure(
-                    lambda s, prev_s: partial_mask_function(s, prev_s),
-                    ilm_state,
-                    prev_ilm_state,
-                )
-                prev_ilm_state = ilm_state # Reset previous ilm state for next time step
+            if isinstance(model.ilm, Trafo_LM_Model):
+                if i > 0:
+                    trafo_ilm_state_1 = _get_masked_trafo_state(
+                        trafo_ilm_state_1, trafo_ilm_state, mask_combined, backrefs
+                    )
+                else:
+                    trafo_ilm_state_1 = trafo_ilm_state
+            elif isinstance(model.ilm, LSTM_LM_Model):
+                # if i > 0:
+                #     print("backrefs", backrefs.raw_tensor)
+                #     print("target", target.raw_tensor)
+                if not torch.any(mask_combined.raw_tensor) or i == 0: # no recombination
+                    # select state happens to "synchronize" the beam dim (dec-step{n}-beam to dec-step{n+1}-beam)
+                    ilm_state_1 = prev_ilm_state
+                else:
+                    ilm_state_1 = tree.map_structure(
+                        lambda s, prev_s: partial_mask_function(s, prev_s),
+                        ilm_state,
+                        prev_ilm_state,
+                    )
+                    prev_ilm_state = ilm_state # Reset previous ilm state for next time step
 
         # remove blank from target
         target_1.sparse_dim = model.target_dim
@@ -411,19 +427,62 @@ def model_recog_time_sync_recomb_first_v2(
         # ----------------------------------------------------------
         if search_args.get("ilm_scale", 0.0) > 0:
             # target_1: (Batch, Beam). State should be (Batch, Beam, Hidden state dim)
-            ilm_out = model.ilm(target_1, state=ilm_state_1, spatial_dim=single_step_dim)
-            ilm_state = ilm_out["state"]
-            # print("ilm state after forwarding", ilm_state.raw_tensor)
-            ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
-            # print("ilm_state out", ilm_state)
-            if search_args.get("add_eos_to_end", False) and is_last_step:
-                eos_log_prob.raw_tensor = eos_log_prob.raw_tensor - ilm_log_prob.raw_tensor[
-                    :, :, model.eos_idx
-                ] * search_args.get("ilm_scale", 0.0)
+            if isinstance(model.ilm, LSTM_LM_Model):
+                ilm_out = model.ilm(target_1, state=ilm_state_1, spatial_dim=single_step_dim)
+                ilm_state = ilm_out["state"]
+                # print("ilm state after forwarding", ilm_state.raw_tensor)
+                ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
+                # print("ilm_state out", ilm_state)
+                if search_args.get("add_eos_to_end", False) and is_last_step:
+                    eos_log_prob.raw_tensor = eos_log_prob.raw_tensor - ilm_log_prob.raw_tensor[
+                        :, :, model.eos_idx
+                    ] * search_args.get("ilm_scale", 0.0)
 
-            label_log_prob_non_blank = (
-                label_log_prob_non_blank - search_args.get("ilm_scale", 0.0) * ilm_log_prob.raw_tensor
-            )
+                label_log_prob_non_blank = (
+                    label_log_prob_non_blank - search_args.get("ilm_scale", 0.0) * ilm_log_prob.raw_tensor
+                )
+            elif isinstance(model.ilm, Trafo_LM_Model):
+                if (
+                    not torch.any(mask_combined.raw_tensor)
+                    and i > 0
+                    and search_args.get("lm_skip", False)
+                ):
+                    trafo_ilm_log_prob = rf.gather(trafo_ilm_log_prob, indices=backrefs)
+                    trafo_ilm_state = _get_trafo_state_after(trafo_ilm_state, backrefs)
+                else:
+                    trafo_ilm_out = model.ilm(
+                        target_1, state=trafo_ilm_state_1, spatial_dim=single_step_dim
+                    )
+                    trafo_ilm_state = trafo_ilm_out["state"]
+
+                    trafo_ilm_log_prob = rf.log_softmax(
+                        trafo_ilm_out["output"], axis=model.target_dim
+                    )
+
+                trafo_ilm_log_prob_raw = trafo_ilm_log_prob.raw_tensor
+                if search_args.get("add_eos_to_end", False) and is_last_step:
+                    eos_log_prob.raw_tensor = eos_log_prob.raw_tensor + trafo_ilm_log_prob_raw[
+                        :, :, model.eos_idx
+                    ] * search_args.get("ilm_scale", 0.0)
+
+                if search_args.get("remove_trafo_lm_eos", False):
+                    # warning this basically set eos to 0 for the whole prob distribution
+                    assert False
+                    #trafo_log_prob_raw[:, :, model.eos_idx] = -1e30
+                    # trafo_log_prob_raw = trafo_log_prob_raw - torch.logsumexp(
+                    #     trafo_log_prob_raw, dim=2, keepdim=True
+                    # )
+
+                label_log_prob_non_blank = (
+                    label_log_prob_non_blank
+                    - search_args.get("ilm_scale", 0.0)
+                    * trafo_ilm_log_prob_raw  # still raw tensor for omt slicing etc
+                )
+            else:
+                NotImplementedError
+
+
+
 
         blank_log_prob = ctc_out_log_raw_step[:, :, blank_index]
         repeat_log_prob = torch.gather(

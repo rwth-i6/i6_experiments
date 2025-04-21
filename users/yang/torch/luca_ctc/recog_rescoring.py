@@ -5,6 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
+import dataclasses
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable, List
 import copy
 
@@ -38,6 +39,11 @@ if TYPE_CHECKING:
     from returnn.tensor import TensorDict
 
 
+
+_v2_out_hyp_hdf = "out_hyps.hdf"
+_v2_out_lens_hdf = "out_lens.hdf"
+_v2_out_scores_hdf = "out_scores.hdf"
+_v2_out_packed_batch_sizes = "out_packed_batch_sizes.hdf"
 def recog_training_exp(
     prefix_name: str,
     task: Task,
@@ -241,11 +247,78 @@ def recog_model(
             train_exp_name=train_exp_name,
             merge_contraction=merge_contraction,
         )
-    # if outputing hdf, we don't do scoring for now
-
         score_out = task.score_recog_output_func(dataset, recog_out, merge_contraction=merge_contraction)
         outputs[dataset_name] = score_out
     return task.collect_score_results_func(outputs)
+
+
+def recog_first_pass_hdf(
+    task: Task,
+    model: ModelWithCheckpoint,
+    recog_def: RecogDef,
+    *,
+    config: Optional[Dict[str, Any]] = None,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    search_mem_rqmt: Union[int, float] = 6,
+    merge_contraction: bool = False,
+    search_rqmt: Optional[Dict[str, Any]] = {"time": 5},
+    dev_sets: Optional[Collection[str]] = None,
+    name: Optional[str] = None,
+    train_exp_name: Optional[str] = None,
+    recompute_prior: bool = False,
+    prior_config: Optional[dict] = None,
+    prior_task = None,
+    epoch: Optional[int] = None,
+):
+    """recog"""
+    if dev_sets is not None:
+        assert all(k in task.eval_datasets for k in dev_sets)
+    outputs = {}
+    for dataset_name, dataset in task.eval_datasets.items():
+        if dev_sets is not None:
+            if dataset_name not in dev_sets:
+                continue
+        if recompute_prior:
+            from i6_experiments.users.phan.prior.prior_config import compute_prior_job, _prior_out_filename
+            from i6_experiments.users.phan.prior.model_forward_prior import model_forward_prior
+            assert prior_config is not None
+            prior_job = compute_prior_job(
+                task=prior_task,
+                model=model,
+                recog_def=model_forward_prior,
+                config=prior_config,
+                search_rqmt={"time": 12},
+            )
+            prior_job.set_vis_name(f"Compute prior job, {train_exp_name}, {os.path.split(model.checkpoint.__repr__())[-1][:-1]}")
+            config["search_args"]["prior_file"] = prior_job.out_files[_prior_out_filename]
+        search_alias_name = None
+        if name:
+            search_alias_name = f"{name}/search/{dataset_name}"
+            if epoch:
+                search_alias_name += f"/{epoch}"
+        if config.get("max_seqs", None) == 1:
+            search_rqmt["time"] = 24
+        out_hdf = search_dataset(
+            dataset=dataset,
+            model=model,
+            recog_def=recog_def,
+            config=config,
+            search_post_config=search_post_config,
+            search_mem_rqmt=search_mem_rqmt,
+            search_rqmt=search_rqmt,
+            search_alias_name=search_alias_name,
+            recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
+            dataset_name=dataset_name,
+            train_exp_name=train_exp_name,
+            merge_contraction=merge_contraction,
+            output_for_rescoring=True
+        )
+        outputs[dataset_name] = out_hdf
+    return outputs
+
+
+
 
 
 def search_dataset(
@@ -262,39 +335,27 @@ def search_dataset(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     dataset_name: Optional[str] = None,
     train_exp_name: Optional[str] = None,
-) -> RecogOutput:
+    output_for_rescoring=False,
+):
     """
-    recog on the specific dataset
+    recog on the specific dataset, no post-processing
     """
     env_updates = None
     if (config and config.get("__env_updates")) or (search_post_config and search_post_config.get("__env_updates")):
         env_updates = (config and config.pop("__env_updates", None)) or (
             search_post_config and search_post_config.pop("__env_updates", None)
         )
-    if getattr(model.definition, "backend", None) is None:
-        search_job = ReturnnSearchJobV2(
-            search_data=dataset.get_main_dataset(),
-            model_checkpoint=model.checkpoint,
-            returnn_config=search_config(
-                dataset, model.definition, recog_def, config=config, post_config=search_post_config
-            ),
-            returnn_python_exe=tools_paths.get_returnn_python_exe(),
-            returnn_root=tools_paths.get_returnn_root(),
-            output_gzip=True,
-            log_verbosity=5,
-            mem_rqmt=search_mem_rqmt,
-        )
-        res = search_job.out_search_file
-    else:
+    assert getattr(model.definition, "backend", None) is not None, "only support torch backend"
+    if not output_for_rescoring:
         out_files = [_v2_forward_out_filename]
-        hdf_output = config.pop("__out_hdf", False)
+
         if config and config.get("__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
                 dataset, model.definition, recog_def, config=config, post_config=search_post_config,
-                hdf_output=hdf_output,
+                hdf_output=output_for_rescoring,
             ),
             output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -304,6 +365,27 @@ def search_dataset(
         )
         search_job.set_vis_name(f"{train_exp_name}, {os.path.split(model.checkpoint.__repr__())[-1][:-1]}, {dataset_name}, {config.get('search_args', '') if config else ''}")
         res = search_job.out_files[_v2_forward_out_filename]
+    else:
+        out_files = [_v2_out_hyp_hdf, _v2_out_lens_hdf, _v2_out_scores_hdf, _v2_out_packed_batch_sizes]
+        search_job = ReturnnForwardJobV2(
+            model_checkpoint=model.checkpoint,
+            returnn_config=search_config_v2(
+                dataset, model.definition, recog_def, config=config, post_config=search_post_config,
+                hdf_output=output_for_rescoring,
+            ),
+            output_files=out_files,
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+            mem_rqmt=search_mem_rqmt,
+            time_rqmt=7,
+        )
+        search_job.set_vis_name(
+            f"{train_exp_name}, {os.path.split(model.checkpoint.__repr__())[-1][:-1]}, {dataset_name}, {config.get('search_args', '') if config else ''}")
+        out_hyps_hdf = search_job.out_files[_v2_out_hyp_hdf]
+        out_lens_hdf = search_job.out_files[_v2_out_lens_hdf]
+        out_scores_hdf = search_job.out_files[_v2_out_scores_hdf]
+        out_packed_batch_sizes = search_job.out_files[_v2_out_packed_batch_sizes]
+
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
     if env_updates:
@@ -311,21 +393,28 @@ def search_dataset(
             search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
-    if recog_def.output_blank_label:
-        # collapes of the repeated label is handled in the rec function
-        #res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
-        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
-    for f in recog_post_proc_funcs:  # for example BPE to words
-        res = f(RecogOutput(output=res)).output
-    if recog_def.output_with_beam:
-        # Don't join scores here (SearchBeamJoinScoresJob).
-        #   It's not clear whether this is helpful in general.
-        #   As our beam sizes are very small, this might boost some hyps too much.
-        res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    if merge_contraction:
-        from i6_experiments.users.yang.torch.ctc_ilm_kd.datasets.librispeech_tedlium2 import MergeContractionsJob
-        res = MergeContractionsJob(res).out_dict
-    return RecogOutput(output=res)
+    # if recog_def.output_blank_label:
+    #     # collapes of the repeated label is handled in the rec function
+    #     #res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
+    #     res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+    # for f in recog_post_proc_funcs:  # for example BPE to words
+    #     res = f(RecogOutput(output=res)).output
+    # if recog_def.output_with_beam:
+    #     # Don't join scores here (SearchBeamJoinScoresJob).
+    #     #   It's not clear whether this is helpful in general.
+    #     #   As our beam sizes are very small, this might boost some hyps too much.
+    #     res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    # if merge_contraction:
+    #     from i6_experiments.users.yang.torch.ctc_ilm_kd.datasets.librispeech_tedlium2 import MergeContractionsJob
+    #     res = MergeContractionsJob(res).out_dict
+    if not output_for_rescoring:
+        return RecogOutput(output=res)
+    else:
+        return HdfRescoringOutput(out_hyps=out_hyps_hdf,
+                                  out_lens=out_lens_hdf,
+                                  out_scores=out_scores_hdf,
+                                  out_packed_batch_sizes=out_packed_batch_sizes)
+
 
 
 # Those are applied for both training, recog and potential others.
@@ -338,90 +427,6 @@ SharedPostConfig = {
 }
 
 
-def search_config(
-    dataset: DatasetConfig,
-    model_def: ModelDef,
-    recog_def: RecogDef,
-    *,
-    config: Optional[Dict[str, Any]] = None,
-    post_config: Optional[Dict[str, Any]] = None,
-) -> ReturnnConfig:
-    """
-    config for search
-    """
-    returnn_recog_config_dict = dict(
-        use_tensorflow=True,
-        behavior_version=model_def.behavior_version,
-        # dataset
-        default_input=dataset.get_default_input(),
-        target=dataset.get_default_target(),
-        dev=dataset.get_main_dataset(),
-        **(config or {}),
-    )
-
-    extern_data_raw = dataset.get_extern_data()
-    # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
-    # It's not hashed because we assume that all aspects of the dataset are already covered
-    # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    returnn_recog_config = ReturnnConfig(
-        config=returnn_recog_config_dict,
-        python_epilog=[
-            serialization.Collection(
-                [
-                    serialization.NonhashedCode(get_import_py_code()),
-                    serialization.NonhashedCode(
-                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
-                    ),
-                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
-                    serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_get_network, import_as="get_network", use_for_hash=False),
-                    serialization.ExplicitHash(
-                        {
-                            # Increase the version whenever some incompatible change is made in this recog() function,
-                            # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
-                        }
-                    ),
-                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                    serialization.PythonCacheManagerFunctionNonhashedCode,
-                    serialization.PythonModelineNonhashedCode,
-                ]
-            )
-        ],
-        post_config=dict(  # not hashed
-            log_batch_size=True,
-            tf_log_memory_usage=True,
-            tf_session_opts={"gpu_options": {"allow_growth": True}},
-            # debug_add_check_numerics_ops = True
-            # debug_add_check_numerics_on_output = True
-            # flat_net_construction=True,
-            torch_log_memory_usage=True,
-            watch_memory=True,
-            use_lovely_tensors=True,
-            forward_auto_split_batch_on_oom=True,
-        ),
-        sort_config=False,
-    )
-
-    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
-        dict(
-            batching="sorted",
-            batch_size=20000,
-            max_seqs=200,
-        )
-    )
-
-    if post_config:
-        returnn_recog_config.post_config.update(post_config)
-
-    for k, v in SharedPostConfig.items():
-        if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
-            continue
-        returnn_recog_config.post_config[k] = v
-
-    return returnn_recog_config
 
 
 def search_config_v2(
@@ -718,14 +723,16 @@ def _returnn_v2_get_forward_hdf_callback():
             self.out_hyps: Optional[SimpleHDFWriter] = None
             self.out_lens: Optional[SimpleHDFWriter] = None
             self.out_scores: Optional[SimpleHDFWriter] = None
+            self.out_packed_batch_sizes: Optional[SimpleHDFWriter] = None
 
         def init(self, *, model):
             # multiple hdf files
             target_dim = model.target_dim.dyn_size_ext.raw_tensor.item() if model.target_dim.dyn_size_ext is not None else model.target_dim.size
 
-            self.out_hyps = SimpleHDFWriter("out_hyps.hdf",dim=target_dim,ndim=1)
-            self.out_lens = SimpleHDFWriter("out_lens.hdf", dim=None, ndim=1)
-            self.out_scores = SimpleHDFWriter("out_scores.hdf", dim=None, ndim=1)
+            self.out_hyps = SimpleHDFWriter(_v2_out_hyp_hdf,dim=target_dim,ndim=1)
+            self.out_lens = SimpleHDFWriter(_v2_out_lens_hdf, dim=None, ndim=1)
+            self.out_scores = SimpleHDFWriter(_v2_out_scores_hdf, dim=None, ndim=1)
+            self.out_packed_batch_sizes = SimpleHDFWriter(_v2_out_packed_batch_sizes, dim=None, ndim=1)
 
             if recog_def_ext:
                 self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
@@ -734,35 +741,42 @@ def _returnn_v2_get_forward_hdf_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             import torch
             from torch.nn.utils.rnn import pack_padded_sequence
+
             from i6_experiments.users.schmitt import hdf
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
             assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
-            # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
             hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
             assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
             if hyps_len.raw_tensor.shape:
                 assert scores.raw_tensor.shape == hyps_len.raw_tensor.shape  # (beam,)
             num_beam = hyps.raw_tensor.shape[0]
-            hyps_torch = hyps.raw_tensor
+            hyps_torch = torch.from_numpy(hyps.raw_tensor)
+            # manually add a label at the begining to avoid empty sequence
+            zero_row = torch.zeros((num_beam,1), dtype=hyps_torch.dtype)
+            hyps_torch = torch.cat([zero_row, hyps_torch], axis=1)
+
             hyp_lengths = hyps_len.raw_tensor
-            seq_lens = hyp_lengths.sum()
+            hyp_lengths = hyp_lengths + 1
+            seq_lens = sum(hyp_lengths)
             packed_hyps = pack_padded_sequence(hyps_torch, hyp_lengths, batch_first=True, enforce_sorted=False)
             # tensors write to hdf files
             # we write the hyps and length tensors separately,
             # packed hyp tensor:
-            packed_hyps_data = packed_hyps.data
+            packed_hyps_data = packed_hyps.data[None].cpu().numpy()
             # seq length for each hyp:
-            hyp_seq_len = packed_hyps.batch_sizes
-            hyp_sorted_indicies = packed_hyps.sorted_indicies
-            hyp_unsorted_indicies = packed_hyps.unsorted_indicies
+            packed_batch_sizes = packed_hyps.batch_sizes.cpu().numpy()
+            packed_batch_sizes_len = len(packed_batch_sizes)
+            packed_batch_sizes = packed_batch_sizes[None]
+            hyp_sorted_indices = packed_hyps.sorted_indices
+            hyp_unsorted_indices = packed_hyps.unsorted_indices
 
-            # we store hyp_seq_len, hyp_sorted_indicies and hyp_unsorted_indicies in one hdf file, as the length of
+            # we store hyp_seq_len, hyp_sorted_indices and hyp_unsorted_indices in one hdf file, as the length of
             # these tensors are fixed: (beam,) for each tensor
 
-            len_info = torch.stack([hyp_seq_len, hyp_sorted_indicies, hyp_unsorted_indicies])
-            len_info = len_info.view(-1) # and the length should be beam *3
+            len_info = torch.stack([hyp_sorted_indices, hyp_unsorted_indices])
+            len_info = len_info.view(1,-1).cpu().numpy() # and the length should be 2 * beam
             # we assume scores are stored in a tensor with shape (beam, num_scores), where num_scores is the number of scores
             # scores are stored in a separate hdf file
             score_tensor = scores.raw_tensor
@@ -772,10 +786,10 @@ def _returnn_v2_get_forward_hdf_callback():
                 num_scores = 1 # only one score for each hyp in the beam
             else:
                 NotImplementedError
-            hyp_scores = scores.raw_tensor.view(-1) # length of hyp_scores: beam * num_scores
+            hyp_scores = score_tensor[None]# length of hyp_scores: beam * num_scores
 
             self.out_hyps.insert_batch(
-                hyps_torch[None],
+                packed_hyps_data,
                 seq_len=np.array([seq_lens]),
                 seq_tag=[seq_tag],
                 #extra={"seq_sizes": batch_seq_sizes}
@@ -783,7 +797,7 @@ def _returnn_v2_get_forward_hdf_callback():
             )
             self.out_lens.insert_batch(
                 len_info,
-                seq_len=np.array([num_beam *3]),
+                seq_len=np.array([num_beam *2]),
                 seq_tag=[seq_tag],
                 extra=None
             )
@@ -793,11 +807,18 @@ def _returnn_v2_get_forward_hdf_callback():
                 seq_tag=[seq_tag],
                 extra=None
             )
+            self.out_packed_batch_sizes.insert_batch(
+                packed_batch_sizes,
+                seq_len=np.array([packed_batch_sizes_len]),
+                seq_tag=[seq_tag],
+                extra=None
+            )
 
         def finish(self):
             self.out_lens.close()
             self.out_hyps.close()
             self.out_scores.close()
+            self.out_packed_batch_sizes.close()
 
     return _ReturnnRecogV2HdfForwardCallbackIface()
 
@@ -1106,3 +1127,14 @@ class GetTorchAvgModelResult(sisyphus.Job):
 
         with open(self.out_merged_epochs_list.get_path(), "w") as f:
             f.write("[%s]\n" % ", ".join(str(ep) for ep in sorted(self._in_checkpoints.keys())))
+
+
+@dataclasses.dataclass
+class HdfRescoringOutput:
+    """
+    Corresponds to the target values of datasets defined by :class:`Task`
+    """
+    out_hyps: tk.Path
+    out_lens: tk.Path
+    out_scores: tk.Path
+    out_packed_batch_sizes: tk.Path

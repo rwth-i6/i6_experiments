@@ -89,7 +89,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     full_epochs=30
     epoch_split =10
     num_epochs = full_epochs * epoch_split
-    # best: lr 0.001, batch 10000 dim 256, but all are close in fact
+    # best: lr 0.001, batch 10000 dim 256, but all are close
     # for dim in [256, 512]:
     #     for lr in [1e-3,5e-4]:
     #         for batch_size in [1000,5000,10000]:

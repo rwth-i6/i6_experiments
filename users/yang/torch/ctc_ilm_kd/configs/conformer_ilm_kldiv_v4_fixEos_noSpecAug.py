@@ -40,12 +40,13 @@ linear_const_linear_learning_rates,
 # )
 # from .trafo_lm import trafo_lm_kazuki_import
 
-from i6_experiments.users.phan.rf_models.model_conformer_with_ilm_v2 import from_scratch_model_def, from_scratch_training_kldiv, from_scratch_training_kldiv_sample_batch
+#from i6_experiments.users.phan.rf_models.model_conformer_with_ilm_v2 import from_scratch_model_def, from_scratch_training_kldiv, from_scratch_training_kldiv_sample_batch
+from i6_experiments.users.yang.torch.ctc_ilm_kd.model_conformer_with_ilm_v2 import from_scratch_model_def, from_scratch_training_kldiv, from_scratch_training_kldiv_sample_batch
 from i6_experiments.users.yang.torch.luca_ctc.model_recog_ctc_greedy import model_recog
 
 from i6_experiments.users.phan.rf_models.default_model_configs import default_ilm_config, default_extern_lm_config, \
     default_tedlium2_extern_lm_config, default_tedlium2_extern_lm_hardcoded_layers_config
-
+from i6_experiments.users.yang.torch.ctc_ilm_kd.trafo_lm import Trafo_LM_Model
 # from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import from_scratch_model_def, from_scratch_training
 # from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import model_recog
 
@@ -82,8 +83,22 @@ config_11gb.pop("learning_rate_invsqrt_norm", None)
 config_11gb.pop("learning_rate_warmup_steps", None)
 
 # set the ILM hyperparams for all experiments
-# hyperparams referrence /u/michel/setups/language_modelling/librispeech/neurallm/decoder_sized_transcripts_only_newrun
-config_11gb.update({"internal_language_model": default_ilm_config})
+# use trafo ILM for all exps
+trafo_ilm_config = { # should be used for transcription LM as well
+    "class": "Trafo_LM_Model",
+    "layer_out_dim": 256,
+    "layer_ff_dim": 1024,
+    "embed_dim": 128,
+    "num_layers": 6,
+    "att_num_heads": 8,
+    "use_pos_enc": True,
+    "ff_activation": "relu",
+    "pos_enc_diff_pos": True,
+    "dropout": 0.1,
+    "attn_dropout": 0.1,
+}
+
+config_11gb.update({"internal_language_model": trafo_ilm_config})
 
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
@@ -99,7 +114,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             ep1, ep2 = epochs
             lrs = [lr_1]*ep1
             train_exp( 
-                f"conformer_ilm_kldiv_lr_{lr_1}_ep_{ep1}_fixEos_noSpecAug",
+                f"conformer_trafo_ilm_kldiv_const_lr_{lr_1}_ep100_fixEos_noSpecAug",
                 config_11gb,
                 from_scratch_training_kldiv,
                 gpu_mem=11,
@@ -129,47 +144,84 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 greedy_search = False,
             )
 
+    for lrs in lr_list:
+        for epochs in ep_list:
+            lr_1, lr_2 = lrs
+            ep1, ep2 = epochs
+            lrs = [lr_1]*ep1
+            train_exp(
+                f"conformer_trafo_ilm_kldiv_sampling0.5_const_lr_{lr_1}_ep100_fixEos_noSpecAug",
+                config_11gb,
+                from_scratch_training_kldiv_sample_batch,
+                gpu_mem=11,
+                config_updates={
+                    "batch_size": 1200000,
+                    "learning_rate": float(lrs[-1]),
+                    "learning_rates": lrs,
+                    "__num_epochs": 100,
+                    "kldiv_sampling_weight": 0.5,
+                    "mask_eos_output": True,
+                    "add_eos_to_blank": True,
+                    "preload_from_files": {
+                        "base": {
+                            "init_for_train": True,
+                            "ignore_missing": True,
+                            "filename": "/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt",
+                        }
+                    },
+                    "mel_normalization_ted2": False,
+                    "use_specaugment": False, # VERY IMPORTANT!!!
+                },
+                post_config_updates={
+                    "cleanup_old_models": {"keep": recog_epoch},
+                    "torch_dataloader_opts": { # otherwise it will break after every epoch
+                        "num_workers": 0,
+                    }
+                },
+                greedy_search = False,
+            )
+
 
     # -------- experiments with shorter epochs but higher learning rates ---------
     # to verify whether lower PPL is really not as good
-    # standard KL Div
-    lr = 1e-3
-    ep = 40
-    recog_epoch_short = [20, 40, 60, 80, 100]
-    # ground_truth_weights = [0.5, "average"]
-    ground_truth_weights = [0.5]
-    for weight in ground_truth_weights:
-        train_exp( 
-            f"conformer_ilm_kldiv_sampling_weight_{weight}_lr_{lr}_ep_{ep}_fixEos_noSpecAug",
-            config_11gb,
-            from_scratch_training_kldiv_sample_batch,
-            gpu_mem=11,
-            config_updates={
-                "batch_size": 1200000,
-                "learning_rate": lr,
-                "learning_rates": [lr]*ep,
-                "__num_epochs": 100,
-                "mask_eos_output": True,
-                "add_eos_to_blank": True,
-                "preload_from_files": {
-                    "base": {
-                        "init_for_train": True,
-                        "ignore_missing": True,
-                        "filename": "/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt",
-                    }
-                },
-                "mel_normalization_ted2": False,
-                "kldiv_sampling_weight": weight,
-                "use_specaugment": False, # VERY IMPORTANT!!!
-            },
-            post_config_updates={
-                "cleanup_old_models": {"keep": recog_epoch_short},
-                "torch_dataloader_opts": { # otherwise it will break after every epoch
-                    "num_workers": 0,
-                }
-            },
-            greedy_search = False,
-        )
+    # # standard KL Div
+    # lr = 1e-3
+    # ep = 40
+    # recog_epoch_short = [20, 40, 60, 80, 100]
+    # # ground_truth_weights = [0.5, "average"]
+    # ground_truth_weights = [0.5]
+    # for weight in ground_truth_weights:
+    #     train_exp(
+    #         f"conformer_ilm_kldiv_sampling_weight_{weight}_lr_{lr}_ep_{ep}_fixEos_noSpecAug",
+    #         config_11gb,
+    #         from_scratch_training_kldiv_sample_batch,
+    #         gpu_mem=11,
+    #         config_updates={
+    #             "batch_size": 1200000,
+    #             "learning_rate": lr,
+    #             "learning_rates": [lr]*ep,
+    #             "__num_epochs": 100,
+    #             "mask_eos_output": True,
+    #             "add_eos_to_blank": True,
+    #             "preload_from_files": {
+    #                 "base": {
+    #                     "init_for_train": True,
+    #                     "ignore_missing": True,
+    #                     "filename": "/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt",
+    #                 }
+    #             },
+    #             "mel_normalization_ted2": False,
+    #             "kldiv_sampling_weight": weight,
+    #             "use_specaugment": False, # VERY IMPORTANT!!!
+    #         },
+    #         post_config_updates={
+    #             "cleanup_old_models": {"keep": recog_epoch_short},
+    #             "torch_dataloader_opts": { # otherwise it will break after every epoch
+    #                 "num_workers": 0,
+    #             }
+    #         },
+    #         greedy_search = False,
+    #     )
 
 
 
@@ -279,28 +331,28 @@ def train_exp(
         torch_log_memory_usage=True,
         use_lovely_tensors=True,
     )
-    
-    for dataset_key in dataset_keys:
-        if dataset_key == "train": # not tested
-            forward_dataset = task.train_dataset
-        else:
-            forward_dataset = task.eval_datasets[dataset_key]
-        for epoch in model_with_checkpoint.fixed_epochs:
-            checkpoint = model_with_checkpoint.get_epoch(epoch)
-            stats_job = generic_forward_config.generic_forward_job(
-                dataset=forward_dataset,
-                model=checkpoint,
-                forward_def=compute_kldiv.forward_compute_kldiv,
-                forward_callback=compute_kldiv.forward_callback_wrapper,
-                forward_extra_config=forward_extra_config,
-                forward_post_config=forward_post_config,
-                output_files=compute_kldiv.output_files,
-                dataset_key=dataset_key,
-                job_vis_name=f"Compute ILM stats job, {name}, epoch {epoch}, {dataset_key}",
-            )
-            out_stat_file = stats_job.out_files[compute_kldiv.default_out_file_name]
-            stats_job.add_alias(prefix + "/ilm_stats_v2" + f"/{dataset_key}/{epoch}")
-            tk.register_output(prefix + f"/ilm_stats_v2/{dataset_key}/{epoch}/{compute_kldiv.default_out_file_name}" , out_stat_file)
+    # ILM stats buggy, don't do it for now
+    # for dataset_key in dataset_keys:
+    #     if dataset_key == "train": # not tested
+    #         forward_dataset = task.train_dataset
+    #     else:
+    #         forward_dataset = task.eval_datasets[dataset_key]
+    #     for epoch in model_with_checkpoint.fixed_epochs:
+    #         checkpoint = model_with_checkpoint.get_epoch(epoch)
+    #         stats_job = generic_forward_config.generic_forward_job(
+    #             dataset=forward_dataset,
+    #             model=checkpoint,
+    #             forward_def=compute_kldiv.forward_compute_kldiv,
+    #             forward_callback=compute_kldiv.forward_callback_wrapper,
+    #             forward_extra_config=forward_extra_config,
+    #             forward_post_config=forward_post_config,
+    #             output_files=compute_kldiv.output_files,
+    #             dataset_key=dataset_key,
+    #             job_vis_name=f"Compute ILM stats job, {name}, epoch {epoch}, {dataset_key}",
+    #         )
+    #         out_stat_file = stats_job.out_files[compute_kldiv.default_out_file_name]
+    #         stats_job.add_alias(prefix + "/ilm_stats_v2" + f"/{dataset_key}/{epoch}")
+    #         tk.register_output(prefix + f"/ilm_stats_v2/{dataset_key}/{epoch}/{compute_kldiv.default_out_file_name}" , out_stat_file)
 
     recog_config_update = {
         'batch_size': 200000, # super slow
@@ -310,7 +362,7 @@ def train_exp(
                 "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
             },
         },
-        "internal_language_model": default_ilm_config,
+        "internal_language_model": trafo_ilm_config,
         "external_language_model": default_extern_lm_config, # this to load the external LM only in recog
     }
     # from i6_experiments.users.yang.torch.decoding.ctc_aed_joint_simple_version import model_recog
@@ -521,9 +573,9 @@ def train_exp(
                 dataset_key=dataset_key,
                 job_vis_name=f"Compute ILM stats job on tedlium2, {name}, epoch {epoch}, {dataset_key}",
             )
-            out_stat_file = stats_job.out_files[compute_kldiv.default_out_file_name]
-            stats_job.add_alias(ted2_prefix + "/ilm_stats_v2" + f"/{dataset_key}/{epoch}")
-            tk.register_output(ted2_prefix + f"/ilm_stats_v2/{dataset_key}/{epoch}/{compute_kldiv.default_out_file_name}" , out_stat_file)
+            # out_stat_file = stats_job.out_files[compute_kldiv.default_out_file_name]
+            # stats_job.add_alias(ted2_prefix + "/ilm_stats_v2" + f"/{dataset_key}/{epoch}")
+            # tk.register_output(ted2_prefix + f"/ilm_stats_v2/{dataset_key}/{epoch}/{compute_kldiv.default_out_file_name}" , out_stat_file)
 
     # # --------------- time-synchronous search recomb first (fixed) -----------------
     # from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
@@ -668,7 +720,8 @@ def train_exp(
     ted2_prefix = "lbs_cross_domain_ted2/" + prefix
     ted2_task = _get_ted2_task()
     from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
-    from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
+    #from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
+    from i6_experiments.users.yang.torch.ctc_ilm_kd.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
 
     #---------- default ted2 recog config ----------
     ted2_recog_config_update = {
@@ -679,7 +732,7 @@ def train_exp(
                 "filename": default_ted2_lstm_extern_lm_checkpoint,
             },
         },
-        "internal_language_model": default_ilm_config,
+        "internal_language_model": trafo_ilm_config,
         "external_language_model": default_tedlium2_extern_lm_config, # this to load the external LM only in recog
     }
 
@@ -691,8 +744,8 @@ def train_exp(
     # lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
     # ilm_scales = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0] 
     # prior_scales = [0.2, 0.3, 0.4, 0.5, 0.6]
-    lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-    ilm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] 
+    lm_scales = [1.4]
+    ilm_scales = [0.9]
     # prior_scales = [0.0, 0.1, 0.2, 0.3, 0.4]
     prior_scales = [0.0]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
@@ -730,6 +783,20 @@ def train_exp(
             train_exp_name=name,
             dev_sets=["dev", "test"],
         )
+        from i6_experiments.users.yang.torch.luca_ctc.recog_rescoring import recog_first_pass_hdf
+        epoch = list(model_with_checkpoint.fixed_epochs)[0]
+        checkpoint = model_with_checkpoint.get_epoch(epoch)
+        outputs = recog_first_pass_hdf(
+            task=ted2_task,
+            model=checkpoint,
+            recog_def=model_recog_time_sync_recomb_first_v2,
+            config=ted2_recog_config_update_extra,
+            dev_sets=['dev']
+        )
+        tk.register_output(prefix+'/debug_out_hyps.hdf', outputs['dev'].out_hyps)
+        tk.register_output(prefix + '/debug_out_lens.hdf', outputs['dev'].out_lens)
+        tk.register_output(prefix + '/debug_out_scores.hdf', outputs['dev'].out_scores)
+        tk.register_output(prefix + '/debug_out_packed_batch_sizes.hdf', outputs['dev'].out_packed_batch_sizes)
 
     return model_with_checkpoint
 
@@ -756,7 +823,8 @@ def _get_ted2_task():
     global _ted2_task
     if _ted2_task:
         return _ted2_task
-    from i6_experiments.users.phan.datasets.librispeech_tedlium2 import get_tedlium2_task_libri_bpe10k_raw
+    #from i6_experiments.users.phan.datasets.librispeech_tedlium2 import get_tedlium2_task_libri_bpe10k_raw
+    from i6_experiments.users.yang.torch.ctc_ilm_kd.datasets.librispeech_tedlium2 import get_tedlium2_task_libri_bpe10k_raw
     _ted2_task = get_tedlium2_task_libri_bpe10k_raw(with_eos_postfix=False)
     return _ted2_task
 
