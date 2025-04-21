@@ -578,7 +578,8 @@ def search_config_v3(
     """
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
 
-    config_ = dict(
+    config_ = config
+    config = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
@@ -587,9 +588,6 @@ def search_config_v3(
         extern_data=dataset.get_extern_data(),
         forward_data=dataset.get_main_dataset(),
     )
-    if config:
-        config_dict_update_(config_, config)
-    config = config_
 
     if isinstance(model_def, ModelDefWithCfg):
         config["_model_def"] = model_def.model_def
@@ -601,6 +599,9 @@ def search_config_v3(
     config["_recog_def"] = recog_def
     config["forward_step"] = _returnn_v2_forward_step
     config["forward_callback"] = _returnn_v2_get_forward_callback
+
+    if config_:
+        config_dict_update_(config, config_)
 
     post_config_ = dict(  # not hashed
         log_batch_size=True,
