@@ -209,7 +209,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         **model_base_args,
     )
 
-    def run_with_standard_settings(network_module, model_cfg, move_to_hpc=False):
+    def run_with_standard_settings(network_module, model_cfg, name_ext="", move_to_hpc=False):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
             "learning_rates": list(np.linspace(7e-6, 7e-4, 480)) + list(
@@ -232,7 +232,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             "post_config": {"num_workers_per_gpu": 8},
         }
 
-        name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8"
+        name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8" + name_ext
         training_name = prefix_name + "/" + network_module + name
         train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
@@ -275,7 +275,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     scf_config = SupervisedConvolutionalFeatureExtractionV2Config(
         module_class="SupervisedConvolutionalFeatureExtractionV2",
         scf_config=scf_config_base,
-        convs=[(10, 320, 1), (10, 80, 1)],
+        convs=[],
         init_tf="gammatone",
         init_env="hann",
         init_convs="ones",
@@ -288,10 +288,22 @@ def eow_phon_ls960_relposencoder_0924_base():
         specaug_config=specaug_config,
         **model_base_args_feat,
     )
-    run_with_standard_settings(
-        network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
-        model_cfg=model_config, move_to_hpc=True,
-    )
+
+    for exp_name, convs in [
+        (".scf", []),
+        (".scf_init", []),
+        (".scf_init_convred", [(1, 50, 50)]),
+    ]:
+        model_config_exp = copy.deepcopy(model_config)
+        model_config_exp.feature_extraction_config.convs = convs
+        model_config_exp.frontend_config.in_features = 750 if len(convs) == 0 else convs[-1][1]
+        if "init" not in exp_name:
+            model_config_exp.feature_extraction_config.init_tf = None
+            model_config_exp.feature_extraction_config.init_env = None
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
+            model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
+        )
 
     tk.register_report(
         os.path.join(prefix_name, "report.csv"),
