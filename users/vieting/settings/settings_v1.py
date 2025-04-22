@@ -13,7 +13,7 @@ CONTAINER_MODE = "apptainer"
 CONTAINER_IMAGE = "/work/asr4/rossenbach/rescale/pytorch_mixed_precision/apptainer/u22cuda12.1_pytorch2.2_onnxrt_1.17.1_flashlight_warprnnt_0624.sif"
 
 # file systems to bind in a "<source_path>:<target_path>" format
-CONTAINER_BINDS = ["/work/asr3", "/work/asr4", "/work/common", "/usr/local/cache-manager"]
+CONTAINER_BINDS = ["/work/asr3", "/work/asr4", "/work/common", "/usr/local/cache-manager", "/u/rossenbach"]
 
 # can be "sge", "slurm" or "pbs" (pbs is experimental)
 SUBMIT_ENGINE = "slurm"
@@ -84,7 +84,7 @@ JOB_USE_TAGS_IN_PATH = False
 JOB_AUTO_CLEANUP = False
 SHOW_JOB_TARGETS = False
 PRINT_ERROR = False
-PRINT_HOLD = False
+# PRINT_HOLD = False
 DELAYED_CHECK_FOR_WORKER = False
 
 WARNING_ABSPATH = False
