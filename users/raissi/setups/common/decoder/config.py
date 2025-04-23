@@ -37,6 +37,7 @@ class PriorInfo:
     left_context_prior: Optional[PriorConfig] = None
     right_context_prior: Optional[PriorConfig] = None
     diphone_prior: Optional[PriorConfig] = None
+    triphone_prior: Optional[PriorConfig] = None
 
     def with_scale(
         self,
@@ -44,6 +45,7 @@ class PriorInfo:
         left: Optional[Float] = None,
         right: Optional[Float] = None,
         diphone: Optional[Float] = None,
+        triphone: Optional[Float] = None,
     ) -> "PriorInfo":
         """
         Returns a copy of the class with the given scales set.
@@ -54,17 +56,20 @@ class PriorInfo:
         assert self.left_context_prior is None or left is not None
         assert self.right_context_prior is None or right is not None
         assert self.diphone_prior is None or diphone is not None
+        assert self.triphone_prior is None or triphone is not None
 
         center = self.center_state_prior.with_scale(center) if self.center_state_prior is not None else None
         left = self.left_context_prior.with_scale(left) if self.left_context_prior is not None else None
         right = self.right_context_prior.with_scale(right) if self.right_context_prior is not None else None
         diphone = self.diphone_prior.with_scale(diphone) if self.diphone_prior is not None else None
+        triphone = self.triphone_prior.with_scale(triphone) if self.triphone_prior is not None else None
         return dataclasses.replace(
             self,
             center_state_prior=center,
             left_context_prior=left,
             right_context_prior=right,
             diphone_prior=diphone,
+            triphone_prior=triphone,
         )
 
     @classmethod
@@ -106,17 +111,6 @@ class PriorInfo:
             right_context_prior=PriorConfig(file=output_dir.join_right("right-context.xml"), scale=0.0),
         )
 
-    def from_diphone_job(cls, output_dir: Union[str, tk.Path]) -> "PriorInfo":
-        """
-        Initializes a PriorInfo instance with scale 0.0 from the output directory of
-        a previously run/captured ComputeTriphoneForwardPriorsJob.
-        """
-
-        output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
-        return cls(
-            diphone_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
-        )
-
 
 PosteriorScales = TypedDict(
     "PosteriorScales",
@@ -125,6 +119,7 @@ PosteriorScales = TypedDict(
         "right-context-scale": Float,
         "center-state-scale": Float,
         "joint-diphone-scale": Float,
+        "joint-triphone-scale": Float,
     },
 )
 
@@ -135,6 +130,7 @@ def default_posterior_scales() -> PosteriorScales:
         "right-context-scale": 1.0,
         "center-state-scale": 1.0,
         "joint-diphone-scale": 1.0,
+        "joint-triphone-scale": 1.0,
     }
 
 

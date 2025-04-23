@@ -518,6 +518,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: Optional[int] = None,
+        mem_rqmt: Optional[int] = None,
         checkpoint: Optional[returnn.Checkpoint] = None,
     ):
 
@@ -582,7 +583,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
-            mem_rqmt=12,
+            mem_rqmt=mem_rqmt if mem_rqmt is not None else 12,
             time_rqmt=time_rqmt if time_rqmt is not None else 12,
         )
 
@@ -673,6 +674,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         config = copy.deepcopy(self.experiments[key]["returnn_config"])
         config.config["forward_output_layer"] = output_layer_name
 
+        mem_rqmt = 32 if context_type.is_joint_triphone() else 12
+
         job = self._compute_returnn_rasr_priors(
             key,
             epoch,
@@ -680,6 +683,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=config,
             share=data_share,
             checkpoint=checkpoint,
+            mem_rqmt=mem_rqmt
         )
 
         job.add_alias(f"priors/{name}/single_prior-{data_share}data")
@@ -688,11 +692,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
             )
             tk.register_output(f"priors/{name}/center-state.xml", p_info.center_state_prior.file)
-        elif context_type == PhoneticContext.joint_diphone:
+        elif context_type.is_joint_diphone():
             p_info = PriorInfo(
                 diphone_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
             )
             tk.register_output(f"priors/{name}/joint_diphone.xml", p_info.diphone_prior.file)
+        elif context_type.is_joint_triphone():
+            p_info = PriorInfo(
+                triphone_prior=PriorConfig(file=job.out_prior_xml_file, scale=1.0),
+            )
+            tk.register_output(f"priors/{name}/joint_triphone.xml", p_info.triphone_prior.file)
+
         else:
             raise NotImplementedError("Unknown PhoneticContext, i.e. context_type")
 
@@ -955,11 +965,11 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             if softmax_type == SingleSoftmaxType.TRAIN:
                 prepare_for_train = True
 
-        
+        """
         assert state_tying in [
             RasrStateTying.monophone,
             RasrStateTying.diphone,
-        ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
+        ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"""
 
         if softmax_type == SingleSoftmaxType.TRAIN:
             if self.training_criterion == TrainingCriterion.FULLSUM:
@@ -993,12 +1003,22 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             self.reset_state_tying(crp_list=crp_list, state_tying=state_tying)
 
         if out_layer_name is None:
-            out_layer_name = "output" if state_tying == RasrStateTying.diphone else "center-output"
+            out_layer_name = "output" if state_tying in [RasrStateTying.diphone, RasrStateTying.triphone] else "center-output"
 
         if returnn_config is None:
             returnn_config = self.experiments[key]["returnn_config"]
 
-        if state_tying == RasrStateTying.diphone:
+        if state_tying == RasrStateTying.monophone:
+            final_returnn_config = copy.deepcopy(returnn_config)
+            context_time_tag = None
+            if log_softmax:
+                final_returnn_config.config["network"][out_layer_name] = {
+                    **final_returnn_config.config["network"][out_layer_name],
+                    "class": "linear",
+                    "activation": "log_softmax",
+                }
+
+        elif state_tying == RasrStateTying.diphone:
             except_layers = except_extern_data = None
             if keep_right_context_for_joint:
                 except_layers = ["futureLabel", "popFutureLabel", "centerState", "classes_"]
@@ -1027,18 +1047,38 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 keep_right_context=keep_right_context_for_joint,
             )
 
-        elif state_tying == RasrStateTying.monophone:
-            final_returnn_config = copy.deepcopy(returnn_config)
-            context_time_tag = None
-            if log_softmax:
-                final_returnn_config.config["network"][out_layer_name] = {
-                    **final_returnn_config.config["network"][out_layer_name],
-                    "class": "linear",
-                    "activation": "log_softmax",
-                }
+        elif state_tying == RasrStateTying.triphone:
+            cleaned_returnn_config = (
+                net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(
+                    returnn_config
+                )
+            )
+            dim_prolog_di, c_spatial_dim, l_range_dim = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+                spatial_size=self.label_info.get_n_state_classes(),
+                feature_size=self.label_info.n_contexts,
+                context_type="L",
+                spatial_dim_variable_name="__center_state_spatial",
+                feature_dim_variable_name="__left_feature",
+            )
+            dim_prolog_tri, dense_spatial_dim, r_range_dim = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
+                spatial_size=self.label_info.get_n_of_dense_classes(),
+                feature_size=self.label_info.n_contexts,
+                context_type="R",
+                spatial_dim_variable_name="__dense_spatial",
+                feature_dim_variable_name="__right_feature",
+            )
+            context_time_tag = dim_prolog_di + dim_prolog_tri
 
+            f = net_helpers.triphone_joint_output.augment_returnn_config_to_joint_triphone_softmax
+            final_returnn_config = f(
+                returnn_config=cleaned_returnn_config,
+                label_info=self.label_info,
+                out_joint_score_layer="output",
+                prepare_for_train=prepare_for_train,
+                log_softmax=log_softmax,
+            )
         else:
-            assert False, "Only monophone and diphone state tying are supported for single softmax"
+            assert False, "{state_tying} is not a valid state tying for single softmax"
 
         self.reset_returnn_config_for_experiment(
             key=key,
@@ -1048,80 +1088,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
-
-    def setup_returnn_config_and_graph_for_precomputed_decoding(
-        self,
-        key: str = None,
-        returnn_config: returnn.ReturnnConfig = None,
-        state_tying: RasrStateTying = RasrStateTying.diphone,
-        out_layer_name: str = None,
-    ):
-
-        if state_tying == RasrStateTying.diphone:
-            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
-            context_size = self.label_info.n_contexts
-            context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
-                spatial_size=context_size,
-                feature_size=context_size,
-                spatial_dim_variable_name="__center_state_spatial",
-                feature_dim_variable_name="__center_state_feature",
-                context_type="L",
-            )
-
-            # used for decoding
-            decoding_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
-                returnn_config=clean_returnn_config,
-                label_info=self.label_info,
-                out_joint_score_layer="output",
-                log_softmax=True,
-            )
-        elif state_tying == RasrStateTying.monophone:
-            decoding_returnn_config = copy.deepcopy(returnn_config)
-            context_time_tag = None
-            decoding_returnn_config.config["network"][out_layer_name] = {
-                **decoding_returnn_config.config["network"][out_layer_name],
-                "class": "linear",
-                "activation": "log_softmax",
-            }
-
-        self.reset_returnn_config_for_experiment(
-            key=key,
-            config_dict=decoding_returnn_config.config,
-            extra_dict_key="context",
-            additional_python_prolog=context_time_tag,
-        )
-        self.set_graph_for_experiment(key, graph_type_name="precomputed-infer")
-
-    def setup_returnn_config_and_graph_for_diphone_joint_prior(
-        self, key: str = None, returnn_config: returnn.ReturnnConfig = None
-    ):
-
-        self.set_state_tying_for_decoder_fsa()
-        if returnn_config is None:
-            returnn_config = self.experiments[key]["returnn_config"]
-        clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        context_size = self.label_info.n_contexts
-        context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
-            spatial_size=context_size,
-            feature_size=context_size,
-            spatial_dim_variable_name="__center_state_spatial",
-            feature_dim_variable_name="__center_state_feature",
-            context_type="L",
-        )
-        # used for decoding
-        prior_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
-            returnn_config=clean_returnn_config,
-            label_info=self.label_info,
-            out_joint_score_layer="output",
-            log_softmax=False,
-        )
-        self.reset_returnn_config_for_experiment(
-            key=key,
-            config_dict=prior_returnn_config.config,
-            extra_dict_key="context",
-            additional_python_prolog=context_time_tag,
-        )
-        self.set_graph_for_experiment(key, graph_type_name="joint-prior")
 
     def get_recognizer_and_args(
         self,
