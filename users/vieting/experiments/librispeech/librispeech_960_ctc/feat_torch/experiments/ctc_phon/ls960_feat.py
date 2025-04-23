@@ -209,7 +209,9 @@ def eow_phon_ls960_relposencoder_0924_base():
         **model_base_args,
     )
 
-    def run_with_standard_settings(network_module, model_cfg, name_ext="", move_to_hpc=False):
+    def run_with_standard_settings(
+        network_module, model_cfg, name_ext="", prior_smaller_batch=True, move_to_hpc=False, debug=False,
+    ):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
             "learning_rates": list(np.linspace(7e-6, 7e-4, 480)) + list(
@@ -227,7 +229,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             "config": train_config_24gbgpu_amp,
             "network_module": network_module,
             "net_args": {"model_config_dict": asdict(model_cfg)},
-            "debug": False,
+            "debug": debug,
             "use_speed_perturbation": True,
             "post_config": {"num_workers_per_gpu": 8},
         }
@@ -236,12 +238,13 @@ def eow_phon_ls960_relposencoder_0924_base():
         training_name = prefix_name + "/" + network_module + name
         train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
-        if move_to_hpc:
+        if move_to_hpc and not debug:
             train_job.hold()
             train_job.move_to_hpc = True
         asr_model = prepare_asr_model(
             training_name, train_job, train_args, with_prior=True, datasets=train_data,
-            get_specific_checkpoint=1000
+            prior_config={"batch_size": 360 * 16000} if prior_smaller_batch else None,
+            get_specific_checkpoint=1000,
         )
         tune_and_evaluate_helper(
             training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
@@ -251,13 +254,15 @@ def eow_phon_ls960_relposencoder_0924_base():
         asr_model.label_datastream = label_datastream
         add_ctc_model(network_module + ".eow_phon" + name, asr_model)
 
+    # baseline log Mel setup
     run_with_standard_settings(
         network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1",
-        model_cfg=model_config,
+        model_cfg=model_config, prior_smaller_batch=False,
     )
 
+    # SCF experiments with minimal modifications
     from ...pytorch_networks.ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1_cfg import (
-        ModelConfig as CustomFeatureModelConfig,
+        ModelConfig as FeatureModelConfigV1,
     )
     from ...pytorch_networks.ctc.features.scf import (
         SupervisedConvolutionalFeatureExtractionV1Config,
@@ -282,7 +287,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
     model_base_args_feat = copy.deepcopy(model_base_args)
     model_base_args_feat["specaug_start_epoch"] = model_base_args_feat.pop("specauc_start_epoch")
-    model_config = CustomFeatureModelConfig(
+    model_config = FeatureModelConfigV1(
         feature_extraction_config=scf_config,
         frontend_config=frontend_config,
         specaug_config=specaug_config,
@@ -302,6 +307,87 @@ def eow_phon_ls960_relposencoder_0924_base():
             model_config_exp.feature_extraction_config.init_env = None
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
+            model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
+        )
+
+    # SCF experiments with STFT SpecAugment and configurable VGG front end
+    from ...pytorch_networks.ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2_cfg import (
+        ModelConfig as FeatureModelConfigV2,
+        SpecaugStftConfig,
+        VGGNLayerActFrontendV1Config,
+        IdentityConfig,
+    )
+
+    frontend_config = VGGNLayerActFrontendV1Config(
+        in_features=80,
+        convs=[(32, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1)],
+        activations=[None, "ReLU", None, "ReLU"],
+        poolings=[None, ((2, 1), (2, 1), None), None, ((2, 1), (2, 1), None)],
+        out_features=512,
+    )
+    specaug_stft_config = SpecaugStftConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,  # classic style
+        num_repeat_feat=5,
+        window_size=400,
+        window_shift=320,
+        fft_size=1023,
+    )
+    model_config = FeatureModelConfigV2(
+        specaug_config=specaug_stft_config,
+        feature_extraction_config=scf_config,
+        frontend_config=frontend_config,
+        frontend_config_class="VGGNLayerActFrontendV1Config",
+        **model_base_args_feat,
+    )
+
+    for exp_name, convs in [
+        (".stftsa.scf", []),
+    ]:
+        model_config_exp = copy.deepcopy(model_config)
+        model_config_exp.feature_extraction_config.convs = convs
+        model_config_exp.frontend_config.in_features = 750 if len(convs) == 0 else convs[-1][1]
+        if "init" not in exp_name:
+            model_config_exp.feature_extraction_config.init_tf = None
+            model_config_exp.feature_extraction_config.init_env = None
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
+        )
+
+    # 2D experiments with STFT SpecAugment
+    from ...pytorch_networks.ctc.features.stft import (
+        StftFeatureExtractionV1Config,
+    )
+    frontend_config = VGGNLayerActFrontendV1Config(
+        in_features=400 // 2 + 1,
+        convs=[(32, (3, 3), 1)] + [(64, (3, 3), 1)] * 10 + [(32, (3, 3), 1)],
+        activations=[None, "ReLU"] * 6,
+        poolings=[None, ((2, 1), (2, 1), None)] * 6,
+        out_features=512,
+    )
+    stft_config = StftFeatureExtractionV1Config(
+        window_size=400,
+        window_shift=10,
+        center=False,
+        magnitude=True,
+        module_class="StftFeatureExtractionV1",
+    )
+    model_config = FeatureModelConfigV2(
+        specaug_config=specaug_stft_config,
+        feature_extraction_config=stft_config,
+        frontend_config=frontend_config,
+        frontend_config_class="VGGNLayerActFrontendV1Config",
+        **model_base_args_feat,
+    )
+
+    for exp_name, convs in [
+        (".stftsa.2Dx12v1", []),
+    ]:
+        model_config_exp = copy.deepcopy(model_config)
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
         )
 
