@@ -427,8 +427,10 @@ def train_exp(
     name: str,
     config: Dict[str, Any],
     *,
+    prefix: Optional[str] = None,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
+    task: Optional[Task] = None,
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
@@ -449,11 +451,17 @@ def train_exp(
     from i6_experiments.users.zeyer.recog import recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
-    if _sis_prefix is None:
-        _sis_setup_global_prefix()
+    if prefix is not None:
+        pass
+    else:
+        if _sis_prefix is None:
+            _sis_setup_global_prefix()
+        prefix = _sis_prefix + "/"
+    prefix += name
 
-    prefix = _sis_prefix + "/" + name
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
+    if not task:
+        task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
+
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
