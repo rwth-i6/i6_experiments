@@ -243,7 +243,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             train_job.move_to_hpc = True
         asr_model = prepare_asr_model(
             training_name, train_job, train_args, with_prior=True, datasets=train_data,
-            prior_config={"batch_size": 360 * 16000} if prior_smaller_batch else None,
+            prior_config={"batch_size": 160 * 16000} if prior_smaller_batch else None,
             get_specific_checkpoint=1000,
         )
         tune_and_evaluate_helper(
@@ -362,9 +362,9 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
     frontend_config = VGGNLayerActFrontendV1Config(
         in_features=400 // 2 + 1,
-        convs=[(32, (3, 3), 1)] + [(64, (3, 3), 1)] * 10 + [(32, (3, 3), 1)],
-        activations=[None, "ReLU"] * 6,
-        poolings=[None, ((2, 1), (2, 1), None)] * 6,
+        convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), (2, 1))] * 4 + [(32, (3, 3), (2, 1))],
+        activations=["ReLU"] * 6,
+        poolings=[None] * 6,
         out_features=512,
     )
     stft_config = StftFeatureExtractionV1Config(
@@ -383,7 +383,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
 
     for exp_name, convs in [
-        (".stftsa.2Dx12v1", []),
+        (".stftsa.2Dx6v1", []),
     ]:
         model_config_exp = copy.deepcopy(model_config)
         run_with_standard_settings(

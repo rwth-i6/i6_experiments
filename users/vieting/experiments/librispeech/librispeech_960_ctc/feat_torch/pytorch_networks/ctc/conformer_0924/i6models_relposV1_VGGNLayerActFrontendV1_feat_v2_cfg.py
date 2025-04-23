@@ -51,7 +51,7 @@ class VGGNLayerActFrontendV1Config(ModelConfiguration):
     """
 
     in_features: int
-    convs: List[Tuple[int, Tuple[int, int], int]]
+    convs: List[Tuple[int, Tuple[int, int], Union[int, Tuple[int, int]]]]
     activations: List[Optional[str]]
     poolings: List[Optional[Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]]]
     out_features: int
