@@ -528,7 +528,7 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
             self_att=rf.build_dict(
                 rf.RelPosSelfAttention,
-                # Shawn et al 2018 style, old RETURNN way.
+                # Shawn et al 2018 style, old RETURNN (old TF) way.
                 with_bias=False,
                 with_linear_pos=False,
                 with_pos_bias=False,
