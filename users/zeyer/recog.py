@@ -843,8 +843,16 @@ class GetBestRecogTrainExp(sisyphus.Job):
         self.out_summary_json = self.output_path("summary.json")
         self.out_results_all_epochs_json = self.output_path("results_all_epoch.json")
         self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
+        # If not finished, assume this training is still running,
+        # and add all epocs for recog, so that they run as soon as the checkpoint is ready.
+        # If finished, we might have cleaned up the train dir,
+        # and not all the checkpoints exists anymore.
+        # So we must check for that, and exclude those.
+        finished = self.exp.scores_and_learning_rates.available()
+        last_fixed_epoch = max(exp.fixed_epochs)
         for epoch in exp.fixed_epochs:
-            self._add_recog(epoch)
+            if not finished or epoch == last_fixed_epoch or self.exp.get_epoch(epoch).checkpoint.exists():
+                self._add_recog(epoch)
 
     @classmethod
     def hash(cls, parsed_args: Dict[str, Any]) -> str:
@@ -898,7 +906,8 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 n_best=self.check_train_scores_n_best,
                 log_stream=log_stream,
             ):
-                self._add_recog(epoch)
+                if self.exp.get_epoch(epoch).checkpoint.exists():
+                    self._add_recog(epoch)
             if log_stream != sys.stdout:
                 log_stream.close()
             self._update_checked_relevant_epochs = True
