@@ -869,7 +869,7 @@ def run_scf_specaug():
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={
-                    "batch_size": "10k",
+                    "batch_size": "2x5k",
                     "enable_sorting": True,
                     "max_feature": 15,
                 },
