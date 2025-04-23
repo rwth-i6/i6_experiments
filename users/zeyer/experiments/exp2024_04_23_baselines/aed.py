@@ -447,7 +447,8 @@ def train_exp(
     """
     Train experiment
     """
-    from i6_experiments.users.zeyer.train_v3 import train
+    from i6_experiments.users.zeyer.train_v3 import train as train_v3
+    from i6_experiments.users.zeyer.train_v4 import train as train_v4
     from i6_experiments.users.zeyer.recog import recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
@@ -476,6 +477,8 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = aed_training
+    serialization_version = config.get("__serialization_version", None)
+    train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
     model_with_checkpoint = train(
         prefix,
         task=task,
