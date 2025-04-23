@@ -542,6 +542,7 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
 
     return Model(
         in_dim,
+        enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
         enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
@@ -552,6 +553,7 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
         enc_aux_logits=enc_aux_logits or (),
+        dec_build_dict=config.typed_value("dec_build_dict", None),  # alternative more generic/flexible way
     )
 
 
@@ -831,6 +833,7 @@ class Model(rf.Module):
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
+        enc_build_dict: Optional[Dict[str, Any]] = None,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         dec_model_dim: Dim = Dim(name="dec", dimension=512),
@@ -839,6 +842,7 @@ class Model(rf.Module):
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
+        dec_build_dict: Optional[Dict[str, Any]] = None,
     ):
         super(Model, self).__init__()
 
@@ -858,31 +862,46 @@ class Model(rf.Module):
             dec_sequential = rf.Sequential
 
         self.in_dim = in_dim
-        self.encoder = ConformerEncoder(
-            in_dim,
-            enc_model_dim,
-            ff_dim=enc_ff_dim,
-            input_layer=ConformerConvSubsample(
+        if enc_build_dict:
+            assert enc_sequential is rf.Sequential
+            # Warning: We ignore the other args (num_enc_layers, enc_model_dim, enc_other_opts, etc).
+            self.encoder = rf.build_from_dict(enc_build_dict, in_dim)
+            self.encoder: ConformerEncoder  # might not be true, but assume similar/same interface
+
+        else:
+            self.encoder = ConformerEncoder(
                 in_dim,
-                out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
-                filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                pool_sizes=[(1, 2)],
-                strides=[(1, 1), (3, 1), (2, 1)],
-            ),
-            encoder_layer=enc_conformer_layer,
-            num_layers=num_enc_layers,
-            num_heads=enc_att_num_heads,
-            dropout=enc_dropout,
-            att_dropout=enc_att_dropout,
-            sequential=enc_sequential,
-        )
-        self.decoder = TransformerDecoder(
-            num_layers=num_dec_layers,
-            encoder_dim=enc_model_dim,
-            vocab_dim=target_dim,
-            model_dim=dec_model_dim,
-            sequential=dec_sequential,
-        )
+                enc_model_dim,
+                ff_dim=enc_ff_dim,
+                input_layer=ConformerConvSubsample(
+                    in_dim,
+                    out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],
+                ),
+                encoder_layer=enc_conformer_layer,
+                num_layers=num_enc_layers,
+                num_heads=enc_att_num_heads,
+                dropout=enc_dropout,
+                att_dropout=enc_att_dropout,
+                sequential=enc_sequential,
+            )
+
+        if dec_build_dict:
+            assert dec_sequential is rf.Sequential
+            # Warning: We ignore the other args (num_dec_layers, dec_model_dim, dec_other_opts, etc).
+            self.decoder = rf.build_from_dict(dec_build_dict, self.encoder.out_dim, target_dim)
+            self.decoder: TransformerDecoder  # might not be true, but assume similar/same interface
+
+        else:
+            self.decoder = TransformerDecoder(
+                num_layers=num_dec_layers,
+                encoder_dim=self.encoder.out_dim,
+                vocab_dim=target_dim,
+                model_dim=dec_model_dim,
+                sequential=dec_sequential,
+            )
 
         disable_encoder_self_attention = config.typed_value("disable_encoder_self_attention", None)
         if disable_encoder_self_attention is not None:
