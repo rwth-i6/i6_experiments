@@ -66,7 +66,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     def tune_and_evaluate_helper(
         training_name, asr_model, base_decoder_config, lm_scales, prior_scales,
-        decoder_module="ctc.decoder.flashlight_ctc_v1",
+        decoder_module="ctc.decoder.flashlight_ctc_v1", forward_config=None,
     ):
         tune_parameters = []
         tune_values_clean = []
@@ -80,7 +80,7 @@ def eow_phon_ls960_relposencoder_0924_base():
                 search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
                 search_jobs, wers = search(
                     search_name,
-                    forward_config={},
+                    forward_config=forward_config or {},
                     asr_model=asr_model,
                     decoder_module=decoder_module,
                     decoder_args={"config": asdict(decoder_config)},
@@ -100,7 +100,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
-                training_name, forward_config={}, asr_model=asr_model, decoder_module=decoder_module,
+                training_name, forward_config=forward_config or {}, asr_model=asr_model, decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
@@ -212,7 +212,8 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
 
     def run_with_standard_settings(
-        network_module, model_cfg, name_ext="", prior_smaller_batch=True, move_to_hpc=False, debug=False,
+        network_module, model_cfg, name_ext="", prior_smaller_batch=True, forward_config=None, train_mem=None,
+        move_to_hpc=False, debug=False,
     ):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
@@ -240,6 +241,8 @@ def eow_phon_ls960_relposencoder_0924_base():
         training_name = prefix_name + "/" + network_module + name
         train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
+        if train_mem is not None:
+            train_job.rqmt["mem"] = train_mem
         if move_to_hpc and not debug:
             train_job.hold()
             train_job.move_to_hpc = True
@@ -248,8 +251,11 @@ def eow_phon_ls960_relposencoder_0924_base():
             prior_config={"batch_size": 160 * 16000} if prior_smaller_batch else None,
             get_specific_checkpoint=1000,
         )
+        if prior_smaller_batch:
+            asr_model.prior_file.creator.rqmt["time"] = 4
         tune_and_evaluate_helper(
-            training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
+            training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4],
+            forward_config=forward_config,
         )
         asr_model.returnn_vocab = label_datastream.vocab
         asr_model.settings = train_settings
@@ -310,6 +316,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
             model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 250},
         )
 
     # SCF experiments with STFT SpecAugment and configurable VGG front end
@@ -390,7 +397,8 @@ def eow_phon_ls960_relposencoder_0924_base():
         model_config_exp = copy.deepcopy(model_config)
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
-            model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
+            model_cfg=model_config_exp, name_ext=exp_name, train_mem=48, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 250}
         )
 
     tk.register_report(
