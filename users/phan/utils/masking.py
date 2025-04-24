@@ -192,5 +192,5 @@ def mask_audio_features_exact_label_pos(
     for b in range(batch_size):
         feature_masks_b = mask_audio_features_exact_label_pos_single_seq(alignments[b], label_mask, sil_index)
         feature_masks.append(feature_masks_b)
-    feature_masks = torch.nn.utils.rnn.pad_sequence(feature_masks, batch_first=True).to(device).float()
+    feature_masks = torch.nn.utils.rnn.pad_sequence(feature_masks, batch_first=True, padding_value=pad_value).to(device).float()
     return feature_masks

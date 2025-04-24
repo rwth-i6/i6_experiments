@@ -1573,10 +1573,114 @@ def from_scratch_training_density_ratio(
 from_scratch_training_density_ratio: TrainDef[Model]
 from_scratch_training_density_ratio.learning_rate_control_error_measure = "dev_score_full_sum"
 
-from i6_experiments.users.phan.ctc_masked_score_loss import ctc_bi_ilm_kldiv_loss
+from i6_experiments.users.phan.ctc_masked_score_loss import ctc_bi_ilm_kldiv_loss, ctc_bi_ilm_smoothing_kldiv_loss
 from i6_experiments.users.phan.utils.pseudo_ppl import compute_log_pseudo_ppl_loop_s_rf_models
-# masking acoustic input method 
+
 def train_masked_bi_ilm(
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+    phase: str,
+    **kwargs,
+):
+    """
+    Train a masked bi ilm without any masking, sampling, etc.
+    """
+    from returnn.config import get_global_config
+
+    # import for training only, will fail on CPU servers
+    # from i6_native_ops import warp_rnnt
+
+    MASK_TOKEN = model.ilm.input_dim.capacity - 1 # mask is the last token, just like blank
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+
+    if phase == "eval":
+        targets.sparse_dim = model.ilm.input_dim
+        log_pseudo_ppl = compute_log_pseudo_ppl_loop_s_rf_models(
+            model.ilm,
+            targets,
+            targets_spatial_dim,
+            mask_idx=MASK_TOKEN,
+            model_kwargs={"batch_dims": batch_dim},
+        )
+        rf.get_run_ctx().mark_as_loss(
+            loss=log_pseudo_ppl,
+            name="log_pseudo_ppl",
+            as_error=True,
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+        )
+        return
+
+    config = get_global_config()  # noqa
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value(
+        "aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None
+    )
+    # aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+
+    collected_outputs = {}
+    enc_args, enc_spatial_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs,
+    )
+    mask_eos = config.bool("mask_eos_output", True)
+    add_eos_to_blank = config.bool("add_eos_to_blank", False)
+
+    # This should be the final logits of the whole encoder
+    aux_logits = model.enc_aux_logits_12(collected_outputs[str(11)])
+    aux_logits_raw = aux_logits.raw_tensor.detach() # (B, T, V + blank), good
+
+    if mask_eos:
+        mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
+
+
+    # generate the mask for target sequences
+    target_masking_rate = config.typed_value("target_masking_rate", None)
+    assert target_masking_rate is not None, "Must provide target_masking_rate in config"
+    max_seq_len = targets.raw_tensor.shape[1]
+    target_mask = (torch.rand((max_seq_len,)) < target_masking_rate).long() # (S,), 1 = mask, 0 = no mask
+
+    # randomly choosing one token smaller than min seq len to mask
+    min_seq_len = torch_target_lengths.min().item()
+    target_mask[random.randint(0, min_seq_len-1)] = 1
+
+    # replace masked pos in the targets with MASK token and forward through the ILM
+    targets_raw_ = targets.raw_tensor.clone()
+    targets_raw_masked = targets_raw_.clone()
+    targets_raw_masked[:, target_mask.bool()] = MASK_TOKEN
+    targets.raw_tensor = targets_raw_masked
+    targets.sparse_dim = model.ilm.input_dim
+    ilm_out = model.ilm(targets, targets_spatial_dim, batch_dims=batch_dim)
+    ilm_out_raw = ilm_out["output"].raw_tensor # (T, B, V)
+    log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+
+    torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
+    device = aux_logits_raw.device
+    kldiv, masks_inside_max_lengths = ctc_bi_ilm_kldiv_loss( # (B, M, V without blank), already masked out loss for position outside target lengths
+        aux_logits_raw.transpose(0, 1).log_softmax(-1).detach(),
+        targets_raw_.long(),
+        target_mask.to(device),
+        torch_input_lengths.long().to(device),
+        torch_target_lengths.long().to(device),
+        log_lm_score,
+        blank_idx=model.blank_idx,
+        eos_idx=model.eos_idx,
+    )
+    loss = kldiv.sum(-1).sum(-1) / masks_inside_max_lengths.sum(-1) # (B,)
+    rf.get_run_ctx().mark_as_loss(
+        loss,
+        "masked_pos_kldiv",
+    )
+
+
+train_masked_bi_ilm: TrainDef[Model]
+train_masked_bi_ilm.learning_rate_control_error_measure = "dev_score_full_sum"
+
+
+def train_masked_bi_ilm_smoothing(
     *,
     model: Model,
     data: rf.Tensor,
@@ -1660,7 +1764,9 @@ def train_masked_bi_ilm(
 
     torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
     device = aux_logits_raw.device
-    kldiv, masks_inside_max_lengths = ctc_bi_ilm_kldiv_loss( # (B, M, V without blank), already masked out loss for position outside target lengths
+    weight = config.typed_value("kldiv_sampling_weight", None)
+    assert weight is not None, "Must provide kldiv_sampling_weight"
+    weighted_loss = ctc_bi_ilm_smoothing_kldiv_loss( # (B, M, V without blank), already masked out loss for position outside target lengths
         aux_logits_raw.transpose(0, 1).log_softmax(-1).detach(),
         targets_raw_.long(),
         target_mask.to(device),
@@ -1669,13 +1775,199 @@ def train_masked_bi_ilm(
         log_lm_score,
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,
+        ground_truth_weight=weight,
     )
-    loss = kldiv.sum(-1).sum(-1) / masks_inside_max_lengths.sum(-1) # (B,)
+    loss = weighted_loss.sum(-1)
     rf.get_run_ctx().mark_as_loss(
         loss,
-        "masked_pos_kldiv",
+        "masked_pos_kldiv_smoothing",
     )
 
+train_masked_bi_ilm_smoothing: TrainDef[Model]
+train_masked_bi_ilm_smoothing.learning_rate_control_error_measure = "dev_score_full_sum"
 
-train_masked_bi_ilm: TrainDef[Model]
-train_masked_bi_ilm.learning_rate_control_error_measure = "dev_score_full_sum"
+
+def train_masked_bi_ilm_masking(
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+    phase: str,
+    align: Optional[rf.Tensor] = None,
+    **kwargs,
+):
+    """Function is run within RETURNN.
+    This one has the alignment, but the alignment can be None
+    Some Returnn code was changed to allow this
+    """
+
+    MASK_TOKEN = model.ilm.input_dim.capacity - 1 # mask is the last token, just like blank
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+
+    if phase == "eval" and align is None:
+        targets.sparse_dim = model.ilm.input_dim
+        log_pseudo_ppl = compute_log_pseudo_ppl_loop_s_rf_models(
+            model.ilm,
+            targets,
+            targets_spatial_dim,
+            mask_idx=MASK_TOKEN,
+            model_kwargs={"batch_dims": batch_dim},
+        )
+        rf.get_run_ctx().mark_as_loss(
+            loss=log_pseudo_ppl,
+            name="log_pseudo_ppl",
+            as_error=True,
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+        )
+        return
+
+    assert hasattr(model, "bpe_idx_to_label"), "Must load vocab for model"
+    assert hasattr(model, "bpe_idx_is_eow"), "Must load vocab for model"
+    from returnn.config import get_global_config
+
+    # import for training only, will fail on CPU servers
+    # from i6_native_ops import warp_rnnt
+
+    config = get_global_config()  # noqa
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value(
+        "aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None
+    )
+    # aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+
+    # Now mask audio and the "words"
+    masking_rate = config.typed_value("target_masking_rate", None)
+    assert masking_rate is not None, "Must provide target_masking_rate in config"
+    feature_mask, word_mask = mask_audio_features_with_alignments(
+        align.raw_tensor,
+        mask_ratio=masking_rate,
+        sil_index=model.eos_idx, #  in this case it is 0 anyway, same as in the alignment
+        )
+
+    # Now because the alignment is word level but the masking is BPE, we do this:
+    # If a BPE label is masked, then that whole word is masked
+
+    # Now "mask" the target labels to know which labels to penalize the loss
+    # This is the same as having a predetermined label mask and then mask out
+    # the corresponding labels
+    targets_raw = targets.raw_tensor
+    label_loss_mask = torch.zeros_like(targets_raw, device=data.raw_tensor.device)
+    for b in range(targets_raw.shape[0]):
+        pseudo_word_seq_np = map_sublabels_to_pseudo_label_indices(
+            targets_raw[b].cpu(),
+            is_eow_func=lambda x: model.bpe_idx_is_eow[x.item()], # x is torch tensor, need x.item()
+            sil_idx=model.eos_idx
+            )
+        pseudo_word_seq = torch.tensor(pseudo_word_seq_np, device=data.raw_tensor.device)
+        # here it is guaranteed that pseudo_word_seq has the same number or pseudo-words as the "alignments"
+        # For word_mask: 1 = mask, 0 = no mask
+        # For label_loss_mask: 1 = no mask, 0 = mask
+        label_loss_mask[b] = mask_audio_features_exact_label_pos_single_seq(
+            pseudo_word_seq,
+            word_mask[b],
+            sil_index=model.eos_idx,
+            )
+
+    label_loss_mask = (1. - label_loss_mask).long() # we want 1 = mask, 0 = no mask for the loss masking
+
+    # # --------------------------- debug -----------------------------------
+    # # verifying that targets and alignments have the same number of words, seems OK
+    # # verifying the masking are working: all seems OK
+    # # - acoustic feature masking are the same as penalized labels
+    # # - group of labels belonging to the same word are always masked together
+    # # - the masking for the kldiv compuation is correct
+    # # and some extra debug print
+    # # In doubt, just out comment these
+    # torch.set_printoptions(threshold=1000, linewidth=100, precision=2)
+    # print()
+    # print("-------------- EXTRA DEBUG PRINT --------------")
+    # print("Shape of the label loss masking: ", label_loss_mask.shape)
+    # import numpy as np
+    # targets_rawraw = targets.raw_tensor.clone().cpu().detach()
+    # targets_words = np.apply_along_axis(lambda x: [model.bpe_idx_to_label[v] for v in x], -1, targets_rawraw.numpy())
+    # for b in range(targets_words.shape[0]):
+    #     print("Sequence: ", b)
+    #     print("Sequence in words:")
+    #     print(targets_words[b])
+    #     print("Words appearing in the alignment:")
+    #     print(align.raw_tensor[b].unique_consecutive())
+    #     pseudo_word_seq = map_sublabels_to_pseudo_label_indices(targets_rawraw[b], is_eow_func=lambda x: model.bpe_idx_is_eow[x.item()], sil_idx=model.eos_idx)
+    #     print("Label groups (each group is a true word) in the target sequence")
+    #     print(pseudo_word_seq)
+    #     # print(feature_mask[b].unique_consecutive())
+    #     print("The masked alignment, collapsed:")
+    #     print((align.raw_tensor[b]*feature_mask[b]).unique_consecutive())
+    #     # print(label_loss_mask[b].cpu()*torch.tensor(pseudo_word_seq))
+    #     print("The label sequence with masked words:")
+    #     print(np.where(label_loss_mask[b].cpu().numpy() == 1., "<masked>", pseudo_word_seq))
+    #     targets_words_with_mask = np.where(label_loss_mask[b].cpu().numpy() == 1., "<masked>", targets_words[b])
+    #     print("The label sequence next to the masked label sequence and the label loss masking:")
+    #     print(np.stack([targets_words[b], targets_words_with_mask, label_loss_mask[b].cpu().numpy()], axis=-1))
+    # print()
+    # # -----------------------------------------------------------------------
+
+
+    collected_outputs = {}
+    enc_args, enc_spatial_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs,
+        audio_features_mask=feature_mask,
+    )
+    mask_eos = config.bool("mask_eos_output", True)
+    add_eos_to_blank = config.bool("add_eos_to_blank", False)
+
+    # This should be the final logits of the whole encoder
+    aux_logits = model.enc_aux_logits_12(collected_outputs[str(11)])
+    aux_logits_raw = aux_logits.raw_tensor.detach() # (B, T, V + blank), good
+
+    if mask_eos:
+        mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
+
+    # replace masked pos in the targets with MASK token and forward through the ILM
+    targets_raw_ = targets.raw_tensor.clone()
+    targets_raw_masked = targets_raw_.clone()
+    targets_raw_masked = torch.where(
+        label_loss_mask.bool(),
+        torch.full_like(targets_raw_masked, MASK_TOKEN, device=targets_raw_masked.device),
+        targets_raw_masked
+        )
+    targets.raw_tensor = targets_raw_masked
+    targets.sparse_dim = model.ilm.input_dim
+    ilm_out = model.ilm(targets, targets_spatial_dim, batch_dims=batch_dim)
+    ilm_out_raw = ilm_out["output"].raw_tensor # (S, B, V)
+    log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+    
+    torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
+    device = aux_logits_raw.device
+
+    accum_loss = 0.
+    n_masked_labels = 0.
+    batch_size = targets.raw_tensor.shape[0]
+    for b in range(batch_size):
+        kldiv, masks_inside_max_lengths = ctc_bi_ilm_kldiv_loss( # (B, M, V without blank), already masked out loss for position outside target lengths
+            aux_logits_raw[b:b+1, :, :].transpose(0, 1).log_softmax(-1).detach(),
+            targets_raw_[b:b+1, :].long(),
+            label_loss_mask[b, :].to(device),
+            torch_input_lengths[b:b+1].long().to(device),
+            torch_target_lengths[b:b+1].long().to(device),
+            log_lm_score[b:b+1, :, :],
+            blank_idx=model.blank_idx,
+            eos_idx=model.eos_idx,
+        )
+        accum_loss += kldiv.sum()
+        n_masked_labels += masks_inside_max_lengths.sum()
+    loss = accum_loss / n_masked_labels
+    rf.get_run_ctx().mark_as_loss(
+        loss,
+        "masked_pos_kldiv_masking",
+    )
+
+train_masked_bi_ilm_masking: TrainDef[Model]
+train_masked_bi_ilm_masking.learning_rate_control_error_measure = "dev_score_full_sum"
+

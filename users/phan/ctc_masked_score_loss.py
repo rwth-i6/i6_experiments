@@ -5,6 +5,7 @@ Currently only standard KLDiv, and smoothing (sampling) loss
 import torch
 
 from i6_experiments.users.phan.ctc_masked_score import ctc_masked_score
+from i6_experiments.users.phan.utils.masking import get_seq_mask
 
 def ctc_bi_ilm_kldiv_loss(
     log_probs, # (T, B, F)
@@ -17,7 +18,7 @@ def ctc_bi_ilm_kldiv_loss(
     eos_idx = None,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
 ):
-    log_masked_probs, _, _, _, _ = ctc_masked_score( # (B, M, F-1)
+    log_masked_probs = ctc_masked_score( # (B, M, F-1)
         log_probs,
         targets,
         mask,
@@ -93,35 +94,36 @@ def ctc_bi_ilm_smoothing_kldiv_loss(
     about this when passing to returnn
     '''
     device = log_probs.device
-    input_time_size, batch_size, n_out = log_probs.shape
-    log_probs = log_probs.transpose(0, 1).repeat(batch_size, 1, 1).transpose(0, 1)
-    input_lengths = input_lengths.repeat(batch_size)
-    targets = targets.repeat_interleave(batch_size, dim=0)
-    # log_probs (T, B*B, F) targets (B*B, S)
-    max_seq_len = targets.shape[1]
-    log_masked_probs, _, _, _, _ = ctc_masked_score( # (B*B, M, F-1)
-        log_probs,
-        targets,
+    batch_size = log_probs.shape[1]
+    log_probs_repeat = log_probs.transpose(0, 1).repeat(batch_size, 1, 1).transpose(0, 1)
+    input_lengths_repeat = input_lengths.repeat(batch_size)
+    targets_repeat = targets.repeat_interleave(batch_size, dim=0)
+    target_lengths_repeat = target_lengths.repeat_interleave(batch_size, dim=0)
+    log_masked_probs = ctc_masked_score( # (B*B, M, F-1)
+        log_probs_repeat,
+        targets_repeat,
         mask,
-        input_lengths,
-        target_lengths,
+        input_lengths_repeat,
+        target_lengths_repeat,
         blank_idx,
         eos_idx,
         log_zero,
     )
     log_lm_score = log_lm_score.repeat_interleave(batch_size, dim=0)
-    log_lm_score_masks = log_lm_score[:, mask.long(), :] # (B, M, F-1)
+    log_lm_score_masks = log_lm_score[:, mask.bool(), :] # (B*B, M, F-1)
 
-    kldiv = torch.nn.functional.kl_div( # (B, M, F-1)
+    mask_idxs = torch.nonzero(mask).squeeze(1).long() # (M,)
+    masks_inside_max_lengths = (mask_idxs.unsqueeze(0).expand(batch_size*batch_size, -1) < target_lengths_repeat.unsqueeze(-1).expand(-1, mask_idxs.shape[0])).float() # (B*B, M), 1 is inside, 0 is outside
+
+    kldiv = torch.nn.functional.kl_div( # (B*B, M, F-1)
         input=log_lm_score_masks,
         target=log_masked_probs.detach(),
         log_target=True,
         reduction="none",
     )
-    if eos_idx is not None:
-        n_out -= 1 # Because the EOS is moved from blank_idx to eos_idx
-    seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device) # seq mask (B, S+1)
-    seq_mask_repeat = seq_mask.unsqueeze(-1).expand(-1, -1, n_out).repeat_interleave(batch_size, 0) # seq mask in (B*B, S+1, F)
+    # if eos_idx is not None:
+    #     n_out -= 1 # Because the EOS is moved from blank_idx to eos_idx
+
     if ground_truth_weight == "average":
         ground_truth_weight = 1./batch_size
     if batch_size > 1:
@@ -129,5 +131,5 @@ def ctc_bi_ilm_smoothing_kldiv_loss(
     else:
         none_truth_weight = 0
     weight_diag_mat = torch.full((batch_size, batch_size), fill_value=none_truth_weight, device=device).fill_diagonal_(ground_truth_weight).flatten()
-    loss = ((kl_div*seq_mask_repeat).sum(dim=-1).sum(dim=-1)*weight_diag_mat).sum() / seq_mask.sum()
-    return loss
+    weighted_loss = (kldiv.sum(-1) * masks_inside_max_lengths).sum(-1) * weight_diag_mat # (B*B,)
+    return weighted_loss

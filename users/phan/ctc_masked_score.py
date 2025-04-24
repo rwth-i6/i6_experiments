@@ -45,6 +45,7 @@ def ctc_masked_score(
     for each possible token for each masked position. Pay attention to "invalid" mask pos,
     i.e. the ones outside of a sequence.
 
+    :deprecated:
     forward: (T, B, S+1, 2) forward variables. Sum of all partial alignments up to frame t,
     position s, where the last frame is non-blank (0) or blank (1). In the S+1 dim, the first
     label is virtual BOS.
@@ -216,6 +217,8 @@ def ctc_masked_score(
             )
         forward[t, :, idx+1, 0] = forward_masked[t, :, midx, :].logsumexp(dim=-1)
 
+    # free some tensors to save memory
+    del forward
 
     # Backward variables
     # Almost the same as above, but have to be more careful due to the padding symbol
@@ -395,6 +398,10 @@ def ctc_masked_score(
         backward_masked[t, :, midx, :] = torch.where(update_mask_midx, res, backward_masked[t, :, midx, :])
         backward[t, :, idx, 0] = torch.where(update_mask, res.logsumexp(dim=-1), backward[t, :, idx, 0])
 
+    denominator_batch = backward[0, :, 0, :].logsumexp(-1)
+    # free memory
+    del backward
+
     # Now join the scores in forward_masked and backward_masked
     # to obtain the masked probabilies
     # Method: Sum over frames in the lattice (horizontal sum)
@@ -411,9 +418,15 @@ def ctc_masked_score(
         backward_masked - log_probs_all_masked,
         log_zero
     )
+
+    # free memory
+    del log_probs_all_masked
+    del backward_masked
+
     # print("backward masked", backward_masked)
     # print("log probs all masked", log_probs_all_masked)
     # print("next paths before log zero mask", next_paths)
+
     next_paths = torch.where(next_paths < log_zero, log_zero, next_paths)
 
     backward_paths = logsubstractexp(
@@ -422,10 +435,19 @@ def ctc_masked_score(
         log_zero,
         allow_log_neg=True, # Sloppy, but to deal with masked pos outside a sequence
     )
+
+    # free memory
+    del next_paths
+    del backward_masked_1
+
     input_time_mask = get_seq_mask(input_lengths, input_time_size, device).long().bool().unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_masked_pos, n_out-1).transpose(0, 1)
     log_fwd_bwd = torch.where(input_time_mask, forward_masked + backward_paths, torch.tensor(log_zero).to(device)) # only sums up to T of each batch
+    
+    # free memory
+    del forward_masked
+    del backward_paths
+
     numerator = log_fwd_bwd.logsumexp(dim=0) # (B, M, F-1) p(masked sequence, mask = w | acoustic)
-    denominator_batch = backward[0, :, 0, :].logsumexp(-1)
     denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1) # p(masked sequence | acoustic)
     log_masked_probs = numerator - denominator # p(mask = w | masked sequence, acoustic)
 
@@ -465,4 +487,4 @@ def ctc_masked_score(
     # print("next paths", next_paths[0]) # this is SOMEHOW WRONG!!!!!!!! okay there is a division by zero
     # # print("backward masked 1", backward_masked_1[0])
     # # print(denominator) # denominator is good
-    return log_masked_probs, forward, backward, forward_masked, backward_masked
+    return log_masked_probs
