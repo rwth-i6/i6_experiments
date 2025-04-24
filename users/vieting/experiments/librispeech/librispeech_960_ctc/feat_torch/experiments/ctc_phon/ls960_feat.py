@@ -16,14 +16,14 @@ from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search
-from ...report import tune_and_evalue_report
+from ...report import tune_and_evalue_report, DelayedMin
 from ...storage import add_ctc_model
 
 
 def eow_phon_ls960_relposencoder_0924_base():
     prefix_name = "experiments/librispeech/librispeech_960_ctc_eow_phon/feat_torch"
 
-    report = Report(columns_start=["training_name"], columns_end=["test-clean", "test-other"])
+    report = Report(columns_start=["training_name"], columns_end=["dev-clean", "dev-other", "test-clean", "test-other"])
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -115,10 +115,12 @@ def eow_phon_ls960_relposencoder_0924_base():
             report_values=report_values
         )
         assert training_name.startswith(prefix_name)
-        report.add(dict(
-            training_name=training_name[len(prefix_name):].strip("/"),
+        report.add({
+            "training_name": training_name[len(prefix_name):].strip("/"),
+            "dev-clean": DelayedMin(tune_values_clean),
+            "dev-other": DelayedMin(tune_values_other),
             **report_values
-        ))
+        })
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 

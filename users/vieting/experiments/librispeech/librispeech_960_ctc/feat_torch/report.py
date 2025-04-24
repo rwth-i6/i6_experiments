@@ -3,6 +3,8 @@ import numpy as np
 from typing import Any, Dict, List
 
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedBase
+from sisyphus.tools import try_get
 
 from i6_core.report.report import GenerateReportStringJob
 
@@ -100,3 +102,12 @@ def tune_and_evalue_report(
     tk.register_output(training_name + "/tune_and_evaluate_report.txt", report)
 
 
+class DelayedMin(DelayedBase):
+    def __init__(self, args: list):
+        self.args = args
+
+    def get(self):
+        args = [try_get(v) for v in self.args]
+        if None in args:
+            return None
+        return min(args)
