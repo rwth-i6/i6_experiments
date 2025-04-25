@@ -145,7 +145,12 @@ class MakeModel:
             **extra,
         )
 
-
+class DummyModel(rf.Module):
+    def __init__(self,
+                 in_dim: Dim,
+                 target_dim: Dim):
+        self.in_dim = in_dim,
+        self.target_dim = target_dim
 class Model(rf.Module):
     """Model definition"""
 
@@ -509,6 +514,10 @@ def _get_eos_idx(target_dim: Dim) -> int:
     else:
         raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
     return eos_idx
+
+def dummy_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim):
+    dummy_model = DummyModel(in_dim=in_dim, target_dim=target_dim)
+    return dummy_model
 
 # where the model is defined
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:

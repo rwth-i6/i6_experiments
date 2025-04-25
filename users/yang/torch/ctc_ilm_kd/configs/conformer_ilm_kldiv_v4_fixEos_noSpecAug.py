@@ -108,41 +108,41 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # recog_epoch = [1] + list(range(20, 120, 20)) # 1 is mostly for debugging and getting the baseline
     recog_epoch = [20, 40, 60, 80, 100]
     # Standard KLDiv ILM
-    for lrs in lr_list:
-        for epochs in ep_list:
-            lr_1, lr_2 = lrs
-            ep1, ep2 = epochs
-            lrs = [lr_1]*ep1
-            train_exp( 
-                f"conformer_trafo_ilm_kldiv_const_lr_{lr_1}_ep100_fixEos_noSpecAug",
-                config_11gb,
-                from_scratch_training_kldiv,
-                gpu_mem=11,
-                config_updates={
-                    "batch_size": 2400000,
-                    "learning_rate": float(lrs[-1]),
-                    "learning_rates": lrs,
-                    "__num_epochs": 100,
-                    "mask_eos_output": True,
-                    "add_eos_to_blank": True,
-                    "preload_from_files": {
-                        "base": {
-                            "init_for_train": True,
-                            "ignore_missing": True,
-                            "filename": "/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt",
-                        }
-                    },
-                    "mel_normalization_ted2": False,
-                    "use_specaugment": False, # VERY IMPORTANT!!!
-                },
-                post_config_updates={
-                    "cleanup_old_models": {"keep": recog_epoch},
-                    "torch_dataloader_opts": { # otherwise it will break after every epoch
-                        "num_workers": 0,
-                    }
-                },
-                greedy_search = False,
-            )
+    # for lrs in lr_list:
+    #     for epochs in ep_list:
+    #         lr_1, lr_2 = lrs
+    #         ep1, ep2 = epochs
+    #         lrs = [lr_1]*ep1
+    #         train_exp(
+    #             f"conformer_trafo_ilm_kldiv_const_lr_{lr_1}_ep100_fixEos_noSpecAug",
+    #             config_11gb,
+    #             from_scratch_training_kldiv,
+    #             gpu_mem=11,
+    #             config_updates={
+    #                 "batch_size": 2400000,
+    #                 "learning_rate": float(lrs[-1]),
+    #                 "learning_rates": lrs,
+    #                 "__num_epochs": 100,
+    #                 "mask_eos_output": True,
+    #                 "add_eos_to_blank": True,
+    #                 "preload_from_files": {
+    #                     "base": {
+    #                         "init_for_train": True,
+    #                         "ignore_missing": True,
+    #                         "filename": "/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt",
+    #                     }
+    #                 },
+    #                 "mel_normalization_ted2": False,
+    #                 "use_specaugment": False, # VERY IMPORTANT!!!
+    #             },
+    #             post_config_updates={
+    #                 "cleanup_old_models": {"keep": recog_epoch},
+    #                 "torch_dataloader_opts": { # otherwise it will break after every epoch
+    #                     "num_workers": 0,
+    #                 }
+    #             },
+    #             greedy_search = False,
+    #         )
 
     for lrs in lr_list:
         for epochs in ep_list:
@@ -786,17 +786,33 @@ def train_exp(
         from i6_experiments.users.yang.torch.luca_ctc.recog_rescoring import recog_first_pass_hdf
         epoch = list(model_with_checkpoint.fixed_epochs)[0]
         checkpoint = model_with_checkpoint.get_epoch(epoch)
-        outputs = recog_first_pass_hdf(
+        # outputs = recog_first_pass_hdf(
+        #     task=ted2_task,
+        #     model=checkpoint,
+        #     recog_def=model_recog_time_sync_recomb_first_v2,
+        #     config=ted2_recog_config_update_extra,
+        #     dev_sets=['dev']
+        # )
+        # tk.register_output(prefix+'/debug_out_hyps.hdf', outputs['dev'].out_hyps)
+        # tk.register_output(prefix + '/debug_out_lens.hdf', outputs['dev'].out_lens)
+        # tk.register_output(prefix + '/debug_out_scores.hdf', outputs['dev'].out_scores)
+        # tk.register_output(prefix + '/debug_out_packed_batch_sizes.hdf', outputs['dev'].out_packed_batch_sizes)
+
+        #for debugging:
+        ted2_recog_config_update_extra['search_args']['beam_size'] = 5
+        outputs_v2 = recog_first_pass_hdf(
             task=ted2_task,
             model=checkpoint,
             recog_def=model_recog_time_sync_recomb_first_v2,
             config=ted2_recog_config_update_extra,
-            dev_sets=['dev']
+            dev_sets=['dev'],
+            hdf_output='v2'
         )
-        tk.register_output(prefix+'/debug_out_hyps.hdf', outputs['dev'].out_hyps)
-        tk.register_output(prefix + '/debug_out_lens.hdf', outputs['dev'].out_lens)
-        tk.register_output(prefix + '/debug_out_scores.hdf', outputs['dev'].out_scores)
-        tk.register_output(prefix + '/debug_out_packed_batch_sizes.hdf', outputs['dev'].out_packed_batch_sizes)
+        tk.register_output(prefix + '/debug_out_hyps_v2.hdf', outputs_v2['dev'].out_hyps)
+        from i6_experiments.users.yang.torch.luca_ctc.recog_rescoring import debug_hdf_reading
+        debug_output = debug_hdf_reading(path=outputs_v2['dev'].out_hyps, model=checkpoint, beam_size=5)
+        tk.register_output(prefix +'/debug_read_hdf.txt', debug_output)
+
 
     return model_with_checkpoint
 
