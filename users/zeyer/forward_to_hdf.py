@@ -583,9 +583,9 @@ def _returnn_get_model(*, epoch: int, **_kwargs_unused):
 
     data = Tensor(**data_templ_dict)
     targets = Tensor(**targets_templ_dict)
-    assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
+    assert targets.feature_dim_or_sparse_dim, f"no feat or sparse dim for {targets}"
 
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.feature_dim_or_sparse_dim)
     return model
 
 
