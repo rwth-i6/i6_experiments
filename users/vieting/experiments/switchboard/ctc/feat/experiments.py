@@ -143,13 +143,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         cached=True,
     )
-    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_from_lexicon = False
-    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_all = True
-    ctc_nn_system.crp["hub5e01"].acoustic_model_config.allophones.add_from_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
-        cached=True,
-    )
+    ctc_nn_system.crp["hub5e01"].acoustic_model_config = copy.deepcopy(ctc_nn_system.crp["hub5e00"].acoustic_model_config)
     ctc_nn_system.run_train_step(nn_args.training_args)
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
@@ -696,7 +690,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
-        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},   
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
@@ -1082,7 +1076,7 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
-        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},   
+        {"tempo": {"prob": 7, "minimum": 0.7, "maximum": 1.3}},
         {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
         {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
         {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
