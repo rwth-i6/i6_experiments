@@ -62,7 +62,7 @@ def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
     return key_string, report_dict
 
 
-def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
+def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None, use_second_dev_set=False):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -135,7 +135,6 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         ),
     )
     ctc_nn_system._set_scorer("hub5e00", score_info_hub5e00)
-    ctc_nn_system._set_scorer("hub5e01", score_info_hub5e01)
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
@@ -143,7 +142,10 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         cached=True,
     )
-    ctc_nn_system.crp["hub5e01"].acoustic_model_config = copy.deepcopy(ctc_nn_system.crp["hub5e00"].acoustic_model_config)
+    if use_second_dev_set:
+        ctc_nn_system._set_scorer("hub5e01", score_info_hub5e01)
+        ctc_nn_system.crp["hub5e01"].acoustic_model_config = copy.deepcopy(ctc_nn_system.crp["hub5e00"].acoustic_model_config)
+
     ctc_nn_system.run_train_step(nn_args.training_args)
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
@@ -245,7 +247,7 @@ def run_mel_baseline():
         evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
         prefix="conformer_",
     )
-    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
+    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args, use_second_dev_set=True)
     return report, ctc_nn_system
 
 
@@ -378,6 +380,7 @@ def run_scf_baseline():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
+        use_second_dev_set=True,
     )
     return report, ctc_nn_system
 
@@ -938,6 +941,7 @@ def run_scf_specaug():
         "report_scf_specaug.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
+        use_second_dev_set=True,
     )
     return report
 
@@ -1359,6 +1363,7 @@ def run_specaug_stft_experiments():
         "report_specaug_stft.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [24, 350, 390, 400, 410, 420, 430, 440, 450]},
+        use_second_dev_set=True,
     )
     return report, ctc_nn_system
 
@@ -1509,6 +1514,7 @@ def run_scf_combination_experiments():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [376, 386, 396, 406, 426]},
+        use_second_dev_set=True,
     )
     return report, ctc_nn_system
 
