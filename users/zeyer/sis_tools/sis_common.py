@@ -18,19 +18,15 @@ from functools import reduce
 
 _my_dir = os.path.dirname(__file__)
 _base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
-_setup_base_dir = os.path.dirname(_base_recipe_dir)
-_checked_setup_base_dir = False
 
 
 def get_setup_base_dir() -> str:
     """
     :return: The setup base dir, where there is work and recipe.
     """
-    global _checked_setup_base_dir
-    if not _checked_setup_base_dir:
-        assert os.path.exists(f"{_setup_base_dir}/work") and os.path.exists(f"{_setup_base_dir}/recipe")
-        _checked_setup_base_dir = True
-    return _setup_base_dir
+    from i6_experiments.users.zeyer.utils import sis_path
+
+    return sis_path.get_setup_base_dir()
 
 
 def get_work_dir() -> str:
@@ -152,11 +148,18 @@ def is_job_dir(job: str) -> bool:
     return True
 
 
-def get_job_from_arg(job: str) -> str:
+def get_job_from_arg(job: str, *, set_setup_base_dir: bool = False) -> str:
     """
     :param job: job path, job name, job output
+    :param set_setup_base_dir: if True, potentially allow to set setup base dir based on job
     :return: job, such that is_job_dir(job) is True
     """
+    from i6_experiments.users.zeyer.utils import sis_path
+
+    if set_setup_base_dir:
+        setup_base_dir = sis_path.get_setup_base_dir_from_job(job)
+        if setup_base_dir:
+            sis_path.set_setup_base_dir(setup_base_dir)
     work_dir_prefix = get_work_dir_prefix()
     if job.startswith("work/"):
         job = job[len("work/") :]

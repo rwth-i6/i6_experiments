@@ -62,7 +62,7 @@ def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("job", help="path to job, with or without 'work/' prefix")
     args = arg_parser.parse_args()
-    job = sis_common.get_job_from_arg(args.job)
+    job = sis_common.get_job_from_arg(args.job, set_setup_base_dir=True)
 
     visited = set()
     # (job, corpus, scoring)
