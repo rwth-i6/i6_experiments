@@ -186,8 +186,10 @@ def _returnn_rescore_config(
     """
     from returnn.tensor import Tensor, Dim, batch_dim
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
+    from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
-    config = config.copy() if config else {}
+    config_ = config
+    config = {}
 
     # Note: we should not put SPM/BPE directly here,
     # because the recog output still has individual labels,
@@ -249,6 +251,9 @@ def _returnn_rescore_config(
     config["_rescore_def"] = rescore_def
     config["forward_step"] = _returnn_score_step
     config["forward_callback"] = _returnn_v2_get_forward_callback
+
+    if config_:
+        config_dict_update_(config, config_)
 
     # post_config is not hashed
     post_config_ = dict(
