@@ -171,6 +171,8 @@ def get_job_from_arg(job: str, *, set_setup_base_dir: bool = False) -> str:
         job = "i6_core/recognition/scoring/" + job
     elif job.startswith("ReturnnSearchJobV2."):  # shortcut
         job = "i6_core/returnn/search/" + job
+    elif os.path.exists(job):
+        job = get_job_from_work_output(os.path.realpath(job), allow_none=True) or job
     assert os.path.exists(work_dir_prefix + job), f"job '{work_dir_prefix}{job}' does not exist"
     assert os.path.exists(work_dir_prefix + job + "/info")
     assert os.path.exists(work_dir_prefix + job + "/output")
