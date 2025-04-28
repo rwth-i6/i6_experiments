@@ -213,14 +213,20 @@ def _returnn_rescore_config(
         "data_seq_lens": {"dims": [batch_dim, beam_dim], "dtype": "int32"},
     }
     if dataset:
+        ds_extern_data = dataset.get_extern_data()
         default_input = dataset.get_default_input()
-        assert default_input not in extern_data
-        extern_data[default_input] = dataset.get_extern_data()[default_input]
+        assert default_input in ds_extern_data
+        ds_target = dataset.get_default_target()
+        for key, value in ds_extern_data.items():
+            if key == ds_target:
+                continue  # skip (mostly also to keep hashes consistent)
+            assert key not in extern_data
+            extern_data[key] = value
         forward_data = {
             "class": "MetaDataset",
             "datasets": {"orig_data": dataset.get_main_dataset(), "hyps": forward_data},
             "data_map": {
-                default_input: ("orig_data", default_input),
+                **{key: ("orig_data", key) for key in ds_extern_data if key != ds_target},
                 "data_flat": ("hyps", "data_flat"),
                 "data_seq_lens": ("hyps", "data_seq_lens"),
             },
