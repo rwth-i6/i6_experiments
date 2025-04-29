@@ -797,7 +797,11 @@ def run_scf_specaug():
             "baseline": dict(
                 returnn_args={
                     **base_returnn_args,
-                    "specaug_config": {"enable_sorting": False, "max_feature": 15, "steps_per_epoch": 4100},
+                    "specaug_config": {
+                        "enable_sorting": False,
+                        "max_feature": 15,
+                        "steps_per_epoch": 4100,
+                    },  # steps_per_epoch might need to be adjusted.
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -811,7 +815,7 @@ def run_scf_specaug():
                         "enable_sorting": False,
                         "max_feature": 15,
                         "max_feature_num": 2,
-                        "steps_per_epoch": 4100,
+                        "steps_per_epoch": 4100,  # steps_per_epoch might need to be adjusted.
                         "freq_mask_num_schedule": {0: 1, 1: 2.5},
                     },
                 },
@@ -823,7 +827,7 @@ def run_scf_specaug():
                 returnn_args={
                     **base_returnn_args,
                     "specaug_config": {
-                        "steps_per_epoch": 4100,
+                        "steps_per_epoch": 4100,  # steps_per_epoch might need to be adjusted.
                         "enable_sorting": False,
                         "filter_based_masking_strategy": "variance",
                         "enable_logging": True,
@@ -844,7 +848,7 @@ def run_scf_specaug():
                 returnn_args={
                     **base_returnn_args,
                     "specaug_config": {
-                        "steps_per_epoch": 4100,
+                        "steps_per_epoch": 4100,  # steps_per_epoch might need to be adjusted.
                         "enable_sorting": False,
                         "filter_based_masking_strategy": "peakToAverage",
                         "enable_logging": True,
@@ -859,6 +863,36 @@ def run_scf_specaug():
                     "filter_based_masking_strategy": "peakToAverage",
                     "filter_factor": 0.5,
                     "max_number_masks_for_filter_based_specaug": 75,
+                },
+            ),
+            "bs2x5k_sorting": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {"enable_sorting": True, "max_feature": 15, "steps_per_epoch": 4170},
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "2x5k",
+                    "enable_sorting": True,
+                    "max_feature": 15,
+                },
+            ),
+            "bs10k_sorting": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                    "specaug_config": {"enable_sorting": True, "max_feature": 15, "steps_per_epoch": 2090},
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "10k",
+                    "enable_sorting": True,
+                    "max_feature": 15,
                 },
             ),
         },
