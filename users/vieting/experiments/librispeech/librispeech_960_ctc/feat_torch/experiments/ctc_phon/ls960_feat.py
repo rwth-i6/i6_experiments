@@ -212,7 +212,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
 
     def run_with_standard_settings(
-        network_module, model_cfg, name_ext="", prior_smaller_batch=True, forward_config=None, train_mem=None,
+        network_module, model_cfg, name_ext="", prior_batch_size=None, forward_config=None, train_rqmt=None,
         move_to_hpc=False, debug=False,
     ):
         train_config_24gbgpu_amp = {
@@ -239,19 +239,17 @@ def eow_phon_ls960_relposencoder_0924_base():
 
         name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8" + name_ext
         training_name = prefix_name + "/" + network_module + name
-        train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
+        train_job = training(training_name, train_data, train_args, num_epochs=1000, rqmt=train_rqmt, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
-        if train_mem is not None:
-            train_job.rqmt["mem"] = train_mem
         if move_to_hpc and not debug:
             train_job.hold()
             train_job.move_to_hpc = True
         asr_model = prepare_asr_model(
             training_name, train_job, train_args, with_prior=True, datasets=train_data,
-            prior_config={"batch_size": 160 * 16000} if prior_smaller_batch else None,
+            prior_config={"batch_size": prior_batch_size * 16000} if prior_batch_size else None,
             get_specific_checkpoint=1000,
         )
-        if prior_smaller_batch:
+        if prior_batch_size:
             asr_model.prior_file.creator.rqmt["time"] = 4
         tune_and_evaluate_helper(
             training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4],
@@ -264,8 +262,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # baseline log Mel setup
     run_with_standard_settings(
-        network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1",
-        model_cfg=model_config, prior_smaller_batch=False,
+        network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1", model_cfg=model_config,
     )
 
     # SCF experiments with minimal modifications
@@ -316,7 +313,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_feat_v1",
             model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
-            forward_config={"batch_size": 16000 * 250},
+            forward_config={"batch_size": 16000 * 250}, prior_batch_size=160,
         )
 
     # SCF experiments with STFT SpecAugment and configurable VGG front end
@@ -363,6 +360,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=120,
         )
 
     # 2D experiments with STFT SpecAugment

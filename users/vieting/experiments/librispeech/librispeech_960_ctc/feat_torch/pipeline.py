@@ -205,7 +205,7 @@ def compute_prior(
     return search_job.out_files["prior.txt"]
 
 
-def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root, rqmt=None):
     """
     :param training_name:
     :param datasets:
@@ -222,6 +222,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
         "log_verbosity": 5,
         "returnn_python_exe": returnn_exe,
         "returnn_root": returnn_root,
+        **(rqmt or {}),
     }
 
     train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
