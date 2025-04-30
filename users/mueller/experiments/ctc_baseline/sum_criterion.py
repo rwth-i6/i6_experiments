@@ -883,17 +883,18 @@ def sum_loss_ffnn(
     # Prepare LM
     # TODO limit batch size applied in order to fit into memory
     if use_lm:
-        lm_state = lm.default_initial_state(batch_dims=[])
-        lm_logits, lm_state = lm(
-            target,
-            spatial_dim=context_dim,
-            out_spatial_dim=lm_out_dim,
-            state=lm_state,
-        )
-        lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-        assert lm_logits.dims == (*batch_dims_, model.target_dim)
-        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-        lm_log_probs *= lm_scale
+        with torch.no_grad():
+            lm_state = lm.default_initial_state(batch_dims=[])
+            lm_logits, lm_state = lm(
+                target,
+                spatial_dim=context_dim,
+                out_spatial_dim=lm_out_dim,
+                state=lm_state,
+            )
+            lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+            assert lm_logits.dims == (*batch_dims_, model.target_dim)
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+            lm_log_probs *= lm_scale
     
     max_seq_len = int(input_lengths.get_dim_value())
     backrefs = None
@@ -990,37 +991,38 @@ def sum_loss_ffnn(
                 )
 
         if use_lm:
-            got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-            if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                    (target, lm_state),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
-                    dims=batch_dims + [beam_dim],
-                )
-                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-                assert packed_new_label_dim.get_dim_value() > 0
-                
-                lm_logits_, lm_state_ = lm(
-                    target_,
-                    spatial_dim=context_dim,
-                    out_spatial_dim=lm_out_dim,
-                    state=lm_state_,
-                )  # Flat_Batch_Beam, Vocab / ...
-                lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-                assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
-                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-                lm_log_probs_ *= lm_scale
+            with torch.no_grad():
+                got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+                if got_new_label_cpu.raw_tensor.sum().item() > 0:
+                    (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                        (target, lm_state),
+                        mask=got_new_label,
+                        mask_cpu=got_new_label_cpu,
+                        dims=batch_dims + [beam_dim],
+                    )
+                    # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+                    assert packed_new_label_dim.get_dim_value() > 0
+                    
+                    lm_logits_, lm_state_ = lm(
+                        target_,
+                        spatial_dim=context_dim,
+                        out_spatial_dim=lm_out_dim,
+                        state=lm_state_,
+                    )  # Flat_Batch_Beam, Vocab / ...
+                    lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+                    assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+                    lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                    lm_log_probs_ *= lm_scale
 
-                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                    (lm_log_probs_, lm_state_),
-                    (lm_log_probs, lm_state),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
-                    dims=batch_dims + [beam_dim],
-                    in_dim=packed_new_label_dim,
-                    masked_select_dim_map=packed_new_label_dim_map,
-                )  # Batch, Beam, Vocab / ...
+                    lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                        (lm_log_probs_, lm_state_),
+                        (lm_log_probs, lm_state),
+                        mask=got_new_label,
+                        mask_cpu=got_new_label_cpu,
+                        dims=batch_dims + [beam_dim],
+                        in_dim=packed_new_label_dim,
+                        masked_select_dim_map=packed_new_label_dim_map,
+                    )  # Batch, Beam, Vocab / ...
 
         if device.startswith("cuda"):
             torch.cuda.empty_cache()

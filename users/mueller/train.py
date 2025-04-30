@@ -296,12 +296,20 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             targets_indices=targets_indices
         )
     else:
+        nbest_lengths = None
+        scores = None
+        if "nbest_lengths" in extern_data:
+            nbest_lengths = extern_data["nbest_lengths"]
+        if "scores" in extern_data:
+            scores = extern_data["scores"]
         train_def(
             model=model,
             data=data,
             data_spatial_dim=data_spatial_dim,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
+            nbest_lengths=nbest_lengths,
+            scores=scores,
         )
 
 
