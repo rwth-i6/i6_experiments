@@ -23,6 +23,35 @@ def soft_collapse_repeated(
     :param reduce_type: "logmeanexp" or "max_renorm"
     :return: shape {OtherDims..., OutSpatial, Classes}, out_spatial_dim
     """
+    idxs = soft_collapse_repeated_indices(
+        log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold
+    )
+    out_spatial_dim = idxs.sparse_dim
+    if reduce_type == "logmeanexp":
+        res = rf.scatter_logmeanexp(log_probs, indices=idxs, indices_dim=spatial_dim, out_dim=out_spatial_dim)
+    elif reduce_type == "max_renorm":
+        res = rf.scatter(log_probs, mode="max", indices=idxs, indices_dim=spatial_dim, out_dim=out_spatial_dim)
+        res = rf.log_softmax(res, axis=classes_dim)
+    else:
+        raise ValueError(f"invalid reduce_type {reduce_type!r}")
+    return res, out_spatial_dim
+
+
+def soft_collapse_repeated_indices(
+    log_probs: Tensor,
+    *,
+    spatial_dim: Dim,
+    classes_dim: Dim,
+    threshold: float,
+) -> Tensor:
+    """
+    :param log_probs: shape {OtherDims..., Spatial, Classes}
+    :param spatial_dim:
+    :param classes_dim:
+    :param threshold:
+    :param reduce_type: "logmeanexp" or "max_renorm"
+    :return: shape {OtherDims..., OutSpatial, Classes} -> out_spatial_dim
+    """
     argmax_classes = rf.reduce_argmax(log_probs, axis=classes_dim)  # {OtherDims..., Spatial} -> Classes
     log_probs_classes = rf.gather(log_probs, indices=argmax_classes)  # {OtherDims..., Spatial}
     probs_classes = rf.exp(log_probs_classes)
@@ -44,14 +73,7 @@ def soft_collapse_repeated(
     out_spatial_dim = Dim(new_size, name="soft_collapse_repeated")
     idxs = idxs - 1  # {OtherDims..., Spatial} -> OutSpatial
     idxs.sparse_dim = out_spatial_dim
-    if reduce_type == "logmeanexp":
-        res = rf.scatter_logmeanexp(log_probs, indices=idxs, indices_dim=spatial_dim, out_dim=out_spatial_dim)
-    elif reduce_type == "max_renorm":
-        res = rf.scatter(log_probs, mode="max", indices=idxs, indices_dim=spatial_dim, out_dim=out_spatial_dim)
-        res = rf.log_softmax(res, axis=classes_dim)
-    else:
-        raise ValueError(f"invalid reduce_type {reduce_type!r}")
-    return res, out_spatial_dim
+    return idxs
 
 
 def test_soft_collapse_repeated():
