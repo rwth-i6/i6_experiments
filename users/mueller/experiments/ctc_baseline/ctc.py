@@ -13,18 +13,18 @@ from returnn.tensor import Tensor, Dim, batch_dim
 
 from sisyphus import tk
 
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, TrainDef, RecogDef
-from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.mueller.train import SumTrainDef, CETrainDef
+from i6_experiments.users.mueller.utils import calc_stats
 from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram, get_prior_from_unigram
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm, get_ffnn_lm
-from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
-from i6_experiments.users.mueller.utils import calc_stats
 from i6_experiments.users.mueller.experiments.ctc_baseline.configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, dict_update_deep, post_config
-
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL, _log_mel_feature_dim
 from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_flashlight_ngram, recog_no_lm, recog_flashlight_ffnn, recog_ffnn, recog_gradients
 from i6_experiments.users.mueller.experiments.ctc_baseline.training import ctc_train, full_sum_train, ce_train
+
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, TrainDef, RecogDef
+from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 
 if TYPE_CHECKING:
     from i6_experiments.common.setups import serialization
@@ -50,6 +50,7 @@ decode_all_fixed_epochs = True
 decode_all_fixed_epochs_init = True
 exclude_epochs = True
 cache_manager = True
+tune_version = 2
 
 def py():
     """Sisyphus entry point"""
@@ -58,19 +59,22 @@ def py():
     vocab = "bpe128"                            # Vocab, e.g. "bpe128", "spm20k", "char", "bpe10k"
     self_training_rounds = 4                    # Self-supervised training rounds
     reset_steps = False                         # Whether to reset step count after the first self-training round (affects LR schedule)
-    from_scratch = False                        # Self-training starts from scratch
+    from_scratch = True                        # Self-training starts from scratch
     pseudo_label_small = False                  # 860h pseudo-labels if True, 960h pseudo-labels if False
-    keep_small_labels = False                    # Keep true labels of 100h data during self-training
-    pseudo_nbest = 1                            # Number of pseudo-label sequences
+    keep_small_labels = True                    # Keep true labels of 100h data during self-training
+    pseudo_nbest = 5                            # Number of pseudo-label sequences
     norm_nbest_rescore = False                  # Normalize the LM and Prior values for each pseudo label sequence before adding them up
+    rescore_alignment_prior = True             # Rescore the sequences with the alignment instead of label prior
     grad_nbest = 10                             # Number of gradients we want to keep during gradient dumping
+    rescore_ctc_loss_for_grad = False           # Rescore with CTC loss for the gradients we want to dump
     calc_last_pseudo_labels = False             # Calculate the pseudo labels after the last iteration of self-training
     decode_every_step = False                   # Decode every step during self-training
+    keep_best_decoding = False                   # Keep the decoding of previous self-training rounds if it is better
     accum_grad_multiple_step = 1                # Accumulate gradients over multiple steps
     aux_loss = True                             # Whether to use the auxiliary loss
     use_norm_st_loss = True                     # Use normalized loss during self-training
-    use_ce_loss = True                         # Use CE loss instead of CTC loss
-    speed_pert = False                           # Whether to use speed perturbation
+    use_ce_loss = False                         # Use CE loss instead of CTC loss
+    speed_pert = True                           # Whether to use speed perturbation
     train_version = 1                           # Version for training added to change the hash
     num_gpus = 4                                # Number of GPUs to use during training
     if self_training_rounds == 0:
@@ -79,6 +83,7 @@ def py():
         keep_small_labels = False
         pseudo_nbest = 1
         norm_nbest_rescore = False
+        rescore_alignment_prior = False
     
     # Decoder config (more further down)
     decoding_imp = "albert-lm"                  # Decoding implementation, e.g. "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients"
@@ -86,15 +91,17 @@ def py():
     empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
     prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
     alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
-    tune_hyperparameters = False                # Tune decoder hyperparameters in between self-training rounds
+    tune_hyperparameters = True                # Tune decoder hyperparameters in between self-training rounds
     # decoder_lm_config = {}                    # LM selection for decoding, empty for word-level 4-gram
     decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding, empty for word-level 4-gram
     # decoder_lm_config = {"class": "ngram", "order": 2} # LM selection for decoding, empty for word-level 4-gram
     use_recombination = True                    # Use recombination during decoding (only albert-lm)
     recombine_blank = True                      # Recombine sequences ending on blank with last seen same label (only albert-lm)
     recombine_after_topk = True                 # Recombine after top-k extraction instead of before (only albert-lm)
+    recombine_with_sum_pl = False               # Use sum during recombination for the pseudo labels
     if self_training_rounds == 0:
         alt_decoder = False
+    assert decoding_imp in ["flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients"]
     
     # Configs for init training
     init = "100h-supervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
@@ -126,6 +133,9 @@ def py():
     self_train_subset = None # 18000            # Train on a subset of the data
     # TODO gradient_clip_global_norm
     
+    assert not (rescore_alignment_prior and norm_nbest_rescore)
+    assert not decode_every_step or keep_best_decoding
+    assert (self_training_rounds > 0) == alt_decoder
     assert not use_ce_loss or not speed_pert
     assert not decoding_imp == "gradients" or use_ce_loss
     assert (train_lm_config["class"] == "FeedForwardLm" and top_k > 0) or train_lm_config["class"] == "ngram"
@@ -146,13 +156,15 @@ def py():
     else:
         epochs = 500
     if self_training_rounds > 0:
-        if pseudo_label_small:
-            epoch_dict = {1: 450, 2: 225, 4: 113, 6: 75, 8: 56, 10: 45, 25: 18, 50: 9}
-        else:
-            epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50, 25: 20, 50: 10}
-        self_epochs = epoch_dict[self_training_rounds]
         if self_train_subset:
             self_epochs = 56
+            # self_epochs = 2
+        else:
+            if pseudo_label_small:
+                epoch_dict = {1: 450, 2: 225, 4: 113, 6: 75, 8: 56, 10: 45, 25: 18, 50: 9}
+            else:
+                epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50, 25: 20, 50: 10}
+            self_epochs = epoch_dict[self_training_rounds]
     
     # Create decoder hyperparameters
     decoder_hyperparameters = {}
@@ -170,7 +182,7 @@ def py():
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
-            "beam_size": 80,
+            "beam_size": 10,
             "lm_weight": 0.8,
             "use_logsoftmax": True,
             "use_lm": True,
@@ -191,12 +203,16 @@ def py():
                         decoder_hyperparameters["recomb_blank"] = True
                     if recombine_after_topk:
                         decoder_hyperparameters["recomb_after_topk"] = True
+                    if recombine_with_sum_pl:
+                        decoder_hyperparameters["recomb_with_sum_pl"] = True
         if decoding_imp == "gradients":
             decoder_hyperparameters["grad_nbest"] = grad_nbest
+            if rescore_ctc_loss_for_grad:
+                decoder_hyperparameters["rescore_ctc_loss"] = rescore_ctc_loss_for_grad
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
-        p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "")
+        p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "") + ("-a" if rescore_alignment_prior else "")
         p3 = f"b{decoder_hyperparameters['beam_size']}"
         p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "")
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
@@ -206,22 +222,25 @@ def py():
         if decoding_imp == "albert-flashlight":
             decoding_str = "-recog_albert_lm" + decoding_str
         elif decoding_imp == "albert-lm":
-            decoding_str = "-recog_v_lm" + ("_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") if use_recombination else "") + decoding_str
+            decoding_str = "-recog_v_lm" + ("_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") + ("-sp" if recombine_with_sum_pl else "") if use_recombination else "") + decoding_str
         elif decoding_imp == "gradients":
-            decoding_str = "-recog_grad" + ("_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") if use_recombination else "") + (f"_n{grad_nbest}" if grad_nbest != 0 else "") + decoding_str
+            decoding_str = "-recog_grad" + ("_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") + ("-sp" if recombine_with_sum_pl else "") if use_recombination else "") + (f"_n{grad_nbest}" if grad_nbest != 0 else "") + ("_ctcL" if rescore_ctc_loss_for_grad else "") + decoding_str
         else:
             decoding_str = "-recog_lm" + decoding_str
         
         if alt_decoder:
             alt_decoder_hyperparameters = decoder_hyperparameters.copy()
             alt_decoder_hyperparameters["lm_weight"] = 0.7
-            alt_decoder_hyperparameters["beam_size"] = 80
+            alt_decoder_hyperparameters["beam_size"] = 10
             if with_prior:
                 alt_decoder_hyperparameters["prior_weight"] = 0.3
                 
+            if keep_best_decoding:
+                alt_decoder_hyperparameters["keep_best_decoding"] = True
+                
             if decode_every_step:
                 every_step_hyperparameters = decoder_hyperparameters.copy()
-                every_step_hyperparameters["lm_weight"] = 0.4
+                every_step_hyperparameters["lm_weight"] = 0.7 # 0.4
                 # every_step_hyperparameters["decay"] = 0.9995
                 # every_step_hyperparameters["decay_limit"] = 0.25
                 every_step_hyperparameters["beam_size"] = 10
@@ -233,7 +252,7 @@ def py():
                 a3 = (f"dec{str(every_step_hyperparameters['decay']).replace('.', '')}" if 'decay' in every_step_hyperparameters else "") + (f"-lim{str(every_step_hyperparameters['decay_limit']).replace('.', '')}" if 'decay_limit' in every_step_hyperparameters else "")
                 every_step_str = f"_{a0}_{a1}_{a2}_{a3}"
                 
-            if use_sum_criterion or decode_every_step:
+            if use_sum_criterion:# or decode_every_step:
                 alt_decoder_hyperparameters["lm_weight"] = 0.0
                 alt_decoder_hyperparameters["prior_weight"] = 0.0
                 alt_decoder_hyperparameters["use_lm"] = False
@@ -245,7 +264,7 @@ def py():
             a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
             a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
-            a3 = (f"-accum{accum_grad_multiple_step}" if accum_grad_multiple_step > 1 else "") + ("_every-step" + every_step_str if decode_every_step else "") + ("_tune" if tune_hyperparameters else "")
+            a3 = (f"-accum{accum_grad_multiple_step}" if accum_grad_multiple_step > 1 else "") + ("_every-step" + every_step_str if decode_every_step else "") + ("_tune" if tune_hyperparameters else "") + ("_best" if keep_best_decoding else "")
             decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     else:
         raise ValueError(f"Unknown decoder selection: {decoding_imp}")
@@ -309,6 +328,8 @@ def py():
             config_updates_self_training["hyperparameters_decoder"] = decoder_hyperparameters.copy()
             if norm_nbest_rescore:
                 config_updates_self_training["norm_rescore"] = norm_nbest_rescore
+            if rescore_alignment_prior:
+                config_updates_self_training["rescore_alignment_prior"] = rescore_alignment_prior
         if accum_grad_multiple_step > 1:
             config_updates_self_training["accum_grad_multiple_step"] = accum_grad_multiple_step
         if not use_norm_st_loss:
@@ -498,6 +519,7 @@ def train_exp(
     from i6_experiments.users.mueller.train import train
     from i6_experiments.users.mueller.recog import recog_training_exp, GetBestTuneValue
     from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
+    from i6_experiments.users.mueller.scale_tune import ctc_recog_framewise_prior_auto_scale
 
     print("Job Name:", name)
     if not enabled:
@@ -582,11 +604,13 @@ def train_exp(
         
     # Get recog ffnn LM
     search_config = None
+    recog_lm = None
     if model_config and "recog_language_model" in model_config:
         recog_language_model = model_config["recog_language_model"].copy()
         cls_name = recog_language_model.pop("class")
         assert cls_name == "FeedForwardLm"
         lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
+        recog_lm = lm_checkpoint
         if cache_manager:
             lm_checkpoint_path = DelayedCodeWrapper("cf('{}')", lm_checkpoint.checkpoint)
         else:
@@ -642,6 +666,49 @@ def train_exp(
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
+    
+    scales = None 
+    if tune_hyperparameters and tune_version == 2:
+        assert with_prior and empirical_prior
+        assert recog_lm is not None
+        from i6_experiments.users.zeyer.datasets.utils.vocab import (
+            ExtractVocabLabelsJob,
+            ExtractVocabSpecialLabelsJob,
+            ExtendVocabLabelsByNewLabelJob,
+        )
+        vocab_opts = task.train_dataset.vocab.get_opts()
+        vocab_file = ExtractVocabLabelsJob(vocab_opts).out_vocab
+        vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_opts).out_vocab_special_labels_dict
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=OUT_BLANK_LABEL, new_label_idx=-1
+        ).out_vocab
+        tune_config = search_config.copy()
+        tune_config["beam_size"] = 128
+        
+        default_lm = decoder_hyperparameters.get("lm_weight")
+        default_prior = decoder_hyperparameters.get("prior_weight")
+        prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
+            prefix = prefix + "/tune",
+            task = task,
+            ctc_model=model_with_checkpoint[0].get_last_fixed_epoch(),
+            prior_file=emp_prior,
+            lm=recog_lm,
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            vocab_w_blank_file=vocab_w_blank_file,
+            num_shards=num_shards_recog_init,
+            search_config=tune_config,
+        )
+        decoder_hyperparameters["prior_weight"] = prior_tune
+        decoder_hyperparameters["lm_weight"] = lm_tune
+        scales = {
+            # "prior_weight": prior_tune,
+            "lm_weight": lm_tune
+        }
+        if "hyperparameters_decoder" in config_updates_self_training:
+            config_updates_self_training["hyperparameters_decoder"]["prior_weight"] = prior_tune
+            config_updates_self_training["hyperparameters_decoder"]["lm_weight"] = lm_tune
+        
     pseudo_label_path_dict = recog_training_exp(
         prefix,
         task,
@@ -654,20 +721,25 @@ def train_exp(
         calculate_pseudo_label_scores=calculate_pseudo_label_scores_init and not gradient_pseudo_labels, # NOTE: breaks hash
         search_config=search_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
+        search_mem_rqmt = 32 if gradient_pseudo_labels else 6,
         num_shards_recog=num_shards_recog_init, # NOTE: breaks hash
         num_shards_pseudo=num_shards_pseudo,
         num_shards_prior=num_shards_prior_init,
         is_last=self_training_rounds == 0,
+        get_prev=(hyperparamters_self_training is not None and hyperparamters_self_training.get("keep_best_decoding", False), False),
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
         cache_manager=cache_manager,
         check_train_scores_nbest=decode_nbest_epochs_init,
         exclude_epochs=sorted(list(model_with_checkpoint[0].fixed_epochs))[:-1] if not decode_all_fixed_epochs_init else (),
+        return_beam=(self_training_rounds > 0 and config_updates_self_training.get("decode_every_step", False)),
+        scales=scales,
     )
     
     # Do self training on pseudo labels
     for i in range(self_training_rounds):
         assert pseudo_label_path_dict is not None, "Pseudo label path is not set"
+        assert hyperparamters_self_training is not None, "Hyperparameters for self training are not set"
         prefix_self_training = prefix + f"/self-training-{i+1}"
         task, _, _ = get_librispeech_task_raw_v2(
             vocab=vocab,
@@ -678,6 +750,8 @@ def train_exp(
             empirical_prior=empirical_prior,
             pseudo_label_path = pseudo_label_path_dict,
             pseudo_label_alignment = (config_updates_self_training["grad_nbest"] if gradient_pseudo_labels else 0) if use_ce_loss else -1,
+            pseudo_label_nbest = pseudo_nbest,
+            pseudo_label_scores = config_updates_self_training.get("decode_every_step", False),
             keep_small_labels = keep_small_labels,
             train_subset = self_train_subset,
             eval_subset = 0 if use_ce_loss else (300 if self_train_subset else 3000),
@@ -744,91 +818,129 @@ def train_exp(
             for k, v in env_updates.items():
                 train_job.set_env(k, v)
         
+        scales = None
         if tune_hyperparameters:
             original_params = hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters
-            params = copy.copy(original_params)
-            params.pop("lm_weight_tune", None)
-            params.pop("prior_weight_tune", None)
             default_lm = original_params.get("lm_weight")
             default_prior = original_params.get("prior_weight")
-            lm_scores = []
-            prior_scores = []
-            lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
-            prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
-            tune_exclude_epochs = []
-            if exclude_epochs:
-                tune_exclude_epochs = sorted(list(model_with_checkpoint[i + 1].fixed_epochs))[:-1]
-            for dc_lm in lm_tune_ls:
-                params["lm_weight"] = default_lm + dc_lm
-                score = recog_training_exp(
-                    prefix_self_training + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
-                    task,
-                    model_with_checkpoint[i + 1],
-                    recog_def=decoder_def,
-                    decoder_hyperparameters=params,
-                    search_config=search_config,
-                    recog_post_proc_funcs=recog_post_proc_funcs,
-                    exclude_epochs=tune_exclude_epochs,
-                    num_shards_recog=num_shards_recog, # NOTE: breaks hash
-                    num_shards_prior=num_shards_prior,
-                    prior_from_max=prior_from_max,
-                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                    return_summary = True,
-                    cache_manager=cache_manager,
-                    check_train_scores_nbest=0 if exclude_epochs else 2,
+            if tune_version == 2:
+                tune_config = search_config.copy()
+                tune_config["beam_size"] = 128
+                prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
+                    prefix = prefix_self_training + "/tune",
+                    task = task,
+                    ctc_model=model_with_checkpoint[i + 1].get_last_fixed_epoch(),
+                    prior_file=emp_prior,
+                    lm=recog_lm,
+                    vocab_file=vocab_file,
+                    vocab_opts_file=vocab_opts_file,
+                    vocab_w_blank_file=vocab_w_blank_file,
+                    num_shards=num_shards_recog,
+                    search_config=tune_config,
                 )
-                lm_scores.append(score)
-            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
-            tk.register_output(prefix_self_training + "/tune/lm_best", best_lm_tune)
-            params["lm_weight"] = default_lm
-            params["lm_weight_tune"] = best_lm_tune
-            for dc_prior in prior_tune_ls:
-                params["prior_weight"] = default_prior + dc_prior
-                score = recog_training_exp(
-                    prefix_self_training + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
-                    task,
-                    model_with_checkpoint[i + 1],
-                    recog_def=decoder_def,
-                    decoder_hyperparameters=params,
-                    search_config=search_config,
-                    recog_post_proc_funcs=recog_post_proc_funcs,
-                    exclude_epochs=tune_exclude_epochs,
-                    num_shards_recog=num_shards_recog, # NOTE: breaks hash
-                    num_shards_prior=num_shards_prior,
-                    prior_from_max=prior_from_max,
-                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                    return_summary = True,
-                    cache_manager=cache_manager,
-                    check_train_scores_nbest=0 if exclude_epochs else 2,
-                )
-                prior_scores.append(score)
-            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
-            tk.register_output(prefix_self_training + "/tune/prior_best", best_prior_tune)
-            
-            original_params["lm_weight_tune"] = best_lm_tune
-            original_params["prior_weight_tune"] = best_prior_tune
+                original_params["prior_weight"] = prior_tune
+                original_params["lm_weight"] = lm_tune
+                scales = {
+                    # "prior_weight": prior_tune,
+                    "lm_weight": lm_tune,
+                }
+                assert prior_tune is not None
+                if "hyperparameters_decoder" in config_updates_self_training:
+                    config_updates_self_training["hyperparameters_decoder"]["prior_weight"] = prior_tune
+                    config_updates_self_training["hyperparameters_decoder"]["lm_weight"] = lm_tune
+            # NOTE: DEPRECATED, only kept for backwards compatibility
+            elif tune_version == 1:
+                params = copy.copy(original_params)
+                params.pop("lm_weight_tune", None)
+                params.pop("prior_weight_tune", None)
+                lm_scores = []
+                prior_scores = []
+                lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+                prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+                tune_exclude_epochs = []
+                if exclude_epochs:
+                    tune_exclude_epochs = sorted(list(model_with_checkpoint[i + 1].fixed_epochs))[:-1]
+                for dc_lm in lm_tune_ls:
+                    params["lm_weight"] = default_lm + dc_lm
+                    score = recog_training_exp(
+                        prefix_self_training + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+                        task,
+                        model_with_checkpoint[i + 1],
+                        recog_def=decoder_def,
+                        decoder_hyperparameters=params,
+                        search_config=search_config,
+                        recog_post_proc_funcs=recog_post_proc_funcs,
+                        exclude_epochs=tune_exclude_epochs,
+                        num_shards_recog=num_shards_recog, # NOTE: breaks hash
+                        num_shards_prior=num_shards_prior,
+                        prior_from_max=prior_from_max,
+                        empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                        return_summary = True,
+                        cache_manager=cache_manager,
+                        check_train_scores_nbest=0 if exclude_epochs else 2,
+                    )
+                    lm_scores.append(score)
+                best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
+                tk.register_output(prefix_self_training + "/tune/lm_best", best_lm_tune)
+                params["lm_weight"] = default_lm
+                params["lm_weight_tune"] = best_lm_tune
+                for dc_prior in prior_tune_ls:
+                    params["prior_weight"] = default_prior + dc_prior
+                    score = recog_training_exp(
+                        prefix_self_training + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                        task,
+                        model_with_checkpoint[i + 1],
+                        recog_def=decoder_def,
+                        decoder_hyperparameters=params,
+                        search_config=search_config,
+                        recog_post_proc_funcs=recog_post_proc_funcs,
+                        exclude_epochs=tune_exclude_epochs,
+                        num_shards_recog=num_shards_recog, # NOTE: breaks hash
+                        num_shards_prior=num_shards_prior,
+                        prior_from_max=prior_from_max,
+                        empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                        return_summary = True,
+                        cache_manager=cache_manager,
+                        check_train_scores_nbest=0 if exclude_epochs else 2,
+                    )
+                    prior_scores.append(score)
+                best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
+                tk.register_output(prefix_self_training + "/tune/prior_best", best_prior_tune)
+                
+                original_params["lm_weight_tune"] = best_lm_tune
+                original_params["prior_weight_tune"] = best_prior_tune
+        
+        hst = hyperparamters_self_training.copy()
+        sc = search_config.copy()
+        if hst.get("keep_best_decoding", False):
+            hst.pop("keep_best_decoding")
+            sc["__prev_hyps"] = pseudo_label_path_dict
         
         pseudo_label_path_dict = recog_training_exp(
             prefix_self_training,
             task,
             model_with_checkpoint[i + 1],
             recog_def=decoder_def,
-            decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
+            decoder_hyperparameters=hst,
             save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
             pseudo_label_alignment=use_ce_loss,
             pseudo_nbest=pseudo_nbest,
             calculate_pseudo_label_scores=calculate_pseudo_label_scores and not gradient_pseudo_labels,
-            search_config=search_config,
+            search_config=sc,
             recog_post_proc_funcs=recog_post_proc_funcs,
+            search_mem_rqmt = 32 if gradient_pseudo_labels else 6,
             num_shards_recog=num_shards_recog, # NOTE: breaks hash
             num_shards_pseudo=num_shards_pseudo,
             num_shards_prior=num_shards_prior,
             is_last=i+1 == self_training_rounds,
+            get_prev=(hyperparamters_self_training.get("keep_best_decoding", False), hyperparamters_self_training.get("keep_best_decoding", False)),
             prior_from_max=prior_from_max,
             empirical_prior=emp_prior if with_prior and empirical_prior else None,
             cache_manager=cache_manager,
             check_train_scores_nbest=decode_nbest_epochs,
             exclude_epochs=sorted(list(model_with_checkpoint[i + 1].fixed_epochs))[:-1] if not decode_all_fixed_epochs else (),
+            return_beam = config_updates_self_training.get("decode_every_step", False),
+            scales=scales,
         )
 
     _train_experiments[name] = model_with_checkpoint[-1]
@@ -958,8 +1070,8 @@ ctc_model_def.batch_size_factor = _batch_size_factor
 #---------------------------------------------------------------------------------------------------------------------------------------
 # TRAINING DEFINITIONS
 
-def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim):
-    return ctc_train(model=model, data=data, data_spatial_dim=data_spatial_dim, targets=targets, targets_spatial_dim=targets_spatial_dim)
+def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim, nbest_lengths: rf.Tensor = None, scores: rf.Tensor = None, seq_tags: rf.Tensor = None):
+    return ctc_train(model=model, data=data, data_spatial_dim=data_spatial_dim, targets=targets, targets_spatial_dim=targets_spatial_dim, nbest_lengths=nbest_lengths, scores=scores, seq_tags=seq_tags)
 
 ctc_training: TrainDef[Model]
 ctc_training.learning_rate_control_error_measure = "ctc"
