@@ -57,6 +57,7 @@ post_config = dict(
 # making sure the last number is slightly below the real total number of steps.
 # ~1245 /steps/ep
 _lrlin_oclr_steps_by_bs_nep = {
+    (15, 1): [560, 1_120, 1_245],  # total steps after 1 epoch: ~1245
     (15, 9): [5_000, 10_100, 11_200],  # total steps after 9 epochs: ~11k
     (15, 10): [5_600, 11_200, 12_450],  # total steps after 10 epochs: ~12k
     (15, 18): [10_000, 20_200, 22_400],  # total steps after 18 epochs: ~22k

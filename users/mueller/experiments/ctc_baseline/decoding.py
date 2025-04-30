@@ -16,8 +16,9 @@ from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
-from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn
+from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits
 from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
+from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
 CHECK_DECODER_CONSISTENCY = False
 
@@ -220,9 +221,12 @@ def recog_no_lm(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+    config = get_global_config()
+    
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
+    beam_size = config.int("beam_size", 12)
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -646,7 +650,7 @@ def recog_flashlight_ffnn(
     scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
     print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
     if train_lm:
-        return hyps
+        return hyps, scores_r
     else:
         return hyps_r, scores_r, out_spatial_dim, beam_dim
     
@@ -712,6 +716,7 @@ def recog_ffnn(
     assert n_best == 1 or use_recombination, "n-best only implemented with recombination"
     recomb_blank = hyp_params.pop("recomb_blank", False)
     recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
+    recomb_with_sum = hyp_params.pop("recomb_with_sum", False)
     
     dev_s = rf.get_default_device()
     dev = torch.device(dev_s)
@@ -743,6 +748,8 @@ def recog_ffnn(
         lm: FeedForwardLm = model.recog_language_model
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
+    
+    print("LM scale:", lm_scale, "Prior scale:", prior_weight)
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -764,17 +771,13 @@ def recog_ffnn(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
     )  # Batch, InBeam -> VocabWB
 
-    lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-    lm_logits, lm_state = lm(
-        target,
-        spatial_dim=context_dim,
-        out_spatial_dim=lm_out_dim,
-        state=lm_state,
-    )  # Batch, InBeam, Vocab / ...
-    lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-    assert lm_logits.dims == (*batch_dims_, model.target_dim)
-    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-    lm_log_probs *= lm_scale
+    with torch.no_grad():
+        lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+        lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, context_dim, lm_out_dim, lm_state)
+        lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+        assert lm_logits.dims == (*batch_dims_, model.target_dim)
+        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs *= lm_scale
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -818,7 +821,7 @@ def recog_ffnn(
                     model.wb_target_dim,
                     model.blank_idx,
                     recomb_blank=recomb_blank,
-                    use_sum=False,
+                    use_sum=recomb_with_sum,
                 )
             
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
@@ -860,41 +863,37 @@ def recog_ffnn(
                     None,
                     model.blank_idx,
                     recomb_blank=recomb_blank,
-                    use_sum=False,
+                    use_sum=recomb_with_sum,
                     is_blank=(target_wb == model.blank_idx),
                 )
 
-        got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-        if got_new_label_cpu.raw_tensor.sum().item() > 0:
-            (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                (target, lm_state),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
-                dims=batch_dims + [beam_dim],
-            )
-            # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-            assert packed_new_label_dim.get_dim_value() > 0
-            
-            lm_logits_, lm_state_ = lm(
-                target_,
-                spatial_dim=context_dim,
-                out_spatial_dim=lm_out_dim,
-                state=lm_state_,
-            )  # Flat_Batch_Beam, Vocab / ...
-            lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-            assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
-            lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-            lm_log_probs_ *= lm_scale
+        with torch.no_grad():
+            got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+            if got_new_label_cpu.raw_tensor.sum().item() > 0:
+                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                    (target, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                )
+                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+                assert packed_new_label_dim.get_dim_value() > 0
+                
+                lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
+                lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+                assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ *= lm_scale
 
-            lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                (lm_log_probs_, lm_state_),
-                (lm_log_probs, lm_state),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
-                dims=batch_dims + [beam_dim],
-                in_dim=packed_new_label_dim,
-                masked_select_dim_map=packed_new_label_dim_map,
-            )  # Batch, Beam, Vocab / ...
+                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                    (lm_log_probs_, lm_state_),
+                    (lm_log_probs, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                    in_dim=packed_new_label_dim,
+                    masked_select_dim_map=packed_new_label_dim_map,
+                )  # Batch, Beam, Vocab / ...
                 
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
@@ -916,7 +915,7 @@ def recog_ffnn(
         seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
     out_spatial_dim = enc_spatial_dim
     seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
-    
+     
     if int(beam_dim.get_dim_value()) >= n_best:
         if n_best > 1:
             assert recomb_after_topk and recomb_blank # TODO update hash also in the other cases
@@ -940,7 +939,7 @@ def recog_ffnn(
             beam_dim = beam_dim_new
 
     if train_lm:
-        return seq_targets_wb.raw_tensor.transpose(0,1).transpose(1,2).tolist()
+        return seq_targets_wb.raw_tensor.transpose(0,1).transpose(1,2).tolist(), seq_log_prob
     else:
         return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
     
@@ -980,6 +979,7 @@ def recog_gradients(
 
     beam_size = hyp_params.pop("beam_size", 1)
     n_best = hyp_params.pop("grad_nbest", 1)
+    rescore_ctc_loss = hyp_params.pop("rescore_ctc_loss", False)
     use_recombination = hyp_params.pop("use_recombination", False)
     recomb_blank = hyp_params.pop("recomb_blank", False)
     recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
@@ -1007,31 +1007,62 @@ def recog_gradients(
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
     
-    label_log_prob_raw = label_log_prob.raw_tensor
-    label_log_prob_raw.requires_grad = True
-    with torch.set_grad_enabled(True):
-        loss = sum_loss_ffnn(
-            model=model,
-            log_probs=label_log_prob,
-            lm=lm,
-            context_size=context_size,
-            log_prior=prior,
-            input_lengths=enc_spatial_dim,
-            top_k=beam_size,
-            am_scale=am_scale,
-            lm_scale=lm_scale,
-            prior_scale=prior_weight,
-            horizontal_prior=True,
-            blank_prior=True,
-            device=dev_s,
-            use_recombination=use_recombination,
-            recomb_blank=recomb_blank,
-            recomb_after_topk=recomb_after_topk,
-            recomb_with_sum=False,
-        )
+    if rescore_ctc_loss:
+        assert "ps_nbest" not in hyperparameters
+        hyps, _, _, _ = recog_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=[batch_dim], prior_file=prior_file, version=version, print_idx=print_idx)
+        hyps = hyps.raw_tensor.transpose(0,1).transpose(1,2).tolist()
         
-        loss.backward(torch.ones_like(loss, device=dev))
-        gradients = -label_log_prob_raw.grad
+        assert len(hyps[0]) == 1
+        hyps = [convert_to_output_hyps(model, hyps_batch[0]) for hyps_batch in hyps]
+        lengths = [len(h) for h in hyps]
+        max_length = max(lengths)
+        targets_spatial_dim = torch.tensor(lengths, dtype=torch.int32, device=dev)
+        targets_spatial_dim = rf.convert_to_tensor(targets_spatial_dim, dims=(batch_dim,))
+        targets_spatial_dim = Dim(targets_spatial_dim, name="out_spatial", dyn_size_ext=targets_spatial_dim)
+        hyps = [h + [model.eos_idx] * (max_length - len(h)) for h in hyps]
+        hyps = torch.tensor(hyps, dtype=torch.int32, device=dev)
+        targets = rf.convert_to_tensor(hyps, dims=(batch_dim, targets_spatial_dim), sparse_dim=model.target_dim)
+        
+        # Now rescore with ctc loss and extract gradients
+        label_log_prob_raw = label_log_prob.raw_tensor
+        label_log_prob_raw.requires_grad = True
+        with torch.set_grad_enabled(True):
+            loss = ctc_loss_fixed_grad(
+                logits=label_log_prob,
+                logits_normalized=True,
+                targets=targets,
+                input_spatial_dim=enc_spatial_dim,
+                targets_spatial_dim=targets_spatial_dim,
+                blank_index=model.blank_idx,
+            )
+            loss.raw_tensor.backward(torch.ones_like(loss.raw_tensor, device=dev))
+            gradients = -label_log_prob_raw.grad
+    else:
+        label_log_prob_raw = label_log_prob.raw_tensor
+        label_log_prob_raw.requires_grad = True
+        with torch.set_grad_enabled(True):
+            loss = sum_loss_ffnn(
+                model=model,
+                log_probs=label_log_prob,
+                lm=lm,
+                context_size=context_size,
+                log_prior=prior,
+                input_lengths=enc_spatial_dim,
+                top_k=beam_size,
+                am_scale=am_scale,
+                lm_scale=lm_scale,
+                prior_scale=prior_weight,
+                horizontal_prior=True,
+                blank_prior=True,
+                device=dev_s,
+                use_recombination=use_recombination,
+                recomb_blank=recomb_blank,
+                recomb_after_topk=recomb_after_topk,
+                recomb_with_sum=False,
+            )
+            
+            loss.backward(torch.ones_like(loss, device=dev))
+            gradients = -label_log_prob_raw.grad
     
     out_dims = label_log_prob.dims
     indices = None
@@ -1046,3 +1077,13 @@ def recog_gradients(
     loss = rf.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name="full_sum")
     
     return (gradients, indices), loss, enc_spatial_dim
+
+def convert_to_output_hyps(model: Model, hyp: list) -> list:
+    prev = None
+    ls = []
+    for h in hyp:
+        if h != prev:
+            ls.append(h)
+            prev = h
+    ls = [h for h in ls if h != model.blank_idx]
+    return ls

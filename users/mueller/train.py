@@ -6,6 +6,7 @@ helpers for training.
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
+import torch
 import copy
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
@@ -100,6 +101,7 @@ def train(
         assert hasattr(train_dataset, "train_audio_preprocess")
         train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
     multi_proc_opts = (post_config.pop("__multi_proc_dataset_opts", None) or {}) if post_config else {}
+    init_hdf_writer = config.get("decode_every_step", False)
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
@@ -164,6 +166,12 @@ def train(
                     # Consider the imports as non-hashed. We handle any logic changes via the explicit hash below.
                     serialization.Import(_returnn_v2_get_model, import_as="get_model", use_for_hash=False),
                     serialization.Import(_returnn_v2_train_step, import_as="train_step", use_for_hash=False),
+                ]
+                + ([
+                    serialization.Import(_returnn_epoch_start_hdf_writer, import_as="epoch_start", use_for_hash=False),
+                    serialization.Import(_returnn_epoch_end_hdf_writer, import_as="epoch_end", use_for_hash=False),
+                ] if init_hdf_writer else [])
+                + [
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this train() function,
@@ -302,6 +310,7 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             nbest_lengths = extern_data["nbest_lengths"]
         if "scores" in extern_data:
             scores = extern_data["scores"]
+        seq_tags = extern_data["seq_tag"]
         train_def(
             model=model,
             data=data,
@@ -310,8 +319,45 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             targets_spatial_dim=targets_spatial_dim,
             nbest_lengths=nbest_lengths,
             scores=scores,
+            seq_tags=seq_tags,
         )
+        
+def _returnn_epoch_start_hdf_writer(*, epoch: int, step: int, model: ModelT, dataset_name: str, **_kwargs_unused):
+    if dataset_name == "train":
+        device_id = torch.cuda.current_device()
+        if device_id == 0:
+            import os
+            from returnn.config import get_global_config
+            from i6_core.lib.hdf import get_returnn_simple_hdf_writer
+            config = get_global_config()
+            
+            SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
+            train_dataset_dict = config.typed_value("train")
+            partition_epoch = train_dataset_dict["dataset"]["datasets"]["zip_dataset"]["partition_epoch"]
+            
+            hdf_filename = f"targets-epoch-{((epoch - 1) // partition_epoch) + 1}-{device_id}.hdf"
+            hdf_writer = SimpleHDFWriter(
+                filename=hdf_filename,
+                dim=None,
+                ndim=1,
+                extend_existing_file=os.path.exists(hdf_filename),
+            )
+            
+            print("TMP:", hdf_writer.tmp_filename, "Filename:", hdf_writer.filename)
+            
+            config.set("train_hdf_writer", hdf_writer)
+        
+def _returnn_epoch_end_hdf_writer(*, epoch: int, step: int, model: ModelT, dataset_name: str, **_kwargs_unused):
+    if dataset_name == "train":
+        device_id = torch.cuda.current_device()
+        if device_id == 0:
+            from returnn.config import get_global_config
 
+            config = get_global_config()
+            
+            hdf_writer = config.typed_value("train_hdf_writer")
+            hdf_writer.close()
+            del config.typed_dict["train_hdf_writer"]
 
 class SumTrainDef(TrainDef):
     """

@@ -16,6 +16,7 @@ from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.tensor import batch_dim
+from returnn.torch.util import diagnose_gpu
 
 ####### Be careful about stuffs related to EOS and blank index with the BPE setup
 def sum_loss_bigram(
@@ -881,16 +882,10 @@ def sum_loss_ffnn(
     )  # Batch, InBeam -> VocabWB
     
     # Prepare LM
-    # TODO limit batch size applied in order to fit into memory
     if use_lm:
         with torch.no_grad():
             lm_state = lm.default_initial_state(batch_dims=[])
-            lm_logits, lm_state = lm(
-                target,
-                spatial_dim=context_dim,
-                out_spatial_dim=lm_out_dim,
-                state=lm_state,
-            )
+            lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, context_dim, lm_out_dim, lm_state)
             lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
             assert lm_logits.dims == (*batch_dims_, model.target_dim)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
@@ -1003,12 +998,7 @@ def sum_loss_ffnn(
                     # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                     assert packed_new_label_dim.get_dim_value() > 0
                     
-                    lm_logits_, lm_state_ = lm(
-                        target_,
-                        spatial_dim=context_dim,
-                        out_spatial_dim=lm_out_dim,
-                        state=lm_state_,
-                    )  # Flat_Batch_Beam, Vocab / ...
+                    lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
                     lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
                     assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
                     lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
@@ -1136,6 +1126,50 @@ def sum_loss_approx(
 
 # ------------------------------------------------
 # Helper functions and classes
+
+def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm, context_dim: rf.Dim, lm_out_dim: rf.Dim, lm_state):
+    lm_logits = None
+    done = False
+    splits = 1
+    while not done:
+        try:
+            if splits > 1:
+                batch_size = batch_dims[0].dyn_size_ext.raw_tensor.item()
+                n_seqs = int(np.ceil(batch_size / splits))
+                new_dims = []
+                for i in range(splits):
+                    if (i + 1) * n_seqs <= batch_size:
+                        new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
+                    else:
+                        new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
+                target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
+                lm_logits_split = []
+                for i in range(splits):
+                    lm_logits_i, _ = lm(
+                        target_split[i],
+                        spatial_dim=context_dim,
+                        out_spatial_dim=lm_out_dim,
+                        state=lm_state,
+                    )
+                    lm_logits_split.append((lm_logits_i, new_dims[i]))
+                lm_logits = rf.concat(lm_logits_split, out_dim=batch_dims[0])
+            else:
+                lm_logits, lm_state = lm(
+                    target,
+                    spatial_dim=context_dim,
+                    out_spatial_dim=lm_out_dim,
+                    state=lm_state,
+                )
+            done = True
+        except Exception as exc:
+            print(f"OOM with {splits} splits")
+            diagnose_gpu.garbage_collect()
+            splits *= 2
+            if splits <= batch_dims[0].dyn_size_ext.raw_tensor.item():
+                continue
+            else:
+                raise
+    return lm_logits, lm_state
 
 def dynamic_slice(tensor: torch.Tensor, indices_list: list[torch.Tensor]) -> torch.Tensor:
     """
