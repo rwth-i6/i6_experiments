@@ -367,36 +367,70 @@ def eow_phon_ls960_relposencoder_0924_base():
     from ...pytorch_networks.ctc.features.stft import (
         StftFeatureExtractionV1Config,
     )
-    frontend_config = VGGNLayerActFrontendV1Config(
-        in_features=400 // 2 + 1,
-        convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), (2, 1))] * 4 + [(32, (3, 3), (2, 1))],
-        activations=["ReLU"] * 6,
-        poolings=[None] * 6,
-        out_features=512,
-    )
-    stft_config = StftFeatureExtractionV1Config(
-        window_size=400,
-        window_shift=10,
-        center=False,
-        magnitude=True,
-        module_class="StftFeatureExtractionV1",
-    )
-    model_config = FeatureModelConfigV2(
-        specaug_config=specaug_stft_config,
-        feature_extraction_config=stft_config,
-        frontend_config=frontend_config,
-        frontend_config_class="VGGNLayerActFrontendV1Config",
-        **model_base_args_feat,
-    )
+    frontend_configs = {
+        "2Dx6v1": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), (2, 1))] * 4 + [(32, (3, 3), (2, 1))],
+            activations=["ReLU"] * 6,
+            poolings=[None] * 6,
+            out_features=512,
+        ),
+        "2Dx6v2": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), 1), (64, (3, 3), (2, 1))] + [(64, (3, 3), 1)] * 9 + [(32, (3, 3), 1)],
+            activations=[None, "ReLU"] * 6,
+            poolings=[None, None] + [None, ((2, 1), (2, 1), None)] * 5,
+            out_features=512,
+        ),
+        "2Dx5v1": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), (2, 1))] * 3 + [(32, (3, 3), (2, 1))],
+            activations=["ReLU"] * 5,
+            poolings=[None] * 5,
+            out_features=512,
+        ),
+        "2Dx2v1": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))] + [(32, (3, 3), (2, 1))],
+            activations=["ReLU"] * 2,
+            poolings=[None] * 2,
+            out_features=512,
+        ),
+    }
 
-    for exp_name, convs in [
-        (".stftsa.2Dx6v1", []),
+    for exp_name, window_size, window_shift, n_fft in [
+        (f".stftsa.2Dx6v1", 400, 10, None),
+        (f".stftsa.2Dx6v1", 400, 10, 512),
+        (f".stftsa.2Dx6v1", 256, 10, 256),
+        (f".stftsa.2Dx6v2", 400, 10, None),
+        (f".stftsa.2Dx5v1", 400, 20, None),
+        (f".stftsa.2Dx2v1", 400, 160, None),
     ]:
-        model_config_exp = copy.deepcopy(model_config)
+        stft_config = StftFeatureExtractionV1Config(
+            window_size=window_size,
+            window_shift=window_shift,
+            n_fft=n_fft,
+            center=False,
+            magnitude=True,
+            module_class="StftFeatureExtractionV1",
+        )
+        fe_key = exp_name.split(".")[2]
+        assert fe_key.startswith("2D")
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = (n_fft or window_size) // 2 + 1
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_stft_config,
+            feature_extraction_config=stft_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        name_ext = f"{exp_name}.stft{window_size}x{window_shift}x{n_fft or window_size}"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
-            model_cfg=model_config_exp, name_ext=exp_name, train_mem=48, move_to_hpc=True,
-            forward_config={"batch_size": 16000 * 250}
+            model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
+            prior_batch_size=140,
         )
 
     tk.register_report(
