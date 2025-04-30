@@ -1,8 +1,33 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 from sisyphus import Job, Task, tk
 from sisyphus.delayed_ops import DelayedBase
 from i6_core.util import uopen
 import math
+
+
+def make_bins(values, num_bins: int, range: Tuple[float, float], bin_align: Union[Literal["center"], Literal["edge"]]):
+    """
+    :param bin_align:
+    """
+    bins = [0] * num_bins
+    avg = 0
+    total = 0
+    num_offscreen = 0
+    for value, weight in values:
+        if value > range[1] or value < range[0]:
+            num_offscreen += 1
+            continue
+        if bin_align == "edge":
+            bin_idx = int((value - range[0]) / (range[1] - range[0]) * num_bins)
+        elif bin_align == "center":
+            bin_idx = int((value - range[0]) / (range[1] - range[0]) * (num_bins - 1) + 0.5)
+        assert 0 <= bin_idx < num_bins, f"bin_idx {bin_idx} out of range {range[0]}-{range[1]} for value {value}"
+
+        avg += value * weight
+        bins[bin_idx] += weight
+        total += weight
+
+    return bins, avg, total, num_offscreen
 
 
 class ScliteToWerDistributionGraph(Job):
@@ -27,9 +52,7 @@ class ScliteToWerDistributionGraph(Job):
         self.plot_metrics = plot_metrics
         self.kl_divergence = kl_divergence
         self.log_scale = logscale
-        self.xlim = xlim
-        if xlim is None:
-            self.xlim = (0.0, 100.0)
+        self.xlim = xlim or (0.0, 100.0)
 
         # self.out_file = self.output_path("vals.csv")
         # self.distrib_file = self.output_path("distrib.csv")
@@ -39,34 +62,15 @@ class ScliteToWerDistributionGraph(Job):
         self.out_plot_ylim10p = self.output_path("plot_ylim10p.pdf")
 
     @classmethod
-    def hash(cls, kwargs):
-        d = dict(**kwargs)
-        d["__version"] = 15
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 16
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
-    def make_bins(self, values):
-        bins = [0] * self.num_bins
-        avg = 0
-        total = 0
-        num_offscreen = 0
-        for value, weight in values:
-            if value > 100 or value < 0:
-                num_offscreen += 1
-                continue
-
-            bin_idx = min(int(value / 100.0 * self.num_bins), self.num_bins - 1)
-            avg += value * weight
-            bins[bin_idx] += weight
-            total += weight
-
-        return bins, avg, total, num_offscreen
-
-    def run(self):
-        import matplotlib.pyplot as plt
-
+    def read_reportdirs(self) -> dict[str, list]:
         name_with_wers = {}
         for name, report_dir in self.report_dirs.items():
             output_dir = report_dir.get_path()
@@ -74,7 +78,7 @@ class ScliteToWerDistributionGraph(Job):
             values = []
 
             print("Reading sclite.pra")
-            with open(f"{output_dir}/sclite.pra", "rt", errors="ignore") as f:
+            with open(f"{output_dir}/sclite.pra", errors="ignore") as f:
                 for line in f:
                     if not line.startswith("Scores:"):
                         continue
@@ -86,12 +90,6 @@ class ScliteToWerDistributionGraph(Job):
             assert len(values) > 0
             print(f"Read {len(values)} lines")
 
-            # with uopen(self.out_file, "wt") as out:
-            #    out.write("corrections,substitutions,deletions,insertions\n")
-            #    for c, s, d, i in values:
-            #        out.write(f"{c},{s},{d},{i}\n")
-            # print(f"Wrote to {self.out_file}")
-
             binvals = []
             for c, s, d, i in values:
                 if s + d + c == 0:
@@ -100,32 +98,55 @@ class ScliteToWerDistributionGraph(Job):
                 wer = 100.0 * (s + d + i) / (s + d + c)
                 binvals.append((wer, s + d + c))
             name_with_wers[name] = binvals
+        return name_with_wers
 
-        print("WER distribution:")
-        # with uopen(self.distrib_file, "wt") as out:
-        #    out.write("bin_start,bin_end,count,relative_count_weighed_by_ref_length\n")
-        #    for i, count in enumerate(bins):
-        ##        print(f"{i/self.num_bins:.4f}-{(i+1)/self.num_bins:.4f}: {count / total * 100:.3f}%")
-        #       out.write(f"{i/self.num_bins:.4f},{(i+1)/self.num_bins:.4f},{count},{count / total:.6f}\n")
+    def make_kl_div_text(self, name_with_wers: dict[str, list]):
+        prob_dists = []
+        wer_keys = list(name_with_wers.keys())
+        for name in wer_keys:
+            binvals = name_with_wers[
+                name
+            ]  # Here we hardcode the num bins to 100 TODO: just do the kl divergence fully instead of this approx
+            bins, avg, total, num_offscreen = make_bins(binvals, 100, (0, 100), bin_align="edge")
+
+            prob_dists.append([count / total for count in bins])
+        assert len(prob_dists) >= 2
+        assert all([len(prob_dists[0]) == len(prob_dists[i]) for i in range(len(prob_dists))])
+        kl_text = ""
+        for k_from in range(len(prob_dists) - 1):
+            for k_to in range(k_from + 1, len(prob_dists)):
+                kl_div = 0.0
+                for i in range(len(prob_dists[0])):
+                    p = prob_dists[k_from][i]
+                    q = prob_dists[k_to][i]
+                    if p > 0 and q > 0:
+                        kl_div += p * math.log(p / q)
+                print(f"KL divergence ({wer_keys[k_from]} -> {wer_keys[k_to]}): {kl_div:.9f}")
+                kl_text += f"KL divergence ({wer_keys[k_from]} -> {wer_keys[k_to]}): {kl_div:.5f}\n"
+        return kl_text
+
+    def run(self):
+        import matplotlib.pyplot as plt
+
+        name_with_wers = self.read_reportdirs()
 
         fig, ax = plt.subplots(figsize=(8, 8))
-        # show relative count
 
         colors = ["blue", "green", "orange", "brown", "pink", "gray", "purple", "red"]
-        width = 0.9 / len(name_with_wers)
+        BAR_WIDTH = 0.9 / len(name_with_wers)
         for i, name in enumerate(name_with_wers.keys()):
             binvals = name_with_wers[name]
-            bins, avg, total, num_offscreen = self.make_bins(binvals)
+            bins, avg, total, num_offscreen = make_bins(binvals, self.num_bins, (0, 100), bin_align="edge")
             assert (
                 abs(sum([count / total for count in bins]) - 1.0) < 1e-8
             ), "bins should make a probability distribution"
             xs = range(self.num_bins)
-            xs = [float(x) + i * width for x in xs]
+            xs = [float(x) + i * BAR_WIDTH for x in xs]
             ax.bar(
                 xs,
                 [count / total for count in bins],
                 align="edge",
-                width=width,
+                width=BAR_WIDTH,
                 label=name,
                 color=colors[i % len(colors)],
             )
@@ -140,26 +161,7 @@ class ScliteToWerDistributionGraph(Job):
                 )
         if self.kl_divergence:
             # compute kl divergence
-            prob_dists = []
-            wer_keys = list(name_with_wers.keys())
-            for name in wer_keys:
-                binvals = name_with_wers[name]
-                bins, avg, total, num_offscreen = self.make_bins(binvals)
-
-                prob_dists.append([count / total for count in bins])
-            assert len(prob_dists) >= 2
-            assert all([len(prob_dists[0]) == len(prob_dists[i]) for i in range(len(prob_dists))])
-            kl_text = ""
-            for k_from in range(len(prob_dists) - 1):
-                for k_to in range(k_from + 1, len(prob_dists)):
-                    kl_div = 0.0
-                    for i in range(len(prob_dists[0])):
-                        p = prob_dists[k_from][i]
-                        q = prob_dists[k_to][i]
-                        if p > 0 and q > 0:
-                            kl_div += p * math.log(p / q)
-                    print(f"KL divergence ({wer_keys[k_from]} -> {wer_keys[k_to]}): {kl_div:.9f}")
-                    kl_text += f"KL divergence ({wer_keys[k_from]} -> {wer_keys[k_to]}): {kl_div:.5f}\n"
+            kl_text = self.make_kl_div_text(name_with_wers)
 
             fig.text(
                 0.5,
@@ -232,38 +234,20 @@ class CompareTwoScliteWerDistributions(Job):
         self.out_ratio_plot = self.output_path("plot_ratio.pdf")
 
     @classmethod
-    def hash(cls, kwargs):
-        d = dict(**kwargs)
-        d["__version"] = 10
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 11
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
-    def make_bins(self, values, extents):
-        bins = [0] * (self.num_bins_in_each_direction * 2 + 1)
-        avg = 0
-        total = 0
-        num_offscreen = 0
-        for value, weight in values:
-            if value > extents or value < -extents:
-                num_offscreen += 1
-                continue
-
-            bin_idx = min(
-                int(value / extents * self.num_bins_in_each_direction + self.num_bins_in_each_direction),
-                len(bins) - 1,
-            )
-            avg += value * weight
-            bins[bin_idx] += weight
-            total += weight
-
-        return bins, avg, total, num_offscreen
-
     def make_plot(self, values, title, out_path, extents, is_ratio=False):
         import matplotlib.pyplot as plt
 
-        bins, avg, total, num_offscreen = self.make_bins(values, extents)
+        bins, avg, total, num_offscreen = make_bins(
+            values, self.num_bins_in_each_direction * 2 + 1, (-extents, extents), bin_align="center"
+        )
 
         plt.figure(figsize=(8, 8))
         # show relative count
@@ -271,7 +255,7 @@ class CompareTwoScliteWerDistributions(Job):
         plt.bar(
             range(-self.num_bins_in_each_direction, self.num_bins_in_each_direction + 1),
             [count / total + eps for count in bins],
-            align="edge",
+            align="center",
         )
 
         if self.plot_metrics:
@@ -315,16 +299,7 @@ class CompareTwoScliteWerDistributions(Job):
             )  # , transform=plt.gca().transAxes)
         plt.savefig(out_path)
 
-    def run(self):
-        import matplotlib.pyplot as plt
-        import os
-
-        # remove current plots
-        if os.path.exists(self.out_plot):
-            os.remove(self.out_plot)
-        if os.path.exists(self.out_ratio_plot):
-            os.remove(self.out_ratio_plot)
-
+    def read_report_dirs(self) -> list[dict[str, list]]:
         output_dirs = [rd.get_path() for rd in self.report_dirs]
 
         all_vals = []
@@ -333,7 +308,7 @@ class CompareTwoScliteWerDistributions(Job):
 
             print("Reading sclite.pra")
             cur_seq_id = None
-            with open(f"{odir}/sclite.pra", "rt", errors="ignore") as f:
+            with open(f"{odir}/sclite.pra", errors="ignore") as f:
                 for line in f:
                     if line.startswith("id:"):
                         # id: (dev-clean/422-122949-0034/422-122949-0034-000)
@@ -353,6 +328,19 @@ class CompareTwoScliteWerDistributions(Job):
             all_vals.append(values)
 
         assert set(all_vals[0].keys()) == set(all_vals[1].keys()), "seq tags do not match"
+        return all_vals
+
+    def run(self):
+        import matplotlib.pyplot as plt
+        import os
+
+        # remove current plots
+        if os.path.exists(self.out_plot):
+            os.remove(self.out_plot)
+        if os.path.exists(self.out_ratio_plot):
+            os.remove(self.out_ratio_plot)
+
+        all_vals = self.read_report_dirs()
 
         values_diff = []  # (value, weight)
         values_ratio = []
