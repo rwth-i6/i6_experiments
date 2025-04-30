@@ -49,7 +49,6 @@ def soft_collapse_repeated_indices(
     :param spatial_dim:
     :param classes_dim:
     :param threshold:
-    :param reduce_type: "logmeanexp" or "max_renorm"
     :return: shape {OtherDims..., OutSpatial, Classes} -> out_spatial_dim
     """
     argmax_classes = rf.reduce_argmax(log_probs, axis=classes_dim)  # {OtherDims..., Spatial} -> Classes
