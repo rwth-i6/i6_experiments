@@ -5,7 +5,9 @@ from i6_core.util import uopen
 import math
 
 
-def make_bins(values, num_bins: int, range: Tuple[float, float], bin_align: Union[Literal["center"], Literal["edge"]]):
+def make_bins(
+    values, num_bins: int, val_range: Tuple[float, float], bin_align: Union[Literal["center"], Literal["edge"]]
+):
     """
     :param bin_align:
     """
@@ -14,14 +16,16 @@ def make_bins(values, num_bins: int, range: Tuple[float, float], bin_align: Unio
     total = 0
     num_offscreen = 0
     for value, weight in values:
-        if value > range[1] or value < range[0]:
+        if value > val_range[1] or value < val_range[0]:
             num_offscreen += 1
             continue
         if bin_align == "edge":
-            bin_idx = int((value - range[0]) / (range[1] - range[0]) * num_bins)
+            bin_idx = min(int((value - val_range[0]) / (val_range[1] - val_range[0]) * num_bins), num_bins - 1)
         elif bin_align == "center":
-            bin_idx = int((value - range[0]) / (range[1] - range[0]) * (num_bins - 1) + 0.5)
-        assert 0 <= bin_idx < num_bins, f"bin_idx {bin_idx} out of range {range[0]}-{range[1]} for value {value}"
+            bin_idx = int((value - val_range[0]) / (val_range[1] - val_range[0]) * (num_bins - 1) + 0.5)
+        assert (
+            0 <= bin_idx < num_bins
+        ), f"bin_idx {bin_idx} out of range {val_range[0]}-{val_range[1]} for value {value}"
 
         avg += value * weight
         bins[bin_idx] += weight
@@ -35,18 +39,17 @@ class ScliteToWerDistributionGraph(Job):
     def __init__(
         self,
         *,
-        report_dir: Union[tk.AbstractPath, Dict[str, tk.AbstractPath]],
+        report_dir: Dict[str, tk.AbstractPath],
         num_bins: int = 10,
-        plot_title: Union[str, DelayedBase] = "WER distribution",
+        plot_title: Union[str, DelayedBase] = "",
         plot_metrics: bool = True,
         kl_divergence: bool = False,
         logscale: bool = True,
         xlim: Optional[Tuple[float, float]] = (0.0, 100.0),
     ):
-        if not isinstance(report_dir, dict):
-            self.report_dirs = {"wer": report_dir}
-        else:
-            self.report_dirs = report_dir
+        assert isinstance(report_dir, dict)
+
+        self.report_dirs = report_dir
         self.num_bins = num_bins
         self.plot_title = plot_title
         self.plot_metrics = plot_metrics
@@ -61,17 +64,19 @@ class ScliteToWerDistributionGraph(Job):
         self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.pdf")
         self.out_plot_ylim10p = self.output_path("plot_ylim10p.pdf")
 
+        self.out_plot_len = self.output_path("plot_len.pdf")
+
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 16
+        d["__version"] = 19
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
-    def read_reportdirs(self) -> dict[str, list]:
-        name_with_wers = {}
+    def read_reportdirs(self, metric: Union[Literal["WER"], Literal["len"]]) -> dict[str, list]:
+        name_with_vals = {}
         for name, report_dir in self.report_dirs.items():
             output_dir = report_dir.get_path()
 
@@ -95,19 +100,24 @@ class ScliteToWerDistributionGraph(Job):
                 if s + d + c == 0:
                     print("Warning: empty sequence")
                     continue
-                wer = 100.0 * (s + d + i) / (s + d + c)
-                binvals.append((wer, s + d + c))
-            name_with_wers[name] = binvals
-        return name_with_wers
+                if metric == "WER":
+                    value = 100.0 * (s + d + i) / (s + d + c)
+                    weight = s + d + c
+                elif metric == "len":
+                    value = s + c + i  # hyp len
+                    weight = 1
+                binvals.append((value, weight))
+            name_with_vals[name] = binvals
+        return name_with_vals
 
-    def make_kl_div_text(self, name_with_wers: dict[str, list]):
+    def make_kl_div_text(self, name_with_vals: dict[str, list], val_range: tuple[int, int]):
         prob_dists = []
-        wer_keys = list(name_with_wers.keys())
+        wer_keys = list(name_with_vals.keys())
         for name in wer_keys:
-            binvals = name_with_wers[
+            binvals = name_with_vals[
                 name
             ]  # Here we hardcode the num bins to 100 TODO: just do the kl divergence fully instead of this approx
-            bins, avg, total, num_offscreen = make_bins(binvals, 100, (0, 100), bin_align="edge")
+            bins, avg, total, num_offscreen = make_bins(binvals, 100, val_range, bin_align="edge")
 
             prob_dists.append([count / total for count in bins])
         assert len(prob_dists) >= 2
@@ -128,80 +138,90 @@ class ScliteToWerDistributionGraph(Job):
     def run(self):
         import matplotlib.pyplot as plt
 
-        name_with_wers = self.read_reportdirs()
+        for metric in ["WER", "len"]:
+            metric_range = {"WER": (0, 100), "len": (0, 75)}.get(metric)
+            assert metric_range is not None
+            name_with_vals = self.read_reportdirs(metric=metric)
 
-        fig, ax = plt.subplots(figsize=(8, 8))
+            fig, ax = plt.subplots(figsize=(8, 8))
 
-        colors = ["blue", "green", "orange", "brown", "pink", "gray", "purple", "red"]
-        BAR_WIDTH = 0.9 / len(name_with_wers)
-        for i, name in enumerate(name_with_wers.keys()):
-            binvals = name_with_wers[name]
-            bins, avg, total, num_offscreen = make_bins(binvals, self.num_bins, (0, 100), bin_align="edge")
-            assert (
-                abs(sum([count / total for count in bins]) - 1.0) < 1e-8
-            ), "bins should make a probability distribution"
-            xs = range(self.num_bins)
-            xs = [float(x) + i * BAR_WIDTH for x in xs]
-            ax.bar(
-                xs,
-                [count / total for count in bins],
-                align="edge",
-                width=BAR_WIDTH,
-                label=name,
-                color=colors[i % len(colors)],
-            )
-
-            if self.plot_metrics:
-                # plot avg (this should be the wer score as reported by sclite)
-                ax.axvline(
-                    x=avg / total / 100 * self.num_bins,
+            colors = ["blue", "green", "orange", "brown", "pink", "gray", "purple", "red"]
+            BAR_WIDTH = 0.9 / len(name_with_vals)
+            offscreen_vals = []
+            for i, name in enumerate(name_with_vals.keys()):
+                binvals = name_with_vals[name]
+                bins, avg, total, num_offscreen = make_bins(binvals, self.num_bins, metric_range, bin_align="edge")
+                assert (
+                    abs(sum([count / total for count in bins]) - 1.0) < 1e-8
+                ), "bins should make a probability distribution"
+                xs = range(self.num_bins)
+                xs = [float(x) + i * BAR_WIDTH for x in xs]
+                ax.bar(
+                    xs,
+                    [count / total for count in bins],
+                    align="edge",
+                    width=BAR_WIDTH,
+                    label=name,
                     color=colors[i % len(colors)],
-                    linestyle="--",
-                    label=f"WER {name}: {avg / total:.2f}",
                 )
-        if self.kl_divergence:
-            # compute kl divergence
-            kl_text = self.make_kl_div_text(name_with_wers)
 
-            fig.text(
-                0.5,
-                0.002,
-                kl_text,
-                fontsize=10,
-                ha="center",
-                va="bottom",
+                if self.plot_metrics:
+                    # plot avg (this should be the wer score as reported by sclite)
+                    ax.axvline(
+                        x=avg / total / 100 * self.num_bins,
+                        color=colors[i % len(colors)],
+                        linestyle="--",
+                        label=f"{metric} {name}: {avg / total:.2f}",
+                    )
+                    offscreen_vals.append(num_offscreen)
+            if any([n_off > 0 for n_off in offscreen_vals]):
+                ax.text(0.0, 0.8, f"Offscreen: {", ".join([str(x) for x in offscreen_vals])} instances", fontsize=10)
+            if self.kl_divergence:
+                # compute kl divergence
+                kl_text = self.make_kl_div_text(name_with_vals, metric_range)
+
+                fig.text(
+                    0.5,
+                    0.002,
+                    kl_text,
+                    fontsize=10,
+                    ha="center",
+                    va="bottom",
+                )
+                fig.subplots_adjust(bottom=(0.02 * len(kl_text.split("\n")) + 0.05))
+
+            ax.set_xlabel(metric)
+            ax.set_ylabel("fraction")
+
+            lower_lim = 0
+            if self.log_scale:
+                ax.set_yscale("symlog", linthresh=1e-3)
+                lower_lim = 1e-3
+            ax.set_ylim(lower_lim, 1)
+
+            if isinstance(self.plot_title, DelayedBase):
+                ax.set_title(f"{metric} distribution\n" + self.plot_title.get())
+            else:
+                ax.set_title(f"{metric} distribution\n" + self.plot_title)
+            ax.set_xticks(
+                range(0, self.num_bins, max(1, self.num_bins // 10)),
+                [f"{100 * i/self.num_bins:.2f}" for i in range(0, self.num_bins, max(1, self.num_bins // 10))],
             )
-            fig.subplots_adjust(bottom=(0.02 * len(kl_text.split("\n")) + 0.05))
+            ax.set_xlim(self.xlim[0] / 100 * self.num_bins, self.xlim[1] / 100 * self.num_bins)
+            ax.grid(axis="y")
+            ax.legend(loc="upper right", bbox_to_anchor=(0.95, 1))
 
-        ax.set_xlabel("WER")
-        ax.set_ylabel("fraction")
-
-        lower_lim = 0
-        if self.log_scale:
-            ax.set_yscale("symlog", linthresh=1e-3)
-            lower_lim = 1e-3
-        ax.set_ylim(lower_lim, 1)
-
-        if isinstance(self.plot_title, DelayedBase):
-            ax.set_title(self.plot_title.get())
-        else:
-            ax.set_title(self.plot_title)
-        ax.set_xticks(
-            range(0, self.num_bins, max(1, self.num_bins // 10)),
-            [f"{100 * i/self.num_bins:.2f}" for i in range(0, self.num_bins, max(1, self.num_bins // 10))],
-        )
-        ax.set_xlim(self.xlim[0] / 100 * self.num_bins, self.xlim[1] / 100 * self.num_bins)
-        ax.grid(axis="y")
-        ax.legend(loc="upper right", bbox_to_anchor=(0.95, 1))
-
-        plt.savefig(self.out_plot, bbox_inches="tight")
-        ax.autoscale(axis="y")
-        plt.savefig(self.out_plot_no_ylim, bbox_inches="tight")
-        # new_ylim = max([count / total for count in bins[1:]]) * 1.1
-        # plt.ylim(lower_lim, new_ylim)
-        # plt.savefig(self.out_plot_ylim_without_first_bin)
-        ax.set_ylim(lower_lim, 0.1)
-        plt.savefig(self.out_plot_ylim10p, bbox_inches="tight")
+            if metric == "WER":
+                plt.savefig(self.out_plot, bbox_inches="tight")
+                ax.autoscale(axis="y")
+                plt.savefig(self.out_plot_no_ylim, bbox_inches="tight")
+                # new_ylim = max([count / total for count in bins[1:]]) * 1.1
+                # plt.ylim(lower_lim, new_ylim)
+                # plt.savefig(self.out_plot_ylim_without_first_bin)
+                ax.set_ylim(lower_lim, 0.1)
+                plt.savefig(self.out_plot_ylim10p, bbox_inches="tight")
+            elif metric == "len":
+                plt.savefig(self.out_plot_len, bbox_inches="tight")
 
 
 class CompareTwoScliteWerDistributions(Job):
