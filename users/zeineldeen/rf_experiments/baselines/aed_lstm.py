@@ -37,6 +37,9 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
 from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 from i6_experiments.users.zeyer.train_v3 import train
 
+from . import trafo_lm_kazuki_import
+from . import trafo_lm
+
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
 # dev-other  5.39
@@ -167,8 +170,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         train_def=mini_lstm_ilm_train_def,
     )
 
-    from . import trafo_lm_kazuki_import
-
     for beam_size in [17, 18, 19]:
         for lm_scale in [0.39, 0.4, 0.41]:
             lm_recog_config = {
@@ -214,35 +215,43 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # TODO: static ILM methods
 
-    for static_ilm_method, lm_scale, ilm_scale in [
-        ("seq_avg", 0.5, 0.44),
-        ("zero", 0.46, 0.34),
-    ]:
-        ilm_recog_config = {
-            "beam_search_opts": {
-                "beam_size": 32,
-                "length_normalization_exponent": 0.0,
-                "lm_scale": lm_scale,
-                "ilm_scale": ilm_scale,
-                "static_ilm_method": static_ilm_method,
-            },
-            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-            "internal_language_model": {"class": "StaticIlm"},
-            "preload_from_files": {
-                "trafo_lm": {
-                    "prefix": "language_model.",
-                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+    for lm_scale in [0.5]:
+        for ilm_scale in [0.44]:
+            ilm_recog_config = {
+                "beam_search_opts": {
+                    "beam_size": 32,
+                    "length_normalization_exponent": 0.0,
+                    "lm_scale": lm_scale,
+                    "ilm_scale": ilm_scale,
+                    "static_ilm_method": "seq_avg",
                 },
-                "ilm": {
-                    "prefix": "internal_language_model.",
-                    "filename": get_tf_to_rf_converted_ckpt_path(),  # asr decoder
+                "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+                "internal_language_model": {"class": "StaticIlm"},
+                "preload_from_files": {
+                    "trafo_lm": {
+                        "prefix": "language_model.",
+                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                    },
+                    "ilm": {
+                        "prefix": "internal_language_model.",
+                        "filename": get_tf_to_rf_converted_ckpt_path(),  # asr decoder
+                    },
                 },
-            },
-            "batch_size": 2500 * 160,
-        }
-        _recog_imported(
-            name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam32_{static_ilm_method}", recog_config=ilm_recog_config
-        )
+                "batch_size": 2500 * 160,
+                # "max_seqs": 1,  # single seq
+                # "__batch_size_dependent": True,
+                # "rf_use_mask": True,
+            }
+            _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam32_seq_avg", recog_config=ilm_recog_config)
+
+    # _recog_imported_v2(
+    #     name=f"trafo_lm_ilm_beam128_seq_avg_autotune",
+    #     recog_config={
+    #         "beam_search_opts": {"beam_size": 128},
+    #         "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+    #         "internal_language_model": {"class": "StaticIlm"},
+    #     },
+    # )
 
 
 _sis_prefix: Optional[str] = None
@@ -298,6 +307,52 @@ def _recog_imported(
     _recog(name, model_with_checkpoint, recog_config=recog_config, dev_sets=dev_sets)
 
 
+def _recog_imported_v2(
+    name: str = "recog_resutls",
+    recog_config: Optional[Dict[str, Any]] = None,
+    dev_sets: Optional[Collection[str]] = None,
+):
+    from i6_core.returnn.training import PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+
+    new_chkpt_path = get_tf_to_rf_converted_ckpt_path()
+    new_chkpt = PtCheckpoint(new_chkpt_path)
+
+    model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
+
+    def lm_def(*, epoch: int, in_dim: Dim, target_dim: Dim):
+        in_dim, epoch  # noqa
+
+        lm_opts = recog_config.pop("external_language_model").copy()
+        cls = lm_opts.pop("class")
+        assert cls == "TransformerDecoder"
+        lm_opts.pop("vocab_dim", None)
+        lm = trafo_lm.MakeModel(vocab_dim=target_dim, **lm_opts)()
+        return lm
+
+    lm_def: ModelDef
+    lm_def.behavior_version = 21
+    lm_def.backend = "torch"
+    lm_def.batch_size_factor = _batch_size_factor
+
+    lm_with_checkpoint = ModelWithCheckpoint(
+        definition=lm_def, checkpoint=trafo_lm_kazuki_import.get_pt_checkpoint_path()
+    )
+
+    ilm_opts = recog_config.pop("internal_language_model").copy()
+    cls = ilm_opts.pop("class")
+    assert cls == "StaticIlm"
+    ilm_with_checkpoint = ModelWithCheckpoint(definition=static_ilm_def, checkpoint=get_tf_to_rf_converted_ckpt_path())
+
+    _recog_v2(
+        name=name,
+        model_with_checkpoint=model_with_checkpoint,
+        lm=lm_with_checkpoint,
+        ilm=ilm_with_checkpoint,
+        recog_config=recog_config,
+    )
+
+
 def _recog(
     name: str,
     model_with_checkpoint: ModelWithCheckpoint,
@@ -324,6 +379,50 @@ def _recog(
         dev_sets=dev_sets,
     )
     tk.register_output(_sis_prefix + "/" + name, res.output)
+
+
+def _recog_v2(
+    *,
+    name: str,
+    model_with_checkpoint: ModelWithCheckpoint,
+    lm: ModelWithCheckpoint,
+    ilm: ModelWithCheckpoint,
+    recog_def: RecogDef = None,
+    recog_config: Optional[Dict[str, Any]] = None,
+    search_rqmt: Optional[Dict[str, Any]] = None,
+):
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.recog import search_dataset
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_score
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+    if recog_def is None:
+        recog_def = model_recog
+
+    task = _get_ls_task()
+
+    asr_scores = search_dataset(
+        dataset=task.dev_dataset,
+        model=model_with_checkpoint,
+        config=recog_config,
+        recog_def=recog_def,
+        search_mem_rqmt=6,
+        search_rqmt=search_rqmt,
+        search_alias_name=f"{name}/search/{task.dev_dataset.get_main_name()}" if name else None,
+        keep_beam=True,
+    )
+    tk.register_output(_sis_prefix + "/" + name, asr_scores.output)
+
+    # lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    # ilm_scores = lm_score(asr_scores, lm=ilm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    #
+    # scale_tuning_job = ScaleTuningJob(
+    #     scores={"am": asr_scores, "lm": lm_scores, "ilm": ilm_scores},
+    #     evaluation="edit_distance",
+    #     ref=task.dev_dataset.get_main_dataset()["transcription"],
+    #     fixed_scales={"am": 1.0},
+    #     scale_relative_to={"ilm", "lm"},
+    # )
 
 
 # noinspection PyShadowingNames
@@ -489,8 +588,6 @@ class MakeModel:
             cls_name = language_model.pop("class")
             assert cls_name == "TransformerDecoder"
             language_model.pop("vocab_dim", None)  # will just overwrite
-
-            from . import trafo_lm
 
             lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
             lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
@@ -1930,6 +2027,17 @@ class StaticIlm(rf.Module):
         readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
         logits = self.output_prob(readout)
         return logits
+
+
+def static_ilm_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> StaticIlm:
+    in_dim, epoch  # noqa
+    return StaticIlm(target_dim=target_dim)
+
+
+static_ilm_def: ModelDef
+static_ilm_def.behavior_version = 21
+static_ilm_def.backend = "torch"
+static_ilm_def.batch_size_factor = _batch_size_factor
 
 
 def mini_lstm_ilm_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> MiniLstmIlm:
