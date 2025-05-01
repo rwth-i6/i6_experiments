@@ -27,6 +27,7 @@ from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLay
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zhang.experiments.lm.ffnn import FFNN_LM_flashlight, FeedForwardLm
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob
+from tools.hdf_dump_translation_dataset import UNKNOWN_LABEL
 
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
@@ -338,7 +339,7 @@ def train_exp(
         recog_post_proc_funcs.append(_remove_eos_label_v2)
 
     lm_scale = decoding_config.get("lm_weight")
-    if tune_hyperparameters:
+    if tune_hyperparameters and decoding_config["use_lm"]:
         original_params = decoding_config
         params = copy.copy(original_params)
         params.pop("lm_weight_tune", None)
@@ -347,12 +348,12 @@ def train_exp(
         default_prior = original_params.get("prior_weight")
         lm_scores = []
         prior_scores = []
-        lm_tune_ls = [scale/100 for scale in range(-50,51,5)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
+        lm_tune_ls = [-0.1,-0.05,0,0.05]#[scale/100 for scale in range(-50,51,10)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
         prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
             task_copy = copy.deepcopy(task)
-            # score = recog_training_exp(
+            # score = recog_training_exp(u
             #     prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
             #     task_copy,
             #     model_with_checkpoint,
@@ -388,7 +389,7 @@ def train_exp(
             tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
             params["lm_weight"] = default_lm
             params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
-            if os.path.exists(best_lm_tune): # Just for bypassing the static check
+            if os.path.exists(best_lm_tune): # Just for bypassing the static check #TODO： this will not be excuted in first run
                 lm_weight_tune = json.load(open(best_lm_tune))
                 lm_weight_tune = lm_weight_tune["best_tune"]
                 lm_scale = default_lm + lm_weight_tune
@@ -887,7 +888,7 @@ def model_recog_lm(
         "sil_token": OUT_BLANK_LABEL,
         "unk_word": "<unk>",
         "beam_size_token": None,  # 16
-        "beam_threshold": 50,  # 14. 1000000
+        #"beam_threshold": 1e6,  # 14. 1000000
     }
     configs["lexicon"] = lexicon if use_lexicon else None
     configs["lm"] = lm
@@ -916,7 +917,7 @@ def model_recog_lm(
     #     lexicon_dict = parse_lexicon_file(configs["lexicon"])
     ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
     ctc_scores = torch.tensor(ctc_scores)
-    pdb.set_trace()
+    #pdb.set_trace()
     # ctc_scores_forced = []
     # sim_scores = []
     # lm_scores = []
@@ -1125,6 +1126,20 @@ model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
 model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
+def _format_align_label_seq(align_label_seq: List[int], wb_target_dim: Dim) -> str:
+    seq_label: List[str] = []  # list of label
+    seq_label_idx: List[int] = []  # list of label index
+    seq_label_count: List[int] = []  # list of label count
+    for align_label in align_label_seq:
+        if seq_label_idx and seq_label_idx[-1] == align_label:
+            seq_label_count[-1] += 1
+        else:
+            seq_label.append(wb_target_dim.vocab.id_to_label(align_label) if align_label >= 0 else str(align_label))
+            seq_label_idx.append(align_label)
+            seq_label_count.append(1)
+    return " ".join(f"{label}*{count}" if count > 1 else label for label, count in zip(seq_label, seq_label_count))
+
+
 def decode_flashlight(
         *,
         model: Model,
@@ -1163,6 +1178,9 @@ def decode_flashlight(
 
     n_best = hyp_params.pop("ps_nbest", 1)
     beam_size = hyp_params.pop("beam_size", 1)
+    ####debug####
+    #pdb.set_trace()
+    #############
     beam_size_token = hyp_params.pop("beam_size_token", model.wb_target_dim.vocab.num_labels)
     beam_threshold = hyp_params.pop("beam_threshold", 1000000)
     log_add = hyp_params.pop("log_add", False)
@@ -1292,6 +1310,8 @@ def decode_flashlight(
             assert lm_logits.dims == (model.target_dim,)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
             log_probs_raw = lm_log_probs.raw_tensor.cpu()
+            # -------debug
+            #pdb.set_trace()
             return lm_state, log_probs_raw
 
         def _cache_maybe_free_memory(self):
@@ -1330,7 +1350,7 @@ def decode_flashlight(
             start_with_nothing  # noqa  # not sure how to handle this?
             self.reset()
             state = LMState()
-            self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx] * context_size, prev_state=state)
+            self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx] * context_size, prev_state=state) # label_seq=[model.bos_idx] * context_size
             return state
 
         def score(self, state: LMState, token_index: int):
@@ -1378,7 +1398,8 @@ def decode_flashlight(
     fl_lm = FlashlightLM()
 
     from flashlight.lib.text.decoder import LexiconFreeDecoderOptions, LexiconFreeDecoder, CriterionType
-
+    #----debug---
+    #pdb.set_trace()
     fl_decoder_opts = LexiconFreeDecoderOptions(
         beam_size=beam_size,
         beam_size_token=beam_size_token,
@@ -1441,15 +1462,15 @@ def decode_flashlight(
         # (as it should be).
         hyps_per_batch = [[label for label in result.tokens if label >= 0] for result in results]
         scores_per_batch = [result.score for result in results]
-        # print(
-        #     f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
-        #     f" best score: {scores_per_batch[0]},"
-        #     f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
-        #     f" worst score: {scores_per_batch[-1]},"
-        #     f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
-        #     f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
-        #     f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
-        # )
+        print(
+            f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
+            f" best score: {scores_per_batch[0]},"
+            f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
+            f" worst score: {scores_per_batch[-1]},"
+            f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
+            f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
+            f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+        )
         assert all(
             len(hyp) == seq_len for hyp in hyps_per_batch
         ), f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
@@ -1492,10 +1513,6 @@ def decode_flashlight(
     assert hyps_pt.shape == (batch_size, n_best, max_seq_len)
     scores_pt = torch.tensor(scores, dtype=torch.float32)
     assert scores_pt.shape == (batch_size, n_best)
-    # Test------------------------
-    #pdb.set_trace()
-    #model.blank_idx
-    #-----------------------
     # import torch.nn.functional as F
     # collapsed_hyps = [[ctc_collapse(hyp, model.blank_idx) for hyp in seq] for seq in hyps_pt]
     # enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
@@ -1504,9 +1521,9 @@ def decode_flashlight(
     #     for batch in collapsed_hyps
     # ]
     # hyps_pt = torch.stack([torch.stack(batch) for batch in padded_hypotheses])
-    # Test------------------------
+    # debug------------------------
     #pdb.set_trace()
-    #model.blank_idx
+
     #-----------------------
     beam_dim = Dim(n_best, name="beam")
     out_spatial_dim = enc_spatial_dim
@@ -1694,13 +1711,8 @@ def scoring(
 
     use_lm = hyp_params.pop("use_lm", False)
 
-    def extract_ctx_size(s):
-        match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
-        return match.group(1) if match else None
-
-    context_size = int(extract_ctx_size(lm_name))
-
     if use_lm:
+
         if lm: # Directly give path only for count based n-gram(arpa)
             lm = str(cf(lm))
             # Other types distinguish with the name
@@ -1709,7 +1721,10 @@ def scoring(
             assert model.recog_language_model
             assert isinstance(model.recog_language_model,FeedForwardLm)
             assert model.recog_language_model.vocab_dim == model.target_dim
-
+            def extract_ctx_size(s):
+                match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
+                return match.group(1) if match else None
+            context_size = int(extract_ctx_size(lm_name))
             raw_lm: FeedForwardLm = model.recog_language_model
             #context_size = int(lm_name[len("ffnn"):])
             #lm = FFNN_LM_flashlight(model.recog_language_model, model.recog_language_model.vocab_dim, context_size)
@@ -1918,14 +1933,64 @@ def scoring(
         "sil_token": OUT_BLANK_LABEL,
         "unk_word": "<unk>",
         "beam_size_token": None,  # 16
-        "beam_threshold": 50,  # 14. 1000000
+        #"beam_threshold": 50,  # 14. 1000000
     }
+    #-----------------------------------TEST-------------------------------------
+    # import tempfile
+    # def extend_lexicon_with_bpe_units_temp(lexicon_path):
+    #     # Read original lexicon
+    #     with open(lexicon_path, "r", encoding="utf-8") as f:
+    #         lexicon_lines = f.readlines()
+    #     ## Test
+    #     #lexicon_lines = []
+    #     ####
+    #     # Read BPE vocabulary
+    #     # with open(bpe_vocab_path, "r", encoding="utf-8") as f:
+    #     #     bpe_units = set(line.strip() for line in f if line.strip())
+    #
+    #     bpe_units = configs["tokens"][:-1]
+    #     # Prepare BPE entries
+    #     bpe_lexicon_entries = [f"{bpe} {bpe}" for bpe in bpe_units]
+    #
+    #     # Merge and deduplicate
+    #     full_lexicon = set(lexicon_lines)
+    #     full_lexicon.update(bpe_lexicon_entries)
+    #
+    #     # Sort for consistency
+    #     full_lexicon_sorted = sorted(full_lexicon)
+    #
+    #     # Create a temporary file
+    #     with tempfile.NamedTemporaryFile(mode="w+", delete=False, encoding="utf-8") as tmp_file:
+    #         for line in full_lexicon_sorted:
+    #             tmp_file.write(line.strip() + "\n")
+    #         tmp_file_path = tmp_file.name
+    #
+    #     print(f"Temporary extended lexicon written to: {tmp_file_path}")
+    #     return tmp_file_path
+    #
+    #     # When done, delete the file
+    #     os.remove(tmp_file_path)
+    #     print(f"Temporary file deleted: {tmp_file_path}")
+    #
+    # configs["lexicon"] = extend_lexicon_with_bpe_units_temp(
+    #     lexicon_path=lexicon) if use_lexicon else None
+
+    #-------------------------------------------------------------------------
     configs["lexicon"] = lexicon if use_lexicon else None
     configs["lm"] = lm
 
+    '''Test-Adding unkscore from lm(only for word level kenlm)'''
+    # if use_lexicon:
+    #     import kenlm
+    #     # Load the binary language model
+    #     klm = kenlm.Model(configs["lm"])  # or .bin
+    #     # Query the model
+    #     configs["unk_score"] = klm.score(configs["unk_word"])
+    '''-----------------'''
     configs.update(hyp_params)
 
-    # decoder = ctc_decoder(**configs)
+    #pdb.set_trace()
+    decoder = ctc_decoder(**configs)
     # from flashlight.lib.text.decoder import LexiconFreeDecoderOptions, LexiconFreeDecoder, CriterionType
     # configs.update({"sil_score": 0.0, "criterion_type":CriterionType.CTC})
     # print(configs)
@@ -1941,29 +2006,49 @@ def scoring(
     # decoder = LexiconFreeDecoder(fl_decoder_opts, lm, -1, model.blank_idx, [])
 
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
-    scores = []
+
     # `````````````````test```````````````````````
 
     #ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
     # ctc_scores = torch.tensor(ctc_scores)
     # TODO: add ctc_loss for the case CTCdecoder use sum
     # ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
+    '''Test torchaudio.functional.forced_align'''
+    from torchaudio.functional import forced_align as forced_align
+    alignments_fa = []
+    viterbi_scores_fa = []
 
-    import pdb
+    for i in range(label_log_prob.shape[0]):
+        alignments_, viterbi_scores_ = forced_align(
+            label_log_prob.to("cuda")[i].unsqueeze(0),
+            trim_padded_sequence(targets.raw_tensor[i]).unsqueeze(0),
+            #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0),
+            blank=model.blank_idx
+        )
+        alignments_fa.append(alignments_)
+        viterbi_scores_fa.append(viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum()) #Exclude the padding
     #pdb.set_trace()
-    '''Parrallezing viterbi across batch'''
-    from concurrent.futures import ProcessPoolExecutor
-    import multiprocessing
-    multiprocessing.set_start_method('spawn', force=True)
-    from functools import partial
-    target_list = list(targets.raw_tensor.cpu())
-    log_prob_list = list(label_log_prob.cpu())
-    spatial_dim_list = list(enc_spatial_dim_torch.cpu())
-    viterbi_batch_partial = partial(viterbi_batch, blank_idx=model.blank_idx)
-    #cpu_cores = multiprocessing.cpu_count()
-    print(f"using {min(32,label_log_prob.shape[0])} workers")
-    with ProcessPoolExecutor(max_workers=min(32,label_log_prob.shape[0])) as executor:
-        alignments, viterbi_scores = zip(*list(executor.map(viterbi_batch_partial, zip(target_list, log_prob_list, spatial_dim_list))))
+    '''---------------------------------------'''
+    '''Parallezing viterbi across batch'''
+    # from concurrent.futures import ProcessPoolExecutor
+    # import multiprocessing
+    # multiprocessing.set_start_method('spawn', force=True)
+    # from functools import partial
+    # target_list = list(targets.raw_tensor.cpu())
+    # log_prob_list = list(label_log_prob.cpu())
+    # spatial_dim_list = list(enc_spatial_dim_torch.cpu())
+    # viterbi_batch_partial = partial(viterbi_batch, blank_idx=model.blank_idx)
+    # #cpu_cores = multiprocessing.cpu_count()
+    # print(f"using {min(32,label_log_prob.shape[0])} workers")
+    # with ProcessPoolExecutor(max_workers=min(32,label_log_prob.shape[0])) as executor:
+    #     alignments, viterbi_scores = zip(*list(executor.map(viterbi_batch_partial, zip(target_list, log_prob_list, spatial_dim_list))))
+
+    '''-------------------TEST--------------------'''
+    #pdb.set_trace()
+    alignments = alignments_fa
+    viterbi_scores = viterbi_scores_fa
+    '''---------------------------------------'''
+
     def ctc_collapse(ctc_sequence, blank_token=model.blank_idx):
         """
         Collapses a CTC decoded tensor by removing consecutive duplicates and blank tokens.
@@ -1994,24 +2079,27 @@ def scoring(
                     word, pieces = parts
                     parsed_dict[pieces] = word
         return parsed_dict
-    if use_lexicon:
+    if use_lexicon and configs["lexicon"]:
         lexicon_dict = parse_lexicon_file(configs["lexicon"])
-    # ctc_scores_forced = []
-    # sim_scores = []
-    # lm_scores = []
-    # ctc_losses = []
-    # ground_truths = []
-    # unmatch_idxs = []
-    # ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
+
+    scores = []
+    n_oovs = []
     if use_lm:
-        #################################3
+        # #################################
+        # ctc_scores_forced = []
+        # sim_scores = []
+        # lm_scores = []
+        # ctc_losses = []
+        # ground_truths = []
+        # unmatch_idxs = []
+        # ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
         # for i in range(label_log_prob.shape[0]):
         #     seq = trim_padded_sequence(targets.raw_tensor[i,:])  # These are padded
         #     log_prob = label_log_prob[i]  # These are padded
-        #     alignment = alignments[i]
-        #     collapsed = ctc_collapse(alignment)
+        #     alignment = trim_padded_sequence(alignments[i].squeeze(0).to("cpu"))
+        #     collapsed = trim_padded_sequence(ctc_collapse(alignment))
         #     viterbi_score = viterbi_scores[i]
-        #     if use_lexicon:
+        #     if use_lexicon and configs["lexicon"]:
         #         def merge_tokens(token_list):
         #             # Merge bpe tokens according to lexicon
         #             merged_string = ""
@@ -2021,70 +2109,111 @@ def scoring(
         #                     buffer += token + " "
         #                 else:
         #                     buffer += token
-        #                     assert buffer in lexicon_dict.keys(), buffer + f" not in the lexicon!\n token list: {token_list} \n seq of input: {decoder.idxs_to_tokens(seq)}"
+        #                     if not buffer in lexicon_dict.keys():
+        #                         print(str(i) + ":" + buffer + f" not in the lexicon!")
+        #                         return "".strip()
         #                     merged_string += lexicon_dict[buffer] + " "  # Append buffer and curr
         #                     # ent token
         #                     buffer = ""  # Reset buffer
         #             return merged_string.strip()
+        #         sentence_from_viterbi = merge_tokens(decoder.idxs_to_tokens(collapsed))
         #
-        #         #sentence_from_viterbi = merge_tokens(decoder.idxs_to_tokens(collapsed))
-        #     # alignment = torch.cat((alignment, torch.tensor([0 for _ in range(log_prob.shape[0] - alignment.shape[0])])))
-        #     # mask = torch.arange(model.target_dim.size + 1, device=log_prob.device).unsqueeze(0).expand(
-        #     #     log_prob.shape) == alignment.unsqueeze(1)
-        #     # decoder_result = decoder(log_prob.masked_fill(~mask, float('-inf')).unsqueeze(0),
-        #     #                          enc_spatial_dim_torch[i].unsqueeze(0))
-        #     # ctc_scores_forced.append(decoder_result[0][0].score)
+        #     alignment = torch.cat((alignment, torch.tensor([0 for _ in range(log_prob.shape[0] - alignment.shape[0])])))
+        #     mask = torch.arange(model.target_dim.size + 1, device=log_prob.device).unsqueeze(0).expand(
+        #         log_prob.shape) == alignment.unsqueeze(1)
+        #     mask[:, 1] = True # model.unk_idx
+        #
+        #     decoder_result = decoder(log_prob.masked_fill(~mask, float('-inf')).unsqueeze(0),
+        #                              enc_spatial_dim_torch[i].unsqueeze(0))
+        #
+        #
+        #     ctc_scores_forced.append(decoder_result[0][0].score)
         #     sentence = " ".join([model.target_dim.vocab.id_to_label(h) for h in seq if h != model.blank_idx]).replace("@@ ","")
         #     word_seq = [decoder.word_dict.get_index(word) for word in sentence.split()]
-        #     lm_score = CTClm_score(word_seq, lm)
+        #     lm_score = CTClm_score(word_seq, decoder.lm)
         #     ground_truths.append(" ".join(sentence))
+        #     #print("\nViterbi:" + sentence_from_viterbi, "\nTarget:" + sentence)
+        #     '''Check if output alignment give by viterbi matches the input sequence'''
+        #     assert (collapsed.tolist() == seq.tolist()), (
+        #         f"Viterbi did not give path collapsed to the original sequence, idx: {i}!"
+        #         f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
+        #         f"\n sim_scores: {torch.tensor(sim_scores).tolist()} ")
+        #
         #     lm_scores.append(lm_score)
         #     sim_scores.append(viterbi_score + hyp_params["lm_weight"] * lm_score)
-            # ctc_losses.append(ctc_loss(log_prob, seq, [log_prob.shape[0]],
-            #                            [seq.shape[0]]))
-            # '''Check if output alignment give by viterbi matches the input sequence'''
-            # assert (collapsed.tolist() == seq.tolist()), (
-            #     f"Viterbi did not give path collapsed to the original sequence, idx: {i}!"
-            #     f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
-            #     f"\n sim_scores: {torch.tensor(sim_scores).tolist()} ")
-            # '''Check if output alignment give by viterbi matches the sequence output from decoder with masked emission'''
-            # if not collapsed.tolist() == decoder_result[0][0].tokens.tolist():
-            #     unmatch_idxs.append(i)
-            #     print(f"Viterbi did not give path collapsed to the same sequence as forced decoder, idx: {i}!")
-            # # assert (collapsed.tolist() == decoder_result[0][0].tokens.tolist()), (
-            # #     f"Viterbi did not give path collapsed to the same sequence as forced decoder at position{i}!"
-            # #     f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
-            # #     f"\n sim_scores: {torch.tensor(sim_scores).tolist()} "
-            # #     f"\n ctc_scores: {torch.tensor(ctc_scores).tolist()}")
-            # # pdb.set_trace()
+        #     # ctc_losses.append(ctc_loss(log_prob, seq, [log_prob.shape[0]],
+        #     #                            [seq.shape[0]]))
+        #
+        #     # '''Check if output alignment give by viterbi matches the sequence output from decoder with masked emission'''
+        #     if not collapsed.tolist() == decoder_result[0][0].tokens.tolist():
+        #         unmatch_idxs.append(i)
+        #         print(f"Viterbi did not give path collapsed to the same sequence as forced decoder, idx: {i}!",
+        #               f"\nalignmt:{[model.target_dim.vocab.id_to_label(int(h)) if int(h) != model.blank_idx else OUT_BLANK_LABEL for h in alignment]}",
+        #               f"\ndecoder:{[model.target_dim.vocab.id_to_label(h) for h in decoder_result[0][0].tokens]}",
+        #               f"\nViterbi:{[model.target_dim.vocab.id_to_label(h) for h in collapsed]}\n")
+        #     # # assert (collapsed.tolist() == decoder_result[0][0].tokens.tolist()), (
+        #     # #     f"Viterbi did not give path collapsed to the same sequence as forced decoder at position{i}!"
+        #     # #     f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
+        #     # #     f"\n sim_scores: {torch.tensor(sim_scores).tolist()} "
+        #     # #     f"\n ctc_scores: {torch.tensor(ctc_scores).tolist()}")
+        #     if i == 1:
+        #         pdb.set_trace()
+        #     # # pdb.set_trace()
         # print(f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
         #       f"\n sim_scores: {torch.tensor(sim_scores).tolist()} "
         #       f"\n unmatch_idxs: {unmatch_idxs}")
-        #pdb.set_trace()
+        # pdb.set_trace()
         ###################################
         lm_scores = []
         for i in range(label_log_prob.shape[0]):
             seq = trim_padded_sequence(targets.raw_tensor[i,:])
-            target_words = " ".join([model.target_dim.vocab.id_to_label(idx) for idx in seq])
+            token_list = [model.target_dim.vocab.id_to_label(idx) for idx in seq]
+            oov = 0 # Default for open vocab search
+            if use_lexicon and configs["lexicon"]:
+                def oov_check(token_list):
+                    # Merge bpe tokens according to lexicon
+                    merged_string = ""
+                    buffer = ""
+                    n_oov = 0
+                    for token in token_list:
+                        if token.endswith("@@"):
+                            buffer += token + " "
+                        else:
+                            buffer += token
+                            if not buffer in lexicon_dict.keys():
+                                print(str(i) + ":" + buffer + f" not in the lexicon!")
+                                n_oov+=1
+                            else:
+                                merged_string += lexicon_dict[buffer] + " "  # Append buffer and curr
+                            # ent token
+                            buffer = ""  # Reset buffer
+                    return n_oov
+                oov = oov_check(token_list)
+            target_words = " ".join(token_list)
             target_words = target_words.replace("@@ ","")
-            #target_words = target_words.replace(" <s>", "")
-            word_seq = seq.tolist() #[decoder.word_dict.get_index(word) for word in target_words.split()] if use_lexicon else seq
-            lm_score = CTClm_score(word_seq, lm)
+            target_words = target_words.replace(" <s>", "")
+            word_seq = [decoder.word_dict.get_index(word) for word in target_words.split()] if use_lexicon else seq.tolist() #
+            if isinstance(lm,str):
+                lm_score = CTClm_score(word_seq, decoder.lm)
+            else:
+                lm_score = CTClm_score(word_seq, lm)
             lm_scores.append(lm_score)
+            n_oovs.append(oov)
             scores.append(viterbi_scores[i] + hyp_params["lm_weight"]*lm_score)
-        score_dim = Dim(1, name="score_dim")
-        scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
-                        raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
-
     else:
         scores = viterbi_scores
-        score_dim = Dim(1, name="score_dim")
-        scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
-                        raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
+        n_oovs = [0 for _ in scores]
+
     torch.cuda.empty_cache()
     #````````````````````````````````````````````
+    score_dim = Dim(1, name="score_dim")
+    scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
+                    raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
+    n_oov_dim = Dim(1, name="n_oov_dim")
+    n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
+                    raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob.shape[0], 1]))
 
-    return scores, score_dim
+    return scores, score_dim, n_oovs, n_oov_dim
 
 
 # RecogDef API

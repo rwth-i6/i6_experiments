@@ -115,7 +115,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         forward_data=dataset.get_dataset(dataset_key),
-        batch_size=100_000,
+        batch_size=80_000,#100_000,
     )
 
     if isinstance(model_def, ModelDefWithCfg):
@@ -157,7 +157,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
     return returnn_config
 
 
-def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]]):
+def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], exponent: float=1):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
@@ -175,7 +175,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
                 returnn_root=tools_paths.get_returnn_root(),
             )
-            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename])
+            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename],exponent=exponent)
 
             dataset_key_ = (
                 dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key
@@ -185,11 +185,38 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 ppls[f"epoch{epoch}"] = ppl_job.out_ppl
     return ppls
 
+def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model_def, dataset, dataset_keys: Union[str, List[str]], exponent: float=1):
+    from i6_core.returnn.forward import ReturnnForwardJobV2
+    from i6_experiments.users.zeyer import tools_paths
+
+    if isinstance(dataset_keys, str):
+        dataset_keys = [dataset_keys]
+    ppls = dict()
+    for dataset_key in dataset_keys:
+        returnn_config = _returnn_ppl_config(model_def, dataset, dataset_key)
+
+        res = ReturnnForwardJobV2(
+            model_checkpoint=model_with_checkpoint,
+            returnn_config=returnn_config,
+            output_files=[_v2_forward_out_filename],
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+        )
+        ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename], exponent=exponent)
+
+        dataset_key_ = (
+            dataset_key[len("transcriptions-"):] if dataset_key.startswith("transcriptions-") else dataset_key
+        )
+        tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_bpe_ppl", ppl_job.out_ppl)
+        ppls[dataset_key_] = ppl_job.out_ppl
+    return ppls["test-other"]
+
 class ComputePerplexityJob(Job):
-    def __init__(self, scores_and_lens_file: Optional[Path]):
+    def __init__(self, scores_and_lens_file: Optional[Path], exponent:Optional[float] = 2.6):
         self.scores_and_lens_file = scores_and_lens_file
 
         self.out_ppl = self.output_path("ppl")
+        self.exponent = exponent
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
@@ -216,6 +243,7 @@ class ComputePerplexityJob(Job):
             lens += v[0]
 
         ppl = math.exp(-1.0 * scores / lens)
-
+        if self.exponent:
+            ppl = math.pow(ppl,self.exponent)
         with open(self.out_ppl.get_path(), "w+") as f:
             f.write("Perplexity: %f" % ppl)

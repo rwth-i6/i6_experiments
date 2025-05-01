@@ -294,11 +294,17 @@ def recog_model(
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
-        if dataset_name == "test-other" and search_error_check:
-            search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
-                                              decoding_config=decoding_config,prior_path=prior_path,
-                                              alias_name=f"{name}/search_error/{dataset_name}" if name else None,
-                                              )
+        if search_error_check: #Just report the search error on test-other
+            if dataset_name == "test-other":
+                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
+                                                  decoding_config=decoding_config,prior_path=prior_path,
+                                                  alias_name=f"{name}/search_error/{dataset_name}" if name else None,
+                                                  )
+            else:
+                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
+                                   decoding_config=decoding_config, prior_path=prior_path,
+                                   alias_name=f"{name}/search_error/{dataset_name}" if name else None,
+                                   )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
     return task.collect_score_results_func(outputs), search_error
@@ -374,7 +380,7 @@ def check_search_error(
         device="gpu",
         time_rqmt=4,
         mem_rqmt=16,
-        cpu_rqmt=32,
+        cpu_rqmt=8,
     )
     if alias_name:
         pre_SearchError_job.add_alias(alias_name)
@@ -458,6 +464,7 @@ def search_dataset(
             mem_rqmt=search_mem_rqmt,
         )
         res = search_job.out_files[_v2_forward_out_filename]
+    res_with_score = res.copy()
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
     if env_updates:
@@ -469,6 +476,7 @@ def search_dataset(
         # Also assume we should collapse repeated labels first.
         res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+        res_with_score = res.copy()
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
@@ -476,7 +484,7 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res), search_job.out_files[_v2_forward_out_filename]
+    return RecogOutput(output=res), res_with_score #search_job.out_files[_v2_forward_out_filename]
 
 
 # Those are applied for both training, recog and potential others.
@@ -668,7 +676,7 @@ def search_error_config(
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_search_error_step, import_as="forward_step"),
                     serialization.Import(_returnn_search_error_forward_callback, import_as="forward_callback"),
-                    serialization.ExplicitHash({"version": 1}),  #1: eos added 2: eos not added
+                    serialization.ExplicitHash({"version": 5}),  #1: eos added 2: eos not added 5. 1+aux info added
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
@@ -699,8 +707,9 @@ def _returnn_search_error_step(*, model, extern_data: TensorDict, **kwargs):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     scoring_def = config.typed_value("_scoring_def")
-    scoring_out, score_dim = scoring_def(model=model, data=data, targets=targets, data_spatial_dim=data_spatial_dim)
+    scoring_out, score_dim, n_oovs, oov_dim = scoring_def(model=model, data=data, targets=targets, data_spatial_dim=data_spatial_dim)
     rf.get_run_ctx().mark_as_output(scoring_out, "scores", dims=[batch_dim, score_dim])
+    rf.get_run_ctx().mark_as_output(n_oovs, "n_oovs", dims=[batch_dim, oov_dim])
     rf.get_run_ctx().mark_as_output(targets, "targets", dims=[batch_dim, targets_spatial_dim])
 
 def _returnn_search_error_forward_callback():
@@ -722,12 +731,14 @@ def _returnn_search_error_forward_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             score: Tensor = outputs["scores"] # [1]
             target: Tensor = outputs["targets"] # [1, out_spatial]
+            n_oov: Tensor = outputs["n_oovs"] # [1]
             # self.out_file.write(f"{seq_tag!r}: [\n")
             # self.out_file.write(f"  ({score!r}, {target!r})\n")
             # self.out_file.write("],\n")
             assert target.sparse_dim and target.sparse_dim.vocab  # should come from the model
             self.out_file.write(f"{seq_tag!r}: [\n")
             score = float(score.raw_tensor[0])
+            n_oov = int(n_oov.raw_tensor[0])
             target_ids = target.raw_tensor
             # #################
             # import pdb
@@ -735,7 +746,7 @@ def _returnn_search_error_forward_callback():
             # ###############
             target_serialized = target.sparse_dim.vocab.get_seq_labels(target_ids)
             target_serialized = target_serialized.replace("@@ ", "")
-            self.out_file.write(f"  ({score!r}, {target_serialized!r}),\n")
+            self.out_file.write(f"  ({score!r}, {target_serialized!r},{n_oov!r}),\n")
             self.out_file.write("],\n")
 
         def finish(self):

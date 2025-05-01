@@ -4,6 +4,7 @@ training based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines
 
 from __future__ import annotations
 
+import pdb
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Callable, Dict, Union, Any
 
 import tree
@@ -30,13 +31,63 @@ if TYPE_CHECKING:
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 
-def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
-                embed_dropout: float = 0.0)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+def py():
     from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
+    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
 
-    lm_dataset = get_librispeech_lm_dataset(vocab=vocab)
+    lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
+    num_layers = 2
+    context_size = 4
+    ff_hidden_dim = 1024
+    drop_out = 0
+    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-bpe128-drop{drop_out}-relu"
+    conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
+    conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+    model_with_checkpoints = train(
+        f"lm/{train_prefix_name}",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {
+                **conf,
+                "max_seq_length": {},
+                "torch_distributed": None,
+                "use_horovod": False,
+                "version": 3,#2: with get_librispeech_lm_dataset
+            },
+        ),
+        train_dataset=lm_dataset,
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    FeedForwardLm,
+                    num_layers=num_layers,
+                    context_size=context_size,
+                    embed_dropout=0,
+                    dropout=drop_out,
+                    ff_hidden_dim=ff_hidden_dim,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+    # TODO: a simple look up for approx exponent for convert ppl of bpe to word level.
+    #  For now, hard coded 2.6 in lm.lm_ppl.ComputePerplexityJob for bpe128
+    compute_ppl(
+        prefix_name=train_prefix_name,
+        model_with_checkpoints=model_with_checkpoints,
+        dataset=lm_dataset,
+        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+    )
 
+def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
+                embed_dropout: float = 0.0, epochs: list[int] = None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+    from i6_experiments.users.zeyer.train_v3 import train
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
+    lm_dataset = LibrispeechLmDataset(vocab=vocab) #get_librispeech_lm_dataset(vocab=vocab)
+
+    #dropout = 0 # not same as 0.0! Will break the hash, so be Careful!
     train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-bpe128-drop{dropout}-relu"
     conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
     conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
@@ -49,7 +100,7 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
                 "max_seq_length": {},
                 "torch_distributed": None,
                 "use_horovod": False,
-                "version": 2,
+                "version": 3,  # 2: with get_librispeech_lm_dataset
             },
         ),
         train_dataset=lm_dataset,
@@ -68,14 +119,56 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
         ),
         train_def=lm_train_def,
     )
+    # model_with_checkpoints = train(
+    #     f"lm/{train_prefix_name}",
+    #     config=dict_update_deep(
+    #         config_11gb_lm_v1,
+    #         {
+    #             **conf,
+    #             "max_seq_length": {},
+    #             "torch_distributed": None,
+    #             "use_horovod": False,
+    #             "version": 3,#2: with get_librispeech_lm_dataset
+    #         },
+    #     ),
+    #     train_dataset=lm_dataset,
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 FeedForwardLm,
+    #                 num_layers=num_layers,
+    #                 context_size=context_size,
+    #                 embed_dropout=embed_dropout,
+    #                 dropout=dropout,
+    #                 ff_hidden_dim=ff_hidden_dim,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    # )
+
+    exponents = {185: 2.3, 10_025: 1.1} #185-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
         dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+        exponent=exponents.get(vocab.dim,1)
     )
-
-    return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
+    print(f"------fixed epochs of ffnnlm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")
+    # if ppls.
+    # print(f"------PPL of ffnnlms--------")
+    # for epoch, ppl in ppls.items():
+    #     with open(ppl,"r") as f:
+    #         ppl = f.readline()
+    #     print(epoch, ppl)
+    if epochs:
+        for epoch in epochs:
+            assert epoch in model_with_checkpoints.fixed_epochs
+            yield model_with_checkpoints.get_epoch(epoch), ppls[f"epoch{epoch}"], epoch
+    else:
+        return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
 
 class FFNN_LM_State(CTCDecoderLMState):
     def __init__(self, tokens: Sequence[int], context_size: int, labels: Sequence[int]):
@@ -341,6 +434,11 @@ def lm_train_def(
     best = rf.reduce_argmax(logits_packed, axis=model.vocab_dim)
     frame_error = best != targets_packed
     frame_error.mark_as_loss(name="fer", as_error=True)
+
+    ###Debug####
+    # import pdb
+    # pdb.set_trace()
+    ########
 
 
 lm_train_def: TrainDef
