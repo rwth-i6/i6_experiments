@@ -17,19 +17,30 @@ import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob
 
-def ctc_exp(lmname, lm, vocab):
+def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
     """Experiments on CTC"""
-    # ---------------------------------------------------------
-    # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-    #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-    #               f"-[vocab]" + f"-[sample]"
-    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
-    enc_conformer_layer_default = rf.build_dict(
-        ConformerEncoderLayer,
-        ff_activation=rf.build_dict(rf.relu_square),
-        num_heads=8,
-    )
-    model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
+    model_def = None
+    if encoder == "conformer":
+        # ---------------------------------------------------------
+        # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+        #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
+        #               f"-[vocab]" + f"-[sample]"
+        # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+        enc_conformer_layer_default = rf.build_dict(
+            ConformerEncoderLayer,
+            ff_activation=rf.build_dict(rf.relu_square),
+            num_heads=8,
+        )
+        model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
+        # from i6_experiments.users.zhang.experiments.encoder.conformer import ctc_model_def as conformer_model_def
+        # model_def = conformer_model_def
+    elif encoder == "blstm":
+        from i6_experiments.users.zhang.experiments.encoder.blstm import ctc_model_def as blstm_model_def
+        model_def = blstm_model_def #TODO: not sure how would this break the hash.
+        # It breaks when move the def to a separate file
+        model_config = {}
+    else:
+        raise ValueError(f"Unknown encoder: {encoder}")
 
 
     recog_epoch = None
@@ -92,45 +103,47 @@ def ctc_exp(lmname, lm, vocab):
     lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}"
     lm_hyperparamters_str = vocab + lm_hyperparamters_str  # Assume only experiment on one ASR model, so the difference of model itself is not reflected here
 
-    alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + lmname if lm else f"ctc-baseline-" + lm_hyperparamters_str + lmname
+    alias_name = "ctc-baseline_" + encoder  + (("_decodingWith_" + lm_hyperparamters_str + lmname
+                                               if lm else f"ctc-baseline-" + lm_hyperparamters_str + lmname) if not train else "")
     print(f"name{lmname}", "lexicon:" + str(decoding_config["use_lexicon"]))
 
-    from i6_experiments.users.zhang.experiments.ctc import train_exp, model_recog_lm, model_recog_flashlight, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, _get_cfg_lrlin_oclr_by_bs_nep, speed_pert_librosa_config, _raw_sample_rate
+    from i6_experiments.users.zhang.experiments.ctc import train_exp as train_exp, model_recog_lm, model_recog_flashlight, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, _get_cfg_lrlin_oclr_by_bs_nep, speed_pert_librosa_config, _raw_sample_rate
     search_mem_rqmt = 16 if vocab == "bpe10k"  else 6
     search_rqmt = {"cpu": search_mem_rqmt//2, "time": 6} if vocab == "bpe10k" else None
     if "ffnn" in lmname:
         search_mem_rqmt = 24
         search_rqmt = {"time": decoding_config["beam_size"]//3 + 4}
 
-    _, wer_result_path, search_error, lm_scale = train_exp(
-        name=alias_name,
-        config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        decoder_def=model_recog_flashlight if "ffnn" in lmname else model_recog_lm,
-        model_config=model_config,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        vocab=vocab,
-        train_vocab_opts=None,
-        decoding_config=decoding_config,
-        exclude_epochs=exclude_epochs,
-        with_prior=with_prior,
-        empirical_prior=empirical_prior,
-        prior_from_max=prior_from_max,
-        tune_hyperparameters=tune_hyperparameters,
-        search_mem_rqmt=search_mem_rqmt,
-        search_rqmt=search_rqmt,
-        recog_epoch=recog_epoch
-    )
-    return wer_result_path, search_error, lm_hyperparamters_str, lm_scale
+    return train_exp(
+            name=alias_name,
+            config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            decoder_def=model_recog_flashlight if "ffnn" in lmname else model_recog_lm,
+            model_def=model_def,
+            model_config=model_config,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": None,
+                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                # out of 281241 seqs in train, we removed only 71 seqs.
+                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            },
+            vocab=vocab,
+            train_vocab_opts=None,
+            decoding_config=decoding_config,
+            exclude_epochs=exclude_epochs,
+            with_prior=with_prior,
+            empirical_prior=empirical_prior,
+            prior_from_max=prior_from_max,
+            tune_hyperparameters=tune_hyperparameters,
+            search_mem_rqmt=search_mem_rqmt,
+            search_rqmt=search_rqmt,
+            recog_epoch=recog_epoch, #Ignored for training case
+            recog=not train,
+        )
 
 def py():
     """Sisyphus entry point"""
@@ -308,7 +321,9 @@ def py():
             #lms.update({"NoLM": None})
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
-                wer_result_path, search_error, lm_hyperparamters_str, lm_scale = exp(name, lm, vocab)
+                wer_result_path, search_error, lm_hyperparamters_str, lm_scale = exp(name, lm, vocab,
+                                                                                     encoder="blstm", train=True)
+                lm_hyperparamters_str = " " if not lm_hyperparamters_str else lm_hyperparamters_str
                 if lm:
                     wer_ppl_results[name] = (ppl_results.get(name), wer_result_path, search_error, lm_scale)
             if wer_ppl_results:

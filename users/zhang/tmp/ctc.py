@@ -1,5 +1,5 @@
 """
-CTC experiments.
+CTC experiments. Back up: before reform to split encoder def; train_exp and recog_exp
 """
 
 from __future__ import annotations
@@ -240,6 +240,8 @@ def py():
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
+
+# noinspection PyShadowingNames
 def train_exp(
     name: str,
     config: Dict[str, Any],
@@ -250,142 +252,6 @@ def train_exp(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
-    model_config: Optional[Dict[str, Any]] = None, # Returnn config
-    config_updates: Optional[Dict[str, Any]] = None, # For iterative changing of config
-    config_deletes: Optional[Sequence[str]] = None,
-    post_config_updates: Optional[Dict[str, Any]] = None,
-    epilog: Sequence[serialization.SerializerObject] = (),
-    num_epochs: int = 2000,
-    gpu_mem: Optional[int] = 24,
-    num_processes: Optional[int] = None,
-    time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
-    env_updates: Optional[Dict[str, str]] = None,
-    decoding_config: dict = None,
-    exclude_epochs: Collection[int] = (),
-    recog_epoch: int = None,
-    with_prior: bool = False,
-    empirical_prior: bool = False,
-    prior_from_max: bool = False,
-    tune_hyperparameters: bool = False,
-    search_mem_rqmt: Union[int, float] = 6,
-    search_rqmt: dict = None,
-    recog: bool = False,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
-
-    """
-    Train experiment
-    """
-    from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zhang.recog import recog_training_exp
-    from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_task_raw_v2
-
-    if _sis_prefix is None:
-        _sis_setup_global_prefix()
-
-    prefix = _sis_prefix + "/" + name
-
-    task = get_librispeech_task_raw_v2(vocab=vocab,
-                                       train_vocab_opts=train_vocab_opts,
-                                       with_prior=with_prior,
-                                       empirical_prior=empirical_prior,
-                                       **(dataset_train_opts or {}))
-
-    config = config.copy()
-    config = dict_update_deep(config, config_updates, config_deletes)
-    # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
-    if "__train_audio_preprocess" in config:
-        task: Task = copy.copy(task)
-        task.train_dataset = copy.copy(task.train_dataset)
-        assert hasattr(task.train_dataset, "train_audio_preprocess")  # e.g. LibrispeechOggZip
-        task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
-
-    if not model_def:
-        model_def = ctc_model_def
-    if model_config:
-        model_config_ = model_config.copy()
-        if "recog_language_model" in model_config:
-            # recog_language_model = model_config["recog_language_model"].copy()
-            # cls_name = recog_language_model.pop("class")
-            # assert cls_name == "FeedForwardLm"
-            # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
-
-            search_config = model_config_.pop("recog_language_model")
-        model_def = ModelDefWithCfg(model_def, model_config_)
-
-    if not train_def:
-        train_def = ctc_training
-    serialization_version = config.get("__serialization_version", None)
-    # print(f"prefix={prefix},\n"
-    #       f"epilog={epilog},\n"
-    #       f"model_def={model_def},\n"
-    #     f"train_def={train_def},\n")
-    model_with_checkpoints = train(
-        prefix,
-        task=task,
-        config=config,
-        post_config=dict_update_deep(post_config, post_config_updates),
-        epilog=epilog,
-        model_def=model_def,
-        train_def=train_def,
-        num_epochs=num_epochs,
-        gpu_mem=gpu_mem,
-        num_processes=num_processes,
-        time_rqmt=time_rqmt,
-        env_updates=env_updates,
-    )
-
-    recog_post_proc_funcs = []
-    if config.get("use_eos_postfix", False):
-        recog_post_proc_funcs.append(_remove_eos_label_v2)
-    # search_config = None
-    # if serialization_version is not None:
-    #     search_config = {"__serialization_version": serialization_version}
-
-    if recog:
-        return recog_exp(
-        name=name,
-        config=config,
-        decoder_def=decoder_def,
-        prefix=prefix,
-        task=task,
-        model_with_checkpoints=model_with_checkpoints,
-        model_config=model_config,
-        config_updates=config_updates,
-        vocab=vocab,
-        decoding_config=decoding_config,
-        exclude_epochs=exclude_epochs,
-        with_prior=with_prior,
-        empirical_prior=empirical_prior,
-        prior_from_max=prior_from_max,
-        tune_hyperparameters=tune_hyperparameters,
-        search_mem_rqmt=search_mem_rqmt,
-        search_rqmt=search_rqmt,
-        recog_epoch=recog_epoch,
-    )
-
-    recog_training_exp(
-        prefix,
-        task,
-        model_with_checkpoints,
-        recog_def=model_recog,
-        search_config=search_config,
-        recog_post_proc_funcs=recog_post_proc_funcs,
-    )
-
-    _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, None, None, None
-
-
-# noinspection PyShadowingNames
-def recog_exp(
-    name: str,
-    config: Dict[str, Any],
-    decoder_def: Callable,
-    model_with_checkpoints: ModelWithCheckpoints,
-    *,
-    prefix: Optional[str] = None,
-    task: Task = None,
-    vocab: str = "bpe10k",
     model_config: Optional[Dict[str, Any]] = None, # Returnn config
     config_updates: Optional[Dict[str, Any]] = None, # For iterative changing of config
     config_deletes: Optional[Sequence[str]] = None,
@@ -410,17 +276,36 @@ def recog_exp(
     """
     Train experiment
     """
-    from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
+    from i6_experiments.users.zeyer.train_v3 import train
+    from i6_experiments.users.zhang.recog import recog_training_exp, recog_exp, GetBestTuneValue
+    from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_task_raw_v2
     from i6_experiments.users.zhang.experiments.language_models.n_gram import get_prior_from_unigram
+
+    if not enabled:
+        return None
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
+    prefix = _sis_prefix + "/" + name
+    # TODO： find out how to apply recognition on other dataset
+    task = get_librispeech_task_raw_v2(vocab=vocab,
+                                       train_vocab_opts=train_vocab_opts,
+                                       with_prior=with_prior,
+                                       empirical_prior=empirical_prior,
+                                       **(dataset_train_opts or {}))
     if with_prior and empirical_prior:
         emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
+    # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
+    if "__train_audio_preprocess" in config:
+        task: Task = copy.copy(task)
+        task.train_dataset = copy.copy(task.train_dataset)
+        task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
+    if not model_def:
+        model_def = ctc_model_def
     search_config = None
     if model_config:
         if "recog_language_model" in model_config:
@@ -428,8 +313,26 @@ def recog_exp(
             # cls_name = recog_language_model.pop("class")
             # assert cls_name == "FeedForwardLm"
             # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
-            model_config_ = model_config.copy()
-            search_config = model_config_.pop("recog_language_model")
+            search_config = model_config.pop("recog_language_model")
+
+        model_def = ModelDefWithCfg(model_def, model_config)
+    if not train_def:
+        train_def = ctc_training
+
+    model_with_checkpoint = train(
+        prefix,
+        task=task,
+        config=config,
+        post_config=dict_update_deep(post_config, post_config_updates),
+        epilog=epilog,
+        model_def=model_def,
+        train_def=train_def,
+        num_epochs=num_epochs,
+        gpu_mem=gpu_mem,
+        num_processes=num_processes,
+        time_rqmt=time_rqmt,
+        env_updates=env_updates,
+    )
 
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
@@ -463,10 +366,10 @@ def recog_exp(
             #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
             #     dev_sets=["dev-other"],
             # )
-            score, _ = recog_exp_(
+            score, _ = recog_exp(
                 prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
                 task_copy,
-                model_with_checkpoints,
+                model_with_checkpoint,
                 epoch=recog_epoch,
                 recog_def=decoder_def,
                 decoding_config=params,
@@ -509,10 +412,10 @@ def recog_exp(
                 #     dev_sets=["dev-other"],
                 #     search_rqmt=search_rqmt,
                 # )
-                score, _ = recog_exp_(
+                score, _ = recog_exp(
                     prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
                     task_copy,
-                    model_with_checkpoints,
+                    model_with_checkpoint,
                     epoch=recog_epoch,
                     recog_def=decoder_def,
                     decoding_config=params,
@@ -543,8 +446,8 @@ def recog_exp(
     #     dev_sets=["test-other","dev-other"],
     #     search_rqmt=search_rqmt,
     # )
-    recog_result, search_error = recog_exp_(
-        prefix, task, model_with_checkpoints,
+    recog_result, search_error = recog_exp(
+        prefix, task, model_with_checkpoint,
         epoch=recog_epoch,
         recog_def=decoder_def,
         decoding_config=decoding_config,
@@ -559,8 +462,8 @@ def recog_exp(
         search_error_check=True,
     )
 
-    _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, lm_scale
+    _train_experiments[name] = model_with_checkpoint
+    return model_with_checkpoint, recog_result, search_error, lm_scale
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -707,10 +610,9 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
 
     collected_outputs = {} if aux_loss_layers else None
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > model.num_enc_layers:#len(model.encoder.layers):
+            if layer_idx > len(model.encoder.layers):
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])

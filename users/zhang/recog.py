@@ -1382,7 +1382,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         last_fixed_epoch = max(exp.fixed_epochs)
         recog_and_score_func = d["recog_and_score_func"]
         res = recog_and_score_func(last_fixed_epoch)
-        assert isinstance(res, ScoreResultCollection)
+        assert isinstance(res[0], ScoreResultCollection)
         # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
         d["_last_fixed_epoch_results"] = res
         return sis_tools.sis_hash(d)
@@ -1427,7 +1427,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
             return
         if epoch in self.exclude_epochs:
             return
-        res = self.recog_and_score_func(epoch)
+        res = self.recog_and_score_func(epoch)[0]
         assert isinstance(res, ScoreResultCollection)
         self.add_input(res.main_measure_value)
         self.add_input(res.output)
