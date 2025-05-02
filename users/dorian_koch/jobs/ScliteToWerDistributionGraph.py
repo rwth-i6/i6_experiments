@@ -20,9 +20,9 @@ def make_bins(
             num_offscreen += 1
             continue
         if bin_align == "edge":
-            bin_idx = min(int((value - val_range[0]) / (val_range[1] - val_range[0]) * num_bins), num_bins - 1)
+            bin_idx = min(int((value - val_range[0]) * num_bins / (val_range[1] - val_range[0])), num_bins - 1)
         elif bin_align == "center":
-            bin_idx = int((value - val_range[0]) / (val_range[1] - val_range[0]) * (num_bins - 1) + 0.5)
+            bin_idx = int((value - val_range[0]) * (num_bins - 1) / (val_range[1] - val_range[0]) + 0.5)
         assert (
             0 <= bin_idx < num_bins
         ), f"bin_idx {bin_idx} out of range {val_range[0]}-{val_range[1]} for value {value}"
@@ -57,6 +57,10 @@ class ScliteToWerDistributionGraph(Job):
         self.log_scale = logscale
         self.xlim = xlim or (0.0, 100.0)
 
+        assert (
+            100 % num_bins == 0
+        ), "num_bins must be a divisor of 100"  # otherwise some bins will get more values than others
+
         # self.out_file = self.output_path("vals.csv")
         # self.distrib_file = self.output_path("distrib.csv")
         self.out_plot = self.output_path("plot.pdf")
@@ -69,7 +73,7 @@ class ScliteToWerDistributionGraph(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 19
+        d["__version"] = 21
         return super().hash(d)
 
     def tasks(self):
@@ -139,7 +143,7 @@ class ScliteToWerDistributionGraph(Job):
         import matplotlib.pyplot as plt
 
         for metric in ["WER", "len"]:
-            metric_range = {"WER": (0, 100), "len": (0, 75)}.get(metric)
+            metric_range = {"WER": (0, 100), "len": (0, 100)}.get(metric)
             assert metric_range is not None
             name_with_vals = self.read_reportdirs(metric=metric)
 
@@ -256,7 +260,7 @@ class CompareTwoScliteWerDistributions(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 11
+        d["__version"] = 12
         return super().hash(d)
 
     def tasks(self):
