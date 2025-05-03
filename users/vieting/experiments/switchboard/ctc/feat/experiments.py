@@ -69,7 +69,7 @@ def run_nn_args(
     report_name="",
     returnn_root=None,
     recog_args=None,
-    use_second_dev_set=False,
+    hub5e01_exp_list=None,
 ):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
@@ -150,17 +150,35 @@ def run_nn_args(
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         cached=True,
     )
-    if use_second_dev_set:
-        ctc_nn_system._set_scorer("hub5e01", score_info_hub5e01)
-        ctc_nn_system.crp["hub5e01"].acoustic_model_config = copy.deepcopy(
+
+    ctc_nn_system.run_train_step(nn_args.training_args)
+
+    if hub5e01_exp_list is not None:
+        assert isinstance(hub5e01_exp_list, list)
+
+        ctc_nn_system_hub5e01 = copy.deepcopy(ctc_nn_system)
+        ctc_nn_system_hub5e01._set_scorer("hub5e01", score_info_hub5e01)
+        ctc_nn_system_hub5e01.crp["hub5e01"].acoustic_model_config = copy.deepcopy(
             ctc_nn_system.crp["hub5e00"].acoustic_model_config
         )
 
-    ctc_nn_system.run_train_step(nn_args.training_args)
+        for exp in ctc_nn_system_hub5e01.returnn_configs:
+            if exp not in hub5e01_exp_list:
+                ctc_nn_system_hub5e01.returnn_configs.pop(exp)
+        ctc_nn_system_hub5e01.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
+
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
     assert ctc_nn_system.report is not None
     report = ctc_nn_system.report
+    if hub5e01_exp_list is not None:
+        for data in report.data:
+            data["eval_set"] = "hub5e00"
+
+        for data in ctc_nn_system_hub5e01.report.data:
+            data["eval_set"] = "hub5e01"
+        report = Report.merge_reports([report, ctc_nn_system_hub5e01.report])
+
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     if report_name:
@@ -258,7 +276,14 @@ def run_mel_baseline():
         prefix="conformer_",
     )
     report, ctc_nn_system = run_nn_args(
-        nn_args, report_args_collection, dev_corpora, recog_args=recog_args, use_second_dev_set=True
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        recog_args=recog_args,
+        hub5e01_exp_list=[
+            "conformer_bs10k_lgm80_baseline",
+            "conformer_bs10k_lgm80_baseline_time_30",
+        ],
     )
     return report, ctc_nn_system
 
@@ -389,7 +414,11 @@ def run_scf_baseline():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
-        use_second_dev_set=True,
+        hub5e01_exp_list=[
+            "conformer_bs10k_scf_baseline_preemphasis97",
+            "conformer_bs10k_scf_baseline_preemphasis97_mask8",
+            "conformer_bs10k_scf_baseline_preemphasis97_mask8_30",
+        ],
     )
     return report, ctc_nn_system
 
@@ -950,7 +979,9 @@ def run_scf_specaug():
         "report_scf_specaug.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
-        use_second_dev_set=True,
+        hub5e01_exp_list=[
+            "conformer_bs2x5k_scf_specaug_baseline",
+        ],
     )
     return report
 
@@ -1372,7 +1403,12 @@ def run_specaug_stft_experiments():
         "report_specaug_stft.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [24, 350, 390, 400, 410, 420, 430, 440, 450]},
-        use_second_dev_set=True,
+        hub5e01_exp_list=[
+            "conformer_bs10k_scf_stft10ms_fmask_5_8of256",
+            "conformer_bs10k_lgm_stft10ms_fmask_5_8of256",
+            "conformer_bs10k_scf_stft10ms_fmask_5_4of256",
+            "conformer_bs10k_lgm_stft10ms_fmask_5_4of256",
+        ],
     )
     return report, ctc_nn_system
 
@@ -1523,7 +1559,12 @@ def run_scf_combination_experiments():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [376, 386, 396, 406, 426]},
-        use_second_dev_set=True,
+        hub5e01_exp_list=[
+            "conformer_scf_bs2x5k_stft20ms_fmask_5_8of512_tempo",
+            "conformer_scf_bs10k_stft10ms_fmask_5_8of256_tempo",
+            "conformer_scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1",
+            "conformer_scf_bs10k_stft10ms_fmask_5_8of256_tempo_nonlinear_preemphasis",
+        ],
     )
     return report, ctc_nn_system
 
