@@ -35,7 +35,6 @@ def make_bins(
 
 
 class ScliteToWerDistributionGraph(Job):
-
     def __init__(
         self,
         *,
@@ -256,11 +255,15 @@ class CompareTwoScliteWerDistributions(Job):
 
         self.out_plot = self.output_path("plot.pdf")
         self.out_ratio_plot = self.output_path("plot_ratio.pdf")
+        self.out_plot_scatter = self.output_path("plot_scatter.pdf")
+        self.out_plot_scatter2 = self.output_path("plot_scatter2.pdf")
+        self.out_plot_scatter3 = self.output_path("plot_scatter3.pdf")
+        self.out_plot_scatter3_gauss = self.output_path("plot_scatter3_gauss.pdf")
 
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 12
+        d["__version"] = 24
         return super().hash(d)
 
     def tasks(self):
@@ -301,10 +304,7 @@ class CompareTwoScliteWerDistributions(Job):
         if self.log_scale:
             plt.yscale("log")
             plt.ylim(1e-3, 1)
-        if isinstance(self.plot_title, DelayedBase):
-            plt.title(self.plot_title.get() + " " + title)
-        else:
-            plt.title(self.plot_title + " " + title)
+        plt.title(self.plot_title + " " + title)
         x_range = range(
             -self.num_bins_in_each_direction,
             self.num_bins_in_each_direction + 1,
@@ -355,7 +355,11 @@ class CompareTwoScliteWerDistributions(Job):
         return all_vals
 
     def run(self):
+        if isinstance(self.plot_title, DelayedBase):
+            self.plot_title = self.plot_title.get()
         import matplotlib.pyplot as plt
+        import matplotlib
+        import matplotlib.colors as mcolors
         import os
 
         # remove current plots
@@ -366,8 +370,7 @@ class CompareTwoScliteWerDistributions(Job):
 
         all_vals = self.read_report_dirs()
 
-        values_diff = []  # (value, weight)
-        values_ratio = []
+        values = []  # (weight, (wer0, wer1))
         num_wers_ignored = 0
         for seq_tag in list(all_vals[0].keys()):
             (c, s, d, i) = all_vals[0][seq_tag]
@@ -383,25 +386,106 @@ class CompareTwoScliteWerDistributions(Job):
             if self.ignore_perfect_seqs and wer0 == 0 and wer1 == 0:
                 num_wers_ignored += 1
                 continue
-            wer_diff = wer1 - wer0
+            values.append((s + d + c, (wer0, wer1)))
 
-            values_diff.append((wer_diff, s + d + c))
+            # print(f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f} ({wer_diff:.2f}, {wer_ratio:.2f})")
+            print(f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f}")
 
-            if abs(wer0) > 1e-8:
-                wer_ratio = wer1 / wer0 - 1.0  # do -1.0 so we can just reuse the code for the wer diff
-                values_ratio.append((wer_ratio, s + d + c))
-            elif wer0 == 0 and wer1 == 0:
-                wer_ratio = 0.0
-            else:
-                wer_ratio = math.nan
-
-            print(f"seq {seq_tag}: {wer0:.2f} -> {wer1:.2f} ({wer_diff:.2f}, {wer_ratio:.2f})")
         if self.ignore_perfect_seqs:
             print(
                 f"Ignored {num_wers_ignored} (of {len(all_vals[0].keys())}) because they were perfect and ignore_perfect_seqs=True"
             )
 
+        values_diff = []  # (value, weight)
+        values_ratio = []
+        for weight, (wer0, wer1) in values:
+            wer_diff = wer1 - wer0
+
+            values_diff.append((wer_diff, weight))
+
+            if abs(wer0) > 1e-8:
+                wer_ratio = wer1 / wer0 - 1.0  # do -1.0 so we can just reuse the code for the wer diff
+                values_ratio.append((wer_ratio, weight))
+            elif wer0 == 0 and wer1 == 0:
+                wer_ratio = 0.0
+            else:
+                wer_ratio = math.nan
+
         self.make_plot(values_diff, f"WER differences +-{self.x_extents}", self.out_plot, self.x_extents)
         self.make_plot(
             values_ratio, f"relative WER difference", self.out_ratio_plot, self.x_extents / 100, is_ratio=True
         )
+
+        import numpy as np
+
+        # Unpack the data
+        weights, coords = zip(*values)
+        x, y = zip(*coords)
+
+        # Convert to numpy arrays
+        x = np.array(x)
+        y = np.array(y)
+        weights = np.array(weights)
+
+        # plt reset everything
+        LIM = 30
+        plt.figure(figsize=(8, 8))
+
+        plt.hexbin(
+            x,
+            y,
+            C=weights,
+            reduce_C_function=np.sum,
+            gridsize=50,
+            cmap="plasma",
+            norm=mcolors.LogNorm(vmin=1),
+        )
+        plt.colorbar(label="Sum of seq lengths")
+
+        plt.xlabel("from")
+        plt.ylabel("to")
+        plt.xlim(0, LIM)
+        plt.ylim(0, LIM)
+        plt.title(self.plot_title)
+        plt.savefig(self.out_plot_scatter)
+
+        # plt reset everything
+        plt.figure(figsize=(8, 8))
+
+        plt.hist2d(x, y, bins=100, weights=weights, cmap="plasma", norm=mcolors.LogNorm(vmin=1))
+        plt.colorbar(label="Sum of seq lengths")
+        plt.xlabel("from")
+        plt.ylabel("to")
+        plt.xlim(0, LIM)
+        plt.ylim(0, LIM)
+        plt.title(self.plot_title)
+        plt.savefig(self.out_plot_scatter2)
+
+        plt.figure(figsize=(8, 8))
+
+        plt.scatter(x, y, s=10, alpha=0.8, c=weights, cmap="plasma", norm=mcolors.LogNorm(vmin=1, vmax=100))
+        plt.colorbar(label="Seq length (log scale)")
+        plt.xlabel("from")
+        plt.ylabel("to")
+        plt.title(self.plot_title)
+        plt.xlim(0, LIM)
+        plt.ylim(0, LIM)
+        plt.grid()
+        plt.savefig(self.out_plot_scatter3)
+
+        plt.figure(figsize=(8, 8))
+
+        # add some gauss noise to x and y
+        x_noised = x + np.random.normal(0, 0.3, len(x))
+        y_noised = y + np.random.normal(0, 0.3, len(y))
+        plt.scatter(
+            x_noised, y_noised, s=5, alpha=0.5, c=weights, cmap="plasma", norm=mcolors.LogNorm(vmin=1, vmax=100)
+        )
+        plt.colorbar(label="Seq length (log scale) with some gauss noise")
+        plt.xlabel("from")
+        plt.ylabel("to")
+        plt.title(self.plot_title)
+        plt.xlim(0, LIM)
+        plt.ylim(0, LIM)
+        plt.grid()
+        plt.savefig(self.out_plot_scatter3_gauss)
