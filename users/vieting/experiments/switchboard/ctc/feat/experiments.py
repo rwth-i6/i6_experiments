@@ -162,7 +162,7 @@ def run_nn_args(
             ctc_nn_system.crp["hub5e00"].acoustic_model_config
         )
 
-        for exp in ctc_nn_system_hub5e01.returnn_configs:
+        for exp in list(ctc_nn_system_hub5e01.returnn_configs.keys()):
             if exp not in hub5e01_exp_list:
                 ctc_nn_system_hub5e01.returnn_configs.pop(exp)
         ctc_nn_system_hub5e01.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
