@@ -56,23 +56,7 @@ def recog_flashlight_ngram(
     lm_name = hyp_params.pop("lm_order", None)
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
-    
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
     
     if greedy:
         use_logsoftmax = True
@@ -84,8 +68,8 @@ def recog_flashlight_ngram(
         # Subtract prior of labels if available
         if prior_file and prior_weight > 0.0:
             prior = np.loadtxt(prior_file, dtype="float32")
+            assert prior.shape[0] == label_log_prob.shape[-1]
             label_log_prob -= prior_weight * prior
-            print("We subtracted the prior!")
     elif prior_file and prior_weight > 0.0:
         print("Cannot subtract prior without running log softmax")
         return None
@@ -311,22 +295,6 @@ def recog_flashlight_ffnn(
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-    
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
     n_best = hyp_params.pop("ps_nbest", 1)
     beam_size = hyp_params.pop("beam_size", 1)
@@ -549,14 +517,14 @@ def recog_flashlight_ffnn(
     )
     fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, -1, model.blank_idx, [])
 
-    # Subtract prior of labels if available
+    # Subtract framewise prior if available
     if prior_file and prior_weight > 0.0:
         prior = np.loadtxt(prior_file, dtype="float32")
         prior *= prior_weight
         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        assert prior.shape[0] == label_log_prob.raw_tensor.shape[-1]
         prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
         label_log_prob = label_log_prob - prior
-        # print("We subtracted the prior!")
     
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
@@ -693,22 +661,6 @@ def recog_ffnn(
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-    
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
     n_best = hyp_params.pop("ps_nbest", 1)
     beam_size = hyp_params.pop("beam_size", 1)
@@ -727,14 +679,22 @@ def recog_ffnn(
     import returnn
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
     
-    # Subtract prior of labels if available
+    # Subtract prior if available
+    label_prior = False
+    prior = None
     if prior_file and prior_weight > 0.0:
         prior = np.loadtxt(prior_file, dtype="float32")
         prior *= prior_weight
         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
-        label_log_prob = label_log_prob - prior
-        # print("We subtracted the prior!")
+        if prior.shape[0] != label_log_prob.raw_tensor.shape[-1]:
+            assert prior.shape[0] == label_log_prob.raw_tensor.shape[-1] - 1, f"prior shape {prior.shape[0]} != label_log_prob shape {label_log_prob.raw_tensor.shape[-1]} - 1"
+            label_prior = True
+        if label_prior:
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+        # Framewise prior
+        else:
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+            label_log_prob = label_log_prob - prior
         
     assert lm_name.startswith("ffnn")
     context_size = int(lm_name[len("ffnn"):])
@@ -749,8 +709,6 @@ def recog_ffnn(
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
     
-    print("LM scale:", lm_scale, "Prior scale:", prior_weight)
-
     # Eager-mode implementation of beam search.
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
@@ -778,6 +736,8 @@ def recog_ffnn(
         assert lm_logits.dims == (*batch_dims_, model.target_dim)
         lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
         lm_log_probs *= lm_scale
+        if label_prior and prior is not None:
+            lm_log_probs -= prior
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -884,6 +844,8 @@ def recog_ffnn(
                 assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
                 lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
                 lm_log_probs_ *= lm_scale
+                if label_prior and prior is not None:
+                    lm_log_probs -= prior
 
                 lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
                     (lm_log_probs_, lm_state_),
@@ -960,22 +922,6 @@ def recog_gradients(
     lm_name = hyp_params.pop("lm_order", None)
     am_scale = hyp_params.pop("am_scale", 1.0)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-    
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
     beam_size = hyp_params.pop("beam_size", 1)
     n_best = hyp_params.pop("grad_nbest", 1)
@@ -988,11 +934,19 @@ def recog_gradients(
     dev = torch.device(dev_s)
     
     # Read out prior
+    label_prior = False
     prior = None
     if prior_file and prior_weight > 0.0:
         prior = np.loadtxt(prior_file, dtype="float32")
         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+        if prior.shape[0] != label_log_prob.raw_tensor.shape[-1]:
+            assert prior.shape[0] == label_log_prob.raw_tensor.shape[-1] - 1, f"prior shape {prior.shape[0]} != label_log_prob shape {label_log_prob.raw_tensor.shape[-1]} - 1"
+            label_prior = True
+        if label_prior:
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+        # Framewise prior
+        else:
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
     
     assert lm_name.startswith("ffnn")
     context_size = int(lm_name[len("ffnn"):])
@@ -1052,8 +1006,8 @@ def recog_gradients(
                 am_scale=am_scale,
                 lm_scale=lm_scale,
                 prior_scale=prior_weight,
-                horizontal_prior=True,
-                blank_prior=True,
+                horizontal_prior=not label_prior,
+                blank_prior=not label_prior,
                 device=dev_s,
                 use_recombination=use_recombination,
                 recomb_blank=recomb_blank,

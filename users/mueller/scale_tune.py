@@ -42,7 +42,6 @@ def ctc_recog_framewise_prior_auto_scale(
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog``) with those scales.
     """
-
     dataset = task.dev_dataset
     _, asr_scores, _ = search_dataset(
         decoder_hyperparameters={},
@@ -61,6 +60,82 @@ def ctc_recog_framewise_prior_auto_scale(
     if model_recog_ctc_only.output_blank_label:
         asr_scores = ctc_alignment_to_label_seq(asr_scores, blank_label=model_recog_ctc_only.output_blank_label)
         prior_scores = ctc_alignment_to_label_seq(prior_scores, blank_label=model_recog_ctc_only.output_blank_label)
+    lm_scores = rescore(
+        recog_output=asr_scores,
+        model=lm,
+        vocab=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=lm_rescore_def,
+        forward_device="cpu",
+    )
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        asr_scores = f(asr_scores)
+        prior_scores = f(prior_scores)
+        lm_scores = f(lm_scores)
+        ref = f(ref)
+        
+    asr_scores = SearchOutputRawReplaceJob(asr_scores.output, [("@@", "")], output_gzip=True).out_search_results
+    prior_scores = SearchOutputRawReplaceJob(prior_scores.output, [("@@", "")], output_gzip=True).out_search_results
+    lm_scores = SearchOutputRawReplaceJob(lm_scores.output, [("@@", "")], output_gzip=True).out_search_results
+    ref = SearchOutputRawReplaceJob(ref.output, [("@@", "")], output_gzip=True).out_search_results
+
+    opt_scales_job = ScaleTuningJob(
+        scores={"am": asr_scores, "prior": prior_scores, "lm": lm_scores},
+        ref=ref,
+        fixed_scales={"am": 1.0},
+        negative_scales={"prior"},
+        scale_relative_to={"prior": "lm"},
+        evaluation="edit_distance",
+    )
+    opt_scales_job.add_alias(prefix)
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
+    # We use the real scales.
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
+
+    return prior_scale, lm_scale
+
+def ctc_recog_labelwise_prior_auto_scale(
+    *,
+    prefix: str,
+    task: Task,
+    ctc_model: ModelWithCheckpoint,
+    prior_file: tk.Path,
+    lm: ModelWithCheckpoint,
+    vocab_file: tk.Path,
+    vocab_opts_file: tk.Path,
+    num_shards: int,
+    search_config: dict,
+) -> tuple[Variable, Variable]:
+    """
+    Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
+    then calc scores with labelwise prior and LM on N-best list,
+    then tune optimal scales on N-best list,
+    then rescore on all ``task.eval_datasets`` using those scales,
+    and also do first-pass recog (``model_recog``) with those scales.
+    """
+    dataset = task.dev_dataset
+    _, asr_scores, _ = search_dataset(
+        decoder_hyperparameters={},
+        dataset=dataset,
+        model=ctc_model,
+        recog_def=model_recog_ctc_only,
+        prior_path=None,
+        config=search_config,
+        num_shards=num_shards,
+    )
+    asr_scores = RecogOutput(output=asr_scores)
+    
+    labelwise_prior = Prior(file=prior_file, type="log_prob", vocab=vocab_file)
+    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
     lm_scores = rescore(
         recog_output=asr_scores,
         model=lm,

@@ -109,7 +109,7 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         
     return conversion_job.out_lm_tensor
 
-def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], vocab_name: str) -> tk.Path:
+def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], vocab_name: str, label_prior: bool) -> tk.Path:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
@@ -148,8 +148,11 @@ def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], v
     
     tk.register_output(f"datasets/LibriSpeech/lm/count_based_1-gram_all", ppl_job.out_ppl_score)
     
-    bpe_len_wo_blank = _extract_text_seq_len_file(prior_dataset, vocab_name, name="target", use_main_ds=True)
-    audio_len = _extract_audio_seq_len_file(prior_dataset, use_main_ds=True)
+    bpe_len_wo_blank = None
+    audio_len = None
+    if not label_prior:
+        bpe_len_wo_blank = _extract_text_seq_len_file(prior_dataset, vocab_name, name="target", use_main_ds=True)
+        audio_len = _extract_audio_seq_len_file(prior_dataset, use_main_ds=True)
     prior_job = ExtractPrior(
         lm=lm_arpa,
         bpe_vocab=vocab.vocab,
@@ -157,8 +160,8 @@ def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], v
         audio_len=audio_len,
     )
     
-    prior_job.add_alias(f"datasets/LibriSpeech/lm/prior_from_unigram")
-    tk.register_output(f"datasets/LibriSpeech/lm/prior_from_unigram", prior_job.out_prior_tensor)
+    prior_job.add_alias(f"datasets/LibriSpeech/lm/{'label' if label_prior else 'frame'}_prior_from_unigram")
+    tk.register_output(f"datasets/LibriSpeech/lm/{'label' if label_prior else 'frame'}_prior_from_unigram", prior_job.out_prior_tensor)
     
     return prior_job.out_prior_tensor
 
@@ -231,8 +234,8 @@ class ExtractPrior(Job):
         self,
         lm: tk.Path,
         bpe_vocab: tk.Path,
-        bpe_len_wo_blank: tk.Path,
-        audio_len: tk.Path,
+        bpe_len_wo_blank: tk.Path | None,
+        audio_len: tk.Path | None,
     ):
         self.lm = lm
         self.bpe_vocab = bpe_vocab
@@ -252,15 +255,16 @@ class ExtractPrior(Job):
         assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
         vocab_n = len(vocab) - 1 # we combine eos and bos
         
-        bpe_len_wo_blank = np.loadtxt(self.bpe_len_wo_blank.get_path(), dtype="int32")
-        audio_len = np.loadtxt(self.audio_len.get_path(), dtype="int32")
-        
-        assert len(bpe_len_wo_blank) == len(audio_len), "The lengths of the files do not match!"
-        
-        bpe_len_w_blank = np.ceil((audio_len + 1) / 960)
-        
-        bpe_len_w_blank = bpe_len_w_blank.sum()
-        bpe_len_wo_blank = bpe_len_wo_blank.sum()
+        if self.audio_len is not None and self.bpe_len_wo_blank is not None:
+            bpe_len_wo_blank = np.loadtxt(self.bpe_len_wo_blank.get_path(), dtype="int32")
+            audio_len = np.loadtxt(self.audio_len.get_path(), dtype="int32")
+            
+            assert len(bpe_len_wo_blank) == len(audio_len), "The lengths of the files do not match!"
+            
+            bpe_len_w_blank = np.ceil((audio_len + 1) / 960)
+            
+            bpe_len_w_blank = bpe_len_w_blank.sum()
+            bpe_len_wo_blank = bpe_len_wo_blank.sum()
         
         uni_gram = list(lm_loader.get_ngrams(1))
         
@@ -280,14 +284,17 @@ class ExtractPrior(Job):
         assert tensor[1].allclose(torch.tensor(0.0), atol=0.0001), f"Prob of <unk> should be 0! (1) {tensor[1]}"
         assert tensor.sum().allclose(torch.tensor(1.0), atol=atol), f"The word probabilities do not sum to 1! {tensor.sum()}"
         
-        tensor = tensor * bpe_len_wo_blank
-        
-        tensor = torch.cat([tensor, torch.tensor([bpe_len_w_blank - bpe_len_wo_blank], dtype=torch.float32)])
-        tensor = tensor / bpe_len_w_blank
-        
-        assert tensor.sum().allclose(torch.tensor(1.0), atol=atol), f"The word probabilities do not sum to 1! {tensor.sum()}"
+        if self.audio_len is not None and self.bpe_len_wo_blank is not None:
+            tensor = tensor * bpe_len_wo_blank
+            
+            tensor = torch.cat([tensor, torch.tensor([bpe_len_w_blank - bpe_len_wo_blank], dtype=torch.float32)])
+            tensor = tensor / bpe_len_w_blank
+            
+            assert tensor.sum().allclose(torch.tensor(1.0), atol=atol), f"The word probabilities do not sum to 1! {tensor.sum()}"
         
         tensor = tensor.log()
+        tensor = tensor.log_softmax(dim=0)
+        assert tensor.exp().sum().allclose(torch.tensor(1.0), atol=0.0001), f"The word probabilities do not sum to 1! {tensor.sum()}"
         tensor = tensor.numpy()
         
         with uopen(self.out_prior_tensor, "w") as f:

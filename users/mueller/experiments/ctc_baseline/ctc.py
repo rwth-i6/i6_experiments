@@ -20,7 +20,7 @@ from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedFo
 from i6_experiments.users.mueller.experiments.ctc_baseline.configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, dict_update_deep, post_config
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL, _log_mel_feature_dim
 from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_flashlight_ngram, recog_no_lm, recog_flashlight_ffnn, recog_ffnn, recog_gradients
-from i6_experiments.users.mueller.experiments.ctc_baseline.training import ctc_train, full_sum_train, ce_train
+from i6_experiments.users.mueller.experiments.ctc_baseline.training import ctc_train, full_sum_train, ce_train, seq_gamma_ctc_train
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, TrainDef, RecogDef
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
@@ -64,7 +64,6 @@ def py():
     keep_small_labels = True                    # Keep true labels of 100h data during self-training
     pseudo_nbest = 5                            # Number of pseudo-label sequences
     norm_nbest_rescore = False                  # Normalize the LM and Prior values for each pseudo label sequence before adding them up
-    rescore_alignment_prior = True             # Rescore the sequences with the alignment instead of label prior
     grad_nbest = 10                             # Number of gradients we want to keep during gradient dumping
     rescore_ctc_loss_for_grad = False           # Rescore with CTC loss for the gradients we want to dump
     calc_last_pseudo_labels = False             # Calculate the pseudo labels after the last iteration of self-training
@@ -73,6 +72,8 @@ def py():
     accum_grad_multiple_step = 1                # Accumulate gradients over multiple steps
     aux_loss = True                             # Whether to use the auxiliary loss
     use_norm_st_loss = True                     # Use normalized loss during self-training
+    use_seq_gamma_loss = False                  # Use sequence gamma CE loss instead of summed CTC loss
+    gamma_scaling = 1.0                         # Scaling for the sequence gammas
     use_ce_loss = False                         # Use CE loss instead of CTC loss
     speed_pert = True                           # Whether to use speed perturbation
     train_version = 1                           # Version for training added to change the hash
@@ -83,11 +84,11 @@ def py():
         keep_small_labels = False
         pseudo_nbest = 1
         norm_nbest_rescore = False
-        rescore_alignment_prior = False
     
     # Decoder config (more further down)
     decoding_imp = "albert-lm"                  # Decoding implementation, e.g. "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients"
     with_prior = True                           # Whether to use a prior during decoding
+    label_prior = False                          # Use the label prior instead of frame prior
     empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
     prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
     alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
@@ -133,7 +134,10 @@ def py():
     self_train_subset = None # 18000            # Train on a subset of the data
     # TODO gradient_clip_global_norm
     
-    assert not (rescore_alignment_prior and norm_nbest_rescore)
+    assert not label_prior or empirical_prior, "Label prior is not supported with model prior, yet"
+    assert gamma_scaling == 1.0 or use_seq_gamma_loss
+    assert not (use_ce_loss and use_seq_gamma_loss)
+    assert not (not label_prior and norm_nbest_rescore)
     assert not decode_every_step or keep_best_decoding
     assert (self_training_rounds > 0) == alt_decoder
     assert not use_ce_loss or not speed_pert
@@ -212,7 +216,7 @@ def py():
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
-        p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "") + ("-a" if rescore_alignment_prior else "")
+        p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "") + (f"-s{str(gamma_scaling).replace('.', '')}" if gamma_scaling != 1.0 else "")
         p3 = f"b{decoder_hyperparameters['beam_size']}"
         p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "")
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
@@ -310,12 +314,21 @@ def py():
         if adamw_betas:
             config_updates_self_training["optimizer.betas"] = adamw_betas
         if not reset_steps:
-            if pseudo_label_small:
-                config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 506_000, 562_000]
+            if True:
+                if pseudo_label_small:
+                    config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 506_000, 562_000]
+                else:
+                    config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 558_000, 620_000]
+                peak_lr = 5e-4
+                config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 2e-2, peak_lr, peak_lr * 2e-2, peak_lr * 2e-3]
             else:
-                config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 558_000, 620_000]
-            peak_lr = 5e-4
-            config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 2e-2, peak_lr, peak_lr * 2e-2, peak_lr * 2e-3]
+                if pseudo_label_small:
+                    config_updates_self_training["learning_rate_piecewise_steps"] = [253_000, 506_000, 562_000]
+                else:
+                    config_updates_self_training["learning_rate_piecewise_steps"] = [279_000, 558_000, 620_000]
+                peak_lr = 1e-3
+                config_updates_self_training["learning_rate_piecewise_values"] = [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
+                LR_str = "_LRwu-e3"
             # add something to hash so first training is different and correct epochs are saved
             if self_training_rounds != 4:
                 config_updates_self_training["_st_rounds"] = self_training_rounds
@@ -328,8 +341,10 @@ def py():
             config_updates_self_training["hyperparameters_decoder"] = decoder_hyperparameters.copy()
             if norm_nbest_rescore:
                 config_updates_self_training["norm_rescore"] = norm_nbest_rescore
-            if rescore_alignment_prior:
-                config_updates_self_training["rescore_alignment_prior"] = rescore_alignment_prior
+            # if not label_prior:
+            #     config_updates_self_training["rescore_alignment_prior"] = True
+            if gamma_scaling != 1.0:
+                config_updates_self_training["gamma_scaling"] = gamma_scaling
         if accum_grad_multiple_step > 1:
             config_updates_self_training["accum_grad_multiple_step"] = accum_grad_multiple_step
         if not use_norm_st_loss:
@@ -417,7 +432,7 @@ def py():
             if train_lm_config:
                 model_config["train_language_model"] = train_lm_config
     
-    alias_name = ("ctc" if not use_ce_loss else "ce") + \
+    alias_name = (("ctc" if not use_seq_gamma_loss else "seq_ce") if not use_ce_loss else "ce") + \
         (sum_str if use_sum_criterion else "") + \
         (f"-st_{self_training_rounds}" + LR_str + ("_no_norm" if not use_norm_st_loss else "") + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else (f"_b1-{str(adamw_betas[0]).replace('.', '')}_b2-{str(adamw_betas[1]).replace('.', '')}" if adamw_betas else "")) + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") + ("_nsp" if not speed_pert else "") if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
@@ -426,6 +441,7 @@ def py():
         f"-{vocab}" + \
         f"{decoding_str}" + \
         (f"_v{train_version}" if train_version != 1 else "")
+        # ("-laPR" if label_prior else "-frPR") + \
         
     if decoding_imp in ["flashlight", "marten-greedy"]:
         decoder_def = model_recog_lm
@@ -457,10 +473,12 @@ def py():
         pseudo_label_small = pseudo_label_small,
         keep_small_labels = keep_small_labels,
         with_prior = with_prior,
+        label_prior = label_prior,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
         use_sum_criterion=use_sum_criterion,
         use_ce_loss=use_ce_loss,
+        use_seq_gamma_loss=use_seq_gamma_loss,
         self_train_subset=self_train_subset,
         calc_last_pseudo_labels=calc_last_pseudo_labels,
         tune_hyperparameters=tune_hyperparameters,
@@ -503,10 +521,12 @@ def train_exp(
     pseudo_label_small: bool = True,
     keep_small_labels: bool = False,
     with_prior: bool = False,
+    label_prior: bool = True,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     use_sum_criterion: bool = False,
     use_ce_loss: bool = False,
+    use_seq_gamma_loss: bool = False,
     self_train_subset: Optional[int] = None,
     calc_last_pseudo_labels: bool = False,
     tune_hyperparameters: bool = False,
@@ -519,7 +539,7 @@ def train_exp(
     from i6_experiments.users.mueller.train import train
     from i6_experiments.users.mueller.recog import recog_training_exp, GetBestTuneValue
     from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
-    from i6_experiments.users.mueller.scale_tune import ctc_recog_framewise_prior_auto_scale
+    from i6_experiments.users.mueller.scale_tune import ctc_recog_framewise_prior_auto_scale, ctc_recog_labelwise_prior_auto_scale
 
     print("Job Name:", name)
     if not enabled:
@@ -542,7 +562,7 @@ def train_exp(
     )
     
     if with_prior and empirical_prior:
-        emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab)
+        emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab, label_prior)
         
     if config_updates.get("decode_every_step", False):
         config_updates["empirical_prior"] = emp_prior
@@ -685,20 +705,31 @@ def train_exp(
         tune_config = search_config.copy()
         tune_config["beam_size"] = 128
         
-        default_lm = decoder_hyperparameters.get("lm_weight")
-        default_prior = decoder_hyperparameters.get("prior_weight")
-        prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
-            prefix = prefix + "/tune",
-            task = task,
-            ctc_model=model_with_checkpoint[0].get_last_fixed_epoch(),
-            prior_file=emp_prior,
-            lm=recog_lm,
-            vocab_file=vocab_file,
-            vocab_opts_file=vocab_opts_file,
-            vocab_w_blank_file=vocab_w_blank_file,
-            num_shards=num_shards_recog_init,
-            search_config=tune_config,
-        )
+        if label_prior:
+            prior_tune, lm_tune = ctc_recog_labelwise_prior_auto_scale(
+                prefix = prefix + "/tune",
+                task = task,
+                ctc_model=model_with_checkpoint[0].get_last_fixed_epoch(),
+                prior_file=emp_prior,
+                lm=recog_lm,
+                vocab_file=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+                num_shards=num_shards_recog_init,
+                search_config=tune_config,
+            )
+        else:
+            prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
+                prefix = prefix + "/tune",
+                task = task,
+                ctc_model=model_with_checkpoint[0].get_last_fixed_epoch(),
+                prior_file=emp_prior,
+                lm=recog_lm,
+                vocab_file=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+                vocab_w_blank_file=vocab_w_blank_file,
+                num_shards=num_shards_recog_init,
+                search_config=tune_config,
+            )
         decoder_hyperparameters["prior_weight"] = prior_tune
         decoder_hyperparameters["lm_weight"] = lm_tune
         scales = {
@@ -778,6 +809,8 @@ def train_exp(
                 config_self["lm_path"] = "ffnn" + str(model_config["train_language_model"]["context_size"])
         elif use_ce_loss:
             train_def = ce_training
+        elif use_seq_gamma_loss:
+            train_def = seq_gamma_training
             
         if config_self.get("empirical_prior", False) or config_self.get("decode_every_step", False) or config_self.get("ps_nbest", 1) > 1:
             config_self["empirical_prior"] = emp_prior
@@ -808,6 +841,7 @@ def train_exp(
             train_def=train_def,
             init_params=init_checkpoint,
             reset_steps=True if reset_steps or i == 0 else False,
+            finish_all=config_self.get("decode_every_step", False),
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
@@ -821,23 +855,35 @@ def train_exp(
         scales = None
         if tune_hyperparameters:
             original_params = hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters
-            default_lm = original_params.get("lm_weight")
-            default_prior = original_params.get("prior_weight")
             if tune_version == 2:
                 tune_config = search_config.copy()
                 tune_config["beam_size"] = 128
-                prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
-                    prefix = prefix_self_training + "/tune",
-                    task = task,
-                    ctc_model=model_with_checkpoint[i + 1].get_last_fixed_epoch(),
-                    prior_file=emp_prior,
-                    lm=recog_lm,
-                    vocab_file=vocab_file,
-                    vocab_opts_file=vocab_opts_file,
-                    vocab_w_blank_file=vocab_w_blank_file,
-                    num_shards=num_shards_recog,
-                    search_config=tune_config,
-                )
+                
+                if label_prior:
+                    prior_tune, lm_tune = ctc_recog_labelwise_prior_auto_scale(
+                        prefix = prefix_self_training + "/tune",
+                        task = task,
+                        ctc_model=model_with_checkpoint[i + 1].get_last_fixed_epoch(),
+                        prior_file=emp_prior,
+                        lm=recog_lm,
+                        vocab_file=vocab_file,
+                        vocab_opts_file=vocab_opts_file,
+                        num_shards=num_shards_recog,
+                        search_config=tune_config,
+                    )
+                else:
+                    prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
+                        prefix = prefix_self_training + "/tune",
+                        task = task,
+                        ctc_model=model_with_checkpoint[i + 1].get_last_fixed_epoch(),
+                        prior_file=emp_prior,
+                        lm=recog_lm,
+                        vocab_file=vocab_file,
+                        vocab_opts_file=vocab_opts_file,
+                        vocab_w_blank_file=vocab_w_blank_file,
+                        num_shards=num_shards_recog,
+                        search_config=tune_config,
+                    )
                 original_params["prior_weight"] = prior_tune
                 original_params["lm_weight"] = lm_tune
                 scales = {
@@ -848,8 +894,10 @@ def train_exp(
                 if "hyperparameters_decoder" in config_updates_self_training:
                     config_updates_self_training["hyperparameters_decoder"]["prior_weight"] = prior_tune
                     config_updates_self_training["hyperparameters_decoder"]["lm_weight"] = lm_tune
-            # NOTE: DEPRECATED, only kept for backwards compatibility
+            # NOTE: DEPRECATED, only kept for backwards compatibility (not working after 03.05.2025)
             elif tune_version == 1:
+                default_lm = original_params.get("lm_weight")
+                default_prior = original_params.get("prior_weight")
                 params = copy.copy(original_params)
                 params.pop("lm_weight_tune", None)
                 params.pop("prior_weight_tune", None)
@@ -1087,6 +1135,12 @@ def ce_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets
 
 ce_training: CETrainDef[Model]
 ce_training.learning_rate_control_error_measure = "ce"
+
+def seq_gamma_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim, nbest_lengths: rf.Tensor = None, scores: rf.Tensor = None, seq_tags: rf.Tensor = None):
+    return seq_gamma_ctc_train(model=model, data=data, data_spatial_dim=data_spatial_dim, targets=targets, targets_spatial_dim=targets_spatial_dim, nbest_lengths=nbest_lengths, scores=scores, seq_tags=seq_tags)
+
+seq_gamma_training: TrainDef[Model]
+seq_gamma_training.learning_rate_control_error_measure = "seq_ce"
 
 
 #---------------------------------------------------------------------------------------------------------------------------------------

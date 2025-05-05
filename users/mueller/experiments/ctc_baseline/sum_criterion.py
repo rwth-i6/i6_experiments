@@ -850,6 +850,12 @@ def sum_loss_ffnn(
     old_device = log_probs.device
     log_probs = rf.copy_to_device(log_probs, device)
     if use_prior:
+        if not blank_prior and model.target_dim in log_prior.dims:
+            new_dim = rf.Dim(1)
+            log_prior = rf.concat(
+                [(log_prior, model.target_dim),(rf.zeros(dims = [new_dim],  dtype="float32", device=log_prior.device), new_dim)],
+                out_dim=model.wb_target_dim
+            )
         assert model.wb_target_dim in log_prior.dims
         log_prior = rf.copy_to_device(log_prior, device)
     

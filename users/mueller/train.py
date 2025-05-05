@@ -33,6 +33,7 @@ def train(
     train_def: TrainDef[ModelT],
     init_params: Optional[Checkpoint] = None,
     reset_steps: bool = True,
+    finish_all: bool = False,
     extra_hash: Any = None,
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
@@ -143,6 +144,8 @@ def train(
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
         if not reset_steps:
             returnn_train_config_dict["reset_steps"] = False
+        if finish_all:
+            returnn_train_config_dict["_horovod_finish_all"] = True
 
     extern_data_raw = train_dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.

@@ -664,7 +664,7 @@ def search_dataset(
             beam_res = res
         for f in recog_post_proc_funcs:  # for example BPE to words
             res = f(RecogOutput(output=res)).output
-        if recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog:
+        if recog_post_proc_funcs and recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog:
             from i6_core.returnn.search import SearchOutputRawReplaceJob
             res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
     if return_beam:

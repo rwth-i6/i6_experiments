@@ -647,7 +647,9 @@ class LibrispeechOggZip(DatasetConfig):
                 if self.pseudo_label_alignment > -1 or self.pseudo_label_nbest > 1:
                     d_tmp = d_pseudo
                 else:
-                    d_tmp = MetaDataset({"data": ("pseudo_labels_dataset", "classes")}, {"pseudo_labels_dataset": d_pseudo}, "pseudo_labels_dataset").as_returnn_opts()
+                    d_tmp = d_pseudo.copy()
+                    d_tmp.pop("partition_epoch")
+                    d_tmp = MetaDataset({"data": ("pseudo_labels_dataset", "classes")}, {"pseudo_labels_dataset": d_tmp}, "pseudo_labels_dataset").as_returnn_opts()
                 d_comb["init_pseudo_labels_dataset"] = d_tmp
                 
                 d_targets_variable = {

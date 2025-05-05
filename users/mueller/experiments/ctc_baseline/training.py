@@ -199,17 +199,11 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                 
         if rescore_alignment_prior:
             prior_weight = hyperparameters.get("prior_weight", 0.0)
-            prior_weight_tune = hyperparameters.get("prior_weight_tune", None)
-            if prior_weight_tune:
-                prior_weight_tune = json.load(open(prior_weight_tune))
-                prior_weight_tune = prior_weight_tune["best_tune"]
-                assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-                print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-                prior_weight += prior_weight_tune
             if prior_file and prior_weight > 0.0:
                 prior = np.loadtxt(prior_file, dtype="float32")
                 prior *= prior_weight
                 prior = torch.tensor(prior, dtype=torch.float32, device=log_probs.raw_tensor.device)
+                assert prior.size(0) == log_probs.raw_tensor.size(2), "Prior size does not match!"
                 prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
                 log_probs = log_probs - prior
                 for i, layer_idx in enumerate(aux_loss_layers):
@@ -486,56 +480,57 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_p
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     
-    if aux_loss_layers:
-        for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > len(model.encoder.layers):
-                continue
-            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
-            aux_log_probs_raw = aux_log_probs.raw_tensor
-            if use_prior:
-                if empirical_prior is not None:
-                    aux_log_prior = np.loadtxt(empirical_prior, dtype="float32")
-                    aux_log_prior = torch.tensor(aux_log_prior, device=log_probs.device)
-                    assert aux_log_prior.size(0) == log_probs.size(2), "Empirical prior size does not match (full_sum)!"
-                else:
-                    aux_log_prior = _calc_log_prior(aux_log_probs_raw, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
-                    if not prior_gradient:
-                        aux_log_prior = aux_log_prior.detach()
+    assert not aux_loss_layers
+    # if aux_loss_layers:
+    #     for i, layer_idx in enumerate(aux_loss_layers):
+    #         if layer_idx > len(model.encoder.layers):
+    #             continue
+    #         linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+    #         aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+    #         aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
+    #         aux_log_probs_raw = aux_log_probs.raw_tensor
+    #         if use_prior:
+    #             if empirical_prior is not None:
+    #                 aux_log_prior = np.loadtxt(empirical_prior, dtype="float32")
+    #                 aux_log_prior = torch.tensor(aux_log_prior, device=log_probs.device)
+    #                 assert aux_log_prior.size(0) == log_probs.size(2), "Empirical prior size does not match (full_sum)!"
+    #             else:
+    #                 aux_log_prior = _calc_log_prior(aux_log_probs_raw, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
+    #                 if not prior_gradient:
+    #                     aux_log_prior = aux_log_prior.detach()
                         
-                if not blank_prior:
-                    aux_log_prior[model.blank_idx] = float("-inf")
-                    aux_log_prior = torch.log_softmax(aux_log_prior, dim=-1)
-            else:
-                aux_log_prior = None
-            # (B, T, F) -> (T, B, F)
-            aux_log_probs_raw = aux_log_probs_raw.permute(1, 0, 2)
-            aux_loss = sum_loss_ngram(
-                log_probs=aux_log_probs_raw,
-                log_lm_probs=lm,
-                log_prior=aux_log_prior,
-                input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
-                top_k=top_k,
-                LM_order=lm_order,
-                am_scale=am_scale,
-                lm_scale=lm_scale,
-                prior_scale=prior_scale,
-                horizontal_prior=horizontal_prior,
-                blank_prior=blank_prior,
-                blank_idx=model.blank_idx,
-                eos_idx=model.eos_idx,
-                unk_idx=1,
-                device=aux_log_probs_raw.device,
-                alignment_topk=alignment_topk
-            )
-            aux_loss = rtf.TorchBackend.convert_to_tensor(aux_loss, dims = [batch_dim], dtype = "float32", name=f"aux_full_sum_{layer_idx}")
-            aux_loss.mark_as_loss(
-                f"aux_full_sum_{layer_idx}",
-                scale=aux_loss_scales[i],
-                custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
-                use_normalized_loss=use_normalized_loss,
-            )
+    #             if not blank_prior:
+    #                 aux_log_prior[model.blank_idx] = float("-inf")
+    #                 aux_log_prior = torch.log_softmax(aux_log_prior, dim=-1)
+    #         else:
+    #             aux_log_prior = None
+    #         # (B, T, F) -> (T, B, F)
+    #         aux_log_probs_raw = aux_log_probs_raw.permute(1, 0, 2)
+    #         aux_loss = sum_loss_ngram(
+    #             log_probs=aux_log_probs_raw,
+    #             log_lm_probs=lm,
+    #             log_prior=aux_log_prior,
+    #             input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+    #             top_k=top_k,
+    #             LM_order=lm_order,
+    #             am_scale=am_scale,
+    #             lm_scale=lm_scale,
+    #             prior_scale=prior_scale,
+    #             horizontal_prior=horizontal_prior,
+    #             blank_prior=blank_prior,
+    #             blank_idx=model.blank_idx,
+    #             eos_idx=model.eos_idx,
+    #             unk_idx=1,
+    #             device=aux_log_probs_raw.device,
+    #             alignment_topk=alignment_topk
+    #         )
+    #         aux_loss = rtf.TorchBackend.convert_to_tensor(aux_loss, dims = [batch_dim], dtype = "float32", name=f"aux_full_sum_{layer_idx}")
+    #         aux_loss.mark_as_loss(
+    #             f"aux_full_sum_{layer_idx}",
+    #             scale=aux_loss_scales[i],
+    #             custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+    #             use_normalized_loss=use_normalized_loss,
+    #         )
     
     fixed_seqs = ["train-other-500/5756-305214-0041/5756-305214-0041", "train-clean-360/2498-134786-0003/2498-134786-0003", "train-other-500/1643-138089-0068/1643-138089-0068"] # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS, HERE IT IS
     print_for_idx = []
@@ -574,16 +569,21 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_p
         if empirical_prior is not None:
             log_prior = np.loadtxt(empirical_prior, dtype="float32")
             log_prior = torch.tensor(log_prior, device=log_probs_raw.device)
-            assert log_prior.size(0) == log_probs_raw.size(2), "Empirical prior size does not match (full_sum)!"
+            if blank_prior:
+                assert log_prior.size(0) == log_probs_raw.size(2), f"Empirical prior size does not match (full_sum) ({log_prior.size(0)} != {log_probs_raw.size(2)})!"
+            else:
+                assert log_prior.size(0) == log_probs_raw.size(2) - 1, f"Empirical prior size does not match (full_sum) ({log_prior.size(0)} != {log_probs_raw.size(2)} - 1)!"
+                assert model.blank_idx == log_prior.size(0)
+                log_prior = torch.cat([log_prior, torch.tensor([0.0], device=log_probs_raw.device)], dim=0)
         else:
             log_prior = _calc_log_prior(log_probs_raw, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
             if not prior_gradient:
                 log_prior = log_prior.detach()
                 
-        if not blank_prior:
-            log_prior[model.blank_idx] = float("-inf")
-            log_prior = torch.log_softmax(log_prior, dim=-1)
-            log_prior[model.blank_idx] = 0.0
+            if not blank_prior:
+                log_prior[model.blank_idx] = float("-inf")
+                log_prior = torch.log_softmax(log_prior, dim=-1)
+                log_prior[model.blank_idx] = 0.0
     else:
         log_prior = None
         
@@ -820,19 +820,16 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     log_probs = model.log_probs_wb_from_logits(logits)
-    
-    norm_dim = targets_spatial_dim
-    
+        
     if nbest > 1 and rf.get_run_ctx().train_flag:
         assert nbest_lengths is not None
-        from .sum_criterion import safe_logaddexp
+        from .sum_criterion import safe_logsumexp
         
         hyperparameters = config.typed_value("hyperparameters_decoder").copy()
         prior_file = config.typed_value("empirical_prior")
-        norm_rescore = config.bool("norm_rescore", False)
         rescore_alignment_prior = config.bool("rescore_alignment_prior", False)
+        gamma_scaling = config.float("gamma_scaling", 1.0)
         assert hyperparameters and prior_file
-        assert not (norm_rescore and rescore_alignment_prior)
         
         new_spatial_dim = targets_spatial_dim.div_left(nbest)
         new_spatial_dim_raw = new_spatial_dim.dyn_size_ext.raw_tensor
@@ -862,32 +859,23 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
             tensor_ls.append(targets_i)
             sizes_ls.append(new_s)
         
-        if norm_rescore:
-            with torch.no_grad():
-                lm_prior_scores_norm = _norm_rescore(tensor_ls, sizes_ls, model, hyperparameters, prior_file)
-        
-        loss_sum = None
+        nbest_scores = []
         if aux_loss_layers:
             aux_probs = {}
+            aux_nbest_scores = {}
             for i, layer_idx in enumerate(aux_loss_layers):
-                aux_loss_sum = {}
+                aux_nbest_scores[i] = []
                 linear = getattr(model, f"enc_aux_logits_{layer_idx}")
                 aux_logits = linear(collected_outputs[str(layer_idx - 1)])
                 aux_probs[i] = model.log_probs_wb_from_logits(aux_logits)
                 
         if rescore_alignment_prior:
             prior_weight = hyperparameters.get("prior_weight", 0.0)
-            prior_weight_tune = hyperparameters.get("prior_weight_tune", None)
-            if prior_weight_tune:
-                prior_weight_tune = json.load(open(prior_weight_tune))
-                prior_weight_tune = prior_weight_tune["best_tune"]
-                assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-                print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-                prior_weight += prior_weight_tune
             if prior_file and prior_weight > 0.0:
                 prior = np.loadtxt(prior_file, dtype="float32")
                 prior *= prior_weight
                 prior = torch.tensor(prior, dtype=torch.float32, device=log_probs.raw_tensor.device)
+                assert prior.size(0) == log_probs.raw_tensor.size(2), "Prior size does not match!"
                 prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
                 log_probs = log_probs - prior
                 for i, layer_idx in enumerate(aux_loss_layers):
@@ -897,16 +885,8 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
             targets_s = tensor_ls[j]
             targets_spatial_dim_s = sizes_ls[j]
             
-            if norm_rescore:
-                lm_prior_score = lm_prior_scores_norm[j]
-            else:
-                with torch.no_grad():
-                    lm_prior_score = _rescore(targets_s, targets_spatial_dim_s, model, hyperparameters, prior_file if not rescore_alignment_prior else None).raw_tensor
-            
-            if config.bool("use_eos_postfix", False):
-                targets_s, (targets_spatial_dim_s,) = rf.pad(
-                    targets_s, axes=[targets_spatial_dim_s], padding=[(0, 1)], value=model.eos_idx
-                )
+            with torch.no_grad():
+                lm_prior_score = _rescore(targets_s, targets_spatial_dim_s, model, hyperparameters, prior_file if not rescore_alignment_prior else None).raw_tensor
 
             if aux_loss_layers:
                 for i, layer_idx in enumerate(aux_loss_layers):
@@ -927,12 +907,8 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
                     if j > 0:
                         # Set loss to -inf if target length is 0
                         aux_loss_rescored = torch.where(targets_spatial_dim_s.dyn_size_ext.raw_tensor == 0, float("-inf"), aux_loss_rescored)
-                    if i in aux_loss_sum:
-                        aux_loss_sum[i] = safe_logaddexp(aux_loss_sum[i], aux_loss_rescored)
-                    else:
-                        aux_loss_sum[i] = aux_loss_rescored
+                    aux_nbest_scores[i].append(aux_loss_rescored)
                     
-
             loss = ctc_loss_fixed_grad(
                 logits=log_probs,
                 logits_normalized=True,
@@ -948,33 +924,59 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
             if j > 0:
                 # Set loss to -inf if target length is 0
                 loss_rescored = torch.where(targets_spatial_dim_s.dyn_size_ext.raw_tensor == 0, float("-inf"), loss_rescored)
-            if loss_sum is not None:
-                loss_sum = safe_logaddexp(loss_sum, loss_rescored)
-            else:
-                loss_sum = loss_rescored
+            
+            nbest_scores.append(loss_rescored)
                 
             # if version == 3 or version == 4:
             #     break
+        
+        nbest_dim = Dim(nbest, name="nbest")
+        norm_dim = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, data.device)
         if aux_loss_layers:
             for i, layer_idx in enumerate(aux_loss_layers):
-                aux_loss_sum_i = rtf.TorchBackend.convert_to_tensor(-aux_loss_sum[i], dims = [batch_dim], dtype = "float32", name=f"ctc_aux_loss_{layer_idx}")
-                aux_loss_sum_i.mark_as_loss(
-                    f"ctc_{layer_idx}",
-                    scale=aux_loss_scales[i],
-                    custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
-                    use_normalized_loss=use_normalized_loss,
+                aux_nbest_scores_i = torch.stack(aux_nbest_scores[i], dim=-1)
+                with torch.no_grad():
+                    aux_scores_scaled = aux_nbest_scores_i.detach() * gamma_scaling
+                    aux_nbest_scores_i_sum = safe_logsumexp(aux_scores_scaled, dim=-1, keepdim=True)
+                    assert not (aux_nbest_scores_i_sum == float("-inf")).any(), f"-inf in {aux_nbest_scores_i_sum.tolist()}\noriginal: {aux_nbest_scores_i.tolist()}"
+                    aux_nbest_scores_i_norm_log = aux_scores_scaled - aux_nbest_scores_i_sum
+                    aux_nbest_scores_i_norm = aux_nbest_scores_i_norm_log.exp()
+                    assert aux_nbest_scores_i_norm.sum(dim=-1).allclose(torch.tensor(1.0, device=aux_nbest_scores_i.device), rtol = 0.001), f"Prior probs do not sum to 1.0, but to {aux_nbest_scores_i_norm.sum(dim=-1)}"
+                    aux_targets = rtf.TorchBackend.convert_to_tensor(aux_nbest_scores_i_norm, dims = [batch_dim, nbest_dim], dtype = "float32", name=f"seq_gammas_{layer_idx}")
+                
+                aux_nbest_scores_i = torch.where(aux_nbest_scores_i == float("-inf"), 0.0, aux_nbest_scores_i)
+                aux_nbest_scores_i = rtf.TorchBackend.convert_to_tensor(aux_nbest_scores_i, dims = [batch_dim, nbest_dim], dtype = "float32", name=f"am_lm_pr_scores_{layer_idx}")
+                aux_loss = rf.cross_entropy(
+                    target=aux_targets, estimated=aux_nbest_scores_i, estimated_type="log-probs", axis=nbest_dim
                 )
-        loss_sum = rtf.TorchBackend.convert_to_tensor(-loss_sum, dims = [batch_dim], dtype = "float32", name=f"ctc_loss")
-        loss_sum.mark_as_loss(
-            "ctc",
-            custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
-            use_normalized_loss=use_normalized_loss,
+                if use_normalized_loss:
+                    aux_loss = aux_loss / norm_dim
+                aux_loss.mark_as_loss(f"seq_ce_{layer_idx}", use_normalized_loss=False)
+                
+        nbest_scores = torch.stack(nbest_scores, dim=-1)
+        with torch.no_grad():
+            scores_scaled = nbest_scores.detach() * gamma_scaling
+            nbest_scores_exp_sum = safe_logsumexp(scores_scaled, dim=-1, keepdim=True)
+            assert not (nbest_scores_exp_sum == float("-inf")).any(), f"-inf in {nbest_scores_exp_sum.tolist()}\noriginal: {nbest_scores.tolist()}"
+            nbest_scores_norm_log = scores_scaled - nbest_scores_exp_sum
+            nbest_scores_norm = nbest_scores_norm_log.exp()
+            assert nbest_scores_norm.sum(dim=-1).allclose(torch.tensor(1.0, device=nbest_scores.device), rtol = 0.001), f"Prior probs do not sum to 1.0, but to {nbest_scores_norm.sum(dim=-1)}"
+            targets = rtf.TorchBackend.convert_to_tensor(nbest_scores_norm, dims = [batch_dim, nbest_dim], dtype = "float32", name=f"seq_gammas")
+        
+        nbest_scores = torch.where(nbest_scores == float("-inf"), 0.0, nbest_scores)
+        nbest_scores = rtf.TorchBackend.convert_to_tensor(nbest_scores, dims = [batch_dim, nbest_dim], dtype = "float32", name=f"am_lm_pr_scores")
+        loss = rf.cross_entropy(
+            target=targets, estimated=nbest_scores, estimated_type="log-probs", axis=nbest_dim
         )
+        if use_normalized_loss:
+            loss = loss / norm_dim
+        loss.mark_as_loss("seq_ce", use_normalized_loss=False)
         
         _ctc_error(log_probs, tensor_ls[0], model, sizes_ls[0], enc_spatial_dim)
         _seq_len_error(log_probs, model, sizes_ls[0], enc_spatial_dim)
     
     else:
+        norm_dim = targets_spatial_dim
         if config.bool("use_eos_postfix", False):
             targets, (targets_spatial_dim,) = rf.pad(
                 targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
@@ -1165,35 +1167,22 @@ def _rescore(
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     
     dev_s = rf.get_default_device()
     dev = torch.device(dev_s)
-    
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
         
-    # Subtract prior of labels if available
+    # Subtract labelwise prior if available
     if prior_file and prior_weight > 0.0:
         prior = np.loadtxt(prior_file, dtype="float32")
         prior *= prior_weight
         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-        assert model.blank_idx == prior.size(0) - 1
-        # prior[model.blank_idx] = float("-inf")
-        prior = prior[:-1]
-        prior = torch.log_softmax(prior, dim=-1)
+        if prior.size(0) == int(model.wb_target_dim.get_dim_value()):
+            assert model.blank_idx == prior.size(0) - 1
+            # prior[model.blank_idx] = float("-inf")
+            prior = prior[:-1]
+            prior = torch.log_softmax(prior, dim=-1)
+        else:
+            assert prior.size(0) == int(model.target_dim.get_dim_value()), f"Prior size does not match! {prior.size(0)} vs {int(model.target_dim.get_dim_value())}"
         prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
         
     assert lm_name.startswith("ffnn")
@@ -1202,8 +1191,6 @@ def _rescore(
     lm: FeedForwardLm = model.train_language_model
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
-    
-    print("LM scale:", lm_scale, "Prior scale:", prior_weight)
     
     targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
