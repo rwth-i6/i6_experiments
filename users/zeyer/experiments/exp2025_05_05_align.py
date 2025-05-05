@@ -153,7 +153,10 @@ class Gen(Job):
         inputs_embeds = inputs_embeds.detach()
         inputs_embeds.requires_grad = True
 
-        res = model(inputs_embeds=inputs_embeds)
+        # Add noise for better gradients.
+        inputs_embeds_ = inputs_embeds + torch.where(src_text_mask[:, :-1, None], torch.randn_like(inputs_embeds), 0.0)
+
+        res = model(inputs_embeds=inputs_embeds_)
         logits = res.logits.float()
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
         print(res)
