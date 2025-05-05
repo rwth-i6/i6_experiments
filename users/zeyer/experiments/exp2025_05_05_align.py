@@ -112,20 +112,47 @@ class Gen(Job):
         _report_dev_memory_stats()
         print(f"({time.time() - start_time} secs)")
 
-        input_s = (
-            "<BOS_TOKEN>"
-            "<|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from English into German:\n"
-            "This is a multilingual model<|END_OF_TURN_TOKEN|>"
-            "<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>"
-            "Dies ist ein mehrsprachiges Modell.<|END_OF_TURN_TOKEN|>"
+        def _gen_text(*, src_lang: str, dst_lang: str, src_text: str, dst_text: str):
+            input_ids_parts = []
+            src_text_mask_parts = []
+            dst_text_mask_parts = []
+            for input_s_, src_text_mask_, dst_text_mask_ in [
+                (
+                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from {src_lang} into {dst_lang}:\n",
+                    False,
+                    False,
+                ),
+                (src_text, True, False),
+                ("<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>", False, False),
+                (dst_text, False, True),
+                ("<|END_OF_TURN_TOKEN|>", False, False),
+            ]:
+                input_ids_ = tokenizer.encode(input_s_, add_special_tokens=False, return_tensors="pt").to(device_str)
+                input_ids_parts.append(input_ids_)
+                src_text_mask_parts.append(torch.full(input_ids_.shape, fill_value=src_text_mask_, device=device_str))
+                dst_text_mask_parts.append(torch.full(input_ids_.shape, fill_value=dst_text_mask_, device=device_str))
+            input_ids = torch.cat(input_ids_parts, dim=-1)
+            src_text_mask = torch.cat(src_text_mask_parts, dim=-1)
+            dst_text_mask = torch.cat(dst_text_mask_parts, dim=-1)
+            return input_ids, src_text_mask, dst_text_mask
+
+        for p in model.parameters():
+            p.requires_grad = False
+
+        input_embeddings = model.get_input_embeddings()
+
+        input_ids, src_text_mask, dst_text_mask = _gen_text(
+            src_lang="English",
+            dst_lang="German",
+            src_text="This is a multilingual model",
+            dst_text="Dies ist ein mehrsprachiges Modell.",
         )
-        input_ids = tokenizer.encode(input_s, return_tensors="pt")
-        input_ids = input_ids.to(device_str)
 
-        target_ids = tokenizer.encode(["<EOS_TOKEN>"], return_tensors="pt").to(device_str)
-        target_ids = torch.cat([input_ids[:, 1:], target_ids], dim=1)
+        inputs_embeds = input_embeddings(input_ids[:, :-1])
+        inputs_embeds = inputs_embeds.detach()
+        inputs_embeds.requires_grad = True
 
-        res = model(input_ids, labels=target_ids)
+        res = model(inputs_embeds=inputs_embeds, labels=input_ids[:, 1:])
         print(res)
 
         better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
