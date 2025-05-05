@@ -489,3 +489,92 @@ class CompareTwoScliteWerDistributions(Job):
         plt.ylim(0, LIM)
         plt.grid()
         plt.savefig(self.out_plot_scatter3_gauss)
+
+
+class SclitePrintExamples(Job):
+    def __init__(
+        self,
+        *,
+        report_dirs: list[tuple[str, tk.AbstractPath]],
+        sort_by: Optional[str] = None,
+    ):
+        assert isinstance(report_dirs, list)
+
+        self.report_dirs = report_dirs
+        self.sort_by = sort_by
+        self.out_file = self.output_path("examples.txt")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 7
+        return super().hash(d)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def read_reportdir(self, report_dir: tk.AbstractPath) -> dict[str, dict[str, str]]:
+        values = {}
+        odir = report_dir.get_path()
+        print(f"Reading {odir}/sclite.pra")
+        cur_seq_id = None
+        cur_vals = {}
+        with open(f"{odir}/sclite.pra", errors="ignore") as f:
+            for line in f:
+                if line.startswith("id:"):
+                    # id: (dev-clean/422-122949-0034/422-122949-0034-000)
+                    assert cur_seq_id is None
+                    cur_seq_id = line.split()[1][1:-1]
+                    assert len(cur_seq_id) > 0
+                    assert cur_seq_id not in values
+                elif line.startswith("Scores:"):
+                    assert cur_seq_id is not None
+                    # Scores: (#C #S #D #I) 79 2 2 0
+                    parts = line.split()
+                    assert len(parts) == 9
+                    c, s, d, i = [int(p) for p in parts[-4:]]
+                    cur_vals["errors"] = s + d + i
+                elif line.startswith("REF:") or line.startswith("HYP:") or line.startswith("Eval:"):
+                    assert cur_seq_id is not None
+                    key = line.split(":")[0]
+                    value = line.replace("\n", "")
+                    assert key not in cur_vals
+                    cur_vals[key.lower()] = value
+
+                    if key.lower() == "eval":
+                        assert cur_seq_id is not None
+                        assert len(cur_vals) == 4, cur_vals
+                        values[cur_seq_id] = cur_vals
+                        cur_seq_id = None
+                        cur_vals = {}
+
+        return values
+
+    def run(self):
+        reports = {}
+        for name, report_dir in self.report_dirs:
+            reports[name] = self.read_reportdir(report_dir)
+            print(f"Read {len(reports[name])} lines from {name}")
+
+        seq_tags = set(reports[self.report_dirs[0][0]].keys())
+        for name, report_dir in self.report_dirs:
+            assert set(reports[name].keys()) == seq_tags, f"seq tags do not match {name} {report_dir}"
+
+        assert len(seq_tags) > 0, "no sequences found"
+
+        seq_tags = list(seq_tags)
+        if self.sort_by is not None:
+            assert self.sort_by in [name for name, _ in self.report_dirs]
+            seq_tags.sort(key=lambda x: reports[self.sort_by][x]["errors"])
+        else:
+            seq_tags.sort()
+
+        with uopen(self.out_file, "w") as f:
+            for seq_tag in seq_tags:
+                f.write(f"seq {seq_tag}\n")
+                for name, _ in self.report_dirs:
+                    f.write(f"{name}:\n")
+                    f.write(f"\t{reports[name][seq_tag]["ref"]}\n")
+                    f.write(f"\t{reports[name][seq_tag]["hyp"]}\n")
+                    f.write(f"\t{reports[name][seq_tag]["eval"]}\n")
+                f.write("\n")
