@@ -2,6 +2,7 @@
 Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
+from typing import Optional
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
@@ -145,14 +146,69 @@ class Gen(Job):
             src_lang="English",
             dst_lang="German",
             src_text="This is a multilingual model",
-            dst_text="Dies ist ein mehrsprachiges Modell.",
+            dst_text="Dies ist ein mehrsprachiges Modell",
         )
 
         inputs_embeds = input_embeddings(input_ids[:, :-1])
         inputs_embeds = inputs_embeds.detach()
         inputs_embeds.requires_grad = True
 
-        res = model(inputs_embeds=inputs_embeds, labels=input_ids[:, 1:])
+        res = model(inputs_embeds=inputs_embeds)
+        logits = res.logits.float()
+        fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
         print(res)
+
+        def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
+            loss.backward(retain_graph=True)
+            grad, inputs_embeds.grad = inputs_embeds.grad, None
+            e = inputs_embeds.float()
+            grad = grad.float()
+            print(torch.norm((e * grad)[0, 10:15], p=10, dim=-1))
+            print(torch.norm((e * grad)[0, 10:15], p=1, dim=-1))
+            print(torch.norm((e * grad)[0, 10:15], p=0.1, dim=-1))
+            print(torch.norm(grad[0, 10:15], p=1, dim=-1))
+            print(torch.norm(grad[0, 10:15], p=0.1, dim=-1))
+            if ref_norm is not None:
+                ref_norm = ref_norm.log_softmax(dim=0)
+                print(ref_norm[i])
+            return torch.norm(grad[0, 10:15], p=0.1, dim=-1)
+
+        for t in range(input_ids.shape[1] - 1):
+            if not dst_text_mask[0, t + 1]:
+                continue
+            print(f"{t=} {input_ids[0, t + 1]=} {tokenizer.decode(input_ids[0, t + 1])=}")
+            loss = torch.nn.functional.cross_entropy(
+                logits[:, t], input_ids[:, t + 1], ignore_index=-100, reduction="sum"
+            )
+            _calc_input_grads()
+            loss = torch.nn.functional.cross_entropy(
+                fake_logits[:, t], input_ids[:, t + 1], ignore_index=-100, reduction="sum"
+            )
+            _calc_input_grads()
+
+        grad_mat = []
+        grad_mat_fake = []
+        for t0, t1 in [(17, 18), (18, 19), (19, 20), (20, 23), (23, 24)]:
+            loss = torch.nn.functional.cross_entropy(
+                logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+            )
+            grad_mat.append(_calc_input_grads())
+            loss = torch.nn.functional.cross_entropy(
+                fake_logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+            )
+            grad_mat_fake.append(_calc_input_grads())
+        grad_mat = torch.stack(grad_mat)
+        grad_mat_fake = torch.stack(grad_mat_fake)
+
+        for i, (t0, t1) in enumerate([(17, 18), (18, 19), (19, 20), (20, 23), (23, 24)]):
+            print(f"{t0=} {t1=} {input_ids[0, t0+1:t1+1]=} {tokenizer.decode(input_ids[0, t0+1:t1+1])=}")
+            loss = torch.nn.functional.cross_entropy(
+                logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+            )
+            _calc_input_grads(ref_norm=grad_mat, i=i)
+            loss = torch.nn.functional.cross_entropy(
+                fake_logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+            )
+            _calc_input_grads(ref_norm=grad_mat_fake, i=i)
 
         better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
