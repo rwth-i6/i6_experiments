@@ -163,15 +163,19 @@ class Gen(Job):
             grad, inputs_embeds.grad = inputs_embeds.grad, None
             e = inputs_embeds.float()
             grad = grad.float()
-            print(torch.norm((e * grad)[0, 10:15], p=10, dim=-1))
-            print(torch.norm((e * grad)[0, 10:15], p=1, dim=-1))
-            print(torch.norm((e * grad)[0, 10:15], p=0.1, dim=-1))
-            print(torch.norm(grad[0, 10:15], p=1, dim=-1))
-            print(torch.norm(grad[0, 10:15], p=0.1, dim=-1))
+            ls = [
+                torch.norm((e * grad)[0, 10:15], p=10, dim=-1),
+                torch.norm((e * grad)[0, 10:15], p=1, dim=-1),
+                torch.norm((e * grad)[0, 10:15], p=0.1, dim=-1),
+                torch.norm(grad[0, 10:15], p=1, dim=-1),
+                torch.norm(grad[0, 10:15], p=0.1, dim=-1),
+            ]
             if ref_norm is not None:
-                ref_norm = ref_norm.log_softmax(dim=0)
-                print(ref_norm[i])
-            return torch.norm(grad[0, 10:15], p=0.1, dim=-1)
+                ls.append(torch.norm(grad[0, 10:15], p=1, dim=-1) / ref_norm.sum(dim=0))
+                ls.append(ref_norm.log_softmax(dim=0)[i])
+            for v in ls:
+                print(v, v.argmax())
+            return torch.norm(grad[0, 10:15], p=1, dim=-1)
 
         for t in range(input_ids.shape[1] - 1):
             if not dst_text_mask[0, t + 1]:
