@@ -37,6 +37,33 @@ class SpecaugStftConfig(ModelConfiguration):
     window_shift: int
     fft_size: int
 
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return SpecaugStftConfig(**d)
+
+
+@dataclass
+class SpecaugMultiplierLinearConfig(ModelConfiguration):
+    start_epoch: int
+    end_epoch: int
+    start_factor: float
+    end_factor: float
+
+
+@dataclass
+class SpecaugStftV2Config(SpecaugStftConfig):
+    min_num_time: int
+    min_num_feat: int
+    multiplier: Optional[SpecaugMultiplierLinearConfig] = None
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        if d["multiplier"] is not None:
+            d["multiplier"] = SpecaugMultiplierLinearConfig(**d["multiplier"])
+        return SpecaugStftV2Config(**d)
+
 
 @dataclass
 class VGGNLayerActFrontendV1Config(ModelConfiguration):
@@ -106,7 +133,6 @@ class ModelConfig:
     aux_ctc_loss_layers: Optional[List[int]]
     aux_ctc_loss_scales: Optional[List[float]]
 
-    
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
@@ -114,7 +140,11 @@ class ModelConfig:
         d["feature_extraction_config"] = feature_extraction_config_class.from_dict(d["feature_extraction_config"])
         frontend_config_class = globals()[d["frontend_config_class"]]
         d["frontend_config"] = frontend_config_class(**d["frontend_config"])
-        specaug_config_class = SpecaugStftConfig if "fft_size" in d["specaug_config"] else SpecaugConfig
-        d["specaug_config"] = specaug_config_class(**d["specaug_config"])
+        specaug_config_class = SpecaugConfig
+        if "fft_size" in d["specaug_config"] and "min_num_time" in d["specaug_config"]:
+            specaug_config_class = SpecaugStftV2Config
+        elif "fft_size" in d["specaug_config"]:
+            specaug_config_class = SpecaugStftConfig
+        d["specaug_config"] = specaug_config_class.from_dict(d["specaug_config"])
         d["pos_emb_config"] = ConformerPosEmbConfig(**d["pos_emb_config"])
         return ModelConfig(**d)

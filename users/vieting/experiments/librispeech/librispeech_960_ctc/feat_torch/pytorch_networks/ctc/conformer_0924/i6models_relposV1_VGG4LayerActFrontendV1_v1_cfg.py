@@ -37,6 +37,11 @@ class SpecaugConfig(ModelConfiguration):
     num_repeat_feat: int
     max_dim_feat: int
 
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return SpecaugConfig(**d)
+
 
 @dataclass
 class ConformerPosEmbConfig(ModelConfiguration):

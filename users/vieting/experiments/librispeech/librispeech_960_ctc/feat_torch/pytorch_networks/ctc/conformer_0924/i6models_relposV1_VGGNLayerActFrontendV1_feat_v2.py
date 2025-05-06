@@ -30,6 +30,8 @@ from .i6models_relposV1_VGGNLayerActFrontendV1_feat_v2_cfg import (
     ModelConfig,
     SpecaugConfig,
     SpecaugStftConfig,
+    SpecaugStftV2Config,
+    SpecaugMultiplierLinearConfig,
     VGGNLayerActFrontendV1Config,
 )
 from .i6models_relposV1_VGG4LayerActFrontendV1_v1 import (
@@ -261,15 +263,41 @@ class Model(torch.nn.Module):
                         self.cfg.specaug_config.window_size,
                         return_complex=True,
                     )
-                    audio_features_masked = specaugment_v1_by_length(
-                        audio_features_masked,
-                        time_min_num_masks=2,  # TODO: make configurable
-                        time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
-                        time_mask_max_size=self.cfg.specaug_config.max_dim_time,
-                        freq_min_num_masks=2,
-                        freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
-                        freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
-                    )
+                    if isinstance(self.cfg.specaug_config, SpecaugStftV2Config):
+                        multiplier = 1.
+                        if isinstance(self.cfg.specaug_config.multiplier, SpecaugMultiplierLinearConfig):
+                            if run_ctx.epoch <= self.cfg.specaug_config.multiplier.start_epoch:
+                                multiplier = self.cfg.specaug_config.multiplier.start_factor
+                            elif run_ctx.epoch >= self.cfg.specaug_config.multiplier.end_epoch:
+                                multiplier = self.cfg.specaug_config.multiplier.end_factor
+                            else:
+                                progress = (run_ctx.epoch - self.cfg.specaug_config.multiplier.start_epoch) / ((
+                                    self.cfg.specaug_config.multiplier.end_epoch -
+                                    self.cfg.specaug_config.multiplier.start_epoch)
+                                )
+                                multiplier = self.cfg.specaug_config.multiplier.start_factor + progress * ((
+                                    self.cfg.specaug_config.multiplier.end_factor -
+                                    self.cfg.specaug_config.multiplier.start_factor)
+                                )
+                        audio_features_masked = specaugment_v1_by_length(
+                            audio_features_masked,
+                            time_min_num_masks=self.cfg.specaug_config.min_num_time,
+                            time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
+                            time_mask_max_size=int(self.cfg.specaug_config.max_dim_time * multiplier),
+                            freq_min_num_masks=self.cfg.specaug_config.min_num_feat,
+                            freq_mask_max_size=int(self.cfg.specaug_config.max_dim_feat * multiplier),
+                            freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
+                        )
+                    else:
+                        audio_features_masked = specaugment_v1_by_length(
+                            audio_features_masked,
+                            time_min_num_masks=2,  # TODO: make configurable
+                            time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
+                            time_mask_max_size=self.cfg.specaug_config.max_dim_time,
+                            freq_min_num_masks=2,
+                            freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
+                            freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
+                        )
                     audio_features_masked = torch.istft(
                         audio_features_masked,
                         self.cfg.specaug_config.fft_size,
