@@ -11,7 +11,7 @@ from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_experiments.users.mueller.datasets.task import Task
 from i6_experiments.users.mueller.recog import search_dataset
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
-from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog as model_recog_ctc_only
+from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog as model_recog_ctc_only, model_recog_lm_albert as model_recog_recomb
 
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, RescoreDef
 from i6_experiments.users.zeyer.recog import ctc_alignment_to_label_seq
@@ -34,6 +34,7 @@ def ctc_recog_framewise_prior_auto_scale(
     vocab_w_blank_file: tk.Path,
     num_shards: int,
     search_config: dict,
+    recomb_config: dict | None = None,
 ) -> tuple[Variable, Variable]:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -43,11 +44,15 @@ def ctc_recog_framewise_prior_auto_scale(
     and also do first-pass recog (``model_recog``) with those scales.
     """
     dataset = task.dev_dataset
+    if recomb_config is not None:
+        mr = model_recog_recomb
+    else:
+        mr = model_recog_ctc_only
     _, asr_scores, _ = search_dataset(
-        decoder_hyperparameters={},
+        decoder_hyperparameters={} if recomb_config is None else recomb_config,
         dataset=dataset,
         model=ctc_model,
-        recog_def=model_recog_ctc_only,
+        recog_def=mr,
         prior_path=None,
         config=search_config,
         num_shards=num_shards,
@@ -114,6 +119,7 @@ def ctc_recog_labelwise_prior_auto_scale(
     vocab_opts_file: tk.Path,
     num_shards: int,
     search_config: dict,
+    recomb_config: dict | None = None,
 ) -> tuple[Variable, Variable]:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -123,11 +129,15 @@ def ctc_recog_labelwise_prior_auto_scale(
     and also do first-pass recog (``model_recog``) with those scales.
     """
     dataset = task.dev_dataset
+    if recomb_config is not None:
+        mr = model_recog_recomb
+    else:
+        mr = model_recog_ctc_only
     _, asr_scores, _ = search_dataset(
-        decoder_hyperparameters={},
+        decoder_hyperparameters={} if recomb_config is None else recomb_config,
         dataset=dataset,
         model=ctc_model,
-        recog_def=model_recog_ctc_only,
+        recog_def=mr,
         prior_path=None,
         config=search_config,
         num_shards=num_shards,

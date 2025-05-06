@@ -50,7 +50,7 @@ decode_all_fixed_epochs = True
 decode_all_fixed_epochs_init = True
 exclude_epochs = True
 cache_manager = True
-tune_version = 2
+tune_version = 3
 
 def py():
     """Sisyphus entry point"""
@@ -62,7 +62,7 @@ def py():
     from_scratch = True                        # Self-training starts from scratch
     pseudo_label_small = False                  # 860h pseudo-labels if True, 960h pseudo-labels if False
     keep_small_labels = True                    # Keep true labels of 100h data during self-training
-    pseudo_nbest = 5                            # Number of pseudo-label sequences
+    pseudo_nbest = 1                            # Number of pseudo-label sequences
     norm_nbest_rescore = False                  # Normalize the LM and Prior values for each pseudo label sequence before adding them up
     grad_nbest = 10                             # Number of gradients we want to keep during gradient dumping
     rescore_ctc_loss_for_grad = False           # Rescore with CTC loss for the gradients we want to dump
@@ -268,7 +268,7 @@ def py():
             a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
             a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
-            a3 = (f"-accum{accum_grad_multiple_step}" if accum_grad_multiple_step > 1 else "") + ("_every-step" + every_step_str if decode_every_step else "") + ("_tune" if tune_hyperparameters else "") + ("_best" if keep_best_decoding else "")
+            a3 = (f"-accum{accum_grad_multiple_step}" if accum_grad_multiple_step > 1 else "") + ("_every-step" + every_step_str if decode_every_step else "") + (("_tuneR" if tune_version == 3 else "_tune") if tune_hyperparameters else "") + ("_best" if keep_best_decoding else "")
             decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     else:
         raise ValueError(f"Unknown decoder selection: {decoding_imp}")
@@ -341,8 +341,8 @@ def py():
             config_updates_self_training["hyperparameters_decoder"] = decoder_hyperparameters.copy()
             if norm_nbest_rescore:
                 config_updates_self_training["norm_rescore"] = norm_nbest_rescore
-            # if not label_prior:
-            #     config_updates_self_training["rescore_alignment_prior"] = True
+            if not label_prior:
+                config_updates_self_training["rescore_alignment_prior"] = True
             if gamma_scaling != 1.0:
                 config_updates_self_training["gamma_scaling"] = gamma_scaling
         if accum_grad_multiple_step > 1:
@@ -439,9 +439,9 @@ def py():
         (f"-ds100h" if init == "100h-supervised" else ("-ds100US" + (f"_accum{accum_grad_multiple_step_init}" if accum_grad_multiple_step_init > 1 else "") + ("_emp_init" if not random_init else "") if init == "100h-unsupervised" else "")) + \
         (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
         f"-{vocab}" + \
+        ("-laPR" if label_prior else "-frPR") + \
         f"{decoding_str}" + \
         (f"_v{train_version}" if train_version != 1 else "")
-        # ("-laPR" if label_prior else "-frPR") + \
         
     if decoding_imp in ["flashlight", "marten-greedy"]:
         decoder_def = model_recog_lm
@@ -688,7 +688,7 @@ def train_exp(
         recog_post_proc_funcs.append(_remove_eos_label_v2)
     
     scales = None 
-    if tune_hyperparameters and tune_version == 2:
+    if tune_hyperparameters and tune_version >= 2:
         assert with_prior and empirical_prior
         assert recog_lm is not None
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
@@ -703,7 +703,18 @@ def train_exp(
             vocab=vocab_file, new_label=OUT_BLANK_LABEL, new_label_idx=-1
         ).out_vocab
         tune_config = search_config.copy()
-        tune_config["beam_size"] = 128
+        recomb_config = None
+        if tune_version == 2:
+            tune_config["beam_size"] = 128
+        else:
+            recomb_config = {
+                "beam_size": 128,
+                "ps_nbest": 128,
+                "use_recombination": decoder_hyperparameters.get("use_recombination", False),
+                "recomb_blank": decoder_hyperparameters.get("recomb_blank", False),
+                "recomb_after_topk": decoder_hyperparameters.get("recomb_after_topk", False),
+                "recomb_with_sum": decoder_hyperparameters.get("recomb_with_sum", False),
+            }
         
         if label_prior:
             prior_tune, lm_tune = ctc_recog_labelwise_prior_auto_scale(
@@ -716,6 +727,7 @@ def train_exp(
                 vocab_opts_file=vocab_opts_file,
                 num_shards=num_shards_recog_init,
                 search_config=tune_config,
+                recomb_config=recomb_config,
             )
         else:
             prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
@@ -729,6 +741,7 @@ def train_exp(
                 vocab_w_blank_file=vocab_w_blank_file,
                 num_shards=num_shards_recog_init,
                 search_config=tune_config,
+                recomb_config=recomb_config,
             )
         decoder_hyperparameters["prior_weight"] = prior_tune
         decoder_hyperparameters["lm_weight"] = lm_tune
@@ -855,9 +868,20 @@ def train_exp(
         scales = None
         if tune_hyperparameters:
             original_params = hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters
-            if tune_version == 2:
+            if tune_version >= 2:
                 tune_config = search_config.copy()
-                tune_config["beam_size"] = 128
+                recomb_config = None
+                if tune_version == 2:
+                    tune_config["beam_size"] = 128
+                else:
+                    recomb_config = {
+                        "beam_size": 128,
+                        "ps_nbest": 128,
+                        "use_recombination": original_params.get("use_recombination", False),
+                        "recomb_blank": original_params.get("recomb_blank", False),
+                        "recomb_after_topk": original_params.get("recomb_after_topk", False),
+                        "recomb_with_sum": original_params.get("recomb_with_sum", False),
+                    }
                 
                 if label_prior:
                     prior_tune, lm_tune = ctc_recog_labelwise_prior_auto_scale(
@@ -870,6 +894,7 @@ def train_exp(
                         vocab_opts_file=vocab_opts_file,
                         num_shards=num_shards_recog,
                         search_config=tune_config,
+                        recomb_config=recomb_config,
                     )
                 else:
                     prior_tune, lm_tune = ctc_recog_framewise_prior_auto_scale(
@@ -883,6 +908,7 @@ def train_exp(
                         vocab_w_blank_file=vocab_w_blank_file,
                         num_shards=num_shards_recog,
                         search_config=tune_config,
+                        recomb_config=recomb_config,
                     )
                 original_params["prior_weight"] = prior_tune
                 original_params["lm_weight"] = lm_tune
