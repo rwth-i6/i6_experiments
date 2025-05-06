@@ -79,14 +79,16 @@ class JobFailureHandler:
             sbatch_args = list(engine.default_rqmt["sbatch_args"])
         else:
             sbatch_args = []
+        exclude_hosts = ",".join([host.split(".")[0] for host in self.failed_hosts.keys()])
         if "-x" in sbatch_args:
             i = sbatch_args.index("-x")
             assert i + 1 < len(sbatch_args)
-        else:
-            sbatch_args.extend(["-x", ""])
-            i = -1
-        exclude_hosts = [host.split(".")[0] for host in self.failed_hosts.keys()]
-        sbatch_args[i] = ",".join(exclude_hosts)
+            if exclude_hosts:
+                sbatch_args[i + 1] = exclude_hosts
+            else:
+                del sbatch_args[i : i + 2]
+        elif exclude_hosts:
+            sbatch_args.extend(["-x", exclude_hosts])
         engine.default_rqmt["sbatch_args"] = sbatch_args
 
     def _cleanup_job(self, job: Job):
