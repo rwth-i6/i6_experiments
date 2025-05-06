@@ -91,7 +91,7 @@ class Gen(Job):
         print("Generate text...")
         start_time = time.time()
         # Format message with the chat template
-        messages = [{"role": "user", "content": "Translate from English into German:\nThis is a multilingual model"}]
+        messages = [{"role": "user", "content": "Translate from English into German: This is a multilingual model."}]
         input_s = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         print("input:", input_s)  # for debugging
         input_ids = tokenizer.apply_chat_template(
@@ -119,7 +119,7 @@ class Gen(Job):
             dst_text_mask_parts = []
             for input_s_, src_text_mask_, dst_text_mask_ in [
                 (
-                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from {src_lang} into {dst_lang}:\n",
+                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from {src_lang} into {dst_lang}: ",
                     False,
                     False,
                 ),
@@ -145,76 +145,81 @@ class Gen(Job):
         input_ids, src_text_mask, dst_text_mask = _gen_text(
             src_lang="English",
             dst_lang="German",
-            src_text="This is a multilingual model",
-            dst_text="Dies ist ein mehrsprachiges Modell",
+            src_text="This is a multilingual model.",
+            dst_text="Dies ist ein mehrsprachiges Modell.",
         )
+        src_text_start = int(src_text_mask[0].nonzero().squeeze().min())
+        src_text_end = int(src_text_mask[0].nonzero().squeeze().max()) + 1
+        dst_text_start = int(dst_text_mask[0].nonzero().squeeze().min())
+        dst_text_end = int(dst_text_mask[0].nonzero().squeeze().max()) + 1
+
+        words = [[dst_text_start, dst_text_start + 1]]
+        for t in range(dst_text_start + 1, dst_text_end):
+            s = tokenizer.decode(input_ids[0, t : t + 1])
+            if s.startswith(" ") or not s[:1].isalpha():  # new word
+                words[-1][1] = t
+                words.append([t, t + 1])
+            else:
+                words[-1][1] = t + 1
+        print("words:", words)
 
         inputs_embeds = input_embeddings(input_ids[:, :-1])
         inputs_embeds = inputs_embeds.detach()
         inputs_embeds.requires_grad = True
+        inputs_embeds.retain_grad()
 
+        # TODO try some more...
         # Add noise for better gradients.
-        inputs_embeds_ = inputs_embeds + torch.where(src_text_mask[:, :-1, None], torch.randn_like(inputs_embeds), 0.0)
+        inputs_embeds_ = inputs_embeds  # + torch.where(src_text_mask[:, :-1, None], 0.01, 0.0).to(inputs_embeds.dtype)
 
         res = model(inputs_embeds=inputs_embeds_)
         logits = res.logits.float()
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
+        logits = logits + (logits * (0.1 + -1.0)).detach()  # smoothed, but grads will go to logits
         print(res)
 
         def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
             loss.backward(retain_graph=True)
             grad, inputs_embeds.grad = inputs_embeds.grad, None
-            e = inputs_embeds.float()
-            grad = grad.float()
-            ls = [
-                torch.norm((e * grad)[0, 10:15], p=10, dim=-1),
-                torch.norm((e * grad)[0, 10:15], p=1, dim=-1),
-                torch.norm((e * grad)[0, 10:15], p=0.1, dim=-1),
-                torch.norm(grad[0, 10:15], p=1, dim=-1),
-                torch.norm(grad[0, 10:15], p=0.1, dim=-1),
-            ]
-            if ref_norm is not None:
-                ls.append(torch.norm(grad[0, 10:15], p=1, dim=-1) / ref_norm.sum(dim=0))
-                ls.append(ref_norm.log_softmax(dim=0)[i])
-            for v in ls:
-                print(v, v.argmax())
-            return torch.norm(grad[0, 10:15], p=1, dim=-1)
-
-        for t in range(input_ids.shape[1] - 1):
-            if not dst_text_mask[0, t + 1]:
-                continue
-            print(f"{t=} {input_ids[0, t + 1]=} {tokenizer.decode(input_ids[0, t + 1])=}")
-            loss = torch.nn.functional.cross_entropy(
-                logits[:, t], input_ids[:, t + 1], ignore_index=-100, reduction="sum"
-            )
-            _calc_input_grads()
-            loss = torch.nn.functional.cross_entropy(
-                fake_logits[:, t], input_ids[:, t + 1], ignore_index=-100, reduction="sum"
-            )
-            _calc_input_grads()
+            with torch.no_grad():
+                e = inputs_embeds.float()
+                grad = grad.float()
+                ls = [
+                    torch.norm((e * grad)[0, src_text_start:src_text_end], p=10, dim=-1),
+                    torch.norm((e * grad)[0, src_text_start:src_text_end], p=1, dim=-1),
+                    torch.norm((e * grad)[0, src_text_start:src_text_end], p=0.1, dim=-1),
+                    torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1),
+                    torch.norm(grad[0, src_text_start:src_text_end], p=0.1, dim=-1),
+                ]
+                if ref_norm is not None:
+                    ls.append(torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1) / ref_norm.sum(dim=0))
+                    ls.append(ref_norm.log_softmax(dim=0)[i])
+                for v in ls:
+                    print(v, int(v.argmax()))
+                return torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1)
 
         grad_mat = []
         grad_mat_fake = []
-        for t0, t1 in [(17, 18), (18, 19), (19, 20), (20, 23), (23, 24)]:
+        for t0, t1 in words:
             loss = torch.nn.functional.cross_entropy(
-                logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+                logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
             grad_mat.append(_calc_input_grads())
             loss = torch.nn.functional.cross_entropy(
-                fake_logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+                fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
             grad_mat_fake.append(_calc_input_grads())
         grad_mat = torch.stack(grad_mat)
         grad_mat_fake = torch.stack(grad_mat_fake)
 
-        for i, (t0, t1) in enumerate([(17, 18), (18, 19), (19, 20), (20, 23), (23, 24)]):
-            print(f"{t0=} {t1=} {input_ids[0, t0+1:t1+1]=} {tokenizer.decode(input_ids[0, t0+1:t1+1])=}")
+        for i, (t0, t1) in enumerate(words):
+            print(f"{t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
             loss = torch.nn.functional.cross_entropy(
-                logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+                logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
             _calc_input_grads(ref_norm=grad_mat, i=i)
             loss = torch.nn.functional.cross_entropy(
-                fake_logits[0, t0:t1], input_ids[0, t0 + 1 : t1 + 1], ignore_index=-100, reduction="sum"
+                fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
             _calc_input_grads(ref_norm=grad_mat_fake, i=i)
 
