@@ -642,7 +642,10 @@ def py():
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
             )
 
-    # Blank separated with fixed grad on 24GB.
+    # Blank separated (blankSep) with fixed grad (ctcFixGrad) on 24GB.
+    # (Baseline: 5.76 {"dev-clean": 2.34, "dev-other": 5.76, "test-clean": 2.59, "test-other": 5.81})
+    # 5.63 {"dev-clean": 2.37, "dev-other": 5.63, "test-clean": 2.61, "test-other": 5.78}
+    # (but no clear improvement on test)
     train_exp(
         f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
         f"-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
@@ -686,7 +689,10 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
-    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01). (baseline: 5.77)
+    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01).
+    # (baseline: 5.77 {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03})
+    # (baseline with blankSep: 5.73 {"dev-clean": 2.41, "dev-other": 5.73, "test-clean": 2.59, "test-other": 6.02})
+    # 5.94 {"dev-clean": 2.4, "dev-other": 5.94, "test-clean": 2.62, "test-other": 5.94}
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01",
