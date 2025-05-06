@@ -62,7 +62,15 @@ def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
     return key_string, report_dict
 
 
-def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
+def run_nn_args(
+    nn_args,
+    report_args_collection,
+    dev_corpora,
+    report_name="",
+    returnn_root=None,
+    recog_args=None,
+    hub5e01_exp_list=None,
+):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -99,10 +107,16 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         },
         **(recog_args or {}),
     }
-    score_info = ScorerInfo()
-    score_info.ref_file = dev_corpora["hub5e00"].stm
-    score_info.job_type = Hub5ScoreJob
-    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+    # Initialize ScorerInfo for both hub5e00 and hub5e01
+    score_info_hub5e00 = ScorerInfo()
+    score_info_hub5e00.ref_file = dev_corpora["hub5e00"].stm
+    score_info_hub5e00.job_type = Hub5ScoreJob
+    score_info_hub5e00.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
+
+    score_info_hub5e01 = ScorerInfo()
+    score_info_hub5e01.ref_file = dev_corpora["hub5e01"].stm
+    score_info_hub5e01.job_type = Hub5ScoreJob
+    score_info_hub5e01.score_kwargs = {"glm": dev_corpora["hub5e01"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
     ctc_nn_system = TransducerSystem(
         returnn_root=returnn_root or RETURNN_ROOT,
@@ -112,7 +126,7 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
     )
     ctc_nn_system.init_system(
         returnn_configs=returnn_configs,
-        dev_keys=["hub5e00"],
+        dev_keys=["hub5e00", "hub5e01"],
         corpus_data=dev_corpora,
         am_args={
             "state_tying": "monophone",
@@ -122,12 +136,13 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
             "phon_history_length": 0,
             "phon_future_length": 0,
         },
-        scorer_info=score_info,
+        scorer_info=None,
         report=Report(
             columns_start=["train_name"],
             columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
         ),
     )
+    ctc_nn_system._set_scorer("hub5e00", score_info_hub5e00)
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
@@ -135,11 +150,35 @@ def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", re
         hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         cached=True,
     )
+
     ctc_nn_system.run_train_step(nn_args.training_args)
+
+    if hub5e01_exp_list is not None:
+        assert isinstance(hub5e01_exp_list, list)
+
+        ctc_nn_system_hub5e01 = copy.deepcopy(ctc_nn_system)
+        ctc_nn_system_hub5e01._set_scorer("hub5e01", score_info_hub5e01)
+        ctc_nn_system_hub5e01.crp["hub5e01"].acoustic_model_config = copy.deepcopy(
+            ctc_nn_system.crp["hub5e00"].acoustic_model_config
+        )
+
+        for exp in list(ctc_nn_system_hub5e01.returnn_configs.keys()):
+            if exp not in hub5e01_exp_list:
+                ctc_nn_system_hub5e01.returnn_configs.pop(exp)
+        ctc_nn_system_hub5e01.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
+
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
     assert ctc_nn_system.report is not None
     report = ctc_nn_system.report
+    if hub5e01_exp_list is not None:
+        for data in report.data:
+            data["eval_set"] = "hub5e00"
+
+        for data in ctc_nn_system_hub5e01.report.data:
+            data["eval_set"] = "hub5e01"
+        report = Report.merge_reports([report, ctc_nn_system_hub5e01.report])
+
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     if report_name:
@@ -190,6 +229,15 @@ def run_mel_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
+            "bs10k_lgm80_baseline_time_30": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 8, "max_time": 30},
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
             "bs5k_lgm80_baseline": dict(
                 returnn_args={**returnn_args, "batch_size": 5000},
                 feature_args=feature_args,
@@ -227,7 +275,16 @@ def run_mel_baseline():
         evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
         prefix="conformer_",
     )
-    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        recog_args=recog_args,
+        hub5e01_exp_list=[
+            "conformer_bs10k_lgm80_baseline",
+            "conformer_bs10k_lgm80_baseline_time_30",
+        ],
+    )
     return report, ctc_nn_system
 
 
@@ -302,6 +359,44 @@ def run_scf_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "7k"},
             ),
+            "bs10k_scf_baseline_preemphasis97": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97_mask8": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "specaug_old": {"max_feature": 8},
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_baseline_preemphasis97_mask8_30": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 10000,
+                    "specaug_old": {"max_feature": 8, "max_time": 30},
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
@@ -319,6 +414,11 @@ def run_scf_baseline():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
+        hub5e01_exp_list=[
+            "conformer_bs10k_scf_baseline_preemphasis97",
+            "conformer_bs10k_scf_baseline_preemphasis97_mask8",
+            "conformer_bs10k_scf_baseline_preemphasis97_mask8_30",
+        ],
     )
     return report, ctc_nn_system
 
@@ -913,6 +1013,9 @@ def run_scf_specaug():
         "report_scf_specaug.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
+        hub5e01_exp_list=[
+            "conformer_bs2x5k_scf_specaug_baseline",
+        ],
     )
     return report
 
@@ -1334,6 +1437,12 @@ def run_specaug_stft_experiments():
         "report_specaug_stft.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [24, 350, 390, 400, 410, 420, 430, 440, 450]},
+        hub5e01_exp_list=[
+            "conformer_bs10k_scf_stft10ms_fmask_5_8of256",
+            "conformer_bs10k_lgm_stft10ms_fmask_5_8of256",
+            "conformer_bs10k_scf_stft10ms_fmask_5_4of256",
+            "conformer_bs10k_lgm_stft10ms_fmask_5_4of256",
+        ],
     )
     return report, ctc_nn_system
 
@@ -1484,6 +1593,12 @@ def run_scf_combination_experiments():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [376, 386, 396, 406, 426]},
+        hub5e01_exp_list=[
+            "conformer_scf_bs2x5k_stft20ms_fmask_5_8of512_tempo",
+            "conformer_scf_bs10k_stft10ms_fmask_5_8of256_tempo",
+            "conformer_scf_bs10k_stft10ms_fmask_5_8of256_tempo_pre1",
+            "conformer_scf_bs10k_stft10ms_fmask_5_8of256_tempo_nonlinear_preemphasis",
+        ],
     )
     return report, ctc_nn_system
 
