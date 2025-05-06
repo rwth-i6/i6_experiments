@@ -171,11 +171,12 @@ class Gen(Job):
         # TODO try some more...
         # SmoothGrad:
         # Add noise for better gradients.
-        inputs_embeds_ = inputs_embeds + torch.where(
-            src_text_mask[:, :-1, None],
-            torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 0.1,
-            0.0,
-        )
+        # inputs_embeds_ = inputs_embeds + torch.where(
+        #     src_text_mask[:, :-1, None],
+        #     torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 1.0,
+        #     0.0,
+        # )
+        inputs_embeds_ = inputs_embeds
 
         res = model(inputs_embeds=inputs_embeds_)
         print(res)
@@ -183,7 +184,7 @@ class Gen(Job):
         if logits.shape[0] > 1:
             logits = logits.mean(dim=0, keepdim=True)
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-        logits = logits + (logits * (0.9 + -1.0)).detach()  # smoothed, but grads will go to logits
+        # logits = logits + (logits * (0.9 + -1.0)).detach()  # smoothed, but grads will go to logits
 
         def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
             loss.backward(retain_graph=True)
