@@ -120,7 +120,7 @@ def _is_returnn_cuda_error(log_filename: str) -> bool:
 
 
 def _get_failed_task(job: Job) -> Tuple[Task, int]:
-    for task in job.tasks():
+    for task in job._sis_tasks():
         task: Task
         for task_id in task.task_ids():
             if task.error(task_id):
