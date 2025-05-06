@@ -169,14 +169,21 @@ class Gen(Job):
         inputs_embeds.retain_grad()
 
         # TODO try some more...
+        # SmoothGrad:
         # Add noise for better gradients.
-        inputs_embeds_ = inputs_embeds  # + torch.where(src_text_mask[:, :-1, None], 0.01, 0.0).to(inputs_embeds.dtype)
+        inputs_embeds_ = inputs_embeds + torch.where(
+            src_text_mask[:, :-1, None],
+            torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 0.1,
+            0.0,
+        )
 
         res = model(inputs_embeds=inputs_embeds_)
-        logits = res.logits.float()
-        fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-        logits = logits + (logits * (0.1 + -1.0)).detach()  # smoothed, but grads will go to logits
         print(res)
+        logits = res.logits.float()
+        if logits.shape[0] > 1:
+            logits = logits.mean(dim=0, keepdim=True)
+        fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
+        logits = logits + (logits * (0.9 + -1.0)).detach()  # smoothed, but grads will go to logits
 
         def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
             loss.backward(retain_graph=True)
@@ -185,6 +192,7 @@ class Gen(Job):
                 e = inputs_embeds.float()
                 grad = grad.float()
                 ls = [
+                    (e * grad)[0, src_text_start:src_text_end].sum(dim=-1),
                     torch.norm((e * grad)[0, src_text_start:src_text_end], p=10, dim=-1),
                     torch.norm((e * grad)[0, src_text_start:src_text_end], p=1, dim=-1),
                     torch.norm((e * grad)[0, src_text_start:src_text_end], p=0.1, dim=-1),
