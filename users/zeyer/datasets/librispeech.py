@@ -755,12 +755,18 @@ def get_librispeech_task_raw_v2(
     if cache_key in _librispeech_task_raw_v2_cache:
         return _librispeech_task_raw_v2_cache[cache_key]
 
+    # See :func:`search_dataset`.
+    # We first optionally do :func:`ctc_alignment_to_label_seq` if ``recog_def.output_blank_label`` is set.
+    # (SearchCollapseRepeatedLabelsJob, SearchRemoveLabelJob).
+    # Then ``recog_post_proc_funcs`` are applied.
+    # Then SearchTakeBestJob.
+    # Then, for Sclite scoring, there is SearchWordsDummyTimesToCTMJob.
     if isinstance(vocab, Bpe):
-        vocab_to_words = [_bpe_to_words_v2]
+        recog_post_proc_funcs = [_bpe_to_words_v2]
     elif isinstance(vocab, SentencePieceModel):
-        vocab_to_words = [_spm_to_words]
+        recog_post_proc_funcs = [_spm_to_words]
     elif isinstance(vocab, (Utf8BytesVocab, VocabConfigStatic)):
-        vocab_to_words = []  # assume it can just stay that way
+        recog_post_proc_funcs = []  # assume it can just stay that way
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
@@ -791,7 +797,7 @@ def get_librispeech_task_raw_v2(
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev-other",
         score_recog_output_func=_score_recog_out_v2,
-        recog_post_proc_funcs=vocab_to_words,
+        recog_post_proc_funcs=recog_post_proc_funcs,
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
