@@ -11,14 +11,17 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 
 
 def py():
-    dl = DownloadHuggingFaceRepoJob(model_id="CohereLabs/aya-expanse-32b")
-    tk.register_output("aya", dl.out_hub_cache_dir)
+    dl_aya = DownloadHuggingFaceRepoJob(model_id="CohereLabs/aya-expanse-32b")
+    tk.register_output("aya-model", dl_aya.out_hub_cache_dir)
 
-    gen = Gen(hub_cache_dir=dl.out_hub_cache_dir)
-    tk.register_output("aya-gen", gen.out)
+    # gen_aya = GenAya(hub_cache_dir=dl_aya.out_hub_cache_dir)
+    # tk.register_output("aya-gen", gen_aya.out)
+
+    dl_phi4mi = DownloadHuggingFaceRepoJob(model_id="microsoft/Phi-4-multimodal-instruct")
+    tk.register_output("phi4mi-model", dl_phi4mi.out_hub_cache_dir)
 
 
-class Gen(Job):
+class GenAya(Job):
     def __init__(self, *, hub_cache_dir: tk.Path):
         """
         :param hub_cache_dir: e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
