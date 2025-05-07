@@ -119,19 +119,14 @@ class Gen(Job):
             dst_text_mask_parts = []
             for input_s_, src_text_mask_, dst_text_mask_ in [
                 (
-                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>"
-                    f"Accurately translate text and preserve punctuation from {src_lang} into {dst_lang},"
-                    f" word by word.\n\n"
-                    f"{src_lang}:\n{src_text}\n\n"
-                    f"{dst_lang}:\n{dst_text}\n\n"
-                    f"{src_lang}:\n",
+                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from {src_lang} into {dst_lang}:\n",
                     False,
                     False,
                 ),
                 (src_text, True, False),
-                (f"\n<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>{dst_lang}:\n", False, False),
+                (f"<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>", False, False),
                 (dst_text, False, True),
-                ("\n<|END_OF_TURN_TOKEN|>", False, False),
+                ("<|END_OF_TURN_TOKEN|>", False, False),
             ]:
                 input_ids_ = tokenizer.encode(input_s_, add_special_tokens=False, return_tensors="pt").to(device_str)
                 input_ids_parts.append(input_ids_)
@@ -181,7 +176,16 @@ class Gen(Job):
         #     torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 1.0,
         #     0.0,
         # )
-        inputs_embeds_ = inputs_embeds * 0.8
+        nf = torch.linspace(0.0, 0.5, steps=10, device=inputs_embeds.device, dtype=inputs_embeds.dtype)[:, None, None]
+        inputs_embeds_ = torch.where(
+            src_text_mask[:, :-1, None],
+            inputs_embeds * (1.0 - nf)
+            + nf
+            * torch.randn(
+                nf.shape[:1] + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype
+            ),
+            inputs_embeds,
+        )
 
         res = model(inputs_embeds=inputs_embeds_)
         print(res)
@@ -189,7 +193,7 @@ class Gen(Job):
         if logits.shape[0] > 1:
             logits = logits.mean(dim=0, keepdim=True)
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-        logits = logits + (logits * (0.9 + -1.0)).detach()  # smoothed, but grads will go to logits
+        logits = logits + (logits * (0.5 + -1.0)).detach()  # smoothed, but grads will go to logits
 
         def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
             loss.backward(retain_graph=True)
