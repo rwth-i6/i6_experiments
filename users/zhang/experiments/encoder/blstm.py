@@ -165,7 +165,7 @@ class BlstmEncoder(ISeqDownsamplingEncoder):
         return rf.concat((x_fwd_lstm,self.out_dim), (x_bwd_lstm,self.out_dim))[0], out_spatial_dim
 
 
-def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim, enc_dim: int=512) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
@@ -176,16 +176,30 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
+    recog_language_model = config.typed_value("recog_language_model", None)
+    recog_lm = None
+
+    if recog_language_model:
+        assert isinstance(recog_language_model, dict)
+        recog_language_model = recog_language_model.copy()
+        cls_name = recog_language_model.pop("class")
+        if cls_name == "FeedForwardLm":
+            recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+        elif cls_name == "TransformerLm":
+            recog_lm = TransformerDecoder(encoder_dim=None,vocab_dim=target_dim, **recog_language_model)
+
+
     return Model(
         in_dim,
         num_enc_layers=num_enc_layers,
-        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+        enc_model_dim=Dim(name="enc", dimension=enc_dim, kind=Dim.Types.Feature),
         enc_other_opts=None,
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
         enc_aux_logits=enc_aux_logits or (),
+        recog_language_model=recog_lm,
     )
 
 

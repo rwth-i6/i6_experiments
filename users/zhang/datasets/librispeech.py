@@ -1495,6 +1495,19 @@ def get_librispeech_lm_dataset(
     return train_dataset
 
 
+@cache
+def _get_train_corpus_text(train_small: bool = False) -> tk.Path:
+    if train_small:
+        key = "train-clean-100"
+    else:
+        key = "train-other-960"
+    train_corpus_text_dict = _get_corpus_text_dict(key)
+    job = TextDictToTextLinesJob(train_corpus_text_dict, gzip=True)
+    job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
+    tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
+    return job.out_text_lines
+
+
 def get_librispeech_lm_combined_txt() -> tk.Path:
     from i6_core.text.processing import ConcatenateJob
     from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data

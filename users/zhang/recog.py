@@ -643,7 +643,7 @@ def search_error_config(
             lm = decoder_params.pop("lm", 0)
             assert lm != 0, "no count based lm given in decoding_config!!!"
         elif lm_name.startswith(
-                "ffnn"):  # Actually lm should be none not only for ffnn, can change to something else later
+                "ffnn") or lm_name.startswith("trafo"):  # Actually lm should be none not only for ffnn, can change to something else later
             decoder_params.pop("lm", 0)
             lm = None
         else:
@@ -972,7 +972,7 @@ def search_config_v2(
             if lm_name[0].isdigit(): #Use count based n-gram, it is already in decoder_params["lm"] TODO: maybe pass the lm config here and get the lm here
                 lm = decoder_params.pop("lm", 0)
                 assert lm != 0, "no count based lm given in decoding_config!!!"
-            elif lm_name.startswith("ffnn"): # Actually lm should be none not only for ffnn, can change to something else later
+            elif lm_name.startswith("ffnn") or lm_name.startswith("trafo"): # Actually lm should be none not only for ffnn, can change to something else later
                 decoder_params.pop("lm", 0)
                 lm = None
             else:

@@ -21,12 +21,12 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, TensorDict
 
 
-def lm_forward_def(*, model: rf.Module, targets: Tensor, targets_spatial_dim: Dim, **_other) -> Tensor:
+def lm_forward_def(*, model: rf.Module, targets: Tensor, targets_spatial_dim: Dim, same_seq:bool,**_other) -> Tensor:
     # noinspection PyTypeChecker
     vocab = model.vocab_dim.vocab
     assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
 
-    _, (targets_w_eos_spatial_dim,) = rf.pad(
+    targets_w_bos, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
     )
     targets_w_eos, _ = rf.pad(
@@ -38,15 +38,31 @@ def lm_forward_def(*, model: rf.Module, targets: Tensor, targets_spatial_dim: Di
     )
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
-    logits, _ = model(
-        targets,
-        spatial_dim=targets_spatial_dim,
-        out_spatial_dim=targets_w_eos_spatial_dim,
-        state=model.default_initial_state(batch_dims=batch_dims),
-    )
 
+    if same_seq: # Trafo lm
+        logits, _ = model(
+            targets_w_bos,
+            spatial_dim=targets_w_eos_spatial_dim,
+            state=model.default_initial_state(batch_dims=batch_dims),
+        )
+        #import pdb;pdb.set_trace()
+        # logits, pack_dim = rf.pack_padded(
+        #     logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+        # )
+        #  We need to mask out the padding..? Yeah, but before feeds to the model..? Isnt it already specified in w_eos_spatial_dim?
+        # Transformerdecoder does not take targets_w_eos_spatial_dim and do it automatically
+
+
+    else:
+        logits, _ = model(
+            targets,
+            spatial_dim=targets_spatial_dim,
+            out_spatial_dim=targets_w_eos_spatial_dim,
+            state=model.default_initial_state(batch_dims=batch_dims),
+        )
+    # import pdb; pdb.set_trace()
     log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
-    log_prob_targets = rf.gather(log_prob, indices=targets_w_eos, axis=model.vocab_dim)
+    log_prob_targets = rf.gather(log_prob, indices=targets_w_eos, axis=model.vocab_dim) # Why before it is indices = targets_w_eos?
     log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
     assert log_prob_targets_seq.dims_set == set(batch_dims)
 
@@ -91,6 +107,8 @@ def _returnn_forward_callback():
             assert hyps.dims[0].dyn_size_ext is not None, f"hyps {hyps} do not define seq lengths"
             hyps_len = hyps.dims[0].dyn_size_ext
             self.data[seq_tag] = [hyps_len.raw_tensor.item(), scores.raw_tensor.item()]
+            import torch
+            torch.cuda.empty_cache()
 
         def finish(self):
             import json
@@ -102,7 +120,7 @@ def _returnn_forward_callback():
     return _ReturnnRecogV2ForwardCallbackIface()
 
 
-def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, dataset_key: str) -> ReturnnConfig:
+def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, dataset_key: str, same_seq:bool=False, batch_size:int=80_000) -> ReturnnConfig:
     from i6_experiments.users.zeyer.utils.sis_setup import get_base_module
 
     unhashed_package_root_model_def, setup_base_name_model_def = get_base_module(
@@ -115,7 +133,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         forward_data=dataset.get_dataset(dataset_key),
-        batch_size=80_000,#100_000,
+        batch_size=batch_size,#100_000,
     )
 
     if isinstance(model_def, ModelDefWithCfg):
@@ -143,10 +161,17 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
         ),
         *serialize_model_def(model_def, unhashed_package_root=unhashed_package_root_model_def),
         serialization.Import(_returnn_v2_get_model, import_as="get_model"),
-        serialization.Import(lm_forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
+        serialization.PartialImport(
+            code_object_path=lm_forward_def,
+            unhashed_package_root=None,
+            hashed_arguments={"same_seq": same_seq},
+            unhashed_arguments={},
+            import_as="_forward_def",
+            ignore_import_as_for_hash=True),
+        #serialization.Import(lm_forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
         serialization.Import(_returnn_forward_step, import_as="forward_step"),
         serialization.Import(_returnn_forward_callback, import_as="forward_callback"),
-        serialization.ExplicitHash({"version": "4"}),
+        serialization.ExplicitHash({"version": "5"}),
         serialization.PythonEnlargeStackWorkaroundNonhashedCode,
         serialization.PythonCacheManagerFunctionNonhashedCode,
         serialization.PythonModelineNonhashedCode,
@@ -157,7 +182,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
     return returnn_config
 
 
-def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], exponent: float=1):
+def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], exponent: float=1, epochs:List[int]=[], same_seq:bool=False, batch_size:int=80_000, **kwargs_unused):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
@@ -165,9 +190,11 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
         dataset_keys = [dataset_keys]
     ppls = dict()
     for dataset_key in dataset_keys:
-        returnn_config = _returnn_ppl_config(model_with_checkpoints.definition, dataset, dataset_key)
+        returnn_config = _returnn_ppl_config(model_with_checkpoints.definition, dataset, dataset_key, same_seq, batch_size=batch_size)
 
         for epoch in model_with_checkpoints.fixed_epochs:
+            if epoch not in epochs:
+                continue
             res = ReturnnForwardJobV2(
                 model_checkpoint=model_with_checkpoints.get_epoch(epoch).checkpoint,
                 returnn_config=returnn_config,
@@ -175,11 +202,12 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
                 returnn_root=tools_paths.get_returnn_root(),
             )
-            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename],exponent=exponent)
 
+            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename],exponent=exponent)
             dataset_key_ = (
                 dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key
             )
+            res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_bpe_ppl", ppl_job.out_ppl)
             if dataset_key_ == "test-other":
                 ppls[f"epoch{epoch}"] = ppl_job.out_ppl
@@ -207,6 +235,7 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model
         dataset_key_ = (
             dataset_key[len("transcriptions-"):] if dataset_key.startswith("transcriptions-") else dataset_key
         )
+        res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
         tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_bpe_ppl", ppl_job.out_ppl)
         ppls[dataset_key_] = ppl_job.out_ppl
     return ppls["test-other"]

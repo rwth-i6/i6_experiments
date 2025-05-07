@@ -17,7 +17,7 @@ import os
 from sisyphus import tk
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
-from returnn.tensor import Tensor, Dim, batch_dim
+from returnn.tensor import Tensor, Dim, single_step_dim, batch_dim
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -253,6 +253,8 @@ def train_exp(
     model_config: Optional[Dict[str, Any]] = None, # Returnn config
     config_updates: Optional[Dict[str, Any]] = None, # For iterative changing of config
     config_deletes: Optional[Sequence[str]] = None,
+    tune_config_updates: Optional[Dict[str, Any]] = None,
+    recog_config_updates: Optional[Dict[str, Any]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
     num_epochs: int = 2000,
@@ -333,13 +335,13 @@ def train_exp(
         time_rqmt=time_rqmt,
         env_updates=env_updates,
     )
-
+    print("fixed_epochs of AM:",model_with_checkpoints.fixed_epochs)
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
-    # search_config = None
-    # if serialization_version is not None:
-    #     search_config = {"__serialization_version": serialization_version}
+    search_config = None
+    if serialization_version is not None:
+        search_config = {"__serialization_version": serialization_version}
 
     if recog:
         return recog_exp(
@@ -353,6 +355,8 @@ def train_exp(
         config_updates=config_updates,
         vocab=vocab,
         decoding_config=decoding_config,
+        tune_config_updates=tune_config_updates,
+        recog_config_updates=recog_config_updates,
         exclude_epochs=exclude_epochs,
         with_prior=with_prior,
         empirical_prior=empirical_prior,
@@ -363,7 +367,7 @@ def train_exp(
         recog_epoch=recog_epoch,
     )
 
-    recog_training_exp(
+    recog_res = recog_training_exp(
         prefix,
         task,
         model_with_checkpoints,
@@ -373,7 +377,7 @@ def train_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, None, None, None
+    return model_with_checkpoints, recog_res, None, None
 
 
 # noinspection PyShadowingNames
@@ -389,14 +393,15 @@ def recog_exp(
     model_config: Optional[Dict[str, Any]] = None, # Returnn config
     config_updates: Optional[Dict[str, Any]] = None, # For iterative changing of config
     config_deletes: Optional[Sequence[str]] = None,
+    tune_config_updates: Optional[Dict[str, Any]] = None,
+    recog_config_updates: Optional[Dict[str, Any]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
     num_epochs: int = 2000,
-    gpu_mem: Optional[int] = 24,
+    gpu_mem: Optional[int] = 15,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
     env_updates: Optional[Dict[str, str]] = None,
-    enabled: bool = True,
     decoding_config: dict = None,
     exclude_epochs: Collection[int] = (),
     recog_epoch: int = None,
@@ -439,13 +444,15 @@ def recog_exp(
     if tune_hyperparameters and decoding_config["use_lm"]:
         original_params = decoding_config
         params = copy.copy(original_params)
+        if tune_config_updates:
+            params.update(tune_config_updates)
         params.pop("lm_weight_tune", None)
         params.pop("prior_weight_tune", None)
         default_lm = original_params.get("lm_weight")
         default_prior = original_params.get("prior_weight")
         lm_scores = []
         prior_scores = []
-        lm_tune_ls = [-0.1,-0.05,0,0.05]#[scale/100 for scale in range(-50,51,10)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
+        lm_tune_ls = [scale/100 for scale in range(-50,51,10)]#[scale/100 for scale in range(-50,51,10)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
         prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
@@ -543,6 +550,8 @@ def recog_exp(
     #     dev_sets=["test-other","dev-other"],
     #     search_rqmt=search_rqmt,
     # )
+    if recog_config_updates:
+        decoding_config.update(recog_config_updates)
     recog_result, search_error = recog_exp_(
         prefix, task, model_with_checkpoints,
         epoch=recog_epoch,
@@ -634,8 +643,10 @@ def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, An
         assert isinstance(recog_language_model, dict)
         recog_language_model = recog_language_model.copy()
         cls_name = recog_language_model.pop("class")
-        assert cls_name == "FeedForwardLm"
-        recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+        if cls_name == "FeedForwardLm":
+            recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+        elif cls_name == "TransformerLm":
+            recog_lm = TransformerDecoder(encoder_dim=None,vocab_dim=target_dim, **recog_language_model)
 
     return dict(
         in_dim=in_dim,
@@ -931,7 +942,12 @@ def model_recog_lm(
 
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
-        label_log_prob = label_log_prob.raw_tensor.cpu()
+        label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+        assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+
+        label_log_prob = rf.cast(label_log_prob, "float32")
+        label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
+        label_log_prob = label_log_prob.raw_tensor.contiguous()
 
         # Subtract prior of labels if available
         if prior_file and prior_weight > 0.0:
@@ -958,7 +974,12 @@ def model_recog_lm(
     #
     #     return hyps, scores, enc_spatial_dim, beam_dim
     use_lm = hyp_params.pop("use_lm", False)
-    import pdb
+
+    # if label_log_prob.shape[0] > label_log_prob.shape[1]:
+    #     # shape is [T, B, N] – needs to be permuted to [B, T, N]
+    #     label_log_prob = label_log_prob.permute(1, 0, 2).contiguous()
+
+    #import pdb
     #pdb.set_trace()
     if use_lm:
         if lm: # Directly give path only for count based n-gram(arpa)
@@ -995,6 +1016,9 @@ def model_recog_lm(
 
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+
+
+
     if use_logsoftmax:
         decoder_results = decoder(label_log_prob, enc_spatial_dim_torch)
     else:
@@ -1125,6 +1149,9 @@ def model_recog_lm(
 
         words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
 
+        if  len(decoder_results) != batch_dim.get_dim_value().item():
+            pdb.set_trace()
+
         words = np.array(words)
         words = np.expand_dims(words, axis=2)
         scores = [[l2.score for l2 in l1] for l1 in decoder_results]
@@ -1136,6 +1163,7 @@ def model_recog_lm(
                                                                  dtype="string", name="hyps")
         scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores)
 
+        #pdb.set_trace()
         return words, scores, enc_spatial_dim, beam_dim
     else:
         def _pad_blanks(tokens, max_len):
@@ -1245,7 +1273,6 @@ def decode_flashlight(
         enc_spatial_dim: Dim,
         hyperparameters: dict,
         prior_file: tk.Path = None,
-        train_lm=False
 ) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
     from dataclasses import dataclass
     import torch
@@ -1286,23 +1313,32 @@ def decode_flashlight(
     # Eager-mode implementation of beam search using Flashlight.
 
     # noinspection PyUnresolvedReferences
-    assert lm_name.startswith("ffnn")
+    assert lm_name.startswith("ffnn") or lm_name.startswith("trafo")
+
+
+    context_lm = True #Default: use n-gram nn model like ffnn
+
+    assert model.recog_language_model
+    #assert isinstance(model.recog_language_model, FeedForwardLm) or isinstance(model.recog_language_model, FeedForwardLm)
+    assert model.recog_language_model.vocab_dim == model.target_dim
+    if isinstance(model.recog_language_model, FeedForwardLm):
+        lm: FeedForwardLm = model.recog_language_model
+        context_lm = True
+    elif isinstance(model.recog_language_model,TransformerDecoder):
+        lm: TransformerDecoder = model.recog_language_model
+        context_lm = False
+    else:
+        raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
+    # context_size = int(lm_name[len("ffnn"):])
+
     def extract_ctx_size(s):
         match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
         return match.group(1) if match else None
-    context_size = int(extract_ctx_size(lm_name))
-    if train_lm:
-        assert model.train_language_model
-        assert model.train_language_model.vocab_dim == model.target_dim
-        lm: FeedForwardLm = model.train_language_model
+    if context_lm:
+        context_size = int(extract_ctx_size(lm_name))
     else:
-        assert lm_name.startswith("ffnn")
-        assert model.recog_language_model
-        assert isinstance(model.recog_language_model, FeedForwardLm)
-        assert model.recog_language_model.vocab_dim == model.target_dim
+        context_size = 1
 
-        # context_size = int(lm_name[len("ffnn"):])
-        lm: FeedForwardLm = model.recog_language_model
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
 
@@ -1343,11 +1379,12 @@ def decode_flashlight(
     @dataclass
     class FlashlightLMState:
         def __init__(self, label_seq: List[int], prev_state: LMState):
-            if len(label_seq) > context_size:
+            if len(label_seq) > context_size and context_lm:
                 self.label_seq = label_seq[-context_size:]
             else:
                 self.label_seq = label_seq
-            assert len(self.label_seq) == context_size
+            if context_lm:
+                assert len(self.label_seq) == context_size
             self.prev_state = prev_state
 
     # Use LRU cache for the LM states (on GPU) and log probs.
@@ -1377,40 +1414,124 @@ def decode_flashlight(
         @lru_cache(maxsize=start_lru_cache_size)
         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
             """
+            :param context_lm: if True, run full-context scoring; otherwise, run incremental (single-step) scoring
             :return: LM state, log probs [Vocab]
             """
             state_ = self.mapping_states[state]
 
-            lm_logits, lm_state = None, None
+            lm_logits = None
+            lm_state = None
+            if not context_lm:
+                # Incremental (single-step) scoring
+                if state_.label_seq == [model.bos_idx]:
+                    prev_lm_state = lm_initial_state
+                else:
+                    prev_lm_state, _ = self._calc_next_lm_state.cache_peek(
+                        state_.prev_state,
+                        fallback=(None, None)
+                    )
             while True:
                 self._cache_maybe_free_memory()
                 try:
-                    self._count_recalc_whole_seq += 1
-                    spatial_dim = Dim(len(state_.label_seq), name="seq")
-                    out_spatial_dim = Dim(context_size + 1, name="seq_out")
-                    lm_logits, lm_state = lm(
-                        rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
-                        spatial_dim=spatial_dim,
-                        out_spatial_dim=out_spatial_dim,
-                        state=lm_initial_state,
-                    )  # Vocab / ...
-                    lm_logits = rf.gather(lm_logits, axis=out_spatial_dim,
-                                          indices=rf.last_frame_position_of_dim(out_spatial_dim))
+                    if context_lm:
+                        # Full-sequence scoring (always recalculates whole sequence)
+                        self._count_recalc_whole_seq += 1
+                        spatial_dim = Dim(len(state_.label_seq), name="seq")
+                        out_spatial_dim = Dim(context_size + 1, name="seq_out")
+                        lm_logits, lm_state = lm(
+                            rf.convert_to_tensor(
+                                state_.label_seq,
+                                dims=[spatial_dim],
+                                sparse_dim=model.target_dim
+                            ),
+                            spatial_dim=spatial_dim,
+                            out_spatial_dim=out_spatial_dim,
+                            state=lm_initial_state,
+                        )
+                        # extract only the last-frame logits
+                        lm_logits = rf.gather(
+                            lm_logits,
+                            axis=out_spatial_dim,
+                            indices=rf.last_frame_position_of_dim(out_spatial_dim)
+                        )
+                    else: # We use a trafo lm
+                        if prev_lm_state is not None or lm_initial_state is None:
+                            # we have a previous state, so do one-step
+                            lm_logits, lm_state = lm(
+                                rf.constant(
+                                    state_.label_seq[-1], dims=[], sparse_dim=model.target_dim
+                                ),
+                                spatial_dim=single_step_dim,
+                                state=prev_lm_state,
+                            )
+                        else:
+                            # no prev state: recalc full seq but only last output
+                            self._count_recalc_whole_seq += 1
+                            spatial_dim = Dim(len(state_.label_seq), name="seq")
+                            lm_logits, lm_state = lm(
+                                rf.convert_to_tensor(
+                                    state_.label_seq,
+                                    dims=[spatial_dim],
+                                    sparse_dim=model.target_dim
+                                ),
+                                spatial_dim=spatial_dim,
+                                state=lm_initial_state,
+                                output_only_last_frame=True,
+                            )
+                    # exit loop if successful
+                    break
                 except torch.cuda.OutOfMemoryError as exc:
+                    # on OOM, try freeing cache or retry
                     if self._calc_next_lm_state.cache_len() == 0:
-                        raise  # cannot free more
+                        raise
                     print(f"{type(exc).__name__}: {exc}")
-                    new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
-                    if new_max_used_mem_fraction != self._max_used_mem_fraction:
-                        print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
-                    continue  # try again
-                break
+                    new_max = max(0.2, self._max_used_mem_fraction - 0.1)
+                    if new_max != self._max_used_mem_fraction:
+                        self._max_used_mem_fraction = new_max
+                        print(f"Reduce max used mem fraction to {new_max:.0%}")
+                    continue
+
+            # compute log-probs over vocabulary and move to CPU
             assert lm_logits.dims == (model.target_dim,)
-            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)
             log_probs_raw = lm_log_probs.raw_tensor.cpu()
-            # -------debug
-            #pdb.set_trace()
             return lm_state, log_probs_raw
+        # def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
+        #     """
+        #     :return: LM state, log probs [Vocab]
+        #     """
+        #     state_ = self.mapping_states[state]
+        #
+        #     lm_logits, lm_state = None, None
+        #     while True:
+        #         self._cache_maybe_free_memory()
+        #         try:
+        #             self._count_recalc_whole_seq += 1
+        #             spatial_dim = Dim(len(state_.label_seq), name="seq")
+        #             out_spatial_dim = Dim(context_size + 1, name="seq_out")
+        #             lm_logits, lm_state = lm(
+        #                 rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
+        #                 spatial_dim=spatial_dim,
+        #                 out_spatial_dim=out_spatial_dim,
+        #                 state=lm_initial_state,
+        #             )  # Vocab / ...
+        #             lm_logits = rf.gather(lm_logits, axis=out_spatial_dim,
+        #                                   indices=rf.last_frame_position_of_dim(out_spatial_dim))
+        #         except torch.cuda.OutOfMemoryError as exc:
+        #             if self._calc_next_lm_state.cache_len() == 0:
+        #                 raise  # cannot free more
+        #             print(f"{type(exc).__name__}: {exc}")
+        #             new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
+        #             if new_max_used_mem_fraction != self._max_used_mem_fraction:
+        #                 print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
+        #             continue  # try again
+        #         break
+        #     assert lm_logits.dims == (model.target_dim,)
+        #     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+        #     log_probs_raw = lm_log_probs.raw_tensor.cpu()
+        #     # -------debug
+        #     #pdb.set_trace()
+        #     return lm_state, log_probs_raw
 
         def _cache_maybe_free_memory(self):
             if dev.type == "cuda":
@@ -1465,6 +1586,8 @@ def decode_flashlight(
                 (LMState, float): pair of (new state, score for the current word)
             """
             state_ = self.mapping_states[state]
+
+            # import time
             # if time.monotonic() - self._recent_debug_log_time > 1:
             #     print(
             #         "LM prefix",
@@ -1475,6 +1598,7 @@ def decode_flashlight(
             #         f"(mem usage {dev_s}: {' '.join(_collect_mem_stats())})",
             #     )
             #     self._recent_debug_log_time = time.monotonic()
+
             outstate = state.child(token_index)
             if outstate not in self.mapping_states:
                 self.mapping_states[outstate] = FlashlightLMState(
@@ -1507,7 +1631,8 @@ def decode_flashlight(
         log_add=log_add,
         criterion_type=CriterionType.CTC,
     )
-    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, -1, model.blank_idx, [])
+    sil_idx = -1  # no silence
+    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, sil_idx, model.blank_idx, [])
 
     # Subtract prior of labels if available
     if prior_file and prior_weight > 0.0:
@@ -1628,10 +1753,8 @@ def decode_flashlight(
     hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
     scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
     print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
-    if train_lm:
-        return hyps
-    else:
-        return hyps_r, scores_r, out_spatial_dim, beam_dim
+
+    return hyps_r, scores_r, out_spatial_dim, beam_dim
 
 
 def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx):
@@ -1796,7 +1919,13 @@ def scoring(
 
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
-        label_log_prob = label_log_prob.raw_tensor.cpu()
+        label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+        assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+
+        label_log_prob = rf.cast(label_log_prob, "float32")
+        label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
+        label_log_prob = label_log_prob.raw_tensor.contiguous()
+
 
         # Subtract prior of labels if available
         if prior_file and prior_weight > 0.0:
@@ -1807,23 +1936,41 @@ def scoring(
         print("Cannot subtract prior without running log softmax")
         return None
 
+    # if label_log_prob.shape[0] > label_log_prob.shape[1]:
+    #     # shape is [T, B, N] – needs to be permuted to [B, T, N]
+    #     label_log_prob = label_log_prob.permute(1, 0, 2).contiguous()
+
     use_lm = hyp_params.pop("use_lm", False)
 
     if use_lm:
 
         if lm: # Directly give path only for count based n-gram(arpa)
             lm = str(cf(lm))
+            recog_lm = lm
             # Other types distinguish with the name
         else: # extend to elif as adding other LM type
-            assert lm_name.startswith("ffnn")
+            assert lm_name.startswith("ffnn") or lm_name.startswith("trafo"), "Not supported LM type!" + " " + lm_name
             assert model.recog_language_model
-            assert isinstance(model.recog_language_model,FeedForwardLm)
             assert model.recog_language_model.vocab_dim == model.target_dim
+
+            if isinstance(model.recog_language_model, FeedForwardLm):
+                lm: FeedForwardLm = model.recog_language_model
+                context_lm = True
+            elif isinstance(model.recog_language_model, TransformerDecoder):
+                lm: TransformerDecoder = model.recog_language_model
+                context_lm = False
+            else:
+                raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
+
             def extract_ctx_size(s):
                 match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
                 return match.group(1) if match else None
-            context_size = int(extract_ctx_size(lm_name))
-            raw_lm: FeedForwardLm = model.recog_language_model
+
+            if context_lm:
+                context_size = int(extract_ctx_size(lm_name))
+            else:
+                context_size = 1
+
             #context_size = int(lm_name[len("ffnn"):])
             #lm = FFNN_LM_flashlight(model.recog_language_model, model.recog_language_model.vocab_dim, context_size)
             # --------------------Flashlight LM Test-------------------------------------
@@ -1832,7 +1979,7 @@ def scoring(
             from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
             from returnn.util import basic as util
 
-            lm_initial_state = raw_lm.default_initial_state(batch_dims=[])
+            lm_initial_state = lm.default_initial_state(batch_dims=[])
 
             dev_s = rf.get_default_device()
             dev = torch.device(dev_s)
@@ -1868,11 +2015,12 @@ def scoring(
             @dataclass
             class FlashlightLMState:
                 def __init__(self, label_seq: List[int], prev_state: LMState):
-                    if len(label_seq) > context_size:
+                    if len(label_seq) > context_size and context_lm:
                         self.label_seq = label_seq[-context_size:]
                     else:
                         self.label_seq = label_seq
-                    assert len(self.label_seq) == context_size
+                    if context_lm:
+                        assert len(self.label_seq) == context_size
                     self.prev_state = prev_state
 
             # Use LRU cache for the LM states (on GPU) and log probs.
@@ -1902,38 +2050,124 @@ def scoring(
                 @lru_cache(maxsize=start_lru_cache_size)
                 def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
                     """
+                    :param context_lm: if True, run full-context scoring; otherwise, run incremental (single-step) scoring
                     :return: LM state, log probs [Vocab]
                     """
                     state_ = self.mapping_states[state]
 
-                    lm_logits, lm_state = None, None
+                    lm_logits = None
+                    lm_state = None
                     while True:
                         self._cache_maybe_free_memory()
                         try:
-                            self._count_recalc_whole_seq += 1
-                            spatial_dim = Dim(len(state_.label_seq), name="seq")
-                            out_spatial_dim = Dim(context_size + 1, name="seq_out")
-                            lm_logits, lm_state = raw_lm(
-                                rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
-                                spatial_dim=spatial_dim,
-                                out_spatial_dim=out_spatial_dim,
-                                state=lm_initial_state,
-                            )  # Vocab / ...
-                            lm_logits = rf.gather(lm_logits, axis=out_spatial_dim,
-                                                  indices=rf.last_frame_position_of_dim(out_spatial_dim))
+                            if context_lm:
+                                # Full-sequence scoring (always recalculates whole sequence)
+                                self._count_recalc_whole_seq += 1
+                                spatial_dim = Dim(len(state_.label_seq), name="seq")
+                                out_spatial_dim = Dim(context_size + 1, name="seq_out")
+                                lm_logits, lm_state = lm(
+                                    rf.convert_to_tensor(
+                                        state_.label_seq,
+                                        dims=[spatial_dim],
+                                        sparse_dim=model.target_dim
+                                    ),
+                                    spatial_dim=spatial_dim,
+                                    out_spatial_dim=out_spatial_dim,
+                                    state=lm_initial_state,
+                                )
+                                # extract only the last-frame logits
+                                lm_logits = rf.gather(
+                                    lm_logits,
+                                    axis=out_spatial_dim,
+                                    indices=rf.last_frame_position_of_dim(out_spatial_dim)
+                                )
+                            else:  # We use a trafo lm
+                                # Incremental (single-step) scoring
+                                if state_.label_seq == [model.bos_idx]:
+                                    prev_lm_state = lm_initial_state
+                                else:
+                                    prev_lm_state, _ = self._calc_next_lm_state.cache_peek(
+                                        state_.prev_state,
+                                        fallback=(None, None)
+                                    )
+                                if prev_lm_state is not None or lm_initial_state is None:
+                                    # we have a previous state, so do one-step
+                                    lm_logits, lm_state = lm(
+                                        rf.constant(
+                                            state_.label_seq[-1], dims=[], sparse_dim=model.target_dim
+                                        ),
+                                        spatial_dim=single_step_dim,
+                                        state=prev_lm_state,
+                                    )
+                                else:
+                                    # no prev state: recalc full seq but only last output
+                                    self._count_recalc_whole_seq += 1
+                                    spatial_dim = Dim(len(state_.label_seq), name="seq")
+                                    lm_logits, lm_state = lm(
+                                        rf.convert_to_tensor(
+                                            state_.label_seq,
+                                            dims=[spatial_dim],
+                                            sparse_dim=model.target_dim
+                                        ),
+                                        spatial_dim=spatial_dim,
+                                        state=lm_initial_state,
+                                        output_only_last_frame=True,
+                                    )
+                            # exit loop if successful
+                            break
                         except torch.cuda.OutOfMemoryError as exc:
+                            # on OOM, try freeing cache or retry
                             if self._calc_next_lm_state.cache_len() == 0:
-                                raise  # cannot free more
+                                raise
                             print(f"{type(exc).__name__}: {exc}")
-                            new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
-                            if new_max_used_mem_fraction != self._max_used_mem_fraction:
-                                print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
-                            continue  # try again
-                        break
+                            new_max = max(0.2, self._max_used_mem_fraction - 0.1)
+                            if new_max != self._max_used_mem_fraction:
+                                self._max_used_mem_fraction = new_max
+                                print(f"Reduce max used mem fraction to {new_max:.0%}")
+                            continue
+
+                    # compute log-probs over vocabulary and move to CPU
                     assert lm_logits.dims == (model.target_dim,)
-                    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+                    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)
                     log_probs_raw = lm_log_probs.raw_tensor.cpu()
                     return lm_state, log_probs_raw
+
+                # def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
+                #     """
+                #     :return: LM state, log probs [Vocab]
+                #     """
+                #     state_ = self.mapping_states[state]
+                #
+                #     lm_logits, lm_state = None, None
+                #     while True:
+                #         self._cache_maybe_free_memory()
+                #         try:
+                #             self._count_recalc_whole_seq += 1
+                #             spatial_dim = Dim(len(state_.label_seq), name="seq")
+                #             out_spatial_dim = Dim(context_size + 1, name="seq_out")
+                #             lm_logits, lm_state = lm(
+                #                 rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
+                #                 spatial_dim=spatial_dim,
+                #                 out_spatial_dim=out_spatial_dim,
+                #                 state=lm_initial_state,
+                #             )  # Vocab / ...
+                #             lm_logits = rf.gather(lm_logits, axis=out_spatial_dim,
+                #                                   indices=rf.last_frame_position_of_dim(out_spatial_dim))
+                #         except torch.cuda.OutOfMemoryError as exc:
+                #             if self._calc_next_lm_state.cache_len() == 0:
+                #                 raise  # cannot free more
+                #             print(f"{type(exc).__name__}: {exc}")
+                #             new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
+                #             if new_max_used_mem_fraction != self._max_used_mem_fraction:
+                #                 print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
+                #             continue  # try again
+                #         break
+                #     assert lm_logits.dims == (model.target_dim,)
+                #     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+                #     log_probs_raw = lm_log_probs.raw_tensor.cpu()
+                #     # -------debug
+                #     #pdb.set_trace()
+                #     return lm_state, log_probs_raw
 
                 def _cache_maybe_free_memory(self):
                     if dev.type == "cuda":
@@ -1972,7 +2206,7 @@ def scoring(
                     self.reset()
                     state = LMState()
                     self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx] * context_size,
-                                                                   prev_state=state)
+                                                                   prev_state=state)  # label_seq=[model.bos_idx] * context_size
                     return state
 
                 def score(self, state: LMState, token_index: int):
@@ -1989,6 +2223,8 @@ def scoring(
                         (LMState, float): pair of (new state, score for the current word)
                     """
                     state_ = self.mapping_states[state]
+
+                    # import time
                     # if time.monotonic() - self._recent_debug_log_time > 1:
                     #     print(
                     #         "LM prefix",
@@ -1999,6 +2235,7 @@ def scoring(
                     #         f"(mem usage {dev_s}: {' '.join(_collect_mem_stats())})",
                     #     )
                     #     self._recent_debug_log_time = time.monotonic()
+
                     outstate = state.child(token_index)
                     if outstate not in self.mapping_states:
                         self.mapping_states[outstate] = FlashlightLMState(
@@ -2017,11 +2254,11 @@ def scoring(
                     """
                     return self.score(state, model.eos_idx)
 
-            lm = FlashlightLM()
+            recog_lm = FlashlightLM()
             # ---------------------------------------------------------------------------
 
     else:
-        lm = None
+        recog_lm = None
 
     use_lexicon = hyp_params.pop("use_lexicon", True)
 
@@ -2075,7 +2312,7 @@ def scoring(
 
     #-------------------------------------------------------------------------
     configs["lexicon"] = lexicon if use_lexicon else None
-    configs["lm"] = lm
+    configs["lm"] = recog_lm
 
     '''Test-Adding unkscore from lm(only for word level kenlm)'''
     # if use_lexicon:
@@ -2294,7 +2531,7 @@ def scoring(
             if isinstance(lm,str):
                 lm_score = CTClm_score(word_seq, decoder.lm)
             else:
-                lm_score = CTClm_score(word_seq, lm)
+                lm_score = CTClm_score(word_seq, recog_lm)
             lm_scores.append(lm_score)
             n_oovs.append(oov)
             scores.append(viterbi_scores[i] + hyp_params["lm_weight"]*lm_score)
