@@ -986,10 +986,30 @@ def _char_to_words(bpe: RecogOutput) -> RecogOutput:
     """Char to words"""
     from i6_core.returnn.search import SearchOutputRawReplaceJob
 
+    # Note, our standard search uses :func:`_returnn_v2_get_forward_callback`,
+    # and that uses ``hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)``.
+    # Utf8ByteTargets/CharacterTargets would output non-white-space delimited labels
+    # (CharacterTargets.get_seq_labels: ``"".join(map(self._labels.__getitem__, seq))``).
+    # However, most of the CTC models then do sth like this:
+    #   vocab_labels = list(target_dim.vocab.labels) + [model_recog.output_blank_label]
+    #   wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+    #      vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx})
+    # And that create_vocab_from_labels has some special logic,
+    # but with output_blank_label = "<blank>", i.e. len(output_blank_label) > 1,
+    # this will result in a static Vocabulary where get_seq_labels is ``" ".join(map(labels.__getitem__, seq))``,
+    # i.e. white-space delimited.
     # utf8/char, after SearchRemoveLabelJob, produces: "H I S  A B O D E  W H I C H  H E  H A D  F I X E D ..."
     # This is somewhat an artefact of the processing because it assumed white-space separated words,
     # and it used txt.split(" ") in SearchCollapseRepeatedLabelsJob and SearchRemoveLabelJob.
     # So any whitespace labels in the search output stays as two spaces.
+    # That's why we can just do the SearchOutputRawReplaceJob below.
+    # If we have do deal with non-white-space delimited outputs at some point (might occur with AED models?),
+    # some solutions:
+    # - In _returnn_v2_get_forward_callback, maybe don't use the vocab-dependend get_seq_labels,
+    #   but just always output it white-space delimited.
+    #   We can make this optional, and only apply for AED models (?),
+    #   such that this does not break all existing hashes.
+    # - Maybe we can handle it here? But it might need some further modifications...
     words = SearchOutputRawReplaceJob(
         bpe.output, [("  ", "▁"), (" ", ""), ("▁", " ")], output_gzip=True
     ).out_search_results
