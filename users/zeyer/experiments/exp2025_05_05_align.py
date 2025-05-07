@@ -201,11 +201,13 @@ class Gen(Job):
                     torch.norm(grad[0, src_text_start:src_text_end], p=0.1, dim=-1),
                 ]
                 if ref_norm is not None:
-                    ls.append(torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1) / ref_norm.sum(dim=0))
+                    std, mean = torch.std_mean(ref_norm, dim=0)
+                    ls.append((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / ref_norm.abs().mean(dim=0))
+                    ls.append(((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) - mean) / std)
                     ls.append(ref_norm.log_softmax(dim=0)[i])
                 for v in ls:
                     print(v, int(v.argmax()))
-                return torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1)
+                return (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)
 
         grad_mat = []
         grad_mat_fake = []
