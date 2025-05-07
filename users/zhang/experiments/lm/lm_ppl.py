@@ -50,7 +50,7 @@ def lm_forward_def(*, model: rf.Module, targets: Tensor, targets_spatial_dim: Di
         #     logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
         # )
         #  We need to mask out the padding..? Yeah, but before feeds to the model..? Isnt it already specified in w_eos_spatial_dim?
-        # Transformerdecoder does not take targets_w_eos_spatial_dim and do it automatically
+        # Transformerdecoder seems already use causal attention by default.
 
 
     else:
