@@ -765,8 +765,8 @@ def get_librispeech_task_raw_v2(
         recog_post_proc_funcs = [_bpe_to_words_v2]
     elif isinstance(vocab, SentencePieceModel):
         recog_post_proc_funcs = [_spm_to_words]
-    elif isinstance(vocab, (Utf8BytesVocab, VocabConfigStatic)):
-        recog_post_proc_funcs = []  # assume it can just stay that way
+    elif _is_char_vocab(vocab):
+        recog_post_proc_funcs = [_char_to_words]
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
@@ -801,6 +801,14 @@ def get_librispeech_task_raw_v2(
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
+
+
+def _is_char_vocab(vocab: VocabConfig) -> bool:
+    if isinstance(vocab, Utf8BytesVocab):
+        return True
+    if isinstance(vocab, VocabConfigStatic):
+        return vocab.opts.get("class") == "CharacterTargets"
+    return False
 
 
 _librispeech_task_text_only_cache = {}
@@ -971,6 +979,20 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     from i6_core.returnn.search import SearchOutputRawReplaceJob
 
     words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
+    return RecogOutput(output=words)
+
+
+def _char_to_words(bpe: RecogOutput) -> RecogOutput:
+    """Char to words"""
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+
+    # utf8/char, after SearchRemoveLabelJob, produces: "H I S  A B O D E  W H I C H  H E  H A D  F I X E D ..."
+    # This is somewhat an artefact of the processing because it assumed white-space separated words,
+    # and it used txt.split(" ") in SearchCollapseRepeatedLabelsJob and SearchRemoveLabelJob.
+    # So any whitespace labels in the search output stays as two spaces.
+    words = SearchOutputRawReplaceJob(
+        bpe.output, [("  ", "▁"), (" ", ""), ("▁", " ")], output_gzip=True
+    ).out_search_results
     return RecogOutput(output=words)
 
 
