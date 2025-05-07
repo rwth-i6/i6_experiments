@@ -25,7 +25,7 @@ class ComputeSilenceRatioJob(Job):
         self.out_total_frames = self.output_var("total_frames.txt")
         self.out_silence_ratio = self.output_var("silence_ratio.txt")
 
-        self.rqmt = {"cpu": 1, "mem": 24, "time": 24, "sbatch_args": ["-p", "cpu_slow"]}
+        self.rqmt = {"cpu": 1, "mem": 24, "time": 24}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -120,7 +120,7 @@ class ComputeAveragePhonemeLengthJob(Job):
         self.out_total_frames = self.output_var("total_frames.txt")
         self.out_num_seqs = self.output_var("num_seqs.txt")
 
-        self.rqmt = {"cpu": 1, "mem": 24, "time": 24, "sbatch_args": ["-p", "cpu_slow"]}
+        self.rqmt = {"cpu": 1, "mem": 24, "time": 24}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -295,7 +295,7 @@ class ComputeLabelStatisticsJob(Job):
         self.out_hmm_2_histogram = self.output_path("hmm_2_histogram.png")
         self.out_phoneme_histogram = self.output_path("label_histogram.png")
 
-        self.rqmt = {"cpu": 1, "mem": 24, "time": 24, "sbatch_args": ["-p", "cpu_slow"]}
+        self.rqmt = {"cpu": 1, "mem": 24, "time": 24}
 
     def tasks(self):
         yield Task("count", rqmt=self.rqmt)
