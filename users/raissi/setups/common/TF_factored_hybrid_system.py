@@ -1098,6 +1098,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         crp_corpus: str,
         recognizer_key: str = "base",
         model_path: Optional[Path] = None,
+        graph_path: Optional[Path] = None,
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
@@ -1120,11 +1121,16 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
 
-        if (
-            feature_scorer_type == RasrFeatureScorer.nn_precomputed
-            and self.experiments[key]["returnn_config"] is not None
-        ):
+        assert self.label_info.sil_id is not None
 
+        if model_path is None:
+            model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+
+
+        if (
+                feature_scorer_type == RasrFeatureScorer.nn_precomputed
+                and self.experiments[key]["returnn_config"] is not None
+        ):
             self.setup_returnn_config_and_graph_for_single_softmax(
                 key=key,
                 state_tying=self.label_info.state_tying,
@@ -1135,12 +1141,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             crp_list = [n for n in self.crp_names if "train" not in n]
             self.reset_state_tying(crp_list=crp_list, state_tying=self.label_info.state_tying)
 
-        graph = self.experiments[key]["graph"].get("inference", None)
-        if graph is None:
-            self.set_graph_for_experiment(key=key)
-            graph = self.experiments[key]["graph"]["inference"]
-
-        recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=p_info)
+        if graph_path is None:
+            graph = self.experiments[key]["graph"].get("inference", None)
+            if graph is None:
+                self.set_graph_for_experiment(key=key)
+                graph = self.experiments[key]["graph"]["inference"]
+        else: graph = graph_path
 
         if dummy_mixtures is None:
             n_labels = (
@@ -1153,12 +1159,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 self.initial_nn_args["num_input"],
             ).out_mixtures
 
-        assert self.label_info.sil_id is not None
-
-        if model_path is None:
-            model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
-
-
+        recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=p_info)
 
         recognizer = self.recognizers[recognizer_key](
             name=name,

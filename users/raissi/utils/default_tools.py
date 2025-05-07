@@ -72,10 +72,11 @@ u22_rasr_path_onnxtorch = tk.Path(
 )
 
 u22_rasr_path_tf = tk.Path(
-    get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
+    get_rasr_binary_path("/work/tools/users/raissi/rasr/rasr_tf2.14"),
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF214",
 )
 
+#used by samir, should not be recompiled
 u22_rasr_path_tf_test = tk.Path(
     get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
@@ -194,17 +195,19 @@ u16_tools_factored = ToolPaths(
 )
 
 
+u22_tools_tf_hashu16 = ToolPaths(
+    returnn_root=RETURNN_ROOT,
+    returnn_python_exe=u22_returnn_launcher_tf2_hashu16,
+    rasr_binary_path=u22_rasr_path_tf_hashu16,
+)
+
+
 u22_tools_tf = ToolPaths(
     returnn_root=RETURNN_ROOT_TORCH,
     returnn_python_exe=U22_RETURNN_LAUNCHERS["TF2"],
     rasr_binary_path=u22_RASR_BINARY_PATHS["TF"],
 )
 
-u22_tools_tf_hashu16 = ToolPaths(
-    returnn_root=RETURNN_ROOT,
-    returnn_python_exe=u22_returnn_launcher_tf2_hashu16,
-    rasr_binary_path=u22_rasr_path_tf_hashu16,
-)
 
 u22_tools_tf_test = ToolPaths(
     returnn_root=RETURNN_ROOT,
