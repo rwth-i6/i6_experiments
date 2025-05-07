@@ -29,7 +29,7 @@ class StftFeatureExtractionV1Config(FeatureExtractionConfig):
 
 class StftFeatureExtractionV1(nn.Module):
     """
-    Like V1, but with additional convolutions to reduce the feature dimension after the envelope extraction.
+    Feature extraction front-end that just runs the STFT.
     """
 
     def __init__(self, cfg: StftFeatureExtractionV1Config):
