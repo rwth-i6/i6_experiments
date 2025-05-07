@@ -6,6 +6,7 @@ from typing import Optional
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
+    DownloadHuggingFaceRepoJobV2,
     get_model_dir_from_hub_cache_dir,
 )
 
@@ -22,6 +23,12 @@ def py():
 
     gen_phi4mi = GenPhi4MultimodalInstruct(hub_cache_dir=dl_phi4mi.out_hub_cache_dir)
     tk.register_output("aya-gen", gen_phi4mi.out)
+
+    dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
+    tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
+
+    dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
+    tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
 
 class GenAya(Job):
