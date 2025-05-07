@@ -133,8 +133,8 @@ class SupervisedConvolutionalFeatureExtractionV2(SupervisedConvolutionalFeatureE
                 gt_fbank = GammatoneFilterbank(cfg.scf_config.num_tf, cfg.scf_config.size_tf / 16000)
                 gt_fbank_tensor = torch.from_numpy(gt_fbank.get_gammatone_filterbank()).float()  # [T, C]
                 gt_fbank_tensor = gt_fbank_tensor.transpose(0, 1).unsqueeze(1)  # [C, 1, T]
-            if cfg.init_env == "hann":
                 self.conv_tf.weight = nn.Parameter(gt_fbank_tensor)
+            if cfg.init_env == "hann":
                 hann_win = torch.hann_window(cfg.scf_config.size_env, periodic=False)
                 hann_win = hann_win.repeat(cfg.scf_config.num_env, 1)[:, None, None, :]
                 self.conv_env.weight = nn.Parameter(hann_win)
