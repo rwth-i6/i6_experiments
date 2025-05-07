@@ -94,9 +94,9 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     default_posterior_scales,
 )
 from i6_experiments.users.raissi.setups.common.util.tdp import to_tuple
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ted2_global_att_w_ctc_mon import (
-    network,
-)
+#from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ted2_global_att_w_ctc_mon import (
+#    network,
+#)
 
 # -------------------- Init --------------------
 
@@ -1360,7 +1360,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         segment_file: str = None,
     ):
         assert (
-            self.experiments[key]["align_job"] is not None or alignment_bundle is not None
+            alignment_bundle is not None or self.experiments[key]["align_job"] is not None
         ), "Please set either the alignment job or provide a bundle"
 
         if reference_alignment is None:
