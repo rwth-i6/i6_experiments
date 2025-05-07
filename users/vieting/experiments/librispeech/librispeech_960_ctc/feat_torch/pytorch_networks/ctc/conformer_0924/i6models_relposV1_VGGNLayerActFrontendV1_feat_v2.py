@@ -42,6 +42,7 @@ from ..features.scf import (
     SupervisedConvolutionalFeatureExtractionV2,
 )
 from ..features.stft import StftFeatureExtractionV1
+from ..features.conv import ConvFeatureExtractionV1
 
 
 class Identity(nn.Module):

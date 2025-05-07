@@ -20,6 +20,7 @@ from ..features.scf import (
     SupervisedConvolutionalFeatureExtractionV2Config,
 )
 from ..features.stft import StftFeatureExtractionV1Config
+from ..features.conv import ConvFeatureExtractionV1Config
 
 
 @dataclass

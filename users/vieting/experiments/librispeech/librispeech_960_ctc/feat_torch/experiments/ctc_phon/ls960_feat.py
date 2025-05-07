@@ -515,7 +515,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=120,
         )
 
-    # 2D experiments with STFT SpecAugment
+    # 2D experiments with STFT SpecAugment: different 2D configurations
     from ...pytorch_networks.ctc.features.stft import (
         StftFeatureExtractionV1Config,
     )
@@ -554,7 +554,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         (f".stftsa.2Dx6v1", 400, 10, None),
         (f".stftsa.2Dx6v1", 400, 10, 512),
         (f".stftsa.2Dx6v1", 256, 10, 256),
-        (f".stftsa.2Dx6v2", 400, 10, None),
+        # (f".stftsa.2Dx6v2", 400, 10, None),  # very slow (almost factor 3) and worse scores, aborted after 591 epochs
         (f".stftsa.2Dx5v1", 400, 20, None),
         (f".stftsa.2Dx2v1", 400, 160, None),
     ]:
@@ -585,6 +585,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             prior_batch_size=140,
         )
 
+    # 2D experiments: Tune STFT SpecAugment settings
     for exp_name, window_size, window_shift, n_fft, specaug_version in [
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v21"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v22"),
@@ -627,6 +628,41 @@ def eow_phon_ls960_relposencoder_0924_base():
             model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
             forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
             prior_batch_size=140,
+        )
+
+    # 2D experiments with STFT SpecAugment: Replace STFT by conv layer
+    from ...pytorch_networks.ctc.features.conv import (
+        ConvFeatureExtractionV1Config,
+    )
+    for fe_key, specaug_version, out_channels, kernel_size, stride, init, activation in [
+        ("2Dx6v1", "stft_v22", 80, 256, 10, "gammatone", None),
+        ("2Dx6v1", "stft_v22", 80, 256, 10, None, None),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=init,
+            activation=activation,
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name = exp_name + (f"_{activation}" if activation else "") + (f"_{init}" if init else "")
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
         )
 
     tk.register_report(
