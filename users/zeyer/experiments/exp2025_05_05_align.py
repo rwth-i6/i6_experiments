@@ -176,16 +176,17 @@ class Gen(Job):
         #     torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 1.0,
         #     0.0,
         # )
-        nf = torch.linspace(0.0, 0.5, steps=10, device=inputs_embeds.device, dtype=inputs_embeds.dtype)[:, None, None]
-        inputs_embeds_ = torch.where(
-            src_text_mask[:, :-1, None],
-            inputs_embeds * (1.0 - nf)
-            + nf
-            * torch.randn(
-                nf.shape[:1] + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype
-            ),
-            inputs_embeds,
-        )
+        # nf = torch.linspace(0.0, 0.5, steps=10, device=inputs_embeds.device, dtype=inputs_embeds.dtype)[:, None, None]
+        # inputs_embeds_ = torch.where(
+        #     src_text_mask[:, :-1, None],
+        #     inputs_embeds * (1.0 - nf)
+        #     + nf
+        #     * torch.randn(
+        #         nf.shape[:1] + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype
+        #     ),
+        #     inputs_embeds,
+        # )
+        inputs_embeds_ = inputs_embeds
 
         res = model(inputs_embeds=inputs_embeds_)
         print(res)
@@ -211,6 +212,7 @@ class Gen(Job):
                 ]
                 if ref_norm is not None:
                     std, mean = torch.std_mean(ref_norm, dim=0)
+                    std0 = torch.norm(ref_norm, p=2, dim=0)
                     ls.append(
                         (
                             "e*grad/absmean",
@@ -220,6 +222,7 @@ class Gen(Job):
                     ls.append(
                         ("e*grad-mean/std", ((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) - mean) / std)
                     )
+                    ls.append(("e*grad/std0", (e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / std0))
                     ls.append(("log_sm", ref_norm.log_softmax(dim=0)[i]))
                 for name, v in ls:
                     print(name, int(v.argmax()), v)
