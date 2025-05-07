@@ -322,11 +322,6 @@ class GenPhi4MultimodalInstruct(Job):
         model = AutoModelForCausalLM.from_pretrained(
             model_dir, local_files_only=True, torch_dtype="auto", trust_remote_code=True, device_map=device_str
         ).to(dev)
-
-        user_prompt = "<|user|>"
-        assistant_prompt = "<|assistant|>"
-        prompt_suffix = "<|end|>"
-
         generation_config = GenerationConfig.from_pretrained(model_dir)
 
         from transformers.models.phi4_multimodal.modeling_phi4_multimodal import Phi4MultimodalForCausalLM
@@ -339,17 +334,18 @@ class GenPhi4MultimodalInstruct(Job):
 
         # Part 2: Audio Processing
         print("\n--- AUDIO PROCESSING ---")
-        audio_url = "https://upload.wikimedia.org/wikipedia/commons/b/b0/Barbara_Sahakian_BBC_Radio4_The_Life_Scientific_29_May_2012_b01j5j24.flac"
-        speech_prompt = "Transcribe the audio to text, and then translate the audio to French. Use <sep> as a separator between the original transcript and the translation."
-        prompt = f"{user_prompt}<|audio_1|>{speech_prompt}{prompt_suffix}{assistant_prompt}"
-        print(f">>> Prompt\n{prompt}")
 
         from urllib.request import urlopen
         import io
         import soundfile as sf
 
         # Download and open audio file
+        audio_url = "https://upload.wikimedia.org/wikipedia/commons/b/b0/Barbara_Sahakian_BBC_Radio4_The_Life_Scientific_29_May_2012_b01j5j24.flac"
         audio, samplerate = sf.read(io.BytesIO(urlopen(audio_url).read()))
+
+        speech_prompt = "Transcribe the audio clip into text."
+        prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>"
+        print(f">>> Prompt\n{prompt}")
 
         # Process with the model
         inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt").to(dev)
