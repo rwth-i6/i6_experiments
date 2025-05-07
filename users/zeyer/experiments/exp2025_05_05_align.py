@@ -119,14 +119,19 @@ class Gen(Job):
             dst_text_mask_parts = []
             for input_s_, src_text_mask_, dst_text_mask_ in [
                 (
-                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from {src_lang} into {dst_lang}: ",
+                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>"
+                    f"Accurately translate text and preserve punctuation from {src_lang} into {dst_lang},"
+                    f" word by word.\n\n"
+                    f"{src_lang}:\n{src_text}\n\n"
+                    f"{dst_lang}:\n{dst_text}\n\n"
+                    f"{src_lang}:\n",
                     False,
                     False,
                 ),
                 (src_text, True, False),
-                ("<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>", False, False),
+                (f"\n<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>{dst_lang}:\n", False, False),
                 (dst_text, False, True),
-                ("<|END_OF_TURN_TOKEN|>", False, False),
+                ("\n<|END_OF_TURN_TOKEN|>", False, False),
             ]:
                 input_ids_ = tokenizer.encode(input_s_, add_special_tokens=False, return_tensors="pt").to(device_str)
                 input_ids_parts.append(input_ids_)
@@ -176,7 +181,7 @@ class Gen(Job):
         #     torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 1.0,
         #     0.0,
         # )
-        inputs_embeds_ = inputs_embeds
+        inputs_embeds_ = inputs_embeds * 0.8
 
         res = model(inputs_embeds=inputs_embeds_)
         print(res)
@@ -184,7 +189,7 @@ class Gen(Job):
         if logits.shape[0] > 1:
             logits = logits.mean(dim=0, keepdim=True)
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-        # logits = logits + (logits * (0.9 + -1.0)).detach()  # smoothed, but grads will go to logits
+        logits = logits + (logits * (0.9 + -1.0)).detach()  # smoothed, but grads will go to logits
 
         def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
             loss.backward(retain_graph=True)
@@ -193,20 +198,27 @@ class Gen(Job):
                 e = inputs_embeds.float()
                 grad = grad.float()
                 ls = [
-                    (e * grad)[0, src_text_start:src_text_end].sum(dim=-1),
-                    torch.norm((e * grad)[0, src_text_start:src_text_end], p=10, dim=-1),
-                    torch.norm((e * grad)[0, src_text_start:src_text_end], p=1, dim=-1),
-                    torch.norm((e * grad)[0, src_text_start:src_text_end], p=0.1, dim=-1),
-                    torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1),
-                    torch.norm(grad[0, src_text_start:src_text_end], p=0.1, dim=-1),
+                    ("e*grad", (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)),
+                    ("L10(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=10, dim=-1)),
+                    ("L1(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=1, dim=-1)),
+                    ("L0.1(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=0.1, dim=-1)),
+                    ("L1(grad)", torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1)),
+                    ("L0.1(grad)", torch.norm(grad[0, src_text_start:src_text_end], p=0.1, dim=-1)),
                 ]
                 if ref_norm is not None:
                     std, mean = torch.std_mean(ref_norm, dim=0)
-                    ls.append((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / ref_norm.abs().mean(dim=0))
-                    ls.append(((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) - mean) / std)
-                    ls.append(ref_norm.log_softmax(dim=0)[i])
-                for v in ls:
-                    print(v, int(v.argmax()))
+                    ls.append(
+                        (
+                            "e*grad/absmean",
+                            (e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / ref_norm.abs().mean(dim=0),
+                        )
+                    )
+                    ls.append(
+                        ("e*grad-mean/std", ((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) - mean) / std)
+                    )
+                    ls.append(("log_sm", ref_norm.log_softmax(dim=0)[i]))
+                for name, v in ls:
+                    print(name, int(v.argmax()), v)
                 return (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)
 
         grad_mat = []
@@ -224,7 +236,7 @@ class Gen(Job):
         grad_mat_fake = torch.stack(grad_mat_fake)
 
         for i, (t0, t1) in enumerate(words):
-            print(f"{t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
+            print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
             loss = torch.nn.functional.cross_entropy(
                 logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
