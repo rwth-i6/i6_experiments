@@ -482,6 +482,7 @@ class Aligner:
         num_seqs: int = -1,
         num_labels: Optional[int] = None,
         blank_idx: int,
+        out_align_hdf_filename: str,
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
@@ -498,9 +499,16 @@ class Aligner:
         self.num_labels = num_labels
         self.blank_idx = blank_idx
 
-    def align(self, *, seq_tag: str, labels: List[int], score_matrix: np.ndarray, plot: bool = False):
+        from returnn.datasets.hdf import SimpleHDFWriter
+
+        self.hdf_writer = SimpleHDFWriter(
+            out_align_hdf_filename, dim=self.num_labels, ndim=1, extra_type={"states": (1, 1, "int32")}
+        )
+
+    def align(self, *, seq_tag: str, labels: List[int], score_matrix: np.ndarray, plot_dir: Optional[str] = None):
         """
         :param score_matrix: [S,T]
+        :param plot_dir: if given, plots the scores and alignment as PDF into this dir
         """
         import numpy as np
         import os
@@ -639,13 +647,11 @@ class Aligner:
         alignment_ = np.array(alignment_, dtype=np.int32)  # [T]
         assert len(alignment_) == T
 
-        hdf_writer.insert_batch(
+        self.hdf_writer.insert_batch(
             alignment_[None, :], seq_len=[T], seq_tag=[seq_tag], extra={"states": np.array(alignment)[None, :, 1]}
         )
 
-        # plot only the first 10 or some selected for debugging
-        if plot:
-            plot_dir = Path("alignment-plots", self).get_path()
+        if plot_dir is not None:
             os.makedirs(plot_dir, exist_ok=True)
 
             from matplotlib import pyplot as plt
@@ -689,7 +695,7 @@ class Aligner:
             plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf")
 
     def close(self):
-        hdf_writer.close()
+        self.hdf_writer.close()
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
