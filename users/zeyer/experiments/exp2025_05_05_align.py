@@ -379,64 +379,43 @@ class GenPhi4MultimodalInstruct(Job):
         for p in model.parameters():
             p.requires_grad = False
 
-        better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
-        exit(1)  # TODO...
+        (assistant_token_id,) = processor.tokenizer.convert_tokens_to_ids(["<|assistant|>"])
+        (end_token_id,) = processor.tokenizer.convert_tokens_to_ids(["<|end|>"])
 
-        input_embeddings = model.get_input_embeddings()
-
-        input_ids, src_text_mask, dst_text_mask = _gen_text(
-            src_lang="English",
-            dst_lang="German",
-            src_text="This is a multilingual model.",
-            dst_text="Dies ist ein mehrsprachiges Modell.",
-        )
-        src_text_start = int(src_text_mask[0].nonzero().squeeze().min())
-        src_text_end = int(src_text_mask[0].nonzero().squeeze().max()) + 1
-        dst_text_start = int(dst_text_mask[0].nonzero().squeeze().min())
-        dst_text_end = int(dst_text_mask[0].nonzero().squeeze().max()) + 1
-
-        words = [[dst_text_start, dst_text_start + 1]]
-        for t in range(dst_text_start + 1, dst_text_end):
-            s = tokenizer.decode(input_ids[0, t : t + 1])
-            if s.startswith(" ") or not s[:1].isalpha():  # new word
-                words[-1][1] = t
-                words.append([t, t + 1])
-            else:
-                words[-1][1] = t + 1
-        print("words:", words)
-
-        inputs_embeds = input_embeddings(input_ids[:, :-1])
-        inputs_embeds = inputs_embeds.detach()
+        transcription = "what we do as a society we have to think about where we're moving to i frequently talk to students about cognitive enhancing drugs and a lot of students take them for studying and exams but other students feel angry about this they feel those students are cheating and we have no long-term health and safety studies in healthy people and we really need those before people start taking them"
+        prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
+        inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt")
+        input_ids = inputs["input_ids"]
+        (assistant_start_frame,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
+        assistant_start_frame = int(assistant_start_frame) + 1  # one past the assistant token
+        assistant_end_frame = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
+        inputs = inputs.to(dev)
+        input_ids = inputs["input_ids"]
+        inputs_embeds = inputs["input_audio_embeds"]
         inputs_embeds.requires_grad = True
         inputs_embeds.retain_grad()
+        res = model(**inputs)
+        logits = res.logits
+        assert logits.shape[:2] == input_ids.shape
 
-        # TODO try some more...
-        # SmoothGrad:
-        # Add noise for better gradients.
-        # inputs_embeds_ = inputs_embeds + torch.where(
-        #     src_text_mask[:, :-1, None],
-        #     torch.randn((5,) + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype) * 1.0,
-        #     0.0,
-        # )
-        # nf = torch.linspace(0.0, 0.5, steps=10, device=inputs_embeds.device, dtype=inputs_embeds.dtype)[:, None, None]
-        # inputs_embeds_ = torch.where(
-        #     src_text_mask[:, :-1, None],
-        #     inputs_embeds * (1.0 - nf)
-        #     + nf
-        #     * torch.randn(
-        #         nf.shape[:1] + inputs_embeds.shape[1:], device=inputs_embeds.device, dtype=inputs_embeds.dtype
-        #     ),
-        #     inputs_embeds,
-        # )
-        inputs_embeds_ = inputs_embeds
+        # TODO get real words...
+        words = [(t, t + 1) for t in range(assistant_start_frame, assistant_end_frame)]
 
-        res = model(inputs_embeds=inputs_embeds_)
-        print(res)
-        logits = res.logits.float()
+        # Naming wrong... it's no "text" but audio.
+        # Also not needed here, as we already have only the selected audio embedding part.
+        src_text_start, src_text_end = None, None
+
+        # t0 = assistant_start_frame  # first token for test here
+        # t1 = t0 + 1
+        # loss = torch.nn.functional.cross_entropy(
+        #     res.logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+        # )
+
+        logits = logits.float()
         if logits.shape[0] > 1:
             logits = logits.mean(dim=0, keepdim=True)
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-        logits = logits + (logits * (0.5 + -1.0)).detach()  # smoothed, but grads will go to logits
+        # logits = logits + (logits * (0.5 + -1.0)).detach()  # smoothed, but grads will go to logits
 
         def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
             loss.backward(retain_graph=True)
@@ -485,7 +464,7 @@ class GenPhi4MultimodalInstruct(Job):
         grad_mat_fake = torch.stack(grad_mat_fake)
 
         for i, (t0, t1) in enumerate(words):
-            print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
+            print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {processor.tokenizer.decode(input_ids[0, t0:t1])=}")
             loss = torch.nn.functional.cross_entropy(
                 logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
