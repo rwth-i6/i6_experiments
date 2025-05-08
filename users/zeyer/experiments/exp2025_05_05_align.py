@@ -2,6 +2,7 @@
 Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
+from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Dict, List, Tuple
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
