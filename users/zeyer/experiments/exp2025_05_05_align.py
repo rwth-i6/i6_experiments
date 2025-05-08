@@ -8,7 +8,7 @@ from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
     DownloadHuggingFaceRepoJobV2,
-    get_model_dir_from_hub_cache_dir,
+    get_content_dir_from_hub_cache_dir,
 )
 
 if TYPE_CHECKING:
@@ -93,7 +93,7 @@ class GenAya(Job):
         print(f"({time.time() - start_time} secs)")
         print("Loading model...")
         start_time = time.time()
-        model_dir = get_model_dir_from_hub_cache_dir(self.hub_cache_dir)
+        model_dir = get_content_dir_from_hub_cache_dir(self.hub_cache_dir)
         tokenizer = AutoTokenizer.from_pretrained(
             model_dir, local_files_only=True, torch_dtype="auto", device_map=device_str
         )
@@ -334,7 +334,7 @@ class GenPhi4MultimodalInstruct(Job):
         print(f"({time.time() - start_time} secs)")
         print("Loading model...")
         start_time = time.time()
-        model_dir = get_model_dir_from_hub_cache_dir(self.model_dir)
+        model_dir = get_content_dir_from_hub_cache_dir(self.model_dir)
         processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             model_dir, local_files_only=True, torch_dtype="auto", trust_remote_code=True, device_map=device_str

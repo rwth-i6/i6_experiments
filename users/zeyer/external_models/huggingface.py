@@ -107,7 +107,7 @@ class DownloadHuggingFaceRepoJobV2(Job):
         service.run()
 
 
-def get_model_dir_from_hub_cache_dir(hub_cache_dir: Union[tk.Path, str]):
+def get_content_dir_from_hub_cache_dir(hub_cache_dir: Union[tk.Path, str]):
     """
     Use this inside your job.
     """
