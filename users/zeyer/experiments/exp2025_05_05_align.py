@@ -3,7 +3,7 @@ Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Dict, List, Tuple
+from typing import TYPE_CHECKING, Optional, Union, Dict, List, Tuple
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
@@ -13,6 +13,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 
 if TYPE_CHECKING:
     import torch
+    import numpy as np
 
 
 def py():
@@ -452,6 +453,259 @@ class GenPhi4MultimodalInstruct(Job):
             print(f"*** {w=} {t0=} {t1=} {tokenizer.decode(input_ids[0, t0:t1])!r} -> {int(v.argmax())} {v}")
 
         better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
+
+
+class Aligner:
+    """
+    Create forced alignment given some arbitrary score matrix of shape [S,T],
+    where T are the time frames, and S are the labels (or words).
+    The alignment is of shape [T] pointing into 2*S+1 states,
+    where all the even states correspond to blank/silence states.
+
+    Derived from :class:`i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align.ForcedAlignOnScoreMatrixJob`.
+    """
+
+    def __init__(
+        self,
+        *,
+        cut_off_eos: bool = True,
+        norm_scores: bool = False,
+        apply_log: bool = True,
+        substract: Optional[Union[str, float]] = "max_gt0",
+        apply_softmax_over_time: bool = False,
+        apply_softmax_over_time_est_blank: bool = True,
+        apply_softmax_over_labels: bool = False,
+        blank_score: Union[float, str] = 0.0,  # or "calc"
+        blank_score_est: str = "neg_prob",
+        non_blank_score_reduce: str = "mean",
+        blank_score_flipped_percentile: int = 0,
+        num_seqs: int = -1,
+        num_labels: Optional[int] = None,
+        blank_idx: int,
+    ):
+        self.cut_off_eos = cut_off_eos
+        self.norm_scores = norm_scores
+        self.apply_log = apply_log
+        self.substract = substract
+        self.apply_softmax_over_time = apply_softmax_over_time
+        self.apply_softmax_over_time_est_blank = apply_softmax_over_time_est_blank
+        self.apply_softmax_over_labels = apply_softmax_over_labels
+        self.blank_score = blank_score
+        self.blank_score_est = blank_score_est
+        self.non_blank_score_reduce = non_blank_score_reduce
+        self.blank_score_flipped_percentile = blank_score_flipped_percentile
+        self.num_seqs = num_seqs
+        self.num_labels = num_labels
+        self.blank_idx = blank_idx
+
+    def align(self, *, seq_tag: str, labels: List[int], score_matrix: np.ndarray, plot: bool = False):
+        """
+        :param score_matrix: [S,T]
+        """
+        import numpy as np
+        import os
+
+        print("seq tag:", seq_tag)
+        print("labels:", labels, f"(len {len(labels)})")
+
+        print("score matrix shape (S x T):", score_matrix.shape)
+        if self.cut_off_eos:
+            # Last row is EOS, remove it.
+            score_matrix = score_matrix[:-1]
+        assert len(score_matrix) == len(labels), f"score_matrix.shape {score_matrix.shape} vs len labels {len(labels)}"
+        T = score_matrix.shape[1]  # noqa
+        S = score_matrix.shape[0]  # noqa
+
+        if self.norm_scores:  # norm such that sum over whole matrix is 1
+            score_matrix = score_matrix / np.sum(score_matrix)
+
+        non_blank_score = np.max(score_matrix, axis=0)  # [T]
+        blank_score = np.max(score_matrix) - non_blank_score
+
+        # Note: We are going to search the alignment path with the highest score.
+        if self.apply_log:
+            # Assuming L2 norm scores (i.e. >0).
+            score_matrix = np.log(score_matrix)
+            blank_score = np.log(blank_score)
+        # Otherwise assume already in log space.
+        # Make sure they are all negative or zero max.
+        m = np.max(score_matrix)
+        print("score matrix max:", m)
+        if self.substract == "max_gt0":
+            score_matrix = score_matrix - max(m, 0.0)
+            blank_score = blank_score - max(m, 0.0)
+        elif isinstance(self.substract, float):
+            score_matrix = score_matrix - self.substract
+            blank_score = blank_score - self.substract
+        elif not self.substract:
+            pass
+        else:
+            raise ValueError(f"invalid substract {self.substract!r}")
+        if self.apply_softmax_over_time:
+            score_matrix = _log_softmax(score_matrix, axis=1)
+            non_blank_score = np.max(np.exp(score_matrix), axis=0)  # [T]
+            if self.apply_softmax_over_time_est_blank:
+                blank_score = 1.0 - non_blank_score
+                blank_score = np.log(blank_score)
+        if self.blank_score_est == "flipped_after_softmax_over_time":
+            # mean or max, both seem ok. optimal percentile changes.
+            reduce_func = {
+                "max": np.max,
+                "mean": np.mean,
+                "log_mean_exp": lambda x, axis: np.log(np.mean(np.exp(x), axis=axis)),
+            }
+            log_non_blank_score = reduce_func[self.non_blank_score_reduce](score_matrix, axis=0)  # [T]
+            # for max, 10 enough. for mean: 30 or so.
+            flip_point = np.percentile(log_non_blank_score, self.blank_score_flipped_percentile)
+            blank_score = 2 * flip_point - log_non_blank_score  # [T]
+        elif self.blank_score_est == "neg_prob":
+            pass  # that's what we did above
+        else:
+            raise ValueError(f"invalid blank_score_est {self.blank_score_est!r}")
+        if self.apply_softmax_over_labels:
+            # Concat blank score to the end, to include it in the softmax.
+            score_matrix = np.concatenate([score_matrix, blank_score[None, :]], axis=0)  # [S+1, T]
+            score_matrix = _log_softmax(score_matrix, axis=0)
+            score_matrix, blank_score = score_matrix[:-1], score_matrix[-1]
+
+        # scores/backpointers over the states and time steps.
+        # states = blank/sil + labels. whether we give scores to blank (and what score) or not is to be configured.
+        # [T, S*2+1]
+        backpointers = np.full(
+            (T, S * 2 + 1), 3, dtype=np.int32
+        )  # 0: diagonal-skip, 1: diagonal, 2: left, 3: undefined
+        align_scores = np.full((T, S * 2 + 1), -np.infty, dtype=np.float32)
+
+        score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
+        score_matrix_[:, 1::2] = score_matrix.T
+        if isinstance(self.blank_score, (int, float)):
+            score_matrix_[:, 0::2] = self.blank_score  # blank score
+        elif self.blank_score == "calc":
+            score_matrix_[:, 0::2] = blank_score[:, None]
+        else:
+            raise ValueError(f"invalid blank_score {self.blank_score!r} setting")
+
+        # The first two states are valid start states.
+        align_scores[0, :2] = score_matrix_[0, :2]
+        backpointers[0, :] = 0  # doesn't really matter
+
+        # calculate align_scores and backpointers
+        for t in range(1, T):
+            scores_diagonal_skip = np.full([2 * S + 1], -np.infty)
+            scores_diagonal_skip[2:] = align_scores[t - 1, :-2] + score_matrix_[t, 2:]  # [2*S-1]
+            scores_diagonal_skip[::2] = -np.infty  # diagonal skip is not allowed in blank
+            scores_diagonal = np.full([2 * S + 1], -np.infty)
+            scores_diagonal[1:] = align_scores[t - 1, :-1] + score_matrix_[t, 1:]  # [2*S]
+            scores_horizontal = align_scores[t - 1, :] + score_matrix_[t, :]  # [2*S+1]
+
+            score_cases = np.stack([scores_diagonal_skip, scores_diagonal, scores_horizontal], axis=0)  # [3, 2*S+1]
+            backpointers[t] = np.argmax(score_cases, axis=0)  # [2*S+1]->[0,1,2]
+            align_scores[t : t + 1] = np.take_along_axis(score_cases, backpointers[t : t + 1], axis=0)  # [1,2*S+1]
+
+        # All but the last two states are not valid final states.
+        align_scores[-1, :-2] = -np.infty
+
+        # backtrace
+        best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
+        s = best_final
+        t = T - 1
+        alignment: List[Tuple[int, int]] = []
+        while True:
+            assert 0 <= s < S * 2 + 1 and 0 <= t < T
+            alignment.append((t, s))
+            if t == 0 and s <= 1:  # we reached some start state
+                break
+
+            b = backpointers[t, s]
+            if b == 0:
+                s -= 2
+                t -= 1
+            elif b == 1:
+                s -= 1
+                t -= 1
+            elif b == 2:
+                t -= 1
+            else:
+                raise ValueError(f"invalid backpointer {b} at s={s}, t={t}")
+
+        assert len(alignment) == T
+        alignment.reverse()
+        alignment_ = []
+        for t, s in alignment:
+            if s % 2 == 0:
+                alignment_.append(self.blank_idx)
+            else:
+                alignment_.append(labels[s // 2])
+        alignment_ = np.array(alignment_, dtype=np.int32)  # [T]
+        assert len(alignment_) == T
+
+        hdf_writer.insert_batch(
+            alignment_[None, :], seq_len=[T], seq_tag=[seq_tag], extra={"states": np.array(alignment)[None, :, 1]}
+        )
+
+        # plot only the first 10 or some selected for debugging
+        if plot:
+            plot_dir = Path("alignment-plots", self).get_path()
+            os.makedirs(plot_dir, exist_ok=True)
+
+            from matplotlib import pyplot as plt
+            from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+            alignment_map = np.zeros([T, S], dtype=np.int32)  # [T, S]
+            for t, s in alignment:
+                if s % 2 == 1:
+                    alignment_map[t, s // 2] = 1
+
+            rows = [
+                ("log(gradients) (local scores d)", score_matrix.T),
+                ("Partial scores D", -1 * align_scores),
+                ("backpointers", -1 * backpointers),
+                ("alignment", alignment_map),
+                ("blank scores", blank_score),
+            ]
+            fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 10 * len(rows)))
+            for i, (alias, mat) in enumerate(rows):
+                if mat.ndim == 1:
+                    mat = _y_to_mat(mat)  # [T,Y]
+                # mat is [T,S*2+1] or [T,S]
+                mat_ = ax[i].matshow(mat.T, cmap="Blues", aspect="auto")
+                ax[i].set_title(f"{alias} for seq {seq_tag}")
+                ax[i].set_xlabel("time")
+                ax[i].set_ylabel("labels")
+                ax[i].set_ylim(ax[i].get_ylim()[::-1])
+
+                divider = make_axes_locatable(ax[i])
+                cax = divider.append_axes("right", size="5%", pad=0.05)
+                if alias == "backpointers":
+                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2, -3])
+                    cbar.ax.set_yticklabels(["diagonal-skip", "diagonal", "left", "unreachable"])
+                elif alias == "alignment":
+                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1])
+                    cbar.ax.set_yticklabels(["", "label"])
+                else:
+                    fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+            plt.tight_layout()
+            plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf")
+
+    def close(self):
+        hdf_writer.close()
+
+
+def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
+    max_score = np.max(x, axis=axis, keepdims=True)
+    x = x - max_score
+    return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
+
+
+def _y_to_mat(y, y_num_pixels=100):  # only for visualization
+    x_num_pixels = len(y)
+    y_min, y_max = np.min(y), np.max(y)
+    mat = np.full((x_num_pixels, y_num_pixels), y_min)
+    for x_, y_ in enumerate(y):
+        y__ = int((y_ - y_min) / max(y_max - y_min, 1) * (y_num_pixels - 1))
+        mat[x_, y__] = y_
+    return mat  # [T,Y]
 
 
 def _debug_grad_score_types(
