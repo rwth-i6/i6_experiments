@@ -2,7 +2,7 @@
 Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
-from typing import Optional
+from typing import Optional, Dict
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
@@ -21,14 +21,17 @@ def py():
     dl_phi4mi = DownloadHuggingFaceRepoJob(model_id="microsoft/Phi-4-multimodal-instruct")
     tk.register_output("phi4mi-model", dl_phi4mi.out_hub_cache_dir)
 
-    gen_phi4mi = GenPhi4MultimodalInstruct(hub_cache_dir=dl_phi4mi.out_hub_cache_dir)
-    tk.register_output("aya-gen", gen_phi4mi.out)
-
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
 
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
+
+    gen_phi4mi = GenPhi4MultimodalInstruct(
+        model_dir=dl_phi4mi.out_hub_cache_dir,
+        datasets={"buckeye": dl_ds_buckeye.out_hub_cache_dir, "timit": dl_ds_timit.out_hub_cache_dir},
+    )
+    tk.register_output("aya-gen", gen_phi4mi.out)
 
 
 class GenAya(Job):
@@ -270,12 +273,14 @@ class GenAya(Job):
 
 
 class GenPhi4MultimodalInstruct(Job):
-    def __init__(self, *, hub_cache_dir: tk.Path):
+    def __init__(self, *, model_dir: tk.Path, datasets: Dict[str, tk.Path]):
         """
-        :param hub_cache_dir: e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
+        :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
+        :param datasets: hub cache dirs, e.g. via DownloadHuggingFaceRepoJobV2
         """
         super().__init__()
-        self.hub_cache_dir = hub_cache_dir
+        self.model_dir = model_dir
+        self.datasets = datasets
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 125}
         self.out = self.output_path("out")
 
@@ -324,7 +329,7 @@ class GenPhi4MultimodalInstruct(Job):
         print(f"({time.time() - start_time} secs)")
         print("Loading model...")
         start_time = time.time()
-        model_dir = get_model_dir_from_hub_cache_dir(self.hub_cache_dir)
+        model_dir = get_model_dir_from_hub_cache_dir(self.model_dir)
         processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             model_dir, local_files_only=True, torch_dtype="auto", trust_remote_code=True, device_map=device_str
@@ -363,42 +368,19 @@ class GenPhi4MultimodalInstruct(Job):
             max_new_tokens=1000,
             generation_config=generation_config,
         )
-        generate_ids = generate_ids[:, inputs["input_ids"].shape[1] :]
-        response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        # generate_ids = generate_ids[:, inputs["input_ids"].shape[1] :]
+        # response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        response = processor.batch_decode(generate_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
         print(f">>> Response\n{response}")
 
         _report_dev_memory_stats()
         print(f"({time.time() - start_time} secs)")
 
-        better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
-        exit(1)  # TODO...
-
-        def _gen_text(*, src_lang: str, dst_lang: str, src_text: str, dst_text: str):
-            input_ids_parts = []
-            src_text_mask_parts = []
-            dst_text_mask_parts = []
-            for input_s_, src_text_mask_, dst_text_mask_ in [
-                (
-                    f"<BOS_TOKEN><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Translate from {src_lang} into {dst_lang}:\n",
-                    False,
-                    False,
-                ),
-                (src_text, True, False),
-                (f"<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>", False, False),
-                (dst_text, False, True),
-                ("<|END_OF_TURN_TOKEN|>", False, False),
-            ]:
-                input_ids_ = tokenizer.encode(input_s_, add_special_tokens=False, return_tensors="pt").to(device_str)
-                input_ids_parts.append(input_ids_)
-                src_text_mask_parts.append(torch.full(input_ids_.shape, fill_value=src_text_mask_, device=device_str))
-                dst_text_mask_parts.append(torch.full(input_ids_.shape, fill_value=dst_text_mask_, device=device_str))
-            input_ids = torch.cat(input_ids_parts, dim=-1)
-            src_text_mask = torch.cat(src_text_mask_parts, dim=-1)
-            dst_text_mask = torch.cat(dst_text_mask_parts, dim=-1)
-            return input_ids, src_text_mask, dst_text_mask
-
         for p in model.parameters():
             p.requires_grad = False
+
+        better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
+        exit(1)  # TODO...
 
         input_embeddings = model.get_input_embeddings()
 
