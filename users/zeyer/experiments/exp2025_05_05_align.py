@@ -428,6 +428,28 @@ class GenPhi4MultimodalInstruct(Job):
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
         # logits = logits + (logits * (0.5 + -1.0)).detach()  # smoothed, but grads will go to logits
 
+        def _calc_input_grads(t0, t1) -> torch.Tensor:
+            loss = torch.nn.functional.cross_entropy(
+                fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+            )
+            loss.backward(retain_graph=True)
+            grad, inputs_embeds.grad = inputs_embeds.grad, None
+            with torch.no_grad():
+                e = inputs_embeds.float()
+                grad = grad.float()
+                return (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)
+
+        grad_mat = []
+        for t0, t1 in words:
+            grad_mat.append(_calc_input_grads(t0, t1))
+        grad_mat = torch.stack(grad_mat)  # [num_words,num_input_frames]
+        absmean = grad_mat.abs().mean(dim=0, keepdim=True)  # [1,num_input_frames]
+        grad_mat /= absmean
+
+        for w, (t0, t1) in enumerate(words):
+            v = grad_mat[w]
+            print(f"*** {w=} {t0=} {t1=} {tokenizer.decode(input_ids[0, t0:t1])!r} -> {int(v.argmax())} {v}")
+
         better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
