@@ -109,14 +109,16 @@ def _is_returnn_cuda_error(log_filename: str) -> bool:
     #   torch.cuda.init() failed: RuntimeError Unexpected error from cudaGetDeviceCount().
     #   Did you run some cuda functions before calling NumCudaDevices() that might have already set an error?
     #   Error 805: MPS client failed to connect to the MPS control daemon or the MPS server
-    f = open(log_filename)
+    # Open in binary mode to avoid some UTF8 encoding problems,
+    # e.g. due to some escape codes.
+    f = open(log_filename, "rb")
     # Seek to end - 10k bytes
     f.seek(0, os.SEEK_END)
     f.seek(max(0, f.tell() - 10_000), os.SEEK_SET)
     lines = f.readlines()
     for line in lines:
-        if line.startswith("torch.cuda.init() failed:"):
-            if "MPS client" in line:
+        if line.startswith(b"torch.cuda.init() failed:"):
+            if b"MPS client" in line:
                 return True
     return False
 
