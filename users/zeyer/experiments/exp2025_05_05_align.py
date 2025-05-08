@@ -379,16 +379,17 @@ class GenPhi4MultimodalInstruct(Job):
         for p in model.parameters():
             p.requires_grad = False
 
-        (assistant_token_id,) = processor.tokenizer.convert_tokens_to_ids(["<|assistant|>"])
-        (end_token_id,) = processor.tokenizer.convert_tokens_to_ids(["<|end|>"])
+        tokenizer = processor.tokenizer
+        (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
+        (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
         transcription = "what we do as a society we have to think about where we're moving to i frequently talk to students about cognitive enhancing drugs and a lot of students take them for studying and exams but other students feel angry about this they feel those students are cheating and we have no long-term health and safety studies in healthy people and we really need those before people start taking them"
         prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
         inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt")
         input_ids = inputs["input_ids"]
-        (assistant_start_frame,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
-        assistant_start_frame = int(assistant_start_frame) + 1  # one past the assistant token
-        assistant_end_frame = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
+        (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
+        dst_text_start = int(dst_text_start) + 1  # one past the assistant token
+        dst_text_end = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
         inputs = inputs.to(dev)
         input_ids = inputs["input_ids"]
         inputs_embeds = inputs["input_audio_embeds"]
@@ -398,8 +399,15 @@ class GenPhi4MultimodalInstruct(Job):
         logits = res.logits
         assert logits.shape[:2] == input_ids.shape
 
-        # TODO get real words...
-        words = [(t, t + 1) for t in range(assistant_start_frame, assistant_end_frame)]
+        words = [[dst_text_start, dst_text_start + 1]]
+        for t in range(dst_text_start + 1, dst_text_end):
+            s = tokenizer.decode(input_ids[0, t : t + 1])
+            if s.startswith(" ") or not s[:1].isalpha():  # new word
+                words[-1][1] = t
+                words.append([t, t + 1])
+            else:
+                words[-1][1] = t + 1
+        print("words:", words)
 
         # Naming wrong... it's no "text" but audio.
         # Also not needed here, as we already have only the selected audio embedding part.
@@ -464,7 +472,7 @@ class GenPhi4MultimodalInstruct(Job):
         grad_mat_fake = torch.stack(grad_mat_fake)
 
         for i, (t0, t1) in enumerate(words):
-            print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {processor.tokenizer.decode(input_ids[0, t0:t1])=}")
+            print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
             loss = torch.nn.functional.cross_entropy(
                 logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
             )
