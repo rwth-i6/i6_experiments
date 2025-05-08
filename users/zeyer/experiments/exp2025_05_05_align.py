@@ -2,13 +2,16 @@
 Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
-from typing import Optional, Dict
+from typing import TYPE_CHECKING, Optional, Dict, List, Tuple
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
     DownloadHuggingFaceRepoJobV2,
     get_model_dir_from_hub_cache_dir,
 )
+
+if TYPE_CHECKING:
+    import torch
 
 
 def py():
@@ -425,61 +428,74 @@ class GenPhi4MultimodalInstruct(Job):
         fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
         # logits = logits + (logits * (0.5 + -1.0)).detach()  # smoothed, but grads will go to logits
 
-        def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
-            loss.backward(retain_graph=True)
-            grad, inputs_embeds.grad = inputs_embeds.grad, None
-            with torch.no_grad():
-                e = inputs_embeds.float()
-                grad = grad.float()
-                ls = [
-                    ("e*grad", (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)),
-                    ("L10(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=10, dim=-1)),
-                    ("L1(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=1, dim=-1)),
-                    ("L0.1(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=0.1, dim=-1)),
-                    ("L1(grad)", torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1)),
-                    ("L0.1(grad)", torch.norm(grad[0, src_text_start:src_text_end], p=0.1, dim=-1)),
-                ]
-                if ref_norm is not None:
-                    std, mean = torch.std_mean(ref_norm, dim=0)
-                    std0 = torch.norm(ref_norm, p=2, dim=0)
-                    ls.append(
-                        (
-                            "e*grad/absmean",
-                            (e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / ref_norm.abs().mean(dim=0),
-                        )
-                    )
-                    ls.append(
-                        ("e*grad-mean/std", ((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) - mean) / std)
-                    )
-                    ls.append(("e*grad/std0", (e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / std0))
-                    ls.append(("log_sm", ref_norm.log_softmax(dim=0)[i]))
-                for name, v in ls:
-                    print(name, int(v.argmax()), v)
-                return (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)
-
-        grad_mat = []
-        grad_mat_fake = []
-        for t0, t1 in words:
-            loss = torch.nn.functional.cross_entropy(
-                logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
-            )
-            grad_mat.append(_calc_input_grads())
-            loss = torch.nn.functional.cross_entropy(
-                fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
-            )
-            grad_mat_fake.append(_calc_input_grads())
-        grad_mat = torch.stack(grad_mat)
-        grad_mat_fake = torch.stack(grad_mat_fake)
-
-        for i, (t0, t1) in enumerate(words):
-            print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
-            loss = torch.nn.functional.cross_entropy(
-                logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
-            )
-            _calc_input_grads(ref_norm=grad_mat, i=i)
-            loss = torch.nn.functional.cross_entropy(
-                fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
-            )
-            _calc_input_grads(ref_norm=grad_mat_fake, i=i)
-
         better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
+
+
+def _debug_grad_score_types(
+    *,
+    loss: torch.Tensor,
+    inputs_embeds: torch.Tensor,
+    words: List[Tuple[int, int]],
+    tokenizer,
+    src_text_start: Optional[int] = None,
+    src_text_end: Optional[int] = None,
+    input_ids: torch.Tensor,
+    logits: torch.Tensor,
+    fake_logits: torch.Tensor,
+):
+    import torch
+
+    def _calc_input_grads(*, ref_norm: Optional[torch.Tensor] = None, i: Optional[int] = None):
+        loss.backward(retain_graph=True)
+        grad, inputs_embeds.grad = inputs_embeds.grad, None
+        with torch.no_grad():
+            e = inputs_embeds.float()
+            grad = grad.float()
+            ls = [
+                ("e*grad", (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)),
+                ("L10(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=10, dim=-1)),
+                ("L1(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=1, dim=-1)),
+                ("L0.1(e*grad)", torch.norm((e * grad)[0, src_text_start:src_text_end], p=0.1, dim=-1)),
+                ("L1(grad)", torch.norm(grad[0, src_text_start:src_text_end], p=1, dim=-1)),
+                ("L0.1(grad)", torch.norm(grad[0, src_text_start:src_text_end], p=0.1, dim=-1)),
+            ]
+            if ref_norm is not None:
+                std, mean = torch.std_mean(ref_norm, dim=0)
+                std0 = torch.norm(ref_norm, p=2, dim=0)
+                ls.append(
+                    (
+                        "e*grad/absmean",
+                        (e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / ref_norm.abs().mean(dim=0),
+                    )
+                )
+                ls.append(("e*grad-mean/std", ((e * grad)[0, src_text_start:src_text_end].sum(dim=-1) - mean) / std))
+                ls.append(("e*grad/std0", (e * grad)[0, src_text_start:src_text_end].sum(dim=-1) / std0))
+                ls.append(("log_sm", ref_norm.log_softmax(dim=0)[i]))
+            for name, v in ls:
+                print(name, int(v.argmax()), v)
+            return (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)
+
+    grad_mat = []
+    grad_mat_fake = []
+    for t0, t1 in words:
+        loss = torch.nn.functional.cross_entropy(
+            logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+        )
+        grad_mat.append(_calc_input_grads())
+        loss = torch.nn.functional.cross_entropy(
+            fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+        )
+        grad_mat_fake.append(_calc_input_grads())
+    grad_mat = torch.stack(grad_mat)
+    grad_mat_fake = torch.stack(grad_mat_fake)
+
+    for i, (t0, t1) in enumerate(words):
+        print(f"*** {t0=} {t1=} {input_ids[0, t0:t1]=} {tokenizer.decode(input_ids[0, t0:t1])=}")
+        loss = torch.nn.functional.cross_entropy(
+            logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+        )
+        _calc_input_grads(ref_norm=grad_mat, i=i)
+        loss = torch.nn.functional.cross_entropy(
+            fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+        )
+        _calc_input_grads(ref_norm=grad_mat_fake, i=i)
