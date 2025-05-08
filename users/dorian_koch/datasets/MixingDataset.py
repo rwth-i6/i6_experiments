@@ -178,7 +178,7 @@ class MixingDataset(CachedDataset2):
 
         self.left_dataset.init_seq_order(epoch=epoch)
         self.right_dataset.init_seq_order(epoch=epoch)
-        # TODO test whether both datasets have exactly the same metadata, like dtype
+        # TODO test whether both datasMixingDatasetets have exactly the same metadata, like dtype
         self._reset_params()
         return True
 
@@ -463,6 +463,7 @@ class MixingDataset2(CachedDataset2):
         how_to_handle_end_of_data: Dict[str, THandleEndOfData],  # TODO maybe rename to how_to_handle_end_of_epoch
         *,
         data_key: str = "data",
+        mixing_metric: Optional[Union[Literal["seq_len"], Literal["num_seq"]]] = "seq_len",
         control_dataset: Optional[str] = None,
         **kwargs,
     ):
@@ -482,6 +483,9 @@ class MixingDataset2(CachedDataset2):
         """
         super().__init__(**kwargs)
         assert len(datasets) > 1
+        assert isinstance(datasets, dict)
+        assert isinstance(mixing_ratios, dict)
+        assert isinstance(how_to_handle_end_of_data, dict)
         assert datasets.keys() == mixing_ratios.keys()
         assert datasets.keys() == how_to_handle_end_of_data.keys()
         # TODO we could allow mixing_ratio = 0 with some additional logic, but I don't think this is necessary to implement
@@ -490,6 +494,11 @@ class MixingDataset2(CachedDataset2):
         # imagine 5 different mixing ratios, and having to adjust all even when you only want to adjust the proportion of a single dataset
         assert sum(mixing_ratios.values()) > 0
         assert len(how_to_handle_end_of_data) == len(datasets)
+
+        # store kwargs here for unpickling. Otherwise it would use the self.datasets, ...etc below as kwargs to __init__, which would be wrong
+        self._datasets = datasets
+        self._mixing_ratios = mixing_ratios
+        self._how_to_handle_end_of_data = how_to_handle_end_of_data
 
         self.dataset_name_to_idx = {}
         self.datasets = []
@@ -514,6 +523,7 @@ class MixingDataset2(CachedDataset2):
         self.num_outputs = make_hashable(self.control_dataset.num_outputs)
         self.labels = self.control_dataset.labels
         self.data_key = data_key
+        self.mixing_metric = mixing_metric
         self._last_decision = None
 
         for ds in self.datasets:  # TODO maybe we can relax these restrictions to <=
@@ -535,7 +545,7 @@ class MixingDataset2(CachedDataset2):
 
         if all([l is not None for l in self.child_ds_lens]):
             finish_seqs_arr = []
-            for i, ds in enumerate(self.datasets):
+            for i in range(len(self.datasets)):
                 completion_frac_of_other_datasets = 0
                 for j in range(len(self.datasets)):
                     if i == j:
@@ -565,7 +575,7 @@ class MixingDataset2(CachedDataset2):
         ), "unreasonably large num_seqs estimate, adjust mixing ratios and/or `how_to_handle_end_of_data`"  # TODO do we still need this assert?
 
         print(
-            f"MixingDataset init: {" + ".join(self.child_ds_lens)}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
+            f"MixingDataset init: {" + ".join([str(a) for a in self.child_ds_lens])}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
             file=log.v4,
         )
 
@@ -611,7 +621,12 @@ class MixingDataset2(CachedDataset2):
         return True
 
     def _data_metric(self, v: numpy.ndarray):
-        return Decimal(v.shape[0] if v.ndim >= 1 else 1)
+        if self.mixing_metric == "seq_len":
+            return Decimal(v.shape[0] if v.ndim >= 1 else 1)
+        elif self.mixing_metric == "num_seq":
+            return Decimal(1)
+        else:
+            raise NotImplementedError(f"mixing_metric {self.mixing_metric} not implemented")
 
     def _make_sure_idx_is_loaded_in_child_ds(self, dataset_index, seq_idx):
         """
