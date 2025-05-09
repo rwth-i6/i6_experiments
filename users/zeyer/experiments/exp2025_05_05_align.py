@@ -314,6 +314,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         import os
         import sys
         import time
+        import gc
 
         os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
 
@@ -452,6 +453,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             if seq_idx == 0:
                 print("data keys:", data.keys())
 
+            print("** Forwarding")
             assert len(transcription.split(" ")) == len(data["word_detail"]["utterance"])
             prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
             inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt")
@@ -472,6 +474,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             last_out = res.hidden_states[-1]  # [B,T,D]
             del res
             assert last_out.shape[:2] == input_ids.shape
+            _report_dev_memory_stats()
 
             words_start_end = [[dst_text_start, dst_text_start + 1]]
             tokens = []
@@ -488,7 +491,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             # Not needed here, as we already have only the selected audio embedding part.
             src_start, src_end = None, None
 
-            def _calc_input_grads(t0, t1) -> Dict[str, torch.Tensor]:
+            def _calc_input_grads(t0, t1, *, report_mem: bool = False) -> Dict[str, torch.Tensor]:
                 logits = model.lm_head(last_out[:, t0 - 1 : t1 - 1])
                 logits = logits.float()
                 if logits.shape[0] > 1:
@@ -499,6 +502,8 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
                     fake_logits[0], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
                 )
                 loss.backward(retain_graph=True)
+                if report_mem:
+                    _report_dev_memory_stats()
                 del fake_logits, logits
                 grad, inputs_embeds.grad = inputs_embeds.grad, None
                 with torch.no_grad():
@@ -514,11 +519,12 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
                         "L2_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=2, dim=-1),
                     }
 
+            print("** Calculating grads")
             num_input_frames = inputs_embeds[0, src_start:src_end].shape[0]
             num_words = len(words_start_end)
             grad_mats: Dict[str, List[torch.Tensor]] = {}
-            for t0, t1 in words_start_end:
-                for name, grads in _calc_input_grads(t0, t1).items():
+            for w, (t0, t1) in enumerate(words_start_end):
+                for name, grads in _calc_input_grads(t0, t1, report_mem=w == 0).items():
                     assert grads.shape == (num_input_frames,)
                     grad_mats.setdefault(name, []).append(grads)
             # each mat is [num_words,num_input_frames]
@@ -526,6 +532,11 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             # Convert to Numpy and flatten and add dummy dim at the end to have it compatible for the HDF.
             # Also add dummy batch dim in the beginning (for insert_batch).
             grad_mats__ = {k: v.detach().cpu().numpy().flatten()[None, :, None] for k, v in grad_mats_.items()}
+
+            print("** Freeing")
+            del last_out, inputs_embeds, inputs  # not needed anymore now
+            gc.collect()
+            _report_dev_memory_stats()
 
             first_key = next(iter(grad_mats_.keys()))
             hdf_writer.insert_batch(
