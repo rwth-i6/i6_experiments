@@ -676,18 +676,18 @@ class CalcAlignmentMetricsJob(Job):
             ]
             assert num_words == len(ref_word_start_ends) == len(align_word_start_ends)
 
-            wbe_utts.append(
-                np.mean(
-                    [
-                        0.5
-                        * (
-                            abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
-                            + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
-                        )
-                        for w in range(num_words)
-                    ]
-                )
+            wbe_utt = np.mean(
+                [
+                    0.5
+                    * (
+                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
+                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
+                    )
+                    for w in range(num_words)
+                ]
             )
+            print("  WBE:", float(wbe_utt))
+            wbe_utts.append(wbe_utt)
 
         wbe = float(np.mean(wbe_utts))
         self.out_wbe.set(wbe)
