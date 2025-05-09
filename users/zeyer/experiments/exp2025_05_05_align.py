@@ -464,14 +464,16 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             assert logits.shape[:2] == input_ids.shape
 
             words_start_end = [[dst_text_start, dst_text_start + 1]]
+            tokens = []
             for t in range(dst_text_start + 1, dst_text_end):
                 s = tokenizer.decode(input_ids[0, t : t + 1])
-                if s.startswith(" ") or not s[:1].isalpha():  # new word
+                tokens.append(s)
+                if s.startswith(" "):  # new word
                     words_start_end[-1][1] = t
                     words_start_end.append([t, t + 1])
                 else:
                     words_start_end[-1][1] = t + 1
-            assert len(words_start_end) == len(data["word_detail"]["utterance"])
+            assert len(words_start_end) == len(data["word_detail"]["utterance"]), f"got {tokens=}"
 
             # Not needed here, as we already have only the selected audio embedding part.
             src_start, src_end = None, None
