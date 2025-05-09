@@ -611,6 +611,8 @@ class Aligner:
 
     def align(self, *, seq_tag: str, labels: List[int], score_matrix: np.ndarray, plot_dir: Optional[str] = None):
         """
+        :param seq_tag:
+        :param labels:
         :param score_matrix: [S,T]
         :param plot_dir: if given, plots the scores and alignment as PDF into this dir
         """
@@ -627,6 +629,7 @@ class Aligner:
         assert len(score_matrix) == len(labels), f"score_matrix.shape {score_matrix.shape} vs len labels {len(labels)}"
         T = score_matrix.shape[1]  # noqa
         S = score_matrix.shape[0]  # noqa
+        inf = np.inf
 
         if self.norm_scores:  # norm such that sum over whole matrix is 1
             score_matrix = score_matrix / np.sum(score_matrix)
@@ -686,7 +689,7 @@ class Aligner:
         backpointers = np.full(
             (T, S * 2 + 1), 3, dtype=np.int32
         )  # 0: diagonal-skip, 1: diagonal, 2: left, 3: undefined
-        align_scores = np.full((T, S * 2 + 1), -np.infty, dtype=np.float32)
+        align_scores = np.full((T, S * 2 + 1), -inf, dtype=np.float32)
 
         score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
         score_matrix_[:, 1::2] = score_matrix.T
@@ -703,10 +706,10 @@ class Aligner:
 
         # calculate align_scores and backpointers
         for t in range(1, T):
-            scores_diagonal_skip = np.full([2 * S + 1], -np.infty)
+            scores_diagonal_skip = np.full([2 * S + 1], -inf)
             scores_diagonal_skip[2:] = align_scores[t - 1, :-2] + score_matrix_[t, 2:]  # [2*S-1]
-            scores_diagonal_skip[::2] = -np.infty  # diagonal skip is not allowed in blank
-            scores_diagonal = np.full([2 * S + 1], -np.infty)
+            scores_diagonal_skip[::2] = -inf  # diagonal skip is not allowed in blank
+            scores_diagonal = np.full([2 * S + 1], -inf)
             scores_diagonal[1:] = align_scores[t - 1, :-1] + score_matrix_[t, 1:]  # [2*S]
             scores_horizontal = align_scores[t - 1, :] + score_matrix_[t, :]  # [2*S+1]
 
@@ -715,7 +718,7 @@ class Aligner:
             align_scores[t : t + 1] = np.take_along_axis(score_cases, backpointers[t : t + 1], axis=0)  # [1,2*S+1]
 
         # All but the last two states are not valid final states.
-        align_scores[-1, :-2] = -np.infty
+        align_scores[-1, :-2] = -inf
 
         # backtrace
         best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
