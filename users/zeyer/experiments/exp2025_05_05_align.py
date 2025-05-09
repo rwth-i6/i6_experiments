@@ -57,6 +57,38 @@ def py():
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # Test different prompts
+    for i, prompt in enumerate(
+        [
+            "Transcribe the audio clip into text.",
+            "Based on the attached audio, generate a comprehensive text transcription of the spoken content.",
+        ]
+    ):
+        ds_name, ds_dir, key = "timit", dl_ds_timit, "val"
+        gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
+            model_dir=dl_phi4mi.out_hub_cache_dir,
+            dataset_dir=ds_dir.out_hub_cache_dir,
+            dataset_key=key,
+            speech_prompt=prompt,
+        )
+        gen_phi4mi.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        name = f"phi4mi-{ds_name}-{key}-prompt{i}-grads"
+        gen_phi4mi.add_alias(name)
+        tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
+
+        grad_type = "L2_e_grad"
+        align_name = f"align/{name}-{grad_type}"
+        align = CalcAlignmentMetricsJob(
+            grad_score_hdf=gen_phi4mi.out_hdf,
+            grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+            dataset_dir=ds_dir.out_hub_cache_dir,
+            dataset_key=key,
+            dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
+            align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
 
 class GenAya(Job):
     def __init__(self, *, hub_cache_dir: tk.Path):
@@ -297,6 +329,9 @@ class GenAya(Job):
 
 
 class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
+
+    __sis_hash_exclude__ = {"speech_prompt": "Transcribe the audio clip into text."}
+
     def __init__(
         self,
         *,
@@ -304,6 +339,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         dataset_dir: tk.Path,
         dataset_key: str,
         returnn_root: Optional[tk.Path] = None,
+        speech_prompt: str = "Transcribe the audio clip into text.",
     ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
@@ -315,6 +351,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
+        self.speech_prompt = speech_prompt
 
         self.rqmt = {"time": 30, "cpu": 2, "gpu": 1, "mem": 125}
 
@@ -404,7 +441,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         # audio_url = "https://upload.wikimedia.org/wikipedia/commons/b/b0/Barbara_Sahakian_BBC_Radio4_The_Life_Scientific_29_May_2012_b01j5j24.flac"
         # audio, samplerate = sf.read(io.BytesIO(urlopen(audio_url).read()))
 
-        speech_prompt = "Transcribe the audio clip into text."
+        speech_prompt = self.speech_prompt
         # prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>"
         # print(f">>> Prompt\n{prompt}")
         #
