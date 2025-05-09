@@ -317,23 +317,21 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
         sys.path.insert(0, recipe_dir)
 
-        from i6_experiments.users.schmitt.hdf import load_hdf_data
         import i6_core.util as util
 
         returnn_root = util.get_returnn_root(self.returnn_root)
-
         sys.path.insert(0, returnn_root.get_path())
-
-        from returnn.datasets.hdf import SimpleHDFWriter
 
         print("Import transformers / other libs...")
         start_time = time.time()
 
+        import numpy as np
         import torch
         import returnn.util.basic as util
         from returnn.util import better_exchook
+        from returnn.datasets.hdf import SimpleHDFWriter
 
-        os.environ["DEBUG"] = "1"  # for better_exchook to use debug shell on error
+        # os.environ["DEBUG"] = "1"  # for better_exchook to use debug shell on error
         better_exchook.install()
 
         try:
@@ -379,9 +377,9 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
 
         # print("\n--- AUDIO PROCESSING ---")
 
-        from urllib.request import urlopen
-        import io
-        import soundfile as sf
+        # from urllib.request import urlopen
+        # import io
+        # import soundfile as sf
 
         # Download and open audio file
         # audio_url = "https://upload.wikimedia.org/wikipedia/commons/b/b0/Barbara_Sahakian_BBC_Radio4_The_Life_Scientific_29_May_2012_b01j5j24.flac"
