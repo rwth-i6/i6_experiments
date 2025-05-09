@@ -3,7 +3,7 @@ Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Union, Dict, List, Tuple
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
@@ -43,6 +43,17 @@ def py():
             name = f"phi4mi-{ds_name}-{key}-grads"
             gen_phi4mi.add_alias(name)
             tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
+
+            align = CalcAlignmentMetricsJob(
+                grad_score_hdf=gen_phi4mi.out_hdf,
+                grad_score_key="L01_grad",  # or "data" or so...
+                dataset_dir=ds_dir.out_hub_cache_dir,
+                dataset_key=key,
+                dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
+                align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+            )
+            align.add_alias(f"{name}-align")
+            tk.register_output(f"{name}-align-wbe.txt", align.out_wbe)
 
 
 class GenAya(Job):
@@ -559,6 +570,129 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
+class CalcAlignmentMetricsJob(Job):
+    def __init__(
+        self,
+        *,
+        grad_score_hdf: tk.Path,
+        grad_score_key: str,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        dataset_offset_factors: int,
+        align_opts: Dict[str, Any],
+    ):
+        """
+        :param grad_score_hdf:
+        :param grad_score_key:
+        :param dataset_dir:
+        :param dataset_key:
+        :param returnn_root:
+        :param dataset_offset_factors:
+            For TIMIT, the start/end offsets are directly on sample level.
+            For Buckeye, there is factor 1000?
+                len(ds_buckeye["val"][0]["audio"]["array"]) = 9969854,
+                ds_buckeye["val"][0]["word_detail"]["stop"][-1] = 9969
+        :param align_opts: see :class:`Aligner`
+        """
+        super().__init__()
+        self.grad_score_hdf = grad_score_hdf
+        self.grad_score_key = grad_score_key
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.dataset_offset_factors = dataset_offset_factors
+        self.align_opts = align_opts
+
+        self.out_wbe = self.output_var("wbe.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+
+    def run(self):
+        import os
+        import sys
+        import numpy as np
+
+        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        from returnn.datasets.hdf import HDFDataset
+
+        grad_score_hdf_ds = HDFDataset([self.grad_score_hdf.get_path()])
+        grad_score_hdf_ds.initialize()
+        grad_score_hdf_ds.init_seq_order(epoch=1)
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print(f"Dataset: {ds}")
+        print("Dataset keys:", ds.keys())
+        print("Using key:", self.dataset_key)
+        print("Num seqs:", len(ds[self.dataset_key]))
+
+        aligner = Aligner(**self.align_opts)
+
+        # Follow https://arxiv.org/pdf/2406.02560, normalize first per utterance, then over the utterances.
+        # Word boundary error (WBE) (we also called this time-stamp error (TSE))
+        wbe_utts = []
+
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            grad_score_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
+
+            samplerate = data["audio"]["sampling_rate"]
+            num_audio_samples = len(data["audio"]["array"])
+            audio_len_secs = num_audio_samples / samplerate
+
+            sizes = grad_score_hdf_ds.get_data(seq_idx, "sizes")
+            assert sizes.shape == (1, 2)
+            num_words, num_timeframes = [int(i) for i in sizes[0]]
+            grad_mat = grad_score_hdf_ds.get_data(seq_idx, self.grad_score_key)
+            assert grad_mat.shape == (num_words * num_timeframes, 1)
+            grad_mat = grad_mat.reshape(num_words, num_timeframes)
+            secs_per_timeframe = audio_len_secs / num_timeframes
+            align_word_start_ends = aligner.align(grad_mat)
+            align_word_start_ends = [tuple(t * secs_per_timeframe for t in ts) for ts in align_word_start_ends]
+            assert num_words == len(align_word_start_ends)
+
+            print(f"** seq {seq_idx}, {num_words=} {audio_len_secs=} {num_audio_samples=} {secs_per_timeframe=}")
+
+            words: List[str] = data["word_detail"]["utterance"]
+            ref_word_starts: List[float] = data["word_detail"]["start"]
+            ref_word_ends: List[float] = data["word_detail"]["stop"]
+            assert num_words == len(words) == len(ref_word_starts) == len(ref_word_ends)
+            ref_word_start_ends = [
+                tuple(t * self.dataset_offset_factors / samplerate for t in ts)
+                for ts in zip(ref_word_starts, ref_word_ends)
+            ]
+            assert num_words == len(ref_word_start_ends) == len(align_word_start_ends)
+
+            wbe_utts.append(
+                np.mean(
+                    [
+                        0.5
+                        * (
+                            abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
+                            + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
+                        )
+                        for w in range(num_words)
+                    ]
+                )
+            )
+
+        wbe = float(np.mean(wbe_utts))
+        self.out_wbe.set(wbe)
+
+
 class Aligner:
     """
     Create forced alignment given some arbitrary score matrix of shape [S,T],
@@ -611,7 +745,6 @@ class Aligner:
         blank_score_est: str = "neg_prob",
         non_blank_score_reduce: str = "mean",
         blank_score_flipped_percentile: int = 0,
-        blank_idx: int,
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
@@ -624,28 +757,20 @@ class Aligner:
         self.blank_score_est = blank_score_est
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
-        self.blank_idx = blank_idx
 
-    def align(self, *, seq_tag: str, labels: List[int], score_matrix: np.ndarray, plot_dir: Optional[str] = None):
+    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None) -> List[Tuple[int, int]]:
         """
-        :param seq_tag:
-        :param labels:
         :param score_matrix: [S,T]
-        :param plot_dir: if given, plots the scores and alignment as PDF into this dir
+        :param plot_filename: if given, plots the scores and alignment as PDF into this file
+        :return: list of start/end offsets, both are including. len is S
         """
         import numpy as np
         import os
 
-        print("seq tag:", seq_tag)
-        print("labels:", labels, f"(len {len(labels)})")
-
-        print("score matrix shape (S x T):", score_matrix.shape)
         if self.cut_off_eos:
             # Last row is EOS, remove it.
             score_matrix = score_matrix[:-1]
-        assert len(score_matrix) == len(labels), f"score_matrix.shape {score_matrix.shape} vs len labels {len(labels)}"
-        T = score_matrix.shape[1]  # noqa
-        S = score_matrix.shape[0]  # noqa
+        S, T = score_matrix.shape
         inf = np.inf
 
         if self.norm_scores:  # norm such that sum over whole matrix is 1
@@ -741,6 +866,8 @@ class Aligner:
         best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
         s = best_final
         t = T - 1
+        # Get (t,s) tuples (t not really needed for now; depends on topology).
+        # s is the state with 0 <= s < S * 2 + 1, and 0 <= t < T.
         alignment: List[Tuple[int, int]] = []
         while True:
             assert 0 <= s < S * 2 + 1 and 0 <= t < T
@@ -762,17 +889,23 @@ class Aligner:
 
         assert len(alignment) == T
         alignment.reverse()
-        alignment_ = []
-        for t, s in alignment:
-            if s % 2 == 0:
-                alignment_.append(self.blank_idx)
-            else:
-                alignment_.append(labels[s // 2])
-        alignment_ = np.array(alignment_, dtype=np.int32)  # [T]
-        assert len(alignment_) == T
 
-        if plot_dir is not None:
-            os.makedirs(plot_dir, exist_ok=True)
+        labels_start_end: List[Tuple[int, int]] = []  # start/end offsets, both are including
+        prev_s = 0
+        for t, s in alignment:
+            if prev_s != s:  # new state
+                if prev_s % 2 == 0:  # sil before
+                    assert s % 2 == 1  # expect that we get a non-sil label now
+                if s % 2 != 0:  # non-sil new label
+                    labels_start_end.append((t, t))
+            if s % 2 != 0:  # in non-sil label
+                labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
+            prev_s = s
+        assert len(labels_start_end) == S
+
+        if plot_filename is not None:
+            assert plot_filename.endswith(".pdf")
+            os.makedirs(os.path.dirname(plot_filename), exist_ok=True)
 
             from matplotlib import pyplot as plt
             from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -795,7 +928,7 @@ class Aligner:
                     mat = _y_to_mat(mat)  # [T,Y]
                 # mat is [T,S*2+1] or [T,S]
                 mat_ = ax[i].matshow(mat.T, cmap="Blues", aspect="auto")
-                ax[i].set_title(f"{alias} for seq {seq_tag}")
+                ax[i].set_title(f"{alias} for seq {os.path.splitext(os.path.basename(plot_filename))[0]}")
                 ax[i].set_xlabel("time")
                 ax[i].set_ylabel("labels")
                 ax[i].set_ylim(ax[i].get_ylim()[::-1])
@@ -812,16 +945,22 @@ class Aligner:
                     fig.colorbar(mat_, cax=cax, orientation="vertical")
 
             plt.tight_layout()
-            plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf")
+            plt.savefig(plot_filename)
+
+        return labels_start_end
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
+    import numpy as np
+
     max_score = np.max(x, axis=axis, keepdims=True)
     x = x - max_score
     return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
 
 def _y_to_mat(y, y_num_pixels=100):  # only for visualization
+    import numpy as np
+
     x_num_pixels = len(y)
     y_min, y_max = np.min(y), np.max(y)
     mat = np.full((x_num_pixels, y_num_pixels), y_min)
