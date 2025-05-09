@@ -303,7 +303,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
 
-        self.rqmt = {"time": 20, "cpu": 2, "gpu": 1, "mem": 125}
+        self.rqmt = {"time": 30, "cpu": 2, "gpu": 1, "mem": 125}
 
         self.out_hdf = self.output_path("out.hdf")
 
@@ -414,6 +414,9 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
 
         for p in model.parameters():
             p.requires_grad = False
+
+        # TODO maybe monkey patch some modules, e.g. Phi4MMRMSNorm,
+        #   via liger_kernel.transformers.monkey_patch._patch_rms_norm_module?
 
         tokenizer = processor.tokenizer
         (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
