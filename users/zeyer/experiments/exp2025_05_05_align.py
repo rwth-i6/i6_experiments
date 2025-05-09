@@ -32,12 +32,16 @@ def py():
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
-    gen_phi4mi_timit_val = ExtractInGradsFromPhi4MultimodalInstructJob(
-        model_dir=dl_phi4mi.out_hub_cache_dir,
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="val",
-    )
-    tk.register_output("phi4mi-timit-val-grads.hdf", gen_phi4mi_timit_val.out_hdf)
+    for ds_name, ds_dir in {"timit": dl_ds_timit, "buckeye": dl_ds_buckeye}.items():
+        for key in ["train", "val", "test"]:
+            gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
+                model_dir=dl_phi4mi.out_hub_cache_dir,
+                dataset_dir=ds_dir.out_hub_cache_dir,
+                dataset_key=key,
+            )
+            name = f"phi4mi-{ds_name}-val-grads"
+            gen_phi4mi.add_alias(name)
+            tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
 
 
 class GenAya(Job):
@@ -298,7 +302,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
 
-        self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 125}
+        self.rqmt = {"time": 20, "cpu": 2, "gpu": 1, "mem": 125}
 
         self.out_hdf = self.output_path("out.hdf")
 
