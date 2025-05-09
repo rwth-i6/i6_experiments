@@ -583,10 +583,7 @@ class Aligner:
         blank_score_est: str = "neg_prob",
         non_blank_score_reduce: str = "mean",
         blank_score_flipped_percentile: int = 0,
-        num_seqs: int = -1,
-        num_labels: Optional[int] = None,
         blank_idx: int,
-        out_align_hdf_filename: str,
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
@@ -599,15 +596,7 @@ class Aligner:
         self.blank_score_est = blank_score_est
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
-        self.num_seqs = num_seqs
-        self.num_labels = num_labels
         self.blank_idx = blank_idx
-
-        from returnn.datasets.hdf import SimpleHDFWriter
-
-        self.hdf_writer = SimpleHDFWriter(
-            out_align_hdf_filename, dim=self.num_labels, ndim=1, extra_type={"states": (1, 1, "int32")}
-        )
 
     def align(self, *, seq_tag: str, labels: List[int], score_matrix: np.ndarray, plot_dir: Optional[str] = None):
         """
@@ -754,10 +743,6 @@ class Aligner:
         alignment_ = np.array(alignment_, dtype=np.int32)  # [T]
         assert len(alignment_) == T
 
-        self.hdf_writer.insert_batch(
-            alignment_[None, :], seq_len=[T], seq_tag=[seq_tag], extra={"states": np.array(alignment)[None, :, 1]}
-        )
-
         if plot_dir is not None:
             os.makedirs(plot_dir, exist_ok=True)
 
@@ -800,9 +785,6 @@ class Aligner:
 
             plt.tight_layout()
             plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf")
-
-    def close(self):
-        self.hdf_writer.close()
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
