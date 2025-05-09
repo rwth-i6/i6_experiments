@@ -453,6 +453,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             if seq_idx == 0:
                 print("data keys:", data.keys())
 
+            start_time = time.time()
             print("** Forwarding")
             assert len(transcription.split(" ")) == len(data["word_detail"]["utterance"])
             prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
@@ -524,7 +525,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             num_words = len(words_start_end)
             grad_mats: Dict[str, List[torch.Tensor]] = {}
             for w, (t0, t1) in enumerate(words_start_end):
-                for name, grads in _calc_input_grads(t0, t1, report_mem=w == 0).items():
+                for name, grads in _calc_input_grads(t0, t1, report_mem=w in {0, num_words - 1}).items():
                     assert grads.shape == (num_input_frames,)
                     grad_mats.setdefault(name, []).append(grads)
             # each mat is [num_words,num_input_frames]
@@ -537,6 +538,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             del last_out, inputs_embeds, inputs  # not needed anymore now
             gc.collect()
             _report_dev_memory_stats()
+            print(f"({time.time() - start_time} secs for the seq)")
 
             first_key = next(iter(grad_mats_.keys()))
             hdf_writer.insert_batch(
