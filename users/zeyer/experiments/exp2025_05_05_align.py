@@ -32,11 +32,12 @@ def py():
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
-    gen_phi4mi = GenPhi4MultimodalInstruct(
+    gen_phi4mi_timit_val = ExtractInGradsFromPhi4MultimodalInstructJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
-        datasets={"buckeye": dl_ds_buckeye.out_hub_cache_dir, "timit": dl_ds_timit.out_hub_cache_dir},
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
     )
-    tk.register_output("aya-gen", gen_phi4mi.out)
+    tk.register_output("phi4mi-timit-val-grads.hdf", gen_phi4mi_timit_val.out_hdf)
 
 
 class GenAya(Job):
@@ -277,26 +278,53 @@ class GenAya(Job):
         better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
-class GenPhi4MultimodalInstruct(Job):
-    def __init__(self, *, model_dir: tk.Path, datasets: Dict[str, tk.Path]):
+class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
+    def __init__(
+        self,
+        *,
+        model_dir: tk.Path,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+    ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
-        :param datasets: hub cache dirs, e.g. via DownloadHuggingFaceRepoJobV2
+        :param dataset_dir: hub cache dir, e.g. via DownloadHuggingFaceRepoJobV2. for load_dataset
+        :param dataset_key: e.g. "train", "test", whatever the dataset provides
         """
         super().__init__()
         self.model_dir = model_dir
-        self.datasets = datasets
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 125}
-        self.out = self.output_path("out")
+
+        self.out_hdf = self.output_path("out.hdf")
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         import os
+        import sys
         import time
 
         os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        from i6_experiments.users.schmitt.hdf import load_hdf_data
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+
+        sys.path.insert(0, returnn_root.get_path())
+
+        from returnn.datasets.hdf import SimpleHDFWriter
 
         print("Import transformers / other libs...")
         start_time = time.time()
@@ -349,37 +377,36 @@ class GenPhi4MultimodalInstruct(Job):
         _report_dev_memory_stats()
         print(f"({time.time() - start_time} secs)")
 
-        # Part 2: Audio Processing
-        print("\n--- AUDIO PROCESSING ---")
+        # print("\n--- AUDIO PROCESSING ---")
 
         from urllib.request import urlopen
         import io
         import soundfile as sf
 
         # Download and open audio file
-        audio_url = "https://upload.wikimedia.org/wikipedia/commons/b/b0/Barbara_Sahakian_BBC_Radio4_The_Life_Scientific_29_May_2012_b01j5j24.flac"
-        audio, samplerate = sf.read(io.BytesIO(urlopen(audio_url).read()))
+        # audio_url = "https://upload.wikimedia.org/wikipedia/commons/b/b0/Barbara_Sahakian_BBC_Radio4_The_Life_Scientific_29_May_2012_b01j5j24.flac"
+        # audio, samplerate = sf.read(io.BytesIO(urlopen(audio_url).read()))
 
         speech_prompt = "Transcribe the audio clip into text."
-        prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>"
-        print(f">>> Prompt\n{prompt}")
-
-        # Process with the model
-        inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt").to(dev)
-
-        generate_ids = model.generate(
-            **inputs,
-            num_logits_to_keep=0,  # bug to have this?
-            max_new_tokens=1000,
-            generation_config=generation_config,
-        )
-        # generate_ids = generate_ids[:, inputs["input_ids"].shape[1] :]
-        # response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-        response = processor.batch_decode(generate_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
-        print(f">>> Response\n{response}")
-
-        _report_dev_memory_stats()
-        print(f"({time.time() - start_time} secs)")
+        # prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>"
+        # print(f">>> Prompt\n{prompt}")
+        #
+        # # Process with the model
+        # inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt").to(dev)
+        #
+        # generate_ids = model.generate(
+        #     **inputs,
+        #     num_logits_to_keep=0,  # bug to have this?
+        #     max_new_tokens=1000,
+        #     generation_config=generation_config,
+        # )
+        # # generate_ids = generate_ids[:, inputs["input_ids"].shape[1] :]
+        # # response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        # response = processor.batch_decode(generate_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
+        # print(f">>> Response\n{response}")
+        #
+        # _report_dev_memory_stats()
+        # print(f"({time.time() - start_time} secs)")
 
         for p in model.parameters():
             p.requires_grad = False
@@ -388,71 +415,116 @@ class GenPhi4MultimodalInstruct(Job):
         (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
         (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
-        transcription = "what we do as a society we have to think about where we're moving to i frequently talk to students about cognitive enhancing drugs and a lot of students take them for studying and exams but other students feel angry about this they feel those students are cheating and we have no long-term health and safety studies in healthy people and we really need those before people start taking them"
-        prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
-        inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt")
-        input_ids = inputs["input_ids"]
-        (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
-        dst_text_start = int(dst_text_start) + 1  # one past the assistant token
-        dst_text_end = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
-        inputs = inputs.to(dev)
-        input_ids = inputs["input_ids"]
-        inputs_embeds = inputs["input_audio_embeds"]
-        inputs_embeds.requires_grad = True
-        inputs_embeds.retain_grad()
-        res = model(**inputs)
-        logits = res.logits
-        assert logits.shape[:2] == input_ids.shape
+        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=1, ndim=2, extra_type={"sizes": (2, 2, "int32")})
 
-        words = [[dst_text_start, dst_text_start + 1]]
-        for t in range(dst_text_start + 1, dst_text_end):
-            s = tokenizer.decode(input_ids[0, t : t + 1])
-            if s.startswith(" ") or not s[:1].isalpha():  # new word
-                words[-1][1] = t
-                words.append([t, t + 1])
-            else:
-                words[-1][1] = t + 1
-        print("words:", words)
+        # Iter over data
 
-        # Naming wrong... it's no "text" but audio.
-        # Also not needed here, as we already have only the selected audio embedding part.
-        src_text_start, src_text_end = None, None
+        from datasets import load_dataset
 
-        # t0 = assistant_start_frame  # first token for test here
-        # t1 = t0 + 1
-        # loss = torch.nn.functional.cross_entropy(
-        #     res.logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
-        # )
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print(f"Dataset: {ds}")
+        print("Dataset keys:", ds.keys())
 
-        logits = logits.float()
-        if logits.shape[0] > 1:
-            logits = logits.mean(dim=0, keepdim=True)
-        fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-        # logits = logits + (logits * (0.5 + -1.0)).detach()  # smoothed, but grads will go to logits
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            # For TIMIT: but not used currently...
+            def _tag(i, d):
+                return f"timit-{self.dataset_key}-{i}-{d['dialect_region']}-{d['speaker_id']}-{d['id']}"
 
-        def _calc_input_grads(t0, t1) -> torch.Tensor:
-            loss = torch.nn.functional.cross_entropy(
-                fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+            # Buckeye:
+            # In [59]: len(ds_buckeye["val"][0]["audio"]["array"])
+            # Out[59]: 9969854
+            #
+            # In [60]: ds_buckeye["val"][0]["word_detail"]["stop"][-1]
+            # Out[60]: 9969
+
+            audio = data["audio"]["array"]
+            samplerate = data["audio"]["sampling_rate"]
+            transcription = " ".join(data["word_detail"]["utterance"])
+            print(f"seq {seq_idx}, {audio.shape=}, {samplerate=}, {transcription!r}")
+
+            if seq_idx == 0:
+                print("data keys:", data.keys())
+
+            assert len(transcription.split(" ")) == len(data["word_detail"]["utterance"])
+            prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
+            inputs = processor(text=prompt, audios=[(audio, samplerate)], return_tensors="pt")
+            input_ids = inputs["input_ids"]
+            (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
+            dst_text_start = int(dst_text_start) + 1  # one past the assistant token
+            dst_text_end = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
+            inputs = inputs.to(dev)
+            input_ids = inputs["input_ids"]
+            inputs_embeds = inputs["input_audio_embeds"]
+            inputs_embeds.requires_grad = True
+            inputs_embeds.retain_grad()
+            res = model(**inputs)
+            logits = res.logits
+            assert logits.shape[:2] == input_ids.shape
+
+            words_start_end = [[dst_text_start, dst_text_start + 1]]
+            for t in range(dst_text_start + 1, dst_text_end):
+                s = tokenizer.decode(input_ids[0, t : t + 1])
+                if s.startswith(" ") or not s[:1].isalpha():  # new word
+                    words_start_end[-1][1] = t
+                    words_start_end.append([t, t + 1])
+                else:
+                    words_start_end[-1][1] = t + 1
+            assert len(words_start_end) == len(data["word_detail"]["utterance"])
+
+            # Not needed here, as we already have only the selected audio embedding part.
+            src_start, src_end = None, None
+
+            logits = logits.float()
+            if logits.shape[0] > 1:
+                logits = logits.mean(dim=0, keepdim=True)
+            fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
+
+            def _calc_input_grads(t0, t1) -> Dict[str, torch.Tensor]:
+                loss = torch.nn.functional.cross_entropy(
+                    fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+                )
+                loss.backward(retain_graph=True)
+                grad, inputs_embeds.grad = inputs_embeds.grad, None
+                with torch.no_grad():
+                    e = inputs_embeds.float()
+                    grad = grad.float()
+                    return {
+                        "dot_e_grad": (e * grad)[0, src_start:src_end].sum(dim=-1),
+                        "L01_grad": torch.norm(grad[0, src_start:src_end], p=0.1, dim=-1),
+                        "L1_grad": torch.norm(grad[0, src_start:src_end], p=1, dim=-1),
+                        "L2_grad": torch.norm(grad[0, src_start:src_end], p=2, dim=-1),
+                        "L01_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=0.1, dim=-1),
+                        "L1_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=1, dim=-1),
+                        "L2_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=2, dim=-1),
+                    }
+
+            num_input_frames = inputs_embeds[0, src_start:src_end].shape[0]
+            num_words = len(words_start_end)
+            grad_mats: Dict[str, List[torch.Tensor]] = {}
+            for t0, t1 in words_start_end:
+                for name, grads in _calc_input_grads(t0, t1).items():
+                    assert grads.shape == (num_input_frames,)
+                    grad_mats.setdefault(name, []).append(grads)
+            # each mat is [num_words,num_input_frames]
+            grad_mats_: Dict[str, torch.Tensor] = {name: torch.stack(grad_mat) for name, grad_mat in grad_mats.items()}
+            # Convert to Numpy and flatten and add dummy dim at the end to have it compatible for the HDF.
+            # Also add dummy batch dim in the beginning (for insert_batch).
+            grad_mats__ = {k: v.detach().cpu().numpy().flatten()[None, :, None] for k, v in grad_mats_.items()}
+
+            first_key = next(iter(grad_mats_.keys()))
+            hdf_writer.insert_batch(
+                grad_mats__[first_key],
+                seq_len=[num_words * num_input_frames],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={
+                    "sizes": np.array([num_words, num_input_frames])[None, None],
+                    **{k: v for k, v in grad_mats__.items() if k != first_key},
+                },
             )
-            loss.backward(retain_graph=True)
-            grad, inputs_embeds.grad = inputs_embeds.grad, None
-            with torch.no_grad():
-                e = inputs_embeds.float()
-                grad = grad.float()
-                return (e * grad)[0, src_text_start:src_text_end].sum(dim=-1)
 
-        grad_mat = []
-        for t0, t1 in words:
-            grad_mat.append(_calc_input_grads(t0, t1))
-        grad_mat = torch.stack(grad_mat)  # [num_words,num_input_frames]
-        absmean = grad_mat.abs().mean(dim=0, keepdim=True)  # [1,num_input_frames]
-        grad_mat /= absmean
+        hdf_writer.close()
 
-        for w, (t0, t1) in enumerate(words):
-            v = grad_mat[w]
-            print(f"*** {w=} {t0=} {t1=} {tokenizer.decode(input_ids[0, t0:t1])!r} -> {int(v.argmax())} {v}")
-
-        better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
+        # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
 class Aligner:
