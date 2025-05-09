@@ -464,11 +464,14 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             inputs_embeds = inputs["input_audio_embeds"]
             inputs_embeds.requires_grad = True
             inputs_embeds.retain_grad()
-            res = model(**inputs)  # output_hidden_states?
-            logits = res.logits
+            # We don't need the logits here. There is currently no way to not compute them,
+            # so num_logits_to_keep=1 is the best we can do.
+            # We then will compute only the needed logits below,
+            # and for that, we need the last layer output, thus output_hidden_states=True.
+            res = model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
             last_out = res.hidden_states[-1]  # [B,T,D]
             del res
-            assert logits.shape[:2] == input_ids.shape
+            assert last_out.shape[:2] == input_ids.shape
 
             words_start_end = [[dst_text_start, dst_text_start + 1]]
             tokens = []
