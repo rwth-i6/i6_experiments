@@ -422,6 +422,8 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
         print(f"Dataset: {ds}")
         print("Dataset keys:", ds.keys())
+        print("Using key:", self.dataset_key)
+        print("Num seqs:", len(ds[self.dataset_key]))
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             # For TIMIT: but not used currently...
@@ -436,6 +438,8 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             # Out[60]: 9969
 
             audio = data["audio"]["array"]
+            if not isinstance(audio, np.ndarray):
+                audio = np.array(audio)
             samplerate = data["audio"]["sampling_rate"]
             transcription = " ".join(data["word_detail"]["utterance"])
             print(f"seq {seq_idx}, {audio.shape=}, {samplerate=}, {transcription!r}")
