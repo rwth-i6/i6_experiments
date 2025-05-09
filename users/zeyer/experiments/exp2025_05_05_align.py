@@ -734,7 +734,7 @@ class Aligner:
     def __init__(
         self,
         *,
-        cut_off_eos: bool = True,
+        cut_off_eos: bool = False,
         norm_scores: bool = False,
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
