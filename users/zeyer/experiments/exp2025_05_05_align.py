@@ -62,6 +62,7 @@ def py():
         [
             "Transcribe the audio clip into text.",
             "Based on the attached audio, generate a comprehensive text transcription of the spoken content.",
+            "Transcribe the audio clip into text, but please very accurately.",
         ]
     ):
         ds_name, ds_dir, key = "timit", dl_ds_timit, "val"
