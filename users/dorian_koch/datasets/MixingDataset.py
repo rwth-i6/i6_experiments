@@ -106,9 +106,9 @@ class MixingDataset(CachedDataset2):
         self._reset_params()
 
     def _reset_params(self):
-        assert not (0 < self.right_dataset.num_seqs < 10) and not (
-            0 < self.left_dataset.num_seqs < 10
-        ), "mixing can go wrong when one dataset has very few seqs"
+        assert not (0 < self.right_dataset.num_seqs < 10) and not (0 < self.left_dataset.num_seqs < 10), (
+            "mixing can go wrong when one dataset has very few seqs"
+        )
         # left terminates epoch
         lff = self.left_dataset.num_seqs * (1 + (self.mixing_ratio) / (1 - self.mixing_ratio))
         # right terminates epoch
@@ -214,9 +214,9 @@ class MixingDataset(CachedDataset2):
     def _run_seq_idx(self, seq_idx):
         if seq_idx < self.chooser_index:
             raise Exception("seq_idx < chooser_index")
-        assert (
-            seq_idx < self.total_num_seqs_upper_bound
-        ), "This assert fails only when the two datasets are very unbalanced, in the sense that one dataset has many long sequences while the other mostly has shorter once. Keep them on equal lengths on average please! Otherwise you need to somehow increase this upper bound (which will not cause issues, just eat more ram)"
+        assert seq_idx < self.total_num_seqs_upper_bound, (
+            "This assert fails only when the two datasets are very unbalanced, in the sense that one dataset has many long sequences while the other mostly has shorter once. Keep them on equal lengths on average please! Otherwise you need to somehow increase this upper bound (which will not cause issues, just eat more ram)"
+        )
         if self.is_chooser_done:
             raise Exception(
                 "chooser is done. change attribute 'how_to_handle_end_of_data' to 'exception' if you want to know why (probably because early_exit)"
@@ -243,7 +243,7 @@ class MixingDataset(CachedDataset2):
                 c0 = self.chooser_childindices[0] / max(1, child_lens[0])
                 c1 = self.chooser_childindices[1] / max(1, child_lens[1])
                 print(
-                    f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)} (assuming uniform random distribution)",
+                    f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0] / c0 + self.datalens[1] / c1)} (assuming uniform random distribution)",
                     file=log.v4,
                 )
                 if self.how_to_handle_end_of_data[dataset_index] == "exception":
@@ -382,14 +382,14 @@ class MixingDataset(CachedDataset2):
     def _print_progress(self):
         if self.left_dataset.num_seqs > 0:
             print(
-                f"MixingDataset: Left dataset: {self.chooser_childindices[0]}/{self.left_dataset.num_seqs} ({self.chooser_childindices[0] / self.left_dataset.num_seqs * 100}%) exhausted={self.datasets_exhausted[0]}, avg_datalen={self.datalens[0]/max(1, self.chooser_childindices[0])}",
+                f"MixingDataset: Left dataset: {self.chooser_childindices[0]}/{self.left_dataset.num_seqs} ({self.chooser_childindices[0] / self.left_dataset.num_seqs * 100}%) exhausted={self.datasets_exhausted[0]}, avg_datalen={self.datalens[0] / max(1, self.chooser_childindices[0])}",
                 file=log.v4,
             )
         else:
             print("MixingDataset: Left dataset: empty", file=log.v4)
         if self.right_dataset.num_seqs > 0:
             print(
-                f"MixingDataset: Right dataset: {self.chooser_childindices[1]}/{self.right_dataset.num_seqs} ({self.chooser_childindices[1] / self.right_dataset.num_seqs * 100}%) exhausted={self.datasets_exhausted[1]}, avg_datalen={self.datalens[1]/max(1, self.chooser_childindices[1])}",
+                f"MixingDataset: Right dataset: {self.chooser_childindices[1]}/{self.right_dataset.num_seqs} ({self.chooser_childindices[1] / self.right_dataset.num_seqs * 100}%) exhausted={self.datasets_exhausted[1]}, avg_datalen={self.datalens[1] / max(1, self.chooser_childindices[1])}",
                 file=log.v4,
             )
         else:
@@ -515,8 +515,10 @@ class MixingDataset2(CachedDataset2):
         if control_dataset is not None:
             assert control_dataset in self.dataset_name_to_idx
             self.control_dataset = self.datasets[self.dataset_name_to_idx[control_dataset]]
+            self._control_dataset = control_dataset
         else:
             self.control_dataset = self.datasets[0]
+            self._control_dataset = None  # not sure if this works
         self.num_inputs = make_hashable(
             self.control_dataset.num_inputs
         )  # make_hashable normalizes lists/tuples to just tuples
@@ -570,12 +572,12 @@ class MixingDataset2(CachedDataset2):
             assert not math.isnan(num_seqs_estimate) and not math.isinf(num_seqs_estimate)
             self._estimated_num_seqs = num_seqs_estimate
 
-        assert (
-            self._estimated_num_seqs is None or self._estimated_num_seqs < 2**31
-        ), "unreasonably large num_seqs estimate, adjust mixing ratios and/or `how_to_handle_end_of_data`"  # TODO do we still need this assert?
+        assert self._estimated_num_seqs is None or self._estimated_num_seqs < 2**31, (
+            "unreasonably large num_seqs estimate, adjust mixing ratios and/or `how_to_handle_end_of_data`"
+        )  # TODO do we still need this assert?
 
         print(
-            f"MixingDataset init: {" + ".join([str(a) for a in self.child_ds_lens])}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
+            f"MixingDataset init: {' + '.join([str(a) for a in self.child_ds_lens])}, _estimated_num_seqs={self._estimated_num_seqs}, mixingratios={self.mixing_ratios}",
             file=log.v4,
         )
 
@@ -644,9 +646,9 @@ class MixingDataset2(CachedDataset2):
                 self.child_ds_lens[dataset_index] = chosen_dataset.num_seqs
             except NotImplementedError:
                 pass
-            assert (
-                self.child_ds_lens[dataset_index] == prev_num_seqs
-            ), "data in ds has changed even though we reinitialized the same epoch. this code is only supposed to reset the state back to index zero, not change the data"
+            assert self.child_ds_lens[dataset_index] == prev_num_seqs, (
+                "data in ds has changed even though we reinitialized the same epoch. this code is only supposed to reset the state back to index zero, not change the data"
+            )
             self.datasets_loaded_until[dataset_index] = 0
 
         if self.datasets_loaded_until[dataset_index] <= seq_idx:
@@ -811,7 +813,7 @@ class MixingDataset2(CachedDataset2):
                 print(f"{prefix}: empty", file=log.v4)
             else:
                 print(
-                    f"{prefix}: {self.chooser_childindices[ds_idx]}/{self.child_ds_lens[ds_idx]} ({self.chooser_childindices[ds_idx] / self.child_ds_lens[ds_idx] * 100}%) exhausted={self.datasets_exhausted[ds_idx]}, avg_datalen={self.datalens[ds_idx]/max(1, self.chooser_childindices[ds_idx])}",
+                    f"{prefix}: {self.chooser_childindices[ds_idx]}/{self.child_ds_lens[ds_idx]} ({self.chooser_childindices[ds_idx] / self.child_ds_lens[ds_idx] * 100}%) exhausted={self.datasets_exhausted[ds_idx]}, avg_datalen={self.datalens[ds_idx] / max(1, self.chooser_childindices[ds_idx])}",
                     file=log.v4,
                 )
 
