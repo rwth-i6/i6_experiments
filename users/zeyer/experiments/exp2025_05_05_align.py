@@ -464,8 +464,10 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             inputs_embeds = inputs["input_audio_embeds"]
             inputs_embeds.requires_grad = True
             inputs_embeds.retain_grad()
-            res = model(**inputs)
+            res = model(**inputs)  # output_hidden_states?
             logits = res.logits
+            last_out = res.hidden_states[-1]  # [B,T,D]
+            del res
             assert logits.shape[:2] == input_ids.shape
 
             words_start_end = [[dst_text_start, dst_text_start + 1]]
@@ -483,16 +485,18 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             # Not needed here, as we already have only the selected audio embedding part.
             src_start, src_end = None, None
 
-            logits = logits.float()
-            if logits.shape[0] > 1:
-                logits = logits.mean(dim=0, keepdim=True)
-            fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
-
             def _calc_input_grads(t0, t1) -> Dict[str, torch.Tensor]:
+                logits = model.lm_head(last_out[:, t0 - 1 : t1 - 1])
+                logits = logits.float()
+                if logits.shape[0] > 1:
+                    logits = logits.mean(dim=0, keepdim=True)
+                fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
+
                 loss = torch.nn.functional.cross_entropy(
-                    fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
+                    fake_logits[0], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
                 )
                 loss.backward(retain_graph=True)
+                del fake_logits, logits
                 grad, inputs_embeds.grad = inputs_embeds.grad, None
                 with torch.no_grad():
                     e = inputs_embeds.float()
