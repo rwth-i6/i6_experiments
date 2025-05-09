@@ -567,6 +567,34 @@ class Aligner:
     where all the even states correspond to blank/silence states.
 
     Derived from :class:`i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align.ForcedAlignOnScoreMatrixJob`.
+
+    Some good options before:
+
+                {"apply_softmax_over_time": True, "blank_score": -6},
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 80,
+                    "apply_softmax_over_labels": True,
+                },
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 60,
+                    "apply_softmax_over_labels": True,
+                },
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 40,
+                    "apply_softmax_over_labels": True,
+                },
     """
 
     def __init__(
