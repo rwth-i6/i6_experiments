@@ -39,6 +39,7 @@ def py():
                 dataset_dir=ds_dir.out_hub_cache_dir,
                 dataset_key=key,
             )
+            gen_phi4mi.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             name = f"phi4mi-{ds_name}-{key}-grads"
             gen_phi4mi.add_alias(name)
             tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
