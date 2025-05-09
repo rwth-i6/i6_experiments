@@ -44,16 +44,18 @@ def py():
             gen_phi4mi.add_alias(name)
             tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
 
-            align = CalcAlignmentMetricsJob(
-                grad_score_hdf=gen_phi4mi.out_hdf,
-                grad_score_key="L01_grad",  # or "data" or so...
-                dataset_dir=ds_dir.out_hub_cache_dir,
-                dataset_key=key,
-                dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
-                align_opts={"apply_softmax_over_time": True, "blank_score": -6},
-            )
-            align.add_alias(f"{name}-align")
-            tk.register_output(f"{name}-align-wbe.txt", align.out_wbe)
+            for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
+                align_name = f"align/{name}-{grad_type}"
+                align = CalcAlignmentMetricsJob(
+                    grad_score_hdf=gen_phi4mi.out_hdf,
+                    grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+                    dataset_dir=ds_dir.out_hub_cache_dir,
+                    dataset_key=key,
+                    dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
+                    align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+                )
+                align.add_alias(align_name)
+                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
 
 class GenAya(Job):
@@ -584,7 +586,9 @@ class CalcAlignmentMetricsJob(Job):
     ):
         """
         :param grad_score_hdf:
-        :param grad_score_key:
+        :param grad_score_key: in the grad_score_hdf, e.g. "data" (for dot_e_grad), "L2_grad" or so.
+            Likely the HDF comes from :class:`ExtractInGradsFromPhi4MultimodalInstructJob`,
+            so see that code for reference.
         :param dataset_dir:
         :param dataset_key:
         :param returnn_root:
@@ -653,6 +657,8 @@ class CalcAlignmentMetricsJob(Job):
             num_audio_samples = len(data["audio"]["array"])
             audio_len_secs = num_audio_samples / samplerate
 
+            # We expect that the HDF comes from ExtractInGradsFromPhi4MultimodalInstructJob,
+            # or is formatted exactly like ExtractInGradsFromPhi4MultimodalInstructJob would do.
             sizes = grad_score_hdf_ds.get_data(seq_idx, "sizes")
             assert sizes.shape == (1, 2)
             num_words, num_timeframes = [int(i) for i in sizes[0]]
