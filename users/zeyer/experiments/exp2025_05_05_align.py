@@ -354,7 +354,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         self.returnn_root = returnn_root
         self.speech_prompt = speech_prompt
 
-        self.rqmt = {"time": 30, "cpu": 2, "gpu": 1, "mem": 125}
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
 
         self.out_hdf = self.output_path("out.hdf")
 
