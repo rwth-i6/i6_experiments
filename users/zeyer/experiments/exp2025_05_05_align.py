@@ -33,7 +33,7 @@ def py():
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
     for ds_name, ds_dir in {"timit": dl_ds_timit, "buckeye": dl_ds_buckeye}.items():
-        for key in ["train", "val", "test"]:
+        for key in ["val", "test"]:  # does not need train...
             gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
                 model_dir=dl_phi4mi.out_hub_cache_dir,
                 dataset_dir=ds_dir.out_hub_cache_dir,
