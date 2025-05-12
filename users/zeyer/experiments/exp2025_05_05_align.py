@@ -3,6 +3,7 @@ Continuation of :mod:`exp24_09_16_grad_align`.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
@@ -197,7 +198,7 @@ class GenAya(Job):
                     False,
                 ),
                 (src_text, True, False),
-                (f"<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>", False, False),
+                ("<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>", False, False),
                 (dst_text, False, True),
                 ("<|END_OF_TURN_TOKEN|>", False, False),
             ]:
@@ -330,7 +331,6 @@ class GenAya(Job):
 
 
 class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
-
     __sis_hash_exclude__ = {"speech_prompt": "Transcribe the audio clip into text."}
 
     def __init__(
