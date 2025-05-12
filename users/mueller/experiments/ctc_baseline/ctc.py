@@ -76,8 +76,8 @@ def py():
     gamma_scaling = 1.0                         # Scaling for the sequence gammas
     use_ce_loss = False                         # Use CE loss instead of CTC loss
     speed_pert = True                           # Whether to use speed perturbation
-    train_lm_config = {}                        # LM selection for decoding during training
-    # train_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding during training
+    # train_lm_config = {}                        # LM selection for decoding during training
+    train_lm_config = {"class": "FeedForwardLm", "context_size": 2} # LM selection for decoding during training
     # train_lm_config = {"class": "ngram", "order": 3} # LM selection for decoding during training
     train_version = 1                           # Version for training added to change the hash
     num_gpus = 4                                # Number of GPUs to use during training
@@ -95,7 +95,7 @@ def py():
     empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
     prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
     alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
-    tune_hyperparameters = True                # Tune decoder hyperparameters in between self-training rounds
+    tune_hyperparameters = False                # Tune decoder hyperparameters in between self-training rounds
     # decoder_lm_config = {}                    # LM selection for decoding, empty for word-level 4-gram
     decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding, empty for word-level 4-gram
     # decoder_lm_config = {"class": "ngram", "order": 2} # LM selection for decoding, empty for word-level 4-gram
@@ -108,10 +108,10 @@ def py():
     assert decoding_imp in ["flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients"]
     
     # Configs for init training
-    init = "100h-supervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
-    random_init = False                         # Start from random init during unsupervised init training, alteernatively use empirical prior
+    init = "100h-unsupervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
+    random_init = True                         # Start from random init during unsupervised init training, alternatively use empirical prior
     decode_every_step_init = True               # Decode every step during unsupervised init training
-    accum_grad_multiple_step_init = 80           # Accumulate gradients over multiple steps during unsupervised init training
+    accum_grad_multiple_step_init = 1           # Accumulate gradients over multiple steps during unsupervised init training
     if not init.endswith("unsupervised"):
         decode_every_step_init = False
     
@@ -214,6 +214,7 @@ def py():
             model_config["train_language_model"] = train_lm_config
         else:
             assert not train_lm_config or decoding_imp == "gradients"
+        decoder_hyperparameters_grad = None
         if decoding_imp == "gradients":
             assert train_lm_config
             decoder_hyperparameters_grad = {}
@@ -228,7 +229,7 @@ def py():
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "") + (f"-s{str(gamma_scaling).replace('.', '')}" if gamma_scaling != 1.0 else "")
         p3 = f"b{decoder_hyperparameters['beam_size']}"
-        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "") + (((f"_To{train_lm_config['order']}" if train_lm_config["class"] == "ngram" else f"_Tf{train_lm_config['context_size']}") + (f"b{decoder_hyperparameters_grad['beam_size']}" if "beam_size" in decoder_hyperparameters_grad else "")) if train_lm_config and train_lm_config != decoder_lm_config else "")
+        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "") + (((f"_To{train_lm_config['order']}" if train_lm_config["class"] == "ngram" else f"_Tf{train_lm_config['context_size']}") + (f"b{decoder_hyperparameters_grad['beam_size']}" if decoder_hyperparameters_grad and "beam_size" in decoder_hyperparameters_grad else "")) if train_lm_config and train_lm_config != decoder_lm_config else "")
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
         decoding_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p6}{p7}"
@@ -486,7 +487,7 @@ def py():
         config_deletes_self_training = config_deletes_self_training,
         vocab = vocab,
         self_training_rounds = self_training_rounds,
-        init_small = init == "100h-supervised",
+        init_small = init.startswith("100h"),
         pseudo_label_small = pseudo_label_small,
         keep_small_labels = keep_small_labels,
         with_prior = with_prior,
@@ -627,15 +628,16 @@ def train_exp(
         if is_ffnn:
             lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **train_language_model)
             if not gradient_pseudo_labels:
-                config_updates_self_training.update({
-                    "preload_from_files": {
-                        "train_lm": {
-                            "init_for_train": True,
-                            "prefix": "train_language_model.",
-                            "filename": lm_checkpoint.checkpoint,
+                if self_training_rounds > 0:
+                    config_updates_self_training.update({
+                        "preload_from_files": {
+                            "train_lm": {
+                                "init_for_train": True,
+                                "prefix": "train_language_model.",
+                                "filename": lm_checkpoint.checkpoint,
+                            },
                         },
-                    },
-                })
+                    })
                 if config and config.get("decode_every_step", False):
                     config.update({
                         "preload_from_files": {
@@ -847,6 +849,7 @@ def train_exp(
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
+            init_hdf_writer=config_self.get("decode_every_step", False),
             time_rqmt=time_rqmt if time_rqmt else ((8 if self_train_subset else 156) if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()

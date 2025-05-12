@@ -50,7 +50,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             print("FOUND SEQ")
     
     if decode_every_step and rf.get_run_ctx().train_flag:
-        assert scores is not None
+        save_seqs = scores is not None
         if seq in seq_tags.raw_tensor.tolist():
             idx = np.where(seq_tags == seq)[0]
             print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
@@ -61,6 +61,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         prior_file = config.typed_value("empirical_prior")
         assert hyperparameters and prior_file
         if "decay" in hyperparameters and hyperparameters["decay"] < 1.0:
+            print(hyperparameters)
             curr_step = rf.get_run_ctx().step
             assert isinstance(curr_step, int)
             decay = hyperparameters.pop("decay")
@@ -70,10 +71,11 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             print("LM weight:", hyperparameters["lm_weight"])
         
         assert seq_tags is not None
-        device_id = torch.cuda.current_device()
-        if device_id == 0:
-            hdf_writer = config.typed_value("train_hdf_writer")
-            assert isinstance(hdf_writer, SimpleHDFWriter)
+        if save_seqs:
+            device_id = torch.cuda.current_device()
+            if device_id == 0:
+                hdf_writer = config.typed_value("train_hdf_writer")
+                assert isinstance(hdf_writer, SimpleHDFWriter)
         with torch.no_grad():
             batch_size = log_probs.raw_tensor.shape[0]
             batch_dims = data.remaining_dims(data_spatial_dim)
@@ -93,33 +95,34 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             hyps = torch.tensor(hyps, dtype=torch.int32, device=data.raw_tensor.device)
             new_targets = rf.convert_to_tensor(hyps, dims=(batch_dim, new_targets_spatial_dim), sparse_dim=model.target_dim)
             
-            # Only keep new hyp if it has a better unsupervised metric score than the old one
-            keep_old = scores.raw_tensor[:, 0] == float("inf")
-            # TODO use blank prior to add length penalty
-            targets, targets_spatial_dim = _compare_targets(targets, targets_spatial_dim, new_targets, new_targets_spatial_dim, keep_old, model, hyperparameters, version=version)
-            
-            assert targets.raw_tensor.shape[0] == batch_size
-            
-            # Dump to HDF
-            device_id = torch.cuda.current_device()
-            if device_id == 0:
-                hdf_writer.insert_batch(
-                    inputs=targets.raw_tensor.cpu().numpy(),
-                    seq_len=targets_spatial_dim.dyn_size_ext.raw_tensor.tolist(),
-                    seq_tag=seq_tags.raw_tensor.tolist(),
-                )
-            # hdf_scores_filename = f"scores-epoch-{(rf.get_run_ctx().epoch - 1) // partition_epoch + 1}.hdf"
-            # hdf_scores_dataset = SimpleHDFWriter(
-            #     filename=hdf_scores_filename,
-            #     dim=None,
-            #     ndim=1,
-            #     extend_existing_file=os.path.exists(hdf_scores_filename),
-            # )
-            # hdf_scores_dataset.insert_batch(
-            #     inputs=new_scores.raw_tensor.cpu().numpy(), # TODO update scores dependent on the selection
-            #     seq_len={0: [1]},
-            #     seq_tag=seq_tags.raw_tensor.tolist(),
-            # )
+            if save_seqs:
+                # Only keep new hyp if it has a better unsupervised metric score than the old one
+                keep_old = scores.raw_tensor[:, 0] == float("inf")
+                # TODO use blank prior to add length penalty
+                targets, targets_spatial_dim = _compare_targets(targets, targets_spatial_dim, new_targets, new_targets_spatial_dim, keep_old, model, hyperparameters, version=version)
+                
+                assert targets.raw_tensor.shape[0] == batch_size
+                
+                # Dump to HDF
+                device_id = torch.cuda.current_device()
+                if device_id == 0:
+                    hdf_writer.insert_batch(
+                        inputs=targets.raw_tensor.cpu().numpy(),
+                        seq_len=targets_spatial_dim.dyn_size_ext.raw_tensor.tolist(),
+                        seq_tag=seq_tags.raw_tensor.tolist(),
+                    )
+                # hdf_scores_filename = f"scores-epoch-{(rf.get_run_ctx().epoch - 1) // partition_epoch + 1}.hdf"
+                # hdf_scores_dataset = SimpleHDFWriter(
+                #     filename=hdf_scores_filename,
+                #     dim=None,
+                #     ndim=1,
+                #     extend_existing_file=os.path.exists(hdf_scores_filename),
+                # )
+                # hdf_scores_dataset.insert_batch(
+                #     inputs=new_scores.raw_tensor.cpu().numpy(), # TODO update scores dependent on the selection
+                #     seq_len={0: [1]},
+                #     seq_tag=seq_tags.raw_tensor.tolist(),
+                # )
             
         # targets_ls = []
         # lengths_ls = []
