@@ -900,7 +900,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 _report_dev_memory_stats()
                 print(f"({time.time() - start_time} secs)")
 
-                print(f"** Aligning to words {cur_word_start}:{cur_word_end} (total {len(words)}")
+                print(f"** Aligning to words {cur_word_start}:{cur_word_end} (total {len(words)})")
                 assert cur_word_end > cur_word_start
                 if cur_audio_end >= len(audio):
                     assert cur_word_end == len(words)
@@ -909,15 +909,20 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 )
                 cur_words_start_end_time_frames = cur_words_start_end_time_frames[cur_num_words_history:]
                 assert len(cur_words_start_end_time_frames) <= cur_word_end - cur_word_start
-                print(f"  (aligned num words: {len(cur_words_start_end_time_frames)})")
                 # Convert from timeframe to sample
                 cur_words_start_end_time_frames = [
-                    t * (cur_audio_end - cur_audio_start) / num_input_frames for t in cur_words_start_end_time_frames
+                    tuple(cur_audio_start + int(t * (cur_audio_end - cur_audio_start) / num_input_frames) for t in ts)
+                    for ts in cur_words_start_end_time_frames
                 ]
 
                 if len(cur_words_start_end_time_frames) == 0:  # no word in the current chunk
+                    print("  (no aligned words)")
                     cur_audio_start += math.ceil(chunk_size_samples * 0.75)  # skip 3/4 of the chunk
                 else:
+                    print(
+                        f"  (aligned num words: {len(cur_words_start_end_time_frames)},"
+                        f" last word time end: {cur_words_start_end_time_frames[-1][1] / samplerate} secs)"
+                    )
                     words_start_end_time_frames += cur_words_start_end_time_frames
                     cur_word_start = len(words_start_end_time_frames)
                     assert cur_word_start - self.num_words_history >= 1
@@ -932,7 +937,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
 
             assert len(words_start_end_time_frames) == len(words)
             hdf_writer.insert_batch(
-                np.array(words_start_end_time_frames),
+                np.array(words_start_end_time_frames)[None],
                 seq_len=[len(words)],
                 seq_tag=[f"seq-{seq_idx}"],
                 extra={"sizes": np.array([len(words), num_input_frames])[None, None]},
