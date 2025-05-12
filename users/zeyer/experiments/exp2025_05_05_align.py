@@ -636,7 +636,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
         num_words_history: int = 5,
-        max_words_per_min: float = 500.0,
+        max_words_per_min: float = 200.0,
         grad_type: str,
         align_opts: Dict[str, Any],
     ):
