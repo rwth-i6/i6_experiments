@@ -517,6 +517,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         train_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
+        device:str = "gpu",
         time_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         checkpoint: Optional[returnn.Checkpoint] = None,
@@ -585,6 +586,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_python_exe=self.returnn_python_exe,
             mem_rqmt=mem_rqmt if mem_rqmt is not None else 12,
             time_rqmt=time_rqmt if time_rqmt is not None else 12,
+            device=device,
         )
 
         return prior_job
@@ -648,6 +650,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
+        device: str = "gpu",
         joint_for_factored_loss: bool = False,
         checkpoint: Optional[Path] = None,
         smoothen: bool = False,
@@ -683,7 +686,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=config,
             share=data_share,
             checkpoint=checkpoint,
-            mem_rqmt=mem_rqmt
+            mem_rqmt=mem_rqmt,
+            device=device,
         )
 
         job.add_alias(f"priors/{name}/single_prior-{data_share}data")
