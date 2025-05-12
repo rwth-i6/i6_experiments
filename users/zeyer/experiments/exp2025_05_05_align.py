@@ -58,6 +58,17 @@ def py():
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
+        model_dir=dl_phi4mi.out_hub_cache_dir,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        speech_prompt="Transcribe the audio clip into text.",
+        grad_type="L2_e_grad",
+        align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+    )
+    j.add_alias("align/phi4mi-buckeye-val-grads-L2_e_grad-longform")
+    tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform.hdf", j.out_hdf)
+
     # Test different prompts
     for i, prompt in enumerate(
         [
@@ -610,6 +621,328 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
+class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
+    """
+    Long-form variant
+    """
+
+    def __init__(
+        self,
+        *,
+        model_dir: tk.Path,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        speech_prompt: str = "Transcribe the audio clip into text.",
+        chunk_size_secs: float = 30.0,
+        num_words_history: int = 5,
+        max_words_per_min: float = 500.0,
+        grad_type: str,
+        align_opts: Dict[str, Any],
+    ):
+        """
+        :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
+        :param dataset_dir: hub cache dir, e.g. via DownloadHuggingFaceRepoJobV2. for load_dataset
+        :param dataset_key: e.g. "train", "test", whatever the dataset provides
+        :param returnn_root:
+        :param speech_prompt: prompt to use for the audio
+        :param chunk_size_secs: chunk size in seconds
+        :param num_words_history:
+        :param max_words_per_min: will forward this many words per minute
+            (assuming that this is an upper bound; the actual words per min will be less)
+            some people can speak as fast as 250 words per minute.
+        :param grad_type: e.g. "L1_e_grad"
+        :param align_opts: options for the alignment
+        """
+        super().__init__()
+        self.model_dir = model_dir
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.speech_prompt = speech_prompt
+        self.chunk_size_secs = chunk_size_secs
+        self.num_words_history = num_words_history
+        self.max_words_per_min = max_words_per_min
+        self.grad_type = grad_type
+        self.align_opts = align_opts
+
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
+
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+        import time
+        import gc
+        import math
+
+        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        print("Import transformers / other libs...")
+        start_time = time.time()
+
+        import numpy as np
+        import torch
+        import returnn.util.basic as util
+        from returnn.util import better_exchook
+        from returnn.datasets.hdf import SimpleHDFWriter
+
+        # os.environ["DEBUG"] = "1"  # for better_exchook to use debug shell on error
+        better_exchook.install()
+
+        try:
+            import lovely_tensors
+
+            lovely_tensors.monkey_patch()
+        except ImportError:
+            pass
+
+        device_str = "cuda"
+        dev = torch.device(device_str)
+
+        def _report_dev_memory_stats():
+            dev = torch.device(device_str)
+            if dev.type == "cuda":
+                stats = [
+                    f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
+                    f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
+                    f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
+                    f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
+                ]
+                print(f"Memory usage ({device_str}):", " ".join(stats))
+
+        from transformers import AutoProcessor, AutoModelForCausalLM
+
+        print(f"({time.time() - start_time} secs)")
+        print("Loading model...")
+        start_time = time.time()
+        model_dir = get_content_dir_from_hub_cache_dir(self.model_dir)
+        processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_dir,
+            local_files_only=True,
+            torch_dtype="auto",
+            trust_remote_code=True,
+            device_map=device_str,
+        ).to(dev)
+
+        from transformers.models.phi4_multimodal.modeling_phi4_multimodal import Phi4MultimodalForCausalLM
+
+        model: Phi4MultimodalForCausalLM  # just as an example...
+        print(model)
+        print("model.dtype:", model.dtype)
+        _report_dev_memory_stats()
+        print(f"({time.time() - start_time} secs)")
+
+        speech_prompt = self.speech_prompt
+
+        for p in model.parameters():
+            p.requires_grad = False
+
+        tokenizer = processor.tokenizer
+        (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
+        (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
+
+        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"sizes": (2, 2, "int32")})
+
+        aligner = Aligner(**self.align_opts)
+
+        # Iter over data
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print(f"Dataset: {ds}")
+        print("Dataset keys:", ds.keys())
+        print("Using key:", self.dataset_key)
+        print("Num seqs:", len(ds[self.dataset_key]))
+
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            audio = data["audio"]["array"]
+            if not isinstance(audio, np.ndarray):
+                audio = np.array(audio)
+            samplerate = data["audio"]["sampling_rate"]
+            chunk_size_samples = math.ceil(self.chunk_size_secs * samplerate)
+            words: List[str] = data["word_detail"]["utterance"]
+            transcription = " ".join(words)
+            print(f"* Seq {seq_idx}, {audio.shape=}, {len(audio) / samplerate} secs, {samplerate=}, {transcription!r}")
+            assert len(transcription.split(" ")) == len(words)
+
+            if seq_idx == 0:
+                print("  data keys:", data.keys())
+
+            words_start_end_time_frames: List[Tuple[int, int]] = []
+            cur_audio_start = 0  # in samples
+            cur_word_start = 0
+            while True:  # while not ended
+                cur_audio_end = cur_audio_start + chunk_size_samples
+                if cur_audio_end > len(audio):
+                    cur_audio_end = len(audio)
+                assert cur_audio_end > cur_audio_start
+                cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
+                if cur_word_end > len(words):
+                    cur_word_end = len(words)
+                assert cur_word_end > cur_word_start
+                start_time = time.time()
+                print(f"** Forwarding {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs")
+                cur_num_words_history = cur_word_start - max(0, cur_word_start - self.num_words_history)
+                transcription = " ".join(words[cur_word_start - cur_num_words_history : cur_word_end])
+                if cur_word_start - cur_num_words_history > 0:
+                    transcription = "... " + transcription
+                prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
+                inputs = processor(
+                    text=prompt,
+                    audios=[(audio[cur_audio_start:cur_audio_end], samplerate)],
+                    return_tensors="pt",
+                )
+                input_ids = inputs["input_ids"]
+                (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
+                dst_text_start = int(dst_text_start) + 1  # one past the assistant token
+                dst_text_end = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
+                inputs = inputs.to(dev)
+                input_ids = inputs["input_ids"]
+                inputs_embeds = inputs["input_audio_embeds"]
+                inputs_embeds.requires_grad = True
+                inputs_embeds.retain_grad()
+                # We don't need the logits here. There is currently no way to not compute them,
+                # so num_logits_to_keep=1 is the best we can do.
+                # We then will compute only the needed logits below,
+                # and for that, we need the last layer output, thus output_hidden_states=True.
+                res = model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
+                last_out = res.hidden_states[-1]  # [B,T,D]
+                del res
+                assert last_out.shape[:2] == input_ids.shape
+                _report_dev_memory_stats()
+
+                words_start_end = [[dst_text_start, dst_text_start + 1]]
+                tokens = [tokenizer.decode(input_ids[0, dst_text_start : dst_text_start + 1])]
+                words_ = [tokens[-1]]
+                for t in range(dst_text_start + 1, dst_text_end):
+                    s = tokenizer.decode(input_ids[0, t : t + 1])
+                    tokens.append(s)
+                    if s.startswith(" "):  # new word
+                        words_.append(s[1:])
+                        words_start_end[-1][1] = t
+                        words_start_end.append([t, t + 1])
+                    else:
+                        words_[-1] += s
+                        words_start_end[-1][1] = t + 1
+                if cur_word_start - cur_num_words_history > 0:
+                    assert words_[0] == "..."
+                    words_start_end = words_start_end[1:]
+                    words_ = words_[1:]
+                assert len(words_start_end) == len(words_) == cur_word_end - cur_word_start + cur_num_words_history, (
+                    f"got {tokens=}"
+                )
+                assert words_ == words[cur_word_start - cur_num_words_history : cur_word_end], f"got {tokens=}"
+
+                # Not needed here, as we already have only the selected audio embedding part.
+                src_start, src_end = None, None
+
+                def _calc_input_grads(t0, t1, *, report_mem: bool = False) -> torch.Tensor:
+                    logits = model.lm_head(last_out[:, t0 - 1 : t1 - 1])
+                    logits = logits.float()
+                    if logits.shape[0] > 1:
+                        logits = logits.mean(dim=0, keepdim=True)
+                    fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
+
+                    loss = torch.nn.functional.cross_entropy(
+                        fake_logits[0],
+                        input_ids[0, t0:t1],
+                        ignore_index=-100,
+                        reduction="sum",
+                    )
+                    loss.backward(retain_graph=True)
+                    if report_mem:
+                        _report_dev_memory_stats()
+                    del fake_logits, logits
+                    grad, inputs_embeds.grad = inputs_embeds.grad, None
+                    with torch.no_grad():
+                        e = inputs_embeds.float()
+                        grad = grad.float()
+                        return {
+                            "dot_e_grad": lambda: (e * grad)[0, src_start:src_end].sum(dim=-1),
+                            "L01_grad": lambda: torch.norm(grad[0, src_start:src_end], p=0.1, dim=-1),
+                            "L1_grad": lambda: torch.norm(grad[0, src_start:src_end], p=1, dim=-1),
+                            "L2_grad": lambda: torch.norm(grad[0, src_start:src_end], p=2, dim=-1),
+                            "L01_e_grad": lambda: torch.norm((e * grad)[0, src_start:src_end], p=0.1, dim=-1),
+                            "L1_e_grad": lambda: torch.norm((e * grad)[0, src_start:src_end], p=1, dim=-1),
+                            "L2_e_grad": lambda: torch.norm((e * grad)[0, src_start:src_end], p=2, dim=-1),
+                        }[self.grad_type]()
+
+                print("** Calculating grads")
+                num_input_frames = inputs_embeds[0, src_start:src_end].shape[0]
+                num_words = len(words_start_end)
+                grad_mat: List[torch.Tensor] = []
+                for w, (t0, t1) in enumerate(words_start_end):
+                    grad_mat.append(_calc_input_grads(t0, t1, report_mem=w in {0, num_words - 1}))
+                # each mat is [num_words,num_input_frames]
+                grad_mat_: torch.Tensor = torch.stack(grad_mat)
+                grad_mat__: np.ndarray = grad_mat_.detach().cpu().numpy()  # [S,T]
+
+                print("** Freeing")
+                del last_out, inputs_embeds, inputs  # not needed anymore now
+                gc.collect()
+                _report_dev_memory_stats()
+                print(f"({time.time() - start_time} secs)")
+
+                print(f"** Aligning to words {cur_word_start}:{cur_word_end} (total {len(words)}")
+                assert cur_word_end > cur_word_start
+                if cur_audio_end >= len(audio):
+                    assert cur_word_end == len(words)
+                cur_words_start_end_time_frames = aligner.align(
+                    grad_mat__, num_final_words=(cur_word_end - cur_word_start) if cur_audio_end < len(audio) else 1
+                )
+                cur_words_start_end_time_frames = cur_words_start_end_time_frames[cur_num_words_history:]
+                assert len(cur_words_start_end_time_frames) <= cur_word_end - cur_word_start
+                print(f"  (aligned num words: {len(cur_words_start_end_time_frames)})")
+                # Convert from timeframe to sample
+                cur_words_start_end_time_frames = [
+                    t * (cur_audio_end - cur_audio_start) / num_input_frames for t in cur_words_start_end_time_frames
+                ]
+
+                if len(cur_words_start_end_time_frames) == 0:  # no word in the current chunk
+                    cur_audio_start += math.ceil(chunk_size_samples * 0.75)  # skip 3/4 of the chunk
+                else:
+                    words_start_end_time_frames += cur_words_start_end_time_frames
+                    cur_word_start = len(words_start_end_time_frames)
+                    assert cur_word_start - self.num_words_history >= 1
+                    _, prev_l = words_start_end_time_frames[cur_word_start - self.num_words_history - 1]
+                    prev_r, _ = words_start_end_time_frames[cur_word_start - self.num_words_history]
+                    new_audio_start = (prev_l + prev_r) // 2
+                    assert new_audio_start > cur_audio_start
+                    cur_audio_start = new_audio_start
+
+                if cur_audio_end >= len(audio):
+                    break
+
+            assert len(words_start_end_time_frames) == len(words)
+            hdf_writer.insert_batch(
+                np.array(words_start_end_time_frames),
+                seq_len=[len(words)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"sizes": np.array([len(words), num_input_frames])[None, None]},
+            )
+
+        hdf_writer.close()
+
+        # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
+
+
 class CalcAlignmentMetricsJob(Job):
     def __init__(
         self,
@@ -802,10 +1135,17 @@ class Aligner:
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
 
-    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None) -> List[Tuple[int, int]]:
+    def align(
+        self,
+        score_matrix: np.ndarray,
+        *,
+        plot_filename: Optional[str] = None,
+        num_final_words: int = 1,
+    ) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file
+        :param num_final_words: if 1, the last (S-1) is the only allowed last word.
         :return: list of start/end offsets, both are including. len is S
         """
         import numpy as np
@@ -903,8 +1243,8 @@ class Aligner:
             backpointers[t] = np.argmax(score_cases, axis=0)  # [2*S+1]->[0,1,2]
             align_scores[t : t + 1] = np.take_along_axis(score_cases, backpointers[t : t + 1], axis=0)  # [1,2*S+1]
 
-        # All but the last two states are not valid final states.
-        align_scores[-1, :-2] = -inf
+        # All but the last two (* num_final_words) states are not valid final states.
+        align_scores[-1, : -2 * num_final_words] = -inf
 
         # backtrace
         best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
@@ -945,7 +1285,7 @@ class Aligner:
             if s % 2 != 0:  # in non-sil label
                 labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
             prev_s = s
-        assert len(labels_start_end) == S
+        assert S - (num_final_words - 1) <= len(labels_start_end) <= S
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")
