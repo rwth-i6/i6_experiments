@@ -13,10 +13,12 @@ from returnn.frontend.tensor_array import TensorArray
 
 from sisyphus import tk
 
+from i6_core.util import uopen
+
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
-from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits
+from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
 from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
@@ -921,8 +923,9 @@ def recog_gradients(
     hyperparameters: dict,
     prior_file: tk.Path = None,
     train_lm: bool = False,
+    arpa_lm: Optional[str] = None,
     version: int = 1,
-    print_idx: list = []
+    print_idx: list = [],
 ) -> Tuple[Tuple[Tensor, Tensor], Tensor, Dim]:
     import json
     
@@ -937,6 +940,7 @@ def recog_gradients(
     use_recombination = hyp_params.pop("use_recombination", False)
     recomb_blank = hyp_params.pop("recomb_blank", False)
     recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
+    recomb_with_sum = hyp_params.pop("recomb_with_sum", False)
     
     dev_s = rf.get_default_device()
     dev = torch.device(dev_s)
@@ -956,20 +960,30 @@ def recog_gradients(
         else:
             prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
     
-    assert lm_name.startswith("ffnn")
-    context_size = int(lm_name[len("ffnn"):])
-    if train_lm:
-        assert model.train_language_model
-        assert model.train_language_model.vocab_dim == model.target_dim
-        lm: FeedForwardLm = model.train_language_model
+    use_ffnn_lm = isinstance(lm_name, str) and lm_name.startswith("ffnn")
+    if use_ffnn_lm:
+        context_size = int(lm_name[len("ffnn"):])
+        if train_lm:
+            assert model.train_language_model
+            assert model.train_language_model.vocab_dim == model.target_dim
+            lm: FeedForwardLm = model.train_language_model
+        else:
+            assert model.recog_language_model
+            assert model.recog_language_model.vocab_dim == model.target_dim
+            lm: FeedForwardLm = model.recog_language_model
     else:
-        assert model.recog_language_model
-        assert model.recog_language_model.vocab_dim == model.target_dim
-        lm: FeedForwardLm = model.recog_language_model
+        assert arpa_lm is not None
+        assert isinstance(lm_name, int)
+        with uopen(arpa_lm, "rb") as f:
+            lm = torch.load(f, map_location=dev)
+            assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+        context_size = lm.ndim - 1
+        # lm = torch.log_softmax(lm, dim=-1)
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
     
     if rescore_ctc_loss:
+        assert use_ffnn_lm
         assert "ps_nbest" not in hyperparameters
         hyps, _, _, _ = recog_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=[batch_dim], prior_file=prior_file, version=version, print_idx=print_idx)
         hyps = hyps.raw_tensor.transpose(0,1).transpose(1,2).tolist()
@@ -999,7 +1013,7 @@ def recog_gradients(
             )
             loss.raw_tensor.backward(torch.ones_like(loss.raw_tensor, device=dev))
             gradients = -label_log_prob_raw.grad
-    else:
+    elif use_ffnn_lm:
         label_log_prob_raw = label_log_prob.raw_tensor
         label_log_prob_raw.requires_grad = True
         with torch.set_grad_enabled(True):
@@ -1020,8 +1034,51 @@ def recog_gradients(
                 use_recombination=use_recombination,
                 recomb_blank=recomb_blank,
                 recomb_after_topk=recomb_after_topk,
-                recomb_with_sum=False,
+                recomb_with_sum=recomb_with_sum,
             )
+            
+            loss.backward(torch.ones_like(loss, device=dev))
+            gradients = -label_log_prob_raw.grad
+    else:
+        label_log_prob_raw = label_log_prob.raw_tensor
+        label_log_prob_raw.requires_grad = True
+        with torch.set_grad_enabled(True):
+            loss = sum_loss_ngram_rf(
+                model=model,
+                log_probs=label_log_prob,
+                log_lm_probs=lm,
+                context_size=context_size,
+                log_prior=prior,
+                input_lengths=enc_spatial_dim,
+                top_k=beam_size,
+                am_scale=am_scale,
+                lm_scale=lm_scale,
+                prior_scale=prior_weight,
+                horizontal_prior=not label_prior,
+                blank_prior=not label_prior,
+                device=dev_s,
+                use_recombination=use_recombination,
+                recomb_blank=recomb_blank,
+                recomb_after_topk=recomb_after_topk,
+                recomb_with_sum=recomb_with_sum,
+            )
+            # log_prob_raw = label_log_prob_raw.permute(1, 0, 2)
+            # loss = sum_loss_ngram(
+            #     log_probs=log_prob_raw,
+            #     log_lm_probs=lm,
+            #     log_prior=prior.raw_tensor,
+            #     input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+            #     top_k=beam_size,
+            #     LM_order=lm.ndim,
+            #     am_scale=am_scale,
+            #     lm_scale=lm_scale,
+            #     prior_scale=prior_weight,
+            #     horizontal_prior=not label_prior,
+            #     blank_prior=not label_prior,
+            #     blank_idx=model.blank_idx,
+            #     eos_idx=model.eos_idx,
+            #     device=dev_s,
+            # )
             
             loss.backward(torch.ones_like(loss, device=dev))
             gradients = -label_log_prob_raw.grad

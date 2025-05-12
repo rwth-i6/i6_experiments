@@ -42,7 +42,7 @@ import numpy as np
 
 from .utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
 from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog, model_recog_gradients
-from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
+from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm, get_count_based_n_gram
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from .scoring import ComputeWERJob, _score_recog
 
@@ -54,9 +54,9 @@ def recog_training_exp(
     prefix_name: str,
     task: Task,
     model: ModelWithCheckpoints,
-    recog_def: RecogDef,
+    recog_def: RecogDef | tuple[RecogDef, RecogDef],
     *,
-    decoder_hyperparameters: Optional[dict] = None,
+    decoder_hyperparameters: Optional[dict | tuple[dict, dict]] = None,
     save_pseudo_labels: Optional[tuple[dict, Optional[LibrispeechOggZip]]] = None,
     pseudo_label_alignment: bool = False,
     pseudo_nbest: int = 1,
@@ -87,13 +87,14 @@ def recog_training_exp(
         recog_def_eval = recog_def
         recog_def_pl = recog_def
         
-    eval_hyperparameters = decoder_hyperparameters.copy()
-    if "grad_nbest" in eval_hyperparameters:
-        eval_hyperparameters.pop("grad_nbest")
-    if "rescore_ctc_loss" in eval_hyperparameters:
-        eval_hyperparameters.pop("rescore_ctc_loss")
-    if "recomb_with_sum_pl" in eval_hyperparameters:
-        eval_hyperparameters.pop("recomb_with_sum_pl")
+    if decoder_hyperparameters is not None:
+        if isinstance(decoder_hyperparameters, tuple):
+            decoder_hyperparameters_eval = decoder_hyperparameters[0]
+            decoder_hyperparameters_pl = decoder_hyperparameters[0].copy()
+            decoder_hyperparameters_pl.update(decoder_hyperparameters[1])
+        else:
+            decoder_hyperparameters_eval = decoder_hyperparameters
+            decoder_hyperparameters_pl = decoder_hyperparameters
         
     sc = search_config.copy()
     sc.pop("__prev_hyps", None)
@@ -101,7 +102,7 @@ def recog_training_exp(
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
-        eval_hyperparameters,
+        decoder_hyperparameters_eval,
         task,
         model,
         recog_def_eval,
@@ -152,12 +153,9 @@ def recog_training_exp(
             recog_post_proc_funcs=task.recog_post_proc_funcs,
         )
         
-        pseudo_hyperparameters = decoder_hyperparameters.copy()
+        pseudo_hyperparameters = decoder_hyperparameters_pl.copy()
         if pseudo_nbest > 1 and not is_last:
             pseudo_hyperparameters["ps_nbest"] = pseudo_nbest
-        if "recomb_with_sum_pl" in pseudo_hyperparameters:
-            pseudo_hyperparameters.pop("recomb_with_sum_pl")
-            pseudo_hyperparameters["recomb_with_sum"] = True
             
         pseudo_label_recog_func = _RecogAndScoreFunc(
             prefix_name + "/pseudo_labels",
@@ -208,12 +206,9 @@ def recog_training_exp(
                 recog_post_proc_funcs=task.recog_post_proc_funcs,
             )
             
-            train_100_hyperparameters = decoder_hyperparameters.copy()
-            if "recomb_with_sum_pl" in train_100_hyperparameters:
-                train_100_hyperparameters.pop("recomb_with_sum_pl")
             score_func = _RecogAndScoreFunc(
                 prefix_name + "/pseudo_labels",
-                train_100_hyperparameters,
+                decoder_hyperparameters_pl,
                 task_score,
                 model,
                 recog_def_pl,
@@ -1008,14 +1003,24 @@ def search_config_v2(
         if prior_path:
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
-    elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog_gradients:
+    elif recog_def is model_recog_gradients:
+        args = {"hyperparameters": decoder_hyperparameters}
+        
+        if "lm_order" in decoder_hyperparameters and isinstance(decoder_hyperparameters["lm_order"], int):
+            lm = get_count_based_n_gram(vocab = dataset.vocab, N_order = int(decoder_hyperparameters["lm_order"]))
+            args["arpa_lm"] = lm
+            args_cached["arpa_lm"] = DelayedCodeWrapper("cf('{}')", lm.get_path())
+            
+        if prior_path:
+            args["prior_file"] = prior_path
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
+    elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
         args = {"hyperparameters": decoder_hyperparameters}
         if prior_path:
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
-        # if recog_def is model_recog_lm_albert or recog_def is model_recog_flashlight:
-        #     if "ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1:
-        #         args["version"] = 1
+        # if "ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1:
+        #     args["version"] = 1
     else:
         args = {}
 

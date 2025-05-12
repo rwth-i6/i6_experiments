@@ -652,6 +652,7 @@ class LibrispeechOggZip(DatasetConfig):
                     d_tmp = MetaDataset({"data": ("pseudo_labels_dataset", "classes")}, {"pseudo_labels_dataset": d_tmp}, "pseudo_labels_dataset").as_returnn_opts()
                 d_comb["init_pseudo_labels_dataset"] = d_tmp
                 
+                # always_same_tags
                 d_targets_variable = {
                     "class": "VariableDataset",
                     "get_dataset": _get_targets_dataset

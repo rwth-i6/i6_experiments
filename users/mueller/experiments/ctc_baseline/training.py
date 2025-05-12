@@ -379,7 +379,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         frame_error.mark_as_loss(name="aed_fer", as_error=True)
 
  
-def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path, seq_tags: rf.Tensor = None, targets: rf.Tensor, targets_spatial_dim: Dim):
+def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_tags: rf.Tensor = None, targets: rf.Tensor, targets_spatial_dim: Dim):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
     from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_bigram, sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients
@@ -432,6 +432,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_p
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     use_normalized_loss = config.bool("use_normalized_loss", True)
+    lm_name = config.typed_value("train_lm_model")
     
     am_scale = config.float("am_scale", 1.0)
     lm_scale = config.float("lm_scale", 1.0)
@@ -464,18 +465,18 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_p
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
     
-    use_ffnn_lm = lm_path.startswith("ffnn")
+    use_ffnn_lm = lm_name.startswith("ffnn")
     if not use_ffnn_lm:
-        with uopen(lm_path, "rb") as f:
+        with uopen(lm_name, "rb") as f:
             lm = torch.load(f, map_location=data.device)
             assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
-        lm_order = len(lm.size())
-        lm = torch.log_softmax(lm, dim=-1)
+        lm_order = lm.ndim
+        # lm = torch.log_softmax(lm, dim=-1)
     else:
         assert model.train_language_model
         assert model.train_language_model.vocab_dim == model.target_dim
         lm: FeedForwardLm = model.train_language_model
-        lm_order = int(lm_path[len("ffnn"):])
+        lm_order = int(lm_name[len("ffnn"):])
 
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -610,7 +611,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_p
             use_recombination = not alignment_topk,
             recomb_blank = True,
             recomb_after_topk = True,
-            recomb_with_sum = False,
+            recomb_with_sum = True,
             blank_correction_version=blank_correction_version,
             print_best_path_for_idx=print_for_idx,
         )
@@ -1174,7 +1175,6 @@ def _rescore(
     # Subtract labelwise prior if available
     if prior_file and prior_weight > 0.0:
         prior = np.loadtxt(prior_file, dtype="float32")
-        prior *= prior_weight
         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
         if prior.size(0) == int(model.wb_target_dim.get_dim_value()):
             assert model.blank_idx == prior.size(0) - 1
@@ -1183,6 +1183,7 @@ def _rescore(
             prior = torch.log_softmax(prior, dim=-1)
         else:
             assert prior.size(0) == int(model.target_dim.get_dim_value()), f"Prior size does not match! {prior.size(0)} vs {int(model.target_dim.get_dim_value())}"
+        prior *= prior_weight
         prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
         
     assert lm_name.startswith("ffnn")
@@ -1229,7 +1230,6 @@ def _norm_rescore(
         targets_s = targets_ls[j]
         targets_spatial_dim_s = targets_spatial_dim_ls[j]
         
-        # TODO add alignment prior
         ret = _rescore(targets_s, targets_spatial_dim_s, model, hyperparameters, prior_file).raw_tensor
         if j > 0:
             ret = torch.where(targets_spatial_dim_s.dyn_size_ext.raw_tensor == 0, float("-inf"), ret)

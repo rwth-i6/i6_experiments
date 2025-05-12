@@ -288,7 +288,6 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             model=model,
             data=data,
             data_spatial_dim=data_spatial_dim,
-            lm_path=config.typed_value("lm_path"),
             seq_tags=seq_tags,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
@@ -306,7 +305,7 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             targets_spatial_dim=targets_spatial_dim,
             targets_indices=targets_indices
         )
-    else:
+    elif train_def.__name__ == "ctc_training" or train_def.__name__ == "seq_gamma_training":
         nbest_lengths = None
         scores = None
         if "nbest_lengths" in extern_data:
@@ -323,6 +322,14 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             nbest_lengths=nbest_lengths,
             scores=scores,
             seq_tags=seq_tags,
+        )
+    else:
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
         )
         
 def _returnn_epoch_start_hdf_writer(*, epoch: int, step: int, model: ModelT, dataset_name: str, **_kwargs_unused):
@@ -373,7 +380,6 @@ class SumTrainDef(TrainDef):
         model: ModelT,
         data: Tensor,
         data_spatial_dim: Tensor,
-        lm_path: tk.Path,
         seq_tags: Tensor = None,
         targets: Tensor,
         targets_spatial_dim: Dim
