@@ -59,39 +59,45 @@ def py():
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Long-form experiment on Buckeye with Phi4.
-    name = "phi4mi-buckeye-val-grads-longform"
-    j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
-        model_dir=dl_phi4mi.out_hub_cache_dir,
-        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
-        dataset_key="val",
-        speech_prompt="Transcribe the audio clip into text.",
-        chunk_overlap_secs=1.0,
-        empty_exit_penalty=0.0,
-        dump_wav_first_n_seqs=5,  # debugging
-    )
-    j.add_alias(f"align/{name}-seg")
-    tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg.hdf", j.out_hdf)
-    j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
-        model_dir=dl_phi4mi.out_hub_cache_dir,
-        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
-        dataset_key="val",
-        speech_prompt="Transcribe the audio clip into text.",
-        chunk_segmentation_hdf=j.out_hdf,
-    )
-    j.add_alias(f"align/{name}")
-    tk.register_output(f"align/{name}.hdf", j.out_hdf)
-    for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
-        align_name = f"align/{name}-{grad_type}"
-        align = CalcChunkedAlignmentMetricsJob(
-            grad_score_hdf=j.out_hdf,
-            grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+    name_ = "phi4mi-buckeye-val-grads-longform"
+    for chunk_opts in [
+        {},
+        {"chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 20.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 10.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
+    ]:
+        name = name_ + "-" + "-".join(f"{k}={v}" for k, v in chunk_opts.items())
+        j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
+            model_dir=dl_phi4mi.out_hub_cache_dir,
             dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
             dataset_key="val",
-            dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
-            align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+            speech_prompt="Transcribe the audio clip into text.",
+            **chunk_opts,
+            dump_wav_first_n_seqs=5,  # debugging
         )
-        align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        j.add_alias(f"align/{name}-seg")
+        tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg.hdf", j.out_hdf)
+        j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
+            model_dir=dl_phi4mi.out_hub_cache_dir,
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            speech_prompt="Transcribe the audio clip into text.",
+            chunk_segmentation_hdf=j.out_hdf,
+        )
+        j.add_alias(f"align/{name}")
+        tk.register_output(f"align/{name}.hdf", j.out_hdf)
+        for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
+            align_name = f"align/{name}-{grad_type}"
+            align = CalcChunkedAlignmentMetricsJob(
+                grad_score_hdf=j.out_hdf,
+                grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
+                align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Test different prompts
     for i, prompt in enumerate(
