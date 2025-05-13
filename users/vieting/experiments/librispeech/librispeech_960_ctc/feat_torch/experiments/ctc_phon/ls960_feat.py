@@ -40,6 +40,14 @@ def eow_phon_ls960_relposencoder_0924_base():
         settings=train_settings,
     )
 
+    train_settings_nonorm = copy.deepcopy(train_settings)
+    train_settings_nonorm.peak_normalization = False
+    train_data_nonorm = build_eow_phon_training_datasets(
+        prefix=prefix_name,
+        librispeech_key="train-other-960",
+        settings=train_settings_nonorm,
+    )
+
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
 
@@ -212,8 +220,8 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
 
     def run_with_standard_settings(
-        network_module, model_cfg, name_ext="", prior_batch_size=None, forward_config=None, train_rqmt=None,
-        move_to_hpc=False, debug=False,
+        network_module, model_cfg, name_ext="", train_data_custom=None, prior_batch_size=None, forward_config=None,
+        train_rqmt=None, move_to_hpc=False, debug=False,
     ):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
@@ -239,7 +247,10 @@ def eow_phon_ls960_relposencoder_0924_base():
 
         name = ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8" + name_ext
         training_name = prefix_name + "/" + network_module + name
-        train_job = training(training_name, train_data, train_args, num_epochs=1000, rqmt=train_rqmt, **default_returnn)
+        train_job = training(
+            training_name, train_data_custom or train_data, train_args, num_epochs=1000, rqmt=train_rqmt,
+            **default_returnn
+        )
         train_job.rqmt["gpu_mem"] = 48
         if move_to_hpc and not debug:
             train_job.hold()
@@ -761,6 +772,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         (f".stftsa.2Dx3v1", 400, 80, None, "stft_v47"),
         (f".defaultsa.2Dx2v1", 400, 160, None, "default_v11"),
         (f".defaultsa.2Dx2v1", 400, 160, None, "default_v12"),
+        (f".stftsa.2Dx2v1.nonorm", 400, 160, None, "stft_v47"),
     ]:
         stft_config = StftFeatureExtractionV1Config(
             window_size=window_size,
@@ -784,12 +796,20 @@ def eow_phon_ls960_relposencoder_0924_base():
         exp_name = exp_name.replace("stftsa", "stftsa" + specaug_version.split("_")[1])
         exp_name = exp_name.replace("defaultsa", "defaultsa" + specaug_version.split("_")[1])
         name_ext = f"{exp_name}.stft{window_size}x{window_shift}x{n_fft or window_size}"
-        run_with_standard_settings(
-            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
-            model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
-            forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
-            prior_batch_size=140,
-        )
+        if "nonorm" in exp_name:
+            run_with_standard_settings(
+                network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+                model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+                forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
+                prior_batch_size=140, train_data_custom=train_data_nonorm,
+            )
+        else:
+            run_with_standard_settings(
+                network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+                model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+                forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
+                prior_batch_size=140,
+            )
 
     # 2D experiments with STFT SpecAugment: Replace STFT by conv layer
     from ...pytorch_networks.ctc.features.conv import (
