@@ -919,8 +919,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                             word_idx=word_idx,
                             log_prob=log_prob,
                             backpointer=prev_node,
-                            word_log_prob=word_log_prob,
-                            exit_log_prob=exit_log_prob,
+                            word_log_prob=(log_prob + word_log_prob) if word_idx < cur_word_end else None,
+                            exit_log_prob=log_prob + exit_log_prob,
                         )
                     )
                 assert (
