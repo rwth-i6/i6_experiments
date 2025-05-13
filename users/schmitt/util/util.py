@@ -1,9 +1,5 @@
 from sisyphus import *
 
-from recipe.i6_core.util import create_executable
-from recipe.i6_core.rasr.config import build_config_from_mapping
-from recipe.i6_core.rasr.command import RasrCommand
-
 import string
 import copy
 
@@ -23,7 +19,7 @@ from sisyphus.toolkit import Variable
 
 from typing import Iterator, Optional, List
 
-import recipe.i6_experiments.users.schmitt.tools as tools_mod
+import i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
 
 
