@@ -683,8 +683,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
 
     @classmethod
     def hash(cls, parsed_args):
-        if not parsed_args["dump_wav_first_n_seqs"]:
-            del parsed_args["dump_wav_first_n_seqs"]
+        del parsed_args["dump_wav_first_n_seqs"]
         return super().hash(parsed_args)
 
     def tasks(self):
