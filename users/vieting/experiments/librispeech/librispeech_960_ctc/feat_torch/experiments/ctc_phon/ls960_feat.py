@@ -444,6 +444,60 @@ def eow_phon_ls960_relposencoder_0924_base():
             window_shift=160,
             fft_size=512,
         ),
+        "stft_v42": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=30,
+            max_dim_feat=int(16 / 80 * 201 * 1.3),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v43": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=50,
+            max_dim_feat=int(16 / 80 * 201 * 1.3),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v44": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=40,
+            max_dim_feat=int(16 / 80 * 257 * 0.7),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v45": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=40,
+            max_dim_feat=int(16 / 80 * 257 * 1.3),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v46": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=45,
+            max_dim_feat=int(16 / 80 * 201 * 1.3),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v47": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=55,
+            max_dim_feat=int(16 / 80 * 201 * 1.3),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
         "stft_v51": SpecaugStftV2Config(
             repeat_per_n_frames=25,
             max_dim_time=20,
@@ -500,13 +554,24 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     for exp_name, convs in [
         (".scf", []),
+        (".sa64.scf", []),
+        (".sa128.scf", []),
         (".stftsa.scf", []),
+        (".stftsav41.scf", []),
+        (".stftsav43.scf", []),
     ]:
         model_config_exp = copy.deepcopy(model_config)
         model_config_exp.feature_extraction_config.convs = convs
         model_config_exp.frontend_config.in_features = 750 if len(convs) == 0 else convs[-1][1]
-        if "stftsa" not in exp_name:
-            model_config_exp.specaug_config = specaug_config
+        if "stftsa" in exp_name:
+            specaug_version = exp_name.split(".")[1].replace("sa", "_")
+            if "v" not in specaug_version:
+                specaug_version = "stft_v1"
+            model_config_exp.specaug_config = copy.deepcopy(specaug_configs[specaug_version])
+        else:
+            model_config_exp.specaug_config = copy.deepcopy(specaug_config)
+            if exp_name.startswith(".sa"):
+                model_config_exp.specaug_config.max_dim_feat = int(exp_name[3:].split(".")[0])
         if "init" not in exp_name:
             model_config_exp.feature_extraction_config.init_tf = None
             model_config_exp.feature_extraction_config.init_env = None
@@ -547,6 +612,13 @@ def eow_phon_ls960_relposencoder_0924_base():
             convs=[(32, (3, 3), (2, 1))] + [(32, (3, 3), (2, 1))],
             activations=["ReLU"] * 2,
             poolings=[None] * 2,
+            out_features=512,
+        ),
+        "2Dx2v2": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1)],
+            activations=[None, "ReLU"] * 2,
+            poolings=[None, ((2, 1), (2, 1), None)] * 2,
             out_features=512,
         ),
     }
@@ -599,9 +671,18 @@ def eow_phon_ls960_relposencoder_0924_base():
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v29"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v31"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v41"),
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v42"),
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v43"),
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v44"),
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v45"),
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v46"),
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v47"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v51"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v52"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v53"),
+        (f".stftsa.2Dx2v2", 400, 160, None, "stft_v43"),
+        (f".stftsa.2Dx6v1", 400, 10, None, "stft_v43"),
+        (f".stftsa.2Dx5v1", 400, 20, None, "stft_v43"),
     ]:
         stft_config = StftFeatureExtractionV1Config(
             window_size=window_size,
