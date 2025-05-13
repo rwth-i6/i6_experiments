@@ -804,15 +804,20 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 ]  # []. log_prob+word (one or more labels). vertical transition to next word. (None if s==S)
                 backpointer: Optional[_Node]  # prev chunk, or prev word
 
-            cur_chunk_idx = 0
-            cur_audio_start = 0  # in samples
             chunk_start_end: List[Tuple[int, int]] = []  # in samples
+            cur_audio_start = 0  # in samples
             while True:  # while not ended
                 cur_audio_end = cur_audio_start + chunk_size_samples
                 if cur_audio_end > len(audio):
                     cur_audio_end = len(audio)
-                chunk_start_end.append((cur_audio_start, cur_audio_end))
                 assert cur_audio_end > cur_audio_start
+                chunk_start_end.append((cur_audio_start, cur_audio_end))
+                if cur_audio_end >= len(audio):
+                    break  # only break point here
+                cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
+                assert cur_audio_start >= 0
+
+            for cur_chunk_idx, (cur_audio_start, cur_audio_end) in enumerate(chunk_start_end):
                 if cur_chunk_idx == 0:
                     prev_array_word_idx = 0
                     cur_word_start = 0
@@ -822,14 +827,22 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                         torch.stack([node.exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
                     )
                     cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
+                    prev_word_start = array[cur_chunk_idx - 1][0].word_idx
+                    while prev_word_start + 1 > cur_word_start:
+                        cur_word_start += 1  # increase
+                        prev_array_word_idx += 1
                 cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
                 if cur_word_end > len(words):
                     cur_word_end = len(words)
+                print(
+                    f"** Forwarding chunk {cur_chunk_idx} (out of {len(chunk_start_end)},"
+                    f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"
+                    f" words {cur_word_start}:{cur_word_end} (out of {len(words)})"
+                )
                 assert cur_word_end > cur_word_start  # need to fix heuristic if this fails...
                 if cur_audio_end >= len(audio):
                     assert cur_word_end == len(words)  # need to overthink approx if this fails...
                 start_time = time.time()
-                print(f"** Forwarding {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs")
                 transcription = " ".join(words[cur_word_start:cur_word_end])
                 if cur_word_start > 0:
                     transcription = "... " + transcription
@@ -895,7 +908,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                         assert prev_node_below.word_idx == word_idx - 1
                     if cur_chunk_idx > 0 and prev_array_word_idx + w < len(array[cur_chunk_idx - 1]):
                         prev_node_left = array[cur_chunk_idx - 1][prev_array_word_idx + w]
-                        assert prev_node_left.word_idx == word_idx
+                        assert prev_node_left.word_idx == word_idx  # TODO?
                     if prev_node_below and not prev_node_left:
                         prev_node = prev_node_below
                         log_prob = prev_node_below.word_log_prob
@@ -934,12 +947,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 gc.collect()
                 _report_dev_memory_stats()
                 print(f"({time.time() - start_time} secs)")
-
-                if cur_audio_end >= len(audio):
-                    break  # only break point here
-                cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
-                assert cur_audio_start >= 0
-                cur_chunk_idx += 1
 
             # Backtrack
             nodes_alignment: List[_Node] = []
