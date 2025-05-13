@@ -652,7 +652,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
         chunk_overlap_secs: float = 5.0,
-        empty_exit_penalty: float = -10.0,
+        empty_exit_penalty: float = -5.0,
         dump_wav_first_n_seqs: int = 0,
     ):
         """
@@ -1018,7 +1018,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
         chunk_overlap_secs: float = 5.0,
-        empty_exit_penalty: float = -10.0,
+        empty_exit_penalty: float = -5.0,
         grad_type: str,
         align_opts: Dict[str, Any],
     ):
