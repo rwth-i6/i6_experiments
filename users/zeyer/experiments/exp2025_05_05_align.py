@@ -1000,7 +1000,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
                         samples=audio[cur_audio_start:cur_audio_end],
                         sr=samplerate,
                     )
-                    with open(f"seq{seq_idx}-chunk{cur_chunk_idx}.txt") as f:
+                    with open(f"seq{seq_idx}-chunk{cur_chunk_idx}.txt", "w") as f:
                         f.write(" ".join(words[w] for w in ws))
 
         hdf_writer.close()
