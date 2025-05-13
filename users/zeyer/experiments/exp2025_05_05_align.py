@@ -439,7 +439,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
                 ]
                 print(f"Memory usage ({device_str}):", " ".join(stats))
 
-        from transformers import AutoProcessor, AutoModelForCausalLM, GenerationConfig
+        from transformers import AutoProcessor, AutoModelForCausalLM
 
         print(f"({time.time() - start_time} secs)")
         print("Loading model...")
@@ -449,7 +449,6 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         model = AutoModelForCausalLM.from_pretrained(
             model_dir, local_files_only=True, torch_dtype="auto", trust_remote_code=True, device_map=device_str
         ).to(dev)
-        generation_config = GenerationConfig.from_pretrained(model_dir)
 
         from transformers.models.phi4_multimodal.modeling_phi4_multimodal import Phi4MultimodalForCausalLM
 
