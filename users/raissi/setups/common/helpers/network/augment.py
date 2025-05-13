@@ -18,7 +18,10 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import PriorType
 
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
-from i6_experiments.users.raissi.setups.common.helpers.align.FSA import correct_rasr_FSA_bug
+from i6_experiments.users.raissi.setups.common.helpers.align.FSA import (
+    correct_rasr_FSA_bug,
+    create_rasrconfig_for_alignment_fsa,
+)
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
@@ -834,38 +837,12 @@ def add_fast_bw_layer_to_network(
         "tdp_scale": log_linear_scales.transition_scale,
     }
 
-    # Create additional Rasr config file for the automaton
-    mapping = {
-        "corpus": "neural-network-trainer.corpus",
-        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
-        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
-    }
-    config, post_config = rasr.build_config_from_mapping(crp, mapping)
-    post_config["*"].output_channel.file = "fastbw.log"
+    automaton_config = create_rasrconfig_for_alignment_fsa(
+        crp=crp,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
 
-    # Define action
-    config.neural_network_trainer.action = "python-control"
-    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
-        False
     )
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
-        False
-    )
-    # neural_network_trainer.alignment_fsa_exporter
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
-        True
-    )
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
-        True
-    )
-
-    # additional config
-    config._update(extra_rasr_config)
-    post_config._update(extra_rasr_post_config)
-
-    automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
-    tk.register_output("train/bw.config", automaton_config)
 
     network["fast_bw"]["sprint_opts"] = {
         "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
@@ -1020,38 +997,12 @@ def add_fast_bw_factored_layer_to_network(
         "n_out": label_info.n_contexts * 2 + label_info.get_n_state_classes(),
     }
 
-    # Create additional Rasr config file for the automaton
-    mapping = {
-        "corpus": "neural-network-trainer.corpus",
-        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
-        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
-    }
-    config, post_config = rasr.build_config_from_mapping(crp, mapping)
-    post_config["*"].output_channel.file = "fastbw.log"
+    automaton_config = create_rasrconfig_for_alignment_fsa(
+        crp=crp,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
 
-    # Define action
-    config.neural_network_trainer.action = "python-control"
-    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
-        False
     )
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
-        False
-    )
-    # neural_network_trainer.alignment_fsa_exporter
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
-        True
-    )
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
-        True
-    )
-
-    # additional config
-    config._update(extra_rasr_config)
-    post_config._update(extra_rasr_post_config)
-
-    automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
-    tk.register_output("train/bw.config", automaton_config)
 
     network["fast_bw"]["sprint_opts"] = {
         "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
