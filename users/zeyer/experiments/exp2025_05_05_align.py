@@ -654,7 +654,15 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         :param speech_prompt: prompt to use for the audio
         :param chunk_size_secs: chunk size in seconds
         :param grad_type: e.g. "L1_e_grad"
-        :param align_opts: options for the alignment
+        :param align_opts: options for the alignment.
+            Note: In some earlier variant, it was necessary to do the alignment here in this job,
+            because the chunking procedure was intertwined with the alignment.
+            Now, this has changed, and the alignment here would not be strictly necessary.
+            We could also just dump the grads, as before.
+            (Although it's a bit unclear whether alignment across chunks works just as well
+             when doing on all the grads for the whole sequence. Here we just do it per chunk.
+             But probably that should not matter.)
+            We leave it like it is for now...
 
         Earlier we had:
 
