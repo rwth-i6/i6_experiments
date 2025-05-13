@@ -995,7 +995,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
 
             assert len(words_indices_start_end) == len(chunk_start_end)
             hdf_writer.insert_batch(
-                np.array(words_indices_start_end)[None], seq_len=[len(words)], seq_tag=[f"seq-{seq_idx}"]
+                np.array(words_indices_start_end)[None], seq_len=[len(chunk_start_end)], seq_tag=[f"seq-{seq_idx}"]
             )
 
         hdf_writer.close()
