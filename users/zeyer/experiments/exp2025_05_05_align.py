@@ -641,6 +641,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
     Long-form variant
     """
 
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -819,14 +821,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
                 cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
                 assert cur_audio_start >= 0
 
-            if seq_idx < self.dump_wav_first_n_seqs:
-                for cur_chunk_idx, (cur_audio_start, cur_audio_end) in enumerate(chunk_start_end):
-                    _write_wave_file(
-                        f"seq{seq_idx}-chunk{cur_chunk_idx}.wav",
-                        samples=audio[cur_audio_start:cur_audio_end],
-                        sr=samplerate,
-                    )
-
             array: List[List[_Node]] = []  # [chunk_idx][rel word_idx]
 
             # In the (S+1)*C grid (RNN-T style), but we are not filling all S+1 entries per chunk.
@@ -996,6 +990,18 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
             hdf_writer.insert_batch(
                 np.array(words_indices_start_end)[None], seq_len=[len(chunk_start_end)], seq_tag=[f"seq-{seq_idx}"]
             )
+
+            if seq_idx < self.dump_wav_first_n_seqs:
+                for cur_chunk_idx, ((cur_audio_start, cur_audio_end), ws) in enumerate(
+                    zip(chunk_start_end, words_per_chunks)
+                ):
+                    _write_wave_file(
+                        f"seq{seq_idx}-chunk{cur_chunk_idx}.wav",
+                        samples=audio[cur_audio_start:cur_audio_end],
+                        sr=samplerate,
+                    )
+                    with open(f"seq{seq_idx}-chunk{cur_chunk_idx}.txt") as f:
+                        f.write(" ".join(words[w] for w in ws))
 
         hdf_writer.close()
 
