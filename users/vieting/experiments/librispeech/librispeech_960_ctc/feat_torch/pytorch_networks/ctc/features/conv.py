@@ -86,7 +86,7 @@ class ConvFeatureExtractionV2(ConvFeatureExtractionV1):
     def __init__(self, cfg: ConvFeatureExtractionV2Config):
         cfg_v1 = asdict(cfg)
         cfg_v1.pop("freeze")
-        cfg_v1 = ConvFeatureExtractionV1.from_dict(cfg_v1)
+        cfg_v1 = ConvFeatureExtractionV1Config.from_dict(cfg_v1)
         super().__init__(cfg_v1)
         if cfg.freeze:
             assert cfg.init is not None, "Frozen random weights do not seem to make sense"
