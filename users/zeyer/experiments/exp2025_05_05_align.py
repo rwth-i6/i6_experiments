@@ -830,6 +830,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     )
                     cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
                 cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
+                cur_word_end = len(words)  # HACK, test...
                 if cur_word_end > len(words):
                     cur_word_end = len(words)
                 print(
@@ -972,16 +973,27 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     assert node.chunk_idx == node.backpointer.chunk_idx + 1
                     assert node.word_idx == node.backpointer.word_idx
             assert words_covered == len(words)
+            words_indices_start_end = [(ws[0], ws[-1] + 1) if ws else None for ws in words_per_chunks]
+            print("  Words per chunks:", words_indices_start_end)
 
             # Now, for each chunk, get the word timings
             print("* Calculating word timings")
 
             words_start_end_time_frames: List[Tuple[int, int]] = []
-            for (cur_audio_start, cur_audio_end), words_per_chunk in zip(chunk_start_end, words_per_chunks):
-                cur_word_start = words_per_chunk[0]
-                cur_word_end = words_per_chunk[-1] + 1
+            for chunk_idx, ((cur_audio_start, cur_audio_end), ws) in enumerate(zip(chunk_start_end, words_per_chunks)):
+                if not ws:
+                    print(
+                        f"** Skipping empty chunk {chunk_idx} (out of {len(chunk_start_end)}),"
+                        f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs"
+                    )
+                    continue
+                cur_word_start, cur_word_end = ws[0], ws[-1] + 1
                 start_time = time.time()
-                print(f"** Forwarding {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs")
+                print(
+                    f"** Forwarding chunk {chunk_idx} (out of {len(chunk_start_end)}),"
+                    f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs, "
+                    f" words {cur_word_start}:{cur_word_end}"
+                )
                 transcription = " ".join(words[cur_word_start:cur_word_end])
                 if cur_word_start > 0:
                     transcription = "... " + transcription
