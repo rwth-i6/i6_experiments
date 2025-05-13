@@ -263,6 +263,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     # baseline log Mel setup
     run_with_standard_settings(
         network_module="ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1", model_cfg=model_config,
+        name_ext=".logmel", move_to_hpc=True,
     )
 
     # SCF experiments with minimal modifications
