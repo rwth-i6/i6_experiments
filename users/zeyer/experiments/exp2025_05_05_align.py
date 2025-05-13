@@ -68,6 +68,13 @@ def py():
     )
     j.add_alias("align/phi4mi-buckeye-val-grads-L2_e_grad-longform")
     tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform.hdf", j.out_hdf)
+    j = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=j.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=1000,  # buckeye
+    )
+    tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-wbe.txt", j.out_wbe)
 
     # Test different prompts
     for i, prompt in enumerate(
@@ -1224,6 +1231,119 @@ class CalcAlignmentMetricsJob(Job):
                         + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
                     )
                     for w in range(num_words)
+                ]
+            )
+            print("  WBE:", float(wbe_utt))
+            wbe_utts.append(wbe_utt)
+
+        wbe = float(np.mean(wbe_utts))
+        self.out_wbe.set(wbe)
+
+
+class CalcAlignmentMetricsFromWordBoundariesJob(Job):
+    """
+    Calc metrics from given wound boundaries.
+    (I.e. no alignment is happening here; that is already given via word boundaries.)
+    """
+
+    def __init__(
+        self,
+        *,
+        word_boundaries_hdf: tk.Path,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        dataset_offset_factors: int,
+    ):
+        """
+        :param word_boundaries_hdf: e.g. from ExtractInGradsFromPhi4MultimodalInstructLongFormJob.
+            Assumes shape [num_words,2], where each frame represents [word_start,word_end] (in samples).
+        :param dataset_dir:
+        :param dataset_key:
+        :param returnn_root:
+        :param dataset_offset_factors:
+            For TIMIT, the start/end offsets are directly on sample level.
+            For Buckeye, there is factor 1000?
+                len(ds_buckeye["val"][0]["audio"]["array"]) = 9969854,
+                ds_buckeye["val"][0]["word_detail"]["stop"][-1] = 9969
+        """
+        super().__init__()
+        self.word_boundaries_hdf = word_boundaries_hdf
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.dataset_offset_factors = dataset_offset_factors
+
+        self.out_wbe = self.output_var("wbe.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+
+    def run(self):
+        import os
+        import sys
+        import numpy as np
+
+        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        from returnn.datasets.hdf import HDFDataset
+
+        word_boundaries_hdf_ds = HDFDataset([self.word_boundaries_hdf.get_path()])
+        word_boundaries_hdf_ds.initialize()
+        word_boundaries_hdf_ds.init_seq_order(epoch=1)
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print(f"Dataset: {ds}")
+        print("Dataset keys:", ds.keys())
+        print("Using key:", self.dataset_key)
+        print("Num seqs:", len(ds[self.dataset_key]))
+
+        # Follow https://arxiv.org/pdf/2406.02560, normalize first per utterance, then over the utterances.
+        # Word boundary error (WBE) (we also called this time-stamp error (TSE))
+        wbe_utts = []
+
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            word_boundaries_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
+
+            samplerate = data["audio"]["sampling_rate"]
+            num_audio_samples = len(data["audio"]["array"])
+            audio_len_secs = num_audio_samples / samplerate
+            words: List[str] = data["word_detail"]["utterance"]
+
+            align_word_start_ends = word_boundaries_hdf_ds.get_data(seq_idx, "data")
+            assert align_word_start_ends.shape == (len(words), 2)
+
+            print(f"** seq {seq_idx}, {len(words)=} {audio_len_secs=} {num_audio_samples=}")
+
+            ref_word_starts: List[float] = data["word_detail"]["start"]
+            ref_word_ends: List[float] = data["word_detail"]["stop"]
+            assert len(words) == len(ref_word_starts) == len(ref_word_ends)
+            ref_word_start_ends = [
+                tuple(t * self.dataset_offset_factors / samplerate for t in ts)
+                for ts in zip(ref_word_starts, ref_word_ends)
+            ]
+            assert len(words) == len(ref_word_start_ends) == len(align_word_start_ends)
+
+            wbe_utt = np.mean(
+                [
+                    0.5
+                    * (
+                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
+                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
+                    )
+                    for w in range(len(words))
                 ]
             )
             print("  WBE:", float(wbe_utt))
