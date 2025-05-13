@@ -80,18 +80,18 @@ def py():
     )
     j.add_alias(f"align/{name}")
     tk.register_output(f"align/{name}.hdf", j.out_hdf)
-    grad_type = "L2_e_grad"
-    align_name = f"align/{name}-{grad_type}"
-    align = CalcChunkedAlignmentMetricsJob(
-        grad_score_hdf=j.out_hdf,
-        grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
-        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
-        dataset_key="val",
-        dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
-        align_opts={"apply_softmax_over_time": True, "blank_score": -6},
-    )
-    align.add_alias(align_name)
-    tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+    for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
+        align_name = f"align/{name}-{grad_type}"
+        align = CalcChunkedAlignmentMetricsJob(
+            grad_score_hdf=j.out_hdf,
+            grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
+            align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Test different prompts
     for i, prompt in enumerate(
