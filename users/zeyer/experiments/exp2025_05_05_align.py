@@ -58,6 +58,7 @@ def py():
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # Long-form experiment on Buckeye with Phi4.
     name = "phi4mi-buckeye-val-grads-longform"
     j = ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
