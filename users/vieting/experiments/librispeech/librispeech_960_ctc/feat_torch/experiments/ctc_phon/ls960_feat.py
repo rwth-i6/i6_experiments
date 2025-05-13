@@ -336,6 +336,18 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
     specaug_configs = {
         "default": specaug_config,
+        "default_v11": SpecaugConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=55,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+        ),
+        "default_v12": SpecaugConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=55,
+            max_dim_feat=int(16 / 80 * 201),
+            num_repeat_feat=5,
+        ),
         "stft_v1": SpecaugStftConfig(
             repeat_per_n_frames=25,
             max_dim_time=20,
@@ -568,11 +580,12 @@ def eow_phon_ls960_relposencoder_0924_base():
         (".stftsa.scf", []),
         (".stftsav41.scf", []),
         (".stftsav43.scf", []),
+        (".defaultsav11.scf", []),
     ]:
         model_config_exp = copy.deepcopy(model_config)
         model_config_exp.feature_extraction_config.convs = convs
         model_config_exp.frontend_config.in_features = 750 if len(convs) == 0 else convs[-1][1]
-        if "stftsa" in exp_name:
+        if "stftsa" in exp_name or "defaultsa" in exp_name:
             specaug_version = exp_name.split(".")[1].replace("sa", "_")
             if "v" not in specaug_version:
                 specaug_version = "stft_v1"
@@ -732,6 +745,8 @@ def eow_phon_ls960_relposencoder_0924_base():
         (f".stftsa.2Dx5v1", 400, 20, None, "stft_v47"),
         (f".stftsa.2Dx4v1", 400, 40, None, "stft_v47"),
         (f".stftsa.2Dx3v1", 400, 80, None, "stft_v47"),
+        (f".defaultsa.2Dx2v1", 400, 160, None, "default_v11"),
+        (f".defaultsa.2Dx2v1", 400, 160, None, "default_v12"),
     ]:
         stft_config = StftFeatureExtractionV1Config(
             window_size=window_size,
@@ -753,6 +768,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             **model_base_args_feat,
         )
         exp_name = exp_name.replace("stftsa", "stftsa" + specaug_version.split("_")[1])
+        exp_name = exp_name.replace("defaultsa", "defaultsa" + specaug_version.split("_")[1])
         name_ext = f"{exp_name}.stft{window_size}x{window_shift}x{n_fft or window_size}"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
