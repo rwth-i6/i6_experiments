@@ -89,10 +89,13 @@ class VGGNLayerActFrontendV1(nn.Module):
         in_channels = 1
         for conv, activation_str, pooling in zip(self.cfg.convs, self.cfg.activations, self.cfg.poolings):
             conv_dim, conv_kernel_size, conv_stride = conv
-            if activation_str == "ReLU":
-                activation = nn.ReLU()
-            elif activation_str in [None, ""]:
+            if activation_str in [None, ""]:
                 activation = nn.Identity()
+            elif activation_str == "ReLU":
+                activation = nn.ReLU()
+            elif activation_str.startswith("ReLU_Dropout"):
+                dropout = float(activation_str[len("ReLU_Dropout"):])
+                activation = nn.Sequential(nn.ReLU(), nn.Dropout(p=dropout))
             else:
                 assert False, f"Unsupported activation {activation_str}"
             self.layers.append(nn.Sequential(
