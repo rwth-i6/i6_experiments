@@ -741,7 +741,9 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         ).to(dev)
 
         from transformers.models.phi4_multimodal.modeling_phi4_multimodal import Phi4MultimodalForCausalLM
+        from transformers.models.phi4_multimodal.processing_phi4_multimodal import Phi4MultimodalProcessor
 
+        processor: Phi4MultimodalProcessor  # just as an example...
         model: Phi4MultimodalForCausalLM  # just as an example...
         print(model)
         print("model.dtype:", model.dtype)
@@ -827,10 +829,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                         torch.stack([node.exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
                     )
                     cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
-                    prev_word_start = array[cur_chunk_idx - 1][0].word_idx
-                    while prev_word_start + 1 > cur_word_start:
-                        cur_word_start += 1  # increase
-                        prev_array_word_idx += 1
                 cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
                 if cur_word_end > len(words):
                     cur_word_end = len(words)
@@ -847,9 +845,10 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 if cur_word_start > 0:
                     transcription = "... " + transcription
                 prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
-                inputs = processor(
-                    text=prompt, audios=[(audio[cur_audio_start:cur_audio_end], samplerate)], return_tensors="pt"
-                )
+                with torch.no_grad():  # no grad here for segmentation, audio embeddings
+                    inputs = processor(
+                        text=prompt, audios=[(audio[cur_audio_start:cur_audio_end], samplerate)], return_tensors="pt"
+                    )
                 input_ids = inputs["input_ids"]
                 (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
                 dst_text_start = int(dst_text_start) + 1  # one past the assistant token
@@ -902,13 +901,16 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     else:
                         word_log_prob = None
                     exit_log_prob = log_probs[0, t0 - dst_text_start][end_token_id]  # []
+                    if w == 0:
+                        # Add some penalty. For empty chunks, the prob is often overestimated.
+                        exit_log_prob += -20.0
                     prev_node_left, prev_node_below = None, None
                     if w > 0:
                         prev_node_below = array[cur_chunk_idx][-1]
                         assert prev_node_below.word_idx == word_idx - 1
                     if cur_chunk_idx > 0 and prev_array_word_idx + w < len(array[cur_chunk_idx - 1]):
                         prev_node_left = array[cur_chunk_idx - 1][prev_array_word_idx + w]
-                        assert prev_node_left.word_idx == word_idx  # TODO?
+                        assert prev_node_left.word_idx == word_idx
                     if prev_node_below and not prev_node_left:
                         prev_node = prev_node_below
                         log_prob = prev_node_below.word_log_prob
