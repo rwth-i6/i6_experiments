@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Union, Tuple, Optional
 import torch
 from torch import nn
@@ -28,7 +28,7 @@ class ConvFeatureExtractionV1Config(FeatureExtractionConfig):
         else:
             assert False, f"Unsupported activation {activation}"
         d["activation"] = activation
-        return ConvFeatureExtractionV1Config(**d)
+        return cls(**d)
 
 
 class ConvFeatureExtractionV1(nn.Module):
@@ -73,3 +73,23 @@ class ConvFeatureExtractionV1(nn.Module):
 
         return feature_data, length
 
+
+@dataclass
+class ConvFeatureExtractionV2Config(ConvFeatureExtractionV1Config):
+    freeze: bool
+
+
+class ConvFeatureExtractionV2(ConvFeatureExtractionV1):
+    """
+    Like ConvFeatureExtractionV1, but allows to freeze filters
+    """
+    def __init__(self, cfg: ConvFeatureExtractionV2Config):
+        cfg_v1 = asdict(cfg)
+        cfg_v1.pop("freeze")
+        cfg_v1 = ConvFeatureExtractionV1.from_dict(cfg_v1)
+        super().__init__(cfg_v1)
+        if cfg.freeze:
+            assert cfg.init is not None, "Frozen random weights do not seem to make sense"
+            self.conv.weight.requires_grad = False
+            if cfg.bias:
+                self.conv.bias.requires_grad = False
