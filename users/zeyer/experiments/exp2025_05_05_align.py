@@ -635,7 +635,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         returnn_root: Optional[tk.Path] = None,
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
-        num_words_history: int = 5,
+        chunk_overlap_secs: float = 5.0,
         max_words_per_min: float = 200.0,
         grad_type: str,
         align_opts: Dict[str, Any],
@@ -647,7 +647,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         :param returnn_root:
         :param speech_prompt: prompt to use for the audio
         :param chunk_size_secs: chunk size in seconds
-        :param num_words_history:
         :param max_words_per_min: will forward this many words per minute
             (assuming that this is an upper bound; the actual words per min will be less)
             some people can speak as fast as 250 words per minute.
@@ -661,7 +660,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         self.returnn_root = returnn_root
         self.speech_prompt = speech_prompt
         self.chunk_size_secs = chunk_size_secs
-        self.num_words_history = num_words_history
+        self.chunk_overlap_secs = chunk_overlap_secs
         self.max_words_per_min = max_words_per_min
         self.grad_type = grad_type
         self.align_opts = align_opts
@@ -679,6 +678,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         import time
         import gc
         import math
+        from dataclasses import dataclass
 
         os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
 
@@ -757,7 +757,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
         (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"sizes": (2, 2, "int32")})
+        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
 
         aligner = Aligner(**self.align_opts)
 
@@ -785,29 +785,200 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
             if seq_idx == 0:
                 print("  data keys:", data.keys())
 
-            words_start_end_time_frames: List[Tuple[int, int]] = []
+            # First a loop to determine the corse-chunkwise segmentation:
+            # For fixed chunks (partially overlapping), assign the most likely words.
+            # Dyn programming, outer loop over chunks.
+
+            print("* Chunkwise segmenting...")
+            array: List[List[_Node]] = []  # [chunk_idx][rel word_idx]
+
+            # In the (S+1)*C grid (RNN-T style), but we are not filling all S+1 entries per chunk.
+            @dataclass
+            class _Node:
+                chunk_idx: int  # 0 <= c < C. the chunk we are in.
+                word_idx: int  # 0 <= s <= S. we have seen this many words so far, words[:s]
+                log_prob: torch.Tensor  # []. log prob of this node
+                exit_log_prob: torch.Tensor  # []. log_prob+exit (end_token_id). horizontal transition to next chunk
+                word_log_prob: Optional[
+                    torch.Tensor
+                ]  # []. log_prob+word (one or more labels). vertical transition to next word. (None if s==S)
+                backpointer: Optional[_Node]  # prev chunk, or prev word
+
+            cur_chunk_idx = 0
             cur_audio_start = 0  # in samples
-            cur_word_start = 0
+            chunk_start_end: List[Tuple[int, int]] = []  # in samples
             while True:  # while not ended
                 cur_audio_end = cur_audio_start + chunk_size_samples
                 if cur_audio_end > len(audio):
                     cur_audio_end = len(audio)
+                chunk_start_end.append((cur_audio_start, cur_audio_end))
                 assert cur_audio_end > cur_audio_start
+                if cur_chunk_idx == 0:
+                    prev_array_word_idx = 0
+                    cur_word_start = 0
+                else:
+                    # Heuristic. Look through last chunk, look out for best exit_log_prob
+                    prev_array_word_idx = int(
+                        torch.stack([node.exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
+                    )
+                    cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
                 cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
                 if cur_word_end > len(words):
                     cur_word_end = len(words)
-                assert cur_word_end > cur_word_start
+                assert cur_word_end > cur_word_start  # need to fix heuristic if this fails...
+                if cur_audio_end >= len(audio):
+                    assert cur_word_end == len(words)  # need to overthink approx if this fails...
                 start_time = time.time()
                 print(f"** Forwarding {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs")
-                cur_num_words_history = cur_word_start - max(0, cur_word_start - self.num_words_history)
-                transcription = " ".join(words[cur_word_start - cur_num_words_history : cur_word_end])
-                if cur_word_start - cur_num_words_history > 0:
+                transcription = " ".join(words[cur_word_start:cur_word_end])
+                if cur_word_start > 0:
                     transcription = "... " + transcription
                 prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
                 inputs = processor(
-                    text=prompt,
-                    audios=[(audio[cur_audio_start:cur_audio_end], samplerate)],
-                    return_tensors="pt",
+                    text=prompt, audios=[(audio[cur_audio_start:cur_audio_end], samplerate)], return_tensors="pt"
+                )
+                input_ids = inputs["input_ids"]
+                (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
+                dst_text_start = int(dst_text_start) + 1  # one past the assistant token
+                dst_text_end = input_ids.shape[-1] - 1  # pos of the <end> token
+                assert input_ids[0, dst_text_end] == end_token_id
+                inputs = inputs.to(dev)
+                input_ids = inputs["input_ids"]
+                with torch.no_grad():  # no grad here for segmentation
+                    # We don't need the logits here. There is currently no way to not compute them,
+                    # so num_logits_to_keep=1 is the best we can do.
+                    # We then will compute the needed logits below.
+                    res = model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
+                last_out = res.hidden_states[-1]  # [B,T,D]
+                del res
+                assert last_out.shape[:2] == input_ids.shape
+                _report_dev_memory_stats()
+
+                words_start_end = [[dst_text_start, dst_text_start + 1]]
+                tokens = [tokenizer.decode(input_ids[0, dst_text_start : dst_text_start + 1])]
+                words_ = [tokens[-1]]
+                for t in range(dst_text_start + 1, dst_text_end):
+                    s = tokenizer.decode(input_ids[0, t : t + 1])
+                    tokens.append(s)
+                    if s.startswith(" "):  # new word
+                        words_.append(s[1:])
+                        words_start_end[-1][1] = t
+                        words_start_end.append([t, t + 1])
+                    else:
+                        words_[-1] += s
+                        words_start_end[-1][1] = t + 1
+                if cur_word_start > 0:
+                    assert words_[0] == "..."
+                    words_start_end = words_start_end[1:]
+                    words_ = words_[1:]
+                assert len(words_start_end) == len(words_) == cur_word_end - cur_word_start, f"got {tokens=}"
+                assert words_ == words[cur_word_start:cur_word_end], f"got {tokens=}"
+
+                print("** Calculating log probs")
+                logits = model.lm_head(last_out[:, dst_text_start - 1 :])  # [B,T-dst_text_start+1,V]
+                logits = logits.float()
+                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # [B,T-dst_text_start,V]
+                array.append([])
+                assert len(array) == cur_chunk_idx + 1
+                for w, (t0, t1) in enumerate(words_start_end + [(dst_text_end, dst_text_end + 1)]):
+                    word_idx = cur_word_start + w
+                    if word_idx < cur_word_end:
+                        word_log_prob = torch.sum(
+                            torch.stack([log_probs[0, t - dst_text_start][input_ids[0, t]] for t in range(t0, t1)])
+                        )  # []
+                    else:
+                        word_log_prob = None
+                    exit_log_prob = log_probs[0, t0 - dst_text_start][end_token_id]  # []
+                    prev_node_left, prev_node_below = None, None
+                    if w > 0:
+                        prev_node_below = array[cur_chunk_idx][-1]
+                        assert prev_node_below.word_idx == word_idx - 1
+                    if cur_chunk_idx > 0 and prev_array_word_idx + w < len(array[cur_chunk_idx - 1]):
+                        prev_node_left = array[cur_chunk_idx - 1][prev_array_word_idx + w]
+                        assert prev_node_left.word_idx == word_idx
+                    if prev_node_below and not prev_node_left:
+                        prev_node = prev_node_below
+                        log_prob = prev_node_below.word_log_prob
+                    elif not prev_node_below and prev_node_left:
+                        prev_node = prev_node_left
+                        log_prob = prev_node_left.exit_log_prob
+                    elif prev_node_below and prev_node_left:
+                        if prev_node_below.word_log_prob >= prev_node_left.exit_log_prob:
+                            prev_node = prev_node_below
+                            log_prob = prev_node_below.word_log_prob
+                        else:
+                            prev_node = prev_node_left
+                            log_prob = prev_node_left.exit_log_prob
+                    else:
+                        assert cur_chunk_idx == word_idx == 0
+                        prev_node = None
+                        log_prob = torch.zeros(())
+                    array[cur_chunk_idx].append(
+                        _Node(
+                            chunk_idx=cur_chunk_idx,
+                            word_idx=word_idx,
+                            log_prob=log_prob,
+                            backpointer=prev_node,
+                            word_log_prob=word_log_prob,
+                            exit_log_prob=exit_log_prob,
+                        )
+                    )
+                assert (
+                    len(array[cur_chunk_idx]) == len(words_start_end) + 1
+                    and array[cur_chunk_idx][0].word_idx == cur_word_start
+                    and array[cur_chunk_idx][-1].word_idx == cur_word_end
+                )
+
+                print("** Freeing")
+                del last_out, inputs, logits, log_probs  # not needed anymore now
+                gc.collect()
+                _report_dev_memory_stats()
+                print(f"({time.time() - start_time} secs)")
+
+                if cur_audio_end >= len(audio):
+                    break  # only break point here
+                cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
+                assert cur_audio_start >= 0
+                cur_chunk_idx += 1
+
+            # Backtrack
+            nodes_alignment: List[_Node] = []
+            node = array[-1][-1]
+            assert node.word_idx == len(words)  # has seen all words
+            while node:
+                nodes_alignment.append(node)
+                node = node.backpointer
+            nodes_alignment.reverse()
+
+            # Collect words per chunk
+            words_per_chunks: List[List[int]] = [[] for _ in range(len(chunk_start_end))]
+            words_covered = 0
+            for node in nodes_alignment[1:]:
+                if node.backpointer.chunk_idx == node.chunk_idx:
+                    assert node.word_idx == node.backpointer.word_idx + 1
+                    words_per_chunks[node.chunk_idx].append(node.word_idx - 1)
+                    assert words_covered == node.word_idx - 1
+                    words_covered += 1
+                else:
+                    assert node.chunk_idx == node.backpointer.chunk_idx + 1
+                    assert node.word_idx == node.backpointer.word_idx
+            assert words_covered == len(words)
+
+            # Now, for each chunk, get the word timings
+            print("* Calculating word timings")
+
+            words_start_end_time_frames: List[Tuple[int, int]] = []
+            for (cur_audio_start, cur_audio_end), words_per_chunk in zip(chunk_start_end, words_per_chunks):
+                cur_word_start = words_per_chunk[0]
+                cur_word_end = words_per_chunk[-1] + 1
+                start_time = time.time()
+                print(f"** Forwarding {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs")
+                transcription = " ".join(words[cur_word_start:cur_word_end])
+                if cur_word_start > 0:
+                    transcription = "... " + transcription
+                prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
+                inputs = processor(
+                    text=prompt, audios=[(audio[cur_audio_start:cur_audio_end], samplerate)], return_tensors="pt"
                 )
                 input_ids = inputs["input_ids"]
                 (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
@@ -841,14 +1012,12 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     else:
                         words_[-1] += s
                         words_start_end[-1][1] = t + 1
-                if cur_word_start - cur_num_words_history > 0:
+                if cur_word_start > 0:
                     assert words_[0] == "..."
                     words_start_end = words_start_end[1:]
                     words_ = words_[1:]
-                assert len(words_start_end) == len(words_) == cur_word_end - cur_word_start + cur_num_words_history, (
-                    f"got {tokens=}"
-                )
-                assert words_ == words[cur_word_start - cur_num_words_history : cur_word_end], f"got {tokens=}"
+                assert len(words_start_end) == len(words_) == cur_word_end - cur_word_start, f"got {tokens=}"
+                assert words_ == words[cur_word_start:cur_word_end], f"got {tokens=}"
 
                 # Not needed here, as we already have only the selected audio embedding part.
                 src_start, src_end = None, None
@@ -904,43 +1073,18 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 assert cur_word_end > cur_word_start
                 if cur_audio_end >= len(audio):
                     assert cur_word_end == len(words)
-                cur_words_start_end_time_frames = aligner.align(
-                    grad_mat__, num_final_words=(cur_word_end - cur_word_start) if cur_audio_end < len(audio) else 1
-                )
-                cur_words_start_end_time_frames = cur_words_start_end_time_frames[cur_num_words_history:]
-                assert len(cur_words_start_end_time_frames) <= cur_word_end - cur_word_start
+                cur_words_start_end_time_frames = aligner.align(grad_mat__)
+                assert len(cur_words_start_end_time_frames) == cur_word_end - cur_word_start
                 # Convert from timeframe to sample
                 cur_words_start_end_time_frames = [
                     tuple(cur_audio_start + int(t * (cur_audio_end - cur_audio_start) / num_input_frames) for t in ts)
                     for ts in cur_words_start_end_time_frames
                 ]
-
-                if len(cur_words_start_end_time_frames) == 0:  # no word in the current chunk
-                    print("  (no aligned words)")
-                    cur_audio_start += math.ceil(chunk_size_samples * 0.75)  # skip 3/4 of the chunk
-                else:
-                    print(
-                        f"  (aligned num words: {len(cur_words_start_end_time_frames)},"
-                        f" last word time end: {cur_words_start_end_time_frames[-1][1] / samplerate} secs)"
-                    )
-                    words_start_end_time_frames += cur_words_start_end_time_frames
-                    cur_word_start = len(words_start_end_time_frames)
-                    assert cur_word_start - self.num_words_history >= 1
-                    _, prev_l = words_start_end_time_frames[cur_word_start - self.num_words_history - 1]
-                    prev_r, _ = words_start_end_time_frames[cur_word_start - self.num_words_history]
-                    new_audio_start = (prev_l + prev_r) // 2
-                    assert new_audio_start > cur_audio_start
-                    cur_audio_start = new_audio_start
-
-                if cur_audio_end >= len(audio):
-                    break
+                words_start_end_time_frames += cur_words_start_end_time_frames
 
             assert len(words_start_end_time_frames) == len(words)
             hdf_writer.insert_batch(
-                np.array(words_start_end_time_frames)[None],
-                seq_len=[len(words)],
-                seq_tag=[f"seq-{seq_idx}"],
-                extra={"sizes": np.array([len(words), num_input_frames])[None, None]},
+                np.array(words_start_end_time_frames)[None], seq_len=[len(words)], seq_tag=[f"seq-{seq_idx}"]
             )
 
         hdf_writer.close()
