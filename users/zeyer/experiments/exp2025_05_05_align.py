@@ -79,7 +79,7 @@ def py():
     tk.register_output(f"align/{name}.hdf", j.out_hdf)
     grad_type = "L2_e_grad"
     align_name = f"align/{name}-{grad_type}"
-    align = CalcAlignmentMetricsJob(
+    align = CalcChunkedAlignmentMetricsJob(
         grad_score_hdf=j.out_hdf,
         grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
         dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
@@ -1146,7 +1146,16 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         chunk_segmentation_hdf_ds.initialize()
         chunk_segmentation_hdf_ds.init_seq_order(epoch=1)
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=1, ndim=2, extra_type={"sizes": (2, 2, "int32")})
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(),
+            dim=1,
+            ndim=2,
+            extra_type={
+                "audio_chunk_start_end": (2, 2, "int32"),
+                "words_indices_start_end": (2, 2, "int32"),
+                "num_input_frames_per_chunk": (1, 2, "int32"),
+            },
+        )
 
         # Iter over data
 
@@ -1176,8 +1185,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
             words_indices_start_end = chunk_segmentation_hdf_ds.get_data(seq_idx, "data")
             assert words_indices_start_end[:, 1].max() == len(words)
 
+            num_input_frames_per_chunk: List[int] = []
             grad_mats: Dict[str, List[torch.Tensor]] = {}
-            num_input_frames: Optional[int] = None
 
             for chunk_idx, ((cur_audio_start, cur_audio_end), (cur_word_start, cur_word_end)) in enumerate(
                 zip(chunk_start_end, words_indices_start_end)
@@ -1187,6 +1196,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                         f"** Skipping empty chunk {chunk_idx} (out of {len(chunk_start_end)}),"
                         f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs"
                     )
+                    num_input_frames_per_chunk.append(0)
                     continue
                 start_time = time.time()
                 print(
@@ -1272,6 +1282,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
 
                 print("** Calculating grads")
                 num_input_frames = inputs_embeds[0, src_start:src_end].shape[0]
+                num_input_frames_per_chunk.append(num_input_frames)
                 for w, (t0, t1) in enumerate(words_start_end):
                     for name, grads in _calc_input_grads(t0, t1, report_mem=w in {0, len(words_start_end) - 1}).items():
                         assert grads.shape == (num_input_frames,)
@@ -1282,21 +1293,23 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 _report_dev_memory_stats()
                 print(f"({time.time() - start_time} secs for the seq)")
 
-            num_words = len(words)
-            # each mat is [num_words,num_input_frames]
-            grad_mats_: Dict[str, torch.Tensor] = {name: torch.stack(grad_mat) for name, grad_mat in grad_mats.items()}
-            assert all(v.shape == (num_words, num_input_frames) for v in grad_mats_.values())
-            # Convert to Numpy and flatten and add dummy dim at the end to have it compatible for the HDF.
+            assert len(num_input_frames_per_chunk) == len(chunk_start_end)
+            # each mat is [num_words,num_input_frames_per_chunk[...]].
+            # All concatenated (flattened).
+            grad_mats_: Dict[str, torch.Tensor] = {name: torch.concat(grad_mat) for name, grad_mat in grad_mats.items()}
+            # Convert to Numpy and add dummy dim at the end to have it compatible for the HDF.
             # Also add dummy batch dim in the beginning (for insert_batch).
-            grad_mats__ = {k: v.detach().cpu().numpy().flatten()[None, :, None] for k, v in grad_mats_.items()}
+            grad_mats__ = {k: v.detach().cpu().numpy()[None, :, None] for k, v in grad_mats_.items()}
 
             first_key = next(iter(grad_mats_.keys()))
             hdf_writer.insert_batch(
                 grad_mats__[first_key],
-                seq_len=[num_words * num_input_frames],
+                seq_len=[len(grad_mats_[first_key])],
                 seq_tag=[f"seq-{seq_idx}"],
                 extra={
-                    "sizes": np.array([num_words, num_input_frames])[None, None],
+                    "audio_chunk_start_end": np.array(chunk_start_end)[None],
+                    "words_indices_start_end": np.array(words_indices_start_end)[None],
+                    "num_input_frames_per_chunk": np.array(num_input_frames_per_chunk)[None, :, None],
                     **{k: v for k, v in grad_mats__.items() if k != first_key},
                 },
             )
@@ -1424,6 +1437,161 @@ class CalcAlignmentMetricsJob(Job):
                         + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
                     )
                     for w in range(num_words)
+                ]
+            )
+            print("  WBE:", float(wbe_utt))
+            wbe_utts.append(wbe_utt)
+
+        wbe = float(np.mean(wbe_utts))
+        self.out_wbe.set(wbe)
+
+
+class CalcChunkedAlignmentMetricsJob(Job):
+    def __init__(
+        self,
+        *,
+        returnn_root: Optional[tk.Path] = None,
+        grad_score_hdf: tk.Path,
+        grad_score_key: str,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        dataset_offset_factors: int,
+        align_opts: Dict[str, Any],
+    ):
+        """
+        :param returnn_root:
+        :param grad_score_hdf:
+        :param grad_score_key: in the grad_score_hdf, e.g. "data" (for dot_e_grad), "L2_grad" or so.
+            Likely the HDF comes from :class:`ExtractInGradsFromPhi4MultimodalInstructJob`,
+            so see that code for reference.
+        :param dataset_dir:
+        :param dataset_key:
+        :param dataset_offset_factors:
+            For TIMIT, the start/end offsets are directly on sample level.
+            For Buckeye, there is factor 1000?
+                len(ds_buckeye["val"][0]["audio"]["array"]) = 9969854,
+                ds_buckeye["val"][0]["word_detail"]["stop"][-1] = 9969
+        :param align_opts: see :class:`Aligner`
+        """
+        super().__init__()
+        self.returnn_root = returnn_root
+        self.grad_score_hdf = grad_score_hdf
+        self.grad_score_key = grad_score_key
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.dataset_offset_factors = dataset_offset_factors
+        self.align_opts = align_opts
+
+        self.out_wbe = self.output_var("wbe.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+
+    def run(self):
+        import os
+        import sys
+        import numpy as np
+
+        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        from returnn.datasets.hdf import HDFDataset
+
+        grad_score_hdf_ds = HDFDataset([self.grad_score_hdf.get_path()])
+        grad_score_hdf_ds.initialize()
+        grad_score_hdf_ds.init_seq_order(epoch=1)
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print(f"Dataset: {ds}")
+        print("Dataset keys:", ds.keys())
+        print("Using key:", self.dataset_key)
+        print("Num seqs:", len(ds[self.dataset_key]))
+
+        aligner = Aligner(**self.align_opts)
+
+        # Follow https://arxiv.org/pdf/2406.02560, normalize first per utterance, then over the utterances.
+        # Word boundary error (WBE) (we also called this time-stamp error (TSE))
+        wbe_utts = []
+
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            grad_score_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
+
+            samplerate = data["audio"]["sampling_rate"]
+            num_audio_samples = len(data["audio"]["array"])
+            audio_len_secs = num_audio_samples / samplerate
+            words: List[str] = data["word_detail"]["utterance"]
+
+            print(f"** seq {seq_idx}, {len(words)=} {audio_len_secs=} {num_audio_samples=}")
+
+            ref_word_starts: List[float] = data["word_detail"]["start"]
+            ref_word_ends: List[float] = data["word_detail"]["stop"]
+            assert len(words) == len(ref_word_starts) == len(ref_word_ends)
+            ref_word_start_ends = [
+                tuple(t * self.dataset_offset_factors / samplerate for t in ts)
+                for ts in zip(ref_word_starts, ref_word_ends)
+            ]
+            assert len(words) == len(ref_word_start_ends)
+
+            chunk_start_end = grad_score_hdf_ds.get_data(seq_idx, "audio_chunk_start_end")
+            words_indices_start_end = grad_score_hdf_ds.get_data(seq_idx, "words_indices_start_end")
+            assert words_indices_start_end[:, 1].max() == len(words)
+            num_input_frames_per_chunk = grad_score_hdf_ds.get_data(seq_idx, "num_input_frames_per_chunk")
+            assert len(num_input_frames_per_chunk) == len(chunk_start_end) == len(words_indices_start_end)
+            assert num_input_frames_per_chunk.shape == (len(chunk_start_end), 1)
+            num_input_frames_per_chunk = num_input_frames_per_chunk.squeeze(1)
+
+            grad_mat = grad_score_hdf_ds.get_data(seq_idx, self.grad_score_key)
+            assert grad_mat.ndim == 2 and grad_mat.shape[1] == 1  # HDF restriction
+            grad_mat = grad_mat.squeeze(1)
+
+            align_word_start_ends = []
+            grad_mat_offset = 0
+            for chunk_idx, (
+                (cur_audio_start, cur_audio_end),
+                (cur_word_start, cur_word_end),
+                num_input_frames,
+            ) in enumerate(zip(chunk_start_end, words_indices_start_end, num_input_frames_per_chunk)):
+                if cur_word_start == cur_word_end:  # empty chunk
+                    continue
+
+                num_words_ = cur_word_end - cur_word_start
+                grad_mat_ = grad_mat[grad_mat_offset : grad_mat_offset + num_words_ * num_input_frames]
+                grad_mat_offset += num_words_ * num_input_frames
+                grad_mat_ = grad_mat_.reshape(num_words_, num_input_frames)
+
+                cur_align_word_start_ends = aligner.align(grad_mat_)
+                cur_align_word_start_ends = [
+                    tuple(
+                        (cur_audio_start + (t / num_input_frames) * (cur_audio_end - cur_audio_start)) / samplerate
+                        for t in ts
+                    )
+                    for ts in cur_align_word_start_ends
+                ]
+                assert len(cur_align_word_start_ends) == num_words_
+                align_word_start_ends += cur_align_word_start_ends
+
+            assert grad_mat_offset == grad_mat.shape[0]
+            assert len(words) == len(align_word_start_ends)
+
+            wbe_utt = np.mean(
+                [
+                    0.5
+                    * (
+                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
+                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
+                    )
+                    for w in range(len(words))
                 ]
             )
             print("  WBE:", float(wbe_utt))
