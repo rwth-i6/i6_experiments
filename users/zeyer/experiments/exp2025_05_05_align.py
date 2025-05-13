@@ -58,6 +58,7 @@ def py():
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    name = "phi4mi-buckeye-val-grads-longform"
     j = ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
         dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
@@ -65,25 +66,29 @@ def py():
         speech_prompt="Transcribe the audio clip into text.",
         dump_wav_first_n_seqs=5,  # debugging
     )
-    j.add_alias("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg")
+    j.add_alias(f"align/{name}-seg")
     tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg.hdf", j.out_hdf)
     j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
         dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
         dataset_key="val",
         speech_prompt="Transcribe the audio clip into text.",
-        grad_type="L2_e_grad",
-        align_opts={"apply_softmax_over_time": True, "blank_score": -6},
+        chunk_segmentation_hdf=j.out_hdf,
     )
-    j.add_alias("align/phi4mi-buckeye-val-grads-L2_e_grad-longform")
-    tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform.hdf", j.out_hdf)
-    j = CalcAlignmentMetricsFromWordBoundariesJob(
-        word_boundaries_hdf=j.out_hdf,
+    j.add_alias(f"align/{name}")
+    tk.register_output(f"align/{name}.hdf", j.out_hdf)
+    grad_type = "L2_e_grad"
+    align_name = f"align/{name}-{grad_type}"
+    align = CalcAlignmentMetricsJob(
+        grad_score_hdf=j.out_hdf,
+        grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
         dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
         dataset_key="val",
-        dataset_offset_factors=1000,  # buckeye
+        dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
+        align_opts={"apply_softmax_over_time": True, "blank_score": -6},
     )
-    tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-wbe.txt", j.out_wbe)
+    align.add_alias(align_name)
+    tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Test different prompts
     for i, prompt in enumerate(
@@ -641,7 +646,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
     Long-form variant
     """
 
-    __sis_version__ = 2
+    __sis_version__ = 3
 
     def __init__(
         self,
@@ -775,7 +780,10 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
         (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
         (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
+        # Write word start/end ranges per chunk, and the chunk audio sample start/end ranges.
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
 
         # Iter over data
 
@@ -987,7 +995,10 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
 
             assert len(words_indices_start_end) == len(chunk_start_end)
             hdf_writer.insert_batch(
-                np.array(words_indices_start_end)[None], seq_len=[len(chunk_start_end)], seq_tag=[f"seq-{seq_idx}"]
+                np.array(words_indices_start_end)[None],
+                seq_len=[len(chunk_start_end)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(chunk_start_end)[None]},
             )
 
             if seq_idx < self.dump_wav_first_n_seqs:
@@ -1020,11 +1031,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         dataset_key: str,
         returnn_root: Optional[tk.Path] = None,
         speech_prompt: str = "Transcribe the audio clip into text.",
-        chunk_size_secs: float = 30.0,
-        chunk_overlap_secs: float = 5.0,
-        empty_exit_penalty: float = -5.0,
-        grad_type: str,
-        align_opts: Dict[str, Any],
+        chunk_segmentation_hdf: tk.Path,
     ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
@@ -1032,25 +1039,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         :param dataset_key: e.g. "train", "test", whatever the dataset provides
         :param returnn_root:
         :param speech_prompt: prompt to use for the audio
-        :param chunk_size_secs: chunk size in seconds
-        :param chunk_overlap_secs:
-        :param empty_exit_penalty: penalty for exiting an empty chunk
-        :param grad_type: e.g. "L1_e_grad"
-        :param align_opts: options for the alignment.
-            Note: In some earlier variant, it was necessary to do the alignment here in this job,
-            because the chunking procedure was intertwined with the alignment.
-            Now, this has changed, and the alignment here would not be strictly necessary.
-            We could also just dump the grads, as before.
-            (Although it's a bit unclear whether alignment across chunks works just as well
-             when doing on all the grads for the whole sequence. Here we just do it per chunk.
-             But probably that should not matter.)
-            We leave it like it is for now...
-
-        Earlier we had:
-
-        max_words_per_min: will forward this many words per minute
-            (assuming that this is an upper bound; the actual words per min will be less)
-            some people can speak as fast as 250 words per minute.
+        :param chunk_segmentation_hdf: via ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob
         """
         super().__init__()
         self.model_dir = model_dir
@@ -1058,11 +1047,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
         self.speech_prompt = speech_prompt
-        self.chunk_size_secs = chunk_size_secs
-        self.chunk_overlap_secs = chunk_overlap_secs
-        self.empty_exit_penalty = empty_exit_penalty
-        self.grad_type = grad_type
-        self.align_opts = align_opts
+        self.chunk_segmentation_hdf = chunk_segmentation_hdf
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
 
@@ -1075,8 +1060,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         import os
         import sys
         import time
-        import math
-        from dataclasses import dataclass
 
         os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
 
@@ -1157,9 +1140,13 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
         (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
+        from returnn.datasets.hdf import HDFDataset
 
-        aligner = Aligner(**self.align_opts)
+        chunk_segmentation_hdf_ds = HDFDataset([self.chunk_segmentation_hdf.get_path()])
+        chunk_segmentation_hdf_ds.initialize()
+        chunk_segmentation_hdf_ds.init_seq_order(epoch=1)
+
+        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=1, ndim=2, extra_type={"sizes": (2, 2, "int32")})
 
         # Iter over data
 
@@ -1176,7 +1163,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
             if not isinstance(audio, np.ndarray):
                 audio = np.array(audio)
             samplerate = data["audio"]["sampling_rate"]
-            chunk_size_samples = math.ceil(self.chunk_size_secs * samplerate)
             words: List[str] = data["word_detail"]["utterance"]
             transcription = " ".join(words)
             print(f"* Seq {seq_idx}, {audio.shape=}, {len(audio) / samplerate} secs, {samplerate=}, {transcription!r}")
@@ -1185,203 +1171,23 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
             if seq_idx == 0:
                 print("  data keys:", data.keys())
 
-            # First a loop to determine the corse-chunkwise segmentation:
-            # For fixed chunks (partially overlapping), assign the most likely words.
-            # Dyn programming, outer loop over chunks.
+            chunk_segmentation_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
+            chunk_start_end = chunk_segmentation_hdf_ds.get_data(seq_idx, "audio_chunk_start_end")
+            words_indices_start_end = chunk_segmentation_hdf_ds.get_data(seq_idx, "data")
+            assert words_indices_start_end[:, 1].max() == len(words)
 
-            print("* Chunkwise segmenting...")
-            array: List[List[_Node]] = []  # [chunk_idx][rel word_idx]
+            grad_mats: Dict[str, List[torch.Tensor]] = {}
+            num_input_frames: Optional[int] = None
 
-            # In the (S+1)*C grid (RNN-T style), but we are not filling all S+1 entries per chunk.
-            @dataclass
-            class _Node:
-                chunk_idx: int  # 0 <= c < C. the chunk we are in.
-                word_idx: int  # 0 <= s <= S. we have seen this many words so far, words[:s]
-                log_prob: torch.Tensor  # []. log prob of this node
-                exit_log_prob: torch.Tensor  # []. log_prob+exit (end_token_id). horizontal transition to next chunk
-                word_log_prob: Optional[
-                    torch.Tensor
-                ]  # []. log_prob+word (one or more labels). vertical transition to next word. (None if s==S)
-                backpointer: Optional[_Node]  # prev chunk, or prev word
-
-            chunk_start_end: List[Tuple[int, int]] = []  # in samples
-            cur_audio_start = 0  # in samples
-            while True:  # while not ended
-                cur_audio_end = cur_audio_start + chunk_size_samples
-                if cur_audio_end > len(audio):
-                    cur_audio_end = len(audio)
-                assert cur_audio_end > cur_audio_start
-                chunk_start_end.append((cur_audio_start, cur_audio_end))
-                if cur_audio_end >= len(audio):
-                    break  # only break point here
-                cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
-                assert cur_audio_start >= 0
-
-            for cur_chunk_idx, (cur_audio_start, cur_audio_end) in enumerate(chunk_start_end):
-                if cur_chunk_idx == 0:
-                    prev_array_word_idx = 0
-                    cur_word_start = 0
-                else:
-                    # Heuristic. Look through last chunk, look out for best exit_log_prob
-                    prev_array_word_idx = int(
-                        torch.stack([node.exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
-                    )
-                    cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
-                # cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
-                cur_word_end = len(words)  # Go to the end. Not so expensive...
-                if cur_word_end > len(words):
-                    cur_word_end = len(words)
-                print(
-                    f"** Forwarding chunk {cur_chunk_idx} (out of {len(chunk_start_end)}),"
-                    f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"
-                    f" words {cur_word_start}:{cur_word_end} (out of {len(words)})"
-                )
-                assert cur_word_end > cur_word_start  # need to fix heuristic if this fails...
-                if cur_audio_end >= len(audio):
-                    assert cur_word_end == len(words)  # need to overthink approx if this fails...
-                start_time = time.time()
-                transcription = " ".join(words[cur_word_start:cur_word_end])
-                if cur_word_start > 0:
-                    transcription = "... " + transcription
-                prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
-                with torch.no_grad():  # no grad here for segmentation, audio embeddings
-                    inputs = processor(
-                        text=prompt, audios=[(audio[cur_audio_start:cur_audio_end], samplerate)], return_tensors="pt"
-                    )
-                input_ids = inputs["input_ids"]
-                (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
-                dst_text_start = int(dst_text_start) + 1  # one past the assistant token
-                dst_text_end = input_ids.shape[-1] - 1  # pos of the <end> token
-                assert input_ids[0, dst_text_end] == end_token_id
-                inputs = inputs.to(dev)
-                input_ids = inputs["input_ids"]
-                with torch.no_grad():  # no grad here for segmentation
-                    # We don't need the logits here. There is currently no way to not compute them,
-                    # so num_logits_to_keep=1 is the best we can do.
-                    # We then will compute the needed logits below.
-                    res = model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
-                last_out = res.hidden_states[-1]  # [B,T,D]
-                del res
-                assert last_out.shape[:2] == input_ids.shape
-
-                words_start_end = [[dst_text_start, dst_text_start + 1]]
-                tokens = [tokenizer.decode(input_ids[0, dst_text_start : dst_text_start + 1])]
-                words_ = [tokens[-1]]
-                for t in range(dst_text_start + 1, dst_text_end):
-                    s = tokenizer.decode(input_ids[0, t : t + 1])
-                    tokens.append(s)
-                    if s.startswith(" "):  # new word
-                        words_.append(s[1:])
-                        words_start_end[-1][1] = t
-                        words_start_end.append([t, t + 1])
-                    else:
-                        words_[-1] += s
-                        words_start_end[-1][1] = t + 1
-                if cur_word_start > 0:
-                    assert words_[0] == "..."
-                    words_start_end = words_start_end[1:]
-                    words_ = words_[1:]
-                assert len(words_start_end) == len(words_) == cur_word_end - cur_word_start, f"got {tokens=}"
-                assert words_ == words[cur_word_start:cur_word_end], f"got {tokens=}"
-
-                # Calculate log probs
-                logits = model.lm_head(last_out[:, dst_text_start - 1 :])  # [B,T-dst_text_start+1,V]
-                logits = logits.float()
-                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # [B,T-dst_text_start,V]
-                array.append([])
-                assert len(array) == cur_chunk_idx + 1
-                for w, (t0, t1) in enumerate(words_start_end + [(dst_text_end, dst_text_end + 1)]):
-                    word_idx = cur_word_start + w
-                    if word_idx < cur_word_end:
-                        word_log_prob = torch.sum(
-                            torch.stack([log_probs[0, t - dst_text_start][input_ids[0, t]] for t in range(t0, t1)])
-                        )  # []
-                    else:
-                        word_log_prob = None
-                    exit_log_prob = log_probs[0, t0 - dst_text_start][end_token_id]  # []
-                    if w == 0:
-                        # Add some penalty. For empty chunks, the prob is often overestimated.
-                        exit_log_prob += self.empty_exit_penalty
-                    prev_node_left, prev_node_below = None, None
-                    if w > 0:
-                        prev_node_below = array[cur_chunk_idx][-1]
-                        assert prev_node_below.word_idx == word_idx - 1
-                    if cur_chunk_idx > 0 and prev_array_word_idx + w < len(array[cur_chunk_idx - 1]):
-                        prev_node_left = array[cur_chunk_idx - 1][prev_array_word_idx + w]
-                        assert prev_node_left.word_idx == word_idx
-                    if prev_node_below and not prev_node_left:
-                        prev_node = prev_node_below
-                        log_prob = prev_node_below.word_log_prob
-                    elif not prev_node_below and prev_node_left:
-                        prev_node = prev_node_left
-                        log_prob = prev_node_left.exit_log_prob
-                    elif prev_node_below and prev_node_left:
-                        if prev_node_below.word_log_prob >= prev_node_left.exit_log_prob:
-                            prev_node = prev_node_below
-                            log_prob = prev_node_below.word_log_prob
-                        else:
-                            prev_node = prev_node_left
-                            log_prob = prev_node_left.exit_log_prob
-                    else:
-                        assert cur_chunk_idx == word_idx == 0
-                        prev_node = None
-                        log_prob = torch.zeros(())
-                    array[cur_chunk_idx].append(
-                        _Node(
-                            chunk_idx=cur_chunk_idx,
-                            word_idx=word_idx,
-                            log_prob=log_prob,
-                            backpointer=prev_node,
-                            word_log_prob=(log_prob + word_log_prob) if word_idx < cur_word_end else None,
-                            exit_log_prob=log_prob + exit_log_prob,
-                        )
-                    )
-                assert (
-                    len(array[cur_chunk_idx]) == len(words_start_end) + 1
-                    and array[cur_chunk_idx][0].word_idx == cur_word_start
-                    and array[cur_chunk_idx][-1].word_idx == cur_word_end
-                )
-
-                del last_out, inputs, logits, log_probs  # not needed anymore now
-
-            # Backtrack
-            nodes_alignment: List[_Node] = []
-            node = array[-1][-1]
-            assert node.word_idx == len(words)  # has seen all words
-            while node:
-                nodes_alignment.append(node)
-                node = node.backpointer
-            nodes_alignment.reverse()
-
-            # Collect words per chunk
-            words_per_chunks: List[List[int]] = [[] for _ in range(len(chunk_start_end))]
-            words_covered = 0
-            for node in nodes_alignment[1:]:
-                if node.backpointer.chunk_idx == node.chunk_idx:
-                    assert node.word_idx == node.backpointer.word_idx + 1
-                    words_per_chunks[node.chunk_idx].append(node.word_idx - 1)
-                    assert words_covered == node.word_idx - 1
-                    words_covered += 1
-                else:
-                    assert node.chunk_idx == node.backpointer.chunk_idx + 1
-                    assert node.word_idx == node.backpointer.word_idx
-            assert words_covered == len(words)
-            words_indices_start_end = [(ws[0], ws[-1] + 1) if ws else None for ws in words_per_chunks]
-            print("  Words per chunks:", words_indices_start_end)
-            _report_dev_memory_stats()
-
-            # Now, for each chunk, get the word timings
-            print("* Calculating word timings")
-
-            words_start_end_time_frames: List[Tuple[int, int]] = []
-            for chunk_idx, ((cur_audio_start, cur_audio_end), ws) in enumerate(zip(chunk_start_end, words_per_chunks)):
-                if not ws:
+            for chunk_idx, ((cur_audio_start, cur_audio_end), (cur_word_start, cur_word_end)) in enumerate(
+                zip(chunk_start_end, words_indices_start_end)
+            ):
+                if cur_word_start == cur_word_end:
                     print(
                         f"** Skipping empty chunk {chunk_idx} (out of {len(chunk_start_end)}),"
                         f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs"
                     )
                     continue
-                cur_word_start, cur_word_end = ws[0], ws[-1] + 1
                 start_time = time.time()
                 print(
                     f"** Forwarding chunk {chunk_idx} (out of {len(chunk_start_end)}),"
@@ -1436,7 +1242,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 # Not needed here, as we already have only the selected audio embedding part.
                 src_start, src_end = None, None
 
-                def _calc_input_grads(t0, t1, *, report_mem: bool = False) -> torch.Tensor:
+                def _calc_input_grads(t0, t1, *, report_mem: bool = False) -> Dict[str, torch.Tensor]:
                     logits = model.lm_head(last_out[:, t0 - 1 : t1 - 1])
                     logits = logits.float()
                     if logits.shape[0] > 1:
@@ -1444,10 +1250,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
 
                     loss = torch.nn.functional.cross_entropy(
-                        fake_logits[0],
-                        input_ids[0, t0:t1],
-                        ignore_index=-100,
-                        reduction="sum",
+                        fake_logits[0], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
                     )
                     loss.backward(retain_graph=True)
                     if report_mem:
@@ -1458,44 +1261,44 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                         e = inputs_embeds.float()
                         grad = grad.float()
                         return {
-                            "dot_e_grad": lambda: (e * grad)[0, src_start:src_end].sum(dim=-1),
-                            "L01_grad": lambda: torch.norm(grad[0, src_start:src_end], p=0.1, dim=-1),
-                            "L1_grad": lambda: torch.norm(grad[0, src_start:src_end], p=1, dim=-1),
-                            "L2_grad": lambda: torch.norm(grad[0, src_start:src_end], p=2, dim=-1),
-                            "L01_e_grad": lambda: torch.norm((e * grad)[0, src_start:src_end], p=0.1, dim=-1),
-                            "L1_e_grad": lambda: torch.norm((e * grad)[0, src_start:src_end], p=1, dim=-1),
-                            "L2_e_grad": lambda: torch.norm((e * grad)[0, src_start:src_end], p=2, dim=-1),
-                        }[self.grad_type]()
+                            "dot_e_grad": (e * grad)[0, src_start:src_end].sum(dim=-1),
+                            "L01_grad": torch.norm(grad[0, src_start:src_end], p=0.1, dim=-1),
+                            "L1_grad": torch.norm(grad[0, src_start:src_end], p=1, dim=-1),
+                            "L2_grad": torch.norm(grad[0, src_start:src_end], p=2, dim=-1),
+                            "L01_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=0.1, dim=-1),
+                            "L1_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=1, dim=-1),
+                            "L2_e_grad": torch.norm((e * grad)[0, src_start:src_end], p=2, dim=-1),
+                        }
 
                 print("** Calculating grads")
                 num_input_frames = inputs_embeds[0, src_start:src_end].shape[0]
-                num_words = len(words_start_end)
-                grad_mat: List[torch.Tensor] = []
                 for w, (t0, t1) in enumerate(words_start_end):
-                    grad_mat.append(_calc_input_grads(t0, t1))
-                # each mat is [num_words,num_input_frames]
-                grad_mat_: torch.Tensor = torch.stack(grad_mat)
-                grad_mat__: np.ndarray = grad_mat_.detach().cpu().numpy()  # [S,T]
+                    for name, grads in _calc_input_grads(t0, t1, report_mem=w in {0, len(words_start_end) - 1}).items():
+                        assert grads.shape == (num_input_frames,)
+                        grad_mats.setdefault(name, []).append(grads)
 
+                print("** Freeing")
                 del last_out, inputs_embeds, inputs  # not needed anymore now
-                print(f"({time.time() - start_time} secs)")
+                _report_dev_memory_stats()
+                print(f"({time.time() - start_time} secs for the seq)")
 
-                print(f"** Aligning to words {cur_word_start}:{cur_word_end} (total {len(words)})")
-                assert cur_word_end > cur_word_start
-                if cur_audio_end >= len(audio):
-                    assert cur_word_end == len(words)
-                cur_words_start_end_time_frames = aligner.align(grad_mat__)
-                assert len(cur_words_start_end_time_frames) == cur_word_end - cur_word_start
-                # Convert from timeframe to sample
-                cur_words_start_end_time_frames = [
-                    tuple(cur_audio_start + int(t * (cur_audio_end - cur_audio_start) / num_input_frames) for t in ts)
-                    for ts in cur_words_start_end_time_frames
-                ]
-                words_start_end_time_frames += cur_words_start_end_time_frames
+            num_words = len(words)
+            # each mat is [num_words,num_input_frames]
+            grad_mats_: Dict[str, torch.Tensor] = {name: torch.stack(grad_mat) for name, grad_mat in grad_mats.items()}
+            assert all(v.shape == (num_words, num_input_frames) for v in grad_mats_.values())
+            # Convert to Numpy and flatten and add dummy dim at the end to have it compatible for the HDF.
+            # Also add dummy batch dim in the beginning (for insert_batch).
+            grad_mats__ = {k: v.detach().cpu().numpy().flatten()[None, :, None] for k, v in grad_mats_.items()}
 
-            assert len(words_start_end_time_frames) == len(words)
+            first_key = next(iter(grad_mats_.keys()))
             hdf_writer.insert_batch(
-                np.array(words_start_end_time_frames)[None], seq_len=[len(words)], seq_tag=[f"seq-{seq_idx}"]
+                grad_mats__[first_key],
+                seq_len=[num_words * num_input_frames],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={
+                    "sizes": np.array([num_words, num_input_frames])[None, None],
+                    **{k: v for k, v in grad_mats__.items() if k != first_key},
+                },
             )
 
         hdf_writer.close()
