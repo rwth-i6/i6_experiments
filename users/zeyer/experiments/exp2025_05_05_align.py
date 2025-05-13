@@ -60,11 +60,13 @@ def py():
 
     # Long-form experiment on Buckeye with Phi4.
     name = "phi4mi-buckeye-val-grads-longform"
-    j = ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(
+    j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
         dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
         dataset_key="val",
         speech_prompt="Transcribe the audio clip into text.",
+        chunk_overlap_secs=1.0,
+        empty_exit_penalty=0.0,
         dump_wav_first_n_seqs=5,  # debugging
     )
     j.add_alias(f"align/{name}-seg")
@@ -642,7 +644,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
-class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(Job):
+class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
     """
     Long-form variant
     """
