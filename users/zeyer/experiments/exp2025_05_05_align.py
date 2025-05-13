@@ -676,7 +676,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         import os
         import sys
         import time
-        import gc
         import math
         from dataclasses import dataclass
 
@@ -865,7 +864,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 last_out = res.hidden_states[-1]  # [B,T,D]
                 del res
                 assert last_out.shape[:2] == input_ids.shape
-                _report_dev_memory_stats()
 
                 words_start_end = [[dst_text_start, dst_text_start + 1]]
                 tokens = [tokenizer.decode(input_ids[0, dst_text_start : dst_text_start + 1])]
@@ -887,7 +885,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 assert len(words_start_end) == len(words_) == cur_word_end - cur_word_start, f"got {tokens=}"
                 assert words_ == words[cur_word_start:cur_word_end], f"got {tokens=}"
 
-                print("** Calculating log probs")
+                # Calculate log probs
                 logits = model.lm_head(last_out[:, dst_text_start - 1 :])  # [B,T-dst_text_start+1,V]
                 logits = logits.float()
                 log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # [B,T-dst_text_start,V]
@@ -945,11 +943,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     and array[cur_chunk_idx][-1].word_idx == cur_word_end
                 )
 
-                print("** Freeing")
                 del last_out, inputs, logits, log_probs  # not needed anymore now
-                gc.collect()
-                _report_dev_memory_stats()
-                print(f"({time.time() - start_time} secs)")
 
             # Backtrack
             nodes_alignment: List[_Node] = []
@@ -975,6 +969,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
             assert words_covered == len(words)
             words_indices_start_end = [(ws[0], ws[-1] + 1) if ws else None for ws in words_per_chunks]
             print("  Words per chunks:", words_indices_start_end)
+            _report_dev_memory_stats()
 
             # Now, for each chunk, get the word timings
             print("* Calculating word timings")
@@ -1084,10 +1079,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 grad_mat_: torch.Tensor = torch.stack(grad_mat)
                 grad_mat__: np.ndarray = grad_mat_.detach().cpu().numpy()  # [S,T]
 
-                print("** Freeing")
                 del last_out, inputs_embeds, inputs  # not needed anymore now
-                gc.collect()
-                _report_dev_memory_stats()
                 print(f"({time.time() - start_time} secs)")
 
                 print(f"** Aligning to words {cur_word_start}:{cur_word_end} (total {len(words)})")
