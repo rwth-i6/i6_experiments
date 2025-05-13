@@ -636,7 +636,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
         chunk_overlap_secs: float = 5.0,
-        max_words_per_min: float = 200.0,
         grad_type: str,
         align_opts: Dict[str, Any],
     ):
@@ -647,11 +646,14 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         :param returnn_root:
         :param speech_prompt: prompt to use for the audio
         :param chunk_size_secs: chunk size in seconds
-        :param max_words_per_min: will forward this many words per minute
-            (assuming that this is an upper bound; the actual words per min will be less)
-            some people can speak as fast as 250 words per minute.
         :param grad_type: e.g. "L1_e_grad"
         :param align_opts: options for the alignment
+
+        Earlier we had:
+
+        max_words_per_min: will forward this many words per minute
+            (assuming that this is an upper bound; the actual words per min will be less)
+            some people can speak as fast as 250 words per minute.
         """
         super().__init__()
         self.model_dir = model_dir
@@ -661,7 +663,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         self.speech_prompt = speech_prompt
         self.chunk_size_secs = chunk_size_secs
         self.chunk_overlap_secs = chunk_overlap_secs
-        self.max_words_per_min = max_words_per_min
         self.grad_type = grad_type
         self.align_opts = align_opts
 
@@ -828,12 +829,12 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                         torch.stack([node.exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
                     )
                     cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
-                cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
-                cur_word_end = len(words)  # HACK, test...
+                # cur_word_end = cur_word_start + math.ceil(self.max_words_per_min * self.chunk_size_secs / 60.0)
+                cur_word_end = len(words)  # Go to the end. Not so expensive...
                 if cur_word_end > len(words):
                     cur_word_end = len(words)
                 print(
-                    f"** Forwarding chunk {cur_chunk_idx} (out of {len(chunk_start_end)},"
+                    f"** Forwarding chunk {cur_chunk_idx} (out of {len(chunk_start_end)}),"
                     f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"
                     f" words {cur_word_start}:{cur_word_end} (out of {len(words)})"
                 )
