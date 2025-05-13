@@ -1002,7 +1002,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 start_time = time.time()
                 print(
                     f"** Forwarding chunk {chunk_idx} (out of {len(chunk_start_end)}),"
-                    f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs, "
+                    f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"
                     f" words {cur_word_start}:{cur_word_end}"
                 )
                 transcription = " ".join(words[cur_word_start:cur_word_end])
@@ -1029,7 +1029,6 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 last_out = res.hidden_states[-1]  # [B,T,D]
                 del res
                 assert last_out.shape[:2] == input_ids.shape
-                _report_dev_memory_stats()
 
                 words_start_end = [[dst_text_start, dst_text_start + 1]]
                 tokens = [tokenizer.decode(input_ids[0, dst_text_start : dst_text_start + 1])]
@@ -1090,7 +1089,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                 num_words = len(words_start_end)
                 grad_mat: List[torch.Tensor] = []
                 for w, (t0, t1) in enumerate(words_start_end):
-                    grad_mat.append(_calc_input_grads(t0, t1, report_mem=w in {0, num_words - 1}))
+                    grad_mat.append(_calc_input_grads(t0, t1))
                 # each mat is [num_words,num_input_frames]
                 grad_mat_: torch.Tensor = torch.stack(grad_mat)
                 grad_mat__: np.ndarray = grad_mat_.detach().cpu().numpy()  # [S,T]
