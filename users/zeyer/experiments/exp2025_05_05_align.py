@@ -58,6 +58,15 @@ def py():
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    j = ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(
+        model_dir=dl_phi4mi.out_hub_cache_dir,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        speech_prompt="Transcribe the audio clip into text.",
+        dump_wav_first_n_seqs=5,  # debugging
+    )
+    j.add_alias("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg")
+    tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg.hdf", j.out_hdf)
     j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
         dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
@@ -643,6 +652,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
         chunk_overlap_secs: float = 5.0,
+        empty_exit_penalty: float = -10.0,
         dump_wav_first_n_seqs: int = 0,
     ):
         """
@@ -663,6 +673,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
         self.speech_prompt = speech_prompt
         self.chunk_size_secs = chunk_size_secs
         self.chunk_overlap_secs = chunk_overlap_secs
+        self.empty_exit_penalty = empty_exit_penalty
         self.dump_wav_first_n_seqs = dump_wav_first_n_seqs
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
@@ -914,7 +925,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormDumpChunkSegmentationJob(J
                     exit_log_prob = log_probs[0, t0 - dst_text_start][end_token_id]  # []
                     if w == 0:
                         # Add some penalty. For empty chunks, the prob is often overestimated.
-                        exit_log_prob += -20.0
+                        exit_log_prob += self.empty_exit_penalty
                     prev_node_left, prev_node_below = None, None
                     if w > 0:
                         prev_node_below = array[cur_chunk_idx][-1]
@@ -1005,6 +1016,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         speech_prompt: str = "Transcribe the audio clip into text.",
         chunk_size_secs: float = 30.0,
         chunk_overlap_secs: float = 5.0,
+        empty_exit_penalty: float = -10.0,
         grad_type: str,
         align_opts: Dict[str, Any],
     ):
@@ -1015,6 +1027,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         :param returnn_root:
         :param speech_prompt: prompt to use for the audio
         :param chunk_size_secs: chunk size in seconds
+        :param chunk_overlap_secs:
+        :param empty_exit_penalty: penalty for exiting an empty chunk
         :param grad_type: e.g. "L1_e_grad"
         :param align_opts: options for the alignment.
             Note: In some earlier variant, it was necessary to do the alignment here in this job,
@@ -1040,6 +1054,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         self.speech_prompt = speech_prompt
         self.chunk_size_secs = chunk_size_secs
         self.chunk_overlap_secs = chunk_overlap_secs
+        self.empty_exit_penalty = empty_exit_penalty
         self.grad_type = grad_type
         self.align_opts = align_opts
 
@@ -1280,7 +1295,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
                     exit_log_prob = log_probs[0, t0 - dst_text_start][end_token_id]  # []
                     if w == 0:
                         # Add some penalty. For empty chunks, the prob is often overestimated.
-                        exit_log_prob += -20.0
+                        exit_log_prob += self.empty_exit_penalty
                     prev_node_left, prev_node_below = None, None
                     if w > 0:
                         prev_node_below = array[cur_chunk_idx][-1]
@@ -2085,6 +2100,8 @@ def _write_wave_file(filename: str, samples: np.ndarray, *, sr: int = 16_000, w:
     :param sr: sample rate
     :param w: sample width in bytes
     """
+    import wave
+
     assert samples.ndim == 1
     samples = samples.clip(-1, 1)
     with wave.open(filename, "w") as f:
