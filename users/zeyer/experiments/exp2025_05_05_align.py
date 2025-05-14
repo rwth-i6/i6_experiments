@@ -270,6 +270,31 @@ def py():
             "blank_score_flipped_percentile": 80,
             "apply_softmax_over_labels": True,
         },
+        {
+            "norm_scores": "absmeanS",
+            "clip_scores": (1e-5, None),
+            "apply_log": False,
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 80,
+            "apply_softmax_over_labels": True,
+        },
+        *[
+            {
+                "norm_scores": "absmeanS",
+                "shift_scores": s,
+                "clip_scores": (1e-5, None),
+                "apply_softmax_over_time": True,
+                "blank_score": "calc",
+                "blank_score_est": "flipped_after_softmax_over_time",
+                "non_blank_score_reduce": "log_mean_exp",
+                "blank_score_flipped_percentile": 80,
+                "apply_softmax_over_labels": True,
+            }
+            for s in [0.0, 1.0, 2.0]
+        ],
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
@@ -1926,6 +1951,7 @@ class Aligner:
         *,
         cut_off_eos: bool = False,
         norm_scores: Union[bool, str] = False,
+        shift_scores: float = 0.0,
         clip_scores: Optional[Tuple[Optional[float], Optional[float]]] = None,
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
@@ -1939,6 +1965,7 @@ class Aligner:
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
+        self.shift_scores = shift_scores
         self.clip_scores = clip_scores
         self.apply_log = apply_log
         self.substract = substract
@@ -1981,6 +2008,9 @@ class Aligner:
             score_matrix /= std0
         else:
             raise ValueError(f"invalid norm_scores {self.norm_scores!r} setting")
+
+        if self.shift_scores:
+            score_matrix += self.shift_scores
 
         if self.clip_scores:
             score_matrix = np.clip(score_matrix, *self.clip_scores)
