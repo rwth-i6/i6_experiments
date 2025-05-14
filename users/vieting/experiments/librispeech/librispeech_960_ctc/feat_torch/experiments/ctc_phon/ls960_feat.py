@@ -335,6 +335,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         SpecaugStftV2Config,
         SpecaugMultiplierLinearConfig,
         VGGNLayerActFrontendV1Config,
+        VGGNLayerActFrontendV2Config,
         IdentityConfig,
     )
 
@@ -617,7 +618,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # 2D experiments with STFT SpecAugment: different 2D configurations
     from ...pytorch_networks.ctc.features.stft import (
-        StftFeatureExtractionV1Config,
+        StftFeatureExtractionV1Config, StftFeatureExtractionV2Config,
     )
     frontend_configs = {
         "2Dx6v1": VGGNLayerActFrontendV1Config(
@@ -819,6 +820,54 @@ def eow_phon_ls960_relposencoder_0924_base():
                 forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
                 prior_batch_size=140,
             )
+
+    # 2D experiments: STFT Re + Im as first layer
+    for exp_name, window_size, window_shift, n_fft, specaug_version in [
+        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v47"),
+    ]:
+        re_im_proc_config = VGGNLayerActFrontendV2Config(
+            in_features=(n_fft or window_size) // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))],
+            activations=["ReLU"],
+            poolings=[None],
+            out_features=512,
+            in_channels=1,
+            project_out=False,
+        )
+        stft_config = StftFeatureExtractionV2Config(
+            window_size=window_size,
+            window_shift=window_shift,
+            n_fft=n_fft,
+            center=False,
+            module_class="StftFeatureExtractionV2",
+            proc_config=re_im_proc_config,
+            proc_module="VGGNLayerActFrontendV2",
+        )
+        frontend_config = VGGNLayerActFrontendV2Config(
+            in_features=(n_fft or window_size) // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))],
+            activations=["ReLU"],
+            poolings=[None],
+            out_features=512,
+            in_channels=32,
+            project_out=True,
+        )
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=stft_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV2Config",
+            **model_base_args_feat,
+        )
+        exp_name = exp_name.replace("stftsa", "stftsa" + specaug_version.split("_")[1])
+        exp_name = exp_name.replace("defaultsa", "defaultsa" + specaug_version.split("_")[1])
+        name_ext = f"{exp_name}.stft{window_size}x{window_shift}x{n_fft or window_size}reim"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
+            prior_batch_size=140,
+        )
 
     # 2D experiments with STFT SpecAugment: Replace STFT by conv layer
     from ...pytorch_networks.ctc.features.conv import (

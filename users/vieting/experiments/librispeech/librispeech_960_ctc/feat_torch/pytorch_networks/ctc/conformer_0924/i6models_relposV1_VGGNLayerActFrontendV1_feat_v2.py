@@ -33,6 +33,7 @@ from .i6models_relposV1_VGGNLayerActFrontendV1_feat_v2_cfg import (
     SpecaugStftV2Config,
     SpecaugMultiplierLinearConfig,
     VGGNLayerActFrontendV1Config,
+    VGGNLayerActFrontendV2Config,
 )
 from .i6models_relposV1_VGG4LayerActFrontendV1_v1 import (
     mask_tensor, train_step, prior_init_hook, prior_finish_hook, prior_step
@@ -41,7 +42,7 @@ from ..features.scf import (
     SupervisedConvolutionalFeatureExtractionV1,
     SupervisedConvolutionalFeatureExtractionV2,
 )
-from ..features.stft import StftFeatureExtractionV1
+from ..features.stft import StftFeatureExtractionV1, StftFeatureExtractionV2
 from ..features.conv import ConvFeatureExtractionV1, ConvFeatureExtractionV2
 
 
@@ -165,6 +166,115 @@ class VGGNLayerActFrontendV1(nn.Module):
         tensor = torch.flatten(tensor, start_dim=2, end_dim=-1)  # [B,T',C*F']
 
         tensor = self.linear(tensor)
+
+        return tensor, sequence_mask
+
+    def _calculate_dim(self) -> int:
+        out_dim = self.cfg.in_features
+        for layer in self.layers:
+            conv, _, pool = layer
+            out_dim = calculate_output_dim(
+                in_dim=out_dim,
+                filter_size=conv.kernel_size[1],
+                stride=conv.stride[1],
+                padding=conv.padding[1],
+            )
+            if not isinstance(pool, nn.Identity):
+                out_dim = calculate_output_dim(
+                    in_dim=out_dim,
+                    filter_size=pool.kernel_size[1],
+                    stride=pool.stride[1],
+                    padding=pool.padding[1],
+                )
+        out_dim *= self.layers[-1][0].out_channels
+        return out_dim
+
+
+class VGGNLayerActFrontendV2(nn.Module):
+    def __init__(self, model_cfg: VGGNLayerActFrontendV2Config):
+        """
+        :param model_cfg: model configuration for this module
+        """
+        super().__init__()
+
+        model_cfg.check_valid()
+
+        self.cfg = model_cfg
+
+        self.layers = nn.ModuleList()
+        in_channels = model_cfg.in_channels
+        for conv, activation_str, pooling in zip(self.cfg.convs, self.cfg.activations, self.cfg.poolings):
+            conv_dim, conv_kernel_size, conv_stride = conv
+            if activation_str in [None, ""]:
+                activation = nn.Identity()
+            elif activation_str == "ReLU":
+                activation = nn.ReLU()
+            elif activation_str.startswith("ReLU_Dropout"):
+                dropout = float(activation_str[len("ReLU_Dropout"):])
+                activation = nn.Sequential(nn.ReLU(), nn.Dropout(p=dropout))
+            elif activation_str.startswith("ReLU_Log1p"):
+                activation = nn.Sequential(nn.ReLU(), Log1p)
+            else:
+                assert False, f"Unsupported activation {activation_str}"
+            self.layers.append(nn.Sequential(
+                nn.Conv2d(
+                    in_channels=in_channels,
+                    out_channels=conv_dim,
+                    kernel_size=conv_kernel_size,
+                    stride=conv_stride,
+                    padding=get_same_padding(conv_kernel_size),
+                ),
+                activation,
+                nn.MaxPool2d(
+                    kernel_size=pooling[0],
+                    stride=pooling[1],
+                    padding=pooling[2] if pooling[2] is not None else (0, 0),
+                ) if pooling is not None else nn.Identity(),
+            ))
+            in_channels = conv_dim
+        if model_cfg.project_out:
+            self.linear = nn.Linear(
+                in_features=self._calculate_dim(),
+                out_features=model_cfg.out_features,
+                bias=True,
+            )
+
+    def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        T might be reduced to T' depending on stride of the layers
+
+        :param tensor: input tensor of shape [B,T,F]
+        :param sequence_mask: the sequence mask for the tensor
+        :return: torch.Tensor of shape [B,T',F'] and shape of the sequence mask
+        """
+        tensor = tensor.unflatten(-1, (self.cfg.in_channels, self.cfg.in_features)).transpose(1, 2)  # [B,C,T,F]
+        assert tensor.shape[-1] == self.cfg.in_features, f"shape {tensor.shape} vs in features {self.cfg.in_features}"
+        assert tensor.shape[1] == self.cfg.in_channels, f"shape {tensor.shape} vs in channels {self.cfg.in_channels}"
+
+        for layer in self.layers:
+            tensor = layer(tensor)
+
+            # mask for conv and pooling if not None
+            conv, _, pool = layer
+            sequence_mask = mask_pool(
+                seq_mask=sequence_mask,
+                kernel_size=conv.kernel_size[0],
+                stride=conv.stride[0],
+                padding=conv.padding[0],
+            )
+            if not isinstance(pool, nn.Identity):
+                sequence_mask = mask_pool(
+                    seq_mask=sequence_mask,
+                    kernel_size=pool.kernel_size[0],
+                    stride=pool.stride[0],
+                    padding=pool.padding[0],
+                )
+
+        tensor = torch.transpose(tensor, 1, 2)  # transpose to [B,T',C,F']
+        tensor = torch.flatten(tensor, start_dim=2, end_dim=-1)  # [B,T',C*F']
+
+        if self.cfg.project_out:
+            tensor = self.linear(tensor)
 
         return tensor, sequence_mask
 

@@ -19,7 +19,7 @@ from ..features.scf import (
     SupervisedConvolutionalFeatureExtractionV1Config,
     SupervisedConvolutionalFeatureExtractionV2Config,
 )
-from ..features.stft import StftFeatureExtractionV1Config
+from ..features.stft import StftFeatureExtractionV1Config, StftFeatureExtractionV2Config
 from ..features.conv import ConvFeatureExtractionV1Config, ConvFeatureExtractionV2Config
 
 
@@ -106,6 +106,17 @@ class VGGNLayerActFrontendV1Config(ModelConfiguration):
     def __post__init__(self):
         super().__post_init__()
         self.check_valid()
+
+
+@dataclass
+class VGGNLayerActFrontendV2Config(VGGNLayerActFrontendV1Config):
+    """
+    Attributes:
+        in_channels: number of input channels to module
+        project_out: if True, add linear layer at output
+    """
+    in_channels: int
+    project_out: bool
 
 
 @dataclass
