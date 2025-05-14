@@ -35,25 +35,6 @@ def py():
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
-    # This is used in https://github.com/huggingface/open_asr_leaderboard/.
-    # It contains all used eval datasets, e.g. librispeech, tedlium, ami, etc.
-    dl_esb_dataset_tedlium_test = DownloadAndPrepareHuggingFaceDatasetJob(
-        path="esb/datasets", name="tedlium", split="test", trust_remote_code=True
-    )
-    tk.register_output("esb-datasets/tedlium/test", dl_esb_dataset_tedlium_test.out_dir)
-
-    dl_esb_datasets_test_only_sorted = DownloadHuggingFaceRepoJobV2(
-        repo_id="hf-audio/esb-datasets-test-only-sorted", repo_type="dataset"
-    )
-    tk.register_output("esb-datasets-test-only-sorted", dl_esb_datasets_test_only_sorted.out_hub_cache_dir)
-
-    open_asr_leaderboard_repo = CloneGitRepositoryJob(
-        "https://github.com/huggingface/open_asr_leaderboard.git",
-        # 2025-05-01 (includes parakeet-v2, phi4mi, ...)
-        commit="2472403cae1434752b7448b8f7cda560bd549e0f",
-    )
-    tk.register_output("open_asr_leaderboard_repo", open_asr_leaderboard_repo.out_repository)
-
     for ds_name, ds_dir in {"timit": dl_ds_timit}.items():  # , "buckeye": dl_ds_buckeye}.items():
         for key in ["val", "test"]:  # does not need train...
             gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
@@ -309,6 +290,27 @@ def py():
         )
         align.add_alias(align_name)
         tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # ---
+
+    # This is used in https://github.com/huggingface/open_asr_leaderboard/.
+    # It contains all used eval datasets, e.g. librispeech, tedlium, ami, etc.
+    dl_esb_dataset_tedlium_test = DownloadAndPrepareHuggingFaceDatasetJob(
+        path="esb/datasets", name="tedlium", split="test", trust_remote_code=True
+    )
+    tk.register_output("esb-datasets/tedlium/test", dl_esb_dataset_tedlium_test.out_dir)
+
+    dl_esb_datasets_test_only_sorted = DownloadHuggingFaceRepoJobV2(
+        repo_id="hf-audio/esb-datasets-test-only-sorted", repo_type="dataset"
+    )
+    tk.register_output("esb-datasets-test-only-sorted", dl_esb_datasets_test_only_sorted.out_hub_cache_dir)
+
+    open_asr_leaderboard_repo = CloneGitRepositoryJob(
+        "https://github.com/huggingface/open_asr_leaderboard.git",
+        # 2025-05-01 (includes parakeet-v2, phi4mi, ...)
+        commit="2472403cae1434752b7448b8f7cda560bd549e0f",
+    )
+    tk.register_output("open_asr_leaderboard_repo", open_asr_leaderboard_repo.out_repository)
 
 
 class GenAya(Job):
