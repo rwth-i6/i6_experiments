@@ -12,6 +12,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
     get_content_dir_from_hub_cache_dir,
 )
 from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
+from i6_core.tools.git import CloneGitRepositoryJob
 
 if TYPE_CHECKING:
     import torch
@@ -45,6 +46,13 @@ def py():
         repo_id="hf-audio/esb-datasets-test-only-sorted", repo_type="dataset"
     )
     tk.register_output("esb-datasets-test-only-sorted", dl_esb_datasets_test_only_sorted.out_hub_cache_dir)
+
+    open_asr_leaderboard_repo = CloneGitRepositoryJob(
+        "https://github.com/huggingface/open_asr_leaderboard.git",
+        # 2025-05-01 (includes parakeet-v2, phi4mi, ...)
+        commit="2472403cae1434752b7448b8f7cda560bd549e0f",
+    )
+    tk.register_output("open_asr_leaderboard_repo", open_asr_leaderboard_repo.out_repository)
 
     for ds_name, ds_dir in {"timit": dl_ds_timit}.items():  # , "buckeye": dl_ds_buckeye}.items():
         for key in ["val", "test"]:  # does not need train...
