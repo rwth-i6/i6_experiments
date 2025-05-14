@@ -227,6 +227,17 @@ def py():
             }
             for n in ["absmeanS", "stdmeanS", "std0S"]
         ],
+        {"norm_scores": "absmeanS", "clip_scores": (1e-5, None), "apply_softmax_over_time": True, "blank_score": -6},
+        {
+            "norm_scores": "absmeanS",
+            "clip_scores": (1e-5, None),
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 80,
+            "apply_softmax_over_labels": True,
+        },
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
