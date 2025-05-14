@@ -2094,6 +2094,7 @@ class Aligner:
 
         # backtrace
         best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
+        assert best_final in {S * 2 - 1, S * 2}, f"{S=}, {T=}, {best_final=}, {align_scores[-1]=}"
         s = best_final
         t = T - 1
         # Get (t,s) tuples (t not really needed for now; depends on topology).
