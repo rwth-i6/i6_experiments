@@ -56,16 +56,6 @@ def py():
                         "blank_score_flipped_percentile": 60,
                         "apply_softmax_over_labels": True,
                     },
-                    # Remove again if this is bad.
-                    {
-                        "apply_log": False,
-                        "apply_softmax_over_time": True,
-                        "blank_score": "calc",
-                        "blank_score_est": "flipped_after_softmax_over_time",
-                        "non_blank_score_reduce": "log_mean_exp",
-                        "blank_score_flipped_percentile": 60,
-                        "apply_softmax_over_labels": True,
-                    },
                 ]:
                     align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
                     align = CalcAlignmentMetricsJob(
@@ -128,16 +118,6 @@ def py():
             for align_opts in [
                 {"apply_softmax_over_time": True, "blank_score": -6},
                 {
-                    "apply_softmax_over_time": True,
-                    "blank_score": "calc",
-                    "blank_score_est": "flipped_after_softmax_over_time",
-                    "non_blank_score_reduce": "log_mean_exp",
-                    "blank_score_flipped_percentile": 60,
-                    "apply_softmax_over_labels": True,
-                },
-                # Remove again if this is bad.
-                {
-                    "apply_log": False,
                     "apply_softmax_over_time": True,
                     "blank_score": "calc",
                     "blank_score_est": "flipped_after_softmax_over_time",
@@ -224,15 +204,18 @@ def py():
             "blank_score_flipped_percentile": 60,
             "apply_softmax_over_labels": True,
         },
-        {
-            "apply_log": False,
-            "apply_softmax_over_time": True,
-            "blank_score": "calc",
-            "blank_score_est": "flipped_after_softmax_over_time",
-            "non_blank_score_reduce": "log_mean_exp",
-            "blank_score_flipped_percentile": 40,
-            "apply_softmax_over_labels": True,
-        },
+        *[
+            {
+                "apply_log": False,
+                "apply_softmax_over_time": True,
+                "blank_score": "calc",
+                "blank_score_est": "flipped_after_softmax_over_time",
+                "non_blank_score_reduce": "log_mean_exp",
+                "blank_score_flipped_percentile": p,
+                "apply_softmax_over_labels": True,
+            }
+            for p in [60, 80, 90, 95, 100]
+        ],
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
