@@ -703,6 +703,13 @@ def eow_phon_ls960_relposencoder_0924_base():
             poolings=[None, ((2, 1), (2, 1), None)] * 2,
             out_features=512,
         ),
+        "2Dx2v3": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))] + [(32, (3, 3), (2, 1))],
+            activations=["ReLU", "ReLU_Log1p"],
+            poolings=[None] * 2,
+            out_features=512,
+        ),
     }
 
     for exp_name, window_size, window_shift, n_fft in [
@@ -773,6 +780,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         (f".defaultsa.2Dx2v1", 400, 160, None, "default_v11"),
         (f".defaultsa.2Dx2v1", 400, 160, None, "default_v12"),
         (f".stftsa.2Dx2v1.nonorm", 400, 160, None, "stft_v47"),
+        (f".stftsa.2Dx2v3", 400, 160, None, "stft_v47"),
     ]:
         stft_config = StftFeatureExtractionV1Config(
             window_size=window_size,

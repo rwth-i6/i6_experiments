@@ -53,6 +53,14 @@ class Identity(nn.Module):
         return tensor, sequence_mask
 
 
+class Log1p(nn.Module):
+    def __init__(self):
+        super(Log1p, self).__init__()
+
+    def forward(self, x):
+        return torch.log1p(x)
+
+
 class VGGNLayerActFrontendV1(nn.Module):
     """
     Convolutional Front-End
@@ -96,6 +104,8 @@ class VGGNLayerActFrontendV1(nn.Module):
             elif activation_str.startswith("ReLU_Dropout"):
                 dropout = float(activation_str[len("ReLU_Dropout"):])
                 activation = nn.Sequential(nn.ReLU(), nn.Dropout(p=dropout))
+            elif activation_str.startswith("ReLU_Log1p"):
+                activation = nn.Sequential(nn.ReLU(), Log1p)
             else:
                 assert False, f"Unsupported activation {activation_str}"
             self.layers.append(nn.Sequential(
