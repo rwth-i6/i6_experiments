@@ -862,9 +862,12 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
                 cur_audio_end = cur_audio_start + chunk_size_samples
                 if cur_audio_end > len(audio):
                     cur_audio_end = len(audio)
+                if len(audio) - cur_audio_end == 1:
+                    # Skip to end. Avoids potential problems with too short chunks.
+                    cur_audio_end = len(audio)
                 assert cur_audio_end > cur_audio_start
-                if cur_audio_end - cur_audio_start > 1:  # require some min len
-                    chunk_start_end.append((cur_audio_start, cur_audio_end))
+                assert cur_audio_end - cur_audio_start > 1  # require some min len
+                chunk_start_end.append((cur_audio_start, cur_audio_end))
                 if cur_audio_end >= len(audio):
                     break  # only break point here
                 cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
