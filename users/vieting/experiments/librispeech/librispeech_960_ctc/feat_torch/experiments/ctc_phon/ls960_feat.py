@@ -591,6 +591,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         (".stftsa.scf", []),
         (".stftsav41.scf", []),
         (".stftsav43.scf", []),
+        (".stftsav47.scf", []),
         (".defaultsav11.scf", []),
     ]:
         model_config_exp = copy.deepcopy(model_config)
