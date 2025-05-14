@@ -688,6 +688,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
     """
 
     __sis_version__ = 3
+    __sis_hash_exclude__ = {"word_start_heuristic": True}
 
     def __init__(
         self,
@@ -700,6 +701,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
         chunk_size_secs: float = 30.0,
         chunk_overlap_secs: float = 5.0,
         empty_exit_penalty: float = -5.0,
+        word_start_heuristic: bool = True,
         dump_wav_first_n_seqs: int = 0,
     ):
         """
@@ -710,6 +712,8 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
         :param speech_prompt: prompt to use for the audio
         :param chunk_size_secs: chunk size in seconds
         :param chunk_overlap_secs:
+        :param empty_exit_penalty:
+        :param word_start_heuristic:
         :param dump_wav_first_n_seqs: for debugging
         """
         super().__init__()
@@ -721,6 +725,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
         self.chunk_size_secs = chunk_size_secs
         self.chunk_overlap_secs = chunk_overlap_secs
         self.empty_exit_penalty = empty_exit_penalty
+        self.word_start_heuristic = word_start_heuristic
         self.dump_wav_first_n_seqs = dump_wav_first_n_seqs
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
@@ -888,7 +893,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
                 backpointer: Optional[_Node]  # prev chunk, or prev word
 
             for cur_chunk_idx, (cur_audio_start, cur_audio_end) in enumerate(chunk_start_end):
-                if cur_chunk_idx == 0:
+                if cur_chunk_idx == 0 or not self.word_start_heuristic:
                     prev_array_word_idx = 0
                     cur_word_start = 0
                 else:
