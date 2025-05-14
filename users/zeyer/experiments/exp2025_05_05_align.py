@@ -46,23 +46,34 @@ def py():
             tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
 
             for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
-                align_name = f"align/{name}-{grad_type}"
-                align = CalcAlignmentMetricsJob(
-                    grad_score_hdf=gen_phi4mi.out_hdf,
-                    grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
-                    dataset_dir=ds_dir.out_hub_cache_dir,
-                    dataset_key=key,
-                    dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
-                    align_opts={"apply_softmax_over_time": True, "blank_score": -6},
-                )
-                align.add_alias(align_name)
-                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+                for align_opts in [
+                    {"apply_softmax_over_time": True, "blank_score": -6},
+                    {
+                        "apply_softmax_over_time": True,
+                        "blank_score": "calc",
+                        "blank_score_est": "flipped_after_softmax_over_time",
+                        "non_blank_score_reduce": "log_mean_exp",
+                        "blank_score_flipped_percentile": 60,
+                        "apply_softmax_over_labels": True,
+                    },
+                ]:
+                    align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
+                    align = CalcAlignmentMetricsJob(
+                        grad_score_hdf=gen_phi4mi.out_hdf,
+                        grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+                        dataset_dir=ds_dir.out_hub_cache_dir,
+                        dataset_key=key,
+                        dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
+                        align_opts=align_opts,
+                    )
+                    align.add_alias(align_name)
+                    tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Long-form experiment on Buckeye with Phi4.
     name_ = "phi4mi-buckeye-val-grads-longform"
     for chunk_opts in [
-        {},
-        {"empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 30.0},
+        {"chunk_size_secs": 30.0, "empty_exit_penalty": 0.0},
         {"chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
         {"chunk_overlap_secs": 0.0, "empty_exit_penalty": 0.0},
         {"chunk_size_secs": 20.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
@@ -70,8 +81,13 @@ def py():
         {"chunk_size_secs": 10.0, "chunk_overlap_secs": 0.0, "empty_exit_penalty": 0.0},
         {"chunk_size_secs": 5.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
         {"chunk_size_secs": 5.0, "chunk_overlap_secs": 0.0, "empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 30.0, "chunk_overlap_secs": 0.0},
+        {"chunk_size_secs": 20.0, "chunk_overlap_secs": 0.0},
+        {"chunk_size_secs": 10.0, "chunk_overlap_secs": 0.0},
+        {"chunk_size_secs": 5.0, "chunk_overlap_secs": 0.0},
+        {"chunk_size_secs": 1.0, "chunk_overlap_secs": 0.0},
     ]:
-        name = name_ + "-" + "-".join(f"{k}={v}" for k, v in chunk_opts.items())
+        name = name_ + "-" + _name_for_dict(chunk_opts)
         j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
             model_dir=dl_phi4mi.out_hub_cache_dir,
             dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
@@ -92,17 +108,28 @@ def py():
         j.add_alias(f"align/{name}")
         tk.register_output(f"align/{name}.hdf", j.out_hdf)
         for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
-            align_name = f"align/{name}-{grad_type}"
-            align = CalcChunkedAlignmentMetricsJob(
-                grad_score_hdf=j.out_hdf,
-                grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
-                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
-                dataset_key="val",
-                dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
-                align_opts={"apply_softmax_over_time": True, "blank_score": -6},
-            )
-            align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            for align_opts in [
+                {"apply_softmax_over_time": True, "blank_score": -6},
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 60,
+                    "apply_softmax_over_labels": True,
+                },
+            ]:
+                align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
+                align = CalcChunkedAlignmentMetricsJob(
+                    grad_score_hdf=j.out_hdf,
+                    grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+                    dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                    dataset_key="val",
+                    dataset_offset_factors={"timit": 1, "buckeye": 1000}["buckeye"],
+                    align_opts=align_opts,
+                )
+                align.add_alias(align_name)
+                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Test different prompts
     for i, prompt in enumerate(
@@ -2103,3 +2130,13 @@ def _write_wave_file(filename: str, samples: np.ndarray, *, sr: int = 16_000, w:
         samples_int = (samples * (2 ** (8 * w - 1) - 1)).astype({1: "int8", 2: "int16", 4: "int32"}[w])
         f.writeframes(samples_int.tobytes())
         f.close()
+
+
+def _name_for_dict(d: Dict[str, Any]) -> str:
+    parts = []
+    for k, v in d.items():
+        k = "".join(part[0] for part in k.split("_"))  # some shortening
+        if isinstance(v, (tuple, list)):
+            v = "_".join(str(v_) for v_ in v)
+        parts.append(f"{k}{v}")
+    return "-".join(parts)
