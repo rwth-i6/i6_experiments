@@ -1066,9 +1066,12 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     assert cls_name == "FeedForwardLm"
     recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
 
-  if config.bool("init_w_w2v", False):
-    wav2vec2_config = transformers.Wav2Vec2Config.from_pretrained(
-      "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.L6t5ebVFPeDZ/work/wav2vec_config/config.json")
+  if config.bool("use_w2v_model", False):
+    # wav2vec2_config = transformers.Wav2Vec2Config.from_pretrained(
+    #   "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.L6t5ebVFPeDZ/work/wav2vec_config/config.json")
+    w2v_opts = config.typed_value("w2v_opts", {})
+    w2v_config_file = w2v_opts["config_file"]
+    wav2vec2_config = transformers.Wav2Vec2Config.from_pretrained(w2v_config_file)
     return Wav2VecModel(
       wav2vec_config=wav2vec2_config,
       target_dim=target_dim,

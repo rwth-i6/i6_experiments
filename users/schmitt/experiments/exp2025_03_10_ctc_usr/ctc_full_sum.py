@@ -104,7 +104,7 @@ supervised_init_config_v1 = dict(
 supervised_init_config_v2 = dict_update_deep(
   supervised_init_config_v1,
   {
-    "init_w_w2v": True,
+    "use_w2v_model": True,
     "aux_loss": False,
     "model_config": {}
   },
@@ -168,7 +168,7 @@ def py():
       "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
       "max_seq_length_default_target": None,
       "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-      "init_w_w2v": config.get("init_w_w2v", False),
+      "use_w2v_model": config.get("use_w2v_model", False),
     }
     post_config_updates = {
       "cleanup_old_models": {
@@ -184,16 +184,7 @@ def py():
     if not config["aux_loss"]:
       config_updates["aux_loss_layers"] = None
 
-    if config.get("init_w_w2v", True):
-      # preload_from_files = {
-      #   "wav2vec2_base": {
-      #     "filename": "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/tools/download/DownloadJob.3y3hrN6raDKF/output/wav2vec2_base_no_finetune.pt",
-      #     "ignore_missing": True,
-      #     "init_for_train": True,
-      #     "checkpoint_key": None,
-      #   }
-      # }
-
+    if config.get("use_w2v_model", True):
       alias_name += "_init_wv2ec"
 
       from i6_core.tools.download import DownloadJob
@@ -206,6 +197,8 @@ def py():
         "wav2vec2_base": {
           "filename": wav2vec2_base_unsup_chkpt,
           "ignore_missing": True,
+          "init_for_train": True,
+          "checkpoint_key": None,
         }
       }
 
@@ -214,8 +207,12 @@ def py():
         target_filename="wav2vec2_base_no_finetune_config.json",
       ).out_file
       config_updates["w2v_opts"] = {
-        "config": wav2vec_base_fine_tune_config,
+        "config_file": wav2vec_base_fine_tune_config,
       }
+
+      # TODO: add the following
+      # sys.path.insert(0, "/work/asr3/zeyer/schmitt/venvs/transformers_package")
+      # sys.path.insert(0, "/work/asr3/zeyer/schmitt/venvs/fairseq_package")
 
     if config['decoding_imp'] in ["flashlight", "marten-greedy"]:
       decoder_def = model_recog_lm
