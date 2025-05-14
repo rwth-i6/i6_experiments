@@ -1872,17 +1872,10 @@ class Aligner:
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
 
-    def align(
-        self,
-        score_matrix: np.ndarray,
-        *,
-        plot_filename: Optional[str] = None,
-        num_final_words: int = 1,
-    ) -> List[Tuple[int, int]]:
+    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file
-        :param num_final_words: if 1, the last (S-1) is the only allowed last word.
         :return: list of start/end offsets, both are including. len is S
         """
         import numpy as np
@@ -1980,8 +1973,8 @@ class Aligner:
             backpointers[t] = np.argmax(score_cases, axis=0)  # [2*S+1]->[0,1,2]
             align_scores[t : t + 1] = np.take_along_axis(score_cases, backpointers[t : t + 1], axis=0)  # [1,2*S+1]
 
-        # All but the last two (* num_final_words) states are not valid final states.
-        align_scores[-1, : -2 * num_final_words] = -inf
+        # All but the last two states are not valid final states.
+        align_scores[-1, :-2] = -inf
 
         # backtrace
         best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
@@ -2022,7 +2015,7 @@ class Aligner:
             if s % 2 != 0:  # in non-sil label
                 labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
             prev_s = s
-        assert S - (num_final_words - 1) <= len(labels_start_end) <= S
+        assert S == len(labels_start_end)
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")
