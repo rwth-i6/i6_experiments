@@ -33,6 +33,11 @@ def py():
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
+    # This is used in https://github.com/huggingface/open_asr_leaderboard/.
+    # It contains all used eval datasets, e.g. librispeech, tedlium, ami, etc.
+    dl_esb_datasets = DownloadHuggingFaceRepoJobV2(repo_id="esb/datasets", repo_type="dataset")
+    tk.register_output("esb-datasets", dl_esb_datasets.out_hub_cache_dir)
+
     for ds_name, ds_dir in {"timit": dl_ds_timit}.items():  # , "buckeye": dl_ds_buckeye}.items():
         for key in ["val", "test"]:  # does not need train...
             gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
