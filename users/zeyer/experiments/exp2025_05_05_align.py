@@ -96,14 +96,14 @@ def py():
         {"chunk_size_secs": 30.0, "chunk_overlap_secs": 0.0},
         {"chunk_size_secs": 20.0, "chunk_overlap_secs": 0.0},
         {"chunk_size_secs": 10.0, "chunk_overlap_secs": 0.0},
-        # {"chunk_size_secs": 5.0, "chunk_overlap_secs": 0.0},  # breaks on word start heuristic?
-        {"chunk_size_secs": 1.0, "chunk_overlap_secs": 0.0},
+        # {"chunk_size_secs": 5.0, "chunk_overlap_secs": 0.0},  # breaks on word start heuristic
+        # {"chunk_size_secs": 1.0, "chunk_overlap_secs": 0.0},  # breaks on word start heuristic
         {"chunk_size_secs": 30.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": True},
         {"chunk_size_secs": 30.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": False},
         {"chunk_size_secs": 20.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": False},
         {"chunk_size_secs": 10.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": False},
         {"chunk_size_secs": 5.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": False},
-        {"chunk_size_secs": 1.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": False},
+        # {"chunk_size_secs": 1.0, "chunk_overlap_secs": 0.0, "word_start_heuristic": False},  # seems to break
     ]:
         name = name_ + "-" + _name_for_dict(chunk_opts)
         j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
