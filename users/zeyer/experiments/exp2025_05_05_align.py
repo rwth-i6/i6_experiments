@@ -1978,6 +1978,7 @@ class Aligner:
             # Last row is EOS, remove it.
             score_matrix = score_matrix[:-1]
         S, T = score_matrix.shape
+        assert S <= T, f"score matrix should be [S,T] with S <= T, got {S=}, {T=}"
         inf = np.inf
 
         if self.norm_scores is False:  # default case (disabled)
