@@ -47,15 +47,21 @@ def py():
 
             for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
                 for align_opts in [
-                    {"apply_softmax_over_time": True, "blank_score": -6},
-                    {
-                        "apply_softmax_over_time": True,
-                        "blank_score": "calc",
-                        "blank_score_est": "flipped_after_softmax_over_time",
-                        "non_blank_score_reduce": "log_mean_exp",
-                        "blank_score_flipped_percentile": 60,
-                        "apply_softmax_over_labels": True,
-                    },
+                    *(
+                        [
+                            {"apply_softmax_over_time": True, "blank_score": -6},
+                            {
+                                "apply_softmax_over_time": True,
+                                "blank_score": "calc",
+                                "blank_score_est": "flipped_after_softmax_over_time",
+                                "non_blank_score_reduce": "log_mean_exp",
+                                "blank_score_flipped_percentile": 60,
+                                "apply_softmax_over_labels": True,
+                            },
+                        ]
+                        if grad_type != "dot_e_grad"
+                        else []
+                    ),
                     {
                         "norm_scores": "absmeanS",
                         "apply_log": False,
@@ -126,15 +132,21 @@ def py():
         tk.register_output(f"align/{name}.hdf", j.out_hdf)
         for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
             for align_opts in [
-                {"apply_softmax_over_time": True, "blank_score": -6},
-                {
-                    "apply_softmax_over_time": True,
-                    "blank_score": "calc",
-                    "blank_score_est": "flipped_after_softmax_over_time",
-                    "non_blank_score_reduce": "log_mean_exp",
-                    "blank_score_flipped_percentile": 60,
-                    "apply_softmax_over_labels": True,
-                },
+                *(
+                    [
+                        {"apply_softmax_over_time": True, "blank_score": -6},
+                        {
+                            "apply_softmax_over_time": True,
+                            "blank_score": "calc",
+                            "blank_score_est": "flipped_after_softmax_over_time",
+                            "non_blank_score_reduce": "log_mean_exp",
+                            "blank_score_flipped_percentile": 60,
+                            "apply_softmax_over_labels": True,
+                        },
+                    ]
+                    if grad_type != "dot_e_grad"
+                    else []
+                ),
                 {
                     "norm_scores": "absmeanS",
                     "apply_log": False,
