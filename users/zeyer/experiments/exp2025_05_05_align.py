@@ -11,6 +11,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJobV2,
     get_content_dir_from_hub_cache_dir,
 )
+from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 
 if TYPE_CHECKING:
     import torch
@@ -35,8 +36,15 @@ def py():
 
     # This is used in https://github.com/huggingface/open_asr_leaderboard/.
     # It contains all used eval datasets, e.g. librispeech, tedlium, ami, etc.
-    dl_esb_datasets = DownloadHuggingFaceRepoJobV2(repo_id="esb/datasets", repo_type="dataset")
-    tk.register_output("esb-datasets", dl_esb_datasets.out_hub_cache_dir)
+    dl_esb_dataset_tedlium_test = DownloadAndPrepareHuggingFaceDatasetJob(
+        path="esb/datasets", name="tedlium", split="test", trust_remote_code=True
+    )
+    tk.register_output("esb-datasets/tedlium/test", dl_esb_dataset_tedlium_test.out_dir)
+
+    dl_esb_datasets_test_only_sorted = DownloadHuggingFaceRepoJobV2(
+        repo_id="hf-audio/esb-datasets-test-only-sorted", repo_type="dataset"
+    )
+    tk.register_output("esb-datasets-test-only-sorted", dl_esb_datasets_test_only_sorted.out_hub_cache_dir)
 
     for ds_name, ds_dir in {"timit": dl_ds_timit}.items():  # , "buckeye": dl_ds_buckeye}.items():
         for key in ["val", "test"]:  # does not need train...
