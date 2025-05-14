@@ -214,6 +214,19 @@ def py():
             "blank_score_flipped_percentile": 80,
             "apply_softmax_over_labels": True,
         },
+        *[
+            {
+                "norm_scores": n,
+                "apply_log": False,
+                "apply_softmax_over_time": True,
+                "blank_score": "calc",
+                "blank_score_est": "flipped_after_softmax_over_time",
+                "non_blank_score_reduce": "log_mean_exp",
+                "blank_score_flipped_percentile": 60,
+                "apply_softmax_over_labels": True,
+            }
+            for n in ["absmeanS", "stdmeanS", "std0S"]
+        ],
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
@@ -1869,8 +1882,8 @@ class Aligner:
         self,
         *,
         cut_off_eos: bool = False,
+        norm_scores: Union[bool, str] = False,
         clip_scores: Optional[Tuple[Optional[float], Optional[float]]] = None,
-        norm_scores: bool = False,
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
         apply_softmax_over_time: bool = False,
@@ -1882,8 +1895,8 @@ class Aligner:
         blank_score_flipped_percentile: int = 0,
     ):
         self.cut_off_eos = cut_off_eos
-        self.clip_scores = clip_scores
         self.norm_scores = norm_scores
+        self.clip_scores = clip_scores
         self.apply_log = apply_log
         self.substract = substract
         self.apply_softmax_over_time = apply_softmax_over_time
@@ -1909,11 +1922,25 @@ class Aligner:
         S, T = score_matrix.shape
         inf = np.inf
 
+        if self.norm_scores is False:  # default case (disabled)
+            pass
+        elif self.norm_scores is True:  # norm such that sum over whole matrix is 1
+            score_matrix /= np.sum(score_matrix)
+        # See in GenAya _calc_input_grads.
+        elif self.norm_scores == "absmeanS":
+            absmean = np.abs(score_matrix).mean(axis=0, keepdims=True)
+            score_matrix /= absmean
+        elif self.norm_scores == "stdmeanS":
+            std, mean = np.std(score_matrix, axis=0, keepdims=True), np.mean(score_matrix, axis=0, keepdims=True)
+            score_matrix = (score_matrix - mean) / std
+        elif self.norm_scores == "std0S":
+            std0 = np.sum(score_matrix**2.0, axis=0, keepdims=True) ** 0.5
+            score_matrix /= std0
+        else:
+            raise ValueError(f"invalid norm_scores {self.norm_scores!r} setting")
+
         if self.clip_scores:
             score_matrix = np.clip(score_matrix, *self.clip_scores)
-
-        if self.norm_scores:  # norm such that sum over whole matrix is 1. disabled by default
-            score_matrix = score_matrix / np.sum(score_matrix)
 
         non_blank_score = np.max(score_matrix, axis=0)  # [T]
         blank_score = np.max(score_matrix) - non_blank_score
