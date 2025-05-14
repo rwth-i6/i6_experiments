@@ -261,6 +261,17 @@ def py():
             "blank_score_flipped_percentile": 80,
             "apply_softmax_over_labels": True,
         },
+        {
+            "norm_scores": "absmeanS",
+            "apply_log": False,
+            "apply_log_sigmoid": True,
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 60,
+            "apply_softmax_over_labels": True,
+        },
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
@@ -1920,6 +1931,7 @@ class Aligner:
         shift_scores: float = 0.0,
         clip_scores: Optional[Tuple[Optional[float], Optional[float]]] = None,
         apply_log: bool = True,
+        apply_log_sigmoid: bool = False,
         substract: Optional[Union[str, float]] = "max_gt0",
         apply_softmax_over_time: bool = False,
         apply_softmax_over_time_est_blank: bool = True,
@@ -1934,6 +1946,7 @@ class Aligner:
         self.shift_scores = shift_scores
         self.clip_scores = clip_scores
         self.apply_log = apply_log
+        self.apply_log_sigmoid = apply_log_sigmoid
         self.substract = substract
         self.apply_softmax_over_time = apply_softmax_over_time
         self.apply_softmax_over_time_est_blank = apply_softmax_over_time_est_blank
@@ -1989,6 +2002,9 @@ class Aligner:
             # Assuming L2 norm scores (i.e. >0).
             score_matrix = np.log(score_matrix)
             blank_score = np.log(blank_score)
+        if self.apply_log_sigmoid:
+            score_matrix = _log_sigmoid(score_matrix)
+            blank_score = _log_sigmoid(blank_score)
         # Otherwise assume already in log space.
         # Make sure they are all negative or zero max.
         m = np.max(score_matrix)
@@ -2161,6 +2177,13 @@ def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
     max_score = np.max(x, axis=axis, keepdims=True)
     x = x - max_score
     return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
+
+
+def _log_sigmoid(x: np.ndarray) -> np.ndarray:
+    # log_sigmoid(x) = -log(1 + exp(-x)) = -log1p(exp(-x))
+    import numpy as np
+
+    return np.log1p(np.exp(-x))
 
 
 def _y_to_mat(y, y_num_pixels=100):  # only for visualization
