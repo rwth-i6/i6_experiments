@@ -57,8 +57,8 @@ class Log1p(nn.Module):
     def __init__(self):
         super(Log1p, self).__init__()
 
-    def forward(self, x):
-        return torch.log1p(x)
+    def forward(self, tensor: torch.Tensor) -> torch.Tensor:
+        return torch.log1p(tensor)
 
 
 class VGGNLayerActFrontendV1(nn.Module):
@@ -105,7 +105,7 @@ class VGGNLayerActFrontendV1(nn.Module):
                 dropout = float(activation_str[len("ReLU_Dropout"):])
                 activation = nn.Sequential(nn.ReLU(), nn.Dropout(p=dropout))
             elif activation_str.startswith("ReLU_Log1p"):
-                activation = nn.Sequential(nn.ReLU(), Log1p)
+                activation = nn.Sequential(nn.ReLU(), Log1p())
             else:
                 assert False, f"Unsupported activation {activation_str}"
             self.layers.append(nn.Sequential(
