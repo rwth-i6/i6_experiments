@@ -217,15 +217,6 @@ def py():
     tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
     grad_type = "dot_e_grad"
     for align_opts in [
-        {"apply_softmax_over_time": True, "blank_score": -6},
-        {
-            "apply_softmax_over_time": True,
-            "blank_score": "calc",
-            "blank_score_est": "flipped_after_softmax_over_time",
-            "non_blank_score_reduce": "log_mean_exp",
-            "blank_score_flipped_percentile": 60,
-            "apply_softmax_over_labels": True,
-        },
         {"apply_log": False, "apply_softmax_over_time": True, "blank_score": -6},
         {
             "apply_log": False,
@@ -270,31 +261,6 @@ def py():
             "blank_score_flipped_percentile": 80,
             "apply_softmax_over_labels": True,
         },
-        {
-            "norm_scores": "absmeanS",
-            "clip_scores": (1e-5, None),
-            "apply_log": False,
-            "apply_softmax_over_time": True,
-            "blank_score": "calc",
-            "blank_score_est": "flipped_after_softmax_over_time",
-            "non_blank_score_reduce": "log_mean_exp",
-            "blank_score_flipped_percentile": 80,
-            "apply_softmax_over_labels": True,
-        },
-        *[
-            {
-                "norm_scores": "absmeanS",
-                "shift_scores": s,
-                "clip_scores": (1e-5, None),
-                "apply_softmax_over_time": True,
-                "blank_score": "calc",
-                "blank_score_est": "flipped_after_softmax_over_time",
-                "non_blank_score_reduce": "log_mean_exp",
-                "blank_score_flipped_percentile": 80,
-                "apply_softmax_over_labels": True,
-            }
-            for s in [0.0, 1.0, 2.0]
-        ],
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
