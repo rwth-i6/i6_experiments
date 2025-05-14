@@ -62,16 +62,6 @@ def py():
                         if grad_type != "dot_e_grad"
                         else []
                     ),
-                    {
-                        "norm_scores": "absmeanS",
-                        "apply_log": False,
-                        "apply_softmax_over_time": True,
-                        "blank_score": "calc",
-                        "blank_score_est": "flipped_after_softmax_over_time",
-                        "non_blank_score_reduce": "log_mean_exp",
-                        "blank_score_flipped_percentile": 60,
-                        "apply_softmax_over_labels": True,
-                    },
                 ]:
                     align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
                     align = CalcAlignmentMetricsJob(
@@ -130,7 +120,7 @@ def py():
         )
         j.add_alias(f"align/{name}")
         tk.register_output(f"align/{name}.hdf", j.out_hdf)
-        for grad_type in ["dot_e_grad", "L01_e_grad", "L1_e_grad", "L2_e_grad", "L01_grad", "L1_grad", "L2_grad"]:
+        for grad_type in ["dot_e_grad", "L2_e_grad"]:
             for align_opts in [
                 *(
                     [
@@ -150,6 +140,7 @@ def py():
                 {
                     "norm_scores": "absmeanS",
                     "apply_log": False,
+                    "apply_log_sigmoid": True,
                     "apply_softmax_over_time": True,
                     "blank_score": "calc",
                     "blank_score_est": "flipped_after_softmax_over_time",
