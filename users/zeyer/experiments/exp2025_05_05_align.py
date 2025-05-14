@@ -2131,7 +2131,7 @@ class Aligner:
             if s % 2 != 0:  # in non-sil label
                 labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
             prev_s = s
-        assert S == len(labels_start_end)
+        assert S == len(labels_start_end), f"{labels_start_end=}, {len(labels_start_end)=}, {alignment=}, {S=}, {T=}"
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")
