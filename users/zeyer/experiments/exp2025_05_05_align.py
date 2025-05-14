@@ -62,9 +62,14 @@ def py():
     name_ = "phi4mi-buckeye-val-grads-longform"
     for chunk_opts in [
         {},
+        {"empty_exit_penalty": 0.0},
         {"chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
+        {"chunk_overlap_secs": 0.0, "empty_exit_penalty": 0.0},
         {"chunk_size_secs": 20.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
         {"chunk_size_secs": 10.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 10.0, "chunk_overlap_secs": 0.0, "empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 5.0, "chunk_overlap_secs": 1.0, "empty_exit_penalty": 0.0},
+        {"chunk_size_secs": 5.0, "chunk_overlap_secs": 0.0, "empty_exit_penalty": 0.0},
     ]:
         name = name_ + "-" + "-".join(f"{k}={v}" for k, v in chunk_opts.items())
         j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
