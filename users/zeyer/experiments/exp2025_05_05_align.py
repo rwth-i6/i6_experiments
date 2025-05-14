@@ -33,7 +33,7 @@ def py():
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
-    for ds_name, ds_dir in {"timit": dl_ds_timit, "buckeye": dl_ds_buckeye}.items():
+    for ds_name, ds_dir in {"timit": dl_ds_timit}.items():  # , "buckeye": dl_ds_buckeye}.items():
         for key in ["val", "test"]:  # does not need train...
             gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
                 model_dir=dl_phi4mi.out_hub_cache_dir,
@@ -49,6 +49,16 @@ def py():
                 for align_opts in [
                     {"apply_softmax_over_time": True, "blank_score": -6},
                     {
+                        "apply_softmax_over_time": True,
+                        "blank_score": "calc",
+                        "blank_score_est": "flipped_after_softmax_over_time",
+                        "non_blank_score_reduce": "log_mean_exp",
+                        "blank_score_flipped_percentile": 60,
+                        "apply_softmax_over_labels": True,
+                    },
+                    {
+                        "norm_scores": "absmeanS",
+                        "apply_log": False,
                         "apply_softmax_over_time": True,
                         "blank_score": "calc",
                         "blank_score_est": "flipped_after_softmax_over_time",
@@ -118,6 +128,16 @@ def py():
             for align_opts in [
                 {"apply_softmax_over_time": True, "blank_score": -6},
                 {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 60,
+                    "apply_softmax_over_labels": True,
+                },
+                {
+                    "norm_scores": "absmeanS",
+                    "apply_log": False,
                     "apply_softmax_over_time": True,
                     "blank_score": "calc",
                     "blank_score_est": "flipped_after_softmax_over_time",
