@@ -252,7 +252,7 @@ def py():
         ],
         *[
             {"norm_scores": "absmeanS", "clip_scores": (1e-5, None), "apply_softmax_over_time": True, "blank_score": -s}
-            for s in [4, 6, 8]
+            for s in [2, 4, 6, 8]
         ],
         {
             "norm_scores": "absmeanS",
@@ -283,7 +283,7 @@ def py():
                 "apply_softmax_over_time": True,
                 "blank_score": -s,
             }
-            for s in [4, 6, 8]
+            for s in [2, 4, 6]
         ],
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
