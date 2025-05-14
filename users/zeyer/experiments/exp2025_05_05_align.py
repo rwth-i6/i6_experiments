@@ -104,7 +104,7 @@ def py():
             dump_wav_first_n_seqs=5,  # debugging
         )
         j.add_alias(f"align/{name}-seg")
-        tk.register_output("align/phi4mi-buckeye-val-grads-L2_e_grad-longform-seg.hdf", j.out_hdf)
+        tk.register_output(f"align/{name}-seg.hdf", j.out_hdf)
         j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
             model_dir=dl_phi4mi.out_hub_cache_dir,
             dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
