@@ -204,18 +204,24 @@ def py():
             "blank_score_flipped_percentile": 60,
             "apply_softmax_over_labels": True,
         },
-        *[
-            {
-                "apply_log": False,
-                "apply_softmax_over_time": True,
-                "blank_score": "calc",
-                "blank_score_est": "flipped_after_softmax_over_time",
-                "non_blank_score_reduce": "log_mean_exp",
-                "blank_score_flipped_percentile": p,
-                "apply_softmax_over_labels": True,
-            }
-            for p in [60, 80, 90, 95, 100]
-        ],
+        {
+            "apply_log": False,
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 80,
+            "apply_softmax_over_labels": True,
+        },
+        {
+            "clip_scores": (1e-5, None),
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 80,
+            "apply_softmax_over_labels": True,
+        },
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
@@ -1871,6 +1877,7 @@ class Aligner:
         self,
         *,
         cut_off_eos: bool = False,
+        clip_scores: Optional[Tuple[Optional[float], Optional[float]]] = None,
         norm_scores: bool = False,
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
@@ -1883,6 +1890,7 @@ class Aligner:
         blank_score_flipped_percentile: int = 0,
     ):
         self.cut_off_eos = cut_off_eos
+        self.clip_scores = clip_scores
         self.norm_scores = norm_scores
         self.apply_log = apply_log
         self.substract = substract
@@ -1908,6 +1916,9 @@ class Aligner:
             score_matrix = score_matrix[:-1]
         S, T = score_matrix.shape
         inf = np.inf
+
+        if self.clip_scores:
+            score_matrix = np.clip(score_matrix, *self.clip_scores)
 
         if self.norm_scores:  # norm such that sum over whole matrix is 1. disabled by default
             score_matrix = score_matrix / np.sum(score_matrix)
