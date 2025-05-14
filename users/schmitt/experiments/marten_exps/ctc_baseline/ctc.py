@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Dict, Any
 import numpy as np
+import transformers
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim
@@ -18,7 +19,7 @@ from i6_experiments.users.mueller.utils import calc_stats
 from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram, get_prior_from_unigram
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm, get_ffnn_lm
 from i6_experiments.users.mueller.experiments.ctc_baseline.configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, dict_update_deep, post_config
-from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL, _log_mel_feature_dim
+from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL, _log_mel_feature_dim, Wav2VecModel
 from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_flashlight_ngram, recog_no_lm, recog_flashlight_ffnn, recog_ffnn, recog_gradients
 from i6_experiments.users.mueller.experiments.ctc_baseline.training import ctc_train, full_sum_train, ce_train, seq_gamma_ctc_train
 
@@ -148,6 +149,8 @@ def py():
     assert not decode_every_step or (decode_every_step and decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
     assert pseudo_nbest == 1 or (decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
+
+    # model opts
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
         rf.encoder.conformer.ConformerEncoderLayer,
@@ -155,6 +158,8 @@ def py():
         num_heads=8,
     )
     model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
+
+    use_w2v_model = False
     
     # Read out correct number of epochs dependent on self-training iterations
     if init.startswith("100h"):
@@ -316,6 +321,39 @@ def py():
     config_updates_self_training = None
     config_deletes_self_training = None
     LR_str = ""
+
+    if not aux_loss:
+      config_updates["aux_loss_layers"] = None
+
+    if use_w2v_model:
+      decoding_str += "_init_wv2ec"
+
+      from i6_core.tools.download import DownloadJob
+      wav2vec2_base_unsup_chkpt = DownloadJob(
+        # "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_small.pt",
+        "https://huggingface.co/facebook/wav2vec2-base/resolve/main/pytorch_model.bin?download=true",
+        target_filename="wav2vec2_base_no_finetune.bin",
+      ).out_file
+      config_updates["preload_from_files"] = {
+        "wav2vec2_base": {
+          "filename": wav2vec2_base_unsup_chkpt,
+          "ignore_missing": True,
+          "init_for_train": True,
+          "checkpoint_key": None,
+        }
+      }
+
+      wav2vec_base_fine_tune_config = DownloadJob(
+        "https://huggingface.co/facebook/wav2vec2-base/resolve/main/config.json?download=true",
+        target_filename="wav2vec2_base_no_finetune_config.json",
+      ).out_file
+      config_updates["w2v_opts"] = {
+        "config_file": wav2vec_base_fine_tune_config,
+      }
+
+      # TODO: add the following
+      # sys.path.insert(0, "/work/asr3/zeyer/schmitt/venvs/transformers_package")
+      # sys.path.insert(0, "/work/asr3/zeyer/schmitt/venvs/fairseq_package")
     
     # Create self-training config
     if self_training_rounds > 0:
@@ -996,7 +1034,7 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 #---------------------------------------------------------------------------------------------------------------------------------------
 # MODEL DEFINITION
 
-def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, Wav2VecModel]:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
     
@@ -1025,6 +1063,38 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
 
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
+
+    train_language_model = config.typed_value("train_language_model", None)
+    train_lm = None
+    if train_language_model is not None:
+        assert isinstance(train_language_model, dict)
+        train_language_model = train_language_model.copy()
+        cls_name = train_language_model.pop("class")
+        assert cls_name == "FeedForwardLm"
+        train_lm = FeedForwardLm(vocab_dim=target_dim, **train_language_model)
+    recog_language_model = config.typed_value("recog_language_model", None)
+    recog_lm = None
+    if recog_language_model is not None:
+        assert isinstance(recog_language_model, dict)
+        recog_language_model = recog_language_model.copy()
+        cls_name = recog_language_model.pop("class")
+        assert cls_name == "FeedForwardLm"
+        recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+
+    if config.bool("use_w2v_model", False):
+        w2v_opts = config.typed_value("w2v_opts", {})
+        w2v_config_file = w2v_opts["config_file"]
+        wav2vec2_config = transformers.Wav2Vec2Config.from_pretrained(w2v_config_file)
+        return Wav2VecModel(
+            wav2vec_config=wav2vec2_config,
+            target_dim=target_dim,
+            blank_idx=target_dim.dimension,
+            bos_idx=_get_bos_idx(target_dim),
+            eos_idx=_get_eos_idx(target_dim),
+            train_language_model=train_lm,
+            recog_language_model=recog_lm,
+        )
+
     enc_aux_logits = config.typed_value("aux_loss_layers")
     num_enc_layers = config.int("num_enc_layers", 12)
     # real input is raw audio, internally it does logmel
@@ -1052,23 +1122,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             num_heads=8,
         )
     enc_other_opts = config.typed_value("enc_other_opts", None)
-    
-    train_language_model = config.typed_value("train_language_model", None)
-    train_lm = None
-    if train_language_model is not None:
-        assert isinstance(train_language_model, dict)
-        train_language_model = train_language_model.copy()
-        cls_name = train_language_model.pop("class")
-        assert cls_name == "FeedForwardLm"
-        train_lm = FeedForwardLm(vocab_dim=target_dim, **train_language_model)
-    recog_language_model = config.typed_value("recog_language_model", None)
-    recog_lm = None
-    if recog_language_model is not None:
-        assert isinstance(recog_language_model, dict)
-        recog_language_model = recog_language_model.copy()
-        cls_name = recog_language_model.pop("class")
-        assert cls_name == "FeedForwardLm"
-        recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
     
     output_bias_init = config.typed_value("output_bias_init", None)
 
