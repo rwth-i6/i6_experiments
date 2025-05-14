@@ -194,6 +194,16 @@ def py():
             "blank_score_flipped_percentile": 60,
             "apply_softmax_over_labels": True,
         },
+        {"apply_log": False, "apply_softmax_over_time": True, "blank_score": -6},
+        {
+            "apply_log": False,
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 60,
+            "apply_softmax_over_labels": True,
+        },
     ]:
         align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
         align = CalcAlignmentMetricsJob(
@@ -1881,20 +1891,20 @@ class Aligner:
         import numpy as np
         import os
 
-        if self.cut_off_eos:
+        if self.cut_off_eos:  # disabled by default
             # Last row is EOS, remove it.
             score_matrix = score_matrix[:-1]
         S, T = score_matrix.shape
         inf = np.inf
 
-        if self.norm_scores:  # norm such that sum over whole matrix is 1
+        if self.norm_scores:  # norm such that sum over whole matrix is 1. disabled by default
             score_matrix = score_matrix / np.sum(score_matrix)
 
         non_blank_score = np.max(score_matrix, axis=0)  # [T]
         blank_score = np.max(score_matrix) - non_blank_score
 
         # Note: We are going to search the alignment path with the highest score.
-        if self.apply_log:
+        if self.apply_log:  # enabled by default
             # Assuming L2 norm scores (i.e. >0).
             score_matrix = np.log(score_matrix)
             blank_score = np.log(blank_score)
