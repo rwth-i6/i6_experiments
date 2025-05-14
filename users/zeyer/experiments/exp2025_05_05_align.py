@@ -171,6 +171,42 @@ def py():
         align.add_alias(align_name)
         tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # Test dot_e_grad.
+    ds_name, ds_dir, key = "timit", dl_ds_timit, "val"
+    gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
+        model_dir=dl_phi4mi.out_hub_cache_dir,
+        dataset_dir=ds_dir.out_hub_cache_dir,
+        dataset_key=key,
+        speech_prompt="Transcribe the audio clip into text.",
+    )
+    gen_phi4mi.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    name = f"phi4mi-{ds_name}-{key}-grads"
+    gen_phi4mi.add_alias(name)
+    tk.register_output(f"{name}.hdf", gen_phi4mi.out_hdf)
+    grad_type = "dot_e_grad"
+    for align_opts in [
+        {"apply_softmax_over_time": True, "blank_score": -6},
+        {
+            "apply_softmax_over_time": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 60,
+            "apply_softmax_over_labels": True,
+        },
+    ]:
+        align_name = f"align/{name}-{grad_type}-{_name_for_dict(align_opts)}"
+        align = CalcAlignmentMetricsJob(
+            grad_score_hdf=gen_phi4mi.out_hdf,
+            grad_score_key={"dot_e_grad": "data"}.get(grad_type, grad_type),
+            dataset_dir=ds_dir.out_hub_cache_dir,
+            dataset_key=key,
+            dataset_offset_factors={"timit": 1, "buckeye": 1000}[ds_name],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
 
 class GenAya(Job):
     def __init__(self, *, hub_cache_dir: tk.Path):
