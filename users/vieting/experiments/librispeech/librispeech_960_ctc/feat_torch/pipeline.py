@@ -218,7 +218,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     default_rqmt = {
         "mem_rqmt": 32,
         "time_rqmt": 168,
-        "cpu_rqmt": 6,
+        "cpu_rqmt": 8,
         "log_verbosity": 5,
         "returnn_python_exe": returnn_exe,
         "returnn_root": returnn_root,
