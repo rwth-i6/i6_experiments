@@ -336,7 +336,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         SpecaugMultiplierLinearConfig,
         VGGNLayerActFrontendV1Config,
         VGGNLayerActFrontendV2Config,
-        IdentityConfig,
+        LinearConfig,
     )
 
     frontend_config = VGGNLayerActFrontendV1Config(
@@ -931,6 +931,31 @@ def eow_phon_ls960_relposencoder_0924_base():
             (f"_{init}" if init else "") +
             ("_freeze" if freeze else "")
         )
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
+        )
+
+    # wav2vec feature extractor
+    from ...pytorch_networks.ctc.features.wav2vec import (
+        Wav2vecFeatureExtractionV1Config
+    )
+    for specaug_version, conv_layers in [
+        ("stft_v47", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512,2,2)] * 3)
+    ]:
+        w2v_config = Wav2vecFeatureExtractionV1Config(
+            conv_layers=conv_layers,
+            module_class="Wav2vecFeatureExtractionV1",
+        )
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=w2v_config,
+            frontend_config=LinearConfig(in_features=512, out_features=512),
+            frontend_config_class="LinearConfig",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".w2v_fe"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,

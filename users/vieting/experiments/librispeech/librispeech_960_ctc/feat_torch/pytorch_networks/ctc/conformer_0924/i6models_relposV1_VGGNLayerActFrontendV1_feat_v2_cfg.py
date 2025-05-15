@@ -21,11 +21,18 @@ from ..features.scf import (
 )
 from ..features.stft import StftFeatureExtractionV1Config, StftFeatureExtractionV2Config
 from ..features.conv import ConvFeatureExtractionV1Config, ConvFeatureExtractionV2Config
+from ..features.wav2vec import Wav2vecFeatureExtractionV1Config
 
 
 @dataclass
 class IdentityConfig(ModelConfiguration):
     module_class: str = "Identity"
+
+
+@dataclass
+class LinearConfig(ModelConfiguration):
+    in_features: int
+    out_features: int
 
 
 @dataclass

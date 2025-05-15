@@ -28,6 +28,7 @@ from returnn.torch.context import get_run_ctx
 
 from .i6models_relposV1_VGGNLayerActFrontendV1_feat_v2_cfg import (
     ModelConfig,
+    LinearConfig,
     SpecaugConfig,
     SpecaugStftConfig,
     SpecaugStftV2Config,
@@ -44,14 +45,29 @@ from ..features.scf import (
 )
 from ..features.stft import StftFeatureExtractionV1, StftFeatureExtractionV2
 from ..features.conv import ConvFeatureExtractionV1, ConvFeatureExtractionV2
+from ..features.wav2vec import Wav2vecFeatureExtractionV1
 
 
 class Identity(nn.Module):
     def __init__(self, model_cfg: ModelConfiguration):
+        super().__init__()
         self.cfg = model_cfg
 
     def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return tensor, sequence_mask
+
+
+class Linear(nn.Module):
+    def __init__(self, model_cfg: LinearConfig):
+        super().__init__()
+        self.linear = nn.Linear(
+            in_features=model_cfg.in_features,
+            out_features=model_cfg.out_features,
+            bias=True,
+        )
+
+    def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.linear(tensor), sequence_mask
 
 
 class Log1p(nn.Module):
