@@ -15,8 +15,7 @@ import returnn.frontend as rf
 import returnn.torch.frontend as rtf
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDef, ModelDef
-
-from ..ctc_baseline.configs import (
+from i6_experiments.users.mueller.experiments.ctc_baseline.configs import (
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import _get_cfg_lrlin_oclr_by_bs_nep
@@ -115,9 +114,6 @@ class FFNN_LM_flashlight(CTCDecoderLM):
     
     
 # ---------------------------------------------------
-
-
-
     
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0, embed_dropout: float = 0.0) -> ModelWithCheckpoint:
     from i6_experiments.users.mueller.train import train

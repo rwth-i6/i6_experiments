@@ -38,6 +38,7 @@ def train(
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
     init_hdf_writer: bool = False,
+    keep_train_lm_def: bool = True,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -127,6 +128,8 @@ def train(
     if isinstance(model_def, ModelDefWithCfg):
         model_conf = model_def.config.copy()
         model_conf.pop("recog_language_model", None)
+        if not keep_train_lm_def:
+            model_conf.pop("train_language_model", None)
         returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_conf)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)

@@ -553,6 +553,7 @@ def search_dataset(
         env_updates = (config and config.pop("__env_updates", None)) or (
             search_post_config and search_post_config.pop("__env_updates", None)
         )
+    device= "cpu"
     if save_pseudo_labels:
         time_rqmt = 16.0
         if search_mem_rqmt < 8:
@@ -560,6 +561,10 @@ def search_dataset(
             search_mem_rqmt = 8
         else:
             cpu_rqmt = 8
+            
+        if recog_def is model_recog_gradients and decoder_hyperparameters.get("beam_size", 1) == 0:
+            device = "gpu"
+            num_shards = None
     else:
         time_rqmt = 16.0
         cpu_rqmt = 8
@@ -597,7 +602,7 @@ def search_dataset(
                     output_files=out_files,
                     returnn_python_exe=tools_paths.get_returnn_python_exe(),
                     returnn_root=tools_paths.get_returnn_root(),
-                    device="cpu",
+                    device=device,
                     time_rqmt=time_rqmt,
                     mem_rqmt=search_mem_rqmt,
                     cpu_rqmt=cpu_rqmt,
@@ -623,7 +628,7 @@ def search_dataset(
                 output_files=out_files,
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
                 returnn_root=tools_paths.get_returnn_root(),
-                device="cpu",
+                device=device,
                 time_rqmt=time_rqmt,
                 mem_rqmt=search_mem_rqmt,
                 cpu_rqmt=cpu_rqmt,

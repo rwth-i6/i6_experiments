@@ -43,6 +43,8 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
     log_probs = model.log_probs_wb_from_logits(logits)
     
     norm_dim = targets_spatial_dim
+    print_original_ctc = False
+    original_targets = None
     
     if seq_tags is not None:
         seq = "train-other-500/7492-105653-0055/7492-105653-0055"
@@ -60,15 +62,23 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         hyperparameters = config.typed_value("hyperparameters_decoder").copy()
         prior_file = config.typed_value("empirical_prior")
         assert hyperparameters and prior_file
+        # print(log_probs.raw_tensor[0, 0].tolist())
         if "decay" in hyperparameters and hyperparameters["decay"] < 1.0:
-            print(hyperparameters)
             curr_step = rf.get_run_ctx().step
             assert isinstance(curr_step, int)
             decay = hyperparameters.pop("decay")
             decay_limit = hyperparameters.pop("decay_limit", 0.0)
             start_weight = hyperparameters["lm_weight"]
-            hyperparameters["lm_weight"] = decay_limit + ((start_weight - decay_limit) * decay ** curr_step)
-            print("LM weight:", hyperparameters["lm_weight"])
+            hyperparameters["lm_weight"] = 0.2 + (0.2 * decay ** curr_step)
+            # hyperparameters["lm_weight"] = 0.3
+            am_weight = 1.0 - (0.9 * 0.99997 ** curr_step)
+            dec_log_probs = log_probs * am_weight
+            hyperparameters["prior_weight"] = 0.3 - (0.2999 * 0.99999 ** curr_step)
+            # hyperparameters["prior_weight"] = 0.0
+            if curr_step % 100 == 0:
+                print("LM weight:", hyperparameters["lm_weight"], "Prior weight:", hyperparameters["prior_weight"], "AM weight:", am_weight)
+        else:
+            dec_log_probs = log_probs
         
         assert seq_tags is not None
         if save_seqs:
@@ -77,15 +87,19 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                 hdf_writer = config.typed_value("train_hdf_writer")
                 assert isinstance(hdf_writer, SimpleHDFWriter)
         with torch.no_grad():
-            batch_size = log_probs.raw_tensor.shape[0]
+            batch_size = dec_log_probs.raw_tensor.shape[0]
             batch_dims = data.remaining_dims(data_spatial_dim)
-            hyps, new_scores = recog_ffnn(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, train_lm=True)
+            hyps, new_scores = recog_ffnn(model=model, label_log_prob=dec_log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, train_lm=True)
             assert len(hyps) == batch_size
             assert len(hyps[0]) == 1
             hyps = [convert_to_output_hyps(model, hyps_batch[0]) for hyps_batch in hyps]
             if len(hyps[0]) < 2:
                 print("SHORT HYP:", hyps[0])
                 # print("REFERENCE:", targets.raw_tensor[0].tolist())
+            else:
+                if curr_step % 20 == 0:
+                    print("HYP:", hyps[0])
+                    print("REFERENCE:", targets.raw_tensor[0].tolist())
             lengths = [len(h) for h in hyps]
             max_length = max(lengths)
             new_targets_spatial_dim = torch.tensor(lengths, dtype=torch.int32, device=data.raw_tensor.device)
@@ -123,6 +137,13 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                 #     seq_len={0: [1]},
                 #     seq_tag=seq_tags.raw_tensor.tolist(),
                 # )
+                norm_dim = targets_spatial_dim
+            else:
+                print_original_ctc = True
+                original_targets = (targets, targets_spatial_dim)
+                targets = new_targets
+                targets_spatial_dim = new_targets_spatial_dim
+                norm_dim = targets_spatial_dim + 1
             
         # targets_ls = []
         # lengths_ls = []
@@ -146,7 +167,6 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         # targets_spatial_dim = rf.convert_to_tensor(targets_spatial_dim, dims=(batch_dim,))
         # targets_spatial_dim = Dim(targets_spatial_dim, name="out_spatial", dyn_size_ext=targets_spatial_dim)
         # targets = rf.convert_to_tensor(targets, dims=(batch_dim, targets_spatial_dim), sparse_dim=model.target_dim)
-        norm_dim = targets_spatial_dim
     
     if nbest > 1 and rf.get_run_ctx().train_flag:
         assert nbest_lengths is not None
@@ -337,6 +357,8 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
     )
     
     _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim)
+    if print_original_ctc:
+        _ctc_error(log_probs, original_targets[0], model, original_targets[1], enc_spatial_dim)
 
     assert not model.decoder
     if model.decoder:
@@ -480,6 +502,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
         assert model.train_language_model.vocab_dim == model.target_dim
         lm: FeedForwardLm = model.train_language_model
         lm_order = int(lm_name[len("ffnn"):])
+        assert lm.conv_filter_size_dim.dimension == lm_order
 
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -1053,6 +1076,8 @@ def _LM_score(
     assert model.train_language_model
     assert model.train_language_model.vocab_dim == model.target_dim
     lm: FeedForwardLm = model.train_language_model
+    lm_order = int(lm_name[len("ffnn"):])
+    assert lm.conv_filter_size_dim.dimension == lm_order
     
     targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
@@ -1193,6 +1218,8 @@ def _rescore(
     assert model.train_language_model
     assert model.train_language_model.vocab_dim == model.target_dim
     lm: FeedForwardLm = model.train_language_model
+    lm_order = int(lm_name[len("ffnn"):])
+    assert lm.conv_filter_size_dim.dimension == lm_order
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
     
@@ -1257,9 +1284,13 @@ def _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim):
             num_argmax_non_blank += len(seq_collapsed)
 
         num_target_non_blank = targets_spatial_dim.dyn_size_ext.raw_tensor.sum()
+        if num_target_non_blank > 0:
+            fraction = num_argmax_non_blank / num_target_non_blank
+        else:
+            fraction = float(num_argmax_non_blank)
 
         greedy_non_blank_to_ground_truth_fraction = rf.convert_to_tensor(
-            num_argmax_non_blank / num_target_non_blank,
+            fraction,
         )
         greedy_non_blank_to_ground_truth_fraction.mark_as_loss("greedy_non_blank_to_ground_truth_fraction_error", as_error=True)
     

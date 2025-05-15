@@ -1412,7 +1412,7 @@ def sum_loss_ffnn_exact(
         prev_target_wb = target_wb
         prev_beam = beam_dim
 
-        seq_log_prob = seq_log_prob + log_probs_ta[t]  # Batch, InBeam, VocabWB
+        seq_log_prob += log_probs_ta[t]  # Batch, InBeam, VocabWB
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -1437,7 +1437,9 @@ def sum_loss_ffnn_exact(
                     0.0,
                 )  # Batch, InBeam, VocabWB
             
-        beam_dim = rf.Dim(int(model.wb_target_dim.get_dim_value()) ** (t + 1 if t < context_size else context_size), name=f"dec-step{t}-beam")
+        if t < context_size:
+            beam_dim = rf.Dim(int(model.wb_target_dim.get_dim_value()) ** (t + 1 if t < context_size else context_size), name=f"dec-step{t}-beam")
+            new_Log_probs = torch.zeros((batch_dim.get_dim_value(), beam_dim.get_dim_value()), dtype=torch.float32, device=device)
         if t <= context_size:
             target_wb_tmp = rf.range_over_dim(model.wb_target_dim)
             target_wb_tmp = rf.expand_dims(target_wb_tmp, dims=batch_dims + [prev_beam])
@@ -1454,51 +1456,27 @@ def sum_loss_ffnn_exact(
                 ),
                 prev_target,
             )  # Batch, Beam -> Vocab
-            target_raveled = torch.tensor(
-                np.array(
-                    [
-                        [
-                            [
-                                np.ravel_multi_index(target.raw_tensor[b, k, :, v].cpu().numpy(), (model.target_dim.dimension,) * context_size)
-                                for v in range(target.dims[-1].get_dim_value())
-                            ]
-                            for k in range(prev_beam.get_dim_value())
-                        ]
-                        for b in range(batch_dim.get_dim_value())
-                    ]
-                ),
-                device=device
-            )
-            print(target_raveled.shape)
+            target_raveled = target.raw_tensor[:, :, 0, :] * model.target_dim.dimension ** (context_size - 1)
+            for i in range(context_size - 1):
+                target_raveled += target.raw_tensor[:, :, i + 1, :] * model.target_dim.dimension ** (context_size - i - 2)
+            target_raveled = target_raveled.long()
             target_raveled = target_raveled.view(batch_dim.get_dim_value(), -1)
             
             if t < context_size:
                 target_wb, _ = rf.merge_dims(target_wb_tmp, dims=[prev_beam, model.wb_target_dim], out_dim=beam_dim)
-            print(target_wb)
-        
-            target, _ = rf.merge_dims(target, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
-            got_new_label, _ = rf.merge_dims(got_new_label, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
+            
+                target, _ = rf.merge_dims(target, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
+                got_new_label, _ = rf.merge_dims(got_new_label, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
 
-        print(target.raw_tensor.shape, seq_log_prob.raw_tensor.shape)
-        
         seq_log_prob = seq_log_prob.raw_tensor.view(batch_dim.get_dim_value(), -1)
         
         # do a scatter logsumexp here together with the new target labels
-        new_Log_probs = torch.zeros((batch_dim.get_dim_value(), beam_dim.get_dim_value()), dtype=torch.float32, device=device)
-        print(new_Log_probs.shape)
-        
         seq_log_prob = scatter_safe_logsumexp(new_Log_probs, -1, target_raveled, seq_log_prob, include_self=False)
         seq_log_prob = rf.convert_to_tensor(seq_log_prob, dims=batch_dims + [beam_dim], dtype="float32", device=device, name="seq_log_prob")
-        print(seq_log_prob)
         
-        print(got_new_label)
-        print(target)
-
         if use_lm and t < context_size:
-            print(lm_log_probs)
             lm_log_probs = rf.expand_dim(lm_log_probs, dim=model.wb_target_dim)
             lm_log_probs, _ = rf.merge_dims(lm_log_probs, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
-            print(lm_log_probs, lm_log_probs.raw_tensor.shape)
             
             with torch.no_grad():
                 got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
@@ -1648,7 +1626,7 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm
     while not done:
         try:
             if splits > 1:
-                batch_size = batch_dims[0].dyn_size_ext.raw_tensor.item()
+                batch_size = batch_dims[0].get_dim_value()
                 n_seqs = int(np.ceil(batch_size / splits))
                 new_dims = []
                 for i in range(splits):
@@ -1666,7 +1644,7 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm
                         state=lm_state,
                     )
                     lm_logits_split.append((lm_logits_i, new_dims[i]))
-                lm_logits = rf.concat(lm_logits_split, out_dim=batch_dims[0])
+                lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
             else:
                 lm_logits, lm_state = lm(
                     target,
@@ -1675,14 +1653,14 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm
                     state=lm_state,
                 )
             done = True
-        except Exception as exc:
-            print(f"OOM with {splits} splits")
-            diagnose_gpu.garbage_collect()
-            splits *= 2
-            if splits <= batch_dims[0].dyn_size_ext.raw_tensor.item():
-                continue
-            else:
-                raise
+        except RuntimeError as exc:
+            if "out of memory" in str(exc):
+                print(f"OOM with {splits} splits:", exc)
+                diagnose_gpu.garbage_collect()
+                splits *= 2
+                if splits <= batch_dims[0].get_dim_value():
+                    continue
+            raise
     return lm_logits, lm_state
 
 def dynamic_slice(tensor: torch.Tensor, indices_list: list[torch.Tensor]) -> torch.Tensor:
@@ -2109,8 +2087,8 @@ def test():
     
     batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
     vocab_size = 185
-    frames = 100
-    LM_order = 2
+    frames = 300
+    LM_order = 3
     
     torch.manual_seed(0)
     # torch.cuda.manual_seed_all(0)
@@ -2139,6 +2117,8 @@ def test():
         # am[0, 0, vocab_size - 1] = float(3)
         # am[2, 0, vocab_size - 1] = float(3)
         am.requires_grad = True
+        
+        am_o = am
         
         am = am.permute(1, 0, 2)
         # am = ag(am, "logits", "/u/marten.mueller/dev/ctc_baseline/recipe/i6_experiments/users/mueller/experiments/ctc_baseline", False, None, True, 0, [],  ["Logits"], frames)
@@ -2225,6 +2205,7 @@ def test():
         
         
     l.backward(torch.ones_like(l, device=device))
+    print(am_o.grad)
     e1 = time.time()
     # print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {l}") # 5:00 mins
     

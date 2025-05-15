@@ -61,7 +61,7 @@ def py():
     reset_steps = False                         # Whether to reset step count after the first self-training round (affects LR schedule)
     from_scratch = False                        # Self-training starts from scratch
     pseudo_label_small = False                  # 860h pseudo-labels if True, 960h pseudo-labels if False
-    keep_small_labels = True                    # Keep true labels of 100h data during self-training
+    keep_small_labels = False                    # Keep true labels of 100h data during self-training
     pseudo_nbest = 1                            # Number of pseudo-label sequences
     norm_nbest_rescore = False                  # Normalize the LM and Prior values for each pseudo label sequence before adding them up
     grad_nbest = 10                             # Number of gradients we want to keep during gradient dumping
@@ -77,7 +77,7 @@ def py():
     use_ce_loss = False                         # Use CE loss instead of CTC loss
     speed_pert = True                           # Whether to use speed perturbation
     # train_lm_config = {}                        # LM selection for decoding during training
-    train_lm_config = {"class": "FeedForwardLm", "context_size": 2} # LM selection for decoding during training
+    train_lm_config = {"class": "FeedForwardLm", "context_size": 1} # LM selection for decoding during training
     # train_lm_config = {"class": "ngram", "order": 3} # LM selection for decoding during training
     train_version = 1                           # Version for training added to change the hash
     num_gpus = 4                                # Number of GPUs to use during training
@@ -95,21 +95,21 @@ def py():
     empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
     prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
     alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
-    tune_hyperparameters = False                # Tune decoder hyperparameters in between self-training rounds
+    tune_hyperparameters = True                # Tune decoder hyperparameters in between self-training rounds
     # decoder_lm_config = {}                    # LM selection for decoding, empty for word-level 4-gram
     decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding, empty for word-level 4-gram
     # decoder_lm_config = {"class": "ngram", "order": 2} # LM selection for decoding, empty for word-level 4-gram
     use_recombination = True                    # Use recombination during decoding (only albert-lm)
     recombine_blank = True                      # Recombine sequences ending on blank with last seen same label (only albert-lm)
     recombine_after_topk = True                 # Recombine after top-k extraction instead of before (only albert-lm)
-    recombine_with_sum = False                  # Use sum during recombination
+    recombine_with_sum = True                  # Use sum during recombination
     if self_training_rounds == 0:
         alt_decoder = False
     assert decoding_imp in ["flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients"]
     
     # Configs for init training
     init = "100h-unsupervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
-    random_init = True                         # Start from random init during unsupervised init training, alternatively use empirical prior
+    random_init = False                         # Start from random init during unsupervised init training, alternatively use empirical prior
     decode_every_step_init = True               # Decode every step during unsupervised init training
     accum_grad_multiple_step_init = 1           # Accumulate gradients over multiple steps during unsupervised init training
     if not init.endswith("unsupervised"):
@@ -209,18 +209,17 @@ def py():
                         decoder_hyperparameters["recomb_after_topk"] = True
                     if recombine_with_sum:
                         decoder_hyperparameters["recomb_with_sum"] = True
-        if decode_every_step or pseudo_nbest > 1 or decode_every_step_init or use_sum_criterion:
+        if decode_every_step or pseudo_nbest > 1 or decode_every_step_init or use_sum_criterion or decoding_imp == "gradients":
             assert train_lm_config
             model_config["train_language_model"] = train_lm_config
         else:
-            assert not train_lm_config or decoding_imp == "gradients"
+            assert not train_lm_config
         decoder_hyperparameters_grad = None
         if decoding_imp == "gradients":
             assert train_lm_config
             decoder_hyperparameters_grad = {}
             decoder_hyperparameters_grad["grad_nbest"] = grad_nbest
             decoder_hyperparameters_grad["lm_order"] = train_lm_config["order"] if train_lm_config["class"] == "ngram" else f"ffnn{train_lm_config['context_size']}"
-            decoder_hyperparameters_grad["train_language_model"] = train_lm_config
             decoder_hyperparameters_grad["beam_size"] = 0
             if rescore_ctc_loss_for_grad:
                 decoder_hyperparameters_grad["rescore_ctc_loss"] = rescore_ctc_loss_for_grad
@@ -598,7 +597,7 @@ def train_exp(
     if model_config:
         mc = model_config.copy()
         if "train_language_model" in mc:
-            if not config.get("decode_every_step", False) or mc["train_language_model"]["class"] == "ngram":
+            if (not gradient_pseudo_labels and not config.get("decode_every_step", False)) or mc["train_language_model"]["class"] == "ngram":
                 mc.pop("train_language_model", None)
         if "output_bias_init" in mc and mc["output_bias_init"]:
             mc["output_bias_init"] = "/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ExtractPrior.Z4T3thKgQeci/output/prior.txt"
@@ -616,18 +615,29 @@ def train_exp(
     # calc_stats(task.train_dataset.vocab)
         
     # Create LM for training
+    search_config = None
     train_lm = None
-    if (model_config and "train_language_model" in model_config) or gradient_pseudo_labels:
-        if gradient_pseudo_labels:
-            train_language_model = decoder_hyperparameters[1].pop("train_language_model")
-        else:
-            train_language_model = model_config["train_language_model"].copy()
+    if model_config and "train_language_model" in model_config:
+        train_language_model = model_config["train_language_model"].copy()
         cls_name = train_language_model.pop("class")
         assert cls_name == "FeedForwardLm" or cls_name == "ngram"
         is_ffnn = cls_name == "FeedForwardLm"
         if is_ffnn:
             lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **train_language_model)
-            if not gradient_pseudo_labels:
+            if gradient_pseudo_labels:
+                if cache_manager:
+                    lm_checkpoint_path = DelayedCodeWrapper("cf('{}')", lm_checkpoint.checkpoint)
+                else:
+                    lm_checkpoint_path = lm_checkpoint.checkpoint
+                search_config = {
+                    "preload_from_files": {
+                        "train_lm": {
+                            "prefix": "train_language_model.",
+                            "filename": lm_checkpoint_path,
+                        },
+                    },
+                }
+            else:
                 if self_training_rounds > 0:
                     config_updates_self_training.update({
                         "preload_from_files": {
@@ -652,7 +662,6 @@ def train_exp(
             train_lm = get_count_based_n_gram(task.train_dataset.vocab, train_language_model["order"])
         
     # Get recog ffnn LM
-    search_config = None
     recog_lm = None
     if model_config and "recog_language_model" in model_config:
         recog_language_model = model_config["recog_language_model"].copy()
@@ -664,15 +673,21 @@ def train_exp(
             lm_checkpoint_path = DelayedCodeWrapper("cf('{}')", lm_checkpoint.checkpoint)
         else:
             lm_checkpoint_path = lm_checkpoint.checkpoint
-            
-        search_config = {
-            "preload_from_files": {
-                "recog_lm": {
-                    "prefix": "recog_language_model.",
-                    "filename": lm_checkpoint_path,
+        
+        if search_config is None:
+            search_config = {
+                "preload_from_files": {
+                    "recog_lm": {
+                        "prefix": "recog_language_model.",
+                        "filename": lm_checkpoint_path,
+                    },
                 },
-            },
-        }
+            }
+        else:
+            search_config["preload_from_files"]["recog_lm"] = {
+                "prefix": "recog_language_model.",
+                "filename": lm_checkpoint_path,
+            }
         
     model_with_checkpoint = []
     model_with_checkpoint.append(train(
@@ -686,6 +701,7 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
+        keep_train_lm_def=not gradient_pseudo_labels,
         time_rqmt=time_rqmt if time_rqmt else (36 if init_small else 132),
     ))
     train_job = model_with_checkpoint[0].get_training_job()
@@ -850,6 +866,7 @@ def train_exp(
             gpu_mem=gpu_mem,
             num_processes=num_processes,
             init_hdf_writer=config_self.get("decode_every_step", False),
+            keep_train_lm_def=not gradient_pseudo_labels,
             time_rqmt=time_rqmt if time_rqmt else ((8 if self_train_subset else 156) if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()
@@ -1292,7 +1309,7 @@ def model_recog_gradients(
     
     print_idx = []
     
-    return recog_gradients(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, prior_file=prior_file, arpa_lm=arpa_lm, version=version, print_idx=print_idx)
+    return recog_gradients(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, prior_file=prior_file, train_lm=True, arpa_lm=arpa_lm, version=version, print_idx=print_idx)
 
 # RecogDef API
 model_recog_gradients: RecogDef[Model]

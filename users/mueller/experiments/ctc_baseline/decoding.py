@@ -18,7 +18,7 @@ from i6_core.util import uopen
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
-from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
+from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram, get_lm_logits
 from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
@@ -99,6 +99,7 @@ def recog_flashlight_ngram(
         assert model.recog_language_model
         assert model.recog_language_model.vocab_dim == model.target_dim
         context_size = int(lm_name[len("ffnn"):])
+        assert model.recog_language_model.conv_filter_size_dim.dimension == context_size
         arpa_4gram_lm = FFNN_LM_flashlight(model.recog_language_model, model.recog_language_model.vocab_dim, context_size)
     
     use_lm = hyp_params.pop("use_lm", True)
@@ -317,6 +318,7 @@ def recog_flashlight_ffnn(
         assert model.recog_language_model
         assert model.recog_language_model.vocab_dim == model.target_dim
         lm: FeedForwardLm = model.recog_language_model
+    assert lm.conv_filter_size_dim.dimension == context_size
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
 
@@ -709,6 +711,7 @@ def recog_ffnn(
             assert model.recog_language_model
             assert model.recog_language_model.vocab_dim == model.target_dim
             lm: FeedForwardLm = model.recog_language_model
+        assert lm.conv_filter_size_dim.dimension == context_size
         # noinspection PyUnresolvedReferences
         lm_scale: float = hyp_params["lm_weight"]
     
@@ -735,10 +738,14 @@ def recog_ffnn(
 
     if lm_name is not None:
         with torch.no_grad():
+            unk_mask = rf.sparse_to_dense(
+                model.target_dim.vocab.label_to_id("<unk>"), axis=model.target_dim, label_value=float("-inf"), other_value=0.0
+            )
             lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
             lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, context_dim, lm_out_dim, lm_state)
             lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
             assert lm_logits.dims == (*batch_dims_, model.target_dim)
+            lm_logits = lm_logits + unk_mask
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
             lm_log_probs *= lm_scale
             if label_prior and prior is not None:
@@ -851,6 +858,7 @@ def recog_ffnn(
                     lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
                     lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
                     assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+                    lm_logits_ = lm_logits_ + unk_mask
                     lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
                     lm_log_probs_ *= lm_scale
                     if label_prior and prior is not None:
@@ -962,6 +970,7 @@ def recog_gradients(
     
     use_ffnn_lm = isinstance(lm_name, str) and lm_name.startswith("ffnn")
     if use_ffnn_lm:
+        assert train_lm
         context_size = int(lm_name[len("ffnn"):])
         if train_lm:
             assert model.train_language_model
@@ -971,6 +980,7 @@ def recog_gradients(
             assert model.recog_language_model
             assert model.recog_language_model.vocab_dim == model.target_dim
             lm: FeedForwardLm = model.recog_language_model
+        assert lm.conv_filter_size_dim.dimension == context_size
     else:
         assert arpa_lm is not None
         assert isinstance(lm_name, int)
@@ -1017,25 +1027,79 @@ def recog_gradients(
         label_log_prob_raw = label_log_prob.raw_tensor
         label_log_prob_raw.requires_grad = True
         with torch.set_grad_enabled(True):
-            loss = sum_loss_ffnn(
-                model=model,
-                log_probs=label_log_prob,
-                lm=lm,
-                context_size=context_size,
-                log_prior=prior,
-                input_lengths=enc_spatial_dim,
-                top_k=beam_size,
-                am_scale=am_scale,
-                lm_scale=lm_scale,
-                prior_scale=prior_weight,
-                horizontal_prior=not label_prior,
-                blank_prior=not label_prior,
-                device=dev_s,
-                use_recombination=use_recombination,
-                recomb_blank=recomb_blank,
-                recomb_after_topk=recomb_after_topk,
-                recomb_with_sum=recomb_with_sum,
-            )
+            if beam_size == 0:
+                with torch.no_grad():
+                    context_dim = rf.Dim(context_size, name="context")
+                    lm_out_dim = rf.Dim(context_size + 1, name="context+1")
+                    target = torch.arange(model.target_dim.dimension, device=dev)
+                    if context_size == 2:
+                        target1 = target.unsqueeze(1).expand(model.target_dim.dimension, model.target_dim.dimension)
+                        target2 = target.unsqueeze(0).expand(model.target_dim.dimension, model.target_dim.dimension)
+                        target = torch.stack([target1, target2], dim=-1)
+                        batch_dims = [Dim(model.target_dim.dimension, name="v1"), Dim(model.target_dim.dimension, name="v2")]
+                    elif context_size == 1:
+                        target = target.unsqueeze(1)
+                        batch_dims = [Dim(model.target_dim.dimension, name="v1")]
+                    else:
+                        raise NotImplementedError(f"Full-sum on context size {context_size} not implemented")
+                    target = rf.convert_to_tensor(target, dims=batch_dims + [context_dim], sparse_dim=model.target_dim)
+                    lm_state = lm.default_initial_state(batch_dims=[])
+                    lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, context_dim, lm_out_dim, lm_state)
+                    lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+                    assert lm_logits.dims == (*batch_dims, model.target_dim)
+                    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+                    lm_log_probs = lm_log_probs.raw_tensor
+                
+                log_prob_raw = label_log_prob_raw.permute(1, 0, 2)
+                loss = sum_loss_ngram(
+                    log_probs=log_prob_raw,
+                    log_lm_probs=lm_log_probs,
+                    log_prior=prior.raw_tensor,
+                    input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+                    top_k=beam_size,
+                    LM_order=lm_log_probs.ndim,
+                    am_scale=am_scale,
+                    lm_scale=lm_scale,
+                    prior_scale=prior_weight,
+                    horizontal_prior=not label_prior,
+                    blank_prior=not label_prior,
+                    blank_idx=model.blank_idx,
+                    eos_idx=model.eos_idx,
+                    device=dev_s,
+                )
+                # print("LOSS2", loss.tolist())
+                # 1: [-137.5575714111328, -63.205379486083984, -93.46190643310547, -119.84935760498047, -119.04203796386719, -94.6239013671875]
+                # 2: [-160.18882751464844, -84.68201446533203, -103.0686264038086, -131.49192810058594, -134.6106414794922, -103.7826919555664]
+                # 5: [-166.92628479003906, -88.21932983398438, -103.35894012451172, -131.9812774658203, -134.9491424560547, -103.97010803222656]
+                # 64:[-168.89434814453125, -88.38604736328125, -103.4526596069336, -132.01197814941406, -135.21649169921875, -103.97358703613281]
+                # 0: [-168.90281677246094, -88.3888931274414, -103.45686340332031, -132.01219177246094, -135.2233428955078, -103.97364807128906]
+            else:
+                loss = sum_loss_ffnn(
+                    model=model,
+                    log_probs=label_log_prob,
+                    lm=lm,
+                    context_size=context_size,
+                    log_prior=prior,
+                    input_lengths=enc_spatial_dim,
+                    top_k=beam_size,
+                    am_scale=am_scale,
+                    lm_scale=lm_scale,
+                    prior_scale=prior_weight,
+                    horizontal_prior=not label_prior,
+                    blank_prior=not label_prior,
+                    device=dev_s,
+                    use_recombination=use_recombination,
+                    recomb_blank=recomb_blank,
+                    recomb_after_topk=recomb_after_topk,
+                    recomb_with_sum=recomb_with_sum,
+                )
+                
+                # print(loss.tolist())
+                # 1: [-116.46820068359375, -51.48450469970703, -86.56108856201172, -111.2684097290039, -114.91572570800781, -87.6579360961914]
+                # 2: [-156.4869384765625, -79.76004791259766, -99.71067810058594, -128.70213317871094, -131.5652313232422, -103.05582427978516]
+                # 5: [-164.3080596923828, -87.10165405273438, -101.98390197753906, -131.62818908691406, -134.31692504882812, -103.86699676513672]
+                # 64:[-167.51242065429688, -88.04119873046875, -103.08740997314453, -132.03030395507812, -135.0449676513672, -103.97388458251953]
+                # 0: [-5.465193748474121, -6.856778144836426, -6.993954181671143, -7.083093166351318, -7.361469268798828, -7.381970405578613]
             
             loss.backward(torch.ones_like(loss, device=dev))
             gradients = -label_log_prob_raw.grad
