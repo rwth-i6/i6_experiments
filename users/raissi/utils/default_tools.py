@@ -125,11 +125,14 @@ RETURNN_ROOT_BW_FACTORED = tk.Path(
     "/work/tools/users/raissi/returnn_versions/bw-factored", hash_overwrite="BW_RETURNN_ROOT"
 )
 RETURNN_ROOT_SMBR = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="SMBR_RETURNN_ROOT")
-
+RETURNN_ROOT_LATTICEFREE = tk.Path("/work/tools/users/raissi/returnn_versions/lattice_free", hash_overwrite="LATTICEFREE_RETURNN_ROOT")
 #SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 #SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
 
 RETURNN_ROOT_LATEST = tk.Path("/work/tools/users/raissi/returnn_versions/latest", hash_overwrite="RETURNN_LATEST")
+
+
+
 
 #Idiap cluster
 U22_RASR_BINARY_PATH_IDIAP = tk.Path(

@@ -37,6 +37,7 @@ def correct_rasr_FSA_bug(
 def create_rasrconfig_for_alignment_fsa(
     crp: rasr.CommonRasrParameters,
     *,
+    log_file_name: str = "fastbw.log",
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
     align_fsa_parameters: Optional[AlignFSAparameters] = None,
@@ -47,7 +48,7 @@ def create_rasrconfig_for_alignment_fsa(
         "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
     }
     config, post_config = rasr.build_config_from_mapping(crp, mapping)
-    post_config["*"].output_channel.file = "fastbw.log"
+    post_config["*"].output_channel.file = log_file_name
 
     # Define action
     config.neural_network_trainer.action = "python-control"
