@@ -16,10 +16,10 @@ from sisyphus import tk
 from i6_core.util import uopen
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
-from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
-from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
-from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
-from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
+from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.model import Model, OUT_BLANK_LABEL
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline import recombination
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
 CHECK_DECODER_CONSISTENCY = False
@@ -49,7 +49,7 @@ def recog_flashlight_ngram(
     import torch
     import json
     from returnn.util.basic import cf
-    from i6_experiments.users.mueller.experiments.language_models.ffnn import FFNN_LM_flashlight
+    from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FFNN_LM_flashlight
     
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)

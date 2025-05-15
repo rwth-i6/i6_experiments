@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import os
 import json
+from typing import Union
 
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
@@ -16,12 +17,13 @@ from sisyphus import tk
 from i6_core.util import uopen
 
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model
-from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_ffnn, convert_to_output_hyps
-from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.model import Wav2VecModel
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.decoding import recog_ffnn, convert_to_output_hyps
+from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
 
-def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim, nbest_lengths: rf.Tensor = None, scores: rf.Tensor = None, seq_tags: rf.Tensor = None):
+def ctc_train(*, model: Union[Model, Wav2VecModel], data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim, nbest_lengths: rf.Tensor = None, scores: rf.Tensor = None, seq_tags: rf.Tensor = None):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
@@ -33,6 +35,12 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
     nbest = config.int("ps_nbest", 1)
     decode_every_step = config.bool("decode_every_step", False)
     version = config.int("version", 1)
+
+    if isinstance(model, Wav2VecModel):
+        w2v_opts = config.typed_value("w2v_opts", {})
+        freeze_encoder_first_n_steps = w2v_opts.get("freeze_encoder_first_n_steps", 0)
+        if freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step == w2v_opts.get("freeze_encoder_first_n_steps", 0):
+            model.set_wav2vec_encoder_trainable(True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -382,7 +390,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
 def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_tags: rf.Tensor = None, targets: rf.Tensor, targets_spatial_dim: Dim):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
-    from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_bigram, sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients
+    from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.sum_criterion import sum_loss_bigram, sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients
     
     # torch.autograd.set_detect_anomaly(True)
     pg = PrintGradients.apply

@@ -8,10 +8,10 @@ import torch
 import warnings
 import numpy as np
 
-from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
-from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model
-from i6_experiments.users.mueller.experiments.ctc_baseline.recombination import safe_logsumexp, safe_logaddexp, scatter_safe_logsumexp
-from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
+from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.model import Model
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.recombination import safe_logsumexp, safe_logaddexp, scatter_safe_logsumexp
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline import recombination
 
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
@@ -85,16 +85,18 @@ def sum_loss_bigram(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
-    
+
+    pass
+
     use_prior = log_prior is not None
-    
+
     old_device = log_probs.device
     log_probs = log_probs.to(device)
     log_lm_probs = log_lm_probs.to(device)
     if use_prior:
         log_prior = log_prior.to(device)
     input_lengths = input_lengths.to(device)
-    
+
     max_audio_time, batch_size, n_out = log_probs.shape
     # scaled log am and lm probs
     log_probs = am_scale * log_probs
@@ -104,10 +106,10 @@ def sum_loss_bigram(
         log_lm_probs = lm_scale * log_lm_probs
     if use_prior:
         log_prior = prior_scale * log_prior
-    
+
     # print_gradients = PrintGradients.apply
     # grad_assert = AssertGradients.apply
-    
+
     if eos_idx is None or eos_idx == blank_idx: # vocab means no EOS and blank
         vocab_size = n_out - 1
         eos_symbol = blank_idx
@@ -120,7 +122,7 @@ def sum_loss_bigram(
     assert log_lm_probs.size() == (vocab_size + 2, vocab_size + 2), f"LM shape is not correct, should be {vocab_size + 2}x{vocab_size + 2} but is {log_lm_probs.size()}"
     if use_prior:
         assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
-    
+
     # calculate empty sequence score
     # Empty am score = sum log prob blank
     if use_prior and blank_prior:
@@ -145,7 +147,7 @@ def sum_loss_bigram(
         out_idx_vocab_w_eos = out_idx_vocab_w_eos[out_idx_vocab_w_eos != blank_idx]
 
     # sum score by DP
-    
+
     # List in which we store the log Q values as tensors of the last N timesteps
     # dim 2: 0 is non-blank, 1 is blank
     # Init Q for t=1
@@ -156,7 +158,7 @@ def sum_loss_bigram(
         log_q_label = log_q_label - log_prior[out_idx_vocab].unsqueeze(0)
     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
     log_q = log_q_label
-    
+
     # Calculate initial top k if needed
     if top_k > 0:
         if alignment_topk:
@@ -167,7 +169,7 @@ def sum_loss_bigram(
         # p_idx = topk_idx.clone()
         # p_idx[p_idx == vocab_size] = 0
         # print(p_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], p_idx[print_best_path_for_idx[0]]])
-    
+
     # Set up the best path print
     if print_best_path_for_idx:
         with torch.no_grad():
@@ -175,7 +177,7 @@ def sum_loss_bigram(
             max_val, max_idx = torch.max(log_q, dim=-1)
             for idx in print_best_path_for_idx:
                 best_path_print[idx] = {"str": f"{max_idx[idx] + 2}", "am_str": "{:.2f}".format(log_probs[0][idx][max_idx[idx] + 2].tolist()), "prior": "{:.2f}".format(log_prior[max_idx[idx] + 2].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[eos_symbol, max_idx[idx] + 2].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][max_idx[idx] + 2].tolist()}
-    
+
     log_lm_probs_wo_eos = log_lm_probs[out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
@@ -204,8 +206,8 @@ def sum_loss_bigram(
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
-        # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
-        
+        # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip]
+
         # horizontal transition Q(t-1, u, non-blank)
         if top_k > 0:
             log_mass_horizontal = log_q_label
@@ -214,7 +216,7 @@ def sum_loss_bigram(
             log_mass_horizontal = log_q_label
         if horizontal_prior and use_prior:
             log_mass_horizontal = log_mass_horizontal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
-        
+
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
         # mass_diagonal[b, u] = sum_v Q(t-1, b, blank, v) * p_LM(u|v) / p_PR(u)
@@ -239,7 +241,7 @@ def sum_loss_bigram(
             log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1) -> (B, V-1)
         if use_prior:
             log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
-        
+
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
         if top_k > 0:
@@ -255,16 +257,16 @@ def sum_loss_bigram(
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_eos) # (B, V-1) @ (V-1, V-1) -> (B, V-1)
         if use_prior:
             log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
-        
+
         # multiply with p_AM(u|x_t)
         new_log_q_label = log_probs[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
-        
+
         # set masked results to log_q
         time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size)
         log_q_blank = torch.where(time_mask, new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask, new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
-        
+
         if print_best_path_for_idx:
             with torch.no_grad():
                 max_val, max_idx = torch.max(log_q, dim=-1)
@@ -275,7 +277,7 @@ def sum_loss_bigram(
                     best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_eos[:, max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][max_idx[idx] + 2].tolist()
-        
+
         if top_k > 0:
             tmp_log_partial_empty_seq_prob = torch.where((t < input_lengths), log_partial_empty_seq_prob[t], log_empty_seq_prob).unsqueeze(-1)
             if alignment_topk:
@@ -296,9 +298,9 @@ def sum_loss_bigram(
             # p_idx = topk_idx.clone()
             # p_idx[p_idx == vocab_size] = 0
             # print(p_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], p_idx[print_best_path_for_idx[0]]])
-        
+
         torch.cuda.empty_cache()
-    
+
     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
     if top_k > 0:
         log_q = topk_scores
@@ -308,17 +310,17 @@ def sum_loss_bigram(
         with torch.no_grad():
             for idx in print_best_path_for_idx:
                 print(f"Best path for {idx}: {best_path_print[idx]['str']}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nLM: {best_path_print[idx]['LM']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
-    
+
     # sum over the vocab dimension
     sum_score = safe_logsumexp(log_q, dim=-1)
     if top_k <= 0:
         # add empty sequence score
         sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,)
-    
+
     loss = -sum_score
     if old_device != device:
         loss = loss.to(old_device)
-    
+
     return loss
 
 def sum_loss_ngram(
@@ -389,407 +391,410 @@ def sum_loss_ngram(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
-    use_prior = log_prior is not None
-    
-    old_device = log_probs.device
-    log_probs = log_probs.to(device)
-    log_lm_probs = log_lm_probs.to(device)
-    if use_prior:
-        log_prior = log_prior.to(device)
-    input_lengths = input_lengths.to(device)
-    
-    max_audio_time, batch_size, n_out = log_probs.shape
-    # scaled log am and lm probs
-    log_probs = am_scale * log_probs
-    if lm_scale == 0.0:
-        log_lm_probs = torch.zeros_like(log_lm_probs, device=device)
-    else:
-        log_lm_probs = lm_scale * log_lm_probs
-    if use_prior:
-        log_prior = prior_scale * log_prior
-    
-    # print_gradients = PrintGradients.apply
-    # grad_assert = AssertGradients.apply
-    
-    if eos_idx is None or eos_idx == blank_idx: # vocab means no EOS and blank
-        vocab_size = n_out - 1
-        eos_symbol = blank_idx
-        assert eos_idx == 0, "EOS should be the first symbol"
-    else:
-        vocab_size = n_out - 2
-        eos_symbol = eos_idx
-        assert eos_idx == 0, "EOS should be the first symbol"
-        assert blank_idx == n_out - 1, "blank should be the last symbol"
-    assert unk_idx is not None, "unk_idx should be defined"
-    vocab_size -= 1 # remove unk from vocab size
-    # BoS / EoS and UNK are in the LM
-    assert log_lm_probs.size() == (vocab_size + 2,) * LM_order, f"LM shape is not correct, should be {vocab_size + 2} in all dimensions but is {log_lm_probs.size()}"
-    if use_prior:
-        assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
-        if top_k > 0:
-            assert horizontal_prior, "Not using the horizontal prior is not implemented for top_k > 0"
+    pass
 
-    # Unbind the log_probs for each timestep so it is faster during backprop
-    log_probs = log_probs.unbind(0)
-
-    # Used to remove blank, unk and eos from the last dim (vocab)
-    out_idx = torch.arange(n_out, device=device)
-    out_idx_vocab = out_idx[out_idx != blank_idx].long() # "vocab" means no EOS, unk and blank
-    out_idx_vocab = out_idx_vocab[out_idx_vocab != unk_idx]
-    out_idx_vocab_w_eos = out_idx[out_idx != unk_idx].long()
-    if eos_idx is not None and eos_idx != blank_idx:
-        out_idx_vocab = out_idx_vocab[out_idx_vocab != eos_idx]
-        out_idx_vocab_w_eos = out_idx_vocab_w_eos[out_idx_vocab_w_eos != blank_idx]
-
-    # sum score by DP
-    # log_q is the list in which we store the log Q values as tensors of the last N timesteps
-    # It is split into ending on a blank and ending on a non-blank
-    
-    # Init Q for t=0
-    # Q(0, u, blank) = 0
-    # Q(0, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab].unsqueeze(0)
-    if use_prior:
-        log_q_label_init = log_q_label_init - log_prior[out_idx_vocab].unsqueeze(0)
-    # We have to prepend the BoS symbol even though it is not used in the q_label calculation, but it is need for higher order LMs
-    log_q_label_init = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_q_label_init], dim=1)
-    log_q_label = torch.full((batch_size, *(vocab_size + 1,) * (LM_order - 1)), log_zero, device=device) # (B, V, ..., V), no blank in vocab dims
-    log_q_label[:, *(0,) * (LM_order - 2)] = log_q_label_init
-    log_q_blank = torch.full_like(log_q_label, log_zero, device=device) # (B, V, ..., V)
-    # Calculate partial empty sequence score
-    # Empty am score = sum log prob blank, lm score = p_LM(eos | bos), prior score = p_PR(eos)
-    log_partial_empty_seq_prob = log_probs[0][:, blank_idx]
-    if use_prior and blank_prior:
-        log_partial_empty_seq_prob = log_partial_empty_seq_prob - log_prior[blank_idx]
-    log_q_blank[:, *(0,) * (LM_order - 1)] = log_partial_empty_seq_prob
-    log_q = safe_logaddexp(log_q_label, log_q_blank)
-    original_shape = log_q.shape
-    
-    # Calculate initial top k if needed
-    if top_k > 0:
-        log_q_label = log_q_label.view(batch_size, -1)
-        log_q_blank = log_q_blank.view(batch_size, -1)
-        log_q = log_q.view(batch_size, -1)
-        
-        if alignment_topk:
-            raise NotImplementedError("Alignment topk is not implemented yet")
-            tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1).view(batch_size, -1)
-        else:
-            tmp_log_q = log_q
-        
-        if blank_correction_version > 0:
-            tmp_log_q_blank = log_q_blank.clone() if not correction_in_final_score else log_q_blank
-            first_lm_probs = log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab_w_eos]
-            if blank_correction_version in [1, 2]: # mean next lm prob
-                vocab_size_log = torch.log(torch.tensor(vocab_size + 1, device=device, dtype=log_probs[0].dtype))
-                tmp_log_q_blank[:, 0] += safe_logsumexp(first_lm_probs, dim=-1) - vocab_size_log
-            elif blank_correction_version in [3, 4]: # median next lm prob
-                tmp_log_q_blank[:, 0] += torch.median(first_lm_probs, dim=-1).values
-            elif blank_correction_version in [5, 6]: # 90% quantile next lm prob
-                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.9, dim=-1, interpolation="higher")
-            elif blank_correction_version in [7, 8]: # average over top 10% next lm prob
-                top_10 = torch.topk(first_lm_probs, int(0.1 * (vocab_size + 1)), dim=-1, sorted=False).values
-                top_10_size_log = torch.log(torch.tensor(top_10.size(0), device=device, dtype=log_probs[0].dtype))
-                tmp_log_q_blank[:, 0] += safe_logsumexp(top_10, dim=-1) - top_10_size_log
-            elif blank_correction_version in [9, 10]: # average over top 5% next lm prob
-                top_5 = torch.topk(first_lm_probs, int(0.05 * (vocab_size + 1)), dim=-1, sorted=False).values
-                top_5_size_log = torch.log(torch.tensor(top_5.size(0), device=device, dtype=log_probs[0].dtype))
-                tmp_log_q_blank[:, 0] += safe_logsumexp(top_5, dim=-1) - top_5_size_log
-            elif blank_correction_version in [11, 12]: # 70% quantile next lm prob
-                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.7, dim=-1, interpolation="higher")
-            elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
-                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.8, dim=-1, interpolation="higher")
-            elif blank_correction_version in [15, 16]: # 87% quantile next lm prob
-                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.87, dim=-1, interpolation="higher")
-            else:
-                raise NotImplementedError(f"Blank correction version {blank_correction_version} is not implemented")
-            tmp_log_q = safe_logaddexp(log_q_label, tmp_log_q_blank)
-            if correction_in_final_score:
-                log_q = tmp_log_q
-        
-        topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False) # TODO replace log_q with topk_scores
-        topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else topk_idx
-        # print(topk_idx.shape)
-        
-        new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
-        new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
-        new_idx = torch.cat([new_idx, new_last_idx], dim=2)
-        new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
-        new_idx = new_idx.view(batch_size, -1)
-        # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
-    
-    # Set up the best path print
-    if print_best_path_for_idx:
-        with torch.no_grad():
-            best_path_print = {}
-            max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
-            max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
-            if top_k > 0:
-                tmp_topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)
-            for idx in print_best_path_for_idx:
-                m_idx = max_idx[idx].clone()
-                m_idx[m_idx > 0] += 1
-                a_idx = m_idx.clone()
-                a_idx[a_idx == 0] = blank_idx
-                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()} # TODO AM greedy score
-                for k in range(top_k):
-                    if k == 5:
-                        break
-                    k_idx = tmp_topk_idx[idx, k].clone()
-                    k_idx[k_idx > 0] += 1
-                    best_path_print[idx][f"top{k}_str"] = f"{k_idx.tolist()}"
-    
-    if blank_correction_version > 0 and top_k > 0:
-        # Prepare lm tensor for blank transition
-        log_lm_probs_w_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order)).view(-1, vocab_size + 1).unsqueeze(0)
-        if blank_correction_version in [1, 2]: # mean next lm prob
-            log_lm_probs_w_eos = safe_logsumexp(log_lm_probs_w_eos, dim=-1) - vocab_size_log
-        elif blank_correction_version in [3, 4]: # median next lm prob
-            log_lm_probs_w_eos = torch.median(log_lm_probs_w_eos, dim=-1).values
-        elif blank_correction_version in [5, 6]: # 90% quantile next lm prob
-            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.9, dim=-1, interpolation="higher")
-        elif blank_correction_version in [7, 8]: # average over top 10% next lm prob
-            top_10 = torch.topk(log_lm_probs_w_eos, int(0.1 * (vocab_size + 1)), dim=-1, sorted=False).values
-            log_lm_probs_w_eos = safe_logsumexp(top_10, dim=-1) - top_10_size_log
-        elif blank_correction_version in [9, 10]: # average over top 5% next lm prob
-            top_5 = torch.topk(log_lm_probs_w_eos, int(0.05 * (vocab_size + 1)), dim=-1, sorted=False).values
-            log_lm_probs_w_eos = safe_logsumexp(top_5, dim=-1) - top_5_size_log
-        elif blank_correction_version in [11, 12]: # 70% quantile next lm prob
-            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.7, dim=-1, interpolation="higher")
-        elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
-            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.8, dim=-1, interpolation="higher")
-        elif blank_correction_version in [15, 16]: # 87% quantile next lm prob
-            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.87, dim=-1, interpolation="higher")
-    # Prepare lm tensor for the diagonal transition
-    log_lm_probs_wo_last_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [out_idx_vocab])
-    log_lm_probs_wo_last_eos = torch.cat([torch.full((*log_lm_probs_wo_last_eos.size()[:-1], 1), log_zero, device=device), log_lm_probs_wo_last_eos], dim=-1) # EoS in last dimension is set to log_zero
-    # Prepare lm tensor for the skip transition
-    log_lm_probs_wo_diag = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 2) + [out_idx_vocab] * 2)
-    log_lm_probs_wo_diag = torch.cat([torch.full((*log_lm_probs_wo_diag.size()[:-2], 1, vocab_size), log_zero, device=device), log_lm_probs_wo_diag], dim=-2) # EoS in penultimate dimension is set to log_zero
-    log_lm_probs_wo_diag = torch.cat([torch.full((*log_lm_probs_wo_diag.size()[:-1], 1), log_zero, device=device), log_lm_probs_wo_diag], dim=-1) # EoS in last dimension is set to log_zero
-    log_lm_probs_wo_diag = (1 - torch.eye(vocab_size + 1, device=device)).log() + log_lm_probs_wo_diag # Fill diagonal in last two dimensions with log_zero as we don't allow repetitions of the same label here
-    # Prepare lm tensor for EoS transition
-    log_lm_probs_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [torch.tensor([eos_symbol], device=device)]).squeeze(-1).unsqueeze(0)
-    if top_k > 0 and lm_scale > 0.0:
-        log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
-    # Prepare prior
-    if use_prior:
-        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[:, *(None,) * (LM_order - 2), :].expand(original_shape)
-        if top_k > 0:
-            log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
-    
-    # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
-    
-    for t in range(1, max_audio_time):
-        # case 1: emit a blank at t
-        # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-        if top_k > 0:
-            # Only consider blanks following top k sequences
-            new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
-            if alignment_topk:
-                label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
-                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
-                blank_topk_idx = topk_idx[topk_idx[-1] == 1][:-1]
-                # We could already have entries from the topk labels, so we have to add
-                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)])
-            else:
-                new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
-        else:
-            new_log_q_blank = log_q + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
-        if use_prior and blank_prior:
-            new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
-
-        # case 2: emit a non-blank at t
-        # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip]
-        
-        # horizontal transition Q(t-1, u, non-blank)
-        if top_k > 0:
-            new_log_q_label = torch.full_like(log_q, log_zero, device=device)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
-                topk_log_q_label = torch.full_like(log_q, log_zero, device=device)
-            if alignment_topk:
-                new_log_q_label[label_topk_idx] = log_q_label[label_topk_idx] # TODO maybe we need gather instead
-            else:
-                if blank_correction_version > 0 and blank_correction_version % 2 == 0 and correction_in_final_score:
-                    new_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
-                else:
-                    new_log_q_label.scatter_(1, topk_idx, log_q_label.gather(1, topk_idx))
-                    if blank_correction_version > 0 and blank_correction_version % 2 == 0:
-                        topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
-        else:
-            log_mass_horizontal = log_q_label
-            if use_prior and horizontal_prior:
-                log_mass_horizontal = log_mass_horizontal - log_prior_wo_bos
-        
-        # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
-        # take batch index b into account, this is equivalent to compute
-        # mass_diagonal[b, u] = sum_v Q(t-1, b, blank, v) * p_LM(u|v) / p_PR(u)
-        # mass_diagonal = Q(t-1, :, blank, :) @ M / p_PR(u), where M(v,u) = p_LM(u|v) = lm_probs[v][u]
-        if top_k > 0:
-            log_lm_probs_topk = log_lm_probs_wo_last_eos.view(-1, vocab_size + 1).unsqueeze(0).expand(batch_size, -1, -1) # (B, V, V)
-            if alignment_topk:
-                log_q_blank_topk = log_q_blank.gather(1, blank_topk_idx) # (B, K)
-                log_lm_probs_topk = log_lm_probs_topk.gather(1, blank_topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V-1)
-            else:
-                log_q_blank_topk = log_q_blank.gather(1, topk_idx) # (B, K)
-                log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V)
-            log_q_blank_topk = log_q_blank_topk.unsqueeze(-1).expand_as(log_lm_probs_topk)
-            log_mass_diagonal_add = log_q_blank_topk + log_lm_probs_topk # (B, K, V)
-            log_mass_diagonal_add = log_mass_diagonal_add.view(batch_size, -1)
-            new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
-                topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
-        else:
-            log_mass_diagonal = log_matmul(log_q_blank, log_lm_probs_wo_last_eos) # (B, V) @ (V, V) -> (B, V)
-            if use_prior:
-                log_mass_diagonal = log_mass_diagonal - log_prior_wo_bos
-        
-        # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
-        if top_k > 0:
-            log_lm_probs_topk = log_lm_probs_wo_diag.view(-1, vocab_size + 1).unsqueeze(0).expand(batch_size, -1, -1) # (B, V1, ..., Vm)
-            if alignment_topk:
-                log_q_label_topk = log_q_label.gather(1, label_topk_idx) # (B, K)
-                log_lm_probs_topk = log_lm_probs_topk.gather(1, label_topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V-1)
-            else:
-                log_q_label_topk = log_q_label.gather(1, topk_idx) # (B, K)
-                log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V)
-            log_q_label_topk = log_q_label_topk.unsqueeze(-1).expand_as(log_lm_probs_topk)
-            log_mass_skip_add = log_q_label_topk + log_lm_probs_topk # (B, K, V)
-            log_mass_skip_add = log_mass_skip_add.view(batch_size, -1)
-            new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
-                topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
-        else:
-            log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_diag) # (B, V) @ (V, V) -> (B, V)
-            if use_prior:
-                log_mass_skip = log_mass_skip - log_prior_wo_bos
-        
-        # add up the three transition types
-        if top_k <= 0:
-            new_log_q_label = safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
-        # correct the prior for topK
-        elif use_prior:
-            new_log_q_label -= log_prior_wo_bos
-        
-        # multiply with p_AM(u|x_t)
-        if top_k > 0:
-            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
-            new_log_q_label += label_am
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
-                topk_log_q_label += label_am
-        else:
-            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
-        
-        # set masked results to log_q
-        time_mask = (t < input_lengths)[:, *(None,) * (LM_order - 1)] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
-        log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
-        log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
-        log_q = safe_logaddexp(log_q_label, log_q_blank)
-        # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
-        
-        assert torch.all(torch.isneginf(log_q_label[..., 0])), "There should be no probability for the BoS symbol in log_q_label"
-        
-        if top_k > 0:
-            if alignment_topk:
-                tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1)
-            else:
-                tmp_log_q = log_q
-            
-            if blank_correction_version > 0:
-                # if print_best_path_for_idx:
-                #     with torch.no_grad():
-                #         for idx in print_best_path_for_idx:
-                #             print(f"Blank correction for {idx} in {t}: {log_lm_probs_w_eos[0].gather(0, topk_idx[idx]).tolist()}")
-                            
-                tmp_log_q_blank = log_q_blank + log_lm_probs_w_eos
-                if blank_correction_version % 2 == 0 and not correction_in_final_score:
-                    tmp_log_q_2 = safe_logaddexp(topk_log_q_label, tmp_log_q_blank)
-                else:
-                    tmp_log_q_2 = safe_logaddexp(log_q_label, tmp_log_q_blank)
-                
-                if correction_in_final_score:
-                    log_q_blank = tmp_log_q_blank
-                    tmp_log_q = tmp_log_q_2
-                    log_q = tmp_log_q_2
-                    
-            else:
-                tmp_log_q_2 = tmp_log_q
-            
-            # If we are in the last timestep, we also have to add the EOS LM probability
-            last_mask = (t == input_lengths - 1).unsqueeze(-1).expand_as(tmp_log_q)
-            tmp_log_q = torch.where(last_mask, tmp_log_q + log_lm_probs_eos.view(1, -1).expand_as(tmp_log_q), tmp_log_q_2)
-            # Calculate top k and apply time mask
-            new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False)
-            new_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else new_topk_idx
-            
-            # if blank_correction_version > 0 and print_best_path_for_idx:
-            #     with torch.no_grad():
-            #         for idx in print_best_path_for_idx:
-            #             tmp_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[idx, :, -1]
-            #             print(f"Top-K correction for {idx} in {t}: {log_lm_probs_wo_last_eos.view(-1, vocab_size + 1).gather(0, topk_idx[idx].unsqueeze(-1).expand(-1, vocab_size + 1))[:, tmp_topk_idx].tolist()}")
-            
-            topk_scores = torch.where(time_mask.expand_as(topk_scores), new_topk_scores, topk_scores)
-            topk_idx = torch.where(time_mask.expand_as(topk_idx), new_topk_idx, topk_idx)
-
-            new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
-            new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
-            new_idx = torch.cat([new_idx, new_last_idx], dim=2)
-            new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
-            new_idx = new_idx.view(batch_size, -1)
-            # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
-            
-        if print_best_path_for_idx:
-            with torch.no_grad():
-                max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
-                max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
-                if top_k > 0:
-                    tmp_topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)
-                for idx in print_best_path_for_idx:
-                    m_idx = max_idx[idx].clone()
-                    m_idx[m_idx > 0] += 1
-                    a_idx = m_idx.clone()
-                    a_idx[a_idx == 0] = blank_idx
-                    
-                    best_path_print[idx]["str"] += f" {m_idx.tolist()}"
-                    best_path_print[idx]["am_str"] += " {:.2f}".format(log_probs[t][idx][a_idx[-1]].tolist())
-                    best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0)
-                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[:, *max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
-                    best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
-                    best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
-                    for k in range(top_k):
-                        if k == 5:
-                            break
-                        k_idx = tmp_topk_idx[idx, k].clone()
-                        k_idx[k_idx > 0] += 1
-                        best_path_print[idx][f"top{k}_str"] += f" {k_idx.tolist()}"
-        
-        torch.cuda.empty_cache()
-    
-    if top_k > 0:
-        sum_score = safe_logsumexp(topk_scores, dim=-1)
-    else:
-        # multiply last Q with p_LM(eos | u)
-        log_q += log_lm_probs_eos
-        # sum over the vocab dimensions
-        sum_score = log_q
-        for _ in range(LM_order - 1):
-            sum_score = safe_logsumexp(sum_score, dim=-1)
-    
-    if print_best_path_for_idx:
-        with torch.no_grad():
-            for idx in print_best_path_for_idx:
-                print(f"\n\nBest path for {idx}: \n{get_bpes(best_path_print[idx]['str'])}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nLM: {best_path_print[idx]['LM']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
-                for k in range(top_k):
-                    if k == 5:
-                        break
-                    print(f"Top {k + 1} path: \n{get_bpes(best_path_print[idx][f'top{k}_str'])}")
-                print("\n\n")
-    
-    loss = -sum_score
-    if old_device != device:
-        loss = loss.to(old_device)
-    
-    return loss
+    #
+    # use_prior = log_prior is not None
+    #
+    # old_device = log_probs.device
+    # log_probs = log_probs.to(device)
+    # log_lm_probs = log_lm_probs.to(device)
+    # if use_prior:
+    #     log_prior = log_prior.to(device)
+    # input_lengths = input_lengths.to(device)
+    #
+    # max_audio_time, batch_size, n_out = log_probs.shape
+    # # scaled log am and lm probs
+    # log_probs = am_scale * log_probs
+    # if lm_scale == 0.0:
+    #     log_lm_probs = torch.zeros_like(log_lm_probs, device=device)
+    # else:
+    #     log_lm_probs = lm_scale * log_lm_probs
+    # if use_prior:
+    #     log_prior = prior_scale * log_prior
+    #
+    # # print_gradients = PrintGradients.apply
+    # # grad_assert = AssertGradients.apply
+    #
+    # if eos_idx is None or eos_idx == blank_idx: # vocab means no EOS and blank
+    #     vocab_size = n_out - 1
+    #     eos_symbol = blank_idx
+    #     assert eos_idx == 0, "EOS should be the first symbol"
+    # else:
+    #     vocab_size = n_out - 2
+    #     eos_symbol = eos_idx
+    #     assert eos_idx == 0, "EOS should be the first symbol"
+    #     assert blank_idx == n_out - 1, "blank should be the last symbol"
+    # assert unk_idx is not None, "unk_idx should be defined"
+    # vocab_size -= 1 # remove unk from vocab size
+    # # BoS / EoS and UNK are in the LM
+    # assert log_lm_probs.size() == (vocab_size + 2,) * LM_order, f"LM shape is not correct, should be {vocab_size + 2} in all dimensions but is {log_lm_probs.size()}"
+    # if use_prior:
+    #     assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
+    #     if top_k > 0:
+    #         assert horizontal_prior, "Not using the horizontal prior is not implemented for top_k > 0"
+    #
+    # # Unbind the log_probs for each timestep so it is faster during backprop
+    # log_probs = log_probs.unbind(0)
+    #
+    # # Used to remove blank, unk and eos from the last dim (vocab)
+    # out_idx = torch.arange(n_out, device=device)
+    # out_idx_vocab = out_idx[out_idx != blank_idx].long() # "vocab" means no EOS, unk and blank
+    # out_idx_vocab = out_idx_vocab[out_idx_vocab != unk_idx]
+    # out_idx_vocab_w_eos = out_idx[out_idx != unk_idx].long()
+    # if eos_idx is not None and eos_idx != blank_idx:
+    #     out_idx_vocab = out_idx_vocab[out_idx_vocab != eos_idx]
+    #     out_idx_vocab_w_eos = out_idx_vocab_w_eos[out_idx_vocab_w_eos != blank_idx]
+    #
+    # # sum score by DP
+    # # log_q is the list in which we store the log Q values as tensors of the last N timesteps
+    # # It is split into ending on a blank and ending on a non-blank
+    #
+    # # Init Q for t=0
+    # # Q(0, u, blank) = 0
+    # # Q(0, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
+    # log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab].unsqueeze(0)
+    # if use_prior:
+    #     log_q_label_init = log_q_label_init - log_prior[out_idx_vocab].unsqueeze(0)
+    # # We have to prepend the BoS symbol even though it is not used in the q_label calculation, but it is need for higher order LMs
+    # log_q_label_init = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_q_label_init], dim=1)
+    # log_q_label = torch.full((batch_size, *(vocab_size + 1,) * (LM_order - 1)), log_zero, device=device) # (B, V, ..., V), no blank in vocab dims
+    # log_q_label[:, *(0,) * (LM_order - 2)] = log_q_label_init
+    # log_q_blank = torch.full_like(log_q_label, log_zero, device=device) # (B, V, ..., V)
+    # # Calculate partial empty sequence score
+    # # Empty am score = sum log prob blank, lm score = p_LM(eos | bos), prior score = p_PR(eos)
+    # log_partial_empty_seq_prob = log_probs[0][:, blank_idx]
+    # if use_prior and blank_prior:
+    #     log_partial_empty_seq_prob = log_partial_empty_seq_prob - log_prior[blank_idx]
+    # log_q_blank[:, *(0,) * (LM_order - 1)] = log_partial_empty_seq_prob
+    # log_q = safe_logaddexp(log_q_label, log_q_blank)
+    # original_shape = log_q.shape
+    #
+    # # Calculate initial top k if needed
+    # if top_k > 0:
+    #     log_q_label = log_q_label.view(batch_size, -1)
+    #     log_q_blank = log_q_blank.view(batch_size, -1)
+    #     log_q = log_q.view(batch_size, -1)
+    #
+    #     if alignment_topk:
+    #         raise NotImplementedError("Alignment topk is not implemented yet")
+    #         tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1).view(batch_size, -1)
+    #     else:
+    #         tmp_log_q = log_q
+    #
+    #     if blank_correction_version > 0:
+    #         tmp_log_q_blank = log_q_blank.clone() if not correction_in_final_score else log_q_blank
+    #         first_lm_probs = log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab_w_eos]
+    #         if blank_correction_version in [1, 2]: # mean next lm prob
+    #             vocab_size_log = torch.log(torch.tensor(vocab_size + 1, device=device, dtype=log_probs[0].dtype))
+    #             tmp_log_q_blank[:, 0] += safe_logsumexp(first_lm_probs, dim=-1) - vocab_size_log
+    #         elif blank_correction_version in [3, 4]: # median next lm prob
+    #             tmp_log_q_blank[:, 0] += torch.median(first_lm_probs, dim=-1).values
+    #         elif blank_correction_version in [5, 6]: # 90% quantile next lm prob
+    #             tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.9, dim=-1, interpolation="higher")
+    #         elif blank_correction_version in [7, 8]: # average over top 10% next lm prob
+    #             top_10 = torch.topk(first_lm_probs, int(0.1 * (vocab_size + 1)), dim=-1, sorted=False).values
+    #             top_10_size_log = torch.log(torch.tensor(top_10.size(0), device=device, dtype=log_probs[0].dtype))
+    #             tmp_log_q_blank[:, 0] += safe_logsumexp(top_10, dim=-1) - top_10_size_log
+    #         elif blank_correction_version in [9, 10]: # average over top 5% next lm prob
+    #             top_5 = torch.topk(first_lm_probs, int(0.05 * (vocab_size + 1)), dim=-1, sorted=False).values
+    #             top_5_size_log = torch.log(torch.tensor(top_5.size(0), device=device, dtype=log_probs[0].dtype))
+    #             tmp_log_q_blank[:, 0] += safe_logsumexp(top_5, dim=-1) - top_5_size_log
+    #         elif blank_correction_version in [11, 12]: # 70% quantile next lm prob
+    #             tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.7, dim=-1, interpolation="higher")
+    #         elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
+    #             tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.8, dim=-1, interpolation="higher")
+    #         elif blank_correction_version in [15, 16]: # 87% quantile next lm prob
+    #             tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.87, dim=-1, interpolation="higher")
+    #         else:
+    #             raise NotImplementedError(f"Blank correction version {blank_correction_version} is not implemented")
+    #         tmp_log_q = safe_logaddexp(log_q_label, tmp_log_q_blank)
+    #         if correction_in_final_score:
+    #             log_q = tmp_log_q
+    #
+    #     topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False) # TODO replace log_q with topk_scores
+    #     topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else topk_idx
+    #     # print(topk_idx.shape)
+    #
+    #     new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
+    #     new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
+    #     new_idx = torch.cat([new_idx, new_last_idx], dim=2)
+    #     new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
+    #     new_idx = new_idx.view(batch_size, -1)
+    #     # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
+    #
+    # # Set up the best path print
+    # if print_best_path_for_idx:
+    #     with torch.no_grad():
+    #         best_path_print = {}
+    #         max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
+    #         max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
+    #         if top_k > 0:
+    #             tmp_topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)
+    #         for idx in print_best_path_for_idx:
+    #             m_idx = max_idx[idx].clone()
+    #             m_idx[m_idx > 0] += 1
+    #             a_idx = m_idx.clone()
+    #             a_idx[a_idx == 0] = blank_idx
+    #             best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()} # TODO AM greedy score
+    #             for k in range(top_k):
+    #                 if k == 5:
+    #                     break
+    #                 k_idx = tmp_topk_idx[idx, k].clone()
+    #                 k_idx[k_idx > 0] += 1
+    #                 best_path_print[idx][f"top{k}_str"] = f"{k_idx.tolist()}"
+    #
+    # if blank_correction_version > 0 and top_k > 0:
+    #     # Prepare lm tensor for blank transition
+    #     log_lm_probs_w_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order)).view(-1, vocab_size + 1).unsqueeze(0)
+    #     if blank_correction_version in [1, 2]: # mean next lm prob
+    #         log_lm_probs_w_eos = safe_logsumexp(log_lm_probs_w_eos, dim=-1) - vocab_size_log
+    #     elif blank_correction_version in [3, 4]: # median next lm prob
+    #         log_lm_probs_w_eos = torch.median(log_lm_probs_w_eos, dim=-1).values
+    #     elif blank_correction_version in [5, 6]: # 90% quantile next lm prob
+    #         log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.9, dim=-1, interpolation="higher")
+    #     elif blank_correction_version in [7, 8]: # average over top 10% next lm prob
+    #         top_10 = torch.topk(log_lm_probs_w_eos, int(0.1 * (vocab_size + 1)), dim=-1, sorted=False).values
+    #         log_lm_probs_w_eos = safe_logsumexp(top_10, dim=-1) - top_10_size_log
+    #     elif blank_correction_version in [9, 10]: # average over top 5% next lm prob
+    #         top_5 = torch.topk(log_lm_probs_w_eos, int(0.05 * (vocab_size + 1)), dim=-1, sorted=False).values
+    #         log_lm_probs_w_eos = safe_logsumexp(top_5, dim=-1) - top_5_size_log
+    #     elif blank_correction_version in [11, 12]: # 70% quantile next lm prob
+    #         log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.7, dim=-1, interpolation="higher")
+    #     elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
+    #         log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.8, dim=-1, interpolation="higher")
+    #     elif blank_correction_version in [15, 16]: # 87% quantile next lm prob
+    #         log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.87, dim=-1, interpolation="higher")
+    # # Prepare lm tensor for the diagonal transition
+    # log_lm_probs_wo_last_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [out_idx_vocab])
+    # log_lm_probs_wo_last_eos = torch.cat([torch.full((*log_lm_probs_wo_last_eos.size()[:-1], 1), log_zero, device=device), log_lm_probs_wo_last_eos], dim=-1) # EoS in last dimension is set to log_zero
+    # # Prepare lm tensor for the skip transition
+    # log_lm_probs_wo_diag = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 2) + [out_idx_vocab] * 2)
+    # log_lm_probs_wo_diag = torch.cat([torch.full((*log_lm_probs_wo_diag.size()[:-2], 1, vocab_size), log_zero, device=device), log_lm_probs_wo_diag], dim=-2) # EoS in penultimate dimension is set to log_zero
+    # log_lm_probs_wo_diag = torch.cat([torch.full((*log_lm_probs_wo_diag.size()[:-1], 1), log_zero, device=device), log_lm_probs_wo_diag], dim=-1) # EoS in last dimension is set to log_zero
+    # log_lm_probs_wo_diag = (1 - torch.eye(vocab_size + 1, device=device)).log() + log_lm_probs_wo_diag # Fill diagonal in last two dimensions with log_zero as we don't allow repetitions of the same label here
+    # # Prepare lm tensor for EoS transition
+    # log_lm_probs_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [torch.tensor([eos_symbol], device=device)]).squeeze(-1).unsqueeze(0)
+    # if top_k > 0 and lm_scale > 0.0:
+    #     log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
+    # # Prepare prior
+    # if use_prior:
+    #     log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[:, *(None,) * (LM_order - 2), :].expand(original_shape)
+    #     if top_k > 0:
+    #         log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
+    #
+    # # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
+    #
+    # for t in range(1, max_audio_time):
+    #     # case 1: emit a blank at t
+    #     # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
+    #     if top_k > 0:
+    #         # Only consider blanks following top k sequences
+    #         new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
+    #         if alignment_topk:
+    #             label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
+    #             new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
+    #             blank_topk_idx = topk_idx[topk_idx[-1] == 1][:-1]
+    #             # We could already have entries from the topk labels, so we have to add
+    #             new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)])
+    #         else:
+    #             new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
+    #     else:
+    #         new_log_q_blank = log_q + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
+    #     if use_prior and blank_prior:
+    #         new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
+    #
+    #     # case 2: emit a non-blank at t
+    #     # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip]
+    #
+    #     # horizontal transition Q(t-1, u, non-blank)
+    #     if top_k > 0:
+    #         new_log_q_label = torch.full_like(log_q, log_zero, device=device)
+    #         if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
+    #             topk_log_q_label = torch.full_like(log_q, log_zero, device=device)
+    #         if alignment_topk:
+    #             new_log_q_label[label_topk_idx] = log_q_label[label_topk_idx] # TODO maybe we need gather instead
+    #         else:
+    #             if blank_correction_version > 0 and blank_correction_version % 2 == 0 and correction_in_final_score:
+    #                 new_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
+    #             else:
+    #                 new_log_q_label.scatter_(1, topk_idx, log_q_label.gather(1, topk_idx))
+    #                 if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+    #                     topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
+    #     else:
+    #         log_mass_horizontal = log_q_label
+    #         if use_prior and horizontal_prior:
+    #             log_mass_horizontal = log_mass_horizontal - log_prior_wo_bos
+    #
+    #     # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
+    #     # take batch index b into account, this is equivalent to compute
+    #     # mass_diagonal[b, u] = sum_v Q(t-1, b, blank, v) * p_LM(u|v) / p_PR(u)
+    #     # mass_diagonal = Q(t-1, :, blank, :) @ M / p_PR(u), where M(v,u) = p_LM(u|v) = lm_probs[v][u]
+    #     if top_k > 0:
+    #         log_lm_probs_topk = log_lm_probs_wo_last_eos.view(-1, vocab_size + 1).unsqueeze(0).expand(batch_size, -1, -1) # (B, V, V)
+    #         if alignment_topk:
+    #             log_q_blank_topk = log_q_blank.gather(1, blank_topk_idx) # (B, K)
+    #             log_lm_probs_topk = log_lm_probs_topk.gather(1, blank_topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V-1)
+    #         else:
+    #             log_q_blank_topk = log_q_blank.gather(1, topk_idx) # (B, K)
+    #             log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V)
+    #         log_q_blank_topk = log_q_blank_topk.unsqueeze(-1).expand_as(log_lm_probs_topk)
+    #         log_mass_diagonal_add = log_q_blank_topk + log_lm_probs_topk # (B, K, V)
+    #         log_mass_diagonal_add = log_mass_diagonal_add.view(batch_size, -1)
+    #         new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
+    #         if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
+    #             topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
+    #     else:
+    #         log_mass_diagonal = log_matmul(log_q_blank, log_lm_probs_wo_last_eos) # (B, V) @ (V, V) -> (B, V)
+    #         if use_prior:
+    #             log_mass_diagonal = log_mass_diagonal - log_prior_wo_bos
+    #
+    #     # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
+    #     if top_k > 0:
+    #         log_lm_probs_topk = log_lm_probs_wo_diag.view(-1, vocab_size + 1).unsqueeze(0).expand(batch_size, -1, -1) # (B, V1, ..., Vm)
+    #         if alignment_topk:
+    #             log_q_label_topk = log_q_label.gather(1, label_topk_idx) # (B, K)
+    #             log_lm_probs_topk = log_lm_probs_topk.gather(1, label_topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V-1)
+    #         else:
+    #             log_q_label_topk = log_q_label.gather(1, topk_idx) # (B, K)
+    #             log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size + 1)) # (B, K, V)
+    #         log_q_label_topk = log_q_label_topk.unsqueeze(-1).expand_as(log_lm_probs_topk)
+    #         log_mass_skip_add = log_q_label_topk + log_lm_probs_topk # (B, K, V)
+    #         log_mass_skip_add = log_mass_skip_add.view(batch_size, -1)
+    #         new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
+    #         if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
+    #             topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
+    #     else:
+    #         log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_diag) # (B, V) @ (V, V) -> (B, V)
+    #         if use_prior:
+    #             log_mass_skip = log_mass_skip - log_prior_wo_bos
+    #
+    #     # add up the three transition types
+    #     if top_k <= 0:
+    #         new_log_q_label = safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
+    #     # correct the prior for topK
+    #     elif use_prior:
+    #         new_log_q_label -= log_prior_wo_bos
+    #
+    #     # multiply with p_AM(u|x_t)
+    #     if top_k > 0:
+    #         label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
+    #         new_log_q_label += label_am
+    #         if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
+    #             topk_log_q_label += label_am
+    #     else:
+    #         new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
+    #
+    #     # set masked results to log_q
+    #     time_mask = (t < input_lengths)[:, *(None,) * (LM_order - 1)] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
+    #     log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
+    #     log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
+    #     log_q = safe_logaddexp(log_q_label, log_q_blank)
+    #     # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
+    #
+    #     assert torch.all(torch.isneginf(log_q_label[..., 0])), "There should be no probability for the BoS symbol in log_q_label"
+    #
+    #     if top_k > 0:
+    #         if alignment_topk:
+    #             tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1)
+    #         else:
+    #             tmp_log_q = log_q
+    #
+    #         if blank_correction_version > 0:
+    #             # if print_best_path_for_idx:
+    #             #     with torch.no_grad():
+    #             #         for idx in print_best_path_for_idx:
+    #             #             print(f"Blank correction for {idx} in {t}: {log_lm_probs_w_eos[0].gather(0, topk_idx[idx]).tolist()}")
+    #
+    #             tmp_log_q_blank = log_q_blank + log_lm_probs_w_eos
+    #             if blank_correction_version % 2 == 0 and not correction_in_final_score:
+    #                 tmp_log_q_2 = safe_logaddexp(topk_log_q_label, tmp_log_q_blank)
+    #             else:
+    #                 tmp_log_q_2 = safe_logaddexp(log_q_label, tmp_log_q_blank)
+    #
+    #             if correction_in_final_score:
+    #                 log_q_blank = tmp_log_q_blank
+    #                 tmp_log_q = tmp_log_q_2
+    #                 log_q = tmp_log_q_2
+    #
+    #         else:
+    #             tmp_log_q_2 = tmp_log_q
+    #
+    #         # If we are in the last timestep, we also have to add the EOS LM probability
+    #         last_mask = (t == input_lengths - 1).unsqueeze(-1).expand_as(tmp_log_q)
+    #         tmp_log_q = torch.where(last_mask, tmp_log_q + log_lm_probs_eos.view(1, -1).expand_as(tmp_log_q), tmp_log_q_2)
+    #         # Calculate top k and apply time mask
+    #         new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False)
+    #         new_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else new_topk_idx
+    #
+    #         # if blank_correction_version > 0 and print_best_path_for_idx:
+    #         #     with torch.no_grad():
+    #         #         for idx in print_best_path_for_idx:
+    #         #             tmp_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[idx, :, -1]
+    #         #             print(f"Top-K correction for {idx} in {t}: {log_lm_probs_wo_last_eos.view(-1, vocab_size + 1).gather(0, topk_idx[idx].unsqueeze(-1).expand(-1, vocab_size + 1))[:, tmp_topk_idx].tolist()}")
+    #
+    #         topk_scores = torch.where(time_mask.expand_as(topk_scores), new_topk_scores, topk_scores)
+    #         topk_idx = torch.where(time_mask.expand_as(topk_idx), new_topk_idx, topk_idx)
+    #
+    #         new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
+    #         new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
+    #         new_idx = torch.cat([new_idx, new_last_idx], dim=2)
+    #         new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
+    #         new_idx = new_idx.view(batch_size, -1)
+    #         # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
+    #
+    #     if print_best_path_for_idx:
+    #         with torch.no_grad():
+    #             max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
+    #             max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
+    #             if top_k > 0:
+    #                 tmp_topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)
+    #             for idx in print_best_path_for_idx:
+    #                 m_idx = max_idx[idx].clone()
+    #                 m_idx[m_idx > 0] += 1
+    #                 a_idx = m_idx.clone()
+    #                 a_idx[a_idx == 0] = blank_idx
+    #
+    #                 best_path_print[idx]["str"] += f" {m_idx.tolist()}"
+    #                 best_path_print[idx]["am_str"] += " {:.2f}".format(log_probs[t][idx][a_idx[-1]].tolist())
+    #                 best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0)
+    #                 best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[:, *max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
+    #                 best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
+    #                 best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
+    #                 for k in range(top_k):
+    #                     if k == 5:
+    #                         break
+    #                     k_idx = tmp_topk_idx[idx, k].clone()
+    #                     k_idx[k_idx > 0] += 1
+    #                     best_path_print[idx][f"top{k}_str"] += f" {k_idx.tolist()}"
+    #
+    #     torch.cuda.empty_cache()
+    #
+    # if top_k > 0:
+    #     sum_score = safe_logsumexp(topk_scores, dim=-1)
+    # else:
+    #     # multiply last Q with p_LM(eos | u)
+    #     log_q += log_lm_probs_eos
+    #     # sum over the vocab dimensions
+    #     sum_score = log_q
+    #     for _ in range(LM_order - 1):
+    #         sum_score = safe_logsumexp(sum_score, dim=-1)
+    #
+    # if print_best_path_for_idx:
+    #     with torch.no_grad():
+    #         for idx in print_best_path_for_idx:
+    #             print(f"\n\nBest path for {idx}: \n{get_bpes(best_path_print[idx]['str'])}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nLM: {best_path_print[idx]['LM']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
+    #             for k in range(top_k):
+    #                 if k == 5:
+    #                     break
+    #                 print(f"Top {k + 1} path: \n{get_bpes(best_path_print[idx][f'top{k}_str'])}")
+    #             print("\n\n")
+    #
+    # loss = -sum_score
+    # if old_device != device:
+    #     loss = loss.to(old_device)
+    #
+    # return loss
 
 def sum_loss_ngram_rf(
     *,
@@ -814,235 +819,237 @@ def sum_loss_ngram_rf(
     blank_correction_version: int = 0,
     print_best_path_for_idx: list[int] = [],
 ):
-    assert top_k > 0, "Top k should be greater than 0 as exact sum is not implemented for FFNN"
-    assert blank_correction_version == 0, "Blank correction is not implemented for FFNN"
-    
-    # RETURNN version is like "1.20250115.110555"
-    # There was an important fix in 2025-01-17 affecting masked_scatter.
-    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
-    import returnn
-    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
-    
-    def _update_context(context: rf.Tensor, new_label: rf.Tensor, context_dim: rf.Dim) -> rf.Tensor:
-        new_dim = rf.Dim(1, name="new_label")
-        new_label = rf.expand_dim(new_label, dim=new_dim)
-        old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
-        new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
-        assert new_context_dim == context_dim
-        return new_context
-    
-    def _target_remove_blank(target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int) -> rf.Tensor:
-        assert target.sparse_dim == wb_target_dim
-        assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-        return rf.set_sparse_dim(target, target_dim)
-
-    def _target_dense_extend_blank(
-        target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int, value: float
-    ) -> rf.Tensor:
-        assert target_dim in target.dims
-        assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-        res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
-        return res
-    
-    use_prior = log_prior is not None
-    use_lm = log_lm_probs is not None
-    
-    old_device = log_probs.device
-    log_probs = rf.copy_to_device(log_probs, device)
-    if use_prior:
-        if not blank_prior and model.target_dim in log_prior.dims:
-            new_dim = rf.Dim(1)
-            log_prior = rf.concat(
-                [(log_prior, model.target_dim),(rf.zeros(dims = [new_dim],  dtype="float32", device=log_prior.device), new_dim)],
-                out_dim=model.wb_target_dim
-            )
-        assert model.wb_target_dim in log_prior.dims
-        log_prior = rf.copy_to_device(log_prior, device)
-    
-    batch_dims = [batch_dim]
-    batch_size = int(batch_dim.get_dim_value())
-    beam_dim = rf.Dim(1, name="initial-beam")
-    context_dim = rf.Dim(context_size, name="context")
-    batch_dims_ = batch_dims + [beam_dim]
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_) # Batch, Beam
-    
-    # scaled log am and prior probs
-    log_probs = am_scale * log_probs
-    if use_prior:
-        log_prior = prior_scale * log_prior
-        
-        # If not blank prior this is still applied as the log prior for blank is just 0
-        if horizontal_prior:
-            log_probs -= log_prior
-        
-    log_probs = rf.where(
-        input_lengths.get_mask(),
-        log_probs,
-        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
-    )
-    log_probs_ta = TensorArray.unstack(log_probs, axis=input_lengths)  # t -> Batch, VocabWB
-    
-    target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
-    target_wb = rf.constant(
-        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
-    )  # Batch, InBeam -> VocabWB
-    
-    # Prepare LM
-    if use_lm:
-        with torch.no_grad():
-            indices = []
-            for i in range(context_size):
-                indices.append(target.raw_tensor[..., i])
-            lm_logits = log_lm_probs[*indices]
-            assert lm_logits.size(-1) == int(model.target_dim.get_dim_value())
-            lm_logits = rf.convert_to_tensor(lm_logits, dims=batch_dims_ + [model.target_dim], dtype="float32", device=device, name="lm_logits")
-            assert lm_logits.dims == (*batch_dims_, model.target_dim)
-            # lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-            lm_log_probs *= lm_scale
-    
-    max_seq_len = int(input_lengths.get_dim_value())
-    backrefs = None
-    if use_recombination:
-        assert len(batch_dims) == 1
-        if recomb_after_topk:
-            seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
-        else:
-            seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
-    
-    for t in range(max_seq_len):
-        prev_target = target
-        prev_target_wb = target_wb
-
-        seq_log_prob = seq_log_prob + log_probs_ta[t]  # Batch, InBeam, VocabWB
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if use_lm:
-                # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
-                seq_log_prob += rf.where(
-                    (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-                    _target_dense_extend_blank(
-                        lm_log_probs,
-                        target_dim=model.target_dim,
-                        wb_target_dim=model.wb_target_dim,
-                        blank_idx=model.blank_idx,
-                        value=0.0,
-                    ),
-                    0.0,
-                )  # Batch, InBeam, VocabWB
-            if use_prior and not horizontal_prior:
-                # Subtract prior score. If prev align label (target_wb) is blank or != cur, add prior score, otherwise 0.
-                seq_log_prob -= rf.where(
-                    (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-                    log_prior,
-                    0.0,
-                )  # Batch, InBeam, VocabWB
-            
-        if use_recombination and not recomb_after_topk:
-            seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb, model.blank_idx)
-            if t > 0:
-                seq_log_prob = recombination.recombine_seqs(
-                    seq_log_prob,
-                    seq_hash,
-                    beam_dim,
-                    batch_dims[0],
-                    model.wb_target_dim,
-                    model.blank_idx,
-                    recomb_blank=recomb_blank,
-                    use_sum=recomb_with_sum,
-                )
-            
-        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=rf.Dim(top_k, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
-        )
-        
-        # seq_log_prob, backrefs, target_wb: Batch, Beam
-        # backrefs -> InBeam.
-        # target_wb -> VocabWB.
-        target_wb = rf.cast(target_wb, "int32")
-
-        if use_lm:
-            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
-        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
-        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
-        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
-        target = rf.where(
-            got_new_label,
-            _update_context(
-                prev_target,
-                _target_remove_blank(
-                    target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
-                ),
-                context_dim
-            ),
-            prev_target,
-        )  # Batch, Beam -> Vocab
-        
-        if use_recombination and recomb_after_topk:
-            seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx, gather_old_target=False)
-            if t > 0:
-                seq_log_prob = recombination.recombine_seqs(
-                    seq_log_prob,
-                    seq_hash,
-                    beam_dim,
-                    batch_dims[0],
-                    None,
-                    model.blank_idx,
-                    recomb_blank=recomb_blank,
-                    use_sum=recomb_with_sum,
-                    is_blank=(target_wb == model.blank_idx),
-                )
-
-        if use_lm:
-            with torch.no_grad():
-                got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-                if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                    target_, packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                        target,
-                        mask=got_new_label,
-                        mask_cpu=got_new_label_cpu,
-                        dims=batch_dims + [beam_dim],
-                    )
-                    # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-                    assert packed_new_label_dim.get_dim_value() > 0
-                    
-                    indices_ = []
-                    for i in range(context_size):
-                        indices_.append(target_.raw_tensor[..., i])
-                    lm_logits_ = log_lm_probs[*indices_]
-                    assert lm_logits_.size(-1) == int(model.target_dim.get_dim_value())
-                    lm_logits_ = rf.convert_to_tensor(lm_logits_, dims=[packed_new_label_dim, model.target_dim], dtype="float32", device=device, name="lm_logits_")
-                    assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
-                    lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-                    lm_log_probs_ *= lm_scale
-
-                    lm_log_probs = rf.nested.masked_scatter_nested(
-                        lm_log_probs_,
-                        lm_log_probs,
-                        mask=got_new_label,
-                        mask_cpu=got_new_label_cpu,
-                        dims=batch_dims + [beam_dim],
-                        in_dim=packed_new_label_dim,
-                        masked_select_dim_map=packed_new_label_dim_map,
-                    )  # Batch, Beam, Vocab / ...
-
-        if device.startswith("cuda"):
-            torch.cuda.empty_cache()
-    
-    if use_lm:
-        # seq_log_prob, lm_log_probs: Batch, Beam
-        # Add LM EOS score at the end.
-        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
-        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
-    seq_log_prob = seq_log_prob.raw_tensor
-    
-    sum_score = safe_logsumexp(seq_log_prob, dim=-1)
-    
-    loss = -sum_score
-    if old_device != device:
-        loss = loss.to(old_device)
-    
-    return loss
+    pass
+    #
+    # assert top_k > 0, "Top k should be greater than 0 as exact sum is not implemented for FFNN"
+    # assert blank_correction_version == 0, "Blank correction is not implemented for FFNN"
+    #
+    # # RETURNN version is like "1.20250115.110555"
+    # # There was an important fix in 2025-01-17 affecting masked_scatter.
+    # # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
+    # import returnn
+    # assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
+    #
+    # def _update_context(context: rf.Tensor, new_label: rf.Tensor, context_dim: rf.Dim) -> rf.Tensor:
+    #     new_dim = rf.Dim(1, name="new_label")
+    #     new_label = rf.expand_dim(new_label, dim=new_dim)
+    #     old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
+    #     new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
+    #     assert new_context_dim == context_dim
+    #     return new_context
+    #
+    # def _target_remove_blank(target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int) -> rf.Tensor:
+    #     assert target.sparse_dim == wb_target_dim
+    #     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    #     return rf.set_sparse_dim(target, target_dim)
+    #
+    # def _target_dense_extend_blank(
+    #     target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int, value: float
+    # ) -> rf.Tensor:
+    #     assert target_dim in target.dims
+    #     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    #     res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    #     return res
+    #
+    # use_prior = log_prior is not None
+    # use_lm = log_lm_probs is not None
+    #
+    # old_device = log_probs.device
+    # log_probs = rf.copy_to_device(log_probs, device)
+    # if use_prior:
+    #     if not blank_prior and model.target_dim in log_prior.dims:
+    #         new_dim = rf.Dim(1)
+    #         log_prior = rf.concat(
+    #             [(log_prior, model.target_dim),(rf.zeros(dims = [new_dim],  dtype="float32", device=log_prior.device), new_dim)],
+    #             out_dim=model.wb_target_dim
+    #         )
+    #     assert model.wb_target_dim in log_prior.dims
+    #     log_prior = rf.copy_to_device(log_prior, device)
+    #
+    # batch_dims = [batch_dim]
+    # batch_size = int(batch_dim.get_dim_value())
+    # beam_dim = rf.Dim(1, name="initial-beam")
+    # context_dim = rf.Dim(context_size, name="context")
+    # batch_dims_ = batch_dims + [beam_dim]
+    # seq_log_prob = rf.constant(0.0, dims=batch_dims_) # Batch, Beam
+    #
+    # # scaled log am and prior probs
+    # log_probs = am_scale * log_probs
+    # if use_prior:
+    #     log_prior = prior_scale * log_prior
+    #
+    #     # If not blank prior this is still applied as the log prior for blank is just 0
+    #     if horizontal_prior:
+    #         log_probs -= log_prior
+    #
+    # log_probs = rf.where(
+    #     input_lengths.get_mask(),
+    #     log_probs,
+    #     rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    # )
+    # log_probs_ta = TensorArray.unstack(log_probs, axis=input_lengths)  # t -> Batch, VocabWB
+    #
+    # target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+    # target_wb = rf.constant(
+    #     model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    # )  # Batch, InBeam -> VocabWB
+    #
+    # # Prepare LM
+    # if use_lm:
+    #     with torch.no_grad():
+    #         indices = []
+    #         for i in range(context_size):
+    #             indices.append(target.raw_tensor[..., i])
+    #         lm_logits = log_lm_probs[*indices]
+    #         assert lm_logits.size(-1) == int(model.target_dim.get_dim_value())
+    #         lm_logits = rf.convert_to_tensor(lm_logits, dims=batch_dims_ + [model.target_dim], dtype="float32", device=device, name="lm_logits")
+    #         assert lm_logits.dims == (*batch_dims_, model.target_dim)
+    #         # lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+    #         lm_log_probs *= lm_scale
+    #
+    # max_seq_len = int(input_lengths.get_dim_value())
+    # backrefs = None
+    # if use_recombination:
+    #     assert len(batch_dims) == 1
+    #     if recomb_after_topk:
+    #         seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
+    #     else:
+    #         seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
+    #
+    # for t in range(max_seq_len):
+    #     prev_target = target
+    #     prev_target_wb = target_wb
+    #
+    #     seq_log_prob = seq_log_prob + log_probs_ta[t]  # Batch, InBeam, VocabWB
+    #
+    #     with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+    #         if use_lm:
+    #             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+    #             seq_log_prob += rf.where(
+    #                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+    #                 _target_dense_extend_blank(
+    #                     lm_log_probs,
+    #                     target_dim=model.target_dim,
+    #                     wb_target_dim=model.wb_target_dim,
+    #                     blank_idx=model.blank_idx,
+    #                     value=0.0,
+    #                 ),
+    #                 0.0,
+    #             )  # Batch, InBeam, VocabWB
+    #         if use_prior and not horizontal_prior:
+    #             # Subtract prior score. If prev align label (target_wb) is blank or != cur, add prior score, otherwise 0.
+    #             seq_log_prob -= rf.where(
+    #                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+    #                 log_prior,
+    #                 0.0,
+    #             )  # Batch, InBeam, VocabWB
+    #
+    #     if use_recombination and not recomb_after_topk:
+    #         seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb, model.blank_idx)
+    #         if t > 0:
+    #             seq_log_prob = recombination.recombine_seqs(
+    #                 seq_log_prob,
+    #                 seq_hash,
+    #                 beam_dim,
+    #                 batch_dims[0],
+    #                 model.wb_target_dim,
+    #                 model.blank_idx,
+    #                 recomb_blank=recomb_blank,
+    #                 use_sum=recomb_with_sum,
+    #             )
+    #
+    #     seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+    #         seq_log_prob, k_dim=rf.Dim(top_k, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
+    #     )
+    #
+    #     # seq_log_prob, backrefs, target_wb: Batch, Beam
+    #     # backrefs -> InBeam.
+    #     # target_wb -> VocabWB.
+    #     target_wb = rf.cast(target_wb, "int32")
+    #
+    #     if use_lm:
+    #         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+    #     prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+    #     prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+    #     got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
+    #     target = rf.where(
+    #         got_new_label,
+    #         _update_context(
+    #             prev_target,
+    #             _target_remove_blank(
+    #                 target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+    #             ),
+    #             context_dim
+    #         ),
+    #         prev_target,
+    #     )  # Batch, Beam -> Vocab
+    #
+    #     if use_recombination and recomb_after_topk:
+    #         seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx, gather_old_target=False)
+    #         if t > 0:
+    #             seq_log_prob = recombination.recombine_seqs(
+    #                 seq_log_prob,
+    #                 seq_hash,
+    #                 beam_dim,
+    #                 batch_dims[0],
+    #                 None,
+    #                 model.blank_idx,
+    #                 recomb_blank=recomb_blank,
+    #                 use_sum=recomb_with_sum,
+    #                 is_blank=(target_wb == model.blank_idx),
+    #             )
+    #
+    #     if use_lm:
+    #         with torch.no_grad():
+    #             got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+    #             if got_new_label_cpu.raw_tensor.sum().item() > 0:
+    #                 target_, packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+    #                     target,
+    #                     mask=got_new_label,
+    #                     mask_cpu=got_new_label_cpu,
+    #                     dims=batch_dims + [beam_dim],
+    #                 )
+    #                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+    #                 assert packed_new_label_dim.get_dim_value() > 0
+    #
+    #                 indices_ = []
+    #                 for i in range(context_size):
+    #                     indices_.append(target_.raw_tensor[..., i])
+    #                 lm_logits_ = log_lm_probs[*indices_]
+    #                 assert lm_logits_.size(-1) == int(model.target_dim.get_dim_value())
+    #                 lm_logits_ = rf.convert_to_tensor(lm_logits_, dims=[packed_new_label_dim, model.target_dim], dtype="float32", device=device, name="lm_logits_")
+    #                 assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+    #                 lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+    #                 lm_log_probs_ *= lm_scale
+    #
+    #                 lm_log_probs = rf.nested.masked_scatter_nested(
+    #                     lm_log_probs_,
+    #                     lm_log_probs,
+    #                     mask=got_new_label,
+    #                     mask_cpu=got_new_label_cpu,
+    #                     dims=batch_dims + [beam_dim],
+    #                     in_dim=packed_new_label_dim,
+    #                     masked_select_dim_map=packed_new_label_dim_map,
+    #                 )  # Batch, Beam, Vocab / ...
+    #
+    #     if device.startswith("cuda"):
+    #         torch.cuda.empty_cache()
+    #
+    # if use_lm:
+    #     # seq_log_prob, lm_log_probs: Batch, Beam
+    #     # Add LM EOS score at the end.
+    #     lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+    #     seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+    # seq_log_prob = seq_log_prob.raw_tensor
+    #
+    # sum_score = safe_logsumexp(seq_log_prob, dim=-1)
+    #
+    # loss = -sum_score
+    # if old_device != device:
+    #     loss = loss.to(old_device)
+    #
+    # return loss
 
 def sum_loss_ffnn(
     *,
