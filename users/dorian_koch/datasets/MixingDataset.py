@@ -717,6 +717,7 @@ class MixingDataset2(CachedDataset2):
                     if self.how_to_handle_end_of_data[dataset_index] == "wait":
                         # this dataset will never be used again
                         self.bias[dataset_index] = Decimal("-inf")
+                        continue
                     if all(
                         self.datasets_exhausted
                     ):  # this only happens when all datasets are set to `wrap_around` or `wait`
