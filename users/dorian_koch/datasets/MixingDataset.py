@@ -675,7 +675,7 @@ class MixingDataset2(CachedDataset2):
             # we need to choose
             dataset_index = max(range(len(self.bias)), key=self.bias.__getitem__)  # dataset idx with highest bias
             if self.datasets_exhausted[dataset_index]:
-                assert not self.how_to_handle_end_of_data[dataset_index] == "wait"
+                assert not self.how_to_handle_end_of_data[dataset_index] == "wait", self.bias
 
             chosen_dataset = self.datasets[dataset_index]
             self._last_decision = dataset_index
@@ -714,16 +714,16 @@ class MixingDataset2(CachedDataset2):
                     self._last_decision = None
                     break
                 elif self.how_to_handle_end_of_data[dataset_index] in ["wrap_around", "wait"]:
-                    if self.how_to_handle_end_of_data[dataset_index] == "wait":
-                        # this dataset will never be used again
-                        self.bias[dataset_index] = Decimal("-inf")
-                        continue
                     if all(
                         self.datasets_exhausted
                     ):  # this only happens when all datasets are set to `wrap_around` or `wait`
                         self.is_chooser_done = True
                         self._last_decision = None
                         break
+                    if self.how_to_handle_end_of_data[dataset_index] == "wait":
+                        # this dataset will never be used again
+                        self.bias[dataset_index] = Decimal("-inf")
+                        continue
                 else:
                     assert False, f"{self.how_to_handle_end_of_data[dataset_index]} not implemented"
 
