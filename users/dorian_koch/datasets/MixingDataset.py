@@ -34,7 +34,7 @@ class Bitarray:
         return self.size
 
 
-THandleEndOfData = Literal["exception", "wrap_around", "early_exit"]
+THandleEndOfData = Literal["exception", "wrap_around", "early_exit", "wait"]
 
 
 class MixingDataset(CachedDataset2):
@@ -78,6 +78,7 @@ class MixingDataset(CachedDataset2):
             exception: raise an exception, this should practically never be used in training
             wrap_around: wrap around to the beginning of the dataset that is exhausted. Terminate when both datasets have terminated at least once.
             early_exit: end epoch when one dataset has been exhausted
+            wait: not implemented here
         :param control_dataset: which dataset is used for i.e. `get_data_dtype`
         """
         super().__init__(**kwargs)
@@ -479,6 +480,9 @@ class MixingDataset2(CachedDataset2):
             wrap_around: wrap around to the beginning of the dataset that is exhausted.
                 If all datasets have this property, then the MixinDataset epoch ends when all child datasets have wrapped around at least once
             early_exit: end MixingDataset epoch when this dataset has been exhausted
+            wait: similar to wrap_around, but once exhausted no further seqs will be gathered from this dataset
+                (it will wait until all other datasets are done). If all datasets have this property,
+                MixingDataset2 will behave similar to ConcatDataset
         :param control_dataset: which dataset is used for i.e. `get_data_dtype`
         """
         super().__init__(**kwargs)
@@ -560,12 +564,12 @@ class MixingDataset2(CachedDataset2):
             if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
                 # epoch terminates iff any dataset finishes
                 num_seqs_estimate = math.ceil(min(finish_seqs_arr))
-            elif all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
+            elif all(how in ["wrap_around", "wait"] for how in self.how_to_handle_end_of_data):
                 # epoch terminates iff all datasets finish
                 num_seqs_estimate = math.ceil(max(finish_seqs_arr))
             else:  # mix, similar to first case but exclude all ds with "wrap_around"
                 for i, how in enumerate(self.how_to_handle_end_of_data):
-                    if how == "wrap_around":  # this dataset will never cause an epoch end
+                    if how in ["wrap_around", "wait"]:  # this dataset will never cause an epoch end
                         finish_seqs_arr[i] = float("inf")
                 num_seqs_estimate = math.ceil(min(finish_seqs_arr))
 
@@ -593,9 +597,9 @@ class MixingDataset2(CachedDataset2):
 
         # TODO the name `bias` can be misleading, find a better name
         # we use Decimal here to make floating point operations deterministic
-        self.bias = [Decimal(0.0)] * len(self.datasets)
+        self.bias = [Decimal("0.0")] * len(self.datasets)
         # total number of data units used from each dataset
-        self.datalens = [Decimal(0.0)] * len(self.datasets)
+        self.datalens = [Decimal("0.0")] * len(self.datasets)
         self._get_raw_childindices_and_decision_at_seq_idx.cache_clear()
 
     def init_seq_order(self, epoch=None, seq_list=None, seq_order=None):
@@ -670,8 +674,11 @@ class MixingDataset2(CachedDataset2):
         while seq_idx >= self.chooser_index:
             # we need to choose
             dataset_index = max(range(len(self.bias)), key=self.bias.__getitem__)  # dataset idx with highest bias
-            self._last_decision = dataset_index
+            if self.datasets_exhausted[dataset_index]:
+                assert not self.how_to_handle_end_of_data[dataset_index] == "wait"
+
             chosen_dataset = self.datasets[dataset_index]
+            self._last_decision = dataset_index
 
             is_idx_at_end = False
             cur_idx = self.chooser_childindices[dataset_index]
@@ -706,8 +713,13 @@ class MixingDataset2(CachedDataset2):
                     self.is_chooser_done = True
                     self._last_decision = None
                     break
-                elif self.how_to_handle_end_of_data[dataset_index] == "wrap_around":
-                    if all(self.datasets_exhausted):  # this only happens when all datasets are set to `wrap_around`
+                elif self.how_to_handle_end_of_data[dataset_index] in ["wrap_around", "wait"]:
+                    if self.how_to_handle_end_of_data[dataset_index] == "wait":
+                        # this dataset will never be used again
+                        self.bias[dataset_index] = Decimal("-inf")
+                    if all(
+                        self.datasets_exhausted
+                    ):  # this only happens when all datasets are set to `wrap_around` or `wait`
                         self.is_chooser_done = True
                         self._last_decision = None
                         break
@@ -720,12 +732,10 @@ class MixingDataset2(CachedDataset2):
             )
             # print(f"({dataset_index}) datalen={datalen} shape={data.shape}")
             self.bias[dataset_index] -= max(datalen, 1) / self.mixing_ratios[dataset_index]
-            assert not math.isnan(self.bias[dataset_index]) and not math.isinf(
-                self.bias[dataset_index]
-            )  # this should never ever happen
-            if self.bias[dataset_index] < -100:  # -100 is arbitrary
+            assert not math.isnan(self.bias[dataset_index])  # this should never ever happen
+            if self.bias[dataset_index] < -100 and not math.isinf(self.bias[dataset_index]):  # -100 is arbitrary
                 # if we don't shift back to 0 our biases will go towards negative infinity
-                adjust = min(self.bias)
+                adjust = min([b if not math.isinf(b) else Decimal("inf") for b in self.bias])
                 self.bias = [b - adjust for b in self.bias]
             self.datalens[dataset_index] += datalen
             self.chooser_childindices[dataset_index] += 1
@@ -865,17 +875,17 @@ class MixingDataset2(CachedDataset2):
                     fracs.append(frac)
                 except NotImplementedError:
                     if self.child_ds_lens[ds_idx] is None:
-                        raise NotImplementedError()  # we can't give a good value here
+                        raise NotImplementedError() from None  # we can't give a good value here
                     if self.child_ds_lens[ds_idx] == 0:
                         fracs.append(1.0)  # TODO maybe we should consider this an error
                     else:
                         fracs.append(max(0, indices[ds_idx] - 1) / self.child_ds_lens[ds_idx])
-        if all(how == "wrap_around" for how in self.how_to_handle_end_of_data):
+        if all(how in ["wrap_around", "wait"] for how in self.how_to_handle_end_of_data):
             return min(fracs)
         if all(how in ["exception", "early_exit"] for how in self.how_to_handle_end_of_data):
             return min(1.0, max(fracs))
         # mix
         for i, how in enumerate(self.how_to_handle_end_of_data):
-            if how == "wrap_around":
+            if how in ["wrap_around", "wait"]:
                 fracs[i] = 0.0
         return min(1.0, max(fracs))
