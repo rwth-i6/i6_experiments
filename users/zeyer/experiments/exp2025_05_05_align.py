@@ -676,6 +676,8 @@ class OpenASRLeaderboardTextNormalizationJob(Job):
     https://github.com/huggingface/open_asr_leaderboard/blob/main/normalizer/data_utils.py
     """
 
+    __sis_version__ = 2
+
     def __init__(self, text: tk.Path, *, open_asr_leaderboard_repo_dir: tk.Path):
         """
         :param text: e.g. via ExtractTextFromHuggingFaceEsbDatasetJob
@@ -712,7 +714,7 @@ class OpenASRLeaderboardTextNormalizationJob(Job):
             for seq_tag, text in in_text.items():
                 assert isinstance(text, str)
                 norm_text = normalizer(text)
-                out.write(f"{seq_tag!r}: {norm_text!r}\n")
+                out.write(f"{seq_tag!r}: {norm_text!r},\n")
             out.write("}\n")
 
 
