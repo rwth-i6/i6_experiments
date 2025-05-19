@@ -333,15 +333,19 @@ def py():
         dataset_split="test",
     )
     tk.register_output("tedlium-test.ref.txt.py.gz", ref_text_job.out_text)
-    # TODO normalize...
     # Should get: 2.89% WER with Phi4MI on Tedlium (test).
+    # Without normalization: 6.25%
+    # With hyp normalization: 11.41%
+    # With ref+hyp normalization: 2.88%
     tk.register_output(
         "phi4mi-tedlium-test.wer.txt",
         sclite_score_hyps_to_ref(
             OpenASRLeaderboardTextNormalizationJob(
                 recog_job.out_recog, open_asr_leaderboard_repo_dir=open_asr_leaderboard_repo.out_repository
             ).out_text,
-            ref_text_dict=ref_text_job.out_text,
+            ref_text_dict=OpenASRLeaderboardTextNormalizationJob(
+                ref_text_job.out_text, open_asr_leaderboard_repo_dir=open_asr_leaderboard_repo.out_repository
+            ).out_text,
         ).main_measure_value,
     )
 
