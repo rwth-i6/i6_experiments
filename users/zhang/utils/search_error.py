@@ -9,7 +9,7 @@ class ComputeSearchErrorsJob(Job):
         self,
         ground_truth_out: Optional[Path],
         recog_out: Optional[Path],
-        verision: Optional[int] = 3,
+        verision: Optional[int] = 4,
     ):
         self.ground_truth_out = ground_truth_out
         self.recog_out = recog_out
@@ -70,14 +70,16 @@ class ComputeSearchErrorsJob(Job):
                     str(targets_ground_truth),
                     str(targets_search),
                 )
-                log_txt += "\n\tEqual label sequences: %s\n\t-> %s\n\n" % (
+                log_txt += "\n\tEqual label sequences: %s\n\t-> %s" % (
                     str(equal_label_seq),
                     "Search error!" if is_search_error else "No search error!",
                 )
+                log_txt += f"\n\tNum_oov: {oov}\n\n"
                 f.write(log_txt)
 
         with open(self.out_search_errors.get_path(), "w+") as f:
             f.write("Search errors: %.2f%%" % ((num_search_errors / num_seqs) * 100) + "\n" +
                     "Search errors/total errors: %.2f%%" % ((num_search_errors / num_unequal) * 100) + "\n" +
+                    "Sent_ER: %.2f%%" % ((num_unequal / num_seqs) * 100) + "\n" +
                     "Sent_OOV: %.2f%%" % ((sent_oov / num_seqs) * 100) + "\n" +
                     "OOV: %.2f%%" % ((num_oov / num_words) * 100) + "\n")

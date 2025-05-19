@@ -82,26 +82,30 @@ def py():
     )
 
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
-                embed_dropout: float = 0.0, epochs: list[int] = None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+                embed_dropout: float = 0.0, epochs: list[int] = None, without_max_seq_length: bool = True)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
     lm_dataset = LibrispeechLmDataset(vocab=vocab) #get_librispeech_lm_dataset(vocab=vocab)
 
     #dropout = 0 # not same as 0.0! Will break the hash, so be Careful!
-    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-bpe128-drop{dropout}-relu"
+    vocab_name = {184: "bpe128", 10_025: "bpe10k"}.get(vocab.dim, "bpe128")
+    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-{vocab_name}-drop{dropout}-relu" + ("_off_limits" if without_max_seq_length else "")
     conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
     conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+    deep_updates = {
+                **conf,
+                #"max_seq_length": {},
+                "torch_distributed": None,
+                "use_horovod": False,
+                "version": 3,  # 2: with get_librispeech_lm_dataset
+            }
+    if without_max_seq_length:
+        deep_updates.update({"max_seq_length_default_target": None})
     model_with_checkpoints = train(
         f"lm/{train_prefix_name}",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {
-                **conf,
-                "max_seq_length": {},
-                "torch_distributed": None,
-                "use_horovod": False,
-                "version": 3,  # 2: with get_librispeech_lm_dataset
-            },
+            deep_updates=deep_updates,
         ),
         train_dataset=lm_dataset,
         model_def=ModelDefWithCfg(
@@ -148,13 +152,14 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     #     train_def=lm_train_def,
     # )
 
-    exponents = {185: 2.3, 10_025: 1.1} #185-bpe128 10_025-bpe10k
+    exponents = {184: 2.3, 10_025: 1.1} #184-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
         dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-        exponent=exponents.get(vocab.dim,1)
+        exponent=exponents.get(vocab.dim,1),
+        epochs=epochs,
     )
     print(f"------fixed epochs of ffnnlm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")
     # if ppls.
@@ -166,7 +171,7 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     if epochs:
         for epoch in epochs:
             assert epoch in model_with_checkpoints.fixed_epochs
-            yield model_with_checkpoints.get_epoch(epoch), ppls[f"epoch{epoch}"], epoch
+            yield model_with_checkpoints.get_epoch(epoch), ppls.get(f"epoch{epoch}"), epoch
     else:
         return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
 
@@ -435,10 +440,10 @@ def lm_train_def(
     frame_error = best != targets_packed
     frame_error.mark_as_loss(name="fer", as_error=True)
 
-    ###Debug####
+    ##Debug####
     # import pdb
     # pdb.set_trace()
-    ########
+    #######
 
 
 lm_train_def: TrainDef

@@ -14,6 +14,7 @@ import re
 import json
 import os
 
+import torch
 from sisyphus import tk
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
@@ -272,6 +273,7 @@ def train_exp(
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
     recog: bool = False,
+    batch_size: int = None,
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
 
     """
@@ -365,6 +367,7 @@ def train_exp(
         search_mem_rqmt=search_mem_rqmt,
         search_rqmt=search_rqmt,
         recog_epoch=recog_epoch,
+        batch_size=batch_size,
     )
 
     recog_res = recog_training_exp(
@@ -411,6 +414,7 @@ def recog_exp(
     tune_hyperparameters: bool = False,
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
+    batch_size: int = None,
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path], Optional[tk.path]]:
     """
     Train experiment
@@ -426,7 +430,7 @@ def recog_exp(
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
 
-    search_config = None
+    search_config = dict()
     if model_config:
         if "recog_language_model" in model_config:
             # recog_language_model = model_config["recog_language_model"].copy()
@@ -435,12 +439,13 @@ def recog_exp(
             # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
             model_config_ = model_config.copy()
             search_config = model_config_.pop("recog_language_model")
-
+    if batch_size:
+        search_config["batch_size"] = batch_size
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
 
-    lm_scale = decoding_config.get("lm_weight")
+    best_lm_tune = None
     if tune_hyperparameters and decoding_config["use_lm"]:
         original_params = decoding_config
         params = copy.copy(original_params)
@@ -448,12 +453,17 @@ def recog_exp(
             params.update(tune_config_updates)
         params.pop("lm_weight_tune", None)
         params.pop("prior_weight_tune", None)
+        params.pop("tune_range", None)
         default_lm = original_params.get("lm_weight")
         default_prior = original_params.get("prior_weight")
         lm_scores = []
         prior_scores = []
-        lm_tune_ls = [scale/100 for scale in range(-50,51,10)]#[scale/100 for scale in range(-50,51,10)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
-        prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1]
+
+        lm_tune_ls = [scale/100 for scale in range(-50,51,5)] if not tune_config_updates.get("tune_range") \
+            else tune_config_updates["tune_range"]
+
+        prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1] if not tune_config_updates.get("priro_tune_range") \
+            else tune_config_updates["priro_tune_range"]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
             task_copy = copy.deepcopy(task)
@@ -470,6 +480,7 @@ def recog_exp(
             #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
             #     dev_sets=["dev-other"],
             # )
+            print(f"param before lm_tune:{params}")
             score, _ = recog_exp_(
                 prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
                 task_copy,
@@ -493,10 +504,6 @@ def recog_exp(
             tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
             params["lm_weight"] = default_lm
             params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
-            if os.path.exists(best_lm_tune): # Just for bypassing the static check #TODO： this will not be excuted in first run
-                lm_weight_tune = json.load(open(best_lm_tune))
-                lm_weight_tune = lm_weight_tune["best_tune"]
-                lm_scale = default_lm + lm_weight_tune
             original_params["lm_weight_tune"] = best_lm_tune  # This will be implicitly used by following exps, i.e through decoding_config
         if with_prior:
             for dc_prior in prior_tune_ls:
@@ -569,7 +576,7 @@ def recog_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, lm_scale
+    return model_with_checkpoints, recog_result, search_error, best_lm_tune
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -813,6 +820,8 @@ def model_recog(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
+    hyperparameters: Dict[str, Any],
+    prior_file: tk.Path = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -827,9 +836,23 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
+    #beam_size = 12
+    hyp_params = copy.copy(hyperparameters)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    beam_size = hyp_params.pop("beam_size", 12)
+
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+
+
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -838,6 +861,18 @@ def model_recog(
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
     label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, Vocab
+
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+    prior = None
+
+    if prior_file and prior_weight > 0.0:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior *= prior_weight
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+        label_log_prob = label_log_prob - prior
+
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
@@ -914,7 +949,6 @@ def model_recog_lm(
         final beam_dim
     """
     from torchaudio.models.decoder import ctc_decoder
-    import torch
     from returnn.util.basic import cf
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
@@ -1275,7 +1309,6 @@ def decode_flashlight(
         prior_file: tk.Path = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
     from dataclasses import dataclass
-    import torch
     import json
     from flashlight.lib.text.decoder import LM, LMState
     from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
@@ -1290,13 +1323,13 @@ def decode_flashlight(
     if prior_weight_tune:
         prior_weight_tune = json.load(open(prior_weight_tune))
         prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
         print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
         prior_weight += prior_weight_tune
     if lm_weight_tune:
         lm_weight_tune = json.load(open(lm_weight_tune))
         lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
         old_lm_weight = hyp_params.get("lm_weight", 0.0)
         print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
         hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
@@ -1758,7 +1791,6 @@ def decode_flashlight(
 
 
 def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx):
-    import torch
     mod_len = 2 * seq.shape[0] + 1
     mod_seq = torch.stack([seq, torch.full(seq.shape, blank_idx,device=seq.device)], dim=1).flatten()
     mod_seq = torch.cat((torch.tensor([blank_idx], device=mod_seq.device), mod_seq))
@@ -1836,7 +1868,8 @@ def viterbi_batch(inputs, blank_idx):
 
 def CTClm_score(seq, lm):
     """
-    When lm is word level, sequence need to be converted to word...?
+    TODO: Create the parallelised version to score on whole batch - >
+    Though ctcdecoder.lm is anyway only sequential
     """
     state = lm.start(False)
     score = 0
@@ -1857,7 +1890,6 @@ def ctc_collapse(ctc_sequence, blank_token):
     Returns:
         Tensor: Collapsed sequence without repeated characters and blanks.
     """
-    import torch
     collapsed_sequence = []
     prev_token = None
 
@@ -1868,6 +1900,48 @@ def ctc_collapse(ctc_sequence, blank_token):
 
     return torch.tensor(collapsed_sequence)
 
+def lm_scoring(*, model: [FeedForwardLm| TransformerDecoder], targets: Tensor, targets_spatial_dim: Dim, **_other) -> Tensor:
+    # noinspection PyTypeChecker
+    vocab = model.vocab_dim.vocab
+    assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
+
+    targets_w_bos, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
+    )
+    targets_w_eos, _ = rf.pad(
+        targets,
+        axes=[targets_spatial_dim],
+        padding=[(0, 1)],
+        value=vocab.eos_label_id,
+        out_dims=[targets_w_eos_spatial_dim],
+    )
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+
+    if isinstance(model, TransformerDecoder): # Trafo lm
+        logits, _ = model(
+            targets_w_bos,
+            spatial_dim=targets_w_eos_spatial_dim,
+            state=model.default_initial_state(batch_dims=batch_dims),
+        )
+
+    elif isinstance(model, FeedForwardLm):
+        logits, _ = model(
+            targets,
+            spatial_dim=targets_spatial_dim,
+            out_spatial_dim=targets_w_eos_spatial_dim,
+            state=model.default_initial_state(batch_dims=batch_dims),
+        )
+    else:
+        raise ValueError(f"Model not supported:{model}")
+    # import pdb; pdb.set_trace()
+    log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
+    log_prob_targets = rf.gather(log_prob, indices=targets_w_eos, axis=model.vocab_dim) # Why before it is indices = targets_w_eos?
+    log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+
+    return log_prob_targets_seq
+
 def scoring(
         *,
         model: Model,
@@ -1877,7 +1951,7 @@ def scoring(
         lm: str,
         lexicon: str,
         hyperparameters: dict,
-        prior_file: tk.Path = None
+        prior_file: tk.Path = None,
 ) -> Tensor:
     """
     Function is run within RETURNN.
@@ -1891,7 +1965,6 @@ def scoring(
         final beam_dim
     """
     from torchaudio.models.decoder import ctc_decoder
-    import torch
     from returnn.util.basic import cf
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
@@ -1906,13 +1979,13 @@ def scoring(
     if prior_weight_tune:
         prior_weight_tune = json.load(open(prior_weight_tune))
         prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
         print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
         prior_weight += prior_weight_tune
     if lm_weight_tune:
         lm_weight_tune = json.load(open(lm_weight_tune))
         lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
         old_lm_weight = hyp_params.get("lm_weight", 0.0)
         print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
         hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
@@ -1923,15 +1996,36 @@ def scoring(
         assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
 
         label_log_prob = rf.cast(label_log_prob, "float32")
-        label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
-        label_log_prob = label_log_prob.raw_tensor.contiguous()
 
+        '''Mask the label_log_prob'''
+        label_log_prob = rf.where(
+            enc_spatial_dim.get_mask(),
+            label_log_prob,
+            rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+        )
+        """-----------------------"""
 
+        dev_s = rf.get_default_device()
+        dev = torch.device(dev_s)
+        label_prior = False
         # Subtract prior of labels if available
         if prior_file and prior_weight > 0.0:
             prior = np.loadtxt(prior_file, dtype="float32")
-            label_log_prob -= prior_weight * prior
+            prior *= prior_weight
+            prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+            if prior.shape[0] != label_log_prob.raw_tensor.shape[-1]:
+                assert prior.shape[0] == label_log_prob.raw_tensor.shape[
+                    -1] - 1, f"prior shape {prior.shape[0]} != label_log_prob shape {label_log_prob.raw_tensor.shape[-1]} - 1"
+                label_prior = True
+            if label_prior:
+                prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+            # Framewise prior
+            else:
+                prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+                label_log_prob = label_log_prob - prior
             print("We subtracted the prior!")
+        label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
+        label_log_prob = label_log_prob.raw_tensor.contiguous()
     elif prior_file and prior_weight > 0.0:
         print("Cannot subtract prior without running log softmax")
         return None
@@ -2555,7 +2649,1169 @@ def scoring(
 scoring: RecogDef[Model]
 scoring.output_with_beam = True
 scoring.output_blank_label = OUT_BLANK_LABEL
+scoring.beam_size_dependent = False
 scoring.batch_size_dependent = False  # not totally correct, but we treat it as such...
+
+def scoring_v2(
+        *,
+        model: Model,
+        data: Tensor,
+        targets: Tensor,
+        data_spatial_dim: Dim,
+        lm: str,
+        lexicon: str,
+        hyperparameters: dict,
+        prior_file: tk.Path = None,
+) -> Tensor:
+    """
+    Function is run within RETURNN.
+
+    Uses a LM interpolation and prior correction.
+
+    :return:
+        scores of groundtruth(targets) {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from torchaudio.models.decoder import ctc_decoder
+    from returnn.util.basic import cf
+    # Get the logits from the model
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    if lm_name is not None:
+        assert lm_name.startswith("ffnn") or lm_name.startswith("trafo"), "Not supported LM type!" + " " + lm_name
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        if isinstance(model.recog_language_model, FeedForwardLm):
+            lm: FeedForwardLm = model.recog_language_model
+        elif isinstance(model.recog_language_model, TransformerDecoder):
+            lm: TransformerDecoder = model.recog_language_model
+        else:
+            raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = hyp_params["lm_weight"]
+
+    if use_logsoftmax:
+        label_log_prob = model.log_probs_wb_from_logits(logits)
+        label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+        assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+
+        label_log_prob = rf.cast(label_log_prob, "float32")
+
+        '''Mask the label_log_prob'''
+        label_log_prob = rf.where(
+            enc_spatial_dim.get_mask(),
+            label_log_prob,
+            rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+        )
+        """-----------------------"""
+
+        dev_s = rf.get_default_device()
+        dev = torch.device(dev_s)
+        label_prior = False
+        # Subtract prior of labels if available
+        if prior_file and prior_weight > 0.0:
+            prior = np.loadtxt(prior_file, dtype="float32")
+            prior *= prior_weight
+            prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+            if prior.shape[0] != label_log_prob.raw_tensor.shape[-1]:
+                assert prior.shape[0] == label_log_prob.raw_tensor.shape[
+                    -1] - 1, f"prior shape {prior.shape[0]} != label_log_prob shape {label_log_prob.raw_tensor.shape[-1]} - 1"
+                label_prior = True
+            if label_prior:
+                prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+            # Framewise prior
+            else:
+                prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+                label_log_prob = label_log_prob - prior
+            print("We subtracted the prior!")
+        label_log_prob_raw = rf.copy_to_device(label_log_prob, "cpu")
+        label_log_prob_raw = label_log_prob_raw.raw_tensor.contiguous()
+    elif prior_file and prior_weight > 0.0:
+        print("Cannot subtract prior without running log softmax")
+        return None
+
+    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+
+    # `````````````````test```````````````````````
+    '''Test torchaudio.functional.forced_align'''
+    from torchaudio.functional import forced_align as forced_align
+    alignments = []
+    viterbi_scores = []
+
+    for i in range(label_log_prob_raw.shape[0]):
+        alignments_, viterbi_scores_ = forced_align(
+            label_log_prob_raw.to("cuda")[i].unsqueeze(0),
+            trim_padded_sequence(targets.raw_tensor[i]).unsqueeze(0),
+            #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0),
+            blank=model.blank_idx
+        )
+        alignments.append(alignments_)
+        viterbi_scores.append(viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum()) #Exclude the padding
+
+    torch.cuda.empty_cache()
+
+    '''Mask the label_log_prob using the forced alignment'''
+    masked_label_log_prob = torch.full_like(label_log_prob_raw, fill_value=-1e30)
+
+    for i in range(label_log_prob_raw.shape[0]):
+        alignment = alignments[i].to(label_log_prob_raw.device).long().squeeze()
+        T = enc_spatial_dim_torch[i].item()
+        for t in range(T):
+            label = alignment[t].item()
+            masked_label_log_prob[i, t, label] = label_log_prob_raw[i, t, label]
+
+    # Convert back to RETURNN tensor
+    masked_label_log_prob_ret = rtf.TorchBackend.convert_to_tensor(masked_label_log_prob.to("cuda"), dims=label_log_prob.dims, dtype="float32")
+    # masked_label_log_prob_ret = Tensor("label_log_prob", dims=label_log_prob.dims, dtype="float32",
+    #                 raw_tensor=masked_label_log_prob)
+
+    seq_targets_wb, scores, _, _ = decode_ffnn(model=model, label_log_prob=masked_label_log_prob_ret,
+                                  enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
+                                  prior_file= prior_file, scoring=True)
+
+    """---------TEST--------------"""
+    # lm_scores = lm_scoring(model=lm, targets=targets, targets_spatial_dim=targets.get_time_dim_tag())
+    # combined_score = torch.tensor(viterbi_scores, device="cuda") + (lm_scale * lm_scores.raw_tensor)
+    # for i in range(label_log_prob.raw_tensor.shape[0]):
+    #     assert seq_targets_wb.raw_tensor[:, i, 0].tolist() == alignments[i][0].tolist(), f"{i}_th sequence is not the same!"
+    # scores_raw = scores.raw_tensor[:, 0].to("cpu")
+    # combined_score = [score.item() for score in combined_score]
+    # difference = abs(np.mean(np.array(scores_raw) - combined_score))
+    # import pdb; pdb.set_trace()
+    # assert difference < 1e-03, (f"Scores are not the same!\n Decodede:{scores_raw}"
+    #                                                                      f"\n Viterbi:{combined_score}\n Difference:{difference}")
+
+    #Compare viterbi score and scores
+    # Compare seq_targets with alignments
+    #
+        # lm_scores = []
+        # for i in range(label_log_prob.shape[0]):
+        #     seq = trim_padded_sequence(targets.raw_tensor[i, :])
+        #     token_list = [model.target_dim.vocab.id_to_label(idx) for idx in seq]
+        #     target_words = " ".join(token_list)
+        #     target_words = target_words.replace("@@ ", "")
+        #     target_words = target_words.replace(" <s>", "")
+        #     word_seq = seq.tolist()
+        #     lm_score = CTClm_score(word_seq, recog_lm)
+        #     lm_scores.append(lm_score)
+        #     scores.append(viterbi_scores[i] + hyp_params["lm_weight"] * lm_score)
+    """-----------------------"""
+    #````````````````````````````````````````````
+    score_dim = Dim(1, name="score_dim")
+    scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
+                    raw_tensor=scores.raw_tensor.reshape([label_log_prob_raw.shape[0], 1]))
+
+    # Just for compatialty
+    n_oov_dim = Dim(1, name="n_oov_dim")
+    n_oovs = [0 for _ in range(label_log_prob_raw.shape[0])]
+    n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
+                    raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob_raw.shape[0], 1]))
+
+    return scores, score_dim, n_oovs, n_oov_dim
+
+# RecogDef API   #Beam size independent for now
+scoring_v2: RecogDef[Model]
+scoring_v2.output_with_beam = True
+scoring_v2.output_blank_label = OUT_BLANK_LABEL
+scoring_v2.batch_size_dependent = False  # not totally correct, but we treat it as such...
+scoring_v2.beam_size_dependent = False
+
+def scoring_v3(
+        *,
+        model: Model,
+        data: Tensor,
+        targets: Tensor,
+        data_spatial_dim: Dim,
+        lm: str,
+        lexicon: str,
+        hyperparameters: dict,
+        prior_file: tk.Path = None,
+) -> Tensor:
+    """
+    Function is run within RETURNN.
+
+    Uses a LM interpolation and prior correction.
+
+    :return:
+        scores of groundtruth(targets) {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from torchaudio.models.decoder import ctc_decoder
+    from returnn.util.basic import cf
+    # Get the logits from the model
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    if lm_name is not None:
+        assert lm_name.startswith("ffnn") or lm_name.startswith("trafo"), "Not supported LM type!" + " " + lm_name
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        if isinstance(model.recog_language_model, FeedForwardLm):
+            lm: FeedForwardLm = model.recog_language_model
+        elif isinstance(model.recog_language_model, TransformerDecoder):
+            lm: TransformerDecoder = model.recog_language_model
+        else:
+            raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = hyp_params["lm_weight"]
+
+    if use_logsoftmax:
+        label_log_prob = model.log_probs_wb_from_logits(logits)
+        label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+        assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+
+        label_log_prob = rf.cast(label_log_prob, "float32")
+
+        '''Mask the label_log_prob'''
+        label_log_prob = rf.where(
+            enc_spatial_dim.get_mask(),
+            label_log_prob,
+            rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+        )
+        """-----------------------"""
+
+        dev_s = rf.get_default_device()
+        dev = torch.device(dev_s)
+        label_prior = False
+        # Subtract prior of labels if available
+        if prior_file and prior_weight > 0.0:
+            prior = np.loadtxt(prior_file, dtype="float32")
+            prior *= prior_weight
+            prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+            if prior.shape[0] != label_log_prob.raw_tensor.shape[-1]:
+                assert prior.shape[0] == label_log_prob.raw_tensor.shape[
+                    -1] - 1, f"prior shape {prior.shape[0]} != label_log_prob shape {label_log_prob.raw_tensor.shape[-1]} - 1"
+                label_prior = True
+            if label_prior:
+                prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+            # Framewise prior
+            else:
+                prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+                label_log_prob = label_log_prob - prior
+            print("We subtracted the prior!")
+        label_log_prob_raw = rf.copy_to_device(label_log_prob, "cpu")
+        label_log_prob_raw = label_log_prob_raw.raw_tensor.contiguous()
+    elif prior_file and prior_weight > 0.0:
+        print("Cannot subtract prior without running log softmax")
+        return None
+
+    seq_targets_wb, scores, _, _ = decode_ffnn(model=model, label_log_prob=label_log_prob,
+                                  enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
+                                  prior_file= prior_file, scoring=True,ground_truth=targets)
+
+    """---------TEST--------------"""
+    # lm_scores = lm_scoring(model=lm, targets=targets, targets_spatial_dim=targets.get_time_dim_tag())
+    # combined_score = torch.tensor(viterbi_scores, device="cuda") + (lm_scale * lm_scores.raw_tensor)
+
+    def first_dis_pos(gt, path):
+    # return min(len12) if one is prefix of another.
+        collapsed_sequence = []
+        prev_token = None
+
+        idx_gt = 0
+        for i,token in enumerate(path):
+            if token != prev_token and token != model.blank_idx:  # Remove repetition and blank
+                if token != gt[idx_gt]:
+                    return i
+                idx_gt += 1
+            prev_token = token  # Update previous token
+        return i
+
+    #lengths = targets.dims[-1].dyn_size
+    for i in range(label_log_prob.raw_tensor.shape[0]):
+        decoded_seq = ctc_collapse(seq_targets_wb.raw_tensor[:, i, 0], model.blank_idx).tolist()
+        gt_seq = trim_padded_sequence(targets.raw_tensor[i, :]).tolist()
+        # print(f"decoded seq:{decoded_seq}")
+        # print(f"Gt seq:{targets.raw_tensor[i, :].tolist()}")
+        if decoded_seq != gt_seq:
+            dif_pos = first_dis_pos(targets.raw_tensor[i, :].tolist(),seq_targets_wb.raw_tensor[:, i, 0])
+            if dif_pos:
+                pdb.set_trace()
+                print(f"{i}_th sequence is not the same starting from position"
+                      f" {dif_pos}/{seq_targets_wb.raw_tensor.shape[0]}!\n")
+                print(f"Around the pos:{seq_targets_wb.raw_tensor[dif_pos - 20:dif_pos+1, i, 0].tolist()}\n")
+            print(f"Gt seq:\n{gt_seq}\n")
+            print(f"Decoded seq:\n{decoded_seq}\n")
+
+        #assert seq_targets_wb.raw_tensor[:, i, 0].tolist() == target.raw_tensor[:, i, 0].tolist(), f"{i}_th sequence is not the same!"
+
+    #Compare viterbi score and scores
+    # Compare seq_targets with alignments
+    #
+        # lm_scores = []
+        # for i in range(label_log_prob.shape[0]):
+        #     seq = trim_padded_sequence(targets.raw_tensor[i, :])
+        #     token_list = [model.target_dim.vocab.id_to_label(idx) for idx in seq]
+        #     target_words = " ".join(token_list)
+        #     target_words = target_words.replace("@@ ", "")
+        #     target_words = target_words.replace(" <s>", "")
+        #     word_seq = seq.tolist()
+        #     lm_score = CTClm_score(word_seq, recog_lm)
+        #     lm_scores.append(lm_score)
+        #     scores.append(viterbi_scores[i] + hyp_params["lm_weight"] * lm_score)
+    """-----------------------"""
+    #````````````````````````````````````````````
+    score_dim = Dim(1, name="score_dim")
+    scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
+                    raw_tensor=scores.raw_tensor.reshape([label_log_prob_raw.shape[0], 1]))
+
+    # Just for compatialty
+    n_oov_dim = Dim(1, name="n_oov_dim")
+    n_oovs = [0 for _ in range(label_log_prob_raw.shape[0])]
+    n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
+                    raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob_raw.shape[0], 1]))
+
+    return scores, score_dim, n_oovs, n_oov_dim
+
+# RecogDef API   #Assume Beam size dependent
+scoring_v3: RecogDef[Model]
+scoring_v3.output_with_beam = True
+scoring_v3.output_blank_label = OUT_BLANK_LABEL
+scoring_v3.batch_size_dependent = False  # not totally correct, but we treat it as such...
+scoring_v3.beam_size_dependent = True
+
+def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: [FeedForwardLm| TransformerDecoder], lm_state, context_dim: Optional[rf.Dim]=None, lm_out_dim: Optional[rf.Dim]=None):
+    from returnn.torch.util import diagnose_gpu
+    lm_logits = None
+    done = False
+    splits = 1
+    while not done:
+        try:
+            if splits > 1:
+                batch_size = batch_dims[0].get_dim_value()
+                n_seqs = int(np.ceil(batch_size / splits))
+                new_dims = []
+                for i in range(splits):
+                    if (i + 1) * n_seqs <= batch_size:
+                        new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
+                    else:
+                        new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
+                target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
+                lm_logits_split = []
+                for i in range(splits):
+                    if isinstance(lm,FeedForwardLm):
+                        lm_logits_i, _ = lm(
+                            target_split[i],
+                            spatial_dim=context_dim,
+                            out_spatial_dim=lm_out_dim,
+                            state=lm_state,
+                        )
+                    elif isinstance(lm,TransformerDecoder):
+                        lm_logits_i, _ = lm(
+                            target_split[i], #TODO: So the target are already started with bos
+                            spatial_dim=single_step_dim,
+                            state=lm_state,
+                        )  # Flat_Batch_Beam, Vocab / ...
+                    lm_logits_split.append((lm_logits_i, new_dims[i]))
+                lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
+            else:
+                if isinstance(lm, FeedForwardLm):
+                    lm_logits, lm_state = lm(
+                        target,
+                        spatial_dim=context_dim,
+                        out_spatial_dim=lm_out_dim,
+                        state=lm_state,
+                    )
+                elif isinstance(lm, TransformerDecoder):
+                    lm_logits, lm_state = lm(
+                        target,
+                        spatial_dim=single_step_dim,
+                        state=lm_state,
+                    )  # Flat_Batch_Beam, Vocab / ...
+            done = True
+        except RuntimeError as exc:
+            if "out of memory" in str(exc):
+                print(f"OOM with {splits} splits:", exc)
+                diagnose_gpu.garbage_collect()
+                splits *= 2
+                if splits <= batch_dims[0].get_dim_value():
+                    continue
+            raise
+    return lm_logits, lm_state
+
+def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
+    assert target.sparse_dim == wb_target_dim
+    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    return rf.set_sparse_dim(target, target_dim)
+
+
+def _target_dense_extend_blank(
+    target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int, value: float
+) -> Tensor:
+    assert target_dim in target.dims
+    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    return res
+
+def recog_ffnn(
+        *,
+        model: Model,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        hyperparameters: dict,
+        prior_file: tk.Path = None,
+        train_lm: bool = False,
+        version: int = 2,
+):
+    """
+    Function is run within RETURNN.
+
+    Note, for debugging, see :func:`model_recog_debug` below.
+
+    Note, some potential further improvements:
+    There are many align label seqs which correspond to the same label seq,
+    but the LM score is calculated for each of them.
+    We could make this somehow unique depending on the label seq.
+    (But unclear how exactly to do this in a GPU friendly, batched way.)
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+
+    # The label log probs include the AM
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+
+    return decode_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim,
+                batch_dims=batch_dims, hyperparameters=hyperparameters, prior_file=prior_file)
+    # seq_tags = seq_tags.raw_tensor
+    # print_idx = []
+    # if version == 9:
+    #     for seq in ["dev-other/1630-96099-0024/1630-96099-0024"]:
+    #         if seq in seq_tags:
+    #             idx = np.where(seq_tags == seq)[0]
+    #             print_idx.append(idx)
+
+
+recog_ffnn: RecogDef[Model]
+recog_ffnn.output_with_beam = True
+recog_ffnn.output_blank_label = OUT_BLANK_LABEL
+recog_ffnn.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
+def decode_ffnn(
+        *,
+        model: Model,
+        label_log_prob: Tensor,
+        enc_spatial_dim: Dim,
+        batch_dims: Dim,
+        hyperparameters: dict,
+        prior_file: tk.Path = None,
+        train_lm: bool = False,
+        scoring: bool = False,
+        ground_truth: Tensor = None,
+        version: int = 2,
+):
+    """
+    Function is run within RETURNN.
+
+    Note, for debugging, see :func:`model_recog_debug` below.
+
+    Note, some potential further improvements:
+    There are many align label seqs which correspond to the same label seq,
+    but the LM score is calculated for each of them.
+    We could make this somehow unique depending on the label seq.
+    (But unclear how exactly to do this in a GPU friendly, batched way.)
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    # seq_tags = seq_tags.raw_tensor
+    # print_idx = []
+    # if version == 9:
+    #     for seq in ["dev-other/1630-96099-0024/1630-96099-0024"]:
+    #         if seq in seq_tags:
+    #             idx = np.where(seq_tags == seq)[0]
+    #             print_idx.append(idx)
+    import warnings
+    from i6_experiments.users.zhang.experiments import recombination
+    def _update_context(context: Tensor, new_label: Tensor, context_dim: Dim) -> Tensor:
+        new_dim = Dim(1, name="new_label")
+        new_label = rf.expand_dim(new_label, dim=new_dim)
+        old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
+        new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim),
+                                                 out_dim=context_dim)
+        assert new_context_dim == context_dim
+        return new_context
+
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+
+    n_best = hyp_params.pop("nbest", 1)
+    beam_size = hyp_params.pop("beam_size", 180)
+    print(f"Beam size: {beam_size}")
+    use_recombination = hyp_params.pop("use_recombination", False)
+    assert n_best == 1 or use_recombination, "n-best only implemented with recombination"
+    recomb_blank = hyp_params.pop("recomb_blank", False)
+    recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
+    recomb_with_sum = hyp_params.pop("recomb_with_sum", False)
+
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+
+    # RETURNN version is like "1.20250115.110555"
+    # There was an important fix in 2025-01-17 affecting masked_scatter.
+    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
+    import returnn
+    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
+
+    # Subtract prior if available
+    label_prior = False
+    prior = None
+    if prior_file and prior_weight > 0.0 and not scoring:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior *= prior_weight
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        if prior.shape[0] != label_log_prob.raw_tensor.shape[-1]:
+            assert prior.shape[0] == label_log_prob.raw_tensor.shape[
+                -1] - 1, f"prior shape {prior.shape[0]} != label_log_prob shape {label_log_prob.raw_tensor.shape[-1]} - 1"
+            label_prior = True
+        if label_prior:
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+        # Framewise prior
+        else:
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+            label_log_prob = label_log_prob - prior
+
+    if lm_name is not None:
+        def extract_ctx_size(s):
+            match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
+            return match.group(1) if match else None
+
+        assert lm_name.startswith("ffnn")
+        context_size = int(extract_ctx_size(lm_name))
+        if train_lm:
+            assert model.train_language_model
+            assert model.train_language_model.vocab_dim == model.target_dim
+            lm: FeedForwardLm = model.train_language_model
+        else:
+            assert model.recog_language_model
+            assert model.recog_language_model.vocab_dim == model.target_dim
+            lm: FeedForwardLm = model.recog_language_model
+        assert lm.conv_filter_size_dim.dimension == context_size
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = hyp_params["lm_weight"]
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
+
+    if lm_name is not None:
+        context_dim = Dim(context_size, name="context")
+        lm_out_dim = Dim(context_size + 1, name="context+1")
+        target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim],
+                             sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+    target_wb = rf.constant(
+        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    )  # Batch, InBeam -> VocabWB
+
+    if lm_name is not None:
+        with torch.no_grad():
+            unk_mask = rf.sparse_to_dense(
+                model.target_dim.vocab.label_to_id("<unk>"), axis=model.target_dim, label_value=float("-inf"),
+                other_value=0.0
+            )
+            lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+            lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, lm_state, context_dim, lm_out_dim)
+            lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+            assert lm_logits.dims == (*batch_dims_, model.target_dim)
+            lm_logits = lm_logits + unk_mask
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+            lm_log_probs *= lm_scale
+            if label_prior and prior is not None:
+                lm_log_probs -= prior
+
+    max_seq_len = int(enc_spatial_dim.get_dim_value())
+    seq_targets_wb = []
+    seq_backrefs = []
+    backrefs = None
+    if use_recombination:
+        assert len(batch_dims) == 1
+        if recomb_after_topk:
+            seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
+        else:
+            seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
+
+    if ground_truth is not None:
+        #Initialise the pointer for lm masking
+        beam_dim_mask = Dim(beam_size, name="beam")
+        pointer = rf.constant(0, dims=batch_dims+[beam_dim_mask])
+        gt_len = rtf.TorchBackend.convert_to_tensor(ground_truth.dims[-1].dyn_size #TODO: dims[-1] Maybe not safe enough
+, dims=[batch_dim],dtype="int32")
+        gt_len_batched = rf.expand_dim(gt_len, dim=beam_dim_mask)
+        gt_len_batched = rf.copy_to_device(gt_len_batched, dev)
+        max_idx = gt_len_batched-1
+
+    for t in range(max_seq_len):
+        prev_target_wb = target_wb
+
+        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+
+        # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+        if lm_name is not None:
+            prev_target = target
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+
+                if ground_truth is not None: # Not tested yet
+                    # mask LM scores to only allow true label, (prev_label, blank just use AM_prob)
+                    # ground_truth: shape [batch, time]
+                    # pointer: current positions, shape [batch, beam]
+                    beam_dim__ = beam_dim if t==0 else beam_dim_mask
+                    true_lbl = rf.gather(
+                        ground_truth,
+                        axis=ground_truth.get_time_dim_tag(),
+                        indices=pointer if t>0 else rf.constant(0, dims=[beam_dim]+batch_dims)# shape [batch, beam]
+                    )  # now true_lbl has shape [batch, beam]
+
+                    # Build mask #TODO: This can be placed outside the loop
+                    vocab_range = rf.range_over_dim(seq_log_prob.dims[-1])  # shape [vocab+1]
+                    # broadcast to [batch, beam, vocab]
+                    vocab_3d = rf.expand_dim(rf.expand_dim(vocab_range, dim=batch_dim), dim=beam_dim__)
+
+                    mask_true = rf.equal(vocab_3d, true_lbl)  # allow GT token
+                    mask_prev = rf.equal(vocab_3d, prev_target_wb)  # allow previous label
+                    mask_blank = rf.equal(vocab_3d, model.blank_idx)  # allow blank
+
+                    allow_mask = mask_true | mask_prev | mask_blank  # shape [batch, beam, vocab]
+
+                    '''This part is not completed and not intergrated yet'''
+                    # Add bonus to encourage GT token consuming
+                    # Option 1:
+                    # pointer is [B,beam] and ranges from 0…gt_len.
+                    # Normalize it to [0,1]:
+                    progress = pointer / rf.maximum(gt_len_batched, 1)  # float in [0,1]
+
+                    # Choose a tunable weight, e.g. 5.0 (in log-prob space)
+                    bonus = progress * 5.0  # [B,beam]
+                    # TODO: not tested yet
+
+                    # But bonus has to align with vocab dim for combined:
+                    # We only want to add it once per beam, not per token. So after top_k we could add it,
+                    # or we can expand it to [B,beam,1] and add to all vocab candidates equally:
+                    bonus_expanded = rf.expand_dim(bonus, dim=model.target_dim)  # [B,beam,V]
+                    '''================================================='''
+
+                    # Mask LM and add the score
+                    seq_log_prob += rf.where(
+                            mask_true,
+                            _target_dense_extend_blank(
+                            lm_log_probs,
+                            target_dim=model.target_dim,
+                            wb_target_dim=model.wb_target_dim,
+                            blank_idx=model.blank_idx,
+                            value=0.0,
+                        ),
+                        0.0,
+                    )  # Batch, InBeam, VocabWB
+
+                    seq_log_prob_biased = seq_log_prob + bonus_expanded
+                    # TODO: use the biased seq_log_prob to do search and keep original scores
+
+
+                    if t==0:
+                        true_lbl = rf.gather(
+                            ground_truth,
+                            axis=ground_truth.get_time_dim_tag(),
+                            indices=pointer# shape [batch, beam]
+                        )  # now true_lbl has shape [batch, beam]
+
+                    # Leave only prev, true, blank:
+                    seq_log_prob = rf.where(allow_mask, seq_log_prob, float("-inf"))
+
+                else:
+                    seq_log_prob += rf.where(
+                        (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                        _target_dense_extend_blank(
+                            lm_log_probs,
+                            target_dim=model.target_dim,
+                            wb_target_dim=model.wb_target_dim,
+                            blank_idx=model.blank_idx,
+                            value=0.0,
+                        ),
+                        0.0,
+                    )  # Batch, InBeam, VocabWB
+
+        if use_recombination and not recomb_after_topk:
+            seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs,
+                                                     target_wb, model.blank_idx)
+            if t > 0:
+                seq_log_prob = recombination.recombine_seqs(
+                    seq_log_prob,
+                    seq_hash,
+                    beam_dim,
+                    batch_dims[0],
+                    model.wb_target_dim,
+                    model.blank_idx,
+                    recomb_blank=recomb_blank,
+                    use_sum=recomb_with_sum,
+                )
+
+        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam") if ground_truth is None else beam_dim_mask,
+            axis=[beam_dim, model.wb_target_dim]
+        )
+
+        # seq_log_prob, backrefs, target_wb: Batch, Beam
+        # backrefs -> InBeam.
+        # target_wb -> VocabWB.
+        target_wb = rf.cast(target_wb, "int32")
+        seq_targets_wb.append(target_wb)
+        seq_backrefs.append(backrefs)
+
+        if lm_name is not None:
+            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+            prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+
+        if ground_truth is not None:
+            # top_k gives `backrefs` indexing old beams for each new beam.
+            # Reorder pointer so it follows the surviving beams:
+            pointer = rf.gather(pointer, axis=beam_dim, indices=backrefs)
+            true_lbl = rf.gather(true_lbl, axis=beam_dim, indices=backrefs)
+            # update pointer
+            matched = (target_wb == true_lbl) & (target_wb != prev_target_wb)
+            #assert rf.logical_and(matched==got_new_label) # !Not true, except the 3 options, remaining beam will only chose randomly among -inf
+            pointer = pointer + rf.where(matched, 1, 0)
+            pointer = rf.minimum(pointer, max_idx) #Ensure not exceed the true length of GT
+
+        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb) if ground_truth is None else matched  # Batch, Beam -> 0|1
+
+
+        if lm_name is not None:
+            target = rf.where(
+                got_new_label,
+                _update_context(
+                    prev_target,
+                    _target_remove_blank(
+                        target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim,
+                        blank_idx=model.blank_idx
+                    ),
+                    context_dim
+                ),
+                prev_target,
+            )  # Batch, Beam -> Vocab
+
+        # if t in [352]: #Num [0,2] seq in gt debug
+        #     import pdb;pdb.set_trace()
+
+        if use_recombination and recomb_after_topk:
+            seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx,
+                                                     gather_old_target=False)
+            if t > 0:
+                seq_log_prob = recombination.recombine_seqs(
+                    seq_log_prob,
+                    seq_hash,
+                    beam_dim,
+                    batch_dims[0],
+                    None,
+                    model.blank_idx,
+                    recomb_blank=recomb_blank,
+                    use_sum=recomb_with_sum,
+                    is_blank=(target_wb == model.blank_idx),
+                )
+
+        if lm_name is not None:
+            with torch.no_grad():
+                got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+                if got_new_label_cpu.raw_tensor.sum().item() > 0:
+                    (target_,
+                     lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                        (target, lm_state),
+                        mask=got_new_label,
+                        mask_cpu=got_new_label_cpu,
+                        dims=batch_dims + [beam_dim],
+                    )
+                    # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+                    assert packed_new_label_dim.get_dim_value() > 0
+
+                    lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, lm_state_,
+                                                          context_dim, lm_out_dim,
+                                                          )
+                    lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim,
+                                           indices=rf.last_frame_position_of_dim(lm_out_dim))
+                    assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+                    lm_logits_ = lm_logits_ + unk_mask
+                    lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                    lm_log_probs_ *= lm_scale
+                    if label_prior and prior is not None:
+                        lm_log_probs -= prior
+
+                    lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                        (lm_log_probs_, lm_state_),
+                        (lm_log_probs, lm_state),
+                        mask=got_new_label,
+                        mask_cpu=got_new_label_cpu,
+                        dims=batch_dims + [beam_dim],
+                        in_dim=packed_new_label_dim,
+                        masked_select_dim_map=packed_new_label_dim_map,
+                    )  # Batch, Beam, Vocab / ...
+
+    # seq_log_prob, lm_log_probs: Batch, Beam
+    # Add LM EOS score at the end.
+    if lm_name is not None:
+        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+
+        if ground_truth is not None:
+            # Not sure how to ensure the beam consuming all tokens from GT
+
+            ## Option 1: Penalize -inf to all beam that did not consume up GT,
+            # !did not work on its own, even with beam = 184 on bpe128 case
+            full = rf.equal(pointer, gt_len_batched)  # True for beams that hit exactly gt_len
+            INF = float("-1e30")
+            seq_log_prob = rf.where(full, seq_log_prob, INF)  # penalize “incomplete” beams
+
+
+        import pdb;pdb.set_trace()
+
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_wb_ = []
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for backrefs, target_wb in zip(seq_backrefs[::-1], seq_targets_wb[::-1]):
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
+        seq_targets_wb_.insert(0, rf.gather(target_wb, indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+    seq_targets_wb__ = TensorArray(seq_targets_wb_[0])
+    for target_wb in seq_targets_wb_:
+        seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
+    out_spatial_dim = enc_spatial_dim
+    seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
+
+    if int(beam_dim.get_dim_value()) >= n_best:
+        if n_best > 1:
+            assert recomb_after_topk and recomb_blank  # TODO update hash also in the other cases
+
+            seq_log_prob, indices, beam_dim_new = rf.top_k(
+                seq_log_prob, k_dim=Dim(n_best, name=f"nbest-beam"), axis=beam_dim
+            )
+            seq_targets_wb = rf.gather(seq_targets_wb, axis=beam_dim, indices=indices)
+            # Filter out duplicated seqs which are still appearing even though we recombine
+            seq_targets_wb = rf.where(
+                (seq_log_prob <= -1.0e30),
+                rf.constant(model.blank_idx, dims=batch_dims + [beam_dim_new], sparse_dim=model.wb_target_dim),
+                seq_targets_wb
+            )
+            beam_dim = beam_dim_new
+        else:
+            seq_log_prob, indices, beam_dim_new = rf.top_k(
+                seq_log_prob, k_dim=Dim(n_best, name=f"nbest-beam"), axis=beam_dim
+            )
+            seq_targets_wb = rf.gather(seq_targets_wb, axis=beam_dim, indices=indices)
+            beam_dim = beam_dim_new
+
+
+    if train_lm:
+        return seq_targets_wb.raw_tensor.transpose(0, 1).transpose(1, 2).tolist(), seq_log_prob
+    else:
+        return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
+
+def recog_trafo(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    hyperparameters: dict,
+    prior_file: tk.Path = None,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Note, for debugging, see :func:`model_recog_debug`.
+
+    Note, some potential further improvements:
+    There are many align label seqs which correspond to the same label seq,
+    but the LM score is calculated for each of them.
+    We could make this somehow unique depending on the label seq.
+    (But unclear how exactly to do this in a GPU friendly, batched way.)
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    import returnn
+
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+
+    n_best = hyp_params.pop("nbest", 1)
+    beam_size = hyp_params.pop("beam_size", 1)
+
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+    # RETURNN version is like "1.20250115.110555"
+    # There was an important fix in 2025-01-17 affecting masked_scatter.
+    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
+    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
+
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+
+    prior = None
+    if prior_file and prior_weight > 0.0:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior *= prior_weight
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+       # Framewise prior
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+        label_log_prob = label_log_prob - prior
+
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
+
+    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+    target_wb = rf.constant(
+        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    )  # Batch, InBeam -> VocabWB
+    if lm_name is not None:
+        assert lm_name.startswith("trafo")
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        if isinstance(model.recog_language_model, TransformerDecoder):
+            lm: TransformerDecoder = model.recog_language_model
+        else:
+            raise Exception("Not supported language model:" + lm_name + f"{model.recog_language_model}")
+
+        # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = hyp_params["lm_weight"]
+
+        lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+        lm_logits, lm_state = lm(
+            target,
+            spatial_dim=single_step_dim,
+            state=lm_state,
+        )  # Batch, InBeam, Vocab / ...
+        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs *= lm_scale
+
+    max_seq_len = int(enc_spatial_dim.get_dim_value())
+    seq_targets_wb = []
+    seq_backrefs = []
+    for t in range(max_seq_len):
+        prev_target = target
+        prev_target_wb = target_wb
+
+        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+
+        if lm is not None:
+            # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+            seq_log_prob += rf.where(
+                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                _target_dense_extend_blank(
+                    lm_log_probs,
+                    target_dim=model.target_dim,
+                    wb_target_dim=model.wb_target_dim,
+                    blank_idx=model.blank_idx,
+                    value=0.0,
+                ),
+                0.0,
+            )  # Batch, InBeam, VocabWB
+
+        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
+        )
+        # seq_log_prob, backrefs, target_wb: Batch, Beam
+        # backrefs -> InBeam.
+        # target_wb -> VocabWB.
+        seq_targets_wb.append(target_wb)
+        seq_backrefs.append(backrefs)
+
+        if lm is not None:
+            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
+        target = rf.where(
+            got_new_label,
+            _target_remove_blank(
+                target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+            ),
+            prev_target,
+        )  # Batch, Beam -> Vocab
+
+        if lm is not None:
+            got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+            if got_new_label_cpu.raw_tensor.sum().item() > 0:
+                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                    (target, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                )
+                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+                assert packed_new_label_dim.get_dim_value() > 0
+                lm_logits_, lm_state_ = get_lm_logits(batch_dims, target_, lm, lm_state_)
+
+                # lm_logits_, lm_state_ = lm(
+                #     target_,
+                #     spatial_dim=single_step_dim,
+                #     state=lm_state_,
+                # )  # Flat_Batch_Beam, Vocab / ...
+                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ *= lm_scale
+
+                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                    (lm_log_probs_, lm_state_),
+                    (lm_log_probs, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                    in_dim=packed_new_label_dim,
+                    masked_select_dim_map=packed_new_label_dim_map,
+                )  # Batch, Beam, Vocab / ...
+
+    if lm is not None:
+        # seq_log_prob, lm_log_probs: Batch, Beam
+        # Add LM EOS score at the end.
+        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_wb_ = []
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for backrefs, target_wb in zip(seq_backrefs[::-1], seq_targets_wb[::-1]):
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
+        seq_targets_wb_.insert(0, rf.gather(target_wb, indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+    seq_targets_wb__ = TensorArray(seq_targets_wb_[0])
+    for target_wb in seq_targets_wb_:
+        seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
+    out_spatial_dim = enc_spatial_dim
+    seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
+
+    return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+recog_trafo: RecogDef[Model]
+recog_trafo.output_with_beam = True
+recog_trafo.output_blank_label = "<blank>"
+recog_trafo.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
 
 class Model(rf.Module):
     """Model definition"""

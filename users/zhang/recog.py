@@ -35,7 +35,7 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 
 import numpy as np
 
-from .experiments.ctc import model_recog_lm, model_recog_flashlight
+from .experiments.ctc import model_recog, model_recog_lm, model_recog_flashlight, recog_ffnn, recog_trafo
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 
 if TYPE_CHECKING:
@@ -162,6 +162,7 @@ class _RecogAndScoreFunc:
         dev_sets: Optional[List[str]] = None,
         search_rqmt: dict = None,
         search_error_check: bool = False,
+        search_error_version: int = 1,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -178,6 +179,7 @@ class _RecogAndScoreFunc:
         self.dev_sets = dev_sets
         self.search_rqmt = search_rqmt
         self.search_error_check = search_error_check
+        self.search_error_version = search_error_version
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection, Optional[tk.paht]]:
         if isinstance(epoch_or_ckpt, int):
@@ -295,13 +297,16 @@ def recog_model(
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
         if search_error_check: #Just report the search error on test-other
+            config_ = config.copy()
+            if config.get("batch_size"):
+                config_.pop("batch_size")
             if dataset_name == "test-other":
-                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
+                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
                                                   decoding_config=decoding_config,prior_path=prior_path,
                                                   alias_name=f"{name}/search_error/{dataset_name}" if name else None,
                                                   )
             else:
-                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
+                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
                                    decoding_config=decoding_config, prior_path=prior_path,
                                    alias_name=f"{name}/search_error/{dataset_name}" if name else None,
                                    )
@@ -369,10 +374,10 @@ def check_search_error(
         config: Optional[Dict[str, Any]] = None,
         alias_name: Optional[str] = None,
 ) -> tk.Path:
-    from .experiments.ctc import scoring
+    from .experiments.ctc import scoring, scoring_v2, scoring_v3
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
-        returnn_config=search_error_config(dataset, model.definition, scoring,
+        returnn_config=search_error_config(dataset, model.definition, scoring_v3 if decoding_config["use_lm"] else scoring_v2,
                                            decoding_config=decoding_config, config=config, prior_path=prior_path),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -651,6 +656,12 @@ def search_error_config(
     else:
         lm = None
 
+    # Remove possible irrelevant params
+    if not scoring_func.beam_size_dependent:
+        decoder_params.pop("beam_size")
+
+    decoder_params.pop("beam_threshold") # Only relevant for flashlight decoder, wont use it any way
+
     args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
     if prior_path:
         args["prior_file"] = prior_path
@@ -676,7 +687,7 @@ def search_error_config(
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_search_error_step, import_as="forward_step"),
                     serialization.Import(_returnn_search_error_forward_callback, import_as="forward_callback"),
-                    serialization.ExplicitHash({"version": 5}),  #1: eos added 2: eos not added 5. 1+aux info added
+                    serialization.ExplicitHash({"version": 7}),  #1: eos added 2: eos not added 5. 1+aux info added 6. added label_prob mask
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
@@ -979,17 +990,17 @@ def search_config_v2(
                 raise NotImplementedError(f"Unknown lm_name {lm_name}")
         else:
             lm = None
+            decoder_params.pop("lm_weight")
 
         args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
         if prior_path:
             args["prior_file"] = prior_path
 
-    elif recog_def is model_recog_flashlight:
+    elif recog_def in (model_recog_flashlight, recog_ffnn, recog_trafo, model_recog):
         args = {"hyperparameters": decoding_config}
         if prior_path:
             args["prior_file"] = prior_path
-    else:
-        args = {}
+
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
         python_epilog=[
@@ -1005,7 +1016,7 @@ def search_config_v2(
                         code_object_path=recog_def,
                         unhashed_package_root=None,
                         hashed_arguments=args,
-                        unhashed_arguments={},
+                        unhashed_arguments={}, #TODO: For NoLM, the lm scale should not be hashed
                         import_as="_recog_def",
                         ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
@@ -1014,7 +1025,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 14,
+                            "version": 15,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -1068,7 +1079,8 @@ def search_config_v2(
         if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
             continue
         returnn_recog_config.post_config[k] = v
-
+    # print(returnn_recog_config.config)
+    # print(returnn_recog_config.post_config)
     return returnn_recog_config
 
 
@@ -1255,6 +1267,8 @@ class GetRecogExp(sisyphus.Job):
             'best_epoch': int,  (sub-epoch by RETURNN)
             ...  (other meta info)
         }
+
+    !! Hash of this job mostly depends on the hash of recog_and_score_func
     """
 
     def __init__(
@@ -1263,6 +1277,7 @@ class GetRecogExp(sisyphus.Job):
         epoch: int,
         *,
         recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[tk.path]]],
+        version: int = 1,
     ):
         """
         :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
@@ -1323,8 +1338,8 @@ class GetRecogExp(sisyphus.Job):
         import shutil
         if (self._scores_outputs[best_epoch][1] and
                 os.path.exists(self._scores_outputs[best_epoch][1].get_path())):
-            #os.symlink(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
-            shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
+            os.symlink(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
+            #shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
 
 
 class GetBestRecogTrainExp(sisyphus.Job):

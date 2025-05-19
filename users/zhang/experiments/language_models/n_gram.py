@@ -102,7 +102,7 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         extra_ppl_args= '-debug 2'
     )
 
-    
+    tk.register_output(f"ppl/{N_order}gram_{prune_thresh}/ppl", ppl_job.out_ppl_log)
     # conversion_job = ConvertARPAtoTensor(
     #     lm=lm_arpa,
     #     bpe_vocab=vocab.vocab,

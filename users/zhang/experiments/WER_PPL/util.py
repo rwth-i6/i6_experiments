@@ -20,8 +20,9 @@ class WER_ppl_PlotAndSummaryJob(Job):
         names: List[str],
         results: List[Tuple[tk.Variable, tk.Path]],
 
-        lm_scales: List[Optional[float]],
+        lm_tunes: List[Optional[tk.Path]],
         search_errors: List[Optional[tk.Path]],
+        lm_default_scales: List[Optional[float]],
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
@@ -30,7 +31,8 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.out_plot2 = self.output_path("plots/test_other.png")
         self.names = names
         self.results = results
-        self.lm_scales = lm_scales
+        self.lm_tunes = lm_tunes
+        self.lm_default_scales = lm_default_scales
         self.search_errors = search_errors
 
     def tasks(self) -> Iterator[Task]:
@@ -77,7 +79,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
             wer_fit = np.power(10, regression_func(ln_ppl_range, a, b))  # Compute fitted WER
             # Plot Data Points
             plt.figure(figsize=(8, 6))
-            markers = {"2gram":"D", "3gram":"v", "4gram":"o", "ffnn":"s", "default":"^"}  # Different markers for different LM
+            markers = {"trafo":"D", "gram":"v", "4gram":"o", "ffnn":"s", "default":"^"}  # Different markers for different LM
             group_points = dict([(key,[]) for key in markers])
             for i, name in enumerate(self.names):
                 for key, value in markers.items():
@@ -113,7 +115,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         for _, wer_path in self.results:
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
-        res = dict(zip(self.names, zip(ppls,wers,self.lm_scales,self.search_errors)))
+        res = dict(zip(self.names, zip(ppls,wers,self.lm_tunes,self.search_errors,self.lm_default_scales)))
         # Define filenames
         csv_filename = self.out_summary.get_path()
 
@@ -124,7 +126,13 @@ class WER_ppl_PlotAndSummaryJob(Job):
             ppl = values[0]
             scores = values[1]["best_scores"]
             best_epoch = values[1]["best_epoch"]
-            lm_scale = values[2]
+            best_lm_tune = values[2]
+            if best_lm_tune and os.path.exists(best_lm_tune): # Just for bypassing the static check #TODO： this will not be excuted in first run
+                lm_weight_tune = json.load(open(best_lm_tune))
+                lm_weight_tune = lm_weight_tune["best_tune"]
+                lm_scale = values[4] + lm_weight_tune
+            else:
+                lm_scale = values[4]
             with open(values[3].get_path()) as f:
                 import re
                 search_error = f.readline()
