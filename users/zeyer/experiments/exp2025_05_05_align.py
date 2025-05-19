@@ -318,13 +318,27 @@ def py():
     #   then get timings (on normalized text maybe, same what is used for WER),
     #   then calc F1 so that we can compare to CrisperWhisper paper
 
-    j = Phi4MultimodalRecognitionJob(
+    from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import sclite_score_hyps_to_ref
+
+    recog_job = Phi4MultimodalRecognitionJob(
         model_dir=dl_phi4mi.out_hub_cache_dir,
         esb_datasets_dir=dl_esb_datasets_test_only_sorted.out_hub_cache_dir,
         dataset_name="tedlium",
         dataset_split="test",
     )
-    tk.register_output("phi4mi-tedlium-test-recog.txt.py.gz", j.out_recog)
+    tk.register_output("phi4mi-tedlium-test.recog.txt.py.gz", recog_job.out_recog)
+    ref_text_job = ExtractTextFromHuggingFaceEsbDatasetJob(
+        esb_datasets_dir=dl_esb_datasets_test_only_sorted.out_hub_cache_dir,
+        dataset_name="tedlium",
+        dataset_split="test",
+    )
+    tk.register_output("tedlium-test.ref.txt.py.gz", ref_text_job.out_text)
+    # TODO normalize...
+    # Should get: 2.89% WER with Phi4MI on Tedlium (test).
+    tk.register_output(
+        "phi4mi-tedlium-test.wer.txt",
+        sclite_score_hyps_to_ref(recog_job.out_recog, ref_text_dict=ref_text_job.out_text).main_measure_value,
+    )
 
     # TODO check same tokenization as in CrisperWhisper paper
 
@@ -592,6 +606,63 @@ class Phi4MultimodalRecognitionJob(Job):
                 pred = result["predictions"]
                 assert isinstance(pred, str)
                 out.write(f"{seq_tag!r}: {pred!r},\n")
+            out.write("}\n")
+
+
+class ExtractTextFromHuggingFaceEsbDatasetJob(Job):
+    def __init__(
+        self,
+        *,
+        esb_datasets_dir: tk.Path,
+        dataset_name: str,
+        dataset_split: str,
+    ):
+        """
+        :param esb_datasets_dir: e.g. via DownloadHuggingFaceRepoJobV2 or DownloadAndPrepareHuggingFaceDatasetJob
+            of the esb-datasets, which is also used for the OpenASRLeaderboard
+            (or anything compatible to that).
+        :param dataset_name:
+        :param dataset_split:
+        """
+        super().__init__()
+        self.esb_datasets_dir = esb_datasets_dir
+        self.dataset_name = dataset_name
+        self.dataset_split = dataset_split
+
+        self.rqmt = {"time": 4, "cpu": 2, "mem": 10}
+
+        self.out_text = self.output_path("ref.txt.py.gz")  # gzipped textdict
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        from datasets import load_dataset
+
+        # https://github.com/huggingface/open_asr_leaderboard/blob/main/normalizer/data_utils.py
+        # data_utils.load_data(args) is just load_dataset, nothing else
+        dataset = load_dataset(
+            get_content_dir_from_hub_cache_dir(self.esb_datasets_dir),
+            name=self.dataset_name,
+            split=self.dataset_split,
+            token=True,
+        )
+        print(f"Dataset: {dataset}")
+
+        dataset = dataset.remove_columns(["audio"])
+        dataset = dataset.filter(
+            lambda ref: ref.strip() not in {"", "ignore time segment in scoring"}, input_columns=["text"]
+        )
+
+        # See SearchOutputRawReplaceJob and co.
+        with uopen(self.out_text.get_path(), "wt") as out:
+            out.write("{\n")
+            for result in dataset:
+                # https://huggingface.co/datasets/esb/datasets
+                seq_tag = f"{self.dataset_name}/{self.dataset_split}/{result['id']}"
+                ref = result["text"]
+                assert isinstance(ref, str)
+                out.write(f"{seq_tag!r}: {ref!r},\n")
             out.write("}\n")
 
 
