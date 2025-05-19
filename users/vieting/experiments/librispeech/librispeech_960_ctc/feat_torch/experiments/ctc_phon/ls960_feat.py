@@ -663,6 +663,27 @@ def eow_phon_ls960_relposencoder_0924_base():
             poolings=[None] * 6,
             out_features=512,
         ),
+        "2Dx6v7": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), 1)] * 2,
+            activations=[None, None, "ReLU"] * 6,
+            poolings=[None] * 18,
+            out_features=512,
+        ),
+        "2Dx6v8": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), 1)] * 3,
+            activations=[None, None, None, "ReLU"] * 6,
+            poolings=[None] * 24,
+            out_features=512,
+        ),
+        "2Dx6v9": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[(32, (7, 7), (2, 1))] + [(64, (7, 7), (2, 1))] * 4 + [(32, (7, 7), (2, 1))],
+            activations=["ReLU"] * 6,
+            poolings=[None] * 6,
+            out_features=512,
+        ),
         "2Dx7v1": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
             convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), (2, 1))],
@@ -818,12 +839,13 @@ def eow_phon_ls960_relposencoder_0924_base():
                 network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
                 model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
                 forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
-                prior_batch_size=140,
+                prior_batch_size=100 if "stftsav47.2Dx6v1" in exp_name else 140,
             )
 
     # 2D experiments: STFT Re + Im as first layer
     for exp_name, window_size, window_shift, n_fft, specaug_version in [
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v47"),
+        (f".stftsa.2Dx6v1", 400, 10, None, "stft_v47"),
     ]:
         re_im_proc_config = VGGNLayerActFrontendV2Config(
             in_features=(n_fft or window_size) // 2 + 1,
@@ -843,11 +865,12 @@ def eow_phon_ls960_relposencoder_0924_base():
             proc_config=re_im_proc_config,
             proc_module="VGGNLayerActFrontendV2",
         )
+        n_fe_layers = int(np.log2(640 / window_shift)) - 1
         frontend_config = VGGNLayerActFrontendV2Config(
             in_features=(n_fft or window_size) // 2 + 1,
-            convs=[(32, (3, 3), (2, 1))],
-            activations=["ReLU"],
-            poolings=[None],
+            convs=[(64, (3, 3), (2, 1))] * (n_fe_layers - 1) + [(32, (3, 3), (2, 1))],
+            activations=["ReLU"] * n_fe_layers,
+            poolings=[None] * n_fe_layers,
             out_features=512,
             in_channels=32,
             project_out=True,
@@ -885,12 +908,17 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx2v1", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx7v1", "stft_v47", 80, 256, 5, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 400, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 80, 128, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 64, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 80, 32, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 16, 10, False, None, None),
         ("2Dx6v3", "stft_v47", 80, 256, 10, False, None, None),
         ("2Dx6v4", "stft_v47", 80, 256, 10, False, None, None),
         ("2Dx6v5", "stft_v47", 80, 256, 10, False, None, None),
         ("2Dx6v6", "stft_v47", 80, 256, 10, False, None, None),
+        ("2Dx6v7", "stft_v47", 80, 256, 10, False, None, None),
+        ("2Dx6v8", "stft_v47", 80, 256, 10, False, None, None),
+        ("2Dx6v9", "stft_v47", 80, 256, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
