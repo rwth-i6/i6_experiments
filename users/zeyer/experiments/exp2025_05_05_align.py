@@ -337,7 +337,12 @@ def py():
     # Should get: 2.89% WER with Phi4MI on Tedlium (test).
     tk.register_output(
         "phi4mi-tedlium-test.wer.txt",
-        sclite_score_hyps_to_ref(recog_job.out_recog, ref_text_dict=ref_text_job.out_text).main_measure_value,
+        sclite_score_hyps_to_ref(
+            OpenASRLeaderboardTextNormalizationJob(
+                recog_job.out_recog, open_asr_leaderboard_repo_dir=open_asr_leaderboard_repo.out_repository
+            ).out_text,
+            ref_text_dict=ref_text_job.out_text,
+        ).main_measure_value,
     )
 
     # TODO check same tokenization as in CrisperWhisper paper
@@ -667,7 +672,48 @@ class ExtractTextFromHuggingFaceEsbDatasetJob(Job):
 
 
 class OpenASRLeaderboardTextNormalizationJob(Job):
-    pass
+    """
+    https://github.com/huggingface/open_asr_leaderboard/blob/main/normalizer/data_utils.py
+    """
+
+    def __init__(self, text: tk.Path, *, open_asr_leaderboard_repo_dir: tk.Path):
+        """
+        :param text: e.g. via ExtractTextFromHuggingFaceEsbDatasetJob
+        """
+        super().__init__()
+        self.text = text
+        self.open_asr_leaderboard_repo_dir = open_asr_leaderboard_repo_dir
+
+        self.rqmt = {"time": 4, "cpu": 2, "mem": 10}
+
+        self.out_text = self.output_path("normalized.txt.py.gz")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import sys
+        import types
+
+        sys.path.insert(0, self.open_asr_leaderboard_repo_dir.get_path())
+
+        # normalizer.eval_utils does `import evaluate`, which is not needed by us,
+        # so do this hack to just ignore it, without needing the dependency
+        sys.modules["evaluate"] = types.ModuleType("<dummy_evaluate>")
+
+        from normalizer.data_utils import normalizer
+
+        with uopen(self.text.get_path(), "rt") as in_:
+            in_text = eval(in_.read())
+        assert isinstance(in_text, dict)
+
+        with uopen(self.out_text.get_path(), "wt") as out:
+            out.write("{\n")
+            for seq_tag, text in in_text.items():
+                assert isinstance(text, str)
+                norm_text = normalizer(text)
+                out.write(f"{seq_tag!r}: {norm_text!r}\n")
+            out.write("}\n")
 
 
 class GenAya(Job):
