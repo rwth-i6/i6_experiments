@@ -338,6 +338,8 @@ class Phi4MultimodalRecognitionJob(Job):
     Do recognition with Phi4Multimodal.
     Store in our common TextDict format.
 
+    https://huggingface.co/spaces/hf-audio/open_asr_leaderboard
+    https://huggingface.co/microsoft/Phi-4-multimodal-instruct
     https://github.com/huggingface/open_asr_leaderboard/blob/main/phi/run_phi4_multimodal.sh
     https://github.com/huggingface/open_asr_leaderboard/blob/main/phi/run_eval.py
     """
@@ -493,9 +495,15 @@ class Phi4MultimodalRecognitionJob(Job):
         # https://github.com/huggingface/open_asr_leaderboard/blob/main/phi/run_eval.py
 
         prompt = f"<|user|><|audio_1|>{self.speech_prompt}<|end|><|assistant|>"
-        print(f">>> Prompt\n{prompt}")
+        print(f">>> Prompt: {prompt!r}")
 
-        gen_kwargs: Dict[str, Any] = {"max_new_tokens": self.max_new_tokens, "num_beams": self.num_beams}
+        gen_kwargs: Dict[str, Any] = {
+            "max_new_tokens": self.max_new_tokens,
+            "num_beams": self.num_beams,
+            # We don't need the logits here. There is currently no way to not compute them,
+            # so num_logits_to_keep=1 is the best we can do.
+            "num_logits_to_keep": 1,
+        }
 
         stop_tokens = ["<|end|>", processor.tokenizer.eos_token]
         stop_tokens_ids = processor.tokenizer(
@@ -565,7 +573,6 @@ class Phi4MultimodalRecognitionJob(Job):
             token=True,
         )
         print(f"Dataset: {dataset}")
-        print("Dataset keys:", dataset.keys())
 
         # This is dataset = data_utils.prepare_data(dataset):
         dataset = dataset.cast_column("audio", Audio(sampling_rate=16000))  # Re-sample to 16kHz
