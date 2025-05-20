@@ -4,6 +4,7 @@ Continuation of :mod:`exp24_09_16_grad_align`.
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple
 from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
@@ -306,13 +307,6 @@ def py():
     )
     tk.register_output("esb-datasets-test-only-sorted", dl_esb_datasets_test_only_sorted.out_hub_cache_dir)
 
-    open_asr_leaderboard_repo = CloneGitRepositoryJob(
-        "https://github.com/huggingface/open_asr_leaderboard.git",
-        # 2025-05-01 (includes parakeet-v2, phi4mi, ...)
-        commit="2472403cae1434752b7448b8f7cda560bd549e0f",
-    )
-    tk.register_output("open_asr_leaderboard_repo", open_asr_leaderboard_repo.out_repository)
-
     # TODO now do recog with Phi4/CrisperWhisper on tedlium (maybe ami), following the open_asr_leaderboard recipe,
     #   check that we can reproduce the WER (more or less...),
     #   then get timings (on normalized text maybe, same what is used for WER),
@@ -340,12 +334,7 @@ def py():
     tk.register_output(
         "phi4mi-tedlium-test.wer.txt",
         sclite_score_hyps_to_ref(
-            OpenASRLeaderboardTextNormalizationJob(
-                recog_job.out_recog, open_asr_leaderboard_repo_dir=open_asr_leaderboard_repo.out_repository
-            ).out_text,
-            ref_text_dict=OpenASRLeaderboardTextNormalizationJob(
-                ref_text_job.out_text, open_asr_leaderboard_repo_dir=open_asr_leaderboard_repo.out_repository
-            ).out_text,
+            text_normalize_file(recog_job.out_recog), ref_text_dict=text_normalize_file(ref_text_job.out_text)
         ).main_measure_value,
     )
 
@@ -673,6 +662,30 @@ class ExtractTextFromHuggingFaceEsbDatasetJob(Job):
                 assert isinstance(ref, str)
                 out.write(f"{seq_tag!r}: {ref!r},\n")
             out.write("}\n")
+
+
+def text_normalize_file(text: tk.Path) -> tk.Path:
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+
+    text = SearchOutputRawReplaceJob(text, replacement_list=[(" c o ", " co ")]).out_search_results
+    text = OpenASRLeaderboardTextNormalizationJob(
+        text, open_asr_leaderboard_repo_dir=get_open_asr_leaderboard_repo_dir()
+    ).out_text
+    return text
+
+
+@functools.cache
+def get_open_asr_leaderboard_repo_dir() -> tk.Path:
+    """
+    :return: path to the open_asr_leaderboard repo
+    """
+    open_asr_leaderboard_repo = CloneGitRepositoryJob(
+        "https://github.com/huggingface/open_asr_leaderboard.git",
+        # 2025-05-01 (includes parakeet-v2, phi4mi, ...)
+        commit="2472403cae1434752b7448b8f7cda560bd549e0f",
+    )
+    tk.register_output("open_asr_leaderboard_repo", open_asr_leaderboard_repo.out_repository)
+    return open_asr_leaderboard_repo.out_repository
 
 
 class OpenASRLeaderboardTextNormalizationJob(Job):
