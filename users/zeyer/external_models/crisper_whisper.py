@@ -202,9 +202,11 @@ class CrisperWhisperRecognitionJob(Job):
         elif self.max_new_tokens:
             raise ValueError("`max_new_tokens` should only be set for auto-regressive models, but got a CTC model.")
 
-        from transformers.models.whisper.modeling_whisper import WhisperForCausalLM
+        from transformers.models.whisper.modeling_whisper import WhisperForConditionalGeneration
+        from transformers.models.whisper.processing_whisper import WhisperProcessor
 
-        model: WhisperForCausalLM  # just as an example...
+        model: WhisperForConditionalGeneration  # just as an example...
+        processor: WhisperProcessor
         print(model)
         print("model.dtype:", model.dtype)
         _report_dev_memory_stats()
