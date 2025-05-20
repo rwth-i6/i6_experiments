@@ -11,6 +11,10 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJobV2,
     get_content_dir_from_hub_cache_dir,
 )
+from i6_experiments.users.zeyer.external_models.phi4multimodal import (
+    download_phi4multimodal_model,
+    phi4mi_recog_score_wer,
+)
 from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 
 if TYPE_CHECKING:
@@ -25,8 +29,7 @@ def py():
     # gen_aya = GenAya(hub_cache_dir=dl_aya.out_hub_cache_dir)
     # tk.register_output("aya-gen", gen_aya.out)
 
-    dl_phi4mi = DownloadHuggingFaceRepoJob(model_id="microsoft/Phi-4-multimodal-instruct")
-    tk.register_output("phi4mi-model", dl_phi4mi.out_hub_cache_dir)
+    dl_phi4mi_dir = download_phi4multimodal_model()
 
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
@@ -37,7 +40,7 @@ def py():
     for ds_name, ds_dir in {"timit": dl_ds_timit}.items():  # , "buckeye": dl_ds_buckeye}.items():
         for key in ["val", "test"]:  # does not need train...
             gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
-                model_dir=dl_phi4mi.out_hub_cache_dir,
+                model_dir=dl_phi4mi_dir,
                 dataset_dir=ds_dir.out_hub_cache_dir,
                 dataset_key=key,
             )
@@ -103,7 +106,7 @@ def py():
     ]:
         name = name_ + "-" + _name_for_dict(chunk_opts)
         j = ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(
-            model_dir=dl_phi4mi.out_hub_cache_dir,
+            model_dir=dl_phi4mi_dir,
             dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
             dataset_key="val",
             speech_prompt="Transcribe the audio clip into text.",
@@ -113,7 +116,7 @@ def py():
         j.add_alias(f"align/{name}-seg")
         tk.register_output(f"align/{name}-seg.hdf", j.out_hdf)
         j = ExtractInGradsFromPhi4MultimodalInstructLongFormJob(
-            model_dir=dl_phi4mi.out_hub_cache_dir,
+            model_dir=dl_phi4mi_dir,
             dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
             dataset_key="val",
             speech_prompt="Transcribe the audio clip into text.",
@@ -172,7 +175,7 @@ def py():
     ):
         ds_name, ds_dir, key = "timit", dl_ds_timit, "val"
         gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
-            model_dir=dl_phi4mi.out_hub_cache_dir,
+            model_dir=dl_phi4mi_dir,
             dataset_dir=ds_dir.out_hub_cache_dir,
             dataset_key=key,
             speech_prompt=prompt,
@@ -198,7 +201,7 @@ def py():
     # Test dot_e_grad.
     ds_name, ds_dir, key = "timit", dl_ds_timit, "val"
     gen_phi4mi = ExtractInGradsFromPhi4MultimodalInstructJob(
-        model_dir=dl_phi4mi.out_hub_cache_dir,
+        model_dir=dl_phi4mi_dir,
         dataset_dir=ds_dir.out_hub_cache_dir,
         dataset_key=key,
         speech_prompt="Transcribe the audio clip into text.",
@@ -309,31 +312,7 @@ def py():
     #   then get timings (on normalized text maybe, same what is used for WER),
     #   then calc F1 so that we can compare to CrisperWhisper paper
 
-    from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import sclite_score_hyps_to_ref
-
-    recog_job = Phi4MultimodalRecognitionJob(
-        model_dir=dl_phi4mi.out_hub_cache_dir,
-        esb_datasets_dir=dl_esb_datasets_test_only_sorted.out_hub_cache_dir,
-        dataset_name="tedlium",
-        dataset_split="test",
-    )
-    tk.register_output("phi4mi-tedlium-test.recog.txt.py.gz", recog_job.out_recog)
-    ref_text_job = ExtractTextFromHuggingFaceEsbDatasetJob(
-        esb_datasets_dir=dl_esb_datasets_test_only_sorted.out_hub_cache_dir,
-        dataset_name="tedlium",
-        dataset_split="test",
-    )
-    tk.register_output("tedlium-test.ref.txt.py.gz", ref_text_job.out_text)
-    # Should get: 2.89% WER with Phi4MI on Tedlium (test).
-    # Without normalization: 6.25%
-    # With hyp normalization: 11.41%
-    # With ref+hyp normalization: 2.88%
-    tk.register_output(
-        "phi4mi-tedlium-test.wer.txt",
-        sclite_score_hyps_to_ref(
-            text_normalize_file(recog_job.out_recog), ref_text_dict=text_normalize_file(ref_text_job.out_text)
-        ).main_measure_value,
-    )
+    phi4mi_recog_score_wer(dataset_name="tedlium", dataset_split="test")
 
     # TODO check same tokenization as in CrisperWhisper paper
 

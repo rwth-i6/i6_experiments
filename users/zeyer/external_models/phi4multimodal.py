@@ -5,7 +5,7 @@ from i6_core.util import uopen
 from .huggingface import get_content_dir_from_hub_cache_dir
 
 
-def recog_score_wer(
+def phi4mi_recog_score_wer(
     *, dataset_dir: Optional[tk.Path] = None, dataset_name: str = "tedlium", dataset_split: str = "test"
 ):
     from i6_experiments.users.zeyer.datasets.huggingface.extract_text import ExtractTextFromHuggingFaceDatasetJob
