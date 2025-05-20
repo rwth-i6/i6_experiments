@@ -15,6 +15,9 @@ from i6_experiments.users.zeyer.external_models.phi4multimodal import (
     download_phi4multimodal_model,
     phi4mi_recog_score_wer,
 )
+from i6_experiments.users.zeyer.external_models.crisper_whisper import (
+    crisper_whisper_recog_score_wer,
+)
 from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 
 if TYPE_CHECKING:
@@ -314,6 +317,8 @@ def py():
 
     phi4mi_recog_score_wer(dataset_name="tedlium", dataset_split="test")
     phi4mi_recog_score_wer(dataset_name="ami", dataset_split="test")
+    crisper_whisper_recog_score_wer(dataset_name="tedlium", dataset_split="test")
+    crisper_whisper_recog_score_wer(dataset_name="ami", dataset_split="test")
 
     # TODO check same tokenization as in CrisperWhisper paper
 
