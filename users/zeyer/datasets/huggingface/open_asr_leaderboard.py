@@ -33,6 +33,17 @@ def get_open_asr_leaderboard_repo_dir() -> tk.Path:
     return open_asr_leaderboard_repo.out_repository
 
 
+@functools.cache
+def download_esb_datasets_test_only_sorted() -> tk.Path:
+    from i6_experiments.users.zeyer.external_models.huggingface import DownloadHuggingFaceRepoJobV2
+
+    dl_esb_datasets_test_only_sorted = DownloadHuggingFaceRepoJobV2(
+        repo_id="hf-audio/esb-datasets-test-only-sorted", repo_type="dataset"
+    )
+    tk.register_output("esb-datasets-test-only-sorted", dl_esb_datasets_test_only_sorted.out_hub_cache_dir)
+    return dl_esb_datasets_test_only_sorted.out_hub_cache_dir
+
+
 class OpenASRLeaderboardTextNormalizationJob(Job):
     """
     https://github.com/huggingface/open_asr_leaderboard/blob/main/normalizer/data_utils.py
@@ -65,6 +76,7 @@ class OpenASRLeaderboardTextNormalizationJob(Job):
         # so do this hack to just ignore it, without needing the dependency
         sys.modules["evaluate"] = types.ModuleType("<dummy_evaluate>")
 
+        # noinspection PyUnresolvedReferences
         from normalizer.data_utils import normalizer
 
         with uopen(self.text.get_path(), "rt") as in_:
