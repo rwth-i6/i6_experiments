@@ -62,6 +62,9 @@ class DownloadHuggingFaceRepoJobV2(Job):
     This basically does ``huggingface-cli download <model_id>``.
 
     Requires the huggingface_hub library to be installed.
+
+    This extends V1 by allowing to specify the repo type, e.g. `model`, `dataset` or `space`,
+    i.e. here we can also download datasets.
     """
 
     def __init__(self, *, repo_id: str, repo_type: str):
@@ -109,6 +112,8 @@ class DownloadHuggingFaceRepoJobV2(Job):
 
 def get_content_dir_from_hub_cache_dir(hub_cache_dir: Union[tk.Path, str]):
     """
+    Get the content dir for HF functions like :func:`load_dataset` or ``...from_pretrained``.
+
     Use this inside your job.
     """
     if isinstance(hub_cache_dir, tk.Path):
