@@ -165,6 +165,14 @@ class Phi4MultimodalRecognitionJob(Job):
                 ]
                 print(f"Memory usage ({device_str}):", " ".join(stats))
 
+        import datasets
+
+        print("Datasets version:", datasets.__version__)
+
+        import transformers
+
+        print("Transformers version:", transformers.__version__)
+
         from datasets import load_dataset, Audio
         from transformers import AutoProcessor, AutoModelForCausalLM, StoppingCriteria, StoppingCriteriaList
 
@@ -213,6 +221,7 @@ class Phi4MultimodalRecognitionJob(Job):
         model: Phi4MultimodalForCausalLM  # just as an example...
         print(model)
         print("model.dtype:", model.dtype)
+        print("model.device:", model.device)
         _report_dev_memory_stats()
         print(f"({time.time() - start_time} secs)")
 
