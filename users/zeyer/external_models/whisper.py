@@ -16,7 +16,7 @@ class WhisperRecognitionJob(Job):
     https://github.com/nyrahealth/CrisperWhisper
     """
 
-    __sis_version__ = 5
+    __sis_version__ = 6
 
     def __init__(
         self,
@@ -30,7 +30,6 @@ class WhisperRecognitionJob(Job):
         returnn_root: Optional[tk.Path] = None,
         batch_size: int = 32,
         dtype: str = "bfloat16",
-        attn_implementation: Optional[str] = None,
     ):
         """
         :param model_dir:
@@ -48,7 +47,6 @@ class WhisperRecognitionJob(Job):
             but the CrisperWhisper readme suggests float16,
             which is also what you get when you select "auto".
             "auto" would automatically use the dtype of the model.
-        :param attn_implementation:
         """
         super().__init__()
         self.model_dir = model_dir
@@ -60,7 +58,6 @@ class WhisperRecognitionJob(Job):
         self.returnn_root = returnn_root
         self.batch_size = batch_size
         self.dtype = dtype
-        self.attn_implementation = attn_implementation
 
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 125}
 
@@ -149,7 +146,6 @@ class WhisperRecognitionJob(Job):
             local_files_only=True,
             torch_dtype=self.dtype,
             device_map=device_str,
-            _attn_implementation=self.attn_implementation,
         ).to(dev)
         processor = AutoProcessor.from_pretrained(model_dir)
 
@@ -205,7 +201,6 @@ class WhisperRecognitionJob(Job):
 
             # TODO currently i get:
             #   You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
-            #   The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
 
             # 2. Model Inference
             if model.can_generate():
