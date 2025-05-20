@@ -40,6 +40,7 @@ def crisper_whisper_recog_score_wer(
         dataset_name=dataset_name,
         dataset_split=dataset_split,
         batch_size=1,  # TODO test...
+        dtype="bfloat16",  # TODO test...
     )
     tk.register_output(f"crisper_whisper.{dataset_name}.{dataset_split}.recog.txt.py.gz", recog_job.out_recog)
     ref_text_job = ExtractTextFromHuggingFaceDatasetJob(
@@ -94,6 +95,7 @@ class CrisperWhisperRecognitionJob(Job):
         dataset_split: str,
         returnn_root: Optional[tk.Path] = None,
         batch_size: int = 32,
+        dtype: str = "auto",
     ):
         """
         :param model_dir:
@@ -116,6 +118,7 @@ class CrisperWhisperRecognitionJob(Job):
         self.dataset_split = dataset_split
         self.returnn_root = returnn_root
         self.batch_size = batch_size
+        self.dtype = dtype
 
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 125}
 
@@ -200,7 +203,7 @@ class CrisperWhisperRecognitionJob(Job):
         config = AutoConfig.from_pretrained(model_dir)
         cls_model = AutoModelForSpeechSeq2Seq if type(config) in MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING else AutoModelForCTC
         model = cls_model.from_pretrained(
-            model_dir, local_files_only=True, torch_dtype="auto", device_map=device_str
+            model_dir, local_files_only=True, torch_dtype=self.dtype, device_map=device_str
         ).to(dev)
         processor = AutoProcessor.from_pretrained(model_dir)
         model_input_name = processor.model_input_names[0]
