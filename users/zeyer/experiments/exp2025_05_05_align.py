@@ -313,6 +313,7 @@ def py():
     #   then calc F1 so that we can compare to CrisperWhisper paper
 
     phi4mi_recog_score_wer(dataset_name="tedlium", dataset_split="test")
+    phi4mi_recog_score_wer(dataset_name="ami", dataset_split="test")
 
     # TODO check same tokenization as in CrisperWhisper paper
 

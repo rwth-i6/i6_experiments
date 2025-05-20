@@ -8,6 +8,12 @@ from .huggingface import get_content_dir_from_hub_cache_dir
 def phi4mi_recog_score_wer(
     *, dataset_dir: Optional[tk.Path] = None, dataset_name: str = "tedlium", dataset_split: str = "test"
 ):
+    """
+    Do recognition with Phi4Multimodal, mostly consistent to OpenASRLeaderboard.
+    See :class:`Phi4MultimodalRecognitionJob` below.
+
+    https://github.com/huggingface/open_asr_leaderboard/blob/main/phi/run_phi4_multimodal.sh
+    """
     from i6_experiments.users.zeyer.datasets.huggingface.extract_text import ExtractTextFromHuggingFaceDatasetJob
     from i6_experiments.users.zeyer.datasets.huggingface.open_asr_leaderboard import (
         text_dict_normalize_file,
