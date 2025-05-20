@@ -59,12 +59,10 @@ class OpenASRLeaderboardTextNormalizationJob(Job):
         self.text = text
         self.open_asr_leaderboard_repo_dir = open_asr_leaderboard_repo_dir
 
-        self.rqmt = {"time": 4, "cpu": 2, "mem": 10}
-
         self.out_text = self.output_path("normalized.txt.py.gz")
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run", mini_task=True)
 
     def run(self):
         import sys
