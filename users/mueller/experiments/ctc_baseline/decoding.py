@@ -18,7 +18,7 @@ from i6_core.util import uopen
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
-from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram, get_lm_logits
+from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
 from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
@@ -738,14 +738,10 @@ def recog_ffnn(
 
     if lm_name is not None:
         with torch.no_grad():
-            unk_mask = rf.sparse_to_dense(
-                model.target_dim.vocab.label_to_id("<unk>"), axis=model.target_dim, label_value=float("-inf"), other_value=0.0
-            )
             lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
             lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, context_dim, lm_out_dim, lm_state)
             lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
             assert lm_logits.dims == (*batch_dims_, model.target_dim)
-            lm_logits = lm_logits + unk_mask
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
             lm_log_probs *= lm_scale
             if label_prior and prior is not None:
@@ -858,7 +854,6 @@ def recog_ffnn(
                     lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
                     lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
                     assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
-                    lm_logits_ = lm_logits_ + unk_mask
                     lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
                     lm_log_probs_ *= lm_scale
                     if label_prior and prior is not None:
@@ -1024,10 +1019,12 @@ def recog_gradients(
             loss.raw_tensor.backward(torch.ones_like(loss.raw_tensor, device=dev))
             gradients = -label_log_prob_raw.grad
     elif use_ffnn_lm:
+        # from torch.utils.checkpoint import checkpoint
         label_log_prob_raw = label_log_prob.raw_tensor
         label_log_prob_raw.requires_grad = True
         with torch.set_grad_enabled(True):
             if beam_size == 0:
+                # 493MB, 3661MB
                 with torch.no_grad():
                     context_dim = rf.Dim(context_size, name="context")
                     lm_out_dim = rf.Dim(context_size + 1, name="context+1")
@@ -1067,6 +1064,25 @@ def recog_gradients(
                     eos_idx=model.eos_idx,
                     device=dev_s,
                 )
+                # loss = checkpoint(
+                #     sum_loss_ngram,
+                #     log_probs=log_prob_raw,
+                #     log_lm_probs=lm_log_probs,
+                #     log_prior=prior.raw_tensor,
+                #     input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+                #     top_k=beam_size,
+                #     LM_order=lm_log_probs.ndim,
+                #     am_scale=am_scale,
+                #     lm_scale=lm_scale,
+                #     prior_scale=prior_weight,
+                #     horizontal_prior=not label_prior,
+                #     blank_prior=not label_prior,
+                #     blank_idx=model.blank_idx,
+                #     eos_idx=model.eos_idx,
+                #     device=dev_s,
+                #     use_reentrant=False,
+                # )
+                # print(torch.cuda.memory_summary())
                 # print("LOSS2", loss.tolist())
                 # 1: [-137.5575714111328, -63.205379486083984, -93.46190643310547, -119.84935760498047, -119.04203796386719, -94.6239013671875]
                 # 2: [-160.18882751464844, -84.68201446533203, -103.0686264038086, -131.49192810058594, -134.6106414794922, -103.7826919555664]
@@ -1103,6 +1119,9 @@ def recog_gradients(
             
             loss.backward(torch.ones_like(loss, device=dev))
             gradients = -label_log_prob_raw.grad
+            # print(torch.cuda.memory_summary())
+            if False:
+                plot_grad(-gradients[0].detach().cpu(), f"FFNN LM {context_size + 1} full-sum")
     else:
         label_log_prob_raw = label_log_prob.raw_tensor
         label_log_prob_raw.requires_grad = True
@@ -1170,3 +1189,32 @@ def convert_to_output_hyps(model: Model, hyp: list) -> list:
             prev = h
     ls = [h for h in ls if h != model.blank_idx]
     return ls
+
+def plot_grad(gradients, title):
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+    from datetime import datetime
+    
+    fig, ax = plt.subplots(figsize=(15, 15))
+    fig.supylabel("Vocab")
+    fig.supxlabel("Timestep")
+    
+    
+    # ax.imshow(gradients.T, origin="lower", cmap=cm.gray)
+    # ax.set_yticks(np.arange(0, 185, 10))
+    # ax.set_title("Gradients " + title)
+    # g_min = -1 * gradients.min()
+    # g_max = -1 * gradients.max()
+    # ax.text(2, -20, f'black: 1.0, white: 0.0', bbox={'facecolor': 'white', 'pad': 10})
+    
+    # now = datetime.now()
+    # fig.savefig("/u/marten.mueller/dev/ctc_baseline/output/plots/gradients" + now.strftime("_%H:%M:%S_%d-%m") + ".png")
+    
+    log_gr = np.log((-gradients))
+    ax.imshow(-log_gr.T, origin="lower", cmap=cm.gray)
+    ax.set_yticks(np.arange(0, 185, 10))
+    ax.set_title("Log Gradients " + title)
+    ax.text(2, -20, f'black: {log_gr.max()}, white: {log_gr.min()}', bbox={'facecolor': 'white', 'pad': 10})
+    
+    now = datetime.now()
+    fig.savefig("/u/marten.mueller/dev/ctc_baseline/output/plots/log_gradients" + now.strftime("_%H:%M:%S_%d-%m") + ".png")

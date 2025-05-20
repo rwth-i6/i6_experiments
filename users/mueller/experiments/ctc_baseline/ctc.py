@@ -91,7 +91,7 @@ def py():
     # Decoder config (more further down)
     decoding_imp = "albert-lm"                  # Decoding implementation, e.g. "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients"
     with_prior = True                           # Whether to use a prior during decoding
-    label_prior = False                          # Use the label prior instead of frame prior
+    label_prior = True                          # Use the label prior instead of frame prior
     empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
     prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
     alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
@@ -109,14 +109,17 @@ def py():
     
     # Configs for init training
     init = "100h-unsupervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
-    random_init = False                         # Start from random init during unsupervised init training, alternatively use empirical prior
+    random_init = True                         # Start from random init during unsupervised init training, alternatively use empirical prior
+    start_with_prior_gamma_steps = 0            # Number of steps to train with the prior as gammas in CE before CTC training on decoding targets
+    pseudo_nbest_init = 0                       # Number of pseudo-label sequences for unsupervised init training
+    am_lm_prior_full_sum_init = (0.1, 1.5, 0.4) # Weights for the AM, LM and Prior in the full-sum criterion in unsupervised init training
     decode_every_step_init = True               # Decode every step during unsupervised init training
     accum_grad_multiple_step_init = 1           # Accumulate gradients over multiple steps during unsupervised init training
     if not init.endswith("unsupervised"):
         decode_every_step_init = False
     
     # Configs for full-sum training
-    use_sum_criterion = False                   # Use full-sum criterion
+    use_sum_criterion = False                   # Use full-sum criterion for self-training
     horizontal_prior = False                    # Use prior for transitions with label repetitions which get collapsed to one label
     blank_prior = False                         # Use prior for blank transitions
     prior_gradient = False                      # If the prior is calculated for each batch, we can add this to the gradient
@@ -139,7 +142,7 @@ def py():
     assert gamma_scaling == 1.0 or use_seq_gamma_loss
     assert not (use_ce_loss and use_seq_gamma_loss)
     assert not (not label_prior and norm_nbest_rescore)
-    assert not decode_every_step or keep_best_decoding
+    # assert not decode_every_step or keep_best_decoding
     assert (self_training_rounds > 0) == alt_decoder
     assert not use_ce_loss or not speed_pert
     assert not use_ce_loss or not keep_small_labels
@@ -312,6 +315,27 @@ def py():
             model_config["output_bias_init"] = True
         if num_gpus != 4:
             config_updates["__num_processes"] = num_gpus
+        if start_with_prior_gamma_steps > 0:
+            config_updates["start_with_prior_gamma_steps"] = start_with_prior_gamma_steps
+        if pseudo_nbest_init > 1:
+            config_updates["ps_nbest"] = pseudo_nbest_init
+        elif pseudo_nbest_init == 0:
+            assert empirical_prior
+            assert start_with_prior_gamma_steps == 0
+            assert random_init
+            config_updates["am_scale"] = am_lm_prior_full_sum_init[0]
+            config_updates["lm_scale"] = am_lm_prior_full_sum_init[1]
+            config_updates["prior_scale"] = am_lm_prior_full_sum_init[2]
+            
+            config_updates["empirical_prior"] = True
+            if label_prior:
+                config_updates["horizontal_prior"] = False
+                config_updates["blank_prior"] = False
+                
+            config_updates.pop("hyperparameters_decoder", None)
+        if False:
+            peak_lr = 1e-3
+            config_updates["learning_rate_piecewise_values"] = [peak_lr * 1e-3, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
     
     config_updates_self_training = None
     config_deletes_self_training = None
@@ -450,7 +474,7 @@ def py():
         (sum_str if use_sum_criterion else "") + \
         (f"-st_{self_training_rounds}" + LR_str + ("_no_norm" if not use_norm_st_loss else "") + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else (f"_b1-{str(adamw_betas[0]).replace('.', '')}_b2-{str(adamw_betas[1]).replace('.', '')}" if adamw_betas else "")) + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") + ("_nsp" if not speed_pert else "") if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
-        (f"-ds100h" if init == "100h-supervised" else ("-ds100US" + (f"_accum{accum_grad_multiple_step_init}" if accum_grad_multiple_step_init > 1 else "") + ("_emp_init" if not random_init else "") if init == "100h-unsupervised" else "")) + \
+        (f"-ds100h" if init == "100h-supervised" else ("-ds100US" + (f"_accum{accum_grad_multiple_step_init}" if accum_grad_multiple_step_init > 1 else "") + ("_emp_init" if not random_init else "") + (f"_emp_gam{start_with_prior_gamma_steps}" if start_with_prior_gamma_steps > 0 else "") + (f"n{pseudo_nbest_init}" if pseudo_nbest_init > 1 else "") + (f"_p{str(am_lm_prior_full_sum_init[2]).replace('.', '')}_l{str(am_lm_prior_full_sum_init[1]).replace('.', '')}_a{str(am_lm_prior_full_sum_init[0]).replace('.', '')}" if pseudo_nbest_init == 0 else "") if init == "100h-unsupervised" else "")) + \
         (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
         f"-{vocab}" + \
         ("-laPR" if label_prior else "-frPR") + \
@@ -582,6 +606,8 @@ def train_exp(
         
     if config_updates.get("decode_every_step", False):
         config_updates["empirical_prior"] = emp_prior
+        if config_updates.get("start_with_prior_gamma_steps", 0) > 0 and label_prior:
+            config_updates["frame_prior"] = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab, False)
     
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
@@ -652,6 +678,7 @@ def train_exp(
                     config.update({
                         "preload_from_files": {
                             "train_lm": {
+                                "init_for_train": True,
                                 "prefix": "train_language_model.",
                                 "filename": lm_checkpoint.checkpoint,
                             },
@@ -688,6 +715,15 @@ def train_exp(
                 "prefix": "recog_language_model.",
                 "filename": lm_checkpoint_path,
             }
+    
+    # We do full-sum training from the beginning
+    if "am_scale" in config:
+        train_def = ctc_sum_training
+        if isinstance(train_lm, tk.Path):
+            config["train_lm_model"] = train_lm
+        else:
+            assert isinstance(train_lm, ModelWithCheckpoint)
+            config["train_lm_model"] = "ffnn" + str(model_config["train_language_model"]["context_size"])
         
     model_with_checkpoint = []
     model_with_checkpoint.append(train(

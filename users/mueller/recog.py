@@ -634,6 +634,9 @@ def search_dataset(
                 cpu_rqmt=cpu_rqmt,
             )
             res = search_job.out_files[_v2_forward_out_filename]
+            if recog_def is model_recog_gradients:
+                search_job = SearchCombineShardsToHDFJob([res])
+                res = search_job.out_comined_results
     if num_shards is None:
         if search_rqmt:
             search_job.rqmt.update(search_rqmt)
@@ -1876,31 +1879,66 @@ class SearchCombineShardsToHDFJob(sisyphus.Job):
         SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
         out_hdf = SimpleHDFWriter(filename=self.out_comined_results.get_path(), dim=None, ndim=2)
         for path in self.shard_search_outputs:
-            d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-            assert isinstance(d, dict)  # seq_tag -> bpe string
-            for seq_tag, entry in d.items():
-                assert isinstance(entry, list)
-                # assert len(entry) > 0
-                assert len(entry) == 1
-                v = entry[0]
-                assert isinstance(v[1], list)
-                l = v[1]
-                l = np.expand_dims(np.array(l, dtype=np.float32), axis=0)
-                if len(v) == 3:
-                    assert isinstance(v[2], list)
-                    indices = np.expand_dims(np.array(v[2], dtype=np.int32), axis=0)
-                    out_hdf.insert_batch(
-                        inputs=l,
-                        seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
-                        seq_tag=[seq_tag],
-                        extra={"indices": indices},
-                    )
-                else:
-                    out_hdf.insert_batch(
-                        inputs=l,
-                        seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
-                        seq_tag=[seq_tag],
-                    )
+            if len(self.shard_search_outputs) == 1:
+                with uopen(path, "rt") as f:
+                    e = f.readline()
+                    seq_tag = None
+                    while e != "}\n":
+                        e = f.readline()
+                        if e.endswith(": [\n"):
+                            seq_tag = e[:-4]
+                            seq_tag = eval(seq_tag, {"nan": float("nan"), "inf": float("inf")})
+                        elif e.endswith("),\n"):
+                            v = eval(e[3:-3], {"nan": float("nan"), "inf": float("inf")})
+                            assert isinstance(v, tuple)
+                            e = f.readline()
+                            assert e == "],\n"
+                            
+                            assert isinstance(v[1], list)
+                            assert seq_tag is not None
+                            l = v[1]
+                            l = np.expand_dims(np.array(l, dtype=np.float32), axis=0)
+                            if len(v) == 3:
+                                assert isinstance(v[2], list)
+                                indices = np.expand_dims(np.array(v[2], dtype=np.int32), axis=0)
+                                out_hdf.insert_batch(
+                                    inputs=l,
+                                    seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                                    seq_tag=[seq_tag],
+                                    extra={"indices": indices},
+                                )
+                            else:
+                                out_hdf.insert_batch(
+                                    inputs=l,
+                                    seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                                    seq_tag=[seq_tag],
+                                )
+            else:
+                d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+                assert isinstance(d, dict)  # seq_tag -> bpe string
+                for seq_tag, entry in d.items():
+                    assert isinstance(entry, list)
+                    # assert len(entry) > 0
+                    assert len(entry) == 1
+                    v = entry[0]
+                    assert isinstance(v[1], list)
+                    l = v[1]
+                    l = np.expand_dims(np.array(l, dtype=np.float32), axis=0)
+                    if len(v) == 3:
+                        assert isinstance(v[2], list)
+                        indices = np.expand_dims(np.array(v[2], dtype=np.int32), axis=0)
+                        out_hdf.insert_batch(
+                            inputs=l,
+                            seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                            seq_tag=[seq_tag],
+                            extra={"indices": indices},
+                        )
+                    else:
+                        out_hdf.insert_batch(
+                            inputs=l,
+                            seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                            seq_tag=[seq_tag],
+                        )
         out_hdf.close()
             
 class PriorCombineShardsJob(sisyphus.Job):

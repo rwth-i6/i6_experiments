@@ -1324,6 +1324,7 @@ def sum_loss_ffnn_exact(
     log_zero: float = float("-inf"),
     device: str = "cpu",
 ):
+    raise NotImplementedError("Exact sum for FFNN is not finished, yet.")
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
