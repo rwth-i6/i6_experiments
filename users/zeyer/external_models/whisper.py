@@ -16,6 +16,8 @@ class WhisperRecognitionJob(Job):
     https://github.com/nyrahealth/CrisperWhisper
     """
 
+    __sis_version__ = 5
+
     def __init__(
         self,
         *,
@@ -143,11 +145,17 @@ class WhisperRecognitionJob(Job):
             model_dir, local_files_only=True, torch_dtype=self.dtype, device_map=device_str
         ).to(dev)
         processor = AutoProcessor.from_pretrained(model_dir)
-        model_input_name = processor.model_input_names[0]
 
-        gen_kwargs: Optional[Dict[str, Any]] = None
+        from transformers.models.whisper.modeling_whisper import WhisperForConditionalGeneration
+        from transformers.models.whisper.processing_whisper import WhisperProcessor
+
+        model: WhisperForConditionalGeneration  # just as an example...
+        processor: WhisperProcessor
+
+        model_input_name = processor.model_input_names[0]
+        gen_kwargs: Dict[str, Any] = {}
         if model.can_generate():
-            gen_kwargs = {"max_new_tokens": self.max_new_tokens}
+            gen_kwargs["max_new_tokens"] = self.max_new_tokens
             # for multilingual Whisper-checkpoints we see a definitive WER boost by setting the language and task args
             if getattr(model.generation_config, "is_multilingual"):
                 gen_kwargs["language"] = self.language
@@ -155,11 +163,6 @@ class WhisperRecognitionJob(Job):
         elif self.max_new_tokens:
             raise ValueError("`max_new_tokens` should only be set for auto-regressive models, but got a CTC model.")
 
-        from transformers.models.whisper.modeling_whisper import WhisperForConditionalGeneration
-        from transformers.models.whisper.processing_whisper import WhisperProcessor
-
-        model: WhisperForConditionalGeneration  # just as an example...
-        processor: WhisperProcessor
         print(model)
         print("model.dtype:", model.dtype)
         print("model.device:", model.device)
@@ -186,7 +189,9 @@ class WhisperRecognitionJob(Job):
                 )
             else:
                 # 1.3 Standard Whisper processing: pad audios to 30-seconds and converted to log-mel
-                inputs = processor(audios, sampling_rate=16_000, return_tensors="pt", device=dev)
+                inputs = processor(
+                    audios, sampling_rate=16_000, return_tensors="pt", return_attention_mask=True, device=dev
+                )
 
             inputs = inputs.to(dev)
             inputs[model_input_name] = inputs[model_input_name].to(model.dtype)
