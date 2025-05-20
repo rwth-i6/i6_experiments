@@ -39,6 +39,7 @@ def crisper_whisper_recog_score_wer(
         dataset_dir=dataset_dir,
         dataset_name=dataset_name,
         dataset_split=dataset_split,
+        batch_size=1,  # TODO test...
     )
     tk.register_output(f"crisper_whisper.{dataset_name}.{dataset_split}.recog.txt.py.gz", recog_job.out_recog)
     ref_text_job = ExtractTextFromHuggingFaceDatasetJob(
@@ -79,6 +80,8 @@ class CrisperWhisperRecognitionJob(Job):
     https://github.com/huggingface/open_asr_leaderboard/blob/main/transformers/run_eval.py
     https://github.com/nyrahealth/CrisperWhisper
     """
+
+    __sis_version__ = 3
 
     def __init__(
         self,
@@ -172,6 +175,14 @@ class CrisperWhisperRecognitionJob(Job):
                 ]
                 print(f"Memory usage ({device_str}):", " ".join(stats))
 
+        import datasets
+
+        print("Datasets version:", datasets.__version__)
+
+        import transformers
+
+        print("Transformers version:", transformers.__version__)
+
         from datasets import load_dataset, Audio
         from transformers import (
             AutoConfig,
@@ -188,7 +199,9 @@ class CrisperWhisperRecognitionJob(Job):
 
         config = AutoConfig.from_pretrained(model_dir)
         cls_model = AutoModelForSpeechSeq2Seq if type(config) in MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING else AutoModelForCTC
-        model = cls_model.from_pretrained(model_dir, torch_dtype=torch.bfloat16, attn_implementation="sdpa").to(dev)
+        model = cls_model.from_pretrained(
+            model_dir, local_files_only=True, torch_dtype="auto", device_map=device_str
+        ).to(dev)
         processor = AutoProcessor.from_pretrained(model_dir)
         model_input_name = processor.model_input_names[0]
 
@@ -209,6 +222,7 @@ class CrisperWhisperRecognitionJob(Job):
         processor: WhisperProcessor
         print(model)
         print("model.dtype:", model.dtype)
+        print("model.device:", model.device)
         _report_dev_memory_stats()
         print(f"({time.time() - start_time} secs)")
 
@@ -235,7 +249,11 @@ class CrisperWhisperRecognitionJob(Job):
                 inputs = processor(audios, sampling_rate=16_000, return_tensors="pt", device=dev)
 
             inputs = inputs.to(dev)
-            inputs[model_input_name] = inputs[model_input_name].to(torch.bfloat16)
+            inputs[model_input_name] = inputs[model_input_name].to(model.dtype)
+
+            # TODO currently i get:
+            #   You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
+            #   The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
 
             # 2. Model Inference
             if model.can_generate():
