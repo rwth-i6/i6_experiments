@@ -114,7 +114,7 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
     if "ffnn" in lmname:
         tune_hyperparameters = False
         search_mem_rqmt = 12
-        decoding_config["beam_size"] = 80
+        decoding_config["beam_size"] = 60
         tune_config_updates["beam_size"] = 50 if tune_hyperparameters else None
         search_rqmt.update({"time": decoding_config["beam_size"]//3 + 4} if USE_flashlight_decoder else {})
 
@@ -230,7 +230,7 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
 def py():
     """Sisyphus entry point"""
     models = {"ctc": ctc_exp, "transducer": None}
-    encoder = "blstm" #blstm conformer
+    encoder = "conformer" #blstm conformer
     train = False # Weather train the AM
     lm_types_names = set()
     for vocab in ["bpe128",
@@ -325,7 +325,7 @@ def py():
         # /u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.UpknSQ5OLCQV/output/models/epoch.050.pt
         from .lm.ffnn import get_ffnn_lm
         train_lm = False
-        epochs = [50] if train_lm else [50]#[5, 10, 20, 40, 50]
+        epochs = [50] if train_lm else [5, 10, 20, 40, 50]
         lm_configs = {"bpe128":{
                     "context_size": 8, #8,
                     "num_layers": 2,

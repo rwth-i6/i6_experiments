@@ -76,6 +76,7 @@ def recog_exp(
         dev_sets=dev_sets,
         search_rqmt=search_rqmt,
         search_error_check=search_error_check,
+        search_error_version=3, # 2: emission mask, 3:lm masking
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
@@ -218,6 +219,7 @@ class _RecogAndScoreFunc:
             search_rqmt=self.search_rqmt,
             name=self.prefix_name + f"/epoch{epoch_or_ckpt:03}",
             search_error_check=self.search_error_check,
+            search_error_version=self.search_error_version,
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
@@ -269,6 +271,7 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"]
     name: Optional[str] = None,
     search_error_check: bool = False,
+    search_error_version: int = 3,
 ) -> Tuple[ScoreResultCollection, Optional[tk.path]]:
     """recog"""
     if dev_sets is not None:
@@ -302,12 +305,14 @@ def recog_model(
                 config_.pop("batch_size")
             if dataset_name == "test-other":
                 search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
-                                                  decoding_config=decoding_config,prior_path=prior_path,
+                                                  decoding_config=decoding_config, search_error_version=search_error_version,
+                                                  prior_path=prior_path,
                                                   alias_name=f"{name}/search_error/{dataset_name}" if name else None,
                                                   )
             else:
                 check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
-                                   decoding_config=decoding_config, prior_path=prior_path,
+                                   decoding_config=decoding_config, search_error_version=search_error_version,
+                                   prior_path=prior_path,
                                    alias_name=f"{name}/search_error/{dataset_name}" if name else None,
                                    )
     # if dev_sets:
@@ -373,11 +378,14 @@ def check_search_error(
         mem_rqmt: Union[int, float] = 16,
         config: Optional[Dict[str, Any]] = None,
         alias_name: Optional[str] = None,
+        search_error_version: int = 3,
 ) -> tk.Path:
     from .experiments.ctc import scoring, scoring_v2, scoring_v3
+    scoring_func = {2:scoring_v2, 3:scoring_v3}[search_error_version]
+    scoring_func = scoring_v2 if decoding_config["use_lm"] else scoring_func
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
-        returnn_config=search_error_config(dataset, model.definition, scoring_v3 if decoding_config["use_lm"] else scoring_v2,
+        returnn_config=search_error_config(dataset, model.definition, scoring_func,
                                            decoding_config=decoding_config, config=config, prior_path=prior_path),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -388,6 +396,7 @@ def check_search_error(
         cpu_rqmt=8,
     )
     if alias_name:
+        alias_name += "_scor_v2" if scoring_func is scoring_v2 else "_scor_v3"
         pre_SearchError_job.add_alias(alias_name)
     ground_truth_out = pre_SearchError_job.out_files[_v2_forward_out_filename]
     from .utils.search_error import ComputeSearchErrorsJob

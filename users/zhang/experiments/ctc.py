@@ -2975,7 +2975,7 @@ def scoring_v3(
         if decoded_seq != gt_seq:
             dif_pos = first_dis_pos(targets.raw_tensor[i, :].tolist(),seq_targets_wb.raw_tensor[:, i, 0])
             if dif_pos:
-                pdb.set_trace()
+                #pdb.set_trace()
                 print(f"{i}_th sequence is not the same starting from position"
                       f" {dif_pos}/{seq_targets_wb.raw_tensor.shape[0]}!\n")
                 print(f"Around the pos:{seq_targets_wb.raw_tensor[dif_pos - 20:dif_pos+1, i, 0].tolist()}\n")
@@ -2984,27 +2984,13 @@ def scoring_v3(
 
         #assert seq_targets_wb.raw_tensor[:, i, 0].tolist() == target.raw_tensor[:, i, 0].tolist(), f"{i}_th sequence is not the same!"
 
-    #Compare viterbi score and scores
-    # Compare seq_targets with alignments
-    #
-        # lm_scores = []
-        # for i in range(label_log_prob.shape[0]):
-        #     seq = trim_padded_sequence(targets.raw_tensor[i, :])
-        #     token_list = [model.target_dim.vocab.id_to_label(idx) for idx in seq]
-        #     target_words = " ".join(token_list)
-        #     target_words = target_words.replace("@@ ", "")
-        #     target_words = target_words.replace(" <s>", "")
-        #     word_seq = seq.tolist()
-        #     lm_score = CTClm_score(word_seq, recog_lm)
-        #     lm_scores.append(lm_score)
-        #     scores.append(viterbi_scores[i] + hyp_params["lm_weight"] * lm_score)
     """-----------------------"""
     #````````````````````````````````````````````
     score_dim = Dim(1, name="score_dim")
     scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
                     raw_tensor=scores.raw_tensor.reshape([label_log_prob_raw.shape[0], 1]))
 
-    # Just for compatialty
+    # Just for compatibility
     n_oov_dim = Dim(1, name="n_oov_dim")
     n_oovs = [0 for _ in range(label_log_prob_raw.shape[0])]
     n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
@@ -3197,7 +3183,7 @@ def decode_ffnn(
     prior_weight = hyp_params.pop("prior_weight", 0.0)
 
     n_best = hyp_params.pop("nbest", 1)
-    beam_size = hyp_params.pop("beam_size", 180)
+    beam_size = hyp_params.pop("beam_size", 12)
     print(f"Beam size: {beam_size}")
     use_recombination = hyp_params.pop("use_recombination", False)
     assert n_best == 1 or use_recombination, "n-best only implemented with recombination"
@@ -3317,6 +3303,7 @@ def decode_ffnn(
         else:
             seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
 
+    matched = None
     if ground_truth is not None:
         #Initialise the pointer for lm masking
         beam_dim_mask = Dim(beam_size, name="beam")
@@ -3450,9 +3437,10 @@ def decode_ffnn(
             prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
         prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
 
+
         if ground_truth is not None:
             # top_k gives `backrefs` indexing old beams for each new beam.
-            # Reorder pointer so it follows the surviving beams:
+            # Reorder pointer and true_lbl so it follows the surviving beams:
             pointer = rf.gather(pointer, axis=beam_dim, indices=backrefs)
             true_lbl = rf.gather(true_lbl, axis=beam_dim, indices=backrefs)
             # update pointer
@@ -3461,7 +3449,7 @@ def decode_ffnn(
             pointer = pointer + rf.where(matched, 1, 0)
             pointer = rf.minimum(pointer, max_idx) #Ensure not exceed the true length of GT
 
-        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb) if ground_truth is None else matched  # Batch, Beam -> 0|1
+        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb) if matched is None else matched  # Batch, Beam -> 0|1
 
 
         if lm_name is not None:
@@ -3539,17 +3527,17 @@ def decode_ffnn(
         lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
         seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
 
-        if ground_truth is not None:
+        #if ground_truth is not None:
             # Not sure how to ensure the beam consuming all tokens from GT
 
             ## Option 1: Penalize -inf to all beam that did not consume up GT,
             # !did not work on its own, even with beam = 184 on bpe128 case
-            full = rf.equal(pointer, gt_len_batched)  # True for beams that hit exactly gt_len
-            INF = float("-1e30")
-            seq_log_prob = rf.where(full, seq_log_prob, INF)  # penalize “incomplete” beams
+            # full = rf.equal(pointer, gt_len_batched)  # True for beams that hit exactly gt_len
+            # INF = float("-1e30")
+            # seq_log_prob = rf.where(full, seq_log_prob, INF)  # penalize “incomplete” beams
 
 
-        import pdb;pdb.set_trace()
+        #import pdb;pdb.set_trace()
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_wb_ = []
