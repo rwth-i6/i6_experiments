@@ -16,6 +16,8 @@ class WhisperRecognitionJob(Job):
     https://github.com/nyrahealth/CrisperWhisper
     """
 
+    # TODO Still changing things inside... It seems batch_size>1 is partly broken?
+    #   https://github.com/huggingface/open_asr_leaderboard/issues/68
     __sis_version__ = 6
 
     def __init__(

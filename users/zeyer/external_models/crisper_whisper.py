@@ -38,7 +38,8 @@ def crisper_whisper_recog_score_wer(
         dataset_dir=dataset_dir,
         dataset_name=dataset_name,
         dataset_split=dataset_split,
-        batch_size=1,  # TODO test...
+        # TODO batch_size>1 still seems broken... https://github.com/huggingface/open_asr_leaderboard/issues/68
+        batch_size=1,
     )
     tk.register_output(f"crisper_whisper.{dataset_name}.{dataset_split}.recog.txt.py.gz", recog_job.out_recog)
     ref_text_job = ExtractTextFromHuggingFaceDatasetJob(
