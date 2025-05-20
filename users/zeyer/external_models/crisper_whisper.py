@@ -40,7 +40,6 @@ def crisper_whisper_recog_score_wer(
         dataset_name=dataset_name,
         dataset_split=dataset_split,
         batch_size=1,  # TODO test...
-        dtype="bfloat16",  # TODO test...
     )
     tk.register_output(f"crisper_whisper.{dataset_name}.{dataset_split}.recog.txt.py.gz", recog_job.out_recog)
     ref_text_job = ExtractTextFromHuggingFaceDatasetJob(
@@ -95,7 +94,7 @@ class CrisperWhisperRecognitionJob(Job):
         dataset_split: str,
         returnn_root: Optional[tk.Path] = None,
         batch_size: int = 32,
-        dtype: str = "auto",
+        dtype: str = "bfloat16",
     ):
         """
         :param model_dir:
@@ -108,6 +107,10 @@ class CrisperWhisperRecognitionJob(Job):
         :param dataset_split:
         :param returnn_root:
         :param batch_size:
+        :param dtype: "auto", "bfloat16", "float16", "float32".
+            OpenASRLeaderboard run_eval.py always uses bfloat16,
+            but the CrisperWhisper readme suggests float16,
+            which is also what you get when you select "auto".
         """
         super().__init__()
         self.model_dir = model_dir
