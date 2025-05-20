@@ -1,5 +1,5 @@
 from typing import Optional, Any, Dict
-from sisyphus import Job, Task, tk
+from sisyphus import Job, Task, tk, gs
 from i6_core.util import uopen
 from .huggingface import get_content_dir_from_hub_cache_dir
 
@@ -15,6 +15,8 @@ class WhisperRecognitionJob(Job):
     https://github.com/huggingface/open_asr_leaderboard/blob/main/transformers/run_eval.py
     https://github.com/nyrahealth/CrisperWhisper
     """
+
+    __sis_hash_exclude__ = {"python_virtual_env": None}
 
     # TODO Still changing things inside... It seems batch_size>1 is partly broken?
     #   https://github.com/huggingface/open_asr_leaderboard/issues/68
@@ -32,6 +34,7 @@ class WhisperRecognitionJob(Job):
         returnn_root: Optional[tk.Path] = None,
         batch_size: int = 32,
         dtype: str = "bfloat16",
+        python_virtual_env: Optional[tk.Path] = None,
     ):
         """
         :param model_dir:
@@ -49,6 +52,7 @@ class WhisperRecognitionJob(Job):
             but the CrisperWhisper readme suggests float16,
             which is also what you get when you select "auto".
             "auto" would automatically use the dtype of the model.
+        :param python_virtual_env: If given, will use this Python virtual env.
         """
         super().__init__()
         self.model_dir = model_dir
@@ -60,6 +64,7 @@ class WhisperRecognitionJob(Job):
         self.returnn_root = returnn_root
         self.batch_size = batch_size
         self.dtype = dtype
+        self.python_virtual_env = python_virtual_env
 
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 125}
 
@@ -74,6 +79,22 @@ class WhisperRecognitionJob(Job):
         import time
 
         os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+
+        if self.python_virtual_env is not None:
+            venv_dir = self.python_virtual_env.get_path()
+            if os.environ.get("__PY_VENV") != venv_dir:
+                print("Restarting in virtual env:", venv_dir)
+                os.environ["__PY_VENV"] = venv_dir
+                os.chdir(gs.BASE_DIR)
+                # https://stackoverflow.com/questions/72335904/simple-way-to-restart-application
+                py_bin = venv_dir + "/bin/python"
+                args = [py_bin] + sys.argv
+                print("$ " + " ".join(args))
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.execv(py_bin, args)
+            else:
+                print("Already in virtual env:", venv_dir)
 
         import i6_experiments
 
@@ -126,6 +147,10 @@ class WhisperRecognitionJob(Job):
         import transformers
 
         print("Transformers version:", transformers.__version__)
+        print("Transformers source:", transformers.__file__)
+
+        if self.python_virtual_env is not None:
+            assert transformers.__file__.startswith(self.python_virtual_env.get_path() + "/")
 
         from datasets import load_dataset, Audio
         from transformers import (
@@ -146,7 +171,7 @@ class WhisperRecognitionJob(Job):
         model = cls_model.from_pretrained(
             model_dir,
             local_files_only=True,
-            torch_dtype=self.dtype,
+            torch_dtype=self.dtype if self.dtype == "auto" else getattr(torch, self.dtype),
             device_map=device_str,
         ).to(dev)
         processor = AutoProcessor.from_pretrained(model_dir)

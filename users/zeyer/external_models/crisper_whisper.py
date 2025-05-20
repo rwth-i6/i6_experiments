@@ -34,6 +34,7 @@ def crisper_whisper_recog_score_wer(
         dataset_dir = download_esb_datasets_test_only_sorted()
 
     recog_job = WhisperRecognitionJob(
+        python_virtual_env=get_hf_transformers_crisper_whisper_venv(),
         model_dir=model_dir,
         dataset_dir=dataset_dir,
         dataset_name=dataset_name,
@@ -67,3 +68,53 @@ def download_crisper_whisper_model() -> tk.Path:
     dl_model = DownloadHuggingFaceRepoJobV2(repo_id="nyrahealth/CrisperWhisper", repo_type="model")
     tk.register_output("crisper-whisper-model", dl_model.out_hub_cache_dir)
     return dl_model.out_hub_cache_dir
+
+
+@functools.cache
+def get_hf_transformers_crisper_whisper_fork_repo() -> tk.Path:
+    """
+    Get the fork of HuggingFace Transformers with CrisperWhisper.
+
+    Note: This alone might not work...
+      ImportError: tokenizers>=0.14,<0.19 is required for a normal functioning of this module, but found tokenizers==0.21.1.
+      Try: `pip install transformers -U` or `pip install -e '.[dev]'` if you're working with git main
+
+    -> need virtualenv. see :func:`get_hf_transformers_crisper_whisper_venv`
+    """
+    from i6_core.tools.git import CloneGitRepositoryJob
+
+    job = CloneGitRepositoryJob("https://github.com/nyrahealth/transformers.git", branch="crisper_whisper")
+    tk.register_output("hf-transformers-crisper-whisper-fork-repo", job.out_repository)
+    return job.out_repository
+
+
+@functools.cache
+def get_hf_transformers_crisper_whisper_venv() -> tk.Path:
+    from i6_experiments.users.zeyer.python.venv import CreatePythonVirtualEnvJob
+
+    job = CreatePythonVirtualEnvJob(
+        python_version=(3, 12),
+        requirements=[
+            # crisper_whisper branch, most recent commit
+            "git+https://github.com/nyrahealth/transformers.git@8eb900e81d43576d2ddf69cceb1c2bb8b0330bc1",
+            "datasets==3.6.0",
+            "huggingface_hub==0.31.4",
+            "tokenizers==0.15.2",
+            "numpy==2.2.6",
+            "torch==2.5.1",
+            "accelerate==1.6.0",
+            "librosa==0.10.2.post1",
+            "soundfile==0.12.1",
+            "resampy==0.4.3",
+            "lovely_tensors==0.1.18",
+            "requests==2.32.3",
+            "psutil==6.1.0",
+            "better_exchook",
+        ],
+    )
+    tk.register_output("hf-transformers-crisper-whisper-venv", job.out_dir)
+    return job.out_dir
+
+
+# TODO extract align job using free recog (and then calc F1 score...)
+# TODO extract align job using forced alignment (and then calc TSE score...)
