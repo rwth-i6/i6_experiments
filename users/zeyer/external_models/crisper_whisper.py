@@ -34,12 +34,15 @@ def crisper_whisper_recog_score_wer(
         dataset_dir = download_esb_datasets_test_only_sorted()
 
     recog_job = WhisperRecognitionJob(
-        python_virtual_env=get_hf_transformers_crisper_whisper_venv(),
+        # python_virtual_env=get_hf_transformers_crisper_whisper_venv(),
         model_dir=model_dir,
         dataset_dir=dataset_dir,
         dataset_name=dataset_name,
         dataset_split=dataset_split,
-        # TODO batch_size>1 still seems broken... https://github.com/huggingface/open_asr_leaderboard/issues/68
+        # Warning batch_size>1 seems broken with some versions of transformers...
+        # https://github.com/huggingface/open_asr_leaderboard/issues/68
+        # However, it seems to work with the CrisperWhisper fork.
+        # batch_size=16,
         batch_size=1,
     )
     tk.register_output(f"crisper_whisper.{dataset_name}.{dataset_split}.recog.txt.py.gz", recog_job.out_recog)
