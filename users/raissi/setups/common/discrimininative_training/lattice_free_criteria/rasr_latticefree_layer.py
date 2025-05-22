@@ -41,11 +41,13 @@ def augment_for_lfmmi(
     lfmmi_layer_name: str = "lf_mmi",
     fw_ce_smoothing: float = 0.0,
     fs_ce_smoothing: float = 0.0,
+    scale_offset: float = 0.0,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
 
 ):
-    assert lfmmi_params.criterion == Criterion.LFMMI, "Please set the correct criterion"
+    assert lfmmi_params.criterion == Criterion.LFMMI
+    assert 1 - scale_offset - fw_ce_smoothing - fs_ce_smoothing > 0, "Your scaling is causing reveresed loss"
     returnn_config.config.pop("chunking", None)
 
     if fw_ce_smoothing > 0:
@@ -117,7 +119,7 @@ def augment_for_lfmmi(
         "from": output_layer,
         "loss": "via_layer",
         "loss_opts": {"align_layer": lfmmi_layer_name, "loss_wrt_to_act_in": "softmax"},
-        "loss_scale": 1 - fw_ce_smoothing - fs_ce_smoothing,
+        "loss_scale": 1 - scale_offset - fw_ce_smoothing - fs_ce_smoothing,
     }
 
     return returnn_config
