@@ -665,14 +665,17 @@ def eow_phon_ls960_relposencoder_0924_base():
         ),
         "2Dx6v7": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), 1)] * 2,
+            convs=[(32, (3, 3), (2, 1))] +
+                [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), 1)] * 2,
             activations=[None, None, "ReLU"] * 6,
             poolings=[None] * 18,
             out_features=512,
         ),
         "2Dx6v8": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), 1)] * 3,
+            convs=[(32, (3, 3), (2, 1))] +
+                [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 5 +
+                [(32, (3, 3), 1)] * 3,
             activations=[None, None, None, "ReLU"] * 6,
             poolings=[None] * 24,
             out_features=512,
@@ -686,14 +689,28 @@ def eow_phon_ls960_relposencoder_0924_base():
         ),
         "2Dx6v10": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)), (32, (3, 3), 1),
+            ],
             activations=["ReLU", "ReLU", None, "ReLU"] * 2,
             poolings=[None] * 8,
             out_features=512,
         ),
         "2Dx6v11": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), ((64, (3, 3), 1), 64, (3, 3), (2, 1)), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (32, (3, 3), 1),
+            ],
             activations=["ReLU", None, "ReLU", None, "ReLU"] * 2,
             poolings=[None] * 10,
             out_features=512,
@@ -728,28 +745,40 @@ def eow_phon_ls960_relposencoder_0924_base():
         ),
         "2Dx4v3": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 3 + [(32, (3, 3), 1)] * 2,
+            convs=[(32, (3, 3), (2, 1))] +
+                [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 3 + [(32, (3, 3), 1)] * 2,
             activations=[None, None, "ReLU"] * 4,
             poolings=[None] * 12,
             out_features=512,
         ),
         "2Dx4v4": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 3 + [(32, (3, 3), 1)] * 3,
+            convs=[(32, (3, 3), (2, 1))] +
+                [(64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1))] * 3 + [(32, (3, 3), 1)] * 3,
             activations=[None, None, None, "ReLU"] * 4,
             poolings=[None] * 16,
             out_features=512,
         ),
         "2Dx4v5": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), (2, 1)), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)), (32, (3, 3), 1),
+            ],
             activations=["ReLU", None, "ReLU"] * 2,
             poolings=[None] * 6,
             out_features=512,
         ),
         "2Dx4v6": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1), (32, (3, 3), 1),
+            ],
             activations=[None, "ReLU", None, None, "ReLU"] * 2,
             poolings=[None] * 10,
             out_features=512,
@@ -784,30 +813,52 @@ def eow_phon_ls960_relposencoder_0924_base():
         ),
         "2Dx2v4": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (32, (3, 3), 1),
+            ],
             activations=[None, "ReLU"] * 2,
             poolings=[None] * 4,
             out_features=512,
         ),
         "2Dx2v5": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1), (32, (3, 3), 1),
+            ],
             activations=[None, "ReLU"] * 3,
             poolings=[None] * 6,
             out_features=512,
         ),
         "2Dx2v6": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1),
+            ],
             activations=[None, "ReLU"] * 4,
             poolings=[None] * 8,
             out_features=512,
         ),
         "2Dx2v7": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
-            convs=[(32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1)],
+            convs=[
+                (32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1),
+            ],
             activations=[None, "ReLU"] * 5,
             poolings=[None] * 10,
+            out_features=512,
+        ),
+        "2Dx2v8": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[
+                (32, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1),
+                (64, (3, 3), (2, 1)), (64, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1), (64, (3, 3), 1),
+            ],
+            activations=[None, "ReLU"] * 6,
+            poolings=[None] * 12,
             out_features=512,
         ),
     }
@@ -996,6 +1047,9 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx6v1", "stft_v47", 80, 128, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 64, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 32, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 80, 28, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 80, 24, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 80, 20, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 16, 10, False, None, None),
         ("2Dx6v3", "stft_v47", 80, 256, 10, False, None, None),
         ("2Dx6v4", "stft_v47", 80, 256, 10, False, None, None),
@@ -1015,6 +1069,13 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx2v5", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx2v6", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx2v7", "stft_v47", 80, 256, 160, False, None, None),
+        ("2Dx2v8", "stft_v47", 80, 256, 160, False, None, None),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 64, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 256, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 512, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 128, 32, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
