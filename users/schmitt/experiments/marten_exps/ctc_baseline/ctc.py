@@ -10,6 +10,7 @@ import numpy as np
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim
+from returnn.util.basic import NotSpecified
 
 from sisyphus import tk
 
@@ -174,8 +175,6 @@ def py():
 
   use_w2v_model = False
 
-  config_updates = {}
-
   marten_baseline_config = {
     "aux_loss": True,
     "model_config": {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
@@ -194,7 +193,7 @@ def py():
       "use_w2v_model": True,
       "epochs": 16,
       # ~16_666 steps per GPU (66_666 for 4 GPUs) with batch size 2.4M samples -> corresponds to 50k steps with batch size 3.2M in original paper
-      "lr_schedule_type": "relative",
+      "lr_schedule_type": "relative_oclr",
       "model_config": {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
     }
   )
@@ -225,8 +224,34 @@ def py():
     }
   )
 
+  # full_sum_config_v1 = dict_update_deep(
+  #   wav2vec_config_v4,
+  #   {
+  #     "epochs": 500,
+  #     "train_language_model_opts": {"class": "ngram", "order": 2},
+  #     "num_gpus": 1,
+  #     "full_sum_opts": {
+  #       "am_scale": 1.0,
+  #       "lm_scale": 1.0,
+  #       "prior_scale": 1.0,
+  #       "horizontal_prior": True,
+  #       "blank_prior": True,
+  #       "prior_gradient": True,
+  #       "max_prior": False,
+  #       "top_k": 0,
+  #       "alignment_topk": True,
+  #       "blank_correction_version": 0,
+  #       "correction_in_final_score": False,
+  #       "print_gradients": False,
+  #       "version": 2,
+  #     }
+  #   }
+  # )
+
   train_configs = [
+    # marten ###########################
     marten_baseline_config,
+    # wav2vec-base ###########################
     # uses all encoder layers
     wav2vec_config_v1,
     # uses only first 8 encoder layers
@@ -245,17 +270,111 @@ def py():
     ),
     wav2vec_config_v2,
     wav2vec_config_v3,
-    # wav2vec_config_v4,
+    wav2vec_config_v4,
+    dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "enc_logits_n_layers": 2,
+      }
+    ),
+    dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "enc_logits_n_layers": 2,
+        "freeze_encoder_first_n_steps": 10_000,
+      }
+    ),
+    # wav2vec-large lv60 config ###########################
+    dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+      }
+    ),
+    *[dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "epochs": n_epochs,
+      }
+    ) for n_epochs in (20, 30)],
+    # test sup. char CTC performance on different number of layers when also training Transformer encoder
+    *[dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "num_enc_layers": n,
+        "num_gpus": 1,
+        "train_epoch_wise_filter": None,
+      }
+    ) for n in range(15, 25)],
+    # test sup. char and bpe128 CTC performance on different number of layers when not training Transformer encoder
+    *[dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "num_enc_layers": n,
+        "vocab": vocab_,
+        "num_gpus": 1,
+        "train_epoch_wise_filter": None,
+        "freeze_encoder_first_n_steps": 1_000_000,  # just set very large so that encoder remains frozen for whole training
+      }
+    ) for n in range(15, 25) for vocab_ in ["bpe128", "char"]],
+    *[dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "bs_feat": bs_feat_,
+        "peak_lr": 2e-5,
+      }
+    ) for bs_feat_ in [8_000, 20_000]],
+    # wav2vec-large config -> 100% WER in all cases ###########################
+    *[dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "bs_feat": 8_000,
+        "peak_lr": peak_lr,
+        "epochs": 9,
+      }
+    ) for peak_lr in [2e-5, 3e-5]],
+    dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+        "bs_feat": 8_000,
+        "peak_lr": 2e-5,
+        "epochs": 9,
+        "lr_schedule_type": "relative_oclr_const",
+      }
+    ),
+    dict_update_deep(
+      wav2vec_config_v4,
+      {
+        "w2v_model": "large_60kh",
+      }
+    ),
   ]
 
   for train_config in train_configs:
+    config = copy.deepcopy(config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4)
+    config_updates = {}
+
     aux_loss = train_config["aux_loss"]
     model_config = train_config["model_config"]
     use_w2v_model = train_config["use_w2v_model"]
     lr_schedule_type = train_config["lr_schedule_type"]
+    peak_lr = train_config.get("peak_lr", 1e-4)
     bs_feat = train_config.get("bs_feat", 15_000)
     vocab = train_config["vocab"]
     with_prior = train_config["with_prior"]
+    num_gpus = train_config.get("num_gpus", 4)
+    train_epoch_wise_filter = train_config.get("train_epoch_wise_filter", NotSpecified)
 
     # Read out correct number of epochs dependent on self-training iterations
     if train_config["epochs"] is None:
@@ -266,24 +385,29 @@ def py():
     else:
       epochs = train_config["epochs"]
 
-    post_config_updates = {
-      "cleanup_old_models.keep": [epochs]
-    }
+    post_config_updates = {}
+
+    # limit number of recog epochs for these models
+    if vocab != "char":
+      post_config_updates["cleanup_old_models.keep"] = [epochs]
 
     if lr_schedule_type == "static":
       lr_config = _get_cfg_lrlin_oclr_by_bs_nep(bs_feat, epochs)
     else:
-      assert lr_schedule_type == "relative"
       # TODO: hard code values for now, change later
-      lr_config = _get_cfg_lrlin_oclr_by_bs_nep_v4(epochs, peak_lr=1e-4)
+      if lr_schedule_type == "relative_oclr":
+        lr_config = _get_cfg_lrlin_oclr_by_bs_nep_v4(epochs, peak_lr=peak_lr)
+      else:
+        assert lr_schedule_type == "relative_oclr_const"
+        lr_config = _get_cfg_lrlin_oclr_by_bs_nep_v5(
+          epochs,
+          const_lr=peak_lr,
+          low_lr=1e-6,
+          step_peak_fraction=0.1,
+          step_const_fraction=0.5
+        )
+
       config_updates["batch_size"] = bs_feat * _batch_size_factor
-      # lr_config = _get_cfg_lrlin_oclr_by_bs_nep_v5(
-      #   epochs,
-      #   const_lr=1e-4,
-      #   low_lr=1e-5,
-      #   step_peak_fraction=0.1,
-      #   step_const_fraction=0.5
-      # )
 
     if self_training_rounds > 0:
       if self_train_subset:
@@ -470,43 +594,84 @@ def py():
 
     decoding_str += f"_{epochs}-ep_{bs_feat}-bs"
 
+    train_gpu_mem = 11
+    if num_gpus != 4:
+      if num_gpus == 1:
+        config.pop("torch_distributed")
+      config_updates["__num_processes"] = num_gpus
+
     prolog = []
     if use_w2v_model:
-      # config_updates["use_w2v_model"] = True
-
-      decoding_str += "_init_wv2ec"
-
       from i6_core.tools.download import DownloadJob
-      wav2vec2_base_unsup_chkpt = DownloadJob(
-        "https://huggingface.co/facebook/wav2vec2-base/resolve/main/pytorch_model.bin?download=true",
-        target_filename="wav2vec2_base_no_finetune.bin",
-      ).out_file
+
+      decoding_str += "_init-wv2ec"
+      w2v_model = train_config.get("w2v_model", "base")
+      decoding_str += f"_{w2v_model}"
+      if train_config.get("w2v_model", "base") != "base":
+        w2v_config = train_config.get("w2v_config", "large")
+        if w2v_config != "large":
+          assert w2v_config == "large-lv60"
+          decoding_str += f"_w2v-config-{w2v_config}"
+
+        train_gpu_mem = 24
+        if w2v_model == "large_960h":
+          wav2vec2_chkpt = DownloadJob(
+            "https://huggingface.co/facebook/wav2vec2-large/resolve/main/pytorch_model.bin?download=true",
+            target_filename="wav2vec2_large_960h_no_finetune.bin",
+          ).out_file
+        else:
+          assert w2v_model == "large_60kh"
+          wav2vec2_chkpt = DownloadJob(
+            "https://huggingface.co/facebook/wav2vec2-large-lv60/resolve/main/pytorch_model.bin?download=true",
+            target_filename="wav2vec2_large_60kh_no_finetune.bin",
+          ).out_file
+
+        if w2v_config == "large-lv60":
+          wav2vec_fine_tune_config = DownloadJob(
+            "https://huggingface.co/facebook/wav2vec2-large-lv60/resolve/main/config.json?download=true",
+            target_filename="wav2vec2_large_60kh_no_finetune_config.json",
+          ).out_file
+        else:
+          assert w2v_config == "large"
+          wav2vec_fine_tune_config = DownloadJob(
+            "https://huggingface.co/facebook/wav2vec2-large/resolve/main/config.json?download=true",
+            target_filename="wav2vec2_large_960h_no_finetune_config.json",
+          ).out_file
+
+      else:
+        wav2vec2_chkpt = DownloadJob(
+          "https://huggingface.co/facebook/wav2vec2-base/resolve/main/pytorch_model.bin?download=true",
+          target_filename="wav2vec2_base_no_finetune.bin",
+        ).out_file
+        wav2vec_fine_tune_config = DownloadJob(
+          "https://huggingface.co/facebook/wav2vec2-base/resolve/main/config.json?download=true",
+          target_filename="wav2vec2_base_no_finetune_config.json",
+        ).out_file
+
       config_updates["preload_from_files"] = {
         "wav2vec2_base": {
-          "filename": wav2vec2_base_unsup_chkpt,
+          "filename": wav2vec2_chkpt,
           "ignore_missing": True,
           "init_for_train": True,
           "checkpoint_key": None,
         }
       }
 
-      wav2vec_base_fine_tune_config = DownloadJob(
-        "https://huggingface.co/facebook/wav2vec2-base/resolve/main/config.json?download=true",
-        target_filename="wav2vec2_base_no_finetune_config.json",
-      ).out_file
-
       w2v_opts = {
-        "config_file": wav2vec_base_fine_tune_config,
+        "config_file": wav2vec_fine_tune_config,
         "freeze_encoder_first_n_steps": train_config.get("freeze_encoder_first_n_steps", 2_500),
       }
 
       if train_config.get("freeze_encoder_first_n_steps", 2_500) != 2_500:  # 4 GPUS, otherwise: 10_000
-        decoding_str += f"_frz_enc_n-{w2v_opts['freeze_encoder_first_n_steps']}"
+        decoding_str += f"_frz-enc-n-{w2v_opts['freeze_encoder_first_n_steps']}"
       if train_config.get("num_enc_layers", 12) != 12:
         w2v_opts["num_enc_layers"] = train_config["num_enc_layers"]
-        decoding_str += f"_enc_n-{w2v_opts['num_enc_layers']}"
-
-      # config_updates["w2v_opts"] = w2v_opts
+        decoding_str += f"_enc-n-{w2v_opts['num_enc_layers']}"
+      if train_config.get("enc_logits_n_layers", 1) != 1:
+        w2v_opts["enc_logits_n_layers"] = train_config["enc_logits_n_layers"]
+        decoding_str += f"_enc-logits-n-{w2v_opts['enc_logits_n_layers']}"
+      if peak_lr != 1e-4:
+        decoding_str += f"_peak-lr-{peak_lr}"
 
       model_config.update({
         "use_w2v_model": True,
@@ -518,6 +683,8 @@ def py():
       prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/resampy_package')\n"
       prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/fairseq_package')\n"
       prolog += [serialization.NonhashedCode(prolog_content)]
+
+    decoding_str += f"_lr-sched-{lr_schedule_type}"
 
     # Create self-training config
     if self_training_rounds > 0:
@@ -691,7 +858,7 @@ def py():
 
     train_exp(
       name=alias_name,
-      config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+      config=config,
       decoder_def=decoder_def,
       decoder_hyperparameters=decoder_hyperparameters,
       hyperparamters_self_training=alt_decoder_hyperparameters if alt_decoder else None,
@@ -719,6 +886,8 @@ def py():
       reset_steps=reset_steps,
       prolog=prolog,
       post_config_updates=post_config_updates,
+      train_gpu_mem=train_gpu_mem,
+      train_epoch_wise_filter=train_epoch_wise_filter,
     )
 
 
@@ -768,13 +937,16 @@ def train_exp(
         tune_hyperparameters: bool = False,
         from_scratch: bool = False,
         reset_steps: bool = True,
+        train_gpu_mem: int = 11,
+        train_epoch_wise_filter=NotSpecified,
 ) -> Optional[ModelWithCheckpoints]:
   """
   Train experiment
   """
   from i6_experiments.users.mueller.train import train
-  from i6_experiments.users.mueller.recog import recog_training_exp, GetBestTuneValue
-  from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
+  from i6_experiments.users.mueller.recog import recog_training_exp
+  from i6_experiments.users.schmitt.datasets.librispeech import get_librispeech_task_raw_v2_schmitt as get_librispeech_task_raw_v2
+  from i6_experiments.users.mueller.datasets.librispeech import TrainDatasetSel
 
   print("Job Name:", name)
   if not enabled:
@@ -795,6 +967,7 @@ def train_exp(
     init_small=init_small,
     with_prior=with_prior,
     empirical_prior=empirical_prior,
+    train_epoch_wise_filter=train_epoch_wise_filter,
   )
 
   if with_prior and empirical_prior:
@@ -895,6 +1068,9 @@ def train_exp(
   else:
     search_config = {}
 
+  if train_gpu_mem > 11:
+    config["torch_amp"] = "bfloat16"
+
   model_with_checkpoint = []
   model_with_checkpoint.append(train(
     prefix,
@@ -910,6 +1086,9 @@ def train_exp(
     time_rqmt=time_rqmt if time_rqmt else (36 if init_small else 132),
   ))
   train_job = model_with_checkpoint[0].get_training_job()
+
+  if train_gpu_mem > 11:
+    train_job.rqmt["gpu_mem"] = train_gpu_mem
 
   # this is super ugly but it allows us to reuse Marten's train function which we would need to change otherwise
   train_job.returnn_config.python_prolog += prolog if train_job.returnn_config.python_prolog is not None else prolog
@@ -1000,9 +1179,10 @@ def train_exp(
     empirical_prior=emp_prior if with_prior and empirical_prior else None,
     cache_manager=cache_manager,
     check_train_scores_nbest=decode_nbest_epochs_init,
-    exclude_epochs=sorted(list(model_with_checkpoint[0].fixed_epochs))[:-1] if not decode_all_fixed_epochs_init else (),
+    exclude_epochs=sorted(list(model_with_checkpoint[0].fixed_epochs))[:-1]  if not decode_all_fixed_epochs_init else (),
     return_beam=(self_training_rounds > 0 and config_updates_self_training.get("decode_every_step", False)),
     scales=scales,
+    # model_avg=True,
   )
 
   # Do self training on pseudo labels

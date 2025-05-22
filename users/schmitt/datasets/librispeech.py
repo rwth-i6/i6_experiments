@@ -780,8 +780,8 @@ def get_librispeech_task_raw_v2(
         vocab_to_words = [_bpe_to_words_v2]
     elif isinstance(vocab, SentencePieceModel):
         vocab_to_words = [_spm_to_words]
-    elif isinstance(vocab, (Utf8BytesVocab, VocabConfigStatic)):
-        vocab_to_words = []  # assume it can just stay that way
+    elif _is_char_vocab(vocab):
+        vocab_to_words = [_char_to_words]
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
     
@@ -842,6 +842,30 @@ def get_librispeech_task_raw_v2(
     _librispeech_task_raw_v2_cache[cache_key] = (task, pseudo_labels_ds, train_100_ds)
     
     return task, pseudo_labels_ds, train_100_ds
+
+
+from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2 as get_librispeech_task_raw_v2_mueller
+def get_librispeech_task_raw_v2_schmitt(
+        **kwargs,
+):
+  task, pseudo_labels_ds, train_100_ds = get_librispeech_task_raw_v2_mueller(**kwargs)
+
+  vocab = kwargs["vocab"]
+  if isinstance(vocab, str):
+    vocab = get_vocab_by_str(vocab, train_small=kwargs["init_small"])
+
+  if _is_char_vocab(vocab):
+    vocab_to_words = [_char_to_words]
+    task.recog_post_proc_funcs = vocab_to_words
+
+  return task, pseudo_labels_ds, train_100_ds
+
+def _is_char_vocab(vocab: VocabConfig) -> bool:
+  if isinstance(vocab, Utf8BytesVocab):
+    return True
+  if isinstance(vocab, VocabConfigStatic):
+    return vocab.opts.get("class") == "CharacterTargets"
+  return False
 
 
 def _extract_audio_seq_len_file(train_dataset: DatasetConfig, *, use_main_ds: bool = False):
@@ -954,6 +978,40 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
 
     words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
     return RecogOutput(output=words)
+
+
+def _char_to_words(bpe: RecogOutput) -> RecogOutput:
+  """Char to words"""
+  from i6_core.returnn.search import SearchOutputRawReplaceJob
+
+  # Note, our standard search uses :func:`_returnn_v2_get_forward_callback`,
+  # and that uses ``hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)``.
+  # Utf8ByteTargets/CharacterTargets would output non-white-space delimited labels
+  # (CharacterTargets.get_seq_labels: ``"".join(map(self._labels.__getitem__, seq))``).
+  # However, most of the CTC models then do sth like this:
+  #   vocab_labels = list(target_dim.vocab.labels) + [model_recog.output_blank_label]
+  #   wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+  #      vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx})
+  # And that create_vocab_from_labels has some special logic,
+  # but with output_blank_label = "<blank>", i.e. len(output_blank_label) > 1,
+  # this will result in a static Vocabulary where get_seq_labels is ``" ".join(map(labels.__getitem__, seq))``,
+  # i.e. white-space delimited.
+  # utf8/char, after SearchRemoveLabelJob, produces: "H I S  A B O D E  W H I C H  H E  H A D  F I X E D ..."
+  # This is somewhat an artefact of the processing because it assumed white-space separated words,
+  # and it used txt.split(" ") in SearchCollapseRepeatedLabelsJob and SearchRemoveLabelJob.
+  # So any whitespace labels in the search output stays as two spaces.
+  # That's why we can just do the SearchOutputRawReplaceJob below.
+  # If we have do deal with non-white-space delimited outputs at some point (might occur with AED models?),
+  # some solutions:
+  # - In _returnn_v2_get_forward_callback, maybe don't use the vocab-dependend get_seq_labels,
+  #   but just always output it white-space delimited.
+  #   We can make this optional, and only apply for AED models (?),
+  #   such that this does not break all existing hashes.
+  # - Maybe we can handle it here? But it might need some further modifications...
+  words = SearchOutputRawReplaceJob(
+    bpe.output, [("  ", "▁"), (" ", ""), ("▁", " ")], output_gzip=True
+  ).out_search_results
+  return RecogOutput(output=words)
 
 
 def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:

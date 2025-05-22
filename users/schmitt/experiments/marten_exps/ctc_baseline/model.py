@@ -380,8 +380,6 @@ class Wav2VecModel(rf.Module):
       for i in range(n_layers_to_remove):
         del self.wav2vec2.encoder.layers[-1]
 
-    self.enc_out_dim = Dim(name="enc", dimension=768, kind=Dim.Types.Feature)
-
     self.target_dim = target_dim
     self.blank_idx = blank_idx
     self.eos_idx = eos_idx
@@ -389,8 +387,27 @@ class Wav2VecModel(rf.Module):
 
     if not wb_target_dim:
       wb_target_dim = target_dim + 1
-    self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
     self.wb_target_dim = wb_target_dim
+
+    w2v_hidden_size = self.wav2vec2.encoder.layers[0].feed_forward.output_dense.out_features
+    self.enc_out_dim = Dim(name="enc", dimension=w2v_hidden_size, kind=Dim.Types.Feature)
+
+    enc_logits = []
+    enc_logits_n_layers = w2v_opts.get("enc_logits_n_layers", 1)
+    for i in range(enc_logits_n_layers):
+      if i == enc_logits_n_layers - 1:
+        out_dim = wb_target_dim
+      else:
+        out_dim = self.enc_out_dim
+      enc_logits.append(rf.Linear(self.enc_out_dim, out_dim))
+
+      if i != enc_logits_n_layers - 1:
+        enc_logits.append(rf.relu)
+
+    if len(enc_logits) > 1:
+      self.enc_logits = rf.Sequential(enc_logits)
+    else:
+      self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
 
     if target_dim.vocab and not wb_target_dim.vocab:
       # Just assumption for code now, might extend this later.

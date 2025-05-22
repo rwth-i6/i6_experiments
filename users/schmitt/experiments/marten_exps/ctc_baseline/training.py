@@ -36,6 +36,7 @@ def ctc_train(*, model: Union[Model, Wav2VecModel], data: rf.Tensor, data_spatia
     decode_every_step = config.bool("decode_every_step", False)
     version = config.int("version", 1)
 
+    # TODO: maybe put this into the model's forward function?
     if isinstance(model, Wav2VecModel):
         w2v_opts = config.typed_value("w2v_opts", {})
         freeze_encoder_first_n_steps = w2v_opts.get("freeze_encoder_first_n_steps", 0)
@@ -339,6 +340,13 @@ def ctc_train(*, model: Union[Model, Wav2VecModel], data: rf.Tensor, data_spatia
         "ctc",
         custom_inv_norm_factor=norm_dim.get_size_tensor(),
         use_normalized_loss=use_normalized_loss,
+    )
+
+    loss.mark_as_loss(
+        "ctc_frame_norm",
+        custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+        use_normalized_loss=use_normalized_loss,
+        as_error=True,
     )
     
     _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim)
