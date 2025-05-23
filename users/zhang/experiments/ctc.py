@@ -274,7 +274,7 @@ def train_exp(
     search_rqmt: dict = None,
     recog: bool = False,
     batch_size: int = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.path]]:
 
     """
     Train experiment
@@ -380,7 +380,7 @@ def train_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_res, None, None
+    return model_with_checkpoints, recog_res, None, None, None
 
 
 # noinspection PyShadowingNames
@@ -415,7 +415,7 @@ def recog_exp(
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
     batch_size: int = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path], Optional[tk.path]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path], Optional[tk.path], Optional[tk.path]]:
     """
     Train experiment
     """
@@ -446,6 +446,7 @@ def recog_exp(
         recog_post_proc_funcs.append(_remove_eos_label_v2)
 
     best_lm_tune = None
+    best_prior_tune = None
     if tune_hyperparameters and decoding_config["use_lm"]:
         original_params = decoding_config
         params = copy.copy(original_params)
@@ -576,7 +577,7 @@ def recog_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, best_lm_tune
+    return model_with_checkpoints, recog_result, search_error, best_lm_tune, best_prior_tune
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -1952,6 +1953,7 @@ def scoring(
         lexicon: str,
         hyperparameters: dict,
         prior_file: tk.Path = None,
+        seq_tags: Tensor = None,
 ) -> Tensor:
     """
     Function is run within RETURNN.
@@ -2662,6 +2664,7 @@ def scoring_v2(
         lexicon: str,
         hyperparameters: dict,
         prior_file: tk.Path = None,
+        seq_tags: Tensor = None,
 ) -> Tensor:
     """
     Function is run within RETURNN.
@@ -2755,23 +2758,25 @@ def scoring_v2(
         print("Cannot subtract prior without running log softmax")
         return None
 
-    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.to(torch.int64)
+    target_spatial_dim_torch = targets.remaining_dims(batch_dim)[0].dyn_size_ext.raw_tensor.to(torch.int64)
 
-    # `````````````````test```````````````````````
     '''Test torchaudio.functional.forced_align'''
     from torchaudio.functional import forced_align as forced_align
     alignments = []
     viterbi_scores = []
-
+    #import pdb; pdb.set_trace()
     for i in range(label_log_prob_raw.shape[0]):
         alignments_, viterbi_scores_ = forced_align(
-            label_log_prob_raw.to("cuda")[i].unsqueeze(0),
+            label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0),
+            #targets.raw_tensor[i].unsqueeze(0),
             trim_padded_sequence(targets.raw_tensor[i]).unsqueeze(0),
-            #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0),
+            #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+            #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
             blank=model.blank_idx
         )
         alignments.append(alignments_)
-        viterbi_scores.append(viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum()) #Exclude the padding
+        viterbi_scores.append(viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum()) #Exclude the padding, might be redundant
 
     torch.cuda.empty_cache()
 
@@ -2790,9 +2795,47 @@ def scoring_v2(
     # masked_label_log_prob_ret = Tensor("label_log_prob", dims=label_log_prob.dims, dtype="float32",
     #                 raw_tensor=masked_label_log_prob)
 
-    seq_targets_wb, scores, _, _ = decode_ffnn(model=model, label_log_prob=masked_label_log_prob_ret,
+
+    seq_targets_wb, scores, _, _ = decode_nn(model=model, label_log_prob=masked_label_log_prob_ret,
                                   enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
-                                  prior_file= prior_file, scoring=True)
+                                  prior_file= prior_file, scoring=True) # TODO: use passed param to determine which decoder to use
+
+    """---------TEST--------------"""
+    # No masking just for test
+    # import pdb; pdb.set_trace()
+    # seq_targets_wb_, scores_, _, _ = decode_nn(model=model, label_log_prob=label_log_prob, #masked_label_log_prob_ret,
+    #                               enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
+    #                               prior_file= prior_file, scoring=True)
+    #
+    # for i in range(label_log_prob_raw.shape[0]):
+    #     # alignments_, viterbi_score = forced_align(
+    #     #     label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0),
+    #     #     #targets.raw_tensor[i].unsqueeze(0),
+    #     #     trim_padded_sequence(ctc_collapse(seq_targets_wb_.raw_tensor[:, i, 0], model.blank_idx)).unsqueeze(0).to("cuda"),
+    #     #     #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+    #     #     #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+    #     #     blank=model.blank_idx
+    #     # )
+    #     print(
+    #         f"\n{seq_tags.raw_tensor[i]}:\nsearch_score:{scores_.raw_tensor[i]}\n "
+    #         #f"viterbi_score:{viterbi_score[0][:enc_spatial_dim_torch[i]].sum()}\n"
+    #         f"forced_score(GT score):{scores.raw_tensor[i]}\n")
+    #         #f"GT_score:{viterbi_scores[i]}")
+    #
+    #     # Assert this only for greedy
+    #     #assert torch.abs(viterbi_score[0][:enc_spatial_dim_torch[i]].sum() - scores_.raw_tensor[i]) < 1e-03
+    #
+    #     #assert viterbi_scores[i] < scores_.raw_tensor[i].item() or torch.abs(viterbi_scores[i] - scores_.raw_tensor[i]) < 1e-06
+    #     if scores.raw_tensor[i] > scores_.raw_tensor[i].item():
+    #         if trim_padded_sequence(ctc_collapse(seq_targets_wb_.raw_tensor[:, i, 0], model.blank_idx)).tolist() != trim_padded_sequence(ctc_collapse(seq_targets_wb.raw_tensor[:, i, 0], model.blank_idx)).tolist() :
+    #             print(f"This is a search error seq!: {seq_tags.raw_tensor[i]}\n\n")
+    #
+    #
+    #     # if seq_tags:
+    #     #     if seq_tags.raw_tensor[i] in ["test-other/3331-159605-0008/3331-159605-0008", "test-other/5442-32873-0006/5442-32873-0006", "test-other/5484-24317-0017/5484-24317-0017"]:
+    #     #         print(f"========================"
+    #     #               f"This is a search error seq!: {seq_tags.raw_tensor[i]}\n\n")
+    #     #         #pdb.set_trace()
 
     """---------TEST--------------"""
     # lm_scores = lm_scoring(model=lm, targets=targets, targets_spatial_dim=targets.get_time_dim_tag())
@@ -2838,7 +2881,7 @@ def scoring_v2(
 scoring_v2: RecogDef[Model]
 scoring_v2.output_with_beam = True
 scoring_v2.output_blank_label = OUT_BLANK_LABEL
-scoring_v2.batch_size_dependent = False  # not totally correct, but we treat it as such...
+scoring_v2.batch_size_dependent = True
 scoring_v2.beam_size_dependent = False
 
 def scoring_v3(
@@ -2851,6 +2894,7 @@ def scoring_v3(
         lexicon: str,
         hyperparameters: dict,
         prior_file: tk.Path = None,
+        seq_tags: Tensor = None,
 ) -> Tensor:
     """
     Function is run within RETURNN.
@@ -2944,7 +2988,7 @@ def scoring_v3(
         print("Cannot subtract prior without running log softmax")
         return None
 
-    seq_targets_wb, scores, _, _ = decode_ffnn(model=model, label_log_prob=label_log_prob,
+    seq_targets_wb, scores, _, _ = decode_nn(model=model, label_log_prob=label_log_prob,
                                   enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
                                   prior_file= prior_file, scoring=True,ground_truth=targets)
 
@@ -3020,6 +3064,8 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: [FeedForwardL
                     if (i + 1) * n_seqs <= batch_size:
                         new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
                     else:
+                        if isinstance(batch_size, torch.Tensor):
+                            batch_size = batch_size.item()
                         new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
                 target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
                 lm_logits_split = []
@@ -3078,7 +3124,7 @@ def _target_dense_extend_blank(
     res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
     return res
 
-def recog_ffnn(
+def recog_nn(
         *,
         model: Model,
         data: Tensor,
@@ -3114,7 +3160,7 @@ def recog_ffnn(
     # The label log probs include the AM
     label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
 
-    return decode_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim,
+    return decode_nn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim,
                 batch_dims=batch_dims, hyperparameters=hyperparameters, prior_file=prior_file)
     # seq_tags = seq_tags.raw_tensor
     # print_idx = []
@@ -3125,12 +3171,12 @@ def recog_ffnn(
     #             print_idx.append(idx)
 
 
-recog_ffnn: RecogDef[Model]
-recog_ffnn.output_with_beam = True
-recog_ffnn.output_blank_label = OUT_BLANK_LABEL
-recog_ffnn.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+recog_nn: RecogDef[Model]
+recog_nn.output_with_beam = True
+recog_nn.output_blank_label = OUT_BLANK_LABEL
+recog_nn.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
-def decode_ffnn(
+def decode_nn(
         *,
         model: Model,
         label_log_prob: Tensor,
@@ -3138,8 +3184,7 @@ def decode_ffnn(
         batch_dims: Dim,
         hyperparameters: dict,
         prior_file: tk.Path = None,
-        train_lm: bool = False,
-        scoring: bool = False,
+        scoring: bool = False, # This prevent doubled prior application
         ground_truth: Tensor = None,
         version: int = 2,
 ):
@@ -3184,6 +3229,7 @@ def decode_ffnn(
 
     n_best = hyp_params.pop("nbest", 1)
     beam_size = hyp_params.pop("beam_size", 12)
+    beam_size = 1 if scoring else beam_size
     print(f"Beam size: {beam_size}")
     use_recombination = hyp_params.pop("use_recombination", False)
     assert n_best == 1 or use_recombination, "n-best only implemented with recombination"
@@ -3239,18 +3285,23 @@ def decode_ffnn(
         def extract_ctx_size(s):
             match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
             return match.group(1) if match else None
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
 
-        assert lm_name.startswith("ffnn")
-        context_size = int(extract_ctx_size(lm_name))
-        if train_lm:
-            assert model.train_language_model
-            assert model.train_language_model.vocab_dim == model.target_dim
-            lm: FeedForwardLm = model.train_language_model
-        else:
-            assert model.recog_language_model
-            assert model.recog_language_model.vocab_dim == model.target_dim
+        if lm_name.startswith("ffnn"):
+            context_size = int(extract_ctx_size(lm_name))
+            assert isinstance(model.recog_language_model, FeedForwardLm)
             lm: FeedForwardLm = model.recog_language_model
-        assert lm.conv_filter_size_dim.dimension == context_size
+            assert lm.conv_filter_size_dim.dimension == context_size
+
+
+        elif lm_name.startswith("trafo"):
+            assert isinstance(model.recog_language_model, TransformerDecoder)
+            lm: TransformerDecoder = model.recog_language_model
+
+        else:
+            raise Exception("Not supported language model:" + lm_name + f"{model.recog_language_model}")
+
         # noinspection PyUnresolvedReferences
         lm_scale: float = hyp_params["lm_weight"]
 
@@ -3268,29 +3319,39 @@ def decode_ffnn(
     label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
 
     if lm_name is not None:
-        context_dim = Dim(context_size, name="context")
-        lm_out_dim = Dim(context_size + 1, name="context+1")
-        target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim],
-                             sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
-    target_wb = rf.constant(
-        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
-    )  # Batch, InBeam -> VocabWB
-
-    if lm_name is not None:
         with torch.no_grad():
-            unk_mask = rf.sparse_to_dense(
-                model.target_dim.vocab.label_to_id("<unk>"), axis=model.target_dim, label_value=float("-inf"),
-                other_value=0.0
-            )
-            lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-            lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, lm_state, context_dim, lm_out_dim)
-            lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-            assert lm_logits.dims == (*batch_dims_, model.target_dim)
-            lm_logits = lm_logits + unk_mask
+            if lm_name.startswith("ffnn"):
+                context_dim = Dim(context_size, name="context")
+                lm_out_dim = Dim(context_size + 1, name="context+1")
+                target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim],
+                                     sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+                unk_mask = rf.sparse_to_dense(
+                    model.target_dim.vocab.label_to_id("<unk>"), axis=model.target_dim, label_value=float("-inf"),
+                    other_value=0.0
+                )
+                lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+                lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, lm_state, context_dim, lm_out_dim)
+                lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+                assert lm_logits.dims == (*batch_dims_, model.target_dim)
+                lm_logits = lm_logits + unk_mask
+
+            elif lm_name.startswith("trafo"):
+                target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+                lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+                lm_logits, lm_state = lm(
+                    target,
+                    spatial_dim=single_step_dim,
+                    state=lm_state,
+                )  # Batch, InBeam, Vocab / ...
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+
             lm_log_probs *= lm_scale
             if label_prior and prior is not None:
                 lm_log_probs -= prior
+
+    target_wb = rf.constant(
+        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    )  # Batch, InBeam -> VocabWB
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -3312,7 +3373,7 @@ def decode_ffnn(
 , dims=[batch_dim],dtype="int32")
         gt_len_batched = rf.expand_dim(gt_len, dim=beam_dim_mask)
         gt_len_batched = rf.copy_to_device(gt_len_batched, dev)
-        max_idx = gt_len_batched-1
+        max_idx = gt_len_batched-1 #TODO: Actually should not -1, we need a pad at the end of GT
 
     for t in range(max_seq_len):
         prev_target_wb = target_wb
@@ -3420,7 +3481,7 @@ def decode_ffnn(
                 )
 
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam") if ground_truth is None else beam_dim_mask,
+            seq_log_prob, k_dim=Dim(min(beam_size,185) if t<1 else beam_size, name=f"dec-step{t}-beam") if ground_truth is None else beam_dim_mask,
             axis=[beam_dim, model.wb_target_dim]
         )
 
@@ -3453,18 +3514,28 @@ def decode_ffnn(
 
 
         if lm_name is not None:
-            target = rf.where(
-                got_new_label,
-                _update_context(
+            if lm_name.startswith("ffnn"):
+                target = rf.where(
+                    got_new_label,
+                    _update_context(
+                        prev_target,
+                        _target_remove_blank(
+                            target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim,
+                            blank_idx=model.blank_idx
+                        ),
+                        context_dim
+                    ),
                     prev_target,
+                )  # Batch, Beam -> Vocab
+            elif lm_name.startswith("trafo"):
+                target = rf.where(
+                    got_new_label,
                     _target_remove_blank(
                         target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim,
                         blank_idx=model.blank_idx
                     ),
-                    context_dim
-                ),
-                prev_target,
-            )  # Batch, Beam -> Vocab
+                    prev_target,
+                )  # Batch, Beam -> Vocab
 
         # if t in [352]: #Num [0,2] seq in gt debug
         #     import pdb;pdb.set_trace()
@@ -3489,8 +3560,7 @@ def decode_ffnn(
             with torch.no_grad():
                 got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
                 if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                    (target_,
-                     lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                    (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
                         (target, lm_state),
                         mask=got_new_label,
                         mask_cpu=got_new_label_cpu,
@@ -3498,15 +3568,27 @@ def decode_ffnn(
                     )
                     # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                     assert packed_new_label_dim.get_dim_value() > 0
+                    if lm_name.startswith("ffnn"):
 
-                    lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, lm_state_,
-                                                          context_dim, lm_out_dim,
-                                                          )
-                    lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim,
-                                           indices=rf.last_frame_position_of_dim(lm_out_dim))
-                    assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
-                    lm_logits_ = lm_logits_ + unk_mask
+                        #pdb.set_trace()#------------>|
+
+                        lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, lm_state_,
+                                                              context_dim, lm_out_dim,
+                                                              )
+
+                        #pdb.set_trace()  # ------------>|
+
+                        lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim,
+                                               indices=rf.last_frame_position_of_dim(lm_out_dim))
+                        assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+                        lm_logits_ = lm_logits_ + unk_mask
+                    elif lm_name.startswith("trafo"):
+                        lm_logits_, lm_state_ = get_lm_logits(batch_dims, target_, lm, lm_state_)
+
                     lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+
+                    #pdb.set_trace()#--------------->|
+
                     lm_log_probs_ *= lm_scale
                     if label_prior and prior is not None:
                         lm_log_probs -= prior
@@ -3577,228 +3659,7 @@ def decode_ffnn(
             beam_dim = beam_dim_new
 
 
-    if train_lm:
-        return seq_targets_wb.raw_tensor.transpose(0, 1).transpose(1, 2).tolist(), seq_log_prob
-    else:
-        return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
-
-def recog_trafo(
-    *,
-    model: Model,
-    data: Tensor,
-    data_spatial_dim: Dim,
-    hyperparameters: dict,
-    prior_file: tk.Path = None,
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
-    """
-    Function is run within RETURNN.
-
-    Note, for debugging, see :func:`model_recog_debug`.
-
-    Note, some potential further improvements:
-    There are many align label seqs which correspond to the same label seq,
-    but the LM score is calculated for each of them.
-    We could make this somehow unique depending on the label seq.
-    (But unclear how exactly to do this in a GPU friendly, batched way.)
-
-    :return:
-        recog results including beam {batch, beam, out_spatial},
-        log probs {batch, beam},
-        out_spatial_dim,
-        final beam_dim
-    """
-    import returnn
-
-    hyp_params = copy.copy(hyperparameters)
-    lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
-
-    n_best = hyp_params.pop("nbest", 1)
-    beam_size = hyp_params.pop("beam_size", 1)
-
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
-    # RETURNN version is like "1.20250115.110555"
-    # There was an important fix in 2025-01-17 affecting masked_scatter.
-    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
-    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
-
-    dev_s = rf.get_default_device()
-    dev = torch.device(dev_s)
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-
-    # Eager-mode implementation of beam search.
-    # Initial state.
-    beam_dim = Dim(1, name="initial-beam")
-    batch_dims_ = [beam_dim] + batch_dims
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
-
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
-
-    prior = None
-    if prior_file and prior_weight > 0.0:
-        prior = np.loadtxt(prior_file, dtype="float32")
-        prior *= prior_weight
-        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-       # Framewise prior
-        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
-        label_log_prob = label_log_prob - prior
-
-    label_log_prob = rf.where(
-        enc_spatial_dim.get_mask(),
-        label_log_prob,
-        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
-    )
-    label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
-
-    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
-    target_wb = rf.constant(
-        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
-    )  # Batch, InBeam -> VocabWB
-    if lm_name is not None:
-        assert lm_name.startswith("trafo")
-        assert model.recog_language_model
-        assert model.recog_language_model.vocab_dim == model.target_dim
-        if isinstance(model.recog_language_model, TransformerDecoder):
-            lm: TransformerDecoder = model.recog_language_model
-        else:
-            raise Exception("Not supported language model:" + lm_name + f"{model.recog_language_model}")
-
-        # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
-
-        # noinspection PyUnresolvedReferences
-        lm_scale: float = hyp_params["lm_weight"]
-
-        lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-        lm_logits, lm_state = lm(
-            target,
-            spatial_dim=single_step_dim,
-            state=lm_state,
-        )  # Batch, InBeam, Vocab / ...
-        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-        lm_log_probs *= lm_scale
-
-    max_seq_len = int(enc_spatial_dim.get_dim_value())
-    seq_targets_wb = []
-    seq_backrefs = []
-    for t in range(max_seq_len):
-        prev_target = target
-        prev_target_wb = target_wb
-
-        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
-
-        if lm is not None:
-            # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
-            seq_log_prob += rf.where(
-                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-                _target_dense_extend_blank(
-                    lm_log_probs,
-                    target_dim=model.target_dim,
-                    wb_target_dim=model.wb_target_dim,
-                    blank_idx=model.blank_idx,
-                    value=0.0,
-                ),
-                0.0,
-            )  # Batch, InBeam, VocabWB
-
-        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
-        )
-        # seq_log_prob, backrefs, target_wb: Batch, Beam
-        # backrefs -> InBeam.
-        # target_wb -> VocabWB.
-        seq_targets_wb.append(target_wb)
-        seq_backrefs.append(backrefs)
-
-        if lm is not None:
-            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
-            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
-        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
-        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
-        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
-        target = rf.where(
-            got_new_label,
-            _target_remove_blank(
-                target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
-            ),
-            prev_target,
-        )  # Batch, Beam -> Vocab
-
-        if lm is not None:
-            got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-            if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                    (target, lm_state),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
-                    dims=batch_dims + [beam_dim],
-                )
-                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-                assert packed_new_label_dim.get_dim_value() > 0
-                lm_logits_, lm_state_ = get_lm_logits(batch_dims, target_, lm, lm_state_)
-
-                # lm_logits_, lm_state_ = lm(
-                #     target_,
-                #     spatial_dim=single_step_dim,
-                #     state=lm_state_,
-                # )  # Flat_Batch_Beam, Vocab / ...
-                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-                lm_log_probs_ *= lm_scale
-
-                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                    (lm_log_probs_, lm_state_),
-                    (lm_log_probs, lm_state),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
-                    dims=batch_dims + [beam_dim],
-                    in_dim=packed_new_label_dim,
-                    masked_select_dim_map=packed_new_label_dim_map,
-                )  # Batch, Beam, Vocab / ...
-
-    if lm is not None:
-        # seq_log_prob, lm_log_probs: Batch, Beam
-        # Add LM EOS score at the end.
-        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
-        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
-
-    # Backtrack via backrefs, resolve beams.
-    seq_targets_wb_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target_wb in zip(seq_backrefs[::-1], seq_targets_wb[::-1]):
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
-        seq_targets_wb_.insert(0, rf.gather(target_wb, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
-
-    seq_targets_wb__ = TensorArray(seq_targets_wb_[0])
-    for target_wb in seq_targets_wb_:
-        seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
-    out_spatial_dim = enc_spatial_dim
-    seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
-
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
-
-
-# RecogDef API
-recog_trafo: RecogDef[Model]
-recog_trafo.output_with_beam = True
-recog_trafo.output_blank_label = "<blank>"
-recog_trafo.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
 class Model(rf.Module):

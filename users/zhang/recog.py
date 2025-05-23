@@ -35,11 +35,13 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 
 import numpy as np
 
-from .experiments.ctc import model_recog, model_recog_lm, model_recog_flashlight, recog_ffnn, recog_trafo
+from .experiments.ctc import model_recog, model_recog_lm, model_recog_flashlight, recog_nn
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
+
+USE_24GB = False # Making all forward job to use 24gb gpu
 
 def recog_exp(
     prefix_name: str,
@@ -76,7 +78,7 @@ def recog_exp(
         dev_sets=dev_sets,
         search_rqmt=search_rqmt,
         search_error_check=search_error_check,
-        search_error_version=3, # 2: emission mask, 3:lm masking
+        search_error_version=2, # 2: emission mask, 3:lm masking
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
@@ -163,7 +165,7 @@ class _RecogAndScoreFunc:
         dev_sets: Optional[List[str]] = None,
         search_rqmt: dict = None,
         search_error_check: bool = False,
-        search_error_version: int = 1,
+        search_error_version: int = 2,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -271,7 +273,7 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"]
     name: Optional[str] = None,
     search_error_check: bool = False,
-    search_error_version: int = 3,
+    search_error_version: int = 2,
 ) -> Tuple[ScoreResultCollection, Optional[tk.path]]:
     """recog"""
     if dev_sets is not None:
@@ -300,17 +302,17 @@ def recog_model(
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
         if search_error_check: #Just report the search error on test-other
-            config_ = config.copy()
-            if config.get("batch_size"):
-                config_.pop("batch_size")
+            #config_ = config.copy()
+            # if config.get("batch_size"):
+            #     config_.pop("batch_size")
             if dataset_name == "test-other":
-                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
+                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
                                                   decoding_config=decoding_config, search_error_version=search_error_version,
                                                   prior_path=prior_path,
                                                   alias_name=f"{name}/search_error/{dataset_name}" if name else None,
                                                   )
             else:
-                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
+                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
                                    decoding_config=decoding_config, search_error_version=search_error_version,
                                    prior_path=prior_path,
                                    alias_name=f"{name}/search_error/{dataset_name}" if name else None,
@@ -378,11 +380,14 @@ def check_search_error(
         mem_rqmt: Union[int, float] = 16,
         config: Optional[Dict[str, Any]] = None,
         alias_name: Optional[str] = None,
-        search_error_version: int = 3,
+        search_error_version: int = 2,
 ) -> tk.Path:
     from .experiments.ctc import scoring, scoring_v2, scoring_v3
     scoring_func = {2:scoring_v2, 3:scoring_v3}[search_error_version]
-    scoring_func = scoring_v2 if decoding_config["use_lm"] else scoring_func
+    scoring_func = scoring_v2 if not decoding_config["use_lm"] else scoring_func
+    if decoding_config.get("lm_order"):
+        if "gram" in decoding_config.get("lm_order"):
+            scoring_func = scoring
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
         returnn_config=search_error_config(dataset, model.definition, scoring_func,
@@ -392,11 +397,15 @@ def check_search_error(
         returnn_root=tools_paths.get_returnn_root(),
         device="gpu",
         time_rqmt=4,
-        mem_rqmt=16,
-        cpu_rqmt=8,
+        mem_rqmt=8,
+        cpu_rqmt=2,
     )
+    if USE_24GB:
+        pre_SearchError_job.rqmt.update({"gpu_mem": 24})
+    if config.get("batch_size",None):
+        pre_SearchError_job.rqmt.update({"gpu_mem": 24 if config["batch_size"] > 50_000_000 else 10})
     if alias_name:
-        alias_name += "_scor_v2" if scoring_func is scoring_v2 else "_scor_v3"
+        alias_name += "_scor_v2" if scoring_func is scoring_v2 else ("_scor_v3" if scoring_func is scoring_v3 else "")
         pre_SearchError_job.add_alias(alias_name)
     ground_truth_out = pre_SearchError_job.out_files[_v2_forward_out_filename]
     from .utils.search_error import ComputeSearchErrorsJob
@@ -481,6 +490,8 @@ def search_dataset(
     res_with_score = res.copy()
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
+    if USE_24GB:
+        search_job.rqmt.update({"gpu_mem":24})
     if env_updates:
         for k, v in env_updates.items():
             search_job.set_env(k, v)
@@ -622,9 +633,6 @@ def search_error_config(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         forward_data=forward_data,
-        #####
-        batch_size=500 * 16000,
-        max_seqs=240,
     )
     if config:
         returnn_config_dict.update(config)
@@ -664,10 +672,11 @@ def search_error_config(
             raise NotImplementedError(f"Unknown lm_name {lm_name}")
     else:
         lm = None
+        decoder_params.pop("beam_size",None)
 
     # Remove possible irrelevant params
     if not scoring_func.beam_size_dependent:
-        decoder_params.pop("beam_size")
+        decoder_params.pop("beam_size",None)
 
     decoder_params.pop("beam_threshold") # Only relevant for flashlight decoder, wont use it any way
 
@@ -696,7 +705,7 @@ def search_error_config(
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_search_error_step, import_as="forward_step"),
                     serialization.Import(_returnn_search_error_forward_callback, import_as="forward_callback"),
-                    serialization.ExplicitHash({"version": 7}),  #1: eos added 2: eos not added 5. 1+aux info added 6. added label_prob mask
+                    serialization.ExplicitHash({"version": 7}),  #1: eos added 2: eos not added 5. 1+aux info added 6. added label_prob mask 7. pre-stable
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
@@ -705,6 +714,43 @@ def search_error_config(
         ],
         sort_config=False
     )
+    from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+
+    # There might be some further functions in the config, e.g. some dataset postprocessing.
+    returnn_config = get_serializable_config(
+        returnn_config,
+        # The only dim tags we directly have in the config are via extern_data, maybe also model_outputs.
+        # All other dim tags are inside functions such as get_model or train_step,
+        # so we do not need to care about them here, only about the serialization of those functions.
+        # Those dim tags and those functions are already handled above.
+        serialize_dim_tags=False,
+    )
+
+    batch_size_dependent = scoring_func.batch_size_dependent
+    if "__batch_size_dependent" in returnn_config.config:
+        batch_size_dependent = returnn_config.config.pop("__batch_size_dependent")
+    if "__batch_size_dependent" in returnn_config.post_config:
+        batch_size_dependent = returnn_config.post_config.pop("__batch_size_dependent")
+    for k, v in dict(
+        batching="sorted",
+        batch_size=20000 * model_def.batch_size_factor,
+        max_seqs=200,
+    ).items():
+        if k in returnn_config.config:
+            v = returnn_config.config.pop(k)
+        if k in returnn_config.post_config:
+            v = returnn_config.post_config.pop(k)
+        (returnn_config.config if batch_size_dependent else returnn_config.post_config)[k] = v
+
+    if post_config:
+        returnn_config.post_config.update(post_config)
+
+    for k, v in SharedPostConfig.items():
+        if k in returnn_config.config or k in returnn_config.post_config:
+            continue
+        returnn_config.post_config[k] = v
+    # print(f"\n\nscoring config:{returnn_config.config}")
+    # print(f"\nscoring post config:{returnn_config.post_config}")
     return returnn_config
 
 
@@ -727,7 +773,8 @@ def _returnn_search_error_step(*, model, extern_data: TensorDict, **kwargs):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     scoring_def = config.typed_value("_scoring_def")
-    scoring_out, score_dim, n_oovs, oov_dim = scoring_def(model=model, data=data, targets=targets, data_spatial_dim=data_spatial_dim)
+    scoring_out, score_dim, n_oovs, oov_dim = scoring_def(model=model, data=data, targets=targets,
+                                                          data_spatial_dim=data_spatial_dim,seq_tags=extern_data["seq_tag"])
     rf.get_run_ctx().mark_as_output(scoring_out, "scores", dims=[batch_dim, score_dim])
     rf.get_run_ctx().mark_as_output(n_oovs, "n_oovs", dims=[batch_dim, oov_dim])
     rf.get_run_ctx().mark_as_output(targets, "targets", dims=[batch_dim, targets_spatial_dim])
@@ -1000,12 +1047,13 @@ def search_config_v2(
         else:
             lm = None
             decoder_params.pop("lm_weight")
+            decoder_params.pop("beam_size") #No LM just equals greedy
 
         args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
         if prior_path:
             args["prior_file"] = prior_path
 
-    elif recog_def in (model_recog_flashlight, recog_ffnn, recog_trafo, model_recog):
+    elif recog_def in (model_recog_flashlight, recog_nn, model_recog):
         args = {"hyperparameters": decoding_config}
         if prior_path:
             args["prior_file"] = prior_path
@@ -1088,8 +1136,8 @@ def search_config_v2(
         if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
             continue
         returnn_recog_config.post_config[k] = v
-    # print(returnn_recog_config.config)
-    # print(returnn_recog_config.post_config)
+    # print(f"\n\nsearch config:{returnn_recog_config.config}")
+    # print(f"\nsearch post config:{returnn_recog_config.post_config}")
     return returnn_recog_config
 
 

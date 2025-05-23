@@ -21,8 +21,10 @@ class WER_ppl_PlotAndSummaryJob(Job):
         results: List[Tuple[tk.Variable, tk.Path]],
 
         lm_tunes: List[Optional[tk.Path]],
+        prior_tunes: List[Optional[tk.Path]],
         search_errors: List[Optional[tk.Path]],
         lm_default_scales: List[Optional[float]],
+        prior_default_scales: List[Optional[float]],
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
@@ -32,7 +34,9 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.names = names
         self.results = results
         self.lm_tunes = lm_tunes
+        self.prior_tunes = prior_tunes
         self.lm_default_scales = lm_default_scales
+        self.prior_default_scales = prior_default_scales
         self.search_errors = search_errors
 
     def tasks(self) -> Iterator[Task]:
@@ -66,7 +70,47 @@ class WER_ppl_PlotAndSummaryJob(Job):
         def regression_func(x, a, b):
             return a + b * x
 
-        def plot(ppls, wers, savepath):
+        # def plot(ppls, wers, savepath):
+        #     # Fit the function to the data
+        #     ln_ppl = np.log10(ppls)
+        #     ln_wer = np.log10(wers)
+        #     params, _ = scipy.optimize.curve_fit(regression_func, ln_ppl, ln_wer)
+        #     a, b = params  # Extract coefficients
+        #
+        #     # Generate data points for the fitted line
+        #     ppl_range = np.linspace(min(ppls), max(ppls), 100)  # Smooth range of PPL values
+        #     ln_ppl_range = np.log10(ppl_range)  # Log transform them
+        #     wer_fit = np.power(10, regression_func(ln_ppl_range, a, b))  # Compute fitted WER
+        #     # Plot Data Points
+        #     plt.figure(figsize=(8, 6))
+        #     markers = {"trafo":"D", "gram":"v", "4gram":"o", "ffnn":"s", "default":"^"}  # Different markers for different LM
+        #     group_points = dict([(key,[]) for key in markers])
+        #     for i, name in enumerate(self.names):
+        #         for key, value in markers.items():
+        #             if key in name:
+        #                 group_points[key].append((ppls[i], wers[i]))
+        #                 break
+        #
+        #     for key, points in group_points.items():
+        #         if len(points):
+        #             x_vals, y_vals = zip(*points)
+        #             plt.scatter(x_vals, y_vals, label=key, marker=markers[key], s=100)
+        #
+        #     # Plot Regression Line
+        #     plt.plot(ppl_range, wer_fit, label=f"Fit: log(WER) = {a:.2f} + {b:.2f} log(PPL)", color="red", linestyle="--")
+        #
+        #     # Labels and Formatting
+        #     plt.xlabel("Perplexity (PPL)")
+        #     plt.ylabel("Word Error Rate (WER)")
+        #     plt.title("WER vs PPL with Log-Linear Regression")
+        #     plt.legend()
+        #     plt.grid(True)
+        #     plt.xscale("log")  # Log-scale for better visualization
+        #     plt.yscale("log")
+        #     plt.savefig(savepath)
+
+        def plot(ppls, wers, savepath, names):
+            import matplotlib.ticker as mticker
             # Fit the function to the data
             ln_ppl = np.log10(ppls)
             ln_wer = np.log10(wers)
@@ -74,39 +118,52 @@ class WER_ppl_PlotAndSummaryJob(Job):
             a, b = params  # Extract coefficients
 
             # Generate data points for the fitted line
-            ppl_range = np.linspace(min(ppls), max(ppls), 100)  # Smooth range of PPL values
-            ln_ppl_range = np.log10(ppl_range)  # Log transform them
-            wer_fit = np.power(10, regression_func(ln_ppl_range, a, b))  # Compute fitted WER
+            ppl_range = np.linspace(min(ppls), max(ppls), 100)
+            ln_ppl_range = np.log10(ppl_range)
+            wer_fit = np.power(10, regression_func(ln_ppl_range, a, b))
+
             # Plot Data Points
-            plt.figure(figsize=(8, 6))
-            markers = {"trafo":"D", "gram":"v", "4gram":"o", "ffnn":"s", "default":"^"}  # Different markers for different LM
-            group_points = dict([(key,[]) for key in markers])
-            for i, name in enumerate(self.names):
-                for key, value in markers.items():
+            fig, ax = plt.subplots(figsize=(8, 6))
+            markers = {"trafo": "D", "gram": "v", "4gram": "o", "ffnn": "s", "default": "^"}
+            group_points = {key: [] for key in markers}
+            for i, name in enumerate(names):
+                for key, m in markers.items():
                     if key in name:
                         group_points[key].append((ppls[i], wers[i]))
                         break
 
             for key, points in group_points.items():
-                if len(points):
+                if points:
                     x_vals, y_vals = zip(*points)
-                    plt.scatter(x_vals, y_vals, label=key, marker=markers[key], s=100)
+                    ax.scatter(x_vals, y_vals, label=key, marker=markers[key], s=100)
 
             # Plot Regression Line
-            plt.plot(ppl_range, wer_fit, label=f"Fit: log(WER) = {a:.2f} + {b:.2f} log(PPL)", color="red", linestyle="--")
+            ax.plot(ppl_range, wer_fit,
+                    label=f"Fit: log(WER) = {a:.2f} + {b:.2f} log(PPL)",
+                    color="red", linestyle="--")
 
             # Labels and Formatting
-            plt.xlabel("Perplexity (PPL)")
-            plt.ylabel("Word Error Rate (WER)")
-            plt.title("WER vs PPL with Log-Linear Regression")
-            plt.legend()
-            plt.grid(True)
-            plt.xscale("log")  # Log-scale for better visualization
-            plt.yscale("log")
-            plt.savefig(savepath)
+            ax.set_xlabel("Perplexity (PPL)")
+            ax.set_ylabel("Word Error Rate (WER)")
+            ax.set_title("WER vs PPL with Log-Linear Regression")
+            ax.legend()
+            ax.grid(True)
+            ax.set_xscale("log")
+            ax.set_yscale("log")
 
-        plot(ppls, wers["dev-other"], self.out_plot1.get_path())
-        plot(ppls, wers["test-other"], self.out_plot2.get_path())
+            # --- THIS IS THE KEY PART: TURN OFF SCIENTIFIC NOTATION ---
+            for axis in (ax.xaxis, ax.yaxis):
+                fmt = mticker.ScalarFormatter()
+                fmt.set_scientific(False)  # turn off 1e3 offset notation
+                fmt.set_useOffset(False)  # turn off “offset” printing
+                axis.set_major_formatter(fmt)
+
+            plt.tight_layout()
+            plt.savefig(savepath)
+            plt.close(fig)
+
+        plot(ppls, wers["dev-other"], self.out_plot1.get_path(),self.names)
+        plot(ppls, wers["test-other"], self.out_plot2.get_path(),self.names)
 
     def create_table(self):
         ppls, _ = self.get_points()
@@ -115,29 +172,35 @@ class WER_ppl_PlotAndSummaryJob(Job):
         for _, wer_path in self.results:
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
-        res = dict(zip(self.names, zip(ppls,wers,self.lm_tunes,self.search_errors,self.lm_default_scales)))
+        res = dict(zip(self.names, zip(ppls,wers,self.lm_tunes,self.search_errors,self.lm_default_scales,self.prior_tunes,self.prior_default_scales)))
         # Define filenames
         csv_filename = self.out_summary.get_path()
 
         # Prepare the data as a list of lists
-        table_data = [["Model Name", "Perplexity", "Best Epoch", "lm_scale", "search_error", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
+        table_data = [["Model Name", "Perplexity", "lm_scale", "prior_scale", "search_error", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
                        "Test-Other WER"]]
         for key, values in res.items():
             ppl = values[0]
             scores = values[1]["best_scores"]
-            best_epoch = values[1]["best_epoch"]
             best_lm_tune = values[2]
-            if best_lm_tune and os.path.exists(best_lm_tune): # Just for bypassing the static check #TODO： this will not be excuted in first run
+            if best_lm_tune and os.path.exists(best_lm_tune):
                 lm_weight_tune = json.load(open(best_lm_tune))
                 lm_weight_tune = lm_weight_tune["best_tune"]
                 lm_scale = values[4] + lm_weight_tune
             else:
                 lm_scale = values[4]
+            best_prior_tune = values[5]
+            if best_prior_tune and os.path.exists(best_prior_tune):
+                prior_weight_tune = json.load(open(best_prior_tune))
+                prior_weight_tune = prior_weight_tune["best_tune"]
+                prior_scale = values[6] + prior_weight_tune
+            else:
+                prior_scale = values[6]
             with open(values[3].get_path()) as f:
                 import re
                 search_error = f.readline()
                 match = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error)
-            table_data.append([key, ppl, best_epoch, f"{lm_scale:.2f}", match.group(0), scores.get("dev-clean","-"), scores.get("dev-other","-"), scores.get("test-clean","-"),
+            table_data.append([key, ppl, f"{lm_scale:.2f}",f"{prior_scale:.2f}", match.group(0), scores.get("dev-clean","-"), scores.get("dev-other","-"), scores.get("test-clean","-"),
                                scores.get("test-other","-")])
 
         # Save to a CSV file manually

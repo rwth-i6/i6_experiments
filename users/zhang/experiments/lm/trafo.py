@@ -152,7 +152,7 @@ def py():
 
 def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
                  max_seqs: int = 400, bs_feat: int =20_000, n_ep: int = 100, max_seq_length_default_target: bool = False, #default 75
-                 dropout: float = 0.0, att_dropout: float = 0.0, epochs: list[int] = None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+                 dropout: float = 0.0, att_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
 
     # from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     # from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
@@ -210,7 +210,7 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
         # time_rqmt=2,
     )
 
-    exponents = {184: 2.3, 10_025: 1.1} #185-bpe128 10_025-bpe10k
+    exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1, 10_025: 1}#185-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,

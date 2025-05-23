@@ -17,6 +17,7 @@ import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob
 
+WORD_PPL = False # If convert all ppl to word level
 BLSTM_Enc_dim = 1024 # Default 512, in this case leave model_config empty. Otherwise, the hash broken, dont know why
 USE_flashlight_decoder = False
 recog_info = "flashlight_" if USE_flashlight_decoder else "i6_"
@@ -112,22 +113,22 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
     batch_size = None  # Use default
     # TODO: decide if total separate or keep a default setting
     if "ffnn" in lmname:
-        tune_hyperparameters = False
+        tune_hyperparameters = True
         search_mem_rqmt = 12
-        decoding_config["beam_size"] = 60
+        decoding_config["beam_size"] = {"bpe128":500, "bpe10k":150}[vocab]
         tune_config_updates["beam_size"] = 50 if tune_hyperparameters else None
         search_rqmt.update({"time": decoding_config["beam_size"]//3 + 4} if USE_flashlight_decoder else {})
 
-        decoding_config["lm_weight"] = 0.3 #for ffnn128 on conformer, 0.5 was best in range 0.5-1.5
+        decoding_config["lm_weight"] = 0.5 #for ffnn128 on conformer, 0.5 was best in range 0.5-1.5
         tune_config_updates["tune_range"] = [scale/100 for scale in range(-20,21,5)]
 
         decoding_config["prior_weight"] = 0.15 # Seems okay for blstm512 and conformer...?
         tune_config_updates["priro_tune_range"] = [-0.1, -0.05, 0.0, 0.05, 0.1] # TODO: !! this 0 instead 0.0 might cause some typing and hence hash issue
 
-    elif "trafo" in lmname:
+    elif "trafo" in lmname: #TODO No yet available for bpe10k
         tune_hyperparameters = True
         search_mem_rqmt = 12
-        tune_config_updates["beam_size"] = 80 if tune_hyperparameters else None
+        tune_config_updates["beam_size"] = 15 if tune_hyperparameters else None
 
         decoding_config["lm_weight"] = 0.5 # 0.5 was best in 0.8 +- 0.5, tuned with 5 beam / init 0.35
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
@@ -135,14 +136,26 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
         decoding_config["prior_weight"] = 0.15
         tune_config_updates["priro_tune_range"] = [-0.1, -0.05, 0.0, 0.05, 0.1]
 
-        recog_config_updates["beam_size"] = 80 # Actually redundant
+        recog_config_updates["beam_size"] = {"blstm":300, "conformer":80}[encoder] # Actually redundant
         decoding_config["beam_size"] = recog_config_updates["beam_size"]
         search_rqmt.update({"time": decoding_config["beam_size"]*5 + 5} if USE_flashlight_decoder else {})
 
     elif "gram" in lmname and "word" not in lmname:
-        decoding_config["lm_weight"] = 0.2
-        batch_size = 20_000_000 if decoding_config["beam_size"] > 100 else None
-        search_rqmt.update({"gpu_mem": 24 if batch_size else 10, "time":12 if decoding_config["beam_size"] > 100 else 4, "mem": decoding_config["beam_size"]//50 + 6})
+        tune_hyperparameters = False
+        decoding_config["lm_weight"] = 0.5
+        decoding_config["beam_size"] = 600
+
+        tune_config_updates["beam_size"] = 100 if tune_hyperparameters else None
+
+        #decoding_config["lm_weight"] = 1.0
+        tune_config_updates["tune_range"] = [scale / 100 for scale in range(-30, 31, 15)]
+
+        decoding_config["prior_weight"] = 0.15
+        tune_config_updates["priro_tune_range"] = [-0.1, -0.05, 0.0, 0.05, 0.1]
+
+        batch_size = 64_000_000 if decoding_config["beam_size"] >= 300 else None
+        search_rqmt.update({"gpu_mem": 24 if batch_size*decoding_config["beam_size"] > 36_400_000_000 else 10, "time":12 if decoding_config["beam_size"] > 100 else 4, "mem": decoding_config["beam_size"]//100 + 6})
+
         #tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
 
     elif "NoLM" in lmname:
@@ -153,15 +166,21 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
             batch_size = 20_000_000 if decoding_config["beam_size"] < 20 else 60_000_000
             search_rqmt.update({"gpu_mem": 24 if decoding_config["beam_size"] < 20 else 48})
         elif "trafo" in lmname:
-            batch_size = {"blstm": 1_800_000, "conformer": 1_000_000}[encoder] if decoding_config["beam_size"] > 50 \
+            batch_size = {"blstm": 1_800_000, "conformer": 1_500_000}[encoder] if decoding_config["beam_size"] > 50 \
                 else {"blstm": 6_400_000, "conformer": 4_800_000}[encoder]
-            search_rqmt.update({"gpu_mem": 24} if batch_size*decoding_config["beam_size"] <= 150_000_000 else {"gpu_mem": 32})
+            search_rqmt.update({"gpu_mem": 32} if batch_size*decoding_config["beam_size"] <= 80_000_000 else {"gpu_mem": 32})
+            if decoding_config["beam_size"] > 150:
+                batch_size = {"blstm": 1_000_000, "conformer": 800_000}[encoder]
+            if decoding_config["beam_size"] >= 280:
+                batch_size = {"blstm": 800_000, "conformer": 500_000}[encoder]
+    print(f"\n\nlm_name:{lmname}\nbatch_size{batch_size}")
 
     p0 = f"_p{str(decoding_config['prior_weight']).replace('.', '')}" + (
             "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
     p1 = "sum" if decoding_config.get('log_add') else "max"
     p2 = f"n{decoding_config['nbest']}"
     p3 = f"b{decoding_config['beam_size']}t{tune_config_updates['beam_size']}" if tune_config_updates.get('beam_size') else f"b{decoding_config['beam_size']}"
+    p3 = "" if "NoLM" in lmname else p3
     p3_ = f"trsh{decoding_config['beam_threshold']:.0e}".replace("+0", "").replace("+", "") if decoding_config.get('beam_threshold') else "trsh50"
     p3_ = "" if not USE_flashlight_decoder else p3_
     p4 = f"w{str(decoding_config['lm_weight']).replace('.', '')}" if lm else ""
@@ -171,27 +190,28 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
 
     lm_hyperparamters_str = vocab + lm_hyperparamters_str  # Assume only experiment on one ASR model, so the difference of model itself is not reflected here
 
-    alias_name = (f"ctc-baseline_" + recog_info
+    alias_name = (f"ctc-baseline_" + ("flashlight_" if "gram" in lmname else recog_info)
                   + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + (("_decodingWith_" + lm_hyperparamters_str + lmname
-                                               if lm else f"ctc-baseline-" + lm_hyperparamters_str + lmname) if not train else "-"))
+                                               if lm else f"ctc-baseline-" + lm_hyperparamters_str + lmname) if not train else f"{vocab}-"))
     print(f"name{lmname}", "lexicon:" + str(decoding_config["use_lexicon"]))
     ################################
-    model_recog_noLM = model_recog_lm if USE_flashlight_decoder else model_recog
+    from .ctc import recog_nn #, recog_trafo
+    model_recog_noLM = recog_nn if not USE_flashlight_decoder else model_recog
     if USE_flashlight_decoder:
         if "NoLM" in lmname:
             recog_def = model_recog_noLM
         else:
             recog_def = model_recog_flashlight if "ffnn" in lmname or "trafo" in lmname else model_recog_lm
     else:
-        from .ctc import recog_ffnn, recog_trafo
-        if "ffnn" in lmname:
-            recog_def = recog_ffnn
+        if "ffnn" in lmname or "trafo" in lmname:
+            recog_def = recog_nn
         elif "NoLM" in lmname:
             recog_def = model_recog_noLM
-        elif "trafo" in lmname:
-            recog_def = recog_trafo
         else:
-            raise ValueError(f"Generic API for i6 search is to be done for {lmname}")
+            assert "gram" in lmname, ValueError(f"Generic API for i6 search is to be done for {lmname}")
+
+    if "gram" in lmname: # Currently only flashlight impl supports count based gram lm
+        recog_def = model_recog_lm
 
     return *train_exp(
             name=alias_name,
@@ -225,18 +245,21 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
             recog_epoch=recog_epoch, #Ignored for training case
             recog=not train,
             batch_size=batch_size,
-        )[1:], f"{p3}_{p3_}{p4}{p6}", decoding_config["lm_weight"]
+        )[1:], f"{p0}{p3}_{p3_}{p4}{p6}", decoding_config["lm_weight"], decoding_config["prior_weight"]
 
 def py():
     """Sisyphus entry point"""
-    models = {"ctc": ctc_exp, "transducer": None}
-    encoder = "conformer" #blstm conformer
+    """We have bpe128: [ctc blstm, ctc conformer], bpe10k:[ctc conformer]"""
+    available = [("bpe128","ctc","blstm"),("bpe128","ctc","conformer"),("bpe10k","ctc","conformer")]
+    models = {"ctc": ctc_exp, "transducer": None, "AED":None}
+    encoder = "blstm" #blstm conformer
     train = False # Weather train the AM
     lm_types_names = set()
-    for vocab in ["bpe128",
-                  #"bpe10k", # 6.49  # Require much more time on recog even with lexicon
+    for vocab in [#"bpe128",
+                  "bpe10k", # 6.49  # For now only have Conformer CTC
                   ]:
         # from ..datasets.librispeech_lm import get_4gram_binary_lm
+
         from .language_models.n_gram import get_count_based_n_gram # If move to lm dir it somehow breaks the hash...
         lms = dict()
         lms.update({"NoLM": None})
@@ -252,10 +275,10 @@ def py():
             #6,# Slow recog
         ]:
             prune_threshs = [
-                            # 1e-9, 1.3e-8, 6.7e-8,
-                            #  3e-7, 7e-7, 1.7e-6,
-                            #  #5.1e-6, #8.1e-6, #Not word for 6 gram
-                            # 1.1e-5, 1.6e-5, 1.9e-5
+                            1e-9, 1.3e-8, 6.7e-8,
+                             3e-7, 7e-7, 1.7e-6,
+                             #5.1e-6, #8.1e-6, #Not word for 6 gram
+                            #1.1e-5, 1.6e-5, 1.9e-5
                              ]
             prune_threshs.sort()
             exp_names_postfix += str(n_order) + "_"
@@ -324,46 +347,64 @@ def py():
         # /u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.T5Vjltnx1Sp3/output/models/epoch.050
         # /u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.UpknSQ5OLCQV/output/models/epoch.050.pt
         from .lm.ffnn import get_ffnn_lm
-        train_lm = False
-        epochs = [50] if train_lm else [5, 10, 20, 40, 50]
-        lm_configs = {"bpe128":{
+        #train_lm = False
+        epochs = [5, 10, 20, 40, 50] # For default 50 epoch training
+        lm_configs = {
+            "std":{"bpe128":{
                     "context_size": 8, #8,
                     "num_layers": 2,
                     "ff_hidden_dim": 2048,
-                    "dropout": 0.0,
+                    "dropout": 0.1,
                 },
             "bpe10k": {
                 "context_size": 4,  # 15,
                 "num_layers": 3,
                 "ff_hidden_dim": 2048,
-                "dropout": 0.0,
+                "dropout": 0.1,
+                }
+            },
+            "low":{"bpe128":{
+                    "context_size": 5, #8,
+                    "num_layers": 2,
+                    "ff_hidden_dim": 1024,
+                    "dropout": 0.2,
+                },
+            "bpe10k": {
+                "context_size": 2,  # 15,
+                "num_layers": 2,
+                "ff_hidden_dim": 1024,
+                "dropout": 0.2,
+                }
             }
         }
-        without_max_seq_length = True
-        lm_config_ = lm_configs[vocab].copy()
-        lm_config_["class"] = "FeedForwardLm"
-        ctx_size = lm_config_["context_size"]
+
         # f"ffnn{ctx_size}_{epoch}"
         #embed_dim 128, relu dropout=0.0,embed_dropout=0.0
         match = re.search(r"bpe(.+)", vocab)
-
-        # for lm_checkpoint, ppl, epoch in get_ffnn_lm(get_vocab_by_str(vocab), **lm_configs[vocab],epochs=epochs,
-        #                                              without_max_seq_length=without_max_seq_length):#context_size=ctx_size, num_layers=2, ff_hidden_dim=2048)
-        #     ffnnlm_name = f"ffnn{ctx_size}_{epoch}" + "_bpe"+match.group(1)
-        #     ppl_results.update(dict([(ffnnlm_name, ppl)]))
-        #     ffnn_lm = {
-        #                 "preload_from_files": {
-        #                 "recog_lm": {
-        #                     "prefix": "recog_language_model.",
-        #                     "filename": lm_checkpoint.checkpoint,#"/u/marten.mueller/dev/ctc_baseline/work/i6_core/returnn/training/ReturnnTrainingJob.1QR8IB9ySxBq/output/models/epoch.050.pt",#,
-        #                     },
-        #                 },
-        #                 "recog_language_model":lm_config_
-        #             }
-        #     lms.update({ffnnlm_name: ffnn_lm})
-        #     lm_types_names.add("ffnn")
+        train_subsets = {"low": {"bpe128":30, "bpe10k":30}[vocab], "std": {"bpe128":80, "bpe10k":80}[vocab]} # for bpe128 75 already gives similar ppl as None
+        model_capas = ["low", "std"]  # ?
+        for model_capa in model_capas:
+            for lm_checkpoint, ppl, epoch in get_ffnn_lm(get_vocab_by_str(vocab), **lm_configs[model_capa][vocab],
+                                                         epochs=epochs, train_subset=train_subsets[model_capa]):#context_size=ctx_size, num_layers=2, ff_hidden_dim=2048)
+                lm_config_ = lm_configs[model_capa][vocab].copy()
+                lm_config_["class"] = "FeedForwardLm"
+                ctx_size = lm_config_["context_size"]
+                ffnnlm_name = f"ffnn{ctx_size}_{epoch}" + model_capa + "_bpe"+match.group(1)
+                ppl_results.update(dict([(ffnnlm_name, ppl)]))
+                ffnn_lm = {
+                            "preload_from_files": {
+                            "recog_lm": {
+                                "prefix": "recog_language_model.",
+                                "filename": lm_checkpoint.checkpoint,#"/u/marten.mueller/dev/ctc_baseline/work/i6_core/returnn/training/ReturnnTrainingJob.1QR8IB9ySxBq/output/models/epoch.050.pt",#,
+                                },
+                            },
+                            "recog_language_model":lm_config_
+                        }
+                lms.update({ffnnlm_name: ffnn_lm})
+                lm_types_names.add("ffnn")
 
         #---------------Hot fix-------------------
+        # TODO: The hash of search error job need updated for new __call__
         from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDef, ModelDef
         from i6_experiments.users.zhang.experiments.lm.ffnn import lm_model_def, FeedForwardLm
         from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl_single_epoch
@@ -386,89 +427,94 @@ def py():
                 }
             )
             train_prefix_name = f"ffnn-n2-ctx8-embd128-d2048-bpe128-drop0.0-relu"
-            exponents = {"bpe128": 2.3, "bpe10k": 1.1}
+            exponents = {"bpe128": 2.3, "bpe10k": 1.1} if WORD_PPL else {"bpe128": 1, "bpe10k": 1}
 
-            for epoch in epochs: #tGrljRnl8K5T off limits; UpknSQ5OLCQV the one working
-                model_path = f"/u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.UpknSQ5OLCQV/output/models/epoch.{epoch:03}.pt"
-                model_ckpt = ModelWithCheckpoint(model_def, PtCheckpoint(tk.Path(model_path))).checkpoint
-                ffnnlm_name = f"ffnn{ctx_size}_{epoch}" + "_bpe"+match.group(1)
-                ppl = compute_ppl_single_epoch(prefix_name=train_prefix_name,model_with_checkpoint=model_ckpt,epoch=epoch,model_def=model_def,dataset=lm_dataset,
-                                               dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],exponent=exponents[vocab])
-                ppl_results.update(dict([(ffnnlm_name, ppl)]))
-                ffnn_lm = {
-                            "preload_from_files": {
-                            "recog_lm": {
-                                "prefix": "recog_language_model.",
-                                "filename": model_path,#"/u/marten.mueller/dev/ctc_baseline/work/i6_core/returnn/training/ReturnnTrainingJob.1QR8IB9ySxBq/output/models/epoch.050.pt",#,
-                                },
-                            },
-                            "recog_language_model":lm_config_
-                        }
-                lms.update({ffnnlm_name: ffnn_lm})
-                lm_types_names.add("ffnn")
-
-        exp_names_postfix += f"_nn_{str(len(epochs))}epochs_" if len(epochs) > 0 else ""
+            train_subsets = [None, 30] #?
+            train_subset = None
+        #     for epoch in epochs: #tGrljRnl8K5T off limits; UpknSQ5OLCQV the one working
+        #         model_path = f"/u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.UpknSQ5OLCQV/output/models/epoch.{epoch:03}.pt"
+        #         model_ckpt = ModelWithCheckpoint(model_def, PtCheckpoint(tk.Path(model_path))).checkpoint
+        #         ffnnlm_name = ("low" if train_subset else "") + f"ffnn{ctx_size}_{epoch}" + "_bpe"+match.group(1)
+        #         ppl = compute_ppl_single_epoch(prefix_name=train_prefix_name,model_with_checkpoint=model_ckpt,epoch=epoch,model_def=model_def,dataset=lm_dataset,
+        #                                        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],exponent=exponents[vocab])
+        #         ppl_results.update(dict([(ffnnlm_name, ppl)]))
+        #         ffnn_lm = {
+        #                     "preload_from_files": {
+        #                     "recog_lm": {
+        #                         "prefix": "recog_language_model.",
+        #                         "filename": model_path,#"/u/marten.mueller/dev/ctc_baseline/work/i6_core/returnn/training/ReturnnTrainingJob.1QR8IB9ySxBq/output/models/epoch.050.pt",#,
+        #                         },
+        #                     },
+        #                     "recog_language_model":lm_config_
+        #                 }
+        #         lms.update({ffnnlm_name: ffnn_lm})
+        #         lm_types_names.add("ffnn")
+        #
+        # exp_names_postfix += f"_ffnn_{str(len(epochs))}epochs_" if len(epochs) > 0 else ""
         #-------------------------------------
 
         '''--------------Add trafo LMs-------------------'''
         """!!!Note: With small max_seq_length_default_target, e.g default 75
         , the trafo lm(its ppl) is only evaluated on short sequences but compute_ppl is on full sequence"""
-        from .lm.trafo import get_trafo_lm
-        epochs = [100] # 10. 20. 40 80 100 /  5 10 20 40 50
-        trafo_lm_configs = {"bpe128":{
-                    "num_layers": 12, #24 12
-                    "model_dim": 512, #1024 512
-                    "dropout": 0.0,
-                },
-            "bpe10k": {
-                "num_layers": None,
-                "model_dim": None,
-                "dropout": None,
+        if vocab in ["bpe128"]: # Only have bpe128 now
+            from .lm.trafo import get_trafo_lm
+            epochs = [100] # 10. 20. 40 80 100 /  5 10 20 40 50
+            trafo_lm_configs = {"bpe128":{
+                        "num_layers": 12, #24 12
+                        "model_dim": 512, #1024 512
+                        "dropout": 0.0,
+                    },
+                "bpe10k": {
+                    "num_layers": None,
+                    "model_dim": None,
+                    "dropout": None,
+                }
             }
-        }
-        trafo_lm_config_ = trafo_lm_configs[vocab].copy()
-        trafo_lm_config_["class"] = "TransformerLm"
+            trafo_lm_config_ = trafo_lm_configs[vocab].copy()
+            trafo_lm_config_["class"] = "TransformerLm"
 
-        match = re.search(r"bpe(.+)", vocab)
+            match = re.search(r"bpe(.+)", vocab)
 
-        from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
-        from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
-        bpe = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=10_000 if vocab == "bpe10k" else int(match.group(1)))
-        bpe = Bpe(dim=184, codes=bpe.bpe_codes, vocab=bpe.bpe_vocab, eos_idx=0, bos_idx=0,
-                     unknown_label="<unk>")
+            from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
+            from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+            bpe = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=10_000 if vocab == "bpe10k" else int(match.group(1)))
+            bpe = Bpe(dim=184, codes=bpe.bpe_codes, vocab=bpe.bpe_vocab, eos_idx=0, bos_idx=0,
+                         unknown_label="<unk>")
 
 
-        get_lm_config = trafo_lm_configs[vocab].copy()
-        # Test newly trained trafo lm
-        get_lm_config.update({
-            "n_ep": 50, "bs_feat": 10_000,
-            "num_layers": 12, "model_dim": 512,
-            "max_seqs": 200, "max_seq_length_default_target": True})
-        trafo_lm_config_.update({"num_layers": 12, "model_dim": 512})
-        epochs = [20, 50]
-        #--------------------------------
-
-        # for lm_checkpoint, ppl, epoch in get_trafo_lm(bpe, **get_lm_config,epochs=epochs):
-        #     trafo_lm_name = f"trafo_{epoch}" + "_bpe"+match.group(1)
-        #     ppl_results.update(dict([(trafo_lm_name, ppl)]))
-        #     trafo_lm = {
-        #                 "preload_from_files": {
-        #                 "recog_lm": {
-        #                     "prefix": "recog_language_model.",
-        #                     "filename": lm_checkpoint.checkpoint,
-        #                     },
-        #                 },
-        #                 "recog_language_model":trafo_lm_config_
-        #             }
-        #     lms.update({trafo_lm_name: trafo_lm})
-        #     lm_types_names.add("trafo")
-        # exp_names_postfix += f"trafo_{str(len(epochs))}epochs_" if len(epochs) > 0 else ""
+            get_lm_config = trafo_lm_configs[vocab].copy()
+            # Test newly trained trafo lm
+            get_lm_config.update({
+                "n_ep": 50, "bs_feat": 10_000,
+                "num_layers": 12, "model_dim": 512,
+                "max_seqs": 200, "max_seq_length_default_target": True})
+            trafo_lm_config_.update({"num_layers": 12, "model_dim": 512})
+            epochs = [20, 50]
+            #--------------------------------
+            #
+            for lm_checkpoint, ppl, epoch in get_trafo_lm(bpe, **get_lm_config,epochs=epochs):
+                trafo_lm_name = f"trafo_{epoch}" + "_bpe"+match.group(1)
+                ppl_results.update(dict([(trafo_lm_name, ppl)]))
+                trafo_lm = {
+                            "preload_from_files": {
+                            "recog_lm": {
+                                "prefix": "recog_language_model.",
+                                "filename": lm_checkpoint.checkpoint,
+                                },
+                            },
+                            "recog_language_model":trafo_lm_config_
+                        }
+                lms.update({trafo_lm_name: trafo_lm})
+                lm_types_names.add("trafo")
+            exp_names_postfix += f"trafo_{str(len(epochs))}epochs_" if len(epochs) > 0 else ""
         '''----------------------------------------------'''
 
         # Try to use the out of downstream job which has existing logged output. Instead of just Forward job, which seems cleaned up each time
         for model, exp in models.items():
             if not exp:
                 continue
+            if (vocab, model, encoder) not in available:
+                train = True
             wer_ppl_results = dict()
             #----------Test--------------------
             #lms = ({"NoLM": None})
@@ -486,17 +532,18 @@ def py():
             # ffnnlm_name = "ffnn8_50" + "_bpe128"
             # lms = {ffnnlm_name: ffnn_lm}
             #------------------------------
-
+            if train:
+                lms = ({"NoLM": None})
             lm_hyperparamters_strs = dict()
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
-                wer_result_path, search_error, lm_tune, lm_hyperparamters_str, dafault_lm_scale = exp(name, lm, vocab,
+                wer_result_path, search_error, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(name, lm, vocab,
                                                                                      encoder=encoder, train=train)
                 for lm_type in lm_types_names:
                     if lm_type in name:
                         lm_hyperparamters_strs[lm_type] = " " if not lm_hyperparamters_str else lm_hyperparamters_str
                 if lm:
-                    wer_ppl_results[name] = (ppl_results.get(name), wer_result_path, search_error, lm_tune, dafault_lm_scale)
+                    wer_ppl_results[name] = (ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale, dafault_prior_scale)
 
             lms_info = "_".join([k+v for k,v in lm_hyperparamters_strs.items()])
             # TODO: lm_hyperparamters_str is not unique across lms, but unique for same type(n-gram ffnn trafo)
@@ -505,9 +552,11 @@ def py():
                 results = [(x[0],x[1]) for x in res]
                 search_errors = [x[2] for x in res]
                 lm_tunes = [x[3] for x in res]
-                dafault_lm_scales = [x[4] for x in res]
-                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, search_errors, dafault_lm_scales)
-                tk.register_output("wer_ppl/" + model + "_" + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + recog_info + lms_info + exp_names_postfix + "/summary", summaryjob.out_summary)
-                tk.register_output("wer_ppl/" + model + "_" + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + recog_info + lms_info + exp_names_postfix + "/dev_other.png", summaryjob.out_plot1)
-                tk.register_output("wer_ppl/" + model + "_" + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + recog_info + lms_info + exp_names_postfix + "/test_other.png",
+                prior_tunes = [x[4] for x in res]
+                dafault_lm_scales = [x[5] for x in res]
+                dafault_prior_scales = [x[6] for x in res]
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors, dafault_lm_scales, dafault_prior_scales)
+                tk.register_output("wer_ppl/" + model + "_" + vocab + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + recog_info + lms_info + exp_names_postfix + "/summary", summaryjob.out_summary)
+                tk.register_output("wer_ppl/" + model + "_" + vocab + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + recog_info + lms_info + exp_names_postfix + "/dev_other.png", summaryjob.out_plot1)
+                tk.register_output("wer_ppl/" + model + "_" + vocab + encoder + (f"{BLSTM_Enc_dim}" if encoder =="blstm" else "") + recog_info + lms_info + exp_names_postfix + "/test_other.png",
                                    summaryjob.out_plot2)

@@ -82,14 +82,18 @@ def py():
     )
 
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
-                embed_dropout: float = 0.0, epochs: list[int] = None, without_max_seq_length: bool = True)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+                embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
     lm_dataset = LibrispeechLmDataset(vocab=vocab) #get_librispeech_lm_dataset(vocab=vocab)
+    if train_subset is None:
+        without_max_seq_length = True
+    else:
+        without_max_seq_length = False
 
     #dropout = 0 # not same as 0.0! Will break the hash, so be Careful!
     vocab_name = {184: "bpe128", 10_025: "bpe10k"}.get(vocab.dim, "bpe128")
-    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-{vocab_name}-drop{dropout}-relu" + ("_off_limits" if without_max_seq_length else "")
+    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-{vocab_name}-drop{dropout}-relu" + f"_sub{train_subset}" if train_subset else "_off_Limits"
     conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
     conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
     deep_updates = {
@@ -97,10 +101,13 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
                 #"max_seq_length": {},
                 "torch_distributed": None,
                 "use_horovod": False,
-                "version": 3,  # 2: with get_librispeech_lm_dataset
+                "version": 4,  # 2: with get_librispeech_lm_dataset #3: Unstable
             }
     if without_max_seq_length:
         deep_updates.update({"max_seq_length_default_target": None})
+    else:
+        deep_updates.update({"max_seq_length_default_target": train_subset})
+
     model_with_checkpoints = train(
         f"lm/{train_prefix_name}",
         config=dict_update_deep(
@@ -152,7 +159,7 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     #     train_def=lm_train_def,
     # )
 
-    exponents = {184: 2.3, 10_025: 1.1} #184-bpe128 10_025-bpe10k
+    exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1.0, 10_025: 1.0}#184-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
@@ -325,29 +332,55 @@ class FeedForwardLm(rf.Module):
         state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), state)
         return state
 
+    
+
     def __call__(
         self,
-        input: rf.Tensor,
+        input: rf.Tensor,                        # int tokens, shape [B, T]
         spatial_dim: Optional[Dim] = None,
         out_spatial_dim: Optional[Dim] = None,
         state: Optional[rf.State] = None,
     ) -> Tuple[rf.Tensor, rf.State]:
-        embed_out = self.embedding(rf.cast(input, "int64"))
+        # 1) pad the *token IDs* with BOS up front
+        #    (so the pad vector is a constant int, not the learned embedding)
+        ids_padded, (padded_spatial_dim,) = rf.pad(
+            input,
+            axes=[spatial_dim],
+            padding=[(self.conv_filter_size_dim, 0)],
+            value=self.vocab_dim.vocab.bos_label_id,  # int scalar
+        )
+
+        # 2) embed the padded IDs
+        embed_out = self.embedding(rf.cast(ids_padded, "int64"))
         embed_out = rf.dropout(
             embed_out,
             drop_prob=self.embed_dropout,
             axis=embed_out.feature_dim,
         )
 
-        conv_inp, (conv_inp_spatial_dim,) = rf.pad(
+        # ---------Secure measure to prevent the use of bos embedding-----------
+        # ---------Dont use if already trained with such embedding------------
+        # # import pdb;pdb.set_trace()
+        # pad_id = self.vocab_dim.vocab.bos_label_id
+        #
+        # # 1) build a boolean mask: True for real tokens, False for padding
+        # real_mask = rf.not_equal(input, pad_id)  # shape [B, T], dtype=bool
+        #
+        # # 2) cast to float and expand to cover the embedding dim
+        # real_mask_f = rf.cast(real_mask, embed_out.dtype)  # [B, T]
+        # real_mask_f = rf.expand_dim(real_mask_f, dim=embed_out.feature_dim)  # [B, T, 1]
+        #
+        # # 3) zero out any embedding where mask is False
+        # embed_out = embed_out * real_mask_f  # [B, T, E]
+        # ------------------------
+
+        # 3) now run the conv & FF layers as before,
+        #    using padded_spatial_dim for the convolution input
+        conv_out, _ = self.conv(
             embed_out,
-            axes=[spatial_dim],
-            padding=[(self.conv_filter_size_dim, 0)],
-            value=self.vocab_dim.vocab.bos_label_id,
+            in_spatial_dim=padded_spatial_dim,
+            out_spatial_dim=out_spatial_dim,
         )
-
-        conv_out, _ = self.conv(conv_inp, in_spatial_dim=conv_inp_spatial_dim, out_spatial_dim=out_spatial_dim)
-
         ff_out = self.activation_func(conv_out)
         ff_out = rf.dropout(ff_out, drop_prob=self.dropout)
 
@@ -357,9 +390,7 @@ class FeedForwardLm(rf.Module):
             ff_out = rf.dropout(ff_out, drop_prob=self.dropout)
 
         out = self.out_linear(ff_out)
-
         return out, state
-
 
 def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:
     from returnn.config import get_global_config
