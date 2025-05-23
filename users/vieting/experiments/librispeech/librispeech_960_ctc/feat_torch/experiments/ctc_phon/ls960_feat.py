@@ -1070,12 +1070,15 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx2v6", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx2v7", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx2v8", "stft_v47", 80, 256, 160, False, None, None),
+        ("2Dx6v1", "stft_v47", 8, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 16, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 32, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 64, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 256, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 512, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 128, 32, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 32, 32, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
