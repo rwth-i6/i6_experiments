@@ -1070,6 +1070,8 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx2v6", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx2v7", "stft_v47", 80, 256, 160, False, None, None),
         ("2Dx2v8", "stft_v47", 80, 256, 160, False, None, None),
+        ("2Dx6v1", "stft_v47", 2, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v47", 4, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 8, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 16, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 32, 256, 10, False, None, None),
