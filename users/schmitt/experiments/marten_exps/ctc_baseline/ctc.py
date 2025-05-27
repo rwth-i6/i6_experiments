@@ -175,6 +175,13 @@ def py():
 
   use_w2v_model = False
 
+  from i6_experiments.users.zeyer.external_models.huggingface import DownloadHuggingFaceRepoJob
+
+  dl_hubert_large_60k = DownloadHuggingFaceRepoJob(
+    model_id="facebook/hubert-large-ll60k",
+  )
+  tk.register_output("hubert_repos", dl_hubert_large_60k.out_hub_cache_dir)
+
   marten_baseline_config = {
     "aux_loss": True,
     "model_config": {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
@@ -272,13 +279,13 @@ def py():
     wav2vec_config_v3,
     wav2vec_config_v4,
     dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "enc_logits_n_layers": 2,
       }
     ),
     dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "enc_logits_n_layers": 2,
         "freeze_encoder_first_n_steps": 10_000,
@@ -286,14 +293,14 @@ def py():
     ),
     # wav2vec-large lv60 config ###########################
     dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "w2v_config": "large-lv60",
       }
     ),
     *[dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "w2v_config": "large-lv60",
@@ -302,7 +309,7 @@ def py():
     ) for n_epochs in (20, 30)],
     # test sup. char CTC performance on different number of layers when also training Transformer encoder
     *[dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "w2v_config": "large-lv60",
@@ -313,7 +320,7 @@ def py():
     ) for n in range(15, 25)],
     # test sup. char and bpe128 CTC performance on different number of layers when not training Transformer encoder
     *[dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "w2v_config": "large-lv60",
@@ -325,7 +332,33 @@ def py():
       }
     ) for n in range(15, 25) for vocab_ in ["bpe128", "char"]],
     *[dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "num_enc_layers": 10,
+        "vocab": "bpe128",
+        "train_epoch_wise_filter": None,
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "epochs": n_epochs,
+        # just set very large so that encoder remains frozen for whole training
+      }
+    ) for n_epochs in (30, 60)],
+    *[dict_update_deep(
+      copy.deepcopy(wav2vec_config_v4),
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "num_enc_layers": n,
+        "vocab": vocab_,
+        "num_gpus": 1,
+        "train_epoch_wise_filter": None,
+        "freeze_encoder_first_n_steps": 1_000_000,
+        # just set very large so that encoder remains frozen for whole training
+      }
+    ) for n in range(2, 15) for vocab_ in ["bpe128"]],
+    *[dict_update_deep(
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "w2v_config": "large-lv60",
@@ -335,7 +368,7 @@ def py():
     ) for bs_feat_ in [8_000, 20_000]],
     # wav2vec-large config -> 100% WER in all cases ###########################
     *[dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "bs_feat": 8_000,
@@ -344,7 +377,7 @@ def py():
       }
     ) for peak_lr in [2e-5, 3e-5]],
     dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
         "bs_feat": 8_000,
@@ -354,7 +387,7 @@ def py():
       }
     ),
     dict_update_deep(
-      wav2vec_config_v4,
+      copy.deepcopy(wav2vec_config_v4),
       {
         "w2v_model": "large_60kh",
       }

@@ -367,6 +367,14 @@ class Wav2VecModel(rf.Module):
     #   "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.L6t5ebVFPeDZ/work/wav2vec_config")
     # self.processor =transformers. Wav2Vec2Processor(preprocessor_config, tokenizer_config)
 
+    if w2v_opts.get("test_hubert", False):
+      from transformers.models.hubert.modeling_hubert import HubertModel
+      model = HubertModel.from_pretrained(
+        "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_experiments/users/zeyer/external_models/huggingface/DownloadHuggingFaceRepoJob.iXdxty4J966Q/output/hub_cache/models--facebook--hubert-large-ll60k/snapshots/ff022d095678a2995f3c49bab18a96a9e553f782"
+      )
+      print(model)
+      exit()
+
     self.wav2vec2 = transformers.Wav2Vec2Model(wav2vec_config)
     self.wav2vec2.freeze_feature_encoder()
 
@@ -408,85 +416,6 @@ class Wav2VecModel(rf.Module):
       self.enc_logits = rf.Sequential(enc_logits)
     else:
       self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
-
-    if target_dim.vocab and not wb_target_dim.vocab:
-      # Just assumption for code now, might extend this later.
-      assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
-      vocab_labels = list(target_dim.vocab.labels) + [OUT_BLANK_LABEL]
-      wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
-        vocab_labels, user_defined_symbols={OUT_BLANK_LABEL: blank_idx}
-      )
-
-    ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
-    ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", False)
-    self.ctc_label_smoothing_exclude_blank = ctc_label_smoothing_exclude_blank
-
-    self.ctc_label_smoothing_opts = {
-      "smoothing": ctc_label_smoothing,
-      "axis": self.wb_target_dim,
-      "exclude_labels": [self.blank_idx] if ctc_label_smoothing_exclude_blank else None,
-    }
-
-    self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
-    self.log_prob_normed_grad_exclude_blank = config.bool(
-      "log_prob_normed_grad_exclude_blank", False
-    )
-
-    self.feature_batch_norm = None
-    self.feature_norm = config.bool("feature_norm", False)
-    self.feature_stats = None
-
-    self._specaugment_opts = {
-      "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
-      "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
-      "max_consecutive_feature_dims": config.typed_value("specaugment_max_consecutive_feature_dims")
-                                      or (_log_mel_feature_dim // 5),
-      "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
-    }
-
-    self._mixup = None
-
-    self.decoder = None
-    aux_attention_decoder = config.typed_value("aux_attention_decoder", None)
-    if aux_attention_decoder:
-      assert isinstance(aux_attention_decoder, dict)
-      aux_attention_decoder = aux_attention_decoder.copy()
-      aux_attention_decoder.setdefault("class", "returnn.frontend.decoder.transformer.TransformerDecoder")
-      if isinstance(aux_attention_decoder.get("model_dim", None), int):
-        aux_attention_decoder["model_dim"] = Dim(aux_attention_decoder["model_dim"], name="dec_model")
-      self.decoder = rf.build_from_dict(aux_attention_decoder, encoder_dim=self.enc_out_dim, vocab_dim=target_dim)
-
-    vn = config.typed_value("variational_noise", None)
-    if vn:
-      # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
-      # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
-      blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
-      blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
-      for mod in self.modules():
-        if isinstance(mod, blacklist):
-          continue
-        for param_name, param in mod.named_parameters(recurse=False):
-          if param_name.endswith("bias"):  # no bias
-            continue
-          if param.auxiliary:
-            continue
-          rf.weight_noise(mod, param_name, std=vn)
-
-    weight_dropout = config.typed_value("weight_dropout", None)
-    if weight_dropout:
-      # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
-      # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
-      blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
-      blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
-      for mod in self.modules():
-        if isinstance(mod, blacklist):
-          continue
-        for param_name, param in mod.named_parameters(recurse=False):
-          if param_name.endswith("bias"):  # no bias
-            continue
-          if param.auxiliary:
-            continue
-          rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)
 
     self.train_language_model = train_language_model
     self.recog_language_model = recog_language_model
