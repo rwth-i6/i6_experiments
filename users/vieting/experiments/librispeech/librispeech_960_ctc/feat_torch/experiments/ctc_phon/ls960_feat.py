@@ -715,6 +715,62 @@ def eow_phon_ls960_relposencoder_0924_base():
             poolings=[None] * 10,
             out_features=512,
         ),
+        "2Dx6v12": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[
+                (32, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 2)),
+            ],
+            activations=["ReLU"] * 6,
+            poolings=[None] * 6,
+            out_features=512,
+        ),
+        "2Dx6v13": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[
+                (32, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 2)),
+            ],
+            activations=["ReLU"] * 6,
+            poolings=[None] * 6,
+            out_features=512,
+        ),
+        "2Dx6v14": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[
+                (32, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 1)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+            ],
+            activations=["ReLU"] * 6,
+            poolings=[None] * 6,
+            out_features=512,
+        ),
+        "2Dx6v15": VGGNLayerActFrontendV1Config(
+            in_features=400 // 2 + 1,
+            convs=[
+                (32, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+                (64, (3, 3), (2, 2)),
+            ],
+            activations=["ReLU"] * 6,
+            poolings=[None] * 6,
+            out_features=512,
+        ),
         "2Dx7v1": VGGNLayerActFrontendV1Config(
             in_features=400 // 2 + 1,
             convs=[(32, (3, 3), (2, 1))] + [(64, (3, 3), (2, 1))] * 5 + [(32, (3, 3), (2, 1))],
@@ -1081,6 +1137,10 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx6v1", "stft_v47", 512, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 128, 32, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 32, 32, 10, False, None, None),
+        ("2Dx6v12", "stft_v47", 128, 256, 10, False, None, None),
+        ("2Dx6v13", "stft_v47", 128, 256, 10, False, None, None),
+        ("2Dx6v14", "stft_v47", 128, 256, 10, False, None, None),
+        ("2Dx6v15", "stft_v47", 128, 256, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
