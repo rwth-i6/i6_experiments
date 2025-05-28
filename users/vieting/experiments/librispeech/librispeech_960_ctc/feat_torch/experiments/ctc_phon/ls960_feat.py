@@ -1027,10 +1027,11 @@ def eow_phon_ls960_relposencoder_0924_base():
                 prior_batch_size=140, train_data_custom=train_data_nonorm,
             )
         else:
+            batch_size_search = {".stftsa.2Dx2v1": 250, ".stftsav47.2Dx7v1": 80}.get(exp_name, 120)
             run_with_standard_settings(
                 network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
                 model_cfg=model_config, name_ext=name_ext, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
-                forward_config={"batch_size": (16000 * 250 if exp_name == ".stftsa.2Dx2v1" else 16000 * 120)},
+                forward_config={"batch_size": 16000 * batch_size_search},
                 prior_batch_size=100 if "stftsav47.2Dx6v1" in exp_name else 140,
             )
 
