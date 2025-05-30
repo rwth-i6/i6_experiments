@@ -281,48 +281,6 @@ def train_exp(
             stats_job.add_alias(ted2_prefix + "/ilm_stats_v2" + f"/{dataset_key}/{epoch}")
             tk.register_output(ted2_prefix + f"/ilm_stats_v2/{dataset_key}/{epoch}/{compute_kldiv.default_out_file_name}" , out_stat_file)
 
-    # --------------- LibriSpeech recognitions with frame-level prior -----------------
-    from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
-    beam_sizes = [32] 
-    length_norm_scales = [0.0] # never use 1.0!
-    lm_scales = [1.0]
-    ilm_scales = [0.4, 0.5]
-    prior_scales = [0.3]
-    for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
-        if ilm_scale >= lm_scale:
-            continue
-        config_weight = config.get("kldiv_sampling_weight", None)
-        if config_weight is None and (lm_scale, ilm_scale, prior_scale) != (1.0, 0.5, 0.3):
-            continue
-        elif config_weight == 0.5 and (lm_scale, ilm_scale, prior_scale) != (1.0, 0.4, 0.3):
-            continue
-        search_args = {
-            "beam_size": beam_size,
-            "lm_scale": lm_scale,
-            "ilm_scale": ilm_scale,
-            "length_norm_scale": length_norm_scale, # by default len norm
-            "prior_scale": prior_scale,
-            # this is the correct prior
-            "prior_file": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.Wug49TgveO2b/output/prior.txt",
-            "ctc_log_prior": False,
-        }
-        recog_config_update_extra = copy.deepcopy(recog_config_update)
-        recog_config_update_extra.update({
-            "search_args": search_args,
-            "batch_size": 600000,
-        })
-        recog_training_exp(
-            prefix + f"_timeSyncRecombFirstV2_correctprior_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
-            task,
-            model_with_checkpoint,
-            search_config=recog_config_update_extra,
-            recog_def=model_recog_time_sync_recomb_first_v2,
-            model_avg=False,
-            exclude_epochs=[60, 80, 100],
-            train_exp_name=name,
-            dev_sets=["dev-other", "test-other", "dev-clean", "test-clean"],
-        )
-
     # --------------- LibriSpeech recognitions without frame level priors -----------------
     from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
     beam_sizes = [32]
@@ -332,6 +290,13 @@ def train_exp(
     prior_scales = [0.0]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
         if ilm_scale >= lm_scale:
+            continue
+        config_weight = config.get("kldiv_sampling_weight", None)
+        if config_weight is None and (lm_scale, ilm_scale, prior_scale) != (0.9, 0.4):
+            exclude_epochs = [40, 60, 80, 100]
+            continue
+        elif config_weight == 0.5 and (lm_scale, ilm_scale, prior_scale) != (0.9, 0.5):
+            exclude_epochs = [40, 60, 80, 100]
             continue
         search_args = {
             "beam_size": beam_size,
@@ -354,7 +319,7 @@ def train_exp(
             search_config=recog_config_update_extra,
             recog_def=model_recog_time_sync_recomb_first_v2,
             model_avg=False,
-            exclude_epochs=[60, 80, 100],
+            exclude_epochs=exclude_epochs,
             train_exp_name=name,
             dev_sets=["dev-other", "test-other", "dev-clean", "test-clean"],
         )

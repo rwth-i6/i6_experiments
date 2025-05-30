@@ -299,7 +299,7 @@ def train_exp(
             "ctc_log_prior": False,
         })
         exp_name = f"/{ilm_arch}"
-        suffix = f"_timeSyncRecombFirstV2_mergecontraction_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}"
+        suffix = f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}"
         recog_name = ted2_prefix + suffix
         recog_config_update_extra = copy.deepcopy(recog_config_update)
         recog_config_update_extra.update({
@@ -326,7 +326,6 @@ def train_exp(
             dev_sets=["dev", "test"],
             name=recog_name,
             epoch=epoch,
-            merge_contraction=True,
         )
         tk.register_output(ted2_sis_prefix + exp_name + suffix + f"/recog_results_per_epoch/{epoch}", res.output)
 
