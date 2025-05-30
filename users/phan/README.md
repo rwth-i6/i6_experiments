@@ -1,6 +1,8 @@
 # Experiments on the ILM of CTC
 
-This `users` folder is dedicated to experiments on the ILM of the CTC model for the Master's thesis "Investigating the Internal Language Model Estimation and Suppression Including the Encoder for Automatic Speech Recognition". Some results in this thesis are also published in the paper "Label-Context-Dependent Internal Language Model Estimation for CTC" at INTERSPEECH 2025. The experiments are implemented using RETURNN-Frontend (RF) with Torch backend and are run via the Sisyphus workflow manager.
+This `users` folder is dedicated to experiments on the ILM of the CTC model for the Master's thesis "Investigating the Internal Language Model Estimation and Suppression Including the Encoder for Automatic Speech Recognition".
+
+Some results in this thesis are also published in the paper "Label-Context-Dependent Internal Language Model Estimation for CTC" at INTERSPEECH 2025. The experiments are implemented using RETURNN-Frontend (RF) with Torch backend and are run via the Sisyphus workflow manager. For reproducing the results in the paper, please navigate to the folder `configs/interspeech2025`.
 
 Notes: The "smoothing" method in the paper was initially referred to as "sampling". This can be commonly found in older code namings. Newer codes refer to this method correctly as "smoothing".
 
@@ -28,7 +30,7 @@ An overview of the important modules:
 - `prior/` contains RETURNN forward callback and configs for computing the frame-level prior.
 - `recog/` contains several search implementation. `ctc_time_sync_recomb_first_v2.py` is used in the final results in the thesis and the paper. Others are for earlier experiments and debugging.
 - `rescoring/` contains recognition functions for a two-pass rescoring approach.
-- `rf_models/` contains model and train step definitions in the RF framework.
+- `rf_models/` contains model and train step definitions in the RF framework. The acoustic model definition and ILM train steps are all defined in `model_conformer_with_ilm_v2.py`.
 - `utils/` contains some common utility functions about tensor ops, sequence mask and padding, masking alignment, and computing losses for bidirectional ILM.
 - `ctc_ilm_sequence_level_loss.py` implements sequence-level KD training criterion for ILM estimation.
 - `ctc_lf_mmi.py` implements the lattice-free MMI training criterion for ILM suppression.

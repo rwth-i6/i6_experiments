@@ -201,7 +201,7 @@ def rescoring_bi_ilm_forward(*, model, extern_data: TensorDict, **_kwargs_unused
             raw_ilm_score = -(ce*seq_mask).sum(-1)
 
         elif mlm_metric == "pseudoPpl":
-            raw_ilm_score = compute_log_pseudo_ppl_loop_s_rf_models(
+            raw_ilm_score = -compute_log_pseudo_ppl_loop_s_rf_models(
                 model.ilm,
                 hyps_merge_batch_beam,
                 targets_spatial_dim=spatial_dim_flatten,
@@ -210,7 +210,7 @@ def rescoring_bi_ilm_forward(*, model, extern_data: TensorDict, **_kwargs_unused
                 )
         elif mlm_metric == "pseudoPplL2R":
             from i6_experiments.users.phan.utils.pseudo_ppl import compute_log_pseudo_ppl_variants_loop_s_rf_models
-            out_ce, out_seq_mask = compute_log_pseudo_ppl_variants_loop_s_rf_models(
+            out_ce, out_seq_mask = -compute_log_pseudo_ppl_variants_loop_s_rf_models(
                 model.ilm,
                 hyps_merge_batch_beam,
                 targets_spatial_dim=spatial_dim_flatten,
