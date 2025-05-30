@@ -1,4 +1,7 @@
-"""Copied from Albert Zeyer 25.03.2024, then modified
+"""
+Train a bigram on the transcription of LBS
+This was for LF-MMI and before the more generic FFNN LM with
+abitrary context-length was implemented
 """
 
 from __future__ import annotations

@@ -480,6 +480,8 @@ class Model(rf.Module):
 
 def _get_bos_idx(target_dim: Dim) -> int:
     """for non-blank labels"""
+    if target_dim.vocab is None:
+        return 0
     assert target_dim.vocab
     if target_dim.vocab.bos_label_id is not None:
         bos_idx = target_dim.vocab.bos_label_id
@@ -494,6 +496,8 @@ def _get_bos_idx(target_dim: Dim) -> int:
 
 def _get_eos_idx(target_dim: Dim) -> int:
     """for non-blank labels"""
+    if target_dim.vocab is None:
+        return 0
     assert target_dim.vocab
     if target_dim.vocab.eos_label_id is not None:
         eos_idx = target_dim.vocab.eos_label_id

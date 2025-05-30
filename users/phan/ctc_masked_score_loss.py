@@ -45,7 +45,7 @@ def ctc_bi_ilm_kldiv_loss(
     loss = kldiv * masks_inside_max_lengths.unsqueeze(-1).expand(-1, -1, vocab_size) # (B, M, F-1)
     return loss, masks_inside_max_lengths
 
-# TODO: FINISH THIS
+
 def ctc_bi_ilm_smoothing_kldiv_loss(
     log_probs, # (T, B, F)
     targets, # (B, S)
@@ -90,8 +90,7 @@ def ctc_bi_ilm_smoothing_kldiv_loss(
         be moved to the eos_idx instead. The LM score is then expected to have the same dimension
         as the vocab, not vocab + EOS.
     :param ground_truth_weight: Weight given to the loss of the ground truth
-    :return: KL Div Loss sum p_CTC*log p_LM. Note that this loss is already averaged, be careful
-    about this when passing to returnn
+    :return: KL Div Loss sum p_CTC*log p_LM.
     '''
     device = log_probs.device
     batch_size = log_probs.shape[1]

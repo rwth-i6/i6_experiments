@@ -111,3 +111,56 @@ def compute_log_pseudo_ppl_loop_s_rf_models(
         ce = torch.nn.functional.cross_entropy(log_lm_probs[:, s:s+1, :].transpose(1, 2), targets_raw[:, s:s+1].long(), reduction='none')
         acc_loss += ce.squeeze(-1) * seq_mask[:, s]
     return acc_loss
+
+
+def compute_log_pseudo_ppl_variants_loop_s_rf_models(
+    model: rf.Module,
+    targets: rf.Tensor,
+    targets_spatial_dim: rf.Tensor,
+    mask_idx: int,
+    model_kwargs: dict,
+    variant: str = "original",
+):
+    """
+    Compute some metrics for scoring of bi-directional ILM.
+
+    Included metrics:
+    - "original": pseudo PPL p(w_n | w_1^N \ w_n)
+    - "l2r": like pseudo PPL but with right contexts masked out p(w_n | w_1^{n-1})
+    - "r2l": like pseudo PPL but with left contexts masked out p(w_n | w_{n+1}^N)
+
+    :param model: RF model to forward targets. Must implement __call__ method.
+        Output of __call__ must be a dict with key "output".
+    :param targets: target sequences to compute log pseudo PPL (B, S)
+    :param targets_len: target sequence lengths (B,)
+    :param mask_idx: Index of mask token
+    :param model_kwargs: kwargs for the RF model
+    :param variant: The variant of the metrics. Can be "original",
+    "l2r" or "r2l". Refers to the docs above. 
+    :returns: the CE loss in shape (B, S). Out-of-sequence positions will be 0.
+    """
+    batch_size, max_seq_len = targets.raw_tensor.shape
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+    device = targets.device
+    seq_mask = get_seq_mask(torch_target_lengths, max_seq_len, device)
+    loss_tensor = torch.zeros_like(targets.raw_tensor, device=targets.raw_tensor.device)
+    targets_raw = targets.raw_tensor
+    for s in range(max_seq_len):
+        targets_s = targets_raw.clone()
+        if variant == "original":
+            targets_s[:, s] = mask_idx
+        elif variant == "l2r":
+            targets_s[:, s:] = mask_idx
+        elif variant == "r2l":
+            targets_s[:, :s+1] = mask_idx
+        else:
+            raise ValueError("variant must be either \"original\", \"l2r\", or \"r2l\"!")
+        targets.raw_tensor = targets_s
+        ilm_out_raw = model(targets, targets_spatial_dim, **model_kwargs)["output"].raw_tensor
+        # print("s", s)
+        # print(targets_s)
+        # print("ilm_out_raw", ilm_out_raw)
+        log_lm_probs = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, T, V)
+        ce = torch.nn.functional.cross_entropy(log_lm_probs[:, s:s+1, :].transpose(1, 2), targets_raw[:, s:s+1].long(), reduction='none')
+        loss_tensor[:, s] = ce.squeeze(-1) * seq_mask[:, s]
+    return loss_tensor, seq_mask

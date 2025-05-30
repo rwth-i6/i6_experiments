@@ -1,3 +1,7 @@
+"""
+Configs for training transcription LMs
+"""
+
 from typing import Optional, Callable
 from collections import OrderedDict
 import textwrap

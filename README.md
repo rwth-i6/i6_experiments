@@ -1,3 +1,10 @@
+# Experiments on the ILM of CTC
+
+This branch is dedicated to experiments on the ILM of the CTC model. Please navigate to `users/phan`
+for more information and instructions on reproducing the experiments.
+
+___
+
 # RWTH I6 Experiments
 
 This repository contains all public [Sisyphus](https://github.com/rwth-i6/sisyphus) recipes/jobs as well as

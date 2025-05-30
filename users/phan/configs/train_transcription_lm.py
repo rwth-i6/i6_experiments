@@ -1,4 +1,5 @@
-"""Copied from Albert Zeyer 25.03.2024, then modified
+"""
+Train LBS transcription LM using text-only dataset
 """
 
 from __future__ import annotations

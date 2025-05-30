@@ -12,9 +12,7 @@ In general, please uncomment the respective code blocks to run the recognitions 
 
 `conformer_baseline_retrain_v2.py`: retrain the baseline with standard CTC loss (no aux CTC loss)
 
-<!-- `conformer_ilm_kldiv_v4_fix_eos_posterior.py`: The experiment of `conformer_ilm_kldiv_v4` has a bug where the posterior of eos is all set to 0. This is to verify whether that bug greatly affects the results. The impact should not be too big, since the bug only hinders the ILM's ability to predict EOS, but there is length normalization and the extrenal LM anyway prefers shorter sequences. -->
-
-`conformer_ilm_kldiv_v4_fixEos_noSpecAug.py`: ILM estimation using standard and sampling method.
+`conformer_ilm_kldiv_v4_fixEos_noSpecAug.py`: ILM estimation using standard and smoothing method.
 
 `conformer_ilm_kldiv_masking.py`: ILM estimation using the masking method.
 

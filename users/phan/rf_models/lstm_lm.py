@@ -104,6 +104,7 @@ class LSTMLMRF(rf.Module):
         """
         super().__init__()
 
+        self.input_dim = label_target_size
         self.label_target_size = label_target_size
         self.output_dim = output_dim
         self.embedding_dropout = emebdding_dropout

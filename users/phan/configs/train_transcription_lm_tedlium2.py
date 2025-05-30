@@ -1,4 +1,6 @@
-"""Copied from Albert Zeyer 25.03.2024, then modified
+"""
+Config to train transcription LM on tedlium 2 using the OggZipDataset
+with both audio and transcription
 """
 
 from __future__ import annotations

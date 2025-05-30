@@ -219,6 +219,7 @@ def ctc_masked_score(
 
     # free some tensors to save memory
     del forward
+    torch.cuda.empty_cache()
 
     # Backward variables
     # Almost the same as above, but have to be more careful due to the padding symbol
@@ -401,6 +402,7 @@ def ctc_masked_score(
     denominator_batch = backward[0, :, 0, :].logsumexp(-1)
     # free memory
     del backward
+    torch.cuda.empty_cache()
 
     # Now join the scores in forward_masked and backward_masked
     # to obtain the masked probabilies
@@ -422,6 +424,7 @@ def ctc_masked_score(
     # free memory
     del log_probs_all_masked
     del backward_masked
+    torch.cuda.empty_cache()
 
     # print("backward masked", backward_masked)
     # print("log probs all masked", log_probs_all_masked)
@@ -439,6 +442,7 @@ def ctc_masked_score(
     # free memory
     del next_paths
     del backward_masked_1
+    torch.cuda.empty_cache()
 
     input_time_mask = get_seq_mask(input_lengths, input_time_size, device).long().bool().unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_masked_pos, n_out-1).transpose(0, 1)
     log_fwd_bwd = torch.where(input_time_mask, forward_masked + backward_paths, torch.tensor(log_zero).to(device)) # only sums up to T of each batch
@@ -446,6 +450,7 @@ def ctc_masked_score(
     # free memory
     del forward_masked
     del backward_paths
+    torch.cuda.empty_cache()
 
     numerator = log_fwd_bwd.logsumexp(dim=0) # (B, M, F-1) p(masked sequence, mask = w | acoustic)
     denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1) # p(masked sequence | acoustic)
