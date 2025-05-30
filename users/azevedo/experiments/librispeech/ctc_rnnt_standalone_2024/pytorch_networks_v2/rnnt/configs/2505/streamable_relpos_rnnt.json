@@ -1,6 +1,0 @@
-{
-    "module": "rnnt.base_streamable_rnnt",
-    "encoder": "encoders.configs.2505.relpos_conformer.json",
-    "predictor": "rnnt.predictors.lstm_predictor_v1",
-    "joiner": "rnnt.joiners.streamable_joiner_v1"
-}
