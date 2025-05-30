@@ -2,10 +2,14 @@
 
 This `users` folder is dedicated to experiments on the ILM of the CTC model for the Master's thesis "Investigating the Internal Language Model Estimation and Suppression Including the Encoder for Automatic Speech Recognition". Some results in this thesis are also published in the paper "Label-Context-Dependent Internal Language Model Estimation for CTC" at INTERSPEECH 2025. The experiments are implemented using RETURNN-Frontend (RF) with Torch backend and are run via the Sisyphus workflow manager.
 
+Notes: The "smoothing" method in the paper was initially referred to as "sampling". This can be commonly found in older code namings. Newer codes refer to this method correctly as "smoothing".
+
 To rerun an experiment using a Sisyphus config, use the command:
 ```
-/work/tools/users/zeyer/py-envs/py3.11-torch2.1/bin/python3.11 ./sis m recipe/i6_experiments/users/phan/configs/<path to the Sisyphus config>
+/work/tools/users/zeyer/py-envs/py3.11-torch2.1/bin/python3.11 ./sis m <relative path to the Sisyphus config>
 ```
+Configs are usually located under `recipe/i6_experiments/users/phan/configs/`.
+
 The work directory for these experiments can be found in the i6 cluster under `/work/asr3/zyang/share/mnphan/work_rf_ctc/work`. You can import Sisyphus jobs from this directory before running further experiments.
 
 An overview of the important modules:
