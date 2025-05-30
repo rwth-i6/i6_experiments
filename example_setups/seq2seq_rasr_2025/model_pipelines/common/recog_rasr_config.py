@@ -5,7 +5,6 @@ __all__ = [
     "get_rasr_config_file",
 ]
 
-from cProfile import label
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
@@ -38,13 +37,17 @@ def get_combine_label_scorer_config(sub_scorers: List[Tuple[RasrConfig, float]])
 @dataclass
 class RasrRecogOptions:
     vocab_file: tk.Path
+    lexicon_file: Optional[tk.Path] = None
     max_beam_size: int = 1
-    max_beam_size_per_scorer: Optional[int] = None
+    intermediate_max_beam_size: Optional[int] = None
     score_threshold: Optional[float] = None
+    intermediate_score_threshold: Optional[float] = None
     blank_index: Optional[int] = None
     sentence_end_index: Optional[int] = None
-    allow_label_loop: bool = False
+    collapse_repeated_labels: bool = False
     length_norm_scale: Optional[float] = None
+    lm_config: Optional[RasrConfig] = None
+    am_config: Optional[RasrConfig] = None
 
 
 def get_rasr_config_file(
@@ -59,6 +62,7 @@ def get_rasr_config_file(
     log_config["*.warning.channel"] = "rasr.log"
     log_config["*.error.channel"] = "rasr.log"
     log_config["*.statistics.channel"] = "rasr.log"
+    log_config["*.unbuffered"] = True
 
     log_post_config = RasrConfig()
     log_post_config["*.encoding"] = "UTF-8"
@@ -73,41 +77,56 @@ def get_rasr_config_file(
     rasr_config.lib_rasr = RasrConfig()
 
     rasr_config.lib_rasr.lexicon = RasrConfig()
-    rasr_config.lib_rasr.lexicon.type = "vocab-text"
-    rasr_config.lib_rasr.lexicon.file = recog_options.vocab_file
+
+    if recog_options.lm_config is not None:
+        rasr_config.lib_rasr.lm = recog_options.lm_config
+
+    if recog_options.am_config is not None:
+        rasr_config.lib_rasr.acoustic_model = recog_options.am_config
 
     rasr_config.lib_rasr.search_algorithm = RasrConfig()
-    rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-beam-search"
+    if recog_options.lexicon_file is not None:
+        rasr_config.lib_rasr.search_algorithm.type = "tree-timesync-beam-search"
+        rasr_config.lib_rasr.lexicon.file = recog_options.lexicon_file
+        if recog_options.blank_index is not None and recog_options.collapse_repeated_labels:
+            rasr_config.lib_rasr.search_algorithm.tree_builder_type = "ctc"
+        elif recog_options.blank_index is not None and not recog_options.collapse_repeated_labels:
+            rasr_config.lib_rasr.search_algorithm.tree_builder_type = "rna"
+        else:
+            raise NotImplementedError
+    else:
+        rasr_config.lib_rasr.lexicon.file = f"vocab-text:{recog_options.vocab_file}"
+        if recog_options.sentence_end_index is None:
+            rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-timesync-beam-search"
+        else:
+            rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-labelsync-beam-search"
+
     rasr_config.lib_rasr.search_algorithm.max_beam_size = recog_options.max_beam_size
-    if recog_options.max_beam_size_per_scorer is not None:
-        rasr_config.lib_rasr.search_algorithm.max_beam_size_per_scorer = recog_options.max_beam_size_per_scorer
+    if recog_options.intermediate_max_beam_size is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = recog_options.intermediate_max_beam_size
     if recog_options.score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.score_threshold = recog_options.score_threshold
+    if recog_options.intermediate_score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = recog_options.intermediate_score_threshold
 
     if recog_options.blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.use_blank = True
         rasr_config.lib_rasr.search_algorithm.blank_label_index = recog_options.blank_index
+        if recog_options.lexicon_file is not None and recog_options.collapse_repeated_labels:
+            rasr_config.lib_rasr.search_algorithm.force_blank_between_repeated_labels_across_words = True
 
     if recog_options.sentence_end_index is not None:
-        rasr_config.lib_rasr.search_algorithm.use_sentence_end = True
         rasr_config.lib_rasr.search_algorithm.sentence_end_index = recog_options.sentence_end_index
 
     if recog_options.length_norm_scale is not None:
         rasr_config.lib_rasr.search_algorithm.length_norm_scale = recog_options.length_norm_scale
 
-    rasr_config.lib_rasr.search_algorithm.allow_label_loop = recog_options.allow_label_loop
+    rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = recog_options.collapse_repeated_labels
 
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = True
 
     if label_scorer_config is not None:
-        if not isinstance(label_scorer_config, list):
-            rasr_config.lib_rasr.label_scorer = label_scorer_config
-        elif len(label_scorer_config) == 1:
-            rasr_config.lib_rasr.label_scorer = label_scorer_config[0]
-        else:
-            rasr_config.lib_rasr.num_label_scorers = len(label_scorer_config)
-            for idx, label_scorer_config in enumerate(label_scorer_config, start=1):
-                rasr_config.lib_rasr[f"label-scorer-{idx}"] = label_scorer_config
+        rasr_config.lib_rasr.label_scorer = label_scorer_config
     else:
         rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
 

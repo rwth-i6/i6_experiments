@@ -2,6 +2,8 @@ from dataclasses import fields
 from typing import List, Literal, Optional
 
 import torch
+from i6_experiments.common.setups.rasr.config.am_config import StateTying, acoustic_model_config
+from i6_core.rasr.config import RasrConfig
 from i6_core.returnn import PtCheckpoint
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
@@ -23,6 +25,8 @@ from ...data.librispeech.datasets import (
     get_default_recog_data,
     get_default_score_corpus,
 )
+from ...data.librispeech.lexicon import get_bpe_bliss_lexicon
+from ...data.librispeech.lm import get_arpa_lm_config
 from ...model_pipelines.bpe_ctc.prior import compute_priors
 from ...model_pipelines.bpe_ctc.pytorch_modules import (
     ConformerCTCConfig,
@@ -30,10 +34,9 @@ from ...model_pipelines.bpe_ctc.pytorch_modules import (
     ConformerCTCRecogModel,
     SpecaugmentByLengthConfig,
 )
-from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
-from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
-from ...model_pipelines.bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
 from ...model_pipelines.bpe_ctc.train import train
+from ...model_pipelines.bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
+from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
 from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.imports import get_model_serializers
 from ...model_pipelines.common.learning_rates import OCLRConfig
@@ -47,6 +50,8 @@ from ...model_pipelines.common.recog_rasr_config import (
 )
 from ...model_pipelines.common.report import create_report
 from ...model_pipelines.common.train import TrainOptions
+
+# from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
 
 BPE_SIZE = 128
 
@@ -175,7 +180,7 @@ def get_baseline_recog_options() -> RasrRecogOptions:
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
         max_beam_size=1,
         score_threshold=None,
-        allow_label_loop=True,
+        collapse_repeated_labels=True,
     )
 
 
@@ -190,6 +195,7 @@ def run_recog(
     prior_scale: float = 0.0,
     blank_penalty: float = 0.0,
     recog_options: Optional[RasrRecogOptions] = None,
+    compute_search_errors: bool = False,
     device: Literal["cpu", "gpu"] = "cpu",
 ) -> RecogResult:
     recog_options = recog_options or get_baseline_recog_options()
@@ -231,6 +237,7 @@ def run_recog(
         recog_corpus=get_default_score_corpus(corpus_name=corpus_name),
         model_serializers=get_model_serializers(model_class=ConformerCTCRecogModel, model_config=recog_model_config),
         rasr_config_file=rasr_config_file,
+        compute_search_errors=compute_search_errors,
         sample_rate=16000,
         device=device,
         checkpoint=checkpoint,
@@ -245,12 +252,14 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
         train_job = train(options=train_config, model_config=model_config)
         checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
-        lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
-        lstm_lm_checkpoint = PtCheckpoint(
-            tk.Path(
-                "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
-            )
-        )
+        recog_options = get_baseline_recog_options()
+
+        # lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
+        # lstm_lm_checkpoint = PtCheckpoint(
+        #     tk.Path(
+        #         "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
+        #     )
+        # )
 
         recog_results = []
         for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
@@ -263,25 +272,47 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
                 )
             )
 
-        for max_beam_size in [2, 4, 6, 8, 10]:
-            for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
-                beam_recog_options = get_baseline_recog_options()
-                beam_recog_options.max_beam_size = max_beam_size
-                beam_recog_options.score_threshold = score_threshold
+        recog_options.lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
+        recog_options.lm_config = get_arpa_lm_config("4gram", recog_options.lexicon_file)
+        recog_options.am_config = acoustic_model_config(state_tying=StateTying.MONOPHONE, states_per_phone=1)
+        recog_options.max_beam_size = 64
+        recog_options.score_threshold = 10.0
 
-                recog_results.append(
-                    run_recog(
-                        descriptor=f"bpe-ctc_recog-rasr_lm_beam-{max_beam_size}_score-{score_threshold}",
-                        corpus_name="dev-other",
-                        model_config=model_config,
-                        checkpoint=checkpoint,
-                        prior_scale=0.3,
-                        lm_scale=0.8,
-                        lm_config=lstm_lm_config,
-                        lm_checkpoint=lstm_lm_checkpoint,
-                        recog_options=beam_recog_options,
+        for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+            for lm_scale in [0.4, 0.6, 0.8, 1.0, 1.2]:
+                for prior_scale in [0.0, 0.2, 0.3, 0.4]:
+                    recog_options.lm_config.scale = lm_scale
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-ctc_recog-rasr_tree_prior-{prior_scale:.1f}_4gram-{lm_scale:.1f}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            recog_options=recog_options,
+                            prior_scale=prior_scale,
+                            compute_search_errors=True,
+                        )
                     )
-                )
+
+        # for max_beam_size in [2, 4, 6, 8, 10]:
+        #     for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
+        #         beam_recog_options = get_baseline_recog_options()
+        #         beam_recog_options.max_beam_size = max_beam_size
+        #         beam_recog_options.score_threshold = score_threshold
+        #
+        #         recog_results.append(
+        #             run_recog(
+        #                 descriptor=f"bpe-ctc_recog-rasr_lm_beam-{max_beam_size}_score-{score_threshold}",
+        #                 corpus_name="dev-other",
+        #                 model_config=model_config,
+        #                 checkpoint=checkpoint,
+        #                 prior_scale=0.3,
+        #                 lm_scale=0.8,
+        #                 lm_config=lstm_lm_config,
+        #                 lm_checkpoint=lstm_lm_checkpoint,
+        #                 recog_options=beam_recog_options,
+        #             )
+        #         )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

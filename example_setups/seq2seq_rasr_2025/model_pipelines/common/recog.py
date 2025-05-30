@@ -3,7 +3,7 @@ __all__ = ["recog_base", "recog_flashlight", "recog_rasr"]
 from dataclasses import dataclass
 from functools import lru_cache
 from time import perf_counter
-from typing import Iterator, List, Literal, Optional, Protocol
+from typing import Iterator, List, Literal, Optional, Protocol, Tuple
 
 import numpy as np
 import torch
@@ -35,6 +35,7 @@ class RecogResult:
     deletion: tk.Variable
     insertion: tk.Variable
     substitution: tk.Variable
+    search_error_rate: tk.Variable
     enc_rtf: tk.Variable
     search_rtf: tk.Variable
     total_rtf: tk.Variable
@@ -46,15 +47,20 @@ class SearchCallback(ForwardCallbackIface):
         self.total_enc_time = 0
         self.total_search_time = 0
 
+        self.total_search_errors = 0
+        self.total_seqs = 0
+
         self.recognition_file = open("search_out.py", "w")
         self.recognition_file.write("{\n")
 
     def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+        self.total_seqs += 1
         raw_outputs = outputs.as_raw_tensor_dict()
         token_seq = raw_outputs["tokens"]
         token_str = " ".join(token_seq)
         self.recognition_file.write(f"{repr(seq_tag)}: {repr(token_str)},\n")
 
+        self.total_search_errors += raw_outputs["search_errors"]
         self.total_audio_samples += raw_outputs["audio_samples_size"]
         self.total_enc_time += raw_outputs["enc_time"]
         self.total_search_time += raw_outputs["search_time"]
@@ -62,6 +68,12 @@ class SearchCallback(ForwardCallbackIface):
     def finish(self):
         self.recognition_file.write("}\n")
         self.recognition_file.close()
+
+        with open("search_errors.py", "w") as search_error_file:
+            search_error_file.write("{\n")
+            search_error_file.write(f'    "total_search_errors": {self.total_search_errors},\n')
+            search_error_file.write(f'    "search_error_rate": {self.total_search_errors / self.total_seqs},\n')
+            search_error_file.write("}\n")
 
         with open("rtf.py", "w") as rtf_file:
             rtf_file.write("{\n")
@@ -99,6 +111,22 @@ class SearchCallback(ForwardCallbackIface):
             rtf_file.write("}\n")
 
 
+class ExtractSearchErrorRateJob(Job):
+    def __init__(self, search_error_file: tk.Path) -> None:
+        self.search_error_file = search_error_file
+        self.out_search_errors = self.output_var("search_errors")
+        self.out_search_error_rate = self.output_var("search_error_rate")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        with open(self.search_error_file.get(), "r") as f:
+            result_dict = eval(f.read())
+            self.out_search_errors.set(result_dict["total_search_errors"])
+            self.out_search_error_rate.set(result_dict["search_error_rate"] * 100)
+
+
 class ExtractSearchRTFJob(Job):
     def __init__(self, rtf_file: tk.Path) -> None:
         self.rtf_file = rtf_file
@@ -133,7 +161,11 @@ class ExtractSearchRTFJob(Job):
 
 
 class SearchFunction(Protocol):
-    def __call__(self, features: torch.Tensor) -> str: ...
+    def __call__(self, features: torch.Tensor) -> Tuple[str, float]: ...
+
+
+class AlignFunction(Protocol):
+    def __call__(self, features: torch.Tensor, orth: str) -> Tuple[str, float]: ...
 
 
 class EncoderModel(Protocol):
@@ -145,15 +177,19 @@ def _base_recog_forward_step(
     model: EncoderModel,
     extern_data: TensorDict,
     search_function: SearchFunction,
+    align_function: Optional[AlignFunction] = None,
     sample_rate: int = 16000,
 ):
     raw_data = extern_data.as_raw_tensor_dict()
     audio_samples = raw_data["data"]
     audio_samples_size = raw_data["data:size1"].to(device=audio_samples.device)
+    orths = raw_data["raw"]
     seq_tags = raw_data["seq_tag"]
 
     tokens_arrays = []
     token_lengths = []
+
+    search_errors = []
 
     encoder_times = []
     search_times = []
@@ -178,20 +214,42 @@ def _base_recog_forward_step(
         encoder_states = encoder_states.to(device="cpu")
 
         search_start = perf_counter()
-        result: str = search_function(features=encoder_states)
+        recog_str, recog_score = search_function(features=encoder_states)
         search_time = perf_counter() - search_start
         search_times.append(search_time)
 
-        result = result.replace("</s>", "")
-        result = result.replace("<blank>", "")
+        recog_str = recog_str.replace("</s>", "")
+        recog_str = recog_str.replace("<blank>", "")
+        recog_str = " ".join(recog_str.split())
 
-        tokens_array = np.array(result.split(), dtype="U")
+        print(f"Recognized sequence {repr(seq_tags[b])}")
+        print(f'    Ground truth: "{orths[b]}"', flush=True)
+
+        tokens_array = np.array(recog_str.split(), dtype="U")
         tokens_arrays.append(tokens_array)
         token_lengths.append(len(tokens_array))
 
         seq_time = seq_samples_size[0] / sample_rate
 
-        print(f"Recognized sequence {repr(seq_tags[b])}")
+        if align_function is not None:
+            alignment_str, alignment_score = align_function(features=encoder_states, orth=orths[b])
+            alignment_str = alignment_str.replace("</s>", "")
+            alignment_str = alignment_str.replace("<blank>", "")
+            alignment_str = " ".join(alignment_str.split())
+
+            if alignment_str != orths[b]:
+                print("    Could not successfully compute forced alignment. Transcription may contain OOV words.")
+                search_errors.append(0)
+            elif recog_str != orths[b] and alignment_score < recog_score:
+                print(
+                    f"    Encountered search error. Forced alignment has score {alignment_score} while search has score {recog_score}"
+                )
+                search_errors.append(1)
+            else:
+                search_errors.append(0)
+        else:
+            search_errors.append(0)
+
         print(
             f"    Encoder time: {encoder_time:.3f} seconds, RTF {encoder_time / seq_time:.3f}, XRTF {seq_time / encoder_time:.3f}"
         )
@@ -199,6 +257,7 @@ def _base_recog_forward_step(
             f"    Search time: {search_time:.3f} seconds, RTF {search_time / seq_time:.3f}, XRTF {seq_time / search_time:.3f}"
         )
         print(f"    Tokens: {tokens_array}")
+
         print()
 
     max_len = np.max(token_lengths)
@@ -211,6 +270,14 @@ def _base_recog_forward_step(
     )
     tokens_len_array = np.array(token_lengths, dtype=np.int32)
 
+    search_errors_tensor = Tensor(
+        name="search_errors",
+        dtype="int32",
+        raw_tensor=np.array(search_errors, dtype=np.int32),
+        feature_dim_axis=None,
+        time_dim_axis=None,
+    )
+
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()
@@ -218,6 +285,8 @@ def _base_recog_forward_step(
         assert run_ctx.expected_outputs["tokens"].dims[1].dyn_size_ext is not None
         run_ctx.expected_outputs["tokens"].dims[1].dyn_size_ext.raw_tensor = tokens_len_array
     run_ctx.mark_as_output(tokens_tensor, name="tokens")
+
+    run_ctx.mark_as_output(search_errors_tensor, name="search_errors")
 
     enc_time_tensor = Tensor(
         name="enc_time",
@@ -261,11 +330,17 @@ def recog_base(
         config={
             "extern_data": {
                 "data": {"dim": 1, "dtype": "float32"},
+                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
             },
             "model_outputs": {
                 "tokens": {
                     "dtype": "string",
                     "feature_dim_axis": None,
+                },
+                "search_errors": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
                 },
                 "audio_samples_size": {
                     "dtype": "int32",
@@ -308,7 +383,7 @@ def recog_base(
 
     recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
 
-    output_files = ["search_out.py", "rtf.py"] + (extra_output_files or [])
+    output_files = ["search_out.py", "rtf.py", "search_errors.py"] + (extra_output_files or [])
 
     recog_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
@@ -328,6 +403,12 @@ def recog_base(
             recog_job.out_files[output_file],
         )
 
+    extract_search_error_job = ExtractSearchErrorRateJob(search_error_file=recog_job.out_files["search_errors.py"])
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_error_rate",
+        extract_search_error_job.out_search_error_rate,
+    )
+
     extract_rtf_job = ExtractSearchRTFJob(rtf_file=recog_job.out_files["rtf.py"])
     tk.register_output(f"recognition/{recog_corpus.corpus_name}/{descriptor}/rtf", extract_rtf_job.out_total_rtf)
 
@@ -343,6 +424,7 @@ def recog_base(
         descriptor=descriptor,
         corpus_name=recog_corpus.corpus_name,
         wer=score_job.out_wer,
+        search_error_rate=extract_search_error_job.out_search_error_rate,
         deletion=score_job.out_percent_deletions,
         insertion=score_job.out_percent_insertions,
         substitution=score_job.out_percent_substitution,
@@ -387,13 +469,13 @@ def _get_flashlight_search_function(
         **kwargs,
     )
 
-    def wrapper(features: torch.Tensor) -> str:
+    def wrapper(features: torch.Tensor) -> Tuple[str, float]:
         nonlocal labels
         nonlocal decoder
 
         hyps = decoder(-features)
-        str_result = " ".join([labels[token] for token in hyps[0][0].tokens])
-        return str_result
+        recog_str = " ".join([labels[token] for token in hyps[0][0].tokens])
+        return recog_str, hyps[0][0].score
 
     return wrapper
 
@@ -452,7 +534,34 @@ def _get_rasr_search_function(config_file: tk.Path) -> SearchFunction:
     config.set_from_file(config_file)
 
     search_algorithm = SearchAlgorithm(config=config)
-    return search_algorithm.recognize_segment
+
+    def wrapper(features: torch.Tensor) -> Tuple[str, float]:
+        nonlocal search_algorithm
+        traceback = search_algorithm.recognize_segment(features)
+        recog_str = " ".join([traceback_item.lemma for traceback_item in traceback])
+        recog_score = sum(traceback_item.am_score + traceback_item.lm_score for traceback_item in traceback)
+        return recog_str, recog_score
+
+    return wrapper
+
+
+@lru_cache(maxsize=1)
+def _get_rasr_align_function(config_file: tk.Path) -> AlignFunction:
+    from librasr import Configuration, Aligner
+
+    config = Configuration()
+    config.set_from_file(config_file)
+
+    aligner = Aligner(config=config)
+
+    def wrapper(features: torch.Tensor, orth: str) -> Tuple[str, float]:
+        nonlocal aligner
+        traceback = aligner.align_segment(features, orth + " ")  # RASR requires a trailing space in transcription
+        align_str = " ".join([traceback_item.lemma for traceback_item in traceback])
+        align_score = sum(traceback_item.am_score + traceback_item.lm_score for traceback_item in traceback)
+        return align_str, align_score
+
+    return wrapper
 
 
 def _rasr_recog_forward_step(
@@ -461,12 +570,14 @@ def _rasr_recog_forward_step(
     extern_data: TensorDict,
     config_file: tk.Path,
     sample_rate: int = 16000,
+    compute_search_errors: bool = False,
     **_,
 ) -> None:
     _base_recog_forward_step(
         model=model,
         extern_data=extern_data,
         search_function=_get_rasr_search_function(config_file),
+        align_function=_get_rasr_align_function(config_file) if compute_search_errors else None,
         sample_rate=sample_rate,
     )
 
@@ -477,6 +588,7 @@ def recog_rasr(
     recog_corpus: ScorableCorpus,
     model_serializers: Collection,
     rasr_config_file: tk.Path,
+    compute_search_errors: bool = False,
     sample_rate: int = 16000,
     device: Literal["cpu", "gpu"] = "cpu",
     checkpoint: Optional[PtCheckpoint] = None,
@@ -487,6 +599,7 @@ def recog_rasr(
         hashed_arguments={
             "config_file": rasr_config_file,
             "sample_rate": sample_rate,
+            "compute_search_errors": compute_search_errors,
         },
         unhashed_arguments={},
         import_as="forward_step",

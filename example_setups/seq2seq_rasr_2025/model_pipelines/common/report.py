@@ -14,8 +14,9 @@ def create_report(recog_results: List[RecogResult], title: str = "Experiments") 
         report.add_entry(col="3 Del", row=f"{idx}_{recog_result.descriptor}", var=recog_result.deletion)
         report.add_entry(col="4 Ins", row=f"{idx}_{recog_result.descriptor}", var=recog_result.insertion)
         report.add_entry(col="5 Sub", row=f"{idx}_{recog_result.descriptor}", var=recog_result.substitution)
-        report.add_entry(col="6 AM RTF", row=f"{idx}_{recog_result.descriptor}", var=recog_result.enc_rtf)
-        report.add_entry(col="7 Search RTF", row=f"{idx}_{recog_result.descriptor}", var=recog_result.search_rtf)
-        report.add_entry(col="8 Overall RTF", row=f"{idx}_{recog_result.descriptor}", var=recog_result.total_rtf)
+        report.add_entry(col="6 Search Err", row=f"{idx}_{recog_result.descriptor}", var=recog_result.search_error_rate)
+        report.add_entry(col="7 AM RTF", row=f"{idx}_{recog_result.descriptor}", var=recog_result.enc_rtf)
+        report.add_entry(col="8 Search RTF", row=f"{idx}_{recog_result.descriptor}", var=recog_result.search_rtf)
+        report.add_entry(col="9 Overall RTF", row=f"{idx}_{recog_result.descriptor}", var=recog_result.total_rtf)
 
     return report
