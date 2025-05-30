@@ -185,8 +185,8 @@ def rescoring_bi_ilm_forward(*, model, extern_data: TensorDict, **_kwargs_unused
                 value=model.eos_idx
             )
             ilm_out = model.ilm_forward(hyps_merge_batch_beam_w_bos, out_pad_dims[0])
-            ilm_out_raw = ilm_out["output"].raw_tensor # (T, B, V)
-            log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, T, V)
+            ilm_out_raw = ilm_out["output"].raw_tensor # (T, B*beam, V)
+            log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B*beam, T, V)
             targets_eos = torch.cat(
                 [hyps_merge_batch_beam.raw_tensor,
                  torch.full((batch_size*beam_size, 1),fill_value=model.eos_idx,device=hyps_merge_batch_beam.raw_tensor.device)],
@@ -198,7 +198,7 @@ def rescoring_bi_ilm_forward(*, model, extern_data: TensorDict, **_kwargs_unused
                 lens_rf_flatten.raw_tensor.max() + 1,
                 device=ce.device
                 )
-            raw_ilm_score = (ce*seq_mask).sum(-1)
+            raw_ilm_score = -(ce*seq_mask).sum(-1)
 
         elif mlm_metric == "pseudoPpl":
             raw_ilm_score = compute_log_pseudo_ppl_loop_s_rf_models(
