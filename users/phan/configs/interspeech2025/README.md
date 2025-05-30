@@ -1,0 +1,1 @@
+This folder contains Sisyphus configs for the results in the paper "Label-Context-Dependent Internal Language Model Estimation for CTC" at INTERSPEECH 2025. Please see the `READEME.md` under `users/phan` for instructions on reproducing the results.
