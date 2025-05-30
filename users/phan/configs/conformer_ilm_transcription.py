@@ -206,24 +206,24 @@ def train_exp(
         #     "recog_epochs": [5, 10, 12, 13, 14],
         #     "ilm_config": default_ilm_config,
         # }
-        # "ffnn_context1_layers2_hiddendim1000": {
-        #     "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.cEtm5bxOkNnD",
-        #     # "recog_epochs": [1, 6, 12, 18, 24],
-        #     "recog_epochs": [6],
-        #     "ilm_config": ffnn_context1_config,
-        # },
-        # "ffnn_context6_layers2_hiddendim1000": {
-        #     "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.plZWGXP93VTI",
-        #     # "recog_epochs": [1, 6, 11, 17, 22],
-        #     "recog_epochs": [6],
-        #     "ilm_config": ffnn_context6_config,
-        # },
-        # "ffnn_context10_layers2_hiddendim1000": {
-        #     "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.tp9HkD3xGqQ5",
-        #     # "recog_epochs": [1, 6, 12, 18, 24],
-        #     "recog_epochs": [1],
-        #     "ilm_config": ffnn_context10_config,
-        # },
+        "ffnn_context1_layers2_hiddendim1000": {
+            "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.cEtm5bxOkNnD",
+            # "recog_epochs": [1, 6, 12, 18, 24],
+            "recog_epochs": [6],
+            "ilm_config": ffnn_context1_config,
+        },
+        "ffnn_context6_layers2_hiddendim1000": {
+            "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.plZWGXP93VTI",
+            # "recog_epochs": [1, 6, 11, 17, 22],
+            "recog_epochs": [6],
+            "ilm_config": ffnn_context6_config,
+        },
+        "ffnn_context10_layers2_hiddendim1000": {
+            "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.tp9HkD3xGqQ5",
+            # "recog_epochs": [1, 6, 12, 18, 24],
+            "recog_epochs": [1],
+            "ilm_config": ffnn_context10_config,
+        },
     }
 
     for ilm_arch in trans_lms:
