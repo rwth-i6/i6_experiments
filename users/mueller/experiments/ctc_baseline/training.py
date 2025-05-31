@@ -15,9 +15,10 @@ from sisyphus import tk
 
 from i6_core.util import uopen
 
-from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model
-from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_ffnn, convert_to_output_hyps
+from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, Wav2VecModel
+from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_ffnn
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
+from i6_experiments.users.mueller.experiments.ctc_baseline.utils import hyps_ids_to_label, convert_to_output_hyps
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
 
@@ -34,16 +35,22 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
     decode_every_step = config.bool("decode_every_step", False)
     start_with_prior_gamma_steps = config.int("start_with_prior_gamma_steps", 0)
     version = config.int("version", 1)
+    
+    if isinstance(model, Wav2VecModel):
+        w2v_opts = config.typed_value("w2v_opts", {})
+        freeze_encoder_first_n_steps = w2v_opts.get("freeze_encoder_first_n_steps", 0)
+        if freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step == w2v_opts.get("freeze_encoder_first_n_steps", 0):
+            model.set_wav2vec_encoder_trainable(True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
     
-    collected_outputs = {}
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    log_probs = model.log_probs_wb_from_logits(logits)
-    
     if start_with_prior_gamma_steps > 0 and rf.get_run_ctx().step < start_with_prior_gamma_steps:
+        collected_outputs = {}
+        logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+        log_probs = model.log_probs_wb_from_logits(logits)
+        
         if config.typed_value("frame_prior", None) is not None:
             prior_file = config.typed_value("frame_prior")
         else:
@@ -55,6 +62,10 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         
         ce_prior = np.loadtxt(prior_file, dtype="float32")
         ce_prior = torch.tensor(ce_prior, dtype=torch.float32, device=data.raw_tensor.device).exp()
+        blank_prob = 0.2
+        ce_prior[model.blank_idx] = 0.0
+        ce_prior = (ce_prior / ce_prior.sum()) * (1 - blank_prob)
+        ce_prior[model.blank_idx] = blank_prob
         assert ce_prior.shape[0] == model.wb_target_dim.dimension
         assert ce_prior.sum().allclose(torch.tensor(1.0, device=data.raw_tensor.device), atol=0.01)
         ce_prior = torch.cat([ce_prior] * enc_spatial_dim.get_dim_value(), dim=0)
@@ -75,24 +86,73 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             "version": version,
         }
         ce_train(model=model, data=data, data_spatial_dim=data_spatial_dim, targets=ce_targets, targets_spatial_dim=ce_targets_spatial_dim, targets_indices=ce_targets_indices, hyperparameters=ce_hyperparameters)
+    elif nbest == 0:
+        hyperparameters = config.typed_value("hyperparameters_decoder").copy()
+        curr_step = rf.get_run_ctx().step
+        lm_scale = hyperparameters.get("lm_weight")
+        am_scale = 1.0
+        prior_scale = hyperparameters.get("prior_weight")
+        
+        label_prior = False
+        prior = np.loadtxt(config.typed_value("empirical_prior"), dtype="float32")
+        if prior.shape[0] != model.wb_target_dim.dimension:
+            assert prior.shape[0] == model.target_dim.dimension, f"prior shape {prior.shape[0]} != target shape {model.target_dim.dimension}"
+            label_prior = True
+        
+        if "decay" in hyperparameters and hyperparameters["decay"] < 1.0:
+            assert isinstance(curr_step, int)
+            decay = hyperparameters.pop("decay")
+            decay_limit = hyperparameters.pop("decay_limit", 0.0)
+            start_weight = hyperparameters["lm_weight"]
+            # lm_scale = 0.2 + (0.2 * decay ** curr_step)
+            lm_scale = 0.3
+            am_scale = 1.0 - (0.9 * 0.99997 ** curr_step)
+            # prior_scale = 0.3 - (0.2 * 0.99999 ** curr_step)
+            prior_scale = 0.02
+            if curr_step % 100 == 0:
+                print("LM weight:", lm_scale, "Prior weight:", prior_scale, "AM weight:", am_scale)
+        
+        fs_hyperparameters = {
+            "train_lm_model": hyperparameters.get("lm_order"),
+            "empirical_prior": config.typed_value("empirical_prior"),
+            "am_scale": am_scale,
+            "lm_scale": lm_scale,
+            "prior_scale": prior_scale,
+            "horizontal_prior": not label_prior,
+            "blank_prior": not label_prior,
+        }
+        full_sum_train(model=model, data=data, data_spatial_dim=data_spatial_dim, targets=targets, targets_spatial_dim=targets_spatial_dim, hyperparameters=fs_hyperparameters)
     else:
+        collected_outputs = {}
+        logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+        log_probs = model.log_probs_wb_from_logits(logits)
+        
+        # pg = SimplePrintGradients.apply
+        # if rf.get_run_ctx().step % 10 == 0 or rf.get_run_ctx().step == start_with_prior_gamma_steps:
+        #     log_probs.raw_tensor = pg(log_probs.raw_tensor, f"log_probs_nbest_24GB_{rf.get_run_ctx().step}", "plots", 0, f"Gradients FFNN LM 2 nbest {nbest} step {rf.get_run_ctx().step}", enc_spatial_dim.dyn_size_ext.raw_tensor[0].item())
+        
         norm_dim = targets_spatial_dim
         print_original_ctc = False
         original_targets = None
+        original_log_probs = log_probs
         
         if seq_tags is not None:
             seq = "train-other-500/7492-105653-0055/7492-105653-0055"
             if seq in seq_tags.raw_tensor.tolist():
                 print("FOUND SEQ")
         
+        hyperparameters = config.typed_value("hyperparameters_decoder").copy()
+        am_weight = None
+        
         if decode_every_step and rf.get_run_ctx().train_flag:
+            # TODO check with conformer 1 layer, check renorm of AM and prior
+            
             assert seq_tags is not None
             save_seqs = scores is not None
             if seq in seq_tags.raw_tensor.tolist():
                 idx = np.where(seq_tags == seq)[0]
                 print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
             
-            hyperparameters = config.typed_value("hyperparameters_decoder").copy()
             prior_file = config.typed_value("empirical_prior")
             assert hyperparameters and prior_file
             hyperparameters["beam_size"] = 128
@@ -100,22 +160,20 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                 hyperparameters["ps_nbest"] = nbest
             curr_step = rf.get_run_ctx().step
             if "decay" in hyperparameters and hyperparameters["decay"] < 1.0:
-                # TODO lower LR in the beginning
-                
                 assert isinstance(curr_step, int)
                 decay = hyperparameters.pop("decay")
                 decay_limit = hyperparameters.pop("decay_limit", 0.0)
                 start_weight = hyperparameters["lm_weight"]
                 # hyperparameters["lm_weight"] = 0.2 + (0.2 * decay ** curr_step)
-                hyperparameters["lm_weight"] = 0.3
+                hyperparameters["lm_weight"] = 0.7
                 am_weight = 1.0 - (0.9 * 0.99997 ** curr_step)
-                dec_log_probs = log_probs * am_weight
                 # hyperparameters["prior_weight"] = 0.3 - (0.2 * 0.99999 ** curr_step)
                 hyperparameters["prior_weight"] = 0.02
                 if curr_step % 100 == 0:
                     print("LM weight:", hyperparameters["lm_weight"], "Prior weight:", hyperparameters["prior_weight"], "AM weight:", am_weight)
-            else:
-                dec_log_probs = log_probs
+            if am_weight is not None:
+                log_probs = log_probs * am_weight
+                log_probs = rf.log_softmax(log_probs, axis=model.wb_target_dim)
             
             if save_seqs:
                 device_id = torch.cuda.current_device()
@@ -123,9 +181,9 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                     hdf_writer = config.typed_value("train_hdf_writer")
                     assert isinstance(hdf_writer, SimpleHDFWriter)
             with torch.no_grad():
-                batch_size = dec_log_probs.raw_tensor.shape[0]
+                batch_size = log_probs.raw_tensor.shape[0]
                 batch_dims = data.remaining_dims(data_spatial_dim)
-                hyps, new_scores = recog_ffnn(model=model, label_log_prob=dec_log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, train_lm=True)
+                hyps, new_scores = recog_ffnn(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, train_lm=True)
                 assert len(hyps) == batch_size
                 assert len(hyps[0]) == nbest
                 hyps = [[convert_to_output_hyps(model, h) for h in hyps_batch] for hyps_batch in hyps]
@@ -134,8 +192,10 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                     # print("REFERENCE:", targets.raw_tensor[0].tolist())
                 else:
                     print("HYP:", hyps[0][0])
+                    print(hyps_ids_to_label(model, hyps[0][0]))
                     if curr_step % 20 == 0:
                         print("REFERENCE:", targets.raw_tensor[0].tolist())
+                        print(hyps_ids_to_label(model, targets.raw_tensor[0].tolist()))
                 lengths = [[len(h) for h in hyps_batch] for hyps_batch in hyps]
                 new_targets_spatial_dim = torch.tensor(lengths, dtype=torch.int32, device=data.raw_tensor.device)
                 new_nbest_lengths = None
@@ -220,7 +280,6 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             assert nbest_lengths is not None
             from .sum_criterion import safe_logaddexp
             
-            hyperparameters = config.typed_value("hyperparameters_decoder").copy()
             prior_file = config.typed_value("empirical_prior")
             norm_rescore = config.bool("norm_rescore", False)
             rescore_alignment_prior = config.bool("rescore_alignment_prior", False)
@@ -263,6 +322,8 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             if aux_loss_layers:
                 aux_probs = {}
                 for i, layer_idx in enumerate(aux_loss_layers):
+                    if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
+                        continue
                     aux_loss_sum = {}
                     linear = getattr(model, f"enc_aux_logits_{layer_idx}")
                     aux_logits = linear(collected_outputs[str(layer_idx - 1)])
@@ -278,6 +339,8 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                     prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
                     log_probs = log_probs - prior
                     for i, layer_idx in enumerate(aux_loss_layers):
+                        if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
+                            continue
                         aux_probs[i] = aux_probs[i] - prior
             
             for j in range(nbest):
@@ -297,7 +360,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
 
                 if aux_loss_layers:
                     for i, layer_idx in enumerate(aux_loss_layers):
-                        if layer_idx > len(model.encoder.layers):
+                        if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
                             continue
                         aux_loss = ctc_loss_fixed_grad(
                             logits=aux_probs[i],
@@ -344,6 +407,8 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                     break
             if aux_loss_layers:
                 for i, layer_idx in enumerate(aux_loss_layers):
+                    if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
+                        continue
                     aux_loss_sum_i = rtf.TorchBackend.convert_to_tensor(-aux_loss_sum[i], dims = [batch_dim], dtype = "float32", name=f"ctc_aux_loss_{layer_idx}")
                     aux_loss_sum_i.mark_as_loss(
                         f"ctc_{layer_idx}",
@@ -359,15 +424,16 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             )
             
             if print_original_ctc:
-                _ctc_error(log_probs, original_targets[0], model, original_targets[1], enc_spatial_dim)
+                _ctc_error(original_log_probs, original_targets[0], model, original_targets[1], enc_spatial_dim)
                 wer_targets = original_targets[0].raw_tensor.tolist()
                 wer_targets = [wer_targets[i][:original_targets[1].get_size_tensor().raw_tensor[i].item()] for i in range(len(wer_targets))]
                 wer_inputs = tensor_ls[0].raw_tensor.tolist()
                 wer_inputs = [wer_inputs[i][:sizes_ls[0].get_size_tensor().raw_tensor[i].item()] for i in range(len(wer_inputs))]
                 _edit_distance(wer_inputs, wer_targets)
+                _seq_len_error(original_log_probs, model, original_targets[1], enc_spatial_dim)
             else:
-                _ctc_error(log_probs, tensor_ls[0], model, sizes_ls[0], enc_spatial_dim)
-            _seq_len_error(log_probs, model, sizes_ls[0], enc_spatial_dim)
+                _ctc_error(original_log_probs, tensor_ls[0], model, sizes_ls[0], enc_spatial_dim)
+                _seq_len_error(original_log_probs, model, sizes_ls[0], enc_spatial_dim)
         else:
             if config.bool("use_eos_postfix", False):
                 targets, (targets_spatial_dim,) = rf.pad(
@@ -376,7 +442,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
 
             if aux_loss_layers:
                 for i, layer_idx in enumerate(aux_loss_layers):
-                    if layer_idx > len(model.encoder.layers):
+                    if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
                         continue
                     linear = getattr(model, f"enc_aux_logits_{layer_idx}")
                     aux_logits = linear(collected_outputs[str(layer_idx - 1)])
@@ -458,7 +524,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
                 frame_error.mark_as_loss(name="aed_fer", as_error=True)
 
  
-def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_tags: rf.Tensor = None, targets: rf.Tensor, targets_spatial_dim: Dim):
+def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_tags: rf.Tensor = None, targets: rf.Tensor, targets_spatial_dim: Dim, hyperparameters: dict = None):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
     from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_bigram, sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, get_lm_logits, PrintGradients, NormGradients
@@ -511,21 +577,40 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     use_normalized_loss = config.bool("use_normalized_loss", True)
-    lm_name = config.typed_value("train_lm_model")
     
-    am_scale = config.float("am_scale", 1.0)
-    lm_scale = config.float("lm_scale", 1.0)
-    prior_scale = config.float("prior_scale", 1.0)
+    if hyperparameters is None:
+        lm_name = config.typed_value("train_lm_model")
+        
+        am_scale = config.float("am_scale", 1.0)
+        lm_scale = config.float("lm_scale", 1.0)
+        prior_scale = config.float("prior_scale", 1.0)
+        
+        horizontal_prior = config.bool("horizontal_prior", True)
+        blank_prior = config.bool("blank_prior", True)
+        prior_gradient = config.bool("prior_gradient", True)
+        empirical_prior = config.typed_value("empirical_prior", None)
+        max_prior = config.bool("max_prior", False)
+        top_k = config.int("top_k", 0)
+        alignment_topk = config.bool("alignment_topk", True)
+        blank_correction_version = config.int("blank_correction_version", 0)
+        correction_in_final_score = config.bool("correction_in_final_score", False)
+    else:
+        lm_name = hyperparameters.get("train_lm_model")
+        
+        am_scale = hyperparameters.get("am_scale", 1.0)
+        lm_scale = hyperparameters.get("lm_scale", 1.0)
+        prior_scale = hyperparameters.get("prior_scale", 1.0)
+        
+        horizontal_prior = hyperparameters.get("horizontal_prior", True)
+        blank_prior = hyperparameters.get("blank_prior", True)
+        prior_gradient = hyperparameters.get("prior_gradient", True)
+        empirical_prior = hyperparameters.get("empirical_prior", None)
+        max_prior = hyperparameters.get("max_prior", False)
+        top_k = hyperparameters.get("top_k", 0)
+        alignment_topk = hyperparameters.get("alignment_topk", True)
+        blank_correction_version = hyperparameters.get("blank_correction_version", 0)
+        correction_in_final_score = hyperparameters.get("correction_in_final_score", False)
     
-    horizontal_prior = config.bool("horizontal_prior", True)
-    blank_prior = config.bool("blank_prior", True)
-    prior_gradient = config.bool("prior_gradient", True)
-    empirical_prior = config.typed_value("empirical_prior", None)
-    max_prior = config.bool("max_prior", False)
-    top_k = config.int("top_k", 0)
-    alignment_topk = config.bool("alignment_topk", True)
-    blank_correction_version = config.int("blank_correction_version", 0)
-    correction_in_final_score = config.bool("correction_in_final_score", False)
     use_prior = prior_scale > 0.0
     
     print_gradients = config.bool("print_gradients", False)
@@ -589,7 +674,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > len(model.encoder.layers):
+            if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
@@ -680,12 +765,13 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     # idx = np.where(seq_tags == seq)[0]
     # print_for_idx.append(idx[0])
     
-    seq_tags = seq_tags.raw_tensor
-    for seq in fixed_seqs:
-        if seq in seq_tags:
-            idx = np.where(seq_tags == seq)[0]
-            print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
-            print_for_idx.append(idx[0])
+    if seq_tags is not None:
+        seq_tags = seq_tags.raw_tensor
+        for seq in fixed_seqs:
+            if seq in seq_tags:
+                idx = np.where(seq_tags == seq)[0]
+                print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
+                print_for_idx.append(idx[0])
             
     if print_gradients and print_for_idx:
         # logits_raw = logits.raw_tensor
@@ -705,6 +791,10 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     else:
         log_probs = model.log_probs_wb_from_logits(logits)
         log_probs_raw = log_probs.raw_tensor
+        
+        # spg = SimplePrintGradients.apply
+        # if rf.get_run_ctx().step % 10 == 0 or rf.get_run_ctx().step == 3:
+        #     log_probs_raw = spg(log_probs_raw, f"log_probs_full_sum_{rf.get_run_ctx().step}", "plots", 0, f"Gradients FFNN LM 2 Full-sum step {rf.get_run_ctx().step}", enc_spatial_dim.dyn_size_ext.raw_tensor[0].item())
 
     if use_prior:
         if empirical_prior is not None:
@@ -791,6 +881,8 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     
     _ctc_error(log_probs, targets, model, targets_spatial_dim, enc_spatial_dim)
     _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim)
+    # if rf.get_run_ctx().step % 10 == 0:
+    #     _print_argmax(log_probs, model, targets, enc_spatial_dim)
     
     # if version == 5:
     #     loss = torch.ctc_loss( # ctc_loss_fixed_grad
@@ -914,7 +1006,7 @@ def ce_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: r
 
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > len(model.encoder.layers):
+            if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
@@ -1017,6 +1109,8 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
             aux_probs = {}
             aux_nbest_scores = {}
             for i, layer_idx in enumerate(aux_loss_layers):
+                if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
+                    continue
                 aux_nbest_scores[i] = []
                 linear = getattr(model, f"enc_aux_logits_{layer_idx}")
                 aux_logits = linear(collected_outputs[str(layer_idx - 1)])
@@ -1032,6 +1126,8 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
                 prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
                 log_probs = log_probs - prior
                 for i, layer_idx in enumerate(aux_loss_layers):
+                    if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
+                        continue
                     aux_probs[i] = aux_probs[i] - prior
         
         for j in range(nbest):
@@ -1043,7 +1139,7 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
 
             if aux_loss_layers:
                 for i, layer_idx in enumerate(aux_loss_layers):
-                    if layer_idx > len(model.encoder.layers):
+                    if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
                         continue
                     aux_loss = ctc_loss_fixed_grad(
                         logits=aux_probs[i],
@@ -1087,6 +1183,8 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
         norm_dim = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, data.device)
         if aux_loss_layers:
             for i, layer_idx in enumerate(aux_loss_layers):
+                if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
+                    continue
                 aux_nbest_scores_i = torch.stack(aux_nbest_scores[i], dim=-1)
                 with torch.no_grad():
                     aux_scores_scaled = aux_nbest_scores_i.detach() * gamma_scaling
@@ -1137,7 +1235,7 @@ def seq_gamma_ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim,
 
         if aux_loss_layers:
             for i, layer_idx in enumerate(aux_loss_layers):
-                if layer_idx > len(model.encoder.layers):
+                if layer_idx > len(model.encoder.layers) or str(layer_idx - 1) not in collected_outputs:
                     continue
                 linear = getattr(model, f"enc_aux_logits_{layer_idx}")
                 aux_logits = linear(collected_outputs[str(layer_idx - 1)])
@@ -1194,34 +1292,92 @@ def _LM_score(
     targets: rf.Tensor,
     targets_spatial_dim: Dim,
     model: Model,
-    hyperparameters: dict,
+    lm_name: str,
+    train_lm: bool = True,
+    arpa_file: tk.Path = None,
 ) -> rf.Tensor:
-    hyp_params = copy.copy(hyperparameters)
-    lm_name = hyp_params.pop("lm_order", None)
-    assert lm_name.startswith("ffnn")
-    assert model.train_language_model
-    assert model.train_language_model.vocab_dim == model.target_dim
-    lm: FeedForwardLm = model.train_language_model
-    lm_order = int(lm_name[len("ffnn"):])
-    assert lm.conv_filter_size_dim.dimension == lm_order
+    assert lm_name
+    if lm_name.startswith("ffnn"):
+        if train_lm:
+            assert model.train_language_model
+            assert model.train_language_model.vocab_dim == model.target_dim
+            lm: FeedForwardLm = model.train_language_model
+        else:
+            assert model.recog_language_model
+            assert model.recog_language_model.vocab_dim == model.target_dim
+            lm: FeedForwardLm = model.recog_language_model
+        lm_order = int(lm_name[len("ffnn"):])
+        assert lm.conv_filter_size_dim.dimension == lm_order
+        
+        targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
+        
+        batch_dims = targets.remaining_dims(targets_spatial_dim)
+        lm_state = lm.default_initial_state(batch_dims=batch_dims)
+        lm_logits, lm_state = lm(
+            targets,
+            spatial_dim=targets_spatial_dim,
+            out_spatial_dim=targets_w_eos_spatial_dim,
+            state=lm_state,
+        )  # Flat_Batch_Beam, Vocab / ...
+        # logits_packed, pack_dim = rf.pack_padded(
+        #     lm_logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+        # )
+        assert lm_logits.dims == (*batch_dims, targets_w_eos_spatial_dim, model.target_dim)
+        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+        lm_log_probs = rf.gather(lm_log_probs, axis=model.target_dim, indices=targets_w_eos)
+        lm_log_probs = rf.reduce_sum(lm_log_probs, axis=targets_w_eos_spatial_dim)
+    else:
+        assert lm_name == "word4gram"
+        assert arpa_file is not None, "ARPA file must be provided for word4gram LM"
+        import kenlm
+        assert targets.raw_tensor.ndim == 2
+        
+        dev = targets.raw_tensor.device
+        lm = kenlm.Model(arpa_file)
+        targets = targets.raw_tensor.tolist()
+        lm_log_probs = []
+        for t in targets:
+            word_target = hyps_ids_to_label(model, t)
+            lm_log_probs.append(lm.score(word_target, bos=True, eos=True))
+        lm_log_probs = torch.tensor(lm_log_probs, dtype=torch.float32, device=dev)
+        lm_log_probs = rf.convert_to_tensor(lm_log_probs, dims=[batch_dim], dtype="float32", name="lm_log_probs")
     
-    targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
-    )
-    
-    batch_dims = targets.remaining_dims(targets_spatial_dim)
-    lm_state = lm.default_initial_state(batch_dims=batch_dims)
-    lm_logits, lm_state = lm(
-        targets,
-        spatial_dim=targets_spatial_dim,
-        out_spatial_dim=targets_w_eos_spatial_dim,
-        state=lm_state,
-    )  # Flat_Batch_Beam, Vocab / ...
-    assert lm_logits.dims == (*batch_dims, targets_w_eos_spatial_dim, model.target_dim)
-    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-    lm_log_probs = rf.gather(lm_log_probs, axis=model.target_dim, indices=targets_w_eos)
-    lm_log_probs = rf.reduce_sum(lm_log_probs, axis=targets_w_eos_spatial_dim)
     return lm_log_probs
+
+def _prior_score(
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+    model: Model,
+    prior_file: tk.Path,
+    force_label_prior: bool,
+) -> rf.Tensor:
+    assert prior_file
+    prior = np.loadtxt(prior_file, dtype="float32")
+    prior = torch.tensor(prior, dtype=torch.float32, device=targets.raw_tensor.device)
+    label_prior = True
+    if prior.size(0) == int(model.wb_target_dim.get_dim_value()):
+        assert model.blank_idx == prior.size(0) - 1
+        if force_label_prior:
+            prior = prior[:-1]
+            prior = torch.log_softmax(prior, dim=-1)
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+        else:
+            label_prior = False
+            prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+    else:
+        assert prior.size(0) == int(model.target_dim.get_dim_value()), f"Prior size does not match! {prior.size(0)} vs {int(model.target_dim.get_dim_value())}"
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    prior = rf.expand_dims(prior, [*batch_dims, targets_spatial_dim])
+    if label_prior:
+        prior_log_probs = rf.gather(prior, axis=model.target_dim, indices=targets)
+    else:
+        prior_log_probs = rf.gather(prior, axis=model.wb_target_dim, indices=targets)
+    prior_log_probs = rf.reduce_sum(prior_log_probs, axis=targets_spatial_dim)
+    
+    return prior_log_probs
 
 def _compare_targets(
     target_A: rf.Tensor,
@@ -1236,8 +1392,8 @@ def _compare_targets(
     """Compare quality of two targets based on unsupervised metric from https://arxiv.org/pdf/2105.11084
     """
     assert target_A.dims[0] == target_B.dims[0]
-    lm_A = _LM_score(target_A, target_A_dim, model, hyperparameters).raw_tensor
-    lm_B = _LM_score(target_B, target_B_dim, model, hyperparameters).raw_tensor
+    lm_A = _LM_score(target_A, target_A_dim, model, hyperparameters.get("lm_order", None)).raw_tensor
+    lm_B = _LM_score(target_B, target_B_dim, model, hyperparameters.get("lm_order", None)).raw_tensor
     lm_A_norm = -(lm_A / (target_A_dim.get_size_tensor().raw_tensor + 1).to(lm_A.device))
     lm_B_norm = -(lm_B / (target_B_dim.get_size_tensor().raw_tensor + 1).to(lm_A.device))
     u_A = _vocab_usage_score(target_A, model)
@@ -1316,61 +1472,40 @@ def _rescore(
     model: Model,
     hyperparameters: dict,
     prior_file: tk.Path = None,
-) -> rf.Tensor:
-    import json
-    
+    train_lm: bool = True,
+    arpa_file: tk.Path = None,
+) -> rf.Tensor | tuple[rf.Tensor, rf.Tensor]:
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
     
-    dev_s = rf.get_default_device()
-    dev = torch.device(dev_s)
-        
-    # Subtract labelwise prior if available
+    # Calculate labelwise prior score if available
+    prior_log_probs = None
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
     if prior_file and prior_weight > 0.0:
-        prior = np.loadtxt(prior_file, dtype="float32")
-        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-        if prior.size(0) == int(model.wb_target_dim.get_dim_value()):
-            assert model.blank_idx == prior.size(0) - 1
-            # prior[model.blank_idx] = float("-inf")
-            prior = prior[:-1]
-            prior = torch.log_softmax(prior, dim=-1)
-        else:
-            assert prior.size(0) == int(model.target_dim.get_dim_value()), f"Prior size does not match! {prior.size(0)} vs {int(model.target_dim.get_dim_value())}"
-        prior *= prior_weight
-        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.target_dim], dtype="float32")
+        prior_log_probs = _prior_score(
+            targets,
+            targets_spatial_dim,
+            model,
+            prior_file,
+            force_label_prior=True,
+        )
+    
+    # Calculate LM score
+    lm_log_probs = _LM_score(
+        targets,
+        targets_spatial_dim,
+        model,
+        lm_name,
+        train_lm=train_lm,
+        arpa_file=arpa_file,
+    )
         
-    assert lm_name.startswith("ffnn")
-    assert model.train_language_model
-    assert model.train_language_model.vocab_dim == model.target_dim
-    lm: FeedForwardLm = model.train_language_model
-    lm_order = int(lm_name[len("ffnn"):])
-    assert lm.conv_filter_size_dim.dimension == lm_order
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
-    
-    targets_w_eos, (targets_w_eos_spatial_dim,) = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
-    )
-    
-    batch_dims = targets.remaining_dims(targets_spatial_dim)
-    lm_state = lm.default_initial_state(batch_dims=batch_dims)
-    lm_logits, lm_state = lm(
-        targets,
-        spatial_dim=targets_spatial_dim,
-        out_spatial_dim=targets_w_eos_spatial_dim,
-        state=lm_state,
-    )  # Flat_Batch_Beam, Vocab / ...
-    # logits_packed, pack_dim = rf.pack_padded(
-    #     lm_logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
-    # )
-    assert lm_logits.dims == (*batch_dims, targets_w_eos_spatial_dim, model.target_dim)
-    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
     lm_log_probs *= lm_scale
     if prior_file and prior_weight > 0.0:
-        lm_log_probs = lm_log_probs - prior
-    lm_log_probs = rf.gather(lm_log_probs, axis=model.target_dim, indices=targets_w_eos)
-    lm_log_probs = rf.reduce_sum(lm_log_probs, axis=targets_w_eos_spatial_dim)
+        prior_log_probs *= prior_weight
+        lm_log_probs -= prior_log_probs
     return lm_log_probs
 
 def _norm_rescore(
@@ -1446,3 +1581,53 @@ def _edit_distance(inputs, targets):
             "ed",
             as_error=True
         )
+        
+def _print_argmax(log_probs, model, target, enc_spatial_dim):
+    with torch.no_grad():
+        argmax = rf.reduce_argmax(log_probs, axis=model.wb_target_dim)
+        argmax = argmax.copy_transpose([batch_dim, enc_spatial_dim])
+        argmax = argmax.raw_tensor.detach().tolist()
+        output_argmax = [convert_to_output_hyps(model, h) for h in argmax]
+        print("HYP:", output_argmax[0])
+        print("REF:", target.raw_tensor[0].tolist())
+    
+class SimplePrintGradients(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, name, prefix, batch_idx: int, title: str, length: int):
+        ctx.name = name
+        ctx.prefix = prefix
+        assert isinstance(batch_idx, int)
+        ctx.batch_idx = [batch_idx]
+        ctx.title = title
+        ctx.length = length
+        ctx.save_for_backward(x)
+        return x
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        name = ctx.name
+        prefix = ctx.prefix
+        x, = ctx.saved_tensors
+        prefix += "/"
+        prefix = "/u/marten.mueller/dev/ctc_baseline/output/" + prefix
+        if not os.path.exists(prefix):
+            os.makedirs(prefix)
+        gradients = grad_output[ctx.batch_idx, :ctx.length].detach().squeeze(0).cpu().numpy()
+        
+        import matplotlib.pyplot as plt
+        import matplotlib.cm as cm
+        from datetime import datetime
+        
+        fig, ax = plt.subplots(figsize=(15, 15))
+        fig.supylabel("Vocab")
+        fig.supxlabel("Timestep")
+        
+        ax.imshow(gradients.T, origin="lower", cmap=cm.gray)
+        ax.set_yticks(np.arange(0, 185, 10))
+        ax.set_title("Gradients " + ctx.title)
+        # ax.text(2, -20, f'black: 1.0, white: 0.0', bbox={'facecolor': 'white', 'pad': 10})
+        
+        now = datetime.now()
+        fig.savefig(prefix + name + now.strftime("_%H:%M:%S_%d-%m") + ".png")
+        
+        return grad_output, None, None, None, None, None

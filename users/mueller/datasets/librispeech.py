@@ -311,6 +311,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
         train_subset: Optional[int] = None,
+        forward_subset: Optional[int] = None,
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
         pseudo_label_alignment: bool = -1,
@@ -357,6 +358,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
         self.train_subset = train_subset
+        self.forward_subset = forward_subset
 
         self._time_dim = None
         self._feature_dim = None
@@ -391,6 +393,8 @@ class LibrispeechOggZip(DatasetConfig):
             state.pop("train_vocab")  # backward compat
         if self.train_subset is None:
             state.pop("train_subset")
+        if self.forward_subset is None:
+            state.pop("forward_subset")
         if self.pseudo_label_alignment == -1:
             state.pop("pseudo_label_alignment")
         if self.pseudo_label_nbest == 1:
@@ -477,7 +481,7 @@ class LibrispeechOggZip(DatasetConfig):
 
     def get_main_dataset(self) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
-        return self.get_dataset(self.main_key)
+        return self.get_dataset(self.main_key, subset=self.forward_subset)
     
     def get_sharded_main_dataset(self, shard_index: int, num_shards: int) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"

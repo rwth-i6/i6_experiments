@@ -29,7 +29,12 @@ from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
-from .datasets.task import Task
+from i6_experiments.users.mueller.datasets.task import Task
+from i6_experiments.users.mueller.utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
+from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog, model_recog_gradients
+from i6_experiments.users.mueller.experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm, get_count_based_n_gram
+from i6_experiments.users.mueller.datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
+from i6_experiments.users.mueller.scoring import ComputeWERJob, _score_recog
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
@@ -40,11 +45,6 @@ from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 
 import numpy as np
 
-from .utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
-from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog, model_recog_gradients
-from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm, get_count_based_n_gram
-from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
-from .scoring import ComputeWERJob, _score_recog
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -95,9 +95,11 @@ def recog_training_exp(
         else:
             decoder_hyperparameters_eval = decoder_hyperparameters
             decoder_hyperparameters_pl = decoder_hyperparameters
-        
-    sc = search_config.copy()
-    sc.pop("__prev_hyps", None)
+    
+    sc = None
+    if search_config is not None:
+        sc = search_config.copy()
+        sc.pop("__prev_hyps", None)
     
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -670,7 +672,7 @@ def search_dataset(
         if recog_post_proc_funcs and recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog:
             from i6_core.returnn.search import SearchOutputRawReplaceJob
             res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
-    if return_beam:
+    if return_beam or use_lexicon:
         beam_res = res
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).

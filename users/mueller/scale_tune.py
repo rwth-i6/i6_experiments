@@ -5,6 +5,7 @@ from typing import Optional, Any, Dict
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
+from returnn.datasets.util.vocabulary import Vocabulary
 
 from sisyphus import tk, Task
 from sisyphus.job_path import Variable
@@ -262,6 +263,7 @@ def ngram_lm_rescore_def(*, model: torch.Module, targets: Tensor, targets_beam_d
     log_prob_targets_seq = model(
         targets.raw_tensor,
         targets_spatial_dim.get_size_tensor().raw_tensor,
+        targets.vocab
     )
     assert log_prob_targets_seq.ndim == 2 and log_prob_targets_seq.size(0) == targets.raw_tensor.size(0) and log_prob_targets_seq.size(1) == targets.raw_tensor.size(1)
     log_prob_targets_seq = rf.convert_to_tensor(log_prob_targets_seq, dims=batch_dims, device=targets.device, dtype="float32")  # [batch,beam]
@@ -426,17 +428,16 @@ def _get_ngram_model(*, epoch: int, **_kwargs_unused):
     from returnn.tensor import Tensor
     from returnn.config import get_global_config
     from i6_core.util import uopen
-    # import kenlm
+    import kenlm
 
     config = get_global_config()
     model_path = config.typed_value("_model_path")
     
-    # vocab = config.typed_value("forward_data")["vocab"]
-    # lm = kenlm.Model(model_path)
+    lm = kenlm.Model(model_path)
     
-    with uopen(model_path, "rb") as f:
-        lm = torch.load(f, map_location=config.typed_value("_dev"))
-        assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+    # with uopen(model_path, "rb") as f:
+    #     lm = torch.load(f, map_location=config.typed_value("_dev"))
+    #     assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
     # lm = torch.log_softmax(lm, dim=-1) # NOTE do not use
     
     class Model(torch.nn.Module):
@@ -444,43 +445,45 @@ def _get_ngram_model(*, epoch: int, **_kwargs_unused):
             super().__init__()
             self.lm = lm
 
-        def forward(self, x: torch.Tensor, length: torch.Tensor):
-            assert x.ndim == 3
-            ndim = self.lm.ndim
-            context_size = ndim - 1
-            x = torch.nn.functional.pad(x, (context_size, 1), value=0)
-            scores = torch.zeros((x.size(0), x.size(1)), dtype=torch.float32, device=x.device)
-            for t in range(length.max() + 1):
-                indices = []
-                for i in range(ndim):
-                    indices.append(x[..., t + i])
-                new_score = self.lm[*indices]
-                new_score[new_score.isneginf()] = -1e30
-                # assert logits.isnan().sum() == 0, f"Failed at {t} with {log_lm_probs.isnan().sum()}"
-                # log_lm_probs = torch.log_softmax(logits, dim=-1)
-                # assert log_lm_probs.isnan().sum() == 0, f"Failed at {t} 2 with {log_lm_probs.isnan().sum()}"
-                # new_score = log_lm_probs.gather(-1, x[..., t + context_size].unsqueeze(-1).long()).squeeze(-1)
-                scores = torch.where(
-                    t < length + 1,
-                    scores + new_score,
-                    scores,
-                )
-                if scores.isneginf().any():
-                    print(f"Failed at {t} with {scores.isneginf().sum()}, {scores}, {new_score}")
-            assert scores.ndim == 2 and scores.size(0) == x.size(0) and scores.size(1) == x.size(1)
-            return scores
-        
         # def forward(self, x: torch.Tensor, length: torch.Tensor):
         #     assert x.ndim == 3
+        #     ndim = self.lm.ndim
+        #     context_size = ndim - 1
+        #     x = torch.nn.functional.pad(x, (context_size, 1), value=0)
         #     scores = torch.zeros((x.size(0), x.size(1)), dtype=torch.float32, device=x.device)
-        #     for i in range(x.size(0)):
-        #         for j in range(x.size(1)):
-        #             sentence = x[i, j, :].tolist()
-        #             sentence = [self.vocab.index_to_str(c) for c in sentence]
-        #             sentence = " ".join(sentence)
-        #             scores[i, j] = self.lm.score(sentence)
+        #     for t in range(length.max() + 1):
+        #         indices = []
+        #         for i in range(ndim):
+        #             indices.append(x[..., t + i])
+        #         new_score = self.lm[*indices]
+        #         new_score[new_score.isneginf()] = -1e30
+        #         # assert logits.isnan().sum() == 0, f"Failed at {t} with {log_lm_probs.isnan().sum()}"
+        #         # log_lm_probs = torch.log_softmax(logits, dim=-1)
+        #         # assert log_lm_probs.isnan().sum() == 0, f"Failed at {t} 2 with {log_lm_probs.isnan().sum()}"
+        #         # new_score = log_lm_probs.gather(-1, x[..., t + context_size].unsqueeze(-1).long()).squeeze(-1)
+        #         scores = torch.where(
+        #             t < length + 1,
+        #             scores + new_score,
+        #             scores,
+        #         )
+        #         if scores.isneginf().any():
+        #             print(f"Failed at {t} with {scores.isneginf().sum()}, {scores}, {new_score}")
         #     assert scores.ndim == 2 and scores.size(0) == x.size(0) and scores.size(1) == x.size(1)
         #     return scores
+        
+        def forward(self, x: torch.Tensor, length: torch.Tensor, vocab: Vocabulary):
+            assert x.ndim == 3
+            scores = torch.zeros((x.size(0), x.size(1)), dtype=torch.float32, device=x.device)
+            for i in range(x.size(0)):
+                for j in range(x.size(1)):
+                    sentence = x[i, j, :].tolist()
+                    sentence = [vocab.id_to_label(c) for c in sentence]
+                    sentence = " ".join(sentence).replace("@@ ", "")
+                    if sentence.endswith("@@"):
+                        sentence = sentence[:-2]
+                    scores[i, j] = self.lm.score(sentence)
+            assert scores.ndim == 2 and scores.size(0) == x.size(0) and scores.size(1) == x.size(1)
+            return scores
         
     model = Model(lm)
 

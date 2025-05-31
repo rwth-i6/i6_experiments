@@ -425,7 +425,7 @@ def sum_loss_ngram(
     # BoS / EoS and UNK are in the LM
     assert log_lm_probs.size() == (vocab_size + 2,) * LM_order, f"LM shape is not correct, should be {vocab_size + 2} in all dimensions but is {log_lm_probs.size()}"
     if use_prior:
-        assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
+        assert log_prior.size() == (n_out - 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out - 1} but is {log_prior.size()}"
         if top_k > 0:
             assert horizontal_prior, "Not using the horizontal prior is not implemented for top_k > 0"
 
@@ -2237,9 +2237,15 @@ def test_LM():
     print(safe_logsumexp(t, dim=-1))
     print(t.isnan().sum())
     
+def test_arpa():
+    import kenlm
+    
+    lm = kenlm.Model("/u/marten.mueller/dev/ctc_baseline/work/i6_core/lm/kenlm/CreateBinaryLMJob.de9S4OxfBkxq/output/lm.bin")
+    print(lm.score("Hello World", bos = True, eos = True))
+    
 def test_get_bpes():
     tokens = "[117] [117] [117] [117] [117] [117] [117] [46] [46] [46] [46] [21] [35] [35] [55] [55] [120] [120] [120] [26] [26] [76] [13] [26] [10] [10] [74] [116] [7] [7] [19] [13] [53] [57] [57] [108] [108] [10] [10] [10] [42] [42] [24] [24] [34] [34] [34] [55] [25] [14] [14] [18] [18] [18] [18] [18] [156] [156] [9] [81] [81] [13] [15] [21] [50] [50] [23] [23] [113] [113] [113] [28] [77] [77] [27] [27] [39] [170] [2] [18] [18] [20] [20] [142] [142] [142] [170] [170] [170] [106] [106] [7] [7] [33] [33] [162] [162] [162] [52] [52] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18]"
     print(get_bpes(tokens))
 
 if __name__ == "__main__":
-    test()
+    test_arpa()

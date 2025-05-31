@@ -19,6 +19,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ct
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL
 from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
+from i6_experiments.users.mueller.experiments.ctc_baseline.utils import convert_to_output_hyps, plot_grad, hyps_ids_to_label
 from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
@@ -47,7 +48,6 @@ def recog_flashlight_ngram(
     """
     from torchaudio.models.decoder import ctc_decoder
     import torch
-    import json
     from returnn.util.basic import cf
     from i6_experiments.users.mueller.experiments.language_models.ffnn import FFNN_LM_flashlight
     
@@ -59,6 +59,7 @@ def recog_flashlight_ngram(
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+    n_best = hyp_params.pop("ps_nbest", 1)
     
     if greedy:
         use_logsoftmax = True
@@ -118,7 +119,7 @@ def recog_flashlight_ngram(
     
     configs.update(hyp_params)
     
-    assert "ps_nbest" not in configs, "We only support nbest == 1"
+    configs["nbest"] = n_best
     
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
@@ -128,7 +129,6 @@ def recog_flashlight_ngram(
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
     if use_lexicon:
-        print("Use words directly!")
         if CHECK_DECODER_CONSISTENCY:
             for l1 in decoder_results:
                 for l2 in l1:
@@ -277,24 +277,10 @@ def recog_flashlight_ffnn(
 ) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
     from dataclasses import dataclass
     import torch
-    import json
     from flashlight.lib.text.decoder import LM, LMState
     from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
     from returnn.util import basic as util
     
-    def _output_hyps(hyp: list, model: Model) -> str:
-        prev = None
-        ls = []
-        for h in hyp:
-            if h != prev:
-                ls.append(h)
-                prev = h
-        ls = [model.target_dim.vocab.id_to_label(h) for h in ls if h != model.blank_idx]
-        s = " ".join(ls).replace("@@ ", "")
-        if s.endswith("@@"):
-            s = s[:-2]
-        return s
-
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
@@ -579,7 +565,7 @@ def recog_flashlight_ffnn(
         if len(results) >= n_best:
             if n_best > 1:
                 # We have to select the n_best on output level
-                hyps_shortened = [_output_hyps(hyp, model) for hyp in hyps_per_batch]
+                hyps_shortened = [hyps_ids_to_label(model, hyp, True) for hyp in hyps_per_batch]
                 nbest_hyps = []
                 nbest_hyps_ids = []
                 k = 0
@@ -638,8 +624,6 @@ def recog_ffnn(
     version: int = 1,
     print_idx: list = []
 ):
-    import json
-    
     def _update_context(context: Tensor, new_label: Tensor, context_dim: Dim) -> Tensor:
         new_dim = Dim(1, name="new_label")
         new_label = rf.expand_dim(new_label, dim=new_dim)
@@ -930,8 +914,6 @@ def recog_gradients(
     version: int = 1,
     print_idx: list = [],
 ) -> Tuple[Tuple[Tensor, Tensor], Tensor, Dim]:
-    import json
-    
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
     am_scale = hyp_params.pop("am_scale", 1.0)
@@ -1051,7 +1033,7 @@ def recog_gradients(
                 loss = sum_loss_ngram(
                     log_probs=log_prob_raw,
                     log_lm_probs=lm_log_probs,
-                    log_prior=prior.raw_tensor,
+                    log_prior=prior.raw_tensor if prior is not None else None,
                     input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
                     top_k=beam_size,
                     LM_order=lm_log_probs.ndim,
@@ -1179,42 +1161,3 @@ def recog_gradients(
     loss = rf.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name="full_sum")
     
     return (gradients, indices), loss, enc_spatial_dim
-
-def convert_to_output_hyps(model: Model, hyp: list) -> list:
-    prev = None
-    ls = []
-    for h in hyp:
-        if h != prev:
-            ls.append(h)
-            prev = h
-    ls = [h for h in ls if h != model.blank_idx]
-    return ls
-
-def plot_grad(gradients, title):
-    import matplotlib.pyplot as plt
-    import matplotlib.cm as cm
-    from datetime import datetime
-    
-    fig, ax = plt.subplots(figsize=(15, 15))
-    fig.supylabel("Vocab")
-    fig.supxlabel("Timestep")
-    
-    
-    # ax.imshow(gradients.T, origin="lower", cmap=cm.gray)
-    # ax.set_yticks(np.arange(0, 185, 10))
-    # ax.set_title("Gradients " + title)
-    # g_min = -1 * gradients.min()
-    # g_max = -1 * gradients.max()
-    # ax.text(2, -20, f'black: 1.0, white: 0.0', bbox={'facecolor': 'white', 'pad': 10})
-    
-    # now = datetime.now()
-    # fig.savefig("/u/marten.mueller/dev/ctc_baseline/output/plots/gradients" + now.strftime("_%H:%M:%S_%d-%m") + ".png")
-    
-    log_gr = np.log((-gradients))
-    ax.imshow(-log_gr.T, origin="lower", cmap=cm.gray)
-    ax.set_yticks(np.arange(0, 185, 10))
-    ax.set_title("Log Gradients " + title)
-    ax.text(2, -20, f'black: {log_gr.max()}, white: {log_gr.min()}', bbox={'facecolor': 'white', 'pad': 10})
-    
-    now = datetime.now()
-    fig.savefig("/u/marten.mueller/dev/ctc_baseline/output/plots/log_gradients" + now.strftime("_%H:%M:%S_%d-%m") + ".png")
