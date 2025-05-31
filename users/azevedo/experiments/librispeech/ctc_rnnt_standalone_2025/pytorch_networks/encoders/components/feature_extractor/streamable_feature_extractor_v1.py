@@ -11,7 +11,11 @@ from ....streamable_module import StreamableModule
 from ....common import mask_tensor, num_samples_to_frames
 from ....base_config import BaseConfig
 
-from returnn.torch.context import get_run_ctx
+
+try:
+    from returnn.torch.context import get_run_ctx
+except ModuleNotFoundError:
+    print("WARNING! Module 'returnn.torch.context' not found but proceeding regardless")
 
 
 
@@ -28,14 +32,14 @@ class StreamableFeatureExtractorV1Config(BaseConfig):
     specaug_cfg: SpecaugConfig
     specaug_start_epoch: int
 
-    def module():
+    def module(self):
         return StreamableFeatureExtractorV1
     
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
         d["logmel_cfg"] = LogMelFeatureExtractionV1Config(**d["logmel_cfg"])
-        d["specaug_config"] = SpecaugConfig(**d["specaug_config"])
+        d["specaug_cfg"] = SpecaugConfig(**d["specaug_cfg"])
 
         return StreamableFeatureExtractorV1Config(**d)
     

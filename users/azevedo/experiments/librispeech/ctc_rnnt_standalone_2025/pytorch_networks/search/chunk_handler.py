@@ -60,7 +60,7 @@ class AudioStreamer:
         
         self.pad_value = pad_value if pad_value is not None else 0.0
 
-    def __iter__(self) -> Generator[Tuple[torch.Tensor, int]]:
+    def __iter__(self) -> Generator[Tuple[torch.Tensor, int], None, None]:
         """Every chunk returned should have same size (self.left_size + self.right_size). 
         In real streaming setting we don't know if last chunk was received until we wait 
         longer than total chunk size.

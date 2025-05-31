@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple, Union, Any
 
 from i6_models.parts.dropout import BroadcastDropout
 from ...base_config import BaseConfig
@@ -15,13 +15,17 @@ class LSTMPredictorConfig(BaseConfig):
     num_lstm_layers: int
     lstm_hidden_dim: int
     lstm_dropout: float
+
+    label_target_size: Union[int, Any]
+    output_dim: int
+    dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
     
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
         return LSTMPredictorConfig(**d)
     
-    def module():
+    def module(self):
         return LSTMPredictor
     
 
@@ -31,20 +35,18 @@ class LSTMPredictor(torch.nn.Module):
     Taken from torchaudio
     """
 
-    def __init__(
-        self,
-        cfg: LSTMPredictorConfig,
-        label_target_size: int,
-        output_dim: int,
-        dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]],
-    ) -> None:
+    def __init__(self, cfg: LSTMPredictorConfig) -> None:
         """
-
         :param cfg: model configuration for the predictor
         :param label_target_size: shared value from model
         :param output_dim: shared value from model
         """
         super().__init__()
+
+        label_target_size = cfg.label_target_size
+        output_dim = cfg.output_dim
+        dropout_broadcast_axes = cfg.dropout_broadcast_axes
+
         self.embedding = torch.nn.Embedding(label_target_size, cfg.symbol_embedding_dim)
         self.embedding_dropout = BroadcastDropout(dropout_broadcast_axes=dropout_broadcast_axes, p=cfg.emebdding_dropout)
         self.input_layer_norm = torch.nn.LayerNorm(cfg.symbol_embedding_dim)

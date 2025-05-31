@@ -42,3 +42,13 @@ SUBWORD_NMT_REPO = get_returnn_subword_nmt(
     commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
 ).copy()
 SUBWORD_NMT_REPO.hash_overwrite = "I6_SUBWORD_NMT_V2"
+
+
+# used tk.import_work_directory to not download Librispeech again
+# However CloneGitRepositoryJob's should not be imported (got weird 'errors')
+# tk.register_output("1", MINI_RETURNN_ROOT)
+# tk.register_output("2", I6_MODELS_REPO_PATH)
+# tk.register_output("3", I6_NATIVE_OPS_REPO_PATH)
+# tk.register_output("4", kenlm_repo)
+# tk.register_output("5", SUBWORD_NMT_REPO)
+# tk.register_output("6", SCTK_BINARY_PATH)

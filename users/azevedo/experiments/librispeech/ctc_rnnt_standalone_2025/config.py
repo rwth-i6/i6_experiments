@@ -42,12 +42,10 @@ def get_training_config(
     # changing these does not change the hash
     base_post_config = {"stop_on_nonfinite_train_score": True, "num_workers_per_gpu": 2, "backend": "torch"}
 
-    # TODO: test
     base_config = {
         "cleanup_old_models": {
             "keep_last_n": 4,
             "keep_best_n": 4,
-            "keep": [1, 10, 125]
         },
         #############
         "train": copy.deepcopy(training_datasets.train.as_returnn_opts()),

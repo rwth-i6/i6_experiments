@@ -13,8 +13,6 @@ from ....streamable_module import StreamableModule
 
 
 
-# TODO: config (put dual_mode in config)
-
 class StreamableConformerMHSARelPosV2(StreamableModule):
     def __init__(self, cfg: ConformerMHSARelPosV1Config, dual_mode: bool):
         super().__init__()

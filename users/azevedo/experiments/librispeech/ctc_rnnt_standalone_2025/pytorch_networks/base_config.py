@@ -28,5 +28,5 @@ class BaseConfig(ModelConfiguration):
     def from_dict(cls, data: dict):
         raise NotImplementedError
     
-    def module():
+    def module(self):
         raise NotImplementedError

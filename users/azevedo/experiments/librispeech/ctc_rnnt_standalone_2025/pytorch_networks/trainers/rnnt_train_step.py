@@ -4,7 +4,7 @@ from typing import Tuple
 
 from i6_native_ops import warp_rnnt
 from .train_handler import TrainStepMode, LossEntry, List, Dict
-from ..streamable_module import StreamableModule
+from ..rnnt.base_streamable_rnnt import StreamableRNNT
 from ..common import Mode
 
 
@@ -13,7 +13,7 @@ class RNNTTrainStepMode(TrainStepMode):
     def __init__(self):
         super().__init__()
 
-    def step(self, model: StreamableModule, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
+    def step(self, model: StreamableRNNT, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
 
         raw_audio = data["raw_audio"]  # [B, T', F]
         raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
@@ -35,19 +35,17 @@ class RNNTTrainStepMode(TrainStepMode):
         )
         
         logprobs = torch.log_softmax(logits, dim=-1)
-        fastemit_lambda = model.cfg.fastemit_lambda
         rnnt_loss = warp_rnnt.rnnt_loss(
             log_probs=logprobs,
             frames_lengths=audio_features_len.to(dtype=torch.int32),
             labels=labels,
             labels_lengths=labels_len.to(dtype=torch.int32),
             blank=model.cfg.label_target_size,
-            fastemit_lambda=fastemit_lambda if fastemit_lambda is not None else 0.0,
+            fastemit_lambda=0.0,
             reduction="sum",
             gather=True,
         )
 
-        mode_str = mode.name.lower()[:3]
         ctc_loss = None
         if ctc_logprobs is not None:
             transposed_logprobs = torch.permute(ctc_logprobs, (1, 0, 2))  # CTC needs [T, B, #vocab + 1]
@@ -63,6 +61,7 @@ class RNNTTrainStepMode(TrainStepMode):
             )
         
 
+        mode_str = mode.name.lower()[:3]
         loss_dict = {
             "rnnt.%s" % mode_str: {
                 "loss": rnnt_loss,

@@ -55,7 +55,6 @@ class MRNNTTrainStepMode(TrainStepMode):
         else:
             rnnt_loss = torch.zeros([], dtype=torch.float32, device=logits.device)
 
-        mode_str = mode.name.lower()[:3]
         ctc_loss = None
         if ctc_logprobs is not None:
             transposed_logprobs = torch.permute(ctc_logprobs, (1, 0, 2))  # CTC needs [T, B, #vocab + 1]
@@ -71,6 +70,7 @@ class MRNNTTrainStepMode(TrainStepMode):
             )
 
 
+        mode_str = mode.name.lower()[:3]
         loss_dict = {
             "mrnnt.%s" % mode_str: {
                 "loss": rnnt_loss,

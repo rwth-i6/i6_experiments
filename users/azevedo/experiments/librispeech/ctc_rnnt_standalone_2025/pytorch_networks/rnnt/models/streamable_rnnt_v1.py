@@ -6,8 +6,9 @@ from ...trainers.rnnt_train_step import RNNTTrainStepMode
 def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     # NOTE: only need to change `train_step_mode` for different model
+    train_strat: train_handler.TrainingStrategy = None
     train_step_mode = RNNTTrainStepMode()
-    match model.cfg.training_strategy:
+    match model.cfg.train_mode:
         case train_handler.TrainMode.UNIFIED:
             train_strat = train_handler.TrainUnified(model, train_step_mode, streaming_scale=model.cfg.streaming_scale)
         case train_handler.TrainMode.SWITCHING:
@@ -17,7 +18,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         case train_handler.TrainMode.OFFLINE:
             train_strat = train_handler.TrainOffline(model, train_step_mode)
         case _:
-            NotImplementedError("Training Strategy not available.")
+            raise NotImplementedError("Training Strategy not available.")
 
     loss_dict, num_phonemes = train_strat.step(data)
     

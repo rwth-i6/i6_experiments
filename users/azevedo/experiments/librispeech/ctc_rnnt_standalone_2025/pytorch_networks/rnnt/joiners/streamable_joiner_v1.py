@@ -1,5 +1,5 @@
 import torch
-from typing import Optional, Tuple, Literal
+from typing import Optional, Tuple, Literal, Union, Any, Callable
 from dataclasses import dataclass
 
 from ...base_config import BaseConfig
@@ -7,27 +7,23 @@ from ...base_config import BaseConfig
 from .base_joiner import Joiner
 from ...streamable_module import StreamableModule
 
-from returnn.torch.context import get_run_ctx
-
 
 
 @dataclass(kw_only=True)
 class StreamableJoinerConfig(BaseConfig):
     input_dim: int
-    output_dim: int 
-    activation: str = "relu" 
-    dropout: float = 0.0 
+    output_dim: Union[int, Any] 
+    activation: Union[str, torch.nn.Module, Callable[[torch.Tensor], torch.Tensor]] = "relu" 
+    dropout: float
     dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]] = None
-    dual_mode: bool = True
+    dual_mode: bool
     
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
-        assert d["activation"].lower() == "relu"
-        d["activation"] = torch.nn.functional.relu
         return StreamableJoinerConfig(**d)
     
-    def module():
+    def module(self):
         return StreamableJoinerV1
 
 
@@ -45,16 +41,18 @@ class StreamableJoinerV1(StreamableModule):
 
     def __init__(self, cfg: StreamableJoinerConfig) -> None:
         super().__init__()
+        out_dim = cfg.output_dim  # + 1  # NOTE: because of blank
+
         self.joiner_off = Joiner(
             input_dim=cfg.input_dim,
-            output_dim=cfg.output_dim,
+            output_dim=out_dim,
             activation=cfg.activation,
             dropout=cfg.dropout,
             dropout_broadcast_axes=cfg.dropout_broadcast_axes
         )
         self.joiner_on = Joiner(
             input_dim=cfg.input_dim,
-            output_dim=cfg.output_dim,
+            output_dim=out_dim,
             activation=cfg.activation,
             dropout=cfg.dropout,
             dropout_broadcast_axes=cfg.dropout_broadcast_axes

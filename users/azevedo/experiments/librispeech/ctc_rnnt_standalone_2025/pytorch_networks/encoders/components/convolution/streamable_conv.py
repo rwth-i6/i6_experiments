@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 # from i6_models.parts.conformer import ConformerConvolutionV1Config
+from i6_models.parts.conformer.norm import LayerNormNC
 
 from ..streamable_layernorm import StreamableLayerNormV1
 from ....streamable_module import StreamableModule
@@ -27,8 +28,8 @@ class StreamableConformerConvolutionV1Config(BaseConfig):
     channels: int
     kernel_size: int
     dropout: float
-    activation: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
-    norm: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
+    activation: Union[str, nn.Module, Callable[[torch.Tensor], torch.Tensor]]
+    # norm: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
 
     def check_valid(self):
         assert self.kernel_size % 2 == 1, "ConformerConvolutionV1 only supports odd kernel sizes"
@@ -61,7 +62,7 @@ class StreamableConformerConvolutionV1(StreamableModule):
         )
         self.pointwise_conv2 = nn.Linear(in_features=model_cfg.channels, out_features=model_cfg.channels)
         self.layer_norm = StreamableLayerNormV1(model_cfg.channels, dual_mode=dual_mode)
-        self.norm = deepcopy(model_cfg.norm)
+        self.norm = LayerNormNC(model_cfg.channels)
         self.dropout = nn.Dropout(model_cfg.dropout)
         self.activation = model_cfg.activation
 

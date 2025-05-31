@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import Tuple, List, Optional, Any
+from typing import Tuple, List, Optional, Union
 from dataclasses import dataclass
 
 from i6_models.config import ModuleFactoryV1
@@ -39,26 +39,27 @@ class StreamableEncoder(StreamableModule):
     """
     TODO
     """
-    def __init__(self, config: dict):
+    def __init__(self, config: Union[StreamableEncoderConfig, dict]):
         super().__init__()
 
-        self.cfg: StreamableEncoderConfig = StreamableEncoderConfig.load_config(config)
+        if isinstance(config, dict):
+            config: StreamableEncoderConfig = StreamableEncoderConfig.load_config(config)
 
         self.feature_extraction: StreamableModule = ModuleFactoryV1(
-            module_class=self.cfg.feature_extractor.module(), 
-            cfg=self.cfg.feature_extraction
+            module_class=config.feature_extractor.module(), 
+            cfg=config.feature_extractor
         )()
         self.frontend: StreamableModule = ModuleFactoryV1(
-            module_class=self.cfg.frontend.module(),
-            cfg=self.cfg.frontend
+            module_class=config.frontend.module(),
+            cfg=config.frontend
         )()
         enc_blocks_factory = ModuleFactoryV1(
-            module_class=self.cfg.encoder_blocks.module(), 
-            cfg=self.cfg.encoder_blocks
+            module_class=config.encoder_blocks.module(), 
+            cfg=config.encoder_blocks
         )
-        self.encoder_blocks: List[StreamableModule] = [enc_blocks_factory() for _ in range(self.cfg.num_layers)]
+        self.encoder_blocks: List[StreamableModule] =nn.ModuleList([enc_blocks_factory() for _ in range(config.num_layers)])
 
-        self.final_linear = nn.Linear(self.cfg.encoder_blocks.ff_cfg.input_dim, self.cfg.out_dim)
+        self.final_linear = nn.Linear(config.encoder_blocks.ff_cfg.input_dim, config.out_dim)
 
 
     def forward_offline(
@@ -70,7 +71,7 @@ class StreamableEncoder(StreamableModule):
         """
         data_tensor, sequence_mask = self.feature_extraction(raw_audio, raw_audio_len)
         x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # [B, T, F']
-        for module in self.module_list:
+        for module in self.encoder_blocks:
             x = module(x, sequence_mask)  # [B, T, F']
 
         out = self.final_linear(x)
@@ -90,8 +91,6 @@ class StreamableEncoder(StreamableModule):
 
         batch_sz, num_chunks, _, _ = data_tensor.shape
 
-        data_tensor = data_tensor.flatten(0, 1)  # [B*N, C, F]
-        sequence_mask = sequence_mask.flatten(0, 1)
         x, sequence_mask = self.frontend(data_tensor, sequence_mask)
 
         x = x.view(batch_sz, num_chunks, -1, x.size(-1))
@@ -108,7 +107,7 @@ class StreamableEncoder(StreamableModule):
             device=x.device
         )
 
-        for module in self.module_list:
+        for module in self.encoder_blocks:
             x = module(
                 x, sequence_mask, 
                 attn_mask=attn_mask,

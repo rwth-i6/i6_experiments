@@ -44,8 +44,22 @@ class VGG4LayerActFrontendV1Config(BaseConfig):
     pool2_kernel_size: Tuple[int, int]
     pool2_stride: Optional[Tuple[int, int]]
     pool2_padding: Optional[Tuple[int, int]]
-    activation: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
     out_features: int
+    activation_str: str = ""
+    activation: Optional[Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]] = None
+
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        activation_str = d.pop("activation_str")
+        if activation_str == "ReLU":
+            from torch.nn import ReLU
+            activation = ReLU()
+        else:
+            assert False, "Unsupported activation %s" % d["activation_str"]
+        d["activation"] = activation
+        return VGG4LayerActFrontendV1Config(**d)
 
     def check_valid(self):
         if isinstance(self.conv_kernel_size, int):

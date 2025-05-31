@@ -1,5 +1,5 @@
 import torch
-from typing import Callable, Optional, Literal
+from typing import Callable, Optional, Literal, Union
 from dataclasses import dataclass
 
 from i6_models.parts.conformer import ConformerPositionwiseFeedForwardV2
@@ -21,7 +21,7 @@ class StreamableConformerPositionwiseFeedForwardConfig(BaseConfig):
     input_dim: int
     hidden_dim: int
     dropout: float
-    activation: Callable[[torch.Tensor], torch.Tensor]
+    activation: Union[str, Callable[[torch.Tensor], torch.Tensor]]
     dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
 
     def check_valid(self):

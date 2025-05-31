@@ -3,7 +3,7 @@
 # a train_step function
 
 import torch
-from typing import Dict, Union
+from typing import Dict, Union, Optional, Any
 from dataclasses import dataclass
 
 from i6_models.config import ModuleFactoryV1
@@ -19,7 +19,7 @@ from ..trainers import train_handler
 
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StreamableRNNTConfig(BaseConfig):
     """
     """
@@ -27,13 +27,16 @@ class StreamableRNNTConfig(BaseConfig):
     predictor: BaseConfig
     joiner: BaseConfig
 
-    chunk_size: float  # in #samples
-    lookahead_size: int  # in #frames after frontend
-    carry_over_size: int  # in #chunks after frontend
-    dual_mode: bool
+    label_target_size: Union[int, Any]  # TODO: maybe infer this in Model from some abstract Joiner config (abstract config should have output_dim)
 
-    streaming_scale: float
+    chunk_size: Optional[float]  # in #samples
+    lookahead_size: Optional[int]  # in #frames after frontend subsampling
+    carry_over_size: Optional[int]  # in #chunks after frontend subsampling
+    dual_mode: Optional[bool]
+    streaming_scale: Optional[float]
+
     train_mode: Union[str, train_handler.TrainMode]
+    ctc_output_loss: float
 
     def module(self):
         return StreamableRNNT
@@ -42,15 +45,16 @@ class StreamableRNNTConfig(BaseConfig):
     def from_dict(cls, d):
         d = d.copy()
         
-        d["encoder"] = BaseConfig.load_config(d["feature_extractor"])
+        d["encoder"] = BaseConfig.load_config(d["encoder"])
         d["predictor"] = BaseConfig.load_config(d["predictor"])
         d["joiner"] = BaseConfig.load_config(d["joiner"])
+        d["train_mode"] = {str(strat): strat for strat in train_handler.TrainMode}[d["train_mode"]]
 
         return StreamableRNNTConfig(**d)
 
 
 class StreamableRNNT(StreamableModule):
-    def __init__(self, model_config_dict: Dict):
+    def __init__(self, model_config_dict: Dict, **kwargs):
         super().__init__()
 
         self.cfg: StreamableRNNTConfig = StreamableRNNTConfig.from_dict(model_config_dict)
@@ -70,18 +74,18 @@ class StreamableRNNT(StreamableModule):
 
         # TODO: do this differently... maybe as FinalModule
         if self.cfg.ctc_output_loss > 0:
-            self.encoder_ctc_on = torch.nn.Linear(self.cfg.conformer_size, self.cfg.label_target_size + 1)
+            self.encoder_ctc_on = torch.nn.Linear(self.cfg.encoder.encoder_size, self.cfg.label_target_size + 1)
             if self.cfg.dual_mode:
-                self.encoder_ctc_off = torch.nn.Linear(self.cfg.conformer_size, self.cfg.label_target_size + 1)
+                self.encoder_ctc_off = torch.nn.Linear(self.cfg.encoder.encoder_size, self.cfg.label_target_size + 1)
             else:
                 self.encoder_ctc_off = self.encoder_ctc_on
-        
+
+        # NOTE: maybe add dropout to output (see conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 model)
+        #   - not done in 0325
         self.chunk_size = self.cfg.chunk_size
         self.lookahead_size = self.cfg.lookahead_size
         self.carry_over_size = self.cfg.carry_over_size
 
-        self.output_dropout = BroadcastDropout(p=self.cfg.final_dropout,
-                                               dropout_broadcast_axes=self.cfg.dropout_broadcast_axes)
 
     def forward_offline(
             self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor,
@@ -92,16 +96,17 @@ class StreamableRNNT(StreamableModule):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T + N, #labels + blank]
         """
-        (b4_final_lin, conformer_out), conformer_out_lengths = self.conformer(raw_audio, raw_audio_len)
+        # TODO: maybe return encoder_out_layers like conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1.py
+        (b4_final_lin, encoder_out), encoder_out_lengths = self.encoder(raw_audio, raw_audio_len)
 
         predict_out, _, _ = self.predictor(
             input=labels,
             lengths=labels_len,
         )
 
-        output_logits, src_len, tgt_len = self.joiner(
-            source_encodings=conformer_out,
-            source_lengths=conformer_out_lengths,
+        output_logits, src_len, _ = self.joiner(
+            source_encodings=encoder_out,
+            source_lengths=encoder_out_lengths,
             target_encodings=predict_out,
             target_lengths=labels_len,
         )  # output is [B, T, N, #vocab]
@@ -126,7 +131,7 @@ class StreamableRNNT(StreamableModule):
         :param labels_len: length of N as [B]
         :return: logprobs [B, T + N, #labels + blank]
         """
-        (b4_final_lin, conformer_out), conformer_out_lengths = self.conformer(
+        (b4_final_lin, encoder_out), encoder_out_lengths = self.encoder(
             raw_audio, raw_audio_len,
             chunk_size=self.chunk_size,
             lookahead_size=self.lookahead_size,
@@ -138,9 +143,9 @@ class StreamableRNNT(StreamableModule):
             lengths=labels_len,
         )
 
-        output_logits, src_len, tgt_len = self.joiner(
-            source_encodings=conformer_out,
-            source_lengths=conformer_out_lengths,
+        output_logits, src_len, _ = self.joiner(
+            source_encodings=encoder_out,
+            source_lengths=encoder_out_lengths,
             target_encodings=predict_out,
             target_lengths=labels_len,
         )  # output is [B, T, N, #vocab]

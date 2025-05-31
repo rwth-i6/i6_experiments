@@ -48,7 +48,7 @@ class StreamableRelPosConformerBlockConfigV1(BaseConfig):
         
         return StreamableRelPosConformerBlockConfigV1(**d)
 
-    def module():
+    def module(self):
         return StreamableRelPosConformerBlock
 
 
