@@ -1,3 +1,4 @@
+from copy import copy
 from dataclasses import fields
 from typing import List, Literal, Optional
 
@@ -189,8 +190,8 @@ def run_recog(
     corpus_name: str,
     checkpoint: PtCheckpoint,
     model_config: ConformerCTCConfig,
-    lm_checkpoint: Optional[PtCheckpoint] = None,
-    lm_config: Optional[LstmLmConfig] = None,
+    # lm_checkpoint: Optional[PtCheckpoint] = None,
+    # lm_config: Optional[LstmLmConfig] = None,
     lm_scale: float = 0.0,
     prior_scale: float = 0.0,
     blank_penalty: float = 0.0,
@@ -215,21 +216,33 @@ def run_recog(
 
     label_scorer_config = get_no_op_label_scorer_config()
 
-    if lm_scale != 0:
-        assert lm_checkpoint is not None
-        assert lm_config is not None
-        lm_label_scorer_config = get_lstm_lm_label_scorer_config(model_config=lm_config, checkpoint=lm_checkpoint)
-        label_scorer_config = get_combine_label_scorer_config(
-            [(label_scorer_config, 1.0), (lm_label_scorer_config, lm_scale)]
-        )
+    # if lm_scale != 0:
+    #     assert lm_checkpoint is not None
+    #     assert lm_config is not None
+    #     lm_label_scorer_config = get_lstm_lm_label_scorer_config(model_config=lm_config, checkpoint=lm_checkpoint)
+    #     label_scorer_config = get_combine_label_scorer_config(
+    #         [(label_scorer_config, 1.0), (lm_label_scorer_config, lm_scale)]
+    #     )
 
     rasr_config_file = get_rasr_config_file(
         recog_options=recog_options,
         label_scorer_config=label_scorer_config,
     )
-    # rasr_config_file = tk.Path(
-    #     "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_core/rasr/config/WriteRasrConfigJob.IL8J55AwcVWX/output/rasr.config"
-    # )
+
+    align_recog_options = RasrRecogOptions(
+        vocab_file=recog_options.vocab_file,
+        lexicon_file=recog_options.lexicon_file,
+        max_beam_size=2048,
+        score_threshold=20.0,
+        blank_index=recog_options.blank_index,
+        collapse_repeated_labels=recog_options.collapse_repeated_labels,
+        lm_config=recog_options.lm_config,
+        am_config=recog_options.am_config,
+    )
+    align_rasr_config_file = get_rasr_config_file(
+        recog_options=align_recog_options,
+        label_scorer_config=label_scorer_config,
+    )
 
     return recog_rasr(
         descriptor=descriptor,
@@ -237,8 +250,10 @@ def run_recog(
         recog_corpus=get_default_score_corpus(corpus_name=corpus_name),
         model_serializers=get_model_serializers(model_class=ConformerCTCRecogModel, model_config=recog_model_config),
         rasr_config_file=rasr_config_file,
+        rasr_align_config_file=align_rasr_config_file,
         compute_search_errors=compute_search_errors,
         sample_rate=16000,
+        lm_scale=lm_scale,
         device=device,
         checkpoint=checkpoint,
     )
@@ -278,21 +293,27 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
         recog_options.max_beam_size = 64
         recog_options.score_threshold = 10.0
 
-        for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            for lm_scale in [0.4, 0.6, 0.8, 1.0, 1.2]:
-                for prior_scale in [0.0, 0.2, 0.3, 0.4]:
-                    recog_options.lm_config.scale = lm_scale
-                    recog_results.append(
-                        run_recog(
-                            descriptor=f"bpe-ctc_recog-rasr_tree_prior-{prior_scale:.1f}_4gram-{lm_scale:.1f}",
-                            corpus_name=corpus_name,
-                            model_config=model_config,
-                            checkpoint=checkpoint,
-                            recog_options=recog_options,
-                            prior_scale=prior_scale,
-                            compute_search_errors=True,
-                        )
-                    )
+        # for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+        for corpus_name in ["dev-other"]:
+            for score_threshold in [10.0, 14.0, 18.0, 22.0]:
+                for max_beam_size in [64, 1024, 8192]:
+                    for lm_scale in [0.6]:
+                        for prior_scale in [0.0, 0.2]:
+                            recog_options.max_beam_size = max_beam_size
+                            recog_options.score_threshold = score_threshold
+                            recog_options.lm_config.scale = lm_scale
+                            recog_results.append(
+                                run_recog(
+                                    descriptor=f"bpe-ctc_recog-rasr_tree_prior-{prior_scale:.1f}_4gram-{lm_scale:.1f}_beam-{max_beam_size}_score-{score_threshold}",
+                                    corpus_name=corpus_name,
+                                    model_config=model_config,
+                                    checkpoint=checkpoint,
+                                    recog_options=recog_options,
+                                    prior_scale=prior_scale,
+                                    compute_search_errors=True,
+                                    lm_scale=lm_scale,
+                                )
+                            )
 
         # for max_beam_size in [2, 4, 6, 8, 10]:
         #     for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:

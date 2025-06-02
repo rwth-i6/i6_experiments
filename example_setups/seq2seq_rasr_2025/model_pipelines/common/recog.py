@@ -36,6 +36,9 @@ class RecogResult:
     insertion: tk.Variable
     substitution: tk.Variable
     search_error_rate: tk.Variable
+    model_error_rate: tk.Variable
+    skipped_rate: tk.Variable
+    correct_rate: tk.Variable
     enc_rtf: tk.Variable
     search_rtf: tk.Variable
     total_rtf: tk.Variable
@@ -47,7 +50,10 @@ class SearchCallback(ForwardCallbackIface):
         self.total_enc_time = 0
         self.total_search_time = 0
 
+        self.total_skipped = 0
+        self.total_correct = 0
         self.total_search_errors = 0
+        self.total_model_errors = 0
         self.total_seqs = 0
 
         self.recognition_file = open("search_out.py", "w")
@@ -60,7 +66,10 @@ class SearchCallback(ForwardCallbackIface):
         token_str = " ".join(token_seq)
         self.recognition_file.write(f"{repr(seq_tag)}: {repr(token_str)},\n")
 
+        self.total_skipped += raw_outputs["skipped"]
+        self.total_correct += raw_outputs["correct"]
         self.total_search_errors += raw_outputs["search_errors"]
+        self.total_model_errors += raw_outputs["model_errors"]
         self.total_audio_samples += raw_outputs["audio_samples_size"]
         self.total_enc_time += raw_outputs["enc_time"]
         self.total_search_time += raw_outputs["search_time"]
@@ -71,8 +80,14 @@ class SearchCallback(ForwardCallbackIface):
 
         with open("search_errors.py", "w") as search_error_file:
             search_error_file.write("{\n")
+            search_error_file.write(f'    "total_skipped": {self.total_skipped},\n')
+            search_error_file.write(f'    "skipped_rate": {self.total_skipped / self.total_seqs},\n')
+            search_error_file.write(f'    "total_correct": {self.total_correct},\n')
+            search_error_file.write(f'    "correct_rate": {self.total_correct / self.total_seqs},\n')
             search_error_file.write(f'    "total_search_errors": {self.total_search_errors},\n')
             search_error_file.write(f'    "search_error_rate": {self.total_search_errors / self.total_seqs},\n')
+            search_error_file.write(f'    "total_model_errors": {self.total_model_errors},\n')
+            search_error_file.write(f'    "model_error_rate": {self.total_model_errors / self.total_seqs},\n')
             search_error_file.write("}\n")
 
         with open("rtf.py", "w") as rtf_file:
@@ -114,8 +129,14 @@ class SearchCallback(ForwardCallbackIface):
 class ExtractSearchErrorRateJob(Job):
     def __init__(self, search_error_file: tk.Path) -> None:
         self.search_error_file = search_error_file
+        self.out_skipped = self.output_var("skipped")
+        self.out_skipped_rate = self.output_var("skipped_rate")
+        self.out_correct = self.output_var("correct")
+        self.out_correct_rate = self.output_var("correct_rate")
         self.out_search_errors = self.output_var("search_errors")
         self.out_search_error_rate = self.output_var("search_error_rate")
+        self.out_model_errors = self.output_var("model_errors")
+        self.out_model_error_rate = self.output_var("model_error_rate")
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", mini_task=True)
@@ -123,8 +144,14 @@ class ExtractSearchErrorRateJob(Job):
     def run(self) -> None:
         with open(self.search_error_file.get(), "r") as f:
             result_dict = eval(f.read())
+            self.out_skipped.set(result_dict["total_skipped"])
+            self.out_skipped_rate.set(result_dict["skipped_rate"])
+            self.out_correct.set(result_dict["total_correct"])
+            self.out_correct_rate.set(result_dict["correct_rate"])
             self.out_search_errors.set(result_dict["total_search_errors"])
-            self.out_search_error_rate.set(result_dict["search_error_rate"] * 100)
+            self.out_search_error_rate.set(result_dict["search_error_rate"])
+            self.out_model_errors.set(result_dict["total_model_errors"])
+            self.out_model_error_rate.set(result_dict["model_error_rate"])
 
 
 class ExtractSearchRTFJob(Job):
@@ -190,6 +217,9 @@ def _base_recog_forward_step(
     token_lengths = []
 
     search_errors = []
+    model_errors = []
+    skipped = []
+    correct = []
 
     encoder_times = []
     search_times = []
@@ -239,16 +269,37 @@ def _base_recog_forward_step(
 
             if alignment_str != orths[b]:
                 print("    Could not successfully compute forced alignment. Transcription may contain OOV words.")
+                skipped.append(1)
                 search_errors.append(0)
-            elif recog_str != orths[b] and alignment_score < recog_score:
+                model_errors.append(0)
+                correct.append(0)
+            elif recog_str == orths[b]:
+                print("    Correct transcription found.")
+                skipped.append(0)
+                search_errors.append(0)
+                model_errors.append(0)
+                correct.append(1)
+            elif alignment_score < recog_score:
                 print(
                     f"    Encountered search error. Forced alignment has score {alignment_score} while search has score {recog_score}"
                 )
+                skipped.append(0)
                 search_errors.append(1)
+                model_errors.append(0)
+                correct.append(0)
             else:
+                print(
+                    f"    Encountered model error. Forced alignment has score {alignment_score} while search has score {recog_score}"
+                )
+                skipped.append(0)
                 search_errors.append(0)
+                model_errors.append(1)
+                correct.append(0)
         else:
+            skipped.append(1)
             search_errors.append(0)
+            model_errors.append(0)
+            correct.append(0)
 
         print(
             f"    Encoder time: {encoder_time:.3f} seconds, RTF {encoder_time / seq_time:.3f}, XRTF {seq_time / encoder_time:.3f}"
@@ -277,6 +328,27 @@ def _base_recog_forward_step(
         feature_dim_axis=None,
         time_dim_axis=None,
     )
+    model_errors_tensor = Tensor(
+        name="model_errors",
+        dtype="int32",
+        raw_tensor=np.array(model_errors, dtype=np.int32),
+        feature_dim_axis=None,
+        time_dim_axis=None,
+    )
+    skipped_tensor = Tensor(
+        name="skipped",
+        dtype="int32",
+        raw_tensor=np.array(skipped, dtype=np.int32),
+        feature_dim_axis=None,
+        time_dim_axis=None,
+    )
+    correct_tensor = Tensor(
+        name="correct",
+        dtype="int32",
+        raw_tensor=np.array(correct, dtype=np.int32),
+        feature_dim_axis=None,
+        time_dim_axis=None,
+    )
 
     import returnn.frontend as rf
 
@@ -287,6 +359,9 @@ def _base_recog_forward_step(
     run_ctx.mark_as_output(tokens_tensor, name="tokens")
 
     run_ctx.mark_as_output(search_errors_tensor, name="search_errors")
+    run_ctx.mark_as_output(model_errors_tensor, name="model_errors")
+    run_ctx.mark_as_output(skipped_tensor, name="skipped")
+    run_ctx.mark_as_output(correct_tensor, name="correct")
 
     enc_time_tensor = Tensor(
         name="enc_time",
@@ -338,6 +413,21 @@ def recog_base(
                     "feature_dim_axis": None,
                 },
                 "search_errors": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "model_errors": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "correct": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "skipped": {
                     "dtype": "int32",
                     "feature_dim_axis": None,
                     "time_dim_axis": None,
@@ -425,6 +515,9 @@ def recog_base(
         corpus_name=recog_corpus.corpus_name,
         wer=score_job.out_wer,
         search_error_rate=extract_search_error_job.out_search_error_rate,
+        model_error_rate=extract_search_error_job.out_model_error_rate,
+        skipped_rate=extract_search_error_job.out_skipped_rate,
+        correct_rate=extract_search_error_job.out_correct_rate,
         deletion=score_job.out_percent_deletions,
         insertion=score_job.out_percent_insertions,
         substitution=score_job.out_percent_substitution,
@@ -527,7 +620,7 @@ def recog_flashlight(
 
 
 @lru_cache(maxsize=1)
-def _get_rasr_search_function(config_file: tk.Path) -> SearchFunction:
+def _get_rasr_search_function(config_file: tk.Path, lm_scale: float) -> SearchFunction:
     from librasr import Configuration, SearchAlgorithm
 
     config = Configuration()
@@ -539,14 +632,14 @@ def _get_rasr_search_function(config_file: tk.Path) -> SearchFunction:
         nonlocal search_algorithm
         traceback = search_algorithm.recognize_segment(features)
         recog_str = " ".join([traceback_item.lemma for traceback_item in traceback])
-        recog_score = sum(traceback_item.am_score + traceback_item.lm_score for traceback_item in traceback)
+        recog_score = traceback[-1].am_score + traceback[-1].lm_score * lm_scale
         return recog_str, recog_score
 
     return wrapper
 
 
 @lru_cache(maxsize=1)
-def _get_rasr_align_function(config_file: tk.Path) -> AlignFunction:
+def _get_rasr_align_function(config_file: tk.Path, lm_scale: float) -> AlignFunction:
     from librasr import Configuration, Aligner
 
     config = Configuration()
@@ -558,7 +651,7 @@ def _get_rasr_align_function(config_file: tk.Path) -> AlignFunction:
         nonlocal aligner
         traceback = aligner.align_segment(features, orth + " ")  # RASR requires a trailing space in transcription
         align_str = " ".join([traceback_item.lemma for traceback_item in traceback])
-        align_score = sum(traceback_item.am_score + traceback_item.lm_score for traceback_item in traceback)
+        align_score = traceback[-1].am_score + traceback[-1].lm_score * lm_scale
         return align_str, align_score
 
     return wrapper
@@ -571,13 +664,17 @@ def _rasr_recog_forward_step(
     config_file: tk.Path,
     sample_rate: int = 16000,
     compute_search_errors: bool = False,
+    align_config_file: Optional[tk.Path] = None,
+    lm_scale: float = 1.0,
     **_,
 ) -> None:
     _base_recog_forward_step(
         model=model,
         extern_data=extern_data,
-        search_function=_get_rasr_search_function(config_file),
-        align_function=_get_rasr_align_function(config_file) if compute_search_errors else None,
+        search_function=_get_rasr_search_function(config_file, lm_scale),
+        align_function=(
+            _get_rasr_align_function(align_config_file or config_file, lm_scale) if compute_search_errors else None
+        ),
         sample_rate=sample_rate,
     )
 
@@ -589,7 +686,9 @@ def recog_rasr(
     model_serializers: Collection,
     rasr_config_file: tk.Path,
     compute_search_errors: bool = False,
+    rasr_align_config_file: Optional[tk.Path] = None,
     sample_rate: int = 16000,
+    lm_scale: float = 1.0,
     device: Literal["cpu", "gpu"] = "cpu",
     checkpoint: Optional[PtCheckpoint] = None,
 ) -> RecogResult:
@@ -598,7 +697,9 @@ def recog_rasr(
         unhashed_package_root="",
         hashed_arguments={
             "config_file": rasr_config_file,
+            "align_config_file": rasr_align_config_file,
             "sample_rate": sample_rate,
+            "lm_scale": lm_scale,
             "compute_search_errors": compute_search_errors,
         },
         unhashed_arguments={},
