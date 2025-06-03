@@ -1244,6 +1244,47 @@ def eow_phon_ls960_relposencoder_0924_base():
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
         )
 
+    # 2D experiments with STFT SpecAugment, first conv layer: tune audio perturbation
+    for fe_key, specaug_version, out_channels, kernel_size, stride, dropout in [
+        ("2Dx6v1", "stft_v47", 32, 256, 10, 0.05),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=None,
+            activation=None,
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
+        model_base_args_exp = {
+            **model_base_args_feat,
+            **dict(
+                att_weights_dropout=dropout,
+                conv_dropout=dropout,
+                ff_dropout=dropout,
+                mhsa_dropout=dropout,
+                final_dropout=dropout,
+            ),
+        }
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_exp,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name += f".drop{dropout}"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
+        )
+
     # wav2vec feature extractor
     from ...pytorch_networks.ctc.features.wav2vec import (
         Wav2vecFeatureExtractionV1Config
