@@ -4,6 +4,7 @@ import torch
 from torch import nn
 
 from .scf import FeatureExtractionConfig
+from .pcen import PcenV1, PcenV1Config
 
 
 @dataclass
@@ -25,6 +26,9 @@ class ConvFeatureExtractionV1Config(FeatureExtractionConfig):
         elif activation == "ReLU":
             from torch.nn import ReLU
             activation = ReLU()
+        elif isinstance(activation, dict) and "module_class" in activation:
+            act_cfg = globals()[activation["module_class"] + "Config"](**activation)
+            activation = globals()[activation["module_class"]](act_cfg)
         else:
             assert False, f"Unsupported activation {activation}"
         d["activation"] = activation

@@ -1285,6 +1285,42 @@ def eow_phon_ls960_relposencoder_0924_base():
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
         )
 
+    # 2D experiments with STFT SpecAugment, first conv layer: per-channel energy normalization (PCEN)
+    conv_activation_configs = {
+        "ReLU": "ReLU",
+        "PCENv1": {"module_class": "PcenV1", "feat_dim": out_channels, "activation": "relu"},
+    }
+    for fe_key, specaug_version, out_channels, kernel_size, stride, activation in [
+        ("2Dx6v1", "stft_v47", 32, 256, 10, "ReLU"),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, "PCENv1"),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=None,
+            activation=conv_activation_configs[activation],
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name += f".{activation}"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, debug=True,#move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
+        )
+
     # wav2vec feature extractor
     from ...pytorch_networks.ctc.features.wav2vec import (
         Wav2vecFeatureExtractionV1Config
