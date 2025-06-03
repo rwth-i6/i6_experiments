@@ -618,6 +618,20 @@ def eow_phon_ls960_relposencoder_0924_base():
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=120,
         )
 
+    # rerun log mel with STFT-domain SpecAugment
+    for specaug_version in ["stft_v47"]:
+        model_config_exp = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=fe_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config_exp, name_ext=specaug_version.replace("_", "sa") + ".logmel", move_to_hpc=True,
+        )
+
     # 2D experiments with STFT SpecAugment: different 2D configurations
     from ...pytorch_networks.ctc.features.stft import (
         StftFeatureExtractionV1Config, StftFeatureExtractionV2Config,
