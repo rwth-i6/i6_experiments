@@ -23,6 +23,7 @@ def get_training_config(
     include_native_ops=False,
     debug: bool = False,
     use_speed_perturbation: bool = False,
+    audio_perturbation: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
     add_cache_manager: bool = False,
 ) -> ReturnnConfig:
@@ -36,6 +37,7 @@ def get_training_config(
     :param config: config arguments for RETURNN
     :param debug: run training in debug mode (linking from recipe instead of copy)
     :param use_speed_perturbation: Use speedperturbation in the training
+    :param audio_perturbation: Use custom audio perturbation in the training
     :param post_config: Add non-hashed arguments for RETURNN
     """
 
@@ -62,6 +64,7 @@ def get_training_config(
         include_native_ops=include_native_ops,
         debug=debug,
     )
+    python_prolog = []
     python_prolog_serializer_objects = []
 
     # TODO: maybe make nice (if capability added to RETURNN itself)
@@ -73,19 +76,31 @@ def get_training_config(
             )
         )
         config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+    if audio_perturbation is not None:
+        assert not use_speed_perturbation
+        python_prolog.append("from functools import partial")
+        python_prolog_serializer_objects.append(
+            Import(
+                code_object_path=PACKAGE + ".extra_code.audio_perturbation.audio_perturbation_v1",
+                unhashed_package_root=PACKAGE,
+            )
+        )
+        config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper(
+            f"partial(audio_perturbation_v1, "
+            f"perturbations={audio_perturbation})"
+        )
 
     if add_cache_manager:
         from i6_experiments.common.setups.serialization import PythonCacheManagerFunctionNonhashedCode, Collection
         python_prolog_serializer_objects.append(PythonCacheManagerFunctionNonhashedCode)
 
-    python_prolog = None
     if len(python_prolog_serializer_objects) > 0:
-        python_prolog = [
+        python_prolog += [
             TorchCollection(python_prolog_serializer_objects)
         ]
 
     returnn_config = ReturnnConfig(
-        config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
+        config=config, post_config=post_config, python_prolog=python_prolog or None, python_epilog=[serializer]
     )
     return returnn_config
 

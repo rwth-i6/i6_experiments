@@ -221,7 +221,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     def run_with_standard_settings(
         network_module, model_cfg, name_ext="", train_data_custom=None, prior_batch_size=None, forward_config=None,
-        train_rqmt=None, move_to_hpc=False, debug=False,
+        perturbation=None, train_rqmt=None, move_to_hpc=False, debug=False,
     ):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
@@ -232,16 +232,18 @@ def eow_phon_ls960_relposencoder_0924_base():
             "max_seq_length": {"audio_features": 35 * 16000},
             "accum_grad_multiple_step": 1,
             "torch_amp_options": {"dtype": "bfloat16"},
-            "use_speed_perturbation": True,
             "gradient_clip_norm": 1.0,
         }
+        if perturbation is None:
+            train_config_24gbgpu_amp["use_speed_perturbation"] = True
 
         train_args = {
             "config": train_config_24gbgpu_amp,
             "network_module": network_module,
             "net_args": {"model_config_dict": asdict(model_cfg)},
             "debug": debug,
-            "use_speed_perturbation": True,
+            "use_speed_perturbation": perturbation == None,
+            "audio_perturbation": perturbation,
             "post_config": {"num_workers_per_gpu": 8},
         }
 
@@ -1185,7 +1187,47 @@ def eow_phon_ls960_relposencoder_0924_base():
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
-            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
+            forward_config={"batch_size": (16000 * 60 if out_channels > 256 else 16000 * 120)},
+            prior_batch_size=140 if out_channels <= 256 else 70,
+        )
+
+    # 2D experiments with STFT SpecAugment, first conv layer: tune audio perturbation
+    for fe_key, specaug_version, out_channels, kernel_size, stride, perturbation in [
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"speed": {"min": 0.9, "max": 1.1}}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"tempo": {"min": 0.9, "max": 1.1}}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"tempo": {"min": 0.8, "max": 1.2}}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"tempo": {"min": 0.7, "max": 1.3}}),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=None,
+            activation=None,
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name += ".pert_" + "_".join(
+            f"{pert_type}_{config['min']}_{config['max']}_{config.get('prob', 1.0)}"
+            for pert_type, config in perturbation.items()
+        )
+        exp_name += "none" if len(perturbation) == 0 else ""
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
         )
 
     # wav2vec feature extractor
