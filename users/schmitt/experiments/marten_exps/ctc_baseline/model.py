@@ -367,16 +367,13 @@ class Wav2VecModel(rf.Module):
     #   "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.L6t5ebVFPeDZ/work/wav2vec_config")
     # self.processor =transformers. Wav2Vec2Processor(preprocessor_config, tokenizer_config)
 
-    if w2v_opts.get("test_hubert", False):
-      from transformers.models.hubert.modeling_hubert import HubertModel
-      model = HubertModel.from_pretrained(
-        "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_experiments/users/zeyer/external_models/huggingface/DownloadHuggingFaceRepoJob.iXdxty4J966Q/output/hub_cache/models--facebook--hubert-large-ll60k/snapshots/ff022d095678a2995f3c49bab18a96a9e553f782"
-      )
-      print(model)
-      exit()
+    self._current_extracted_features = None
 
     self.wav2vec2 = transformers.Wav2Vec2Model(wav2vec_config)
     self.wav2vec2.freeze_feature_encoder()
+
+    if not w2v_opts.get("use_spec_augment", True):
+      self.wav2vec2.config.apply_spec_augment = False
 
     if w2v_opts["freeze_encoder_first_n_steps"] > 0:
       self.set_wav2vec_encoder_trainable(False)
@@ -395,6 +392,14 @@ class Wav2VecModel(rf.Module):
 
     if not wb_target_dim:
       wb_target_dim = target_dim + 1
+
+    if target_dim.vocab and not wb_target_dim.vocab:
+      # Just assumption for code now, might extend this later.
+      assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
+      vocab_labels = list(target_dim.vocab.labels) + [OUT_BLANK_LABEL]
+      wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+        vocab_labels, user_defined_symbols={OUT_BLANK_LABEL: blank_idx}
+      )
     self.wb_target_dim = wb_target_dim
 
     w2v_hidden_size = self.wav2vec2.encoder.layers[0].feed_forward.output_dense.out_features
@@ -433,6 +438,8 @@ class Wav2VecModel(rf.Module):
           in_spatial_dim: Dim,
           collected_outputs: Optional[Dict[str, Tensor]] = None,
   ) -> Tuple[Tensor, Tensor, Dim]:
+    from returnn.config import get_global_config
+    config = get_global_config()
 
     # remove feature_dim if it is 1
     if source.feature_dim and source.feature_dim.dimension == 1:
@@ -480,7 +487,10 @@ class Wav2VecModel(rf.Module):
     #   print("mean: ", np.mean(array_))
     #   print("std: ", np.std(array_))
 
-    enc_raw = self.wav2vec2(source_raw).last_hidden_state
+    w2v_output = self.wav2vec2(source_raw)
+    enc_raw = w2v_output.last_hidden_state
+
+    self._current_extracted_features = w2v_output.extract_features
 
     # get dyn seq lengths of wav2vec encoder output
     enc_dyn_lengths_raw = source_dyn_lengths

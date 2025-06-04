@@ -14,6 +14,8 @@ from returnn.util.basic import NotSpecified
 
 from sisyphus import tk
 
+from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
+
 from i6_experiments.users.mueller.train import SumTrainDef, CETrainDef
 from i6_experiments.users.mueller.utils import calc_stats
 from i6_experiments.users.schmitt.experiments.marten_exps.language_models.n_gram import get_count_based_n_gram, \
@@ -38,6 +40,7 @@ from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_libr
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
 from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 from i6_experiments.common.setups import serialization
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.rasr import get_bpe_lexicon
 
 if TYPE_CHECKING:
   from i6_experiments.common.setups import serialization
@@ -62,6 +65,8 @@ decode_all_fixed_epochs_init = True
 exclude_epochs = True
 cache_manager = True
 tune_version = 3
+
+bpe_lexicon = get_bpe_lexicon(vocab_str="bpe128", train_small=True)
 
 
 def py():
@@ -125,8 +130,6 @@ def py():
   random_init = False  # Start from random init during unsupervised init training, alteernatively use empirical prior
   decode_every_step_init = True  # Decode every step during unsupervised init training
   accum_grad_multiple_step_init = 80  # Accumulate gradients over multiple steps during unsupervised init training
-  if not init.endswith("unsupervised"):
-    decode_every_step_init = False
 
   # Configs for full-sum training
   use_sum_criterion = False  # Use full-sum criterion
@@ -231,29 +234,29 @@ def py():
     }
   )
 
-  # full_sum_config_v1 = dict_update_deep(
-  #   wav2vec_config_v4,
-  #   {
-  #     "epochs": 500,
-  #     "train_language_model_opts": {"class": "ngram", "order": 2},
-  #     "num_gpus": 1,
-  #     "full_sum_opts": {
-  #       "am_scale": 1.0,
-  #       "lm_scale": 1.0,
-  #       "prior_scale": 1.0,
-  #       "horizontal_prior": True,
-  #       "blank_prior": True,
-  #       "prior_gradient": True,
-  #       "max_prior": False,
-  #       "top_k": 0,
-  #       "alignment_topk": True,
-  #       "blank_correction_version": 0,
-  #       "correction_in_final_score": False,
-  #       "print_gradients": False,
-  #       "version": 2,
-  #     }
-  #   }
-  # )
+  full_sum_config_v1 = dict_update_deep(
+    wav2vec_config_v3,
+    {
+      "epochs": 100,
+      "train_lm_config": {"class": "ngram", "order": 2},
+      "num_gpus": 1,
+      "label_prior": True,
+      "random_init": True,
+      "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+      "init": "100h-unsupervised",
+      "decode_every_step_init": False,
+      "pseudo_nbest_init": 0,
+      "num_enc_layers": 10,
+      #     "vocab": "bpe128",
+      #     "train_epoch_wise_filter": None,
+      "freeze_encoder_first_n_steps": 1_000_000,
+      "w2v_model": "large_60kh",
+      "w2v_config": "large-lv60",
+      "use_spec_augment": False,
+      "speed_pert": False,
+      "use_tensorboard": True
+    }
+  )
 
   train_configs = [
     # marten ###########################
@@ -392,6 +395,41 @@ def py():
         "w2v_model": "large_60kh",
       }
     ),
+    full_sum_config_v1,
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        # "blank_penalty_opts": {"target_mean_blank_prob": 2 / 3},
+        "freeze_encoder_first_n_steps": 0,
+      }
+    ),
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "blank_penalty_opts": {"blank_penalty": bp},
+        "freeze_encoder_first_n_steps": 0,
+      }
+    ) for bp in (10.0, 20.0, 40.0, 80.0)],
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "gradient_penalty_opts": {"target_gradient_log_l2_norm": -1.3},
+        "blank_penalty_opts": {"blank_penalty": 2.0},
+        # "freeze_encoder_first_n_steps": 3_600,  # roughly 10 sub-epochs -> not implemented for FS yet
+        "train_epoch_wise_filter": {
+          (1, 20): {"max_mean_len": 1000},
+        },
+        "epochs": 20,
+        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+      }
+    ),
+    dict_update_deep(
+      copy.deepcopy(wav2vec_config_v3),
+      {
+        "sup_loss": "post-hmm-fs",
+        "num_gpus": 1,
+      }
+    )
   ]
 
   for train_config in train_configs:
@@ -408,6 +446,43 @@ def py():
     with_prior = train_config["with_prior"]
     num_gpus = train_config.get("num_gpus", 4)
     train_epoch_wise_filter = train_config.get("train_epoch_wise_filter", NotSpecified)
+    label_prior = train_config.get("label_prior", False)
+    random_init = train_config.get("random_init", False)
+    am_lm_prior_full_sum_init = train_config.get("am_lm_prior_full_sum_init", (0.1, 1.5, 0.4))
+    init = train_config.get("init", "100h-supervised")
+    decode_every_step_init = train_config.get("decode_every_step_init", True)
+    if not init.endswith("unsupervised"):
+      decode_every_step_init = False
+
+    start_with_prior_gamma_steps = train_config.get("start_with_prior_gamma_steps", 0)
+    pseudo_nbest_init = train_config.get("pseudo_nbest_init", 1)
+    speed_pert = train_config.get("speed_pert", True)
+    use_tensorboard = train_config.get("use_tensorboard", False)
+    if use_tensorboard:
+      config_updates["use_tensorboard"] = True
+
+    sup_loss = train_config.get("sup_loss", "ctc")  # "ctc", "post-hmm-fs"
+    if sup_loss != "ctc":
+      config_updates["sup_loss"] = sup_loss
+
+    train_lm_config = train_config.get("train_lm_config", {})
+    if train_lm_config:
+      model_config["train_language_model"] = train_lm_config
+
+    blank_penalty_opts = train_config.get("blank_penalty_opts", {})
+    if blank_penalty_opts:
+      assert len(blank_penalty_opts) == 1 and "blank_penalty" in blank_penalty_opts
+      config_updates["blank_penalty_opts"] = blank_penalty_opts
+
+    prior_penalty_opts = train_config.get("prior_penalty_opts", {})
+    if prior_penalty_opts:
+      assert len(prior_penalty_opts) == 1 and "scale" in prior_penalty_opts
+      config_updates["prior_penalty_opts"] = prior_penalty_opts
+
+    gradient_penalty_opts = train_config.get("gradient_penalty_opts", {})
+    if gradient_penalty_opts:
+      assert len(gradient_penalty_opts) == 1 and "target_gradient_log_l2_norm" in gradient_penalty_opts
+      config_updates["gradient_penalty_opts"] = gradient_penalty_opts
 
     # Read out correct number of epochs dependent on self-training iterations
     if train_config["epochs"] is None:
@@ -421,7 +496,7 @@ def py():
     post_config_updates = {}
 
     # limit number of recog epochs for these models
-    if vocab != "char":
+    if vocab != "char" and init == "100h-supervised":
       post_config_updates["cleanup_old_models.keep"] = [epochs]
 
     if lr_schedule_type == "static":
@@ -592,11 +667,19 @@ def py():
     config_updates.update({
       **lr_config,
       "optimizer.weight_decay": 1e-2,
-      "__train_audio_preprocess": speed_pert_librosa_config,
-      "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
       "max_seq_length_default_target": None,
       "max_seq_length_default_input": 19.5 * _raw_sample_rate,
     })
+    if not speed_pert:
+      config_updates.update({
+        "__train_audio_preprocess": None,
+      })
+    else:
+      config_updates.update({
+        "__train_audio_preprocess": speed_pert_librosa_config,
+        "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+      })
+
     if init.endswith("unsupervised"):
       if decode_every_step_init:
         config_updates["decode_every_step"] = decode_every_step_init
@@ -617,6 +700,24 @@ def py():
         model_config["output_bias_init"] = True
       if num_gpus != 4:
         config_updates["__num_processes"] = num_gpus
+      if start_with_prior_gamma_steps > 0:
+        config_updates["start_with_prior_gamma_steps"] = start_with_prior_gamma_steps
+      if pseudo_nbest_init > 1:
+        config_updates["ps_nbest"] = pseudo_nbest_init
+      elif pseudo_nbest_init == 0:
+        assert empirical_prior
+        assert start_with_prior_gamma_steps == 0
+        assert random_init
+        config_updates["am_scale"] = am_lm_prior_full_sum_init[0]
+        config_updates["lm_scale"] = am_lm_prior_full_sum_init[1]
+        config_updates["prior_scale"] = am_lm_prior_full_sum_init[2]
+
+        config_updates["empirical_prior"] = True
+        if label_prior:
+          config_updates["horizontal_prior"] = False
+          config_updates["blank_prior"] = False
+
+        config_updates.pop("hyperparameters_decoder", None)
 
     config_updates_self_training = None
     config_deletes_self_training = None
@@ -690,6 +791,8 @@ def py():
         }
       }
 
+      use_spec_augment = train_config.get("use_spec_augment", True)
+
       w2v_opts = {
         "config_file": wav2vec_fine_tune_config,
         "freeze_encoder_first_n_steps": train_config.get("freeze_encoder_first_n_steps", 2_500),
@@ -705,6 +808,9 @@ def py():
         decoding_str += f"_enc-logits-n-{w2v_opts['enc_logits_n_layers']}"
       if peak_lr != 1e-4:
         decoding_str += f"_peak-lr-{peak_lr}"
+      if not use_spec_augment:
+        w2v_opts["use_spec_augment"] = False
+        decoding_str += f"_wo-spec-aug"
 
       model_config.update({
         "use_w2v_model": True,
@@ -853,25 +959,40 @@ def py():
                   ("_wo_h_pr" if not horizontal_prior else "") + \
                   ("_wo_b_pr" if not blank_prior else "") + \
                   ("_wo_pr_grad" if not prior_gradient else "")
+    else:
+      sum_str = ""
+      self_epochs = None
 
-    alias_name = (("ctc" if not use_seq_gamma_loss else "seq_ce") if not use_ce_loss else "ce") + \
-                 (sum_str if use_sum_criterion else "") + \
-                 (f"-st_{self_training_rounds}" + LR_str + ("_no_norm" if not use_norm_st_loss else "") + (
-                   "_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else (
-                   f"_b1-{str(adamw_betas[0]).replace('.', '')}_b2-{str(adamw_betas[1]).replace('.', '')}" if adamw_betas else "")) + (
-                    "_from_scratch" if from_scratch else "") + (
-                    f"_s{self_train_subset}" if self_train_subset is not None else "") + (
-                    f"_e{self_epochs}" if self_epochs != 450 else "") + (
-                    "_nsp" if not speed_pert else "") if self_training_rounds > 0 else "") + \
-                 (f"-wo_aux_loss" if not aux_loss else "") + \
-                 (f"-ds100h" if init == "100h-supervised" else ("-ds100US" + (
-                   f"_accum{accum_grad_multiple_step_init}" if accum_grad_multiple_step_init > 1 else "") + (
-                                                                  "_emp_init" if not random_init else "") if init == "100h-unsupervised" else "")) + \
-                 (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
-                 f"-{vocab}" + \
-                 ("-laPR" if label_prior else "-frPR") + \
-                 f"{decoding_str}" + \
-                 (f"_v{train_version}" if train_version != 1 else "")
+    alias_name = get_alias(
+      sup_loss=sup_loss,
+      use_ce_loss=use_ce_loss,
+      use_seq_gamma_loss=use_seq_gamma_loss,
+      use_sum_criterion=use_sum_criterion,
+      sum_str=sum_str,
+      self_training_rounds=self_training_rounds,
+      LR_str=LR_str,
+      use_norm_st_loss=use_norm_st_loss,
+      reset_steps=reset_steps,
+      use_sgd=use_sgd,
+      adamw_betas=adamw_betas,
+      from_scratch=from_scratch,
+      self_train_subset=self_train_subset,
+      self_epochs=self_epochs,
+      speed_pert=speed_pert,
+      aux_loss=aux_loss,
+      init=init,
+      accum_grad_multiple_step_init=accum_grad_multiple_step_init,
+      random_init=random_init,
+      pseudo_label_small=pseudo_label_small,
+      keep_small_labels=keep_small_labels,
+      vocab=vocab,
+      label_prior=label_prior,
+      decoding_str=decoding_str,
+      train_version=train_version,
+      blank_penalty_opts=blank_penalty_opts,
+      prior_penalty_opts=prior_penalty_opts,
+      gradient_penalty_opts=gradient_penalty_opts,
+    )
 
     if decoding_imp in ["flashlight", "marten-greedy"]:
       decoder_def = model_recog_lm
@@ -902,7 +1023,7 @@ def py():
       config_deletes_self_training=config_deletes_self_training,
       vocab=vocab,
       self_training_rounds=self_training_rounds,
-      init_small=init == "100h-supervised",
+      init_small = init.startswith("100h"),
       pseudo_label_small=pseudo_label_small,
       keep_small_labels=keep_small_labels,
       with_prior=with_prior,
@@ -925,6 +1046,110 @@ def py():
 
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
+
+
+def get_alias(
+        sup_loss,
+        use_ce_loss,
+        use_seq_gamma_loss,
+        use_sum_criterion,
+        sum_str,
+        self_training_rounds,
+        LR_str,
+        use_norm_st_loss,
+        reset_steps,
+        use_sgd,
+        adamw_betas,
+        from_scratch,
+        self_train_subset,
+        self_epochs,
+        speed_pert,
+        aux_loss,
+        init,
+        accum_grad_multiple_step_init,
+        random_init,
+        pseudo_label_small,
+        keep_small_labels,
+        vocab,
+        label_prior,
+        decoding_str,
+        train_version,
+        blank_penalty_opts,
+        prior_penalty_opts,
+        gradient_penalty_opts,
+):
+  # Base loss type
+  loss_type = "ce" if use_ce_loss else ("seq_ce" if use_seq_gamma_loss else sup_loss)
+
+  # Self-training suffix
+  st_suffix = ""
+  if self_training_rounds > 0:
+    st_suffix = f"-st_{self_training_rounds}" + LR_str
+    st_suffix += "_no_norm" if not use_norm_st_loss else ""
+    st_suffix += "_keep_LR" if not reset_steps else ""
+    if use_sgd:
+      st_suffix += "_SGD"
+    elif adamw_betas:
+      b1 = str(adamw_betas[0]).replace('.', '')
+      b2 = str(adamw_betas[1]).replace('.', '')
+      st_suffix += f"_b1-{b1}_b2-{b2}"
+    st_suffix += "_from_scratch" if from_scratch else ""
+    st_suffix += f"_s{self_train_subset}" if self_train_subset is not None else ""
+    st_suffix += f"_e{self_epochs}" if self_epochs != 450 else ""
+
+  # Auxiliary loss
+  aux_suffix = "-wo_aux_loss" if not aux_loss else ""
+
+  # Init type
+  if init == "100h-supervised":
+    init_suffix = "-ds100h"
+  elif init == "100h-unsupervised":
+    init_suffix = "-ds100US"
+    if accum_grad_multiple_step_init > 1:
+      init_suffix += f"_accum{accum_grad_multiple_step_init}"
+    if not random_init:
+      init_suffix += "_emp_init"
+  else:
+    init_suffix = ""
+
+  # Pseudo-labeling
+  pl_suffix = ""
+  if not pseudo_label_small:
+    pl_suffix = "-pl960h"
+    if keep_small_labels:
+      pl_suffix += "_keep100h"
+
+  bp_suffix = ""
+  if blank_penalty_opts:
+    bp_suffix += f"_bp-{blank_penalty_opts['blank_penalty']}"
+
+  lpp_suffix = ""
+  if prior_penalty_opts:
+    lpp_suffix = f"_lpp-{prior_penalty_opts['scale']}"
+
+  gp_suffix = ""
+  if gradient_penalty_opts:
+    gp_suffix = f"_gp-{gradient_penalty_opts['target_gradient_log_l2_norm']}"
+
+  # Final construction
+  alias_name = (
+          loss_type +
+          (sum_str if use_sum_criterion else "") +
+          st_suffix +
+          aux_suffix +
+          init_suffix +
+          pl_suffix +
+          f"-{vocab}" +
+          ("-laPR" if label_prior else "-frPR") +
+          ("_no-sp" if not speed_pert else "") +
+          decoding_str +
+          (f"_v{train_version}" if train_version != 1 else "") +
+          bp_suffix +
+          lpp_suffix +
+          gp_suffix
+  )
+
+  return alias_name
 
 
 # noinspection PyShadowingNames
@@ -1008,6 +1233,8 @@ def train_exp(
 
   if config_updates.get("decode_every_step", False):
     config_updates["empirical_prior"] = emp_prior
+    if config_updates.get("start_with_prior_gamma_steps", 0) > 0 and label_prior:
+      config_updates["frame_prior"] = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab, False)
 
   config = config.copy()
   config = dict_update_deep(config, config_updates, config_deletes)
@@ -1103,6 +1330,17 @@ def train_exp(
 
   if train_gpu_mem > 11:
     config["torch_amp"] = "bfloat16"
+
+  # We do full-sum training from the beginning
+  if "am_scale" in config:
+    config["empirical_prior"] = emp_prior
+
+    train_def = ctc_sum_training
+    if isinstance(train_lm, tk.Path):
+      config["train_lm_model"] = train_lm
+    else:
+      assert isinstance(train_lm, ModelWithCheckpoint)
+      config["train_lm_model"] = "ffnn" + str(model_config["train_language_model"]["context_size"])
 
   model_with_checkpoint = []
   model_with_checkpoint.append(train(

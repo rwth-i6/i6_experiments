@@ -262,6 +262,9 @@ def recog_no_lm(
     out_spatial_dim = enc_spatial_dim
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
+    print("seq_targets:", seq_targets.raw_tensor.detach().cpu().numpy()[:, 0, 0])
+    # exit()
+
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 def recog_flashlight_ffnn(

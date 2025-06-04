@@ -458,7 +458,7 @@ def sum_loss_ngram(
     # We have to prepend the BoS symbol even though it is not used in the q_label calculation, but it is need for higher order LMs
     log_q_label_init = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_q_label_init], dim=1)
     log_q_label = torch.full((batch_size, *(vocab_size + 1,) * (LM_order - 1)), log_zero, device=device) # (B, V, ..., V), no blank in vocab dims
-    slice_ = tuple([None] + [0] * (LM_order - 2))
+    slice_ = tuple([slice(None)] + [0] * (LM_order - 2))
     log_q_label[slice_] = log_q_label_init
     log_q_blank = torch.full_like(log_q_label, log_zero, device=device) # (B, V, ..., V)
     # Calculate partial empty sequence score
@@ -466,7 +466,7 @@ def sum_loss_ngram(
     log_partial_empty_seq_prob = log_probs[0][:, blank_idx]
     if use_prior and blank_prior:
         log_partial_empty_seq_prob = log_partial_empty_seq_prob - log_prior[blank_idx]
-    slice_ = tuple([None] + [0] * (LM_order - 1))
+    slice_ = tuple([slice(None)] + [0] * (LM_order - 1))
     log_q_blank[slice_] = log_partial_empty_seq_prob
     log_q = safe_logaddexp(log_q_label, log_q_blank)
     original_shape = log_q.shape
@@ -582,7 +582,7 @@ def sum_loss_ngram(
         log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
     # Prepare prior
     if use_prior:
-        slice_ = tuple([None] + [None] * (LM_order - 2))
+        slice_ = tuple([slice(None)] + [None] * (LM_order - 2))
         log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[slice_].expand(original_shape)
         if top_k > 0:
             log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
@@ -597,16 +597,16 @@ def sum_loss_ngram(
             new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
-                slice_ = tuple([None] + [None] * (LM_order - 1))
+                slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
                 new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][slice_]
                 blank_topk_idx = topk_idx[topk_idx[-1] == 1][:-1]
                 # We could already have entries from the topk labels, so we have to add
-                slice_ = tuple([None] + [None] * (LM_order - 1))
+                slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
                 new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][slice_])
             else:
                 new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
         else:
-            slice_ = tuple([None] + [None] * (LM_order - 1))
+            slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
             new_log_q_blank = log_q + log_probs[t][:, blank_idx][slice_]
         if use_prior and blank_prior:
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
@@ -685,17 +685,17 @@ def sum_loss_ngram(
 
         # multiply with p_AM(u|x_t)
         if top_k > 0:
-            slice_ = tuple([None] + [None] * (LM_order - 2))
+            slice_ = tuple([slice(None)] + [None] * (LM_order - 2))
             label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[slice_].expand(original_shape).reshape(batch_size, -1)
             new_log_q_label += label_am
             if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label += label_am
         else:
-            slice_ = tuple([None] + [None] * (LM_order - 2))
+            slice_ = tuple([slice(None)] + [None] * (LM_order - 2))
             new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[slice_]
 
         # set masked results to log_q
-        slice_ = tuple([None] + [None] * (LM_order - 1))
+        slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
         time_mask = (t < input_lengths)[slice_] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
         log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
@@ -768,7 +768,7 @@ def sum_loss_ngram(
                     best_path_print[idx]["str"] += f" {m_idx.tolist()}"
                     best_path_print[idx]["am_str"] += " {:.2f}".format(log_probs[t][idx][a_idx[-1]].tolist())
                     best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0)
-                    slice_ = tuple([None] + max_idx[idx])
+                    slice_ = tuple([slice(None)] + max_idx[idx])
                     best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[slice_], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
