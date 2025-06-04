@@ -339,6 +339,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         VGGNLayerActFrontendV1Config,
         VGGNLayerActFrontendV2Config,
         LinearConfig,
+        LogMelFeatureExtractionV2Config,
     )
 
     frontend_config = VGGNLayerActFrontendV1Config(
@@ -619,10 +620,11 @@ def eow_phon_ls960_relposencoder_0924_base():
         )
 
     # rerun log mel with STFT-domain SpecAugment
+    logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
     for specaug_version in ["stft_v47"]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
-            feature_extraction_config=fe_config,
+            feature_extraction_config=logmel_config,
             frontend_config=frontend_config,
             frontend_config_class="VGGNLayerActFrontendV1Config",
             **model_base_args_feat,
@@ -1317,7 +1319,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         exp_name += f".{activation}"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
-            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, debug=True,#move_to_hpc=True,
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
         )
 

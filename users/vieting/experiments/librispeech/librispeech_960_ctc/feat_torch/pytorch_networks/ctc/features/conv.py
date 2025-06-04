@@ -15,7 +15,7 @@ class ConvFeatureExtractionV1Config(FeatureExtractionConfig):
     stride: int
     bias: bool
     init: Optional[str]
-    activation: Optional[Union[str, nn.Module]]
+    activation: Optional[Union[str, dict, nn.Module]]
 
     @classmethod
     def from_dict(cls, d):
@@ -30,7 +30,7 @@ class ConvFeatureExtractionV1Config(FeatureExtractionConfig):
             act_cfg = globals()[activation["module_class"] + "Config"](**activation)
             activation = globals()[activation["module_class"]](act_cfg)
         else:
-            assert False, f"Unsupported activation {activation}"
+            assert isinstance(activation, nn.Module), f"Unsupported activation {activation}"
         d["activation"] = activation
         return cls(**d)
 

@@ -74,6 +74,16 @@ class SpecaugStftV2Config(SpecaugStftConfig):
 
 
 @dataclass
+class LogMelFeatureExtractionV2Config(LogMelFeatureExtractionV1Config):
+    module_class: str = "LogMelFeatureExtractionV1"
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return cls(**d)
+
+
+@dataclass
 class VGGNLayerActFrontendV1Config(ModelConfiguration):
     """
     Attributes:
@@ -156,6 +166,8 @@ class ModelConfig:
     def from_dict(cls, d):
         d = d.copy()
         feature_extraction_config_class = globals()[d["feature_extraction_config"]["module_class"] + "Config"]
+        if d["feature_extraction_config"]["module_class"] == "LogMelFeatureExtractionV1":
+            feature_extraction_config_class = LogMelFeatureExtractionV2Config
         d["feature_extraction_config"] = feature_extraction_config_class.from_dict(d["feature_extraction_config"])
         frontend_config_class = globals()[d["frontend_config_class"]]
         d["frontend_config"] = frontend_config_class(**d["frontend_config"])
