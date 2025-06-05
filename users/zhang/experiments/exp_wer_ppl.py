@@ -347,6 +347,7 @@ def py():
         # /u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.T5Vjltnx1Sp3/output/models/epoch.050
         # /u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.UpknSQ5OLCQV/output/models/epoch.050.pt
         from .lm.ffnn import get_ffnn_lm
+        #train_lm = False
         epochs = [5, 10, 20, 40, 50] # For default 50 epoch training
         lm_configs = {
             "std":{"bpe128":{
@@ -402,6 +403,55 @@ def py():
                 lms.update({ffnnlm_name: ffnn_lm})
                 lm_types_names.add("ffnn")
 
+        #---------------Hot fix-------------------
+        # TODO: The hash of search error job need updated for new __call__
+        from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDef, ModelDef
+        from i6_experiments.users.zhang.experiments.lm.ffnn import lm_model_def, FeedForwardLm
+        from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl_single_epoch
+        from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
+        from i6_core.returnn.training import PtCheckpoint
+        from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset, LibrispeechLmDataset
+        if vocab == "bpe128":
+            lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str(vocab))
+            model_def = ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        FeedForwardLm,
+                        num_layers=2,
+                        context_size=8,
+                        embed_dropout=0,
+                        dropout=0.0,
+                        ff_hidden_dim=2048,
+                    )
+                }
+            )
+            train_prefix_name = f"ffnn-n2-ctx8-embd128-d2048-bpe128-drop0.0-relu"
+            exponents = {"bpe128": 2.3, "bpe10k": 1.1} if WORD_PPL else {"bpe128": 1, "bpe10k": 1}
+
+            train_subsets = [None, 30] #?
+            train_subset = None
+        #     for epoch in epochs: #tGrljRnl8K5T off limits; UpknSQ5OLCQV the one working
+        #         model_path = f"/u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.UpknSQ5OLCQV/output/models/epoch.{epoch:03}.pt"
+        #         model_ckpt = ModelWithCheckpoint(model_def, PtCheckpoint(tk.Path(model_path))).checkpoint
+        #         ffnnlm_name = ("low" if train_subset else "") + f"ffnn{ctx_size}_{epoch}" + "_bpe"+match.group(1)
+        #         ppl = compute_ppl_single_epoch(prefix_name=train_prefix_name,model_with_checkpoint=model_ckpt,epoch=epoch,model_def=model_def,dataset=lm_dataset,
+        #                                        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],exponent=exponents[vocab])
+        #         ppl_results.update(dict([(ffnnlm_name, ppl)]))
+        #         ffnn_lm = {
+        #                     "preload_from_files": {
+        #                     "recog_lm": {
+        #                         "prefix": "recog_language_model.",
+        #                         "filename": model_path,#"/u/marten.mueller/dev/ctc_baseline/work/i6_core/returnn/training/ReturnnTrainingJob.1QR8IB9ySxBq/output/models/epoch.050.pt",#,
+        #                         },
+        #                     },
+        #                     "recog_language_model":lm_config_
+        #                 }
+        #         lms.update({ffnnlm_name: ffnn_lm})
+        #         lm_types_names.add("ffnn")
+        #
+        # exp_names_postfix += f"_ffnn_{str(len(epochs))}epochs_" if len(epochs) > 0 else ""
+        #-------------------------------------
 
         '''--------------Add trafo LMs-------------------'''
         """!!!Note: With small max_seq_length_default_target, e.g default 75
