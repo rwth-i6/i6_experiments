@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 
 @dataclass
-class DecoderConfig:
+class DecoderConfig():
     # search related options:
     beam_size: int
     beam_size_token: int
@@ -38,7 +38,7 @@ class DecoderConfig:
 
 
 @dataclass
-class ExtraConfig:
+class ExtraConfig():
     # used for RTF logging
     print_rtf: bool = True
     sample_rate: int = 16000
@@ -72,7 +72,8 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         lm = None
 
-    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
+    vocab = Vocabulary.create_vocab(
+        vocab_file=config.returnn_vocab, unknown_label=None)
     labels = vocab.labels
 
     run_ctx.ctc_decoder = ctc_decoder(
@@ -117,21 +118,16 @@ def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.close()
 
     if run_ctx.print_rtf:
-        print(
-            "Total-AM-Time: %.2fs, AM-RTF: %.3f"
-            % (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s)
-        )
-        print(
-            "Total-Search-Time: %.2fs, Search-RTF: %.3f"
-            % (run_ctx.total_search_time, run_ctx.total_search_time / run_ctx.running_audio_len_s)
-        )
+        print("Total-AM-Time: %.2fs, AM-RTF: %.3f" %
+              (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s))
+        print("Total-Search-Time: %.2fs, Search-RTF: %.3f" %
+              (run_ctx.total_search_time, run_ctx.total_search_time / run_ctx.running_audio_len_s))
         total_proc_time = run_ctx.total_am_time + run_ctx.total_search_time
         print("Total-time: %.2f, Batch-RTF: %.3f" % (total_proc_time, total_proc_time / run_ctx.running_audio_len_s))
 
 
 def forward_step(*, model, data, run_ctx, **kwargs):
     import torch
-
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
@@ -144,6 +140,8 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
+    if isinstance(logprobs, list):
+        logprobs = logprobs[-1]
 
     tags = data["seq_tag"]
 
