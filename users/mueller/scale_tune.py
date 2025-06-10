@@ -383,7 +383,7 @@ def _returnn_ngram_rescore_config(
     config["forward_step"] = _returnn_score_step
     config["forward_callback"] = _returnn_v2_get_forward_callback
     
-    config["_version"] = 2
+    config["_version"] = 5
 
     if config_:
         config_dict_update_(config, config_)
@@ -476,12 +476,12 @@ def _get_ngram_model(*, epoch: int, **_kwargs_unused):
             scores = torch.zeros((x.size(0), x.size(1)), dtype=torch.float32, device=x.device)
             for i in range(x.size(0)):
                 for j in range(x.size(1)):
-                    sentence = x[i, j, :].tolist()
+                    sentence = x[i, j, :length[i, j]].tolist()
                     sentence = [vocab.id_to_label(c) for c in sentence]
                     sentence = " ".join(sentence).replace("@@ ", "")
                     if sentence.endswith("@@"):
                         sentence = sentence[:-2]
-                    scores[i, j] = self.lm.score(sentence)
+                    scores[i, j] = self.lm.score(sentence, bos = True, eos = True)
             assert scores.ndim == 2 and scores.size(0) == x.size(0) and scores.size(1) == x.size(1)
             return scores
         

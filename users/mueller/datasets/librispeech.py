@@ -317,6 +317,7 @@ class LibrispeechOggZip(DatasetConfig):
         pseudo_label_alignment: bool = -1,
         pseudo_label_nbest: int = 1,
         pseudo_label_scores: bool = False,
+        pseudo_label_sentences: bool = False,
         keep_small_labels: bool = False,
     ):
         """
@@ -338,6 +339,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.pseudo_label_path = pseudo_label_path
         self.pseudo_label_alignment = pseudo_label_alignment
         self.pseudo_label_nbest = pseudo_label_nbest
+        self.pseudo_label_sentences = pseudo_label_sentences
         self.keep_small_labels = keep_small_labels
         self.pseudo_label_scores = pseudo_label_scores
         self.test_self_training_on_small_dataset = 0 # Old param, not used. Needed for compatibility.
@@ -401,6 +403,8 @@ class LibrispeechOggZip(DatasetConfig):
             state.pop("pseudo_label_nbest")
         if not self.pseudo_label_scores:
             state.pop("pseudo_label_scores")
+        if not self.pseudo_label_sentences:
+            state.pop("pseudo_label_sentences")
         if not self.keep_small_labels:
             state.pop("keep_small_labels")
         state = {k: v for k, v in state.items() if not k.startswith("_")}
@@ -565,7 +569,7 @@ class LibrispeechOggZip(DatasetConfig):
                         train100 = librispeech.get_bliss_corpus_dict(audio_format="ogg")[part]
                         files_new += [CorpusToHDF(train100, vocab, self.pseudo_label_nbest).out_file]
                     else:
-                        files_new += [TargetsToHDF(part, self.pseudo_label_path, vocab.vocab, self.pseudo_label_nbest).out_file]
+                        files_new += [TargetsToHDF(part, self.pseudo_label_path, vocab.vocab, self.pseudo_label_nbest, vocab if self.pseudo_label_sentences else None).out_file]
                 d_pseudo = {
                     "class": "HDFDataset",
                     "files": files_new,

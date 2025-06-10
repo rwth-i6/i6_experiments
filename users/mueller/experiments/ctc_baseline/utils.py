@@ -2,14 +2,17 @@ import numpy as np
 
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model
 
-def convert_to_output_hyps(model: Model, hyp: list) -> list:
+def convert_to_output_hyps(model: Model, hyp: list, remove_bos: bool = False) -> list:
     prev = None
     ls = []
     for h in hyp:
         if h != prev:
             ls.append(h)
             prev = h
-    ls = [h for h in ls if h != model.blank_idx]
+    if remove_bos:
+        ls = [h for h in ls if (h != model.blank_idx and h != model.bos_idx and h != model.eos_idx)]
+    else:
+        ls = [h for h in ls if h != model.blank_idx]
     return ls
 
 def hyps_ids_to_label(model: Model, hyp: list, remove_reps_and_blanks: bool = False) -> list:

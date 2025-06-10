@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 import returnn.frontend as rf
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, batch_dim
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -398,6 +398,7 @@ class Wav2VecModel(rf.Module):
     w2v_hidden_size = self.wav2vec2.encoder.layers[0].feed_forward.output_dense.out_features
     self.enc_out_dim = Dim(name="enc", dimension=w2v_hidden_size, kind=Dim.Types.Feature)
 
+    with_bias = config.bool("with_bias", True)
     enc_logits = []
     enc_logits_n_layers = w2v_opts.get("enc_logits_n_layers", 1)
     for i in range(enc_logits_n_layers):
@@ -405,7 +406,7 @@ class Wav2VecModel(rf.Module):
         out_dim = wb_target_dim
       else:
         out_dim = self.enc_out_dim
-      enc_logits.append(rf.Linear(self.enc_out_dim, out_dim))
+      enc_logits.append(rf.Linear(self.enc_out_dim, out_dim, with_bias=with_bias))
 
       if i != enc_logits_n_layers - 1:
         enc_logits.append(rf.relu)
@@ -413,7 +414,7 @@ class Wav2VecModel(rf.Module):
     if len(enc_logits) > 1:
       self.enc_logits = rf.Sequential(enc_logits)
     else:
-      self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
+      self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim, with_bias=with_bias)
 
     if target_dim.vocab and not wb_target_dim.vocab:
       # Just assumption for code now, might extend this later.
@@ -557,7 +558,9 @@ class Wav2VecModel(rf.Module):
     #   print("mean: ", np.mean(array_))
     #   print("std: ", np.std(array_))
 
-    enc_raw = self.wav2vec2(source_raw).last_hidden_state
+    w2v_output = self.wav2vec2(source_raw)
+    enc_raw = w2v_output.last_hidden_state
+    self._current_extracted_features = w2v_output.extract_features
 
     # get dyn seq lengths of wav2vec encoder output
     enc_dyn_lengths_raw = source_dyn_lengths

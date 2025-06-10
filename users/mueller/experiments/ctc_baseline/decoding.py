@@ -138,10 +138,16 @@ def recog_flashlight_ngram(
                     token_words = token_words.replace("@@ ", "")
                     assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
         
+        for l1 in decoder_results:
+            assert len(l1) > 0
         words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
+        words = [(wb + [""] * (n_best - len(wb))) for wb in words]
+        for wb in words:
+            assert len(wb) == n_best
         words = np.array(words)
         words = np.expand_dims(words, axis=2)
         scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        scores = [(sb + [float("-inf")] * (n_best - len(sb))) for sb in scores]
         scores = torch.tensor(scores)
         
         beam_dim = Dim(words.shape[1], name="beam_dim")

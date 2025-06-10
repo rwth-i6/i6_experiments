@@ -181,7 +181,7 @@ class GetAlignmentTargets(Job):
         out_hdf.close()
         
 class TargetsToHDF(Job):
-    def __init__(self, corpus_name: str, recog_words_file: tk.Path, vocab_file: tk.Path, nbest: int):
+    def __init__(self, corpus_name: str, recog_words_file: tk.Path, vocab_file: tk.Path, nbest: int, vocab_config: VocabConfig = None):
         """
         :param Path bliss_corpus: Bliss corpus
         """
@@ -190,6 +190,7 @@ class TargetsToHDF(Job):
         self.out_file = self.output_path("targets.hdf")
         self.vocab_file = vocab_file
         self.nbest = nbest
+        self.vocab_config = vocab_config
 
     def tasks(self):
         yield SisTask("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
@@ -203,10 +204,13 @@ class TargetsToHDF(Job):
         d = eval(uopen(d["path"][self.corpus_name], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict), "only search output file with dict format is supported"
         
-        vocab = eval(uopen(self.vocab_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-        assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
-        assert len(vocab) == 185
-        vocab["<blank>"] = 184
+        if self.vocab_config is not None:
+            vocab = BytePairEncoding(**self.vocab_config.get_opts().copy())
+        else:
+            vocab = eval(uopen(self.vocab_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+            assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
+            assert len(vocab) == 185
+            vocab["<blank>"] = 184
         
         SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
         out_hdf = SimpleHDFWriter(filename=self.out_file.get_path(), dim=None, ndim=2)
@@ -216,23 +220,42 @@ class TargetsToHDF(Job):
             lines = []
             lengths = []
             for line in v:
-                l = line[1].strip().split(" ")
-                if l and l != [""]:
-                    l = [vocab[e] for e in l]
-                    if l in lines:
-                        raise ValueError(f"Duplicate pseudo label {l} in {v}")
-                        # lines.append([])
+                if self.vocab_config is not None:
+                    l = line[1].strip()
+                    if l and l != "":
+                        l = vocab.get_seq(l)
+                        if l in lines:
+                            lines.append([])
+                            lengths.append(0)
+                        else:
+                            lines.append(l)
+                            lengths.append(len(l))
                     else:
-                        lines.append(l)
-                        lengths.append(len(l))
+                        print(f"Empty pseudo label in {v}")
+                        lines.append([])
+                        lengths.append(0)
                 else:
-                    # raise ValueError(f"Empty pseudo label in {v}")
-                    print(f"Empty pseudo label in {v}")
-                    lines.append([])
-                    lengths.append(0)
+                    l = line[1].strip().split(" ")
+                    if l and l != [""]:
+                        l = [vocab[e] for e in l]
+                        if l in lines:
+                            raise ValueError(f"Duplicate pseudo label {l} in {v}")
+                            # lines.append([])
+                        else:
+                            lines.append(l)
+                            lengths.append(len(l))
+                    else:
+                        # raise ValueError(f"Empty pseudo label in {v}")
+                        print(f"Empty pseudo label in {v}")
+                        lines.append([])
+                        lengths.append(0)
             max_len = max(lengths)
             assert max_len != 0, f"Max length is 0 in {v}"
-            lines = [l + [vocab["</s>"]] * (max_len - len(l)) for l in lines]
+            if self.vocab_config is not None:
+                eos_idx = self.vocab_config.get_eos_idx()
+            else:
+                eos_idx = vocab["</s>"]
+            lines = [l + [eos_idx] * (max_len - len(l)) for l in lines]
             lines = np.array(lines, dtype=np.int32)
             lines = np.expand_dims(lines, axis=0)
             assert lines.shape[1] == self.nbest
@@ -247,6 +270,15 @@ class TargetsToHDF(Job):
             )
             
         out_hdf.close()
+        
+    @classmethod
+    def hash(cls, parsed_args) -> str:
+        # Extend the default hash() function.
+        d = parsed_args.copy()
+        if not d["vocab_config"]:
+            d.pop("vocab_config")
+        
+        return sis_tools.sis_hash(d)
         
 class DummyHDF(Job):
     def __init__(self, bliss_corpus, nbest: int):

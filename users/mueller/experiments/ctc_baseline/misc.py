@@ -44,7 +44,8 @@ if TYPE_CHECKING:
 
 def subset_scoring(
     *,
-    model: ModelWithCheckpoint,
+    model_def: Union[ModelDef, ModelDefWithCfg],
+    checkpoint: Optional[Checkpoint],
     lm_name: str,
     lm_checkpoint_path: Optional[tk.Path],
     vocab: VocabConfig,
@@ -53,7 +54,6 @@ def subset_scoring(
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_device: str = "gpu",
 ):
-    assert lm_name
     USE_CTC_LOSS = False
     USE_WORD_4GRAM = True
     LENGTH_NORM = False
@@ -62,6 +62,7 @@ def subset_scoring(
         lm_name = "word4gram"
         arpa_file = get_binary_lm(get_arpa_lm_dict()["4gram"])
     else:
+        assert lm_name
         assert lm_name.startswith("ffnn")
     
     config = {
@@ -79,6 +80,7 @@ def subset_scoring(
         config["arpa_file"] = arpa_file
         config["hyperparameters"]["use_logsoftmax"] = True
         config["lexicon"] = get_bpe_lexicon(vocab)
+        config["__version"] = 2
     else:
         config["hyperparameters"]["use_recombination"] = True
         config["hyperparameters"]["recomb_blank"] = True
@@ -128,7 +130,7 @@ def subset_scoring(
     """
     
     """
-    FFNN:
+    FFNN 100h:
     gt_score_am: 0.01599056667751736
     gt_score_lm: 7.356120982472526e-10
     gt_score_prior: 1.0682799089778428e-13
@@ -146,34 +148,129 @@ def subset_scoring(
     max_score_lm: -20.58492660522461
     max_score_prior: -18.007568359375
     max_score_combined: -33.02199172973633
-
-    4gram:
-    gt_score_am: 0.01599056667751736
-    gt_score_lm: 1.1164877220279676e-11
+    
+    4gram random:
+    gt_score_am: 2.2753414039380274e-40
+    gt_score_lm: 5.137138896518283e-06
+    gt_score_prior: 7.488226088586063e-14
+    gt_score_combined: 6.990922338687143e-47
+    max_score_am: 5.2747322285428705e-24
+    max_score_lm: 0.0008374061054653592
+    max_score_prior: 3.496087608688073e-20
+    max_score_combined: 2.1076151702762728e-41
+    Log Space:
+    gt_score_am: -91.2812728881836
+    gt_score_lm: -12.179014205932617
+    gt_score_prior: -30.222858428955078
+    gt_score_combined: -106.27669525146484
+    max_score_am: -53.59911346435547
+    max_score_lm: -7.085201263427734
+    max_score_prior: -44.80005645751953
+    max_score_combined: -93.66043090820312
+    
+    4gram 1 epoch unsupervised:
+    gt_score_am: 1.1853795236287336e-36
+    gt_score_lm: 5.137138896518283e-06
+    gt_score_prior: 7.488240274769156e-14
+    gt_score_combined: 1.460163431715027e-42
+    max_score_am: 2.966207586747254e-17
+    max_score_lm: 0.0012696459028455945
+    max_score_prior: 5.445128613762197e-28
+    max_score_combined: 2.8662328483344145e-34
+    Log Space:
+    gt_score_am: -82.7229995727539
+    gt_score_lm: -12.179014205932617
+    gt_score_prior: -30.222858428955078
+    gt_score_combined: -96.33002471923828
+    max_score_am: -38.056663513183594
+    max_score_lm: -6.669017314910889
+    max_score_prior: -62.77766036987305
+    max_score_combined: -77.23489379882812
+    
+    4gram 3 epochs unsupervised:
+    gt_score_am: 8.933249918876424e-19
+    gt_score_lm: 5.137138896518283e-06
     gt_score_prior: 1.0682799089778428e-13
-    gt_score_combined: 5.041833367544149e-31
+    gt_score_combined: 1.2399878078438075e-24
+    max_score_am: 8.207300715589048e-12
+    max_score_lm: 0.0012375211715698242
+    max_score_prior: 8.132676389965842e-17
+    max_score_combined: 5.574339634221146e-21
+    Log Space:
+    gt_score_am: -41.5593376159668
+    gt_score_lm: -12.179014205932617
+    gt_score_prior: -29.867557525634766
+    gt_score_combined: -55.046939849853516
+    max_score_am: -25.525997161865234
+    max_score_lm: -6.694644927978516
+    max_score_prior: -37.048057556152344
+    max_score_combined: -46.636112213134766
+    
+    4gram 5 epochs unsupervised:
+    gt_score_am: 2.5280576243513764e-15
+    gt_score_lm: 5.137138896518283e-06
+    gt_score_prior: 1.0682799089778428e-13
+    gt_score_combined: 9.838774432194707e-21
+    max_score_am: 0.02377821519639757
+    max_score_lm: 0.008582612779405382
+    max_score_prior: 1.8472603793876867e-08
+    max_score_combined: 7.330657940150964e-08
+    Log Space:
+    gt_score_am: -33.611324310302734
+    gt_score_lm: -12.179014205932617
+    gt_score_prior: -29.867557525634766
+    gt_score_combined: -46.067955017089844
+    max_score_am: -3.738985538482666
+    max_score_lm: -4.758017063140869
+    max_score_prior: -17.806976318359375
+    max_score_combined: -16.42861557006836
+
+    4gram 100h:
+    gt_score_am: 0.01599056667751736
+    gt_score_lm: 5.137138896518283e-06
+    gt_score_prior: 1.0682799089778428e-13
+    gt_score_combined: 2.7369216897770657e-10
     max_score_am: 0.021518756442599825
-    max_score_lm: 3.277289629800685e-11
+    max_score_lm: 3.5551596019003128e-06
     max_score_prior: 3.1707826487882407e-13
-    max_score_combined: 5.297055463852185e-31
+    max_score_combined: 2.803873636973246e-10
     Log Space:
     gt_score_am: -4.135756492614746
-    gt_score_lm: -25.21824836730957
+    gt_score_lm: -12.179014205932617
     gt_score_prior: -29.867557525634766
-    gt_score_combined: -69.76236724853516
+    gt_score_combined: -22.01901626586914
     max_score_am: -3.8388304710388184
-    max_score_lm: -24.14141845703125
+    max_score_lm: -12.547110557556152
     max_score_prior: -28.77962875366211
-    max_score_combined: -69.7129898071289
+    max_score_combined: -21.994850158691406
+    
+    4gram 960h (nbest 5):
+    gt_score_am: 0.10421209038628472
+    gt_score_lm: 5.137138896518283e-06
+    gt_score_prior: 1.0682799089778428e-13
+    gt_score_combined: 3.836217830313318e-10
+    max_score_am: 0.19585074869791666
+    max_score_lm: 6.531885100735558e-06
+    max_score_prior: 3.7439421933053533e-13
+    max_score_combined: 8.780856054121007e-10
+    Log Space:
+    gt_score_am: -2.2613272666931152
+    gt_score_lm: -12.179014205932617
+    gt_score_prior: -29.867557525634766
+    gt_score_combined: -21.681364059448242
+    max_score_am: -1.6304025650024414
+    max_score_lm: -11.938815116882324
+    max_score_prior: -28.613468170166016
+    max_score_combined: -20.8532772064209
 
     """
         
     output_file = "scores.txt"
     forward_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint,
+        model_checkpoint=checkpoint,
         returnn_config=_returnn_scoring_config(
             dataset=dataset,
-            model_def=model.definition,
+            model_def=model_def,
             config=config,
         ),
         output_files=[output_file],
