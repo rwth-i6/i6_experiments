@@ -579,6 +579,24 @@ def eow_phon_ls960_relposencoder_0924_base():
             window_shift=320,
             fft_size=512,
         ),
+        "stft_v61": SpecaugStftConfig(  # mimic vanilla log Mel SpecAugment
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=int(16 / 80 * 257),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v62": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=159,
+            window_shift=160,
+            fft_size=159,  # results in 80 dim vectors as for log Mel
+        ),
     }
     model_config = FeatureModelConfigV2(
         specaug_config=specaug_configs["stft_v1"],
@@ -621,7 +639,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # rerun log mel with STFT-domain SpecAugment
     logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
-    for specaug_version in ["stft_v47"]:
+    for specaug_version in ["stft_v47", "stft_v61", "stft_v62"]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
             feature_extraction_config=logmel_config,
@@ -631,7 +649,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         )
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
-            model_cfg=model_config_exp, name_ext=specaug_version.replace("_", "sa") + ".logmel", move_to_hpc=True,
+            model_cfg=model_config_exp, name_ext="." + specaug_version.replace("_", "sa") + ".logmel", move_to_hpc=True,
         )
 
     # 2D experiments with STFT SpecAugment: different 2D configurations
@@ -1160,6 +1178,9 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx6v13", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v14", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v15", "stft_v47", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "default", 32, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v41", 32, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v61", 32, 256, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
@@ -1186,14 +1207,18 @@ def eow_phon_ls960_relposencoder_0924_base():
             )
         frontend_config = copy.deepcopy(frontend_configs[fe_key])
         frontend_config.in_features = out_channels
+        specaug_config_exp = copy.deepcopy(specaug_configs[specaug_version])
+        if specaug_version == "default":
+            specaug_config_exp.max_dim_feat = int(specaug_config_exp.max_dim_feat / 80 * out_channels)
+            specaug_version = f"{specaug_version}sa"
         model_config = FeatureModelConfigV2(
-            specaug_config=specaug_configs[specaug_version],
+            specaug_config=specaug_config_exp,
             feature_extraction_config=conv_config,
             frontend_config=frontend_config,
             frontend_config_class="VGGNLayerActFrontendV1Config",
             **model_base_args_feat,
         )
-        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name = "." + specaug_version.replace("stft_", "stftsa") + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
         exp_name = (
             exp_name +
             (f"_{activation}" if activation else "") +
@@ -1246,7 +1271,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
         )
 
-    # 2D experiments with STFT SpecAugment, first conv layer: tune audio perturbation
+    # 2D experiments with STFT SpecAugment, first conv layer: tune dropout
     for fe_key, specaug_version, out_channels, kernel_size, stride, dropout in [
         ("2Dx6v1", "stft_v47", 32, 256, 10, 0.05),
     ]:
