@@ -476,10 +476,13 @@ def search_dataset(
         out_files = [_v2_forward_out_filename]
         if config and config.get("__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
+        decoding_params = decoding_config.copy()
+        rescoring = decoding_params.pop("rescoring", False)
+        rescoringLM = decoding_params.pop("lm_rescore", None) # Assert tuple(name, path)
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, decoding_config, prior_path, config=config, post_config=search_post_config
+                dataset, model.definition, recog_def, decoding_params, prior_path, config=config, post_config=search_post_config
             ),
             output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -501,6 +504,22 @@ def search_dataset(
         # Also assume we should collapse repeated labels first.
         res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+        if rescoring:
+            lm_rescor_name, rescoringLM = rescoringLM
+            assert isinstance(rescoringLM, tk.Path)
+            from .experiments.lm.llm import HuggingFaceLmRescoringJob
+            res = HuggingFaceLmRescoringJob(
+                model_dir=rescoringLM,
+                weight=0.3,
+                recog_out_file=res,
+                llm_name=lm_rescor_name,
+                lower_case=False,
+            )
+            res.add_alias("rescoring/" + lm_rescor_name +  "/" + search_alias_name)
+            res = res.out_file
+            tk.register_output(
+                "rescoring/" + lm_rescor_name + "/" + search_alias_name,
+                res)
         res_with_score = res.copy()
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
@@ -1019,6 +1038,8 @@ def search_config_v2(
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
+    decoder_params = decoding_config.copy()  # Since decoding_config is shared across runs for different lm
+
     if recog_def is model_recog_lm:
         from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 
@@ -1032,11 +1053,10 @@ def search_config_v2(
         else:
             print("No vocab found in dataset!!!")
             lexicon = None
-        decoder_params = decoding_config.copy() # Since decoding_config is shared across runs for different lm
 
         if "lm_order" in decoder_params:
             lm_name = decoder_params["lm_order"]
-            if lm_name[0].isdigit(): #Use count based n-gram, it is already in decoder_params["lm"] TODO: maybe pass the lm config here and get the lm here
+            if lm_name[0].isdigit(): #Use count based n-gram as arpa(bin) file_name it is already in decoder_params["lm"] TODO: maybe pass the lm config here and get the lm here
                 lm = decoder_params.pop("lm", 0)
                 assert lm != 0, "no count based lm given in decoding_config!!!"
             elif lm_name.startswith("ffnn") or lm_name.startswith("trafo"): # Actually lm should be none not only for ffnn, can change to something else later
@@ -1047,14 +1067,19 @@ def search_config_v2(
         else:
             lm = None
             decoder_params.pop("lm_weight")
-            decoder_params.pop("beam_size") #No LM just equals greedy
+            if decoder_params.get("nbest", 1) == 1:
+                decoder_params.pop("beam_size") #No LM just equivalent to greedy
 
         args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
         if prior_path:
             args["prior_file"] = prior_path
 
     elif recog_def in (model_recog_flashlight, recog_nn, model_recog):
-        args = {"hyperparameters": decoding_config}
+        if recog_def == recog_nn and decoder_params.get("nbest",1) > 1:
+            decoder_params["use_recombination"] = True
+            decoder_params["recomb_after_topk"] = True
+            decoder_params["recomb_blank"] = True
+        args = {"hyperparameters": decoder_params}
         if prior_path:
             args["prior_file"] = prior_path
 

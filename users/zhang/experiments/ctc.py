@@ -573,7 +573,7 @@ def recog_exp(
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
         dev_sets=["test-other","dev-other"],
         search_rqmt=search_rqmt,
-        search_error_check=True,
+        search_error_check=False,
     )
 
     _train_experiments[name] = model_with_checkpoints
@@ -3185,7 +3185,7 @@ def decode_nn(
         hyperparameters: dict,
         prior_file: tk.Path = None,
         scoring: bool = False, # This prevent doubled prior application
-        ground_truth: Tensor = None,
+        ground_truth: Tensor = None, # Not completed, If provided this will do lm-masking to force the gt result
         version: int = 2,
 ):
     """
@@ -3229,7 +3229,8 @@ def decode_nn(
 
     n_best = hyp_params.pop("nbest", 1)
     beam_size = hyp_params.pop("beam_size", 12)
-    beam_size = 1 if scoring else beam_size
+    if scoring or (lm_name is None and n_best == 1):
+        beam_size = 1
     print(f"Beam size: {beam_size}")
     use_recombination = hyp_params.pop("use_recombination", False)
     assert n_best == 1 or use_recombination, "n-best only implemented with recombination"
@@ -3657,6 +3658,45 @@ def decode_nn(
             )
             seq_targets_wb = rf.gather(seq_targets_wb, axis=beam_dim, indices=indices)
             beam_dim = beam_dim_new
+
+    # '''Rescoring and reordering the n-best list using second pass LM if provided'''
+    # # Score are not replaced for search error check
+    # if lm_name_2pass is not None:
+    #     def extract_ctx_size(s):
+    #         match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
+    #         return match.group(1) if match else None
+    #     assert model.rescor_language_model
+    #     assert model.rescor_language_model.vocab_dim == model.target_dim
+    #
+    #     if lm_name_2pass.startswith("ffnn"):
+    #         context_size = int(extract_ctx_size(lm_name))
+    #         assert isinstance(model.rescor_language_model, FeedForwardLm)
+    #         lm_2pass: FeedForwardLm = model.rescor_language_model
+    #         assert lm.conv_filter_size_dim.dimension == context_size
+    #
+    #
+    #     elif lm_name_2pass.startswith("trafo"):
+    #         assert isinstance(model.rescor_language_model, TransformerDecoder)
+    #         lm_2pass: TransformerDecoder = model.rescor_language_model
+    #
+    #     elif lm_name_2pass.startswith("Llama"):
+    #         def raw_text_from_bpe_seq(seq:list):
+    #             token_list = [model.target_dim.vocab.id_to_label(idx) if idx != model. for idx in seq]
+    #             return " ".join(token_list).replace("@@ ","").replace(" <s>", "")
+    #         assert isinstance(model.rescor_language_model, tk.Path)
+    #         from transformers import AutoModelForCausalLM, AutoTokenizer
+    #         from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
+    #         model_path = get_content_dir_from_hub_cache_dir(model.rescor_language_model)
+    #         tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+    #         if tokenizer.pad_token is None:
+    #             tokenizer.pad_token = tokenizer.eos_token
+    #         print(f"\nTokenizer_max_length:{tokenizer.model_max_length}\n")
+    #         model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True)
+    #         model.eval()
+    #         model.to(dev)
+    #         raw_text = [raw_text_from_bpe_seq(hyp) for hyp in seq_targets_wb.raw_tensor]
+    #     else:
+    #         raise Exception("Not supported language model:" + lm_name_2pass + f"{model.rescor_language_model}")
 
 
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim

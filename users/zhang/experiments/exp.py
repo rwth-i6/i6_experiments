@@ -16,12 +16,13 @@ from sisyphus import tk
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob
+from i6_experiments.users.zhang.experiments.lm.llm import get_llm
 
 WORD_PPL = False # If convert all ppl to word level
 BLSTM_Enc_dim = 1024 # Default 512, in this case leave model_config empty. Otherwise, the hash broken, dont know why
 USE_flashlight_decoder = False
 recog_info = "flashlight_" if USE_flashlight_decoder else "i6_"
-def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
+def ctc_exp(lmname, lm, vocab, rescor_config:tuple=None, encoder:str="conformer",train:bool=False):
     """Experiments on CTC"""
     model_def = None
     if encoder == "conformer":
@@ -72,7 +73,7 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
     # Each time called ctc_exp there will be an independent copy of this config, TODO: declare this outside the function and use explicit copy
     decoding_config = {
         "log_add": False,
-        "nbest": 1,
+        "nbest": 50,
         "beam_size": 80, # 80 for previous exps on bpe128, this is also default beamsize for NoLM
         "beam_threshold": 1e6,  # 14. 1000000
         "lm_weight": 1.45,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
@@ -86,6 +87,8 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
     #     "lm_weight": 1.45,
     #     "use_recombination": False,
     # } #TODO this somehow makes the scoring func broken
+
+
     if lmname != "NoLM" and not train:
         decoding_config["lm_order"] = lmname
         if lmname[0].isdigit(): # n-gram
@@ -213,6 +216,9 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
     if "gram" in lmname: # Currently only flashlight impl supports count based gram lm
         recog_def = model_recog_lm
 
+    if rescor_config:
+        decoding_config["rescoring"] = True
+        decoding_config["lm_rescore"] = rescor_config
     return *train_exp(
             name=alias_name,
             config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -247,16 +253,18 @@ def ctc_exp(lmname, lm, vocab, encoder:str="conformer",train:bool=False):
             batch_size=batch_size,
         )[1:], f"{p0}{p3}_{p3_}{p4}{p6}", decoding_config["lm_weight"], decoding_config["prior_weight"]
 
+
+
 def py():
     """Sisyphus entry point"""
     """We have bpe128: [ctc blstm, ctc conformer], bpe10k:[ctc conformer]"""
     available = [("bpe128","ctc","blstm"),("bpe128","ctc","conformer"),("bpe10k","ctc","conformer")]
     models = {"ctc": ctc_exp, "transducer": None, "AED":None}
-    encoder = "blstm" #blstm conformer
+    encoder = "conformer" #blstm conformer
     train = False # Weather train the AM
     lm_types_names = set()
-    for vocab in [#"bpe128",
-                  "bpe10k", # 6.49  # For now only have Conformer CTC
+    for vocab in ["bpe128",
+                  #"bpe10k", # 6.49  # For now only have Conformer CTC
                   ]:
         # from ..datasets.librispeech_lm import get_4gram_binary_lm
 
@@ -467,7 +475,7 @@ def py():
                 train = True
             wer_ppl_results = dict()
             #----------Test--------------------
-            #lms = ({"NoLM": None})
+            lms = ({"NoLM": None})
             # ffnn_lm = {
             #             "preload_from_files": {
             #             "recog_lm": {
@@ -484,11 +492,18 @@ def py():
             #------------------------------
             if train:
                 lms = ({"NoLM": None})
+
             lm_hyperparamters_strs = dict()
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
+                rescor_config = None
+                if name in ["NoLM"]:
+                    rescor_config = ("Llama-3.2-1B", get_llm("Llama-3.2-1B"))
                 wer_result_path, search_error, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(name, lm, vocab,
-                                                                                     encoder=encoder, train=train)
+                                                                                                                                       rescor_config = rescor_config,
+                                                                                                                                       encoder=encoder, train=train)
+                if rescor_config:
+                    lm_hyperparamters_str += f"rescor_with{rescor_config[0]}"
                 for lm_type in lm_types_names:
                     if lm_type in name:
                         lm_hyperparamters_strs[lm_type] = " " if not lm_hyperparamters_str else lm_hyperparamters_str
