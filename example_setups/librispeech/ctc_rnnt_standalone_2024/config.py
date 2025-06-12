@@ -164,6 +164,7 @@ def get_forward_config(
 
     # changeing these does change the hash
     base_config = {
+        "num_workers_per_gpu": 2,
         "batch_size": 1000 * 16000,
         "max_seqs": 240,
     }

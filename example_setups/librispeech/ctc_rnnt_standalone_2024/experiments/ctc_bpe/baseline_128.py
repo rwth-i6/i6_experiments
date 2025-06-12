@@ -29,7 +29,7 @@ def bpe128_ls960_0924_base():
         peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
         # training
         train_partition_epoch=10,
-        train_seq_ordering="laplace:.4000",
+        train_seq_ordering="laplace:.1000",
     )
 
     train_data_bpe = build_bpe_training_datasets(
@@ -101,7 +101,7 @@ def bpe128_ls960_0924_base():
         if isinstance(base_decoder_config, FlashlightDecoderConfig):
             decoder_module = "ctc.decoder.flashlight_ctc_v1"
         elif isinstance(base_decoder_config, BeamSearchDecoderConfig):
-            decoder_module = "ctc.decoder.flashlight_ctc_v1"
+            decoder_module = "ctc.decoder.beam_search_bpe_ctc_v4"
             assert unhashed_decoder_config is not None
         else:
             assert False, "Invalid decoder config"
@@ -169,7 +169,7 @@ def bpe128_ls960_0924_base():
         )
 
     default_flashlight_decoder_config = FlashlightDecoderConfig(
-        lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=5000),
+        lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=BPE_SIZE),
         returnn_vocab=label_datastream_bpe.vocab,
         beam_size=1024,  # Untuned
         beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
@@ -191,6 +191,14 @@ def bpe128_ls960_0924_base():
         lm_checkpoint=lstm_2x2048.checkpoint,
         lm_module="pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v1_decoder.Model",
         lm_states_need_label_axis=False,
+    )
+    trafolm_beamsearch_decoder_config = BeamSearchDecoderConfig(
+        returnn_vocab=label_datastream_bpe.vocab,
+        beam_size=10,
+        lm_model_args=trafo_32x768.net_args,
+        lm_checkpoint=trafo_32x768.checkpoint,
+        lm_module="pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v1_decoder.Model",
+        lm_states_need_label_axis=True,
     )
 
     beamsearch_decoder_extra_config = BeamSearchDecoderExtraConfig(
@@ -282,7 +290,7 @@ def bpe128_ls960_0924_base():
         "accum_grad_multiple_step": 1,
         "gradient_clip_norm": 1.0,
         "torch_amp_options": {"dtype": "bfloat16"},
-        # "num_workers_per_gpu": 8,  # has influence on data sorting, so hash
+        "num_workers_per_gpu": 2,
     }
 
     network_module = "ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1"
@@ -306,11 +314,18 @@ def bpe128_ls960_0924_base():
     )
     greedy_search_helper(training_name+ "/greedy", asr_model, default_greedy_config)
     tune_and_evaluate_helper(
-        training_name + " /flashlight_4gram", asr_model,
+        training_name + "/flashlight_4gram", asr_model,
         default_flashlight_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
     )
     tune_and_evaluate_helper(
-        training_name + " /beamsearch_lstm_2x2048", asr_model,
-        lstmlm_beamsearch_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4],
-        unhashed_decoder_config=beamsearch_decoder_extra_config
+        training_name + "/beamsearch_lstm_2x2048", asr_model,
+        lstmlm_beamsearch_decoder_config, lm_scales=[0.7, 0.75, 0.8, 0.85, 0.9], prior_scales=[0.3, 0.35, 0.4],
+        unhashed_decoder_config=beamsearch_decoder_extra_config,
+        extra_forward_config = {"batch_size": 200 * 16000},
+    )
+    tune_and_evaluate_helper(
+        training_name + "/beamsearch_trafo_32x768", asr_model,
+        trafolm_beamsearch_decoder_config, lm_scales=[0.7, 0.75, 0.8, 0.85, 0.9], prior_scales=[0.3, 0.35, 0.4],
+        unhashed_decoder_config=beamsearch_decoder_extra_config,
+        extra_forward_config = {"batch_size": 200 * 16000},
     )
