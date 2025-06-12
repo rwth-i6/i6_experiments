@@ -28,6 +28,7 @@ def get_ctc_model(name: str) -> ASRModel:
 
 _lm_models: Dict[str, tk.Path] = {}
 
+
 def add_lm(name: str, lm_model: NeuralLM):
     global _lm_models
     assert name not in _lm_models.keys()

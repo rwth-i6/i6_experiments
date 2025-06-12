@@ -35,7 +35,6 @@ def bpe128_kazuki_lstm():
         label_datastream_bpe128 = cast(LabelDatastream, train_data_bpe128_part100.datastreams["data"])
         vocab_size_without_blank = label_datastream_bpe128.vocab_size
 
-
         # Extra version to debug LM dataset behavior
         MINI_RETURNN_ROOT = CloneGitRepositoryJob(
             "https://github.com/JackTemaki/MiniReturnn", commit="ac8df606d62a3474f5c8a1fb0ff11adb54bb75c6"
@@ -50,8 +49,8 @@ def bpe128_kazuki_lstm():
         from ...pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v1_cfg import ModelConfig
 
         default_init_args = {
-            'init_args_w': {'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}},
-            'init_args_b': {'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}}
+            "init_args_w": {"func": "normal", "arg": {"mean": 0.0, "std": 0.1}},
+            "init_args_b": {"func": "normal", "arg": {"mean": 0.0, "std": 0.1}},
         }
 
         lstm_base_config = ModelConfig(
@@ -70,7 +69,7 @@ def bpe128_kazuki_lstm():
             "batch_size": 1280,  # BPE tokens
             "accum_grad_multiple_step": 1,
             "gradient_clip_norm": 1.0,
-            "learning_rates": ([1e-3] * 100) + list(np.linspace(1e-3, 1e-5, 200))
+            "learning_rates": ([1e-3] * 100) + list(np.linspace(1e-3, 1e-5, 200)),
         }
 
         network_module = "lm.lstm.kazuki_lstm_zijian_variant_v1"
@@ -88,9 +87,13 @@ def bpe128_kazuki_lstm():
 
         from ...storage import add_lm
         from ...pipeline import NeuralLM
-        add_lm("bpe%i_2x2024_kazuki_lstmlm_3ep" % BPE_SIZE, lm_model=NeuralLM(
-            checkpoint=train_job.out_checkpoints[300],
-            net_args=train_args["net_args"],
-            network_module=network_module,
-            prefix_name=training_name
-        ))
+
+        add_lm(
+            "bpe%i_2x2024_kazuki_lstmlm_3ep" % BPE_SIZE,
+            lm_model=NeuralLM(
+                checkpoint=train_job.out_checkpoints[300],
+                net_args=train_args["net_args"],
+                network_module=network_module,
+                prefix_name=training_name,
+            ),
+        )

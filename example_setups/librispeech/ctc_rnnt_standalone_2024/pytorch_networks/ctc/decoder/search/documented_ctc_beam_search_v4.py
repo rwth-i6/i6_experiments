@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import torch
 from torchaudio.models import RNNT
 
+
 @dataclass
 class Hypothesis:
     tokens: List[int]
@@ -17,6 +18,7 @@ class Hypothesis:
     score: float
     lm_output: Optional[torch.Tensor]
     lm_state: Optional[List[List[torch.Tensor]]]
+
 
 Hypothesis.__doc__ = """
         Active search hypothesis
@@ -27,6 +29,7 @@ Hypothesis.__doc__ = """
         :param lm_output: the current output of the LM given the token history
         :param lm_state: the current lm state covering the token history
     """
+
 
 def _get_hypo_key(hypo: Hypothesis) -> str:
     """
@@ -71,9 +74,14 @@ def _batch_lm_state_with_label_axis(hypos: List[Hypothesis]) -> List[List[torch.
     for i in range(len(hypos[0].lm_state)):
         batched_state_components: List[torch.Tensor] = []
         for j in range(len(hypos[0].lm_state[i])):
-            batched_state_components.append(torch.nn.utils.rnn.pad_sequence([hypo.lm_state[i][j][0] for hypo in hypos], batch_first=True, padding_value=0))
+            batched_state_components.append(
+                torch.nn.utils.rnn.pad_sequence(
+                    [hypo.lm_state[i][j][0] for hypo in hypos], batch_first=True, padding_value=0
+                )
+            )
         states.append(batched_state_components)
     return states
+
 
 def _slice_state(states: List[List[torch.Tensor]], idx: int, device: torch.device) -> List[List[torch.Tensor]]:
     """
@@ -97,6 +105,7 @@ def _default_hypo_sort_key(hypo: Hypothesis) -> float:
     """
     # TODO: Why +1?
     return hypo.score / (len(hypo.tokens) + 1)
+
 
 def _compute_updated_scores(
     hypos: List[Hypothesis],
@@ -266,14 +275,11 @@ class CTCBeamSearch(torch.nn.Module):
             # apply log softmax and remove fake T axis from LM
             logprobs_lm = torch.nn.functional.log_softmax(lm_out / self.temperature, dim=2)[:, 0]
 
-
             # add blank with prob 1 (log 0)
             logprobs_lm = torch.nn.functional.pad(logprobs_lm, (0, 1))
             logprobs_ctc = logprobs_ctc + self.lm_scale * logprobs_lm - self.prior_scale * self.prior
 
-
         return logprobs_ctc
-
 
     def _gen_hypos(
         self,
@@ -332,7 +338,9 @@ class CTCBeamSearch(torch.nn.Module):
         :return:
         """
         # only compute LM for non-blank non-repetition
-        compute_indices = set([i for i, token in enumerate(tokens) if (token != base_hypos[i].last_emission and token != self.blank)])
+        compute_indices = set(
+            [i for i, token in enumerate(tokens) if (token != base_hypos[i].last_emission and token != self.blank)]
+        )
         tgt_tokens = torch.tensor([[token] for i, token in enumerate(tokens) if i in compute_indices], device=device)
         compute_hyps = [hyp for i, hyp in enumerate(base_hypos) if i in compute_indices]
 
@@ -343,7 +351,7 @@ class CTCBeamSearch(torch.nn.Module):
                     tgt_tokens,
                     torch.tensor([1] * len(compute_indices), device=device),
                     cache=lm_states[0],
-                    cache_length=torch.tensor([len(hyp.tokens) for hyp in compute_hyps], device=device)
+                    cache_length=torch.tensor([len(hyp.tokens) for hyp in compute_hyps], device=device),
                 )
             else:
                 lm_states = _batch_lm_state(compute_hyps)

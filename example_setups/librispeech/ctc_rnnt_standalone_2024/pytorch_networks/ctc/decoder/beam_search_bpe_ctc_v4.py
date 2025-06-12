@@ -12,6 +12,7 @@ import numpy as np
 
 from .search.documented_ctc_beam_search_v4 import CTCBeamSearch
 
+
 @dataclass
 class DecoderConfig:
     returnn_vocab: str
@@ -27,7 +28,7 @@ class DecoderConfig:
     prior_file: Optional[str] = None
 
     lm_scale: float = 0.0
-    
+
 
 @dataclass
 class DecoderExtraConfig:
@@ -37,7 +38,7 @@ class DecoderExtraConfig:
 
     # Hypothesis logging
     print_hypothesis: bool = True
-    
+
     # LM model package path
     lm_package: Optional[str] = None
 
@@ -48,18 +49,18 @@ def forward_init_hook(run_ctx, **kwargs):
     config = DecoderConfig(**kwargs["config"])
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = DecoderExtraConfig(**extra_config_dict)
-    
+
     run_ctx.recognition_file = open("search_out.py", "wt")
     run_ctx.recognition_file.write("{\n")
 
     from returnn.datasets.util.vocabulary import Vocabulary
-    vocab = Vocabulary.create_vocab(
-        vocab_file=config.returnn_vocab, unknown_label=None)
+
+    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
     run_ctx.labels = vocab.labels
 
     model = run_ctx.engine._model
     run_ctx.beam_size = config.beam_size
-    
+
     if config.prior_file:
         run_ctx.prior = torch.tensor(np.loadtxt(config.prior_file, dtype="float32"), device=run_ctx.device)
         run_ctx.prior_scale = config.prior_scale
@@ -102,10 +103,8 @@ def forward_init_hook(run_ctx, **kwargs):
         lm_states_need_label_axis=config.lm_states_need_label_axis,
         prior=run_ctx.prior,
         prior_scale=run_ctx.prior_scale,
-
     )
     print("done!")
-    
 
     run_ctx.print_rtf = extra_config.print_rtf
     if run_ctx.print_rtf:
@@ -113,6 +112,7 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.total_time = 0
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
+
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
@@ -140,7 +140,6 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     if isinstance(logprobs, list):
         logprobs = logprobs[-1]
 
-
     if run_ctx.print_rtf:
         if torch.cuda.is_available():
             torch.cuda.synchronize(run_ctx.device)
@@ -154,15 +153,15 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         # hyps = [hypothesis[0].tokens for hypothesis in batched_hypotheses]  # exclude last sentence end token
 
     if run_ctx.print_rtf:
-        search_time = (time.time() - search_start)
-        run_ctx.total_time += (am_time + search_time)
+        search_time = time.time() - search_start
+        run_ctx.total_time += am_time + search_time
         print("Batch-AM-Time: %.2fs, AM-RTF: %.3f" % (am_time, am_time / audio_len_batch))
         print("Batch-Search-Time: %.2fs, Search-RTF: %.3f" % (search_time, search_time / audio_len_batch))
         print("Batch-time: %.2f, Batch-RTF: %.3f" % (am_time + search_time, (am_time + search_time) / audio_len_batch))
 
     for hyp, tag in zip(hyps, tags):
         sequence = [run_ctx.labels[idx] for idx in hyp if idx < len(run_ctx.labels)]
-        text = " ".join(sequence).replace("@@ ","")
+        text = " ".join(sequence).replace("@@ ", "")
         if run_ctx.print_hypothesis:
             print(text)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(text)))

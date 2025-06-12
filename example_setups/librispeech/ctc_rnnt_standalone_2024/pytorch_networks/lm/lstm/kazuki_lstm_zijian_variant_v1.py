@@ -3,6 +3,7 @@ from torch import nn
 
 from .kazuki_lstm_zijian_variant_v1_cfg import ModelConfig
 
+
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     """
     mask a tensor with a "positive" mask (boolean true means position is used)
@@ -21,6 +22,7 @@ class Model(nn.Module):
     """
     Simple LSTM LM with an embedding, an LSTM, and a final linear
     """
+
     def __init__(self, model_config_dict, **kwargs):
         super().__init__()
         self.cfg = ModelConfig(**model_config_dict)
@@ -40,7 +42,7 @@ class Model(nn.Module):
             bidirectional=False,
         )
         if self.cfg.use_bottle_neck:
-            self.bottle_neck = nn.Linear(self.cfg.hidden_dim,self.cfg.bottle_neck_dim, bias=True)
+            self.bottle_neck = nn.Linear(self.cfg.hidden_dim, self.cfg.bottle_neck_dim, bias=True)
             self.final_linear = nn.Linear(self.cfg.bottle_neck_dim, self.cfg.vocab_dim, bias=True)
         else:
             self.final_linear = nn.Linear(self.cfg.hidden_dim, self.cfg.vocab_dim, bias=True)
@@ -48,22 +50,21 @@ class Model(nn.Module):
         if self.cfg.init_args is not None:
             self._param_init(**self.cfg.init_args)
 
-
     def _param_init(self, init_args_w=None, init_args_b=None):
         for m in self.modules():
             for name, param in m.named_parameters():
-                if 'bias' in name:
-                    if init_args_b['func'] == 'normal':
+                if "bias" in name:
+                    if init_args_b["func"] == "normal":
                         init_func = nn.init.normal_
                     else:
                         NotImplementedError
-                    hyp = init_args_b['arg']
+                    hyp = init_args_b["arg"]
                 else:
-                    if init_args_w['func'] == 'normal':
+                    if init_args_w["func"] == "normal":
                         init_func = nn.init.normal_
                     else:
                         NotImplementedError
-                    hyp = init_args_w['arg']
+                    hyp = init_args_w["arg"]
                 init_func(param, **hyp)
 
     def forward(self, x):
@@ -87,8 +88,8 @@ class Model(nn.Module):
                 x = self.dropout(x)
         x = self.final_linear(x)
         return x
-    
-    
+
+
 def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels = data["data"]
     labels_len = data["data:size1"]
@@ -96,9 +97,9 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     lm_logits = model(delayed_labels)  # (B, S, F)
 
-    ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels.long(), reduction='none')
+    ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels.long(), reduction="none")
     seq_mask = mask_tensor(labels, labels_len)
     ce_loss = (ce_loss * seq_mask).sum()
     total_length = torch.sum(labels_len)
-    
+
     run_ctx.mark_as_loss(name="ce", loss=ce_loss, inv_norm_factor=total_length)

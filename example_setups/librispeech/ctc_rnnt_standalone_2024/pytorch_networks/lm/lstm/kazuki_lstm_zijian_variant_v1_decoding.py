@@ -8,6 +8,7 @@ class Model(nn.Module):
     """
     Simple LSTM LM with an embedding, an LSTM, and a final linear
     """
+
     def __init__(self, model_config_dict, **kwargs):
         super().__init__()
         self.cfg = ModelConfig(**model_config_dict)
@@ -27,7 +28,7 @@ class Model(nn.Module):
             bidirectional=False,
         )
         if self.cfg.use_bottle_neck:
-            self.bottle_neck = nn.Linear(self.cfg.hidden_dim,self.cfg.bottle_neck_dim, bias=True)
+            self.bottle_neck = nn.Linear(self.cfg.hidden_dim, self.cfg.bottle_neck_dim, bias=True)
             self.final_linear = nn.Linear(self.cfg.bottle_neck_dim, self.cfg.vocab_dim, bias=True)
         else:
             self.final_linear = nn.Linear(self.cfg.hidden_dim, self.cfg.vocab_dim, bias=True)
@@ -35,22 +36,21 @@ class Model(nn.Module):
         if self.cfg.init_args is not None:
             self._param_init(**self.cfg.init_args)
 
-
     def _param_init(self, init_args_w=None, init_args_b=None):
         for m in self.modules():
             for name, param in m.named_parameters():
-                if 'bias' in name:
-                    if init_args_b['func'] == 'normal':
+                if "bias" in name:
+                    if init_args_b["func"] == "normal":
                         init_func = nn.init.normal_
                     else:
                         NotImplementedError
-                    hyp = init_args_b['arg']
+                    hyp = init_args_b["arg"]
                 else:
-                    if init_args_w['func'] == 'normal':
+                    if init_args_w["func"] == "normal":
                         init_func = nn.init.normal_
                     else:
                         NotImplementedError
-                    hyp = init_args_w['arg']
+                    hyp = init_args_w["arg"]
                 init_func(param, **hyp)
 
     def forward(self, x, states):

@@ -75,13 +75,12 @@ def get_training_config(
 
     if add_cache_manager:
         from i6_experiments.common.setups.serialization import PythonCacheManagerFunctionNonhashedCode, Collection
+
         python_prolog_serializer_objects.append(PythonCacheManagerFunctionNonhashedCode)
 
     python_prolog = None
     if len(python_prolog_serializer_objects) > 0:
-        python_prolog = [
-            TorchCollection(python_prolog_serializer_objects)
-        ]
+        python_prolog = [TorchCollection(python_prolog_serializer_objects)]
 
     returnn_config = ReturnnConfig(
         config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]

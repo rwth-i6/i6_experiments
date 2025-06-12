@@ -57,7 +57,7 @@ class Model(torch.nn.Module):
                     hidden_dim=self.cfg.ff_dim,
                     dropout=self.cfg.ff_dropout,
                     activation=nn.functional.silu,
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
                 ),
                 mhsa_cfg=ConformerMHSARelPosV1Config(
                     input_dim=conformer_size,
@@ -74,9 +74,12 @@ class Model(torch.nn.Module):
                     pos_emb_dropout=self.cfg.pos_emb_config.pos_emb_dropout,
                 ),
                 conv_cfg=ConformerConvolutionV2Config(
-                    channels=conformer_size, kernel_size=self.cfg.conv_kernel_size, dropout=self.cfg.conv_dropout, activation=nn.functional.silu,
+                    channels=conformer_size,
+                    kernel_size=self.cfg.conv_kernel_size,
+                    dropout=self.cfg.conv_dropout,
+                    activation=nn.functional.silu,
                     norm=LayerNormNC(conformer_size),
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
                 ),
                 modules=self.cfg.module_list,
                 scales=self.cfg.module_scales,
@@ -86,30 +89,34 @@ class Model(torch.nn.Module):
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.conformer = ConformerRelPosEncoderV1(cfg=conformer_config)
         self.num_output_linears = 1 if self.cfg.aux_ctc_loss_layers is None else len(self.cfg.aux_ctc_loss_layers)
-        self.output_linears = nn.ModuleList([
-            nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
-            for _ in range(self.num_output_linears)
-        ])
-        self.output_dropout = BroadcastDropout(p=self.cfg.final_dropout, dropout_broadcast_axes=self.cfg.dropout_broadcast_axes)
-        
+        self.output_linears = nn.ModuleList(
+            [
+                nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
+                for _ in range(self.num_output_linears)
+            ]
+        )
+        self.output_dropout = BroadcastDropout(
+            p=self.cfg.final_dropout, dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
+        )
+
         self.return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
         self.scales = self.cfg.aux_ctc_loss_scales or [1.0]
-        
+
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
         # No particular weight init!
 
     def forward(
-            self,
-            raw_audio: torch.Tensor,
-            raw_audio_len: torch.Tensor,
+        self,
+        raw_audio: torch.Tensor,
+        raw_audio_len: torch.Tensor,
     ):
         """
         :param raw_audio: Audio samples as [B, T, 1]
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
-        
+
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
@@ -169,7 +176,9 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             zero_infinity=True,
         )
         num_phonemes = torch.sum(labels_len)
-        run_ctx.mark_as_loss(name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes)
+        run_ctx.mark_as_loss(
+            name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes
+        )
 
 
 def prior_init_hook(run_ctx, **kwargs):
@@ -185,8 +194,8 @@ def prior_finish_hook(run_ctx, **kwargs):
     average_probs = all_probs / all_frames
     log_average_probs = np.log(average_probs)
     print("Prior sum in std-space (should be close to 1.0):", np.sum(average_probs))
-    with open("prior.txt", 'w') as f:
-        np.savetxt(f, log_average_probs, delimiter=' ')
+    with open("prior.txt", "w") as f:
+        np.savetxt(f, log_average_probs, delimiter=" ")
     print("Saved prior in prior.txt in +log space.")
 
 

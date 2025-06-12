@@ -2,8 +2,9 @@ from dataclasses import dataclass
 
 from i6_models.config import ModelConfiguration
 
+
 @dataclass
-class ModelConfig():
+class ModelConfig:
     vocab_dim: int
     embed_dim: int
     hidden_dim: int
