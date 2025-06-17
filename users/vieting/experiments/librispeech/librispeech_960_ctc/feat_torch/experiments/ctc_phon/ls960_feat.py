@@ -1373,6 +1373,33 @@ def eow_phon_ls960_relposencoder_0924_base():
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
         )
 
+    # wav2vec feature extractor with subsequent VGG like in ITG 2023 paper
+    for specaug_version in ["stft_v47"]:
+        w2v_config = Wav2vecFeatureExtractionV1Config(
+            conv_layers=[(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)],
+            module_class="Wav2vecFeatureExtractionV1",
+        )
+        frontend_config = VGGNLayerActFrontendV1Config(
+            in_features=512,
+            convs=[(32, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1)],
+            activations=[None, "ReLU", None, "ReLU"],
+            poolings=[None, ((2, 1), (2, 1), None), None, ((2, 1), (2, 1), None)],
+            out_features=512,
+        )
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=w2v_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".w2v_fe_6l.2D_4l"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
+        )
+
     tk.register_report(
         os.path.join(prefix_name, "report.csv"),
         values=report.get_values(),
