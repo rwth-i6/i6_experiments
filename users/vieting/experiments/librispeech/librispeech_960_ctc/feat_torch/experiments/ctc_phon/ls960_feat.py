@@ -335,6 +335,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         ModelConfig as FeatureModelConfigV2,
         SpecaugStftConfig,
         SpecaugStftV2Config,
+        SpecaugStftV3Config,
         SpecaugMultiplierLinearConfig,
         VGGNLayerActFrontendV1Config,
         VGGNLayerActFrontendV2Config,
@@ -593,9 +594,19 @@ def eow_phon_ls960_relposencoder_0924_base():
             max_dim_time=20,
             max_dim_feat=16,
             num_repeat_feat=5,
-            window_size=159,
+            window_size=160,
             window_shift=160,
-            fft_size=159,  # results in 80 dim vectors as for log Mel
+            fft_size=160,  # shift has to be 160 and sizes cannot be smaller. results in 81 dim vectors close to log Mel
+        ),
+        "stft_v63": SpecaugStftV3Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=int(16 / 80 * 1024),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            num_mels=1024,
         ),
     }
     model_config = FeatureModelConfigV2(
@@ -639,7 +650,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # rerun log mel with STFT-domain SpecAugment
     logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
-    for specaug_version in ["stft_v47", "stft_v61", "stft_v62"]:
+    for specaug_version in ["stft_v47", "stft_v61", "stft_v62", "stft_v63"]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
             feature_extraction_config=logmel_config,

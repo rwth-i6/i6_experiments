@@ -48,7 +48,7 @@ class SpecaugStftConfig(ModelConfiguration):
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
-        return SpecaugStftConfig(**d)
+        return cls(**d)
 
 
 @dataclass
@@ -71,6 +71,14 @@ class SpecaugStftV2Config(SpecaugStftConfig):
         if d["multiplier"] is not None:
             d["multiplier"] = SpecaugMultiplierLinearConfig(**d["multiplier"])
         return SpecaugStftV2Config(**d)
+
+
+@dataclass
+class SpecaugStftV3Config(SpecaugStftConfig):
+    """
+    Apply masking in Mel warped domain.
+    """
+    num_mels: int
 
 
 @dataclass
@@ -174,6 +182,8 @@ class ModelConfig:
         specaug_config_class = SpecaugConfig
         if "fft_size" in d["specaug_config"] and "min_num_time" in d["specaug_config"]:
             specaug_config_class = SpecaugStftV2Config
+        elif "fft_size" in d["specaug_config"] and "num_mels" in d["specaug_config"]:
+            specaug_config_class = SpecaugStftV3Config
         elif "fft_size" in d["specaug_config"]:
             specaug_config_class = SpecaugStftConfig
         d["specaug_config"] = specaug_config_class.from_dict(d["specaug_config"])

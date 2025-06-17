@@ -32,6 +32,7 @@ from .i6models_relposV1_VGGNLayerActFrontendV1_feat_v2_cfg import (
     SpecaugConfig,
     SpecaugStftConfig,
     SpecaugStftV2Config,
+    SpecaugStftV3Config,
     SpecaugMultiplierLinearConfig,
     VGGNLayerActFrontendV1Config,
     VGGNLayerActFrontendV2Config,
@@ -428,6 +429,31 @@ class Model(torch.nn.Module):
                             freq_mask_max_size=int(self.cfg.specaug_config.max_dim_feat * multiplier),
                             freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
                         )
+                    elif isinstance(self.cfg.specaug_config, SpecaugStftV3Config):
+                        if not hasattr(self, "_mel_fbank"):
+                            import torchaudio
+                            self._mel_fbank = torchaudio.functional.melscale_fbanks(
+                                self.cfg.specaug_config.fft_size // 2 + 1,
+                                0,
+                                8000,
+                                self.cfg.specaug_config.num_mels,
+                                16000,
+                            ).to(audio_features_masked)
+                        audio_features_masked = torch.matmul(
+                            audio_features_masked.transpose(1, 2), self._mel_fbank
+                        ).transpose(1, 2)
+                        audio_features_masked = specaugment_v1_by_length(
+                            audio_features_masked,
+                            time_min_num_masks=2,
+                            time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
+                            time_mask_max_size=self.cfg.specaug_config.max_dim_time,
+                            freq_min_num_masks=2,
+                            freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
+                            freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
+                        )
+                        audio_features_masked = torch.matmul(
+                            audio_features_masked.transpose(1, 2), torch.linalg.pinv(self._mel_fbank)
+                        ).transpose(1, 2)
                     else:
                         audio_features_masked = specaugment_v1_by_length(
                             audio_features_masked,
