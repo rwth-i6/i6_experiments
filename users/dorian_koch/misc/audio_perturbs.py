@@ -127,5 +127,7 @@ def generalized_specaugment(
         return x_masked
 
     return rf.cond(
-        rf.get_run_ctx().is_train_flag_enabled(func=gensa_impl) | (not only_on_train), _mask_branch, lambda: x
+        rf.get_run_ctx().is_train_flag_enabled(func=generalized_specaugment) | (not only_on_train),
+        _mask_branch,
+        lambda: x,
     )
