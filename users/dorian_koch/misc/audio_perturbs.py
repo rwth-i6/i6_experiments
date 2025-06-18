@@ -109,7 +109,7 @@ def generalized_specaugment(
                 x_masked,
                 mask_axis=spatial_dim,
                 broadcast_axis=feature_dim,
-                min_num=rf.minimum(spatial_len, 2),
+                min_num=rf.minimum(spatial_len, 0),
                 max_num=rf.minimum(rf.maximum(spatial_len // num_spatial_mask_factor, 2) * 4, spatial_len),
                 max_dims=max_consecutive_spatial_dims,
                 mask_value=wn,
@@ -120,9 +120,9 @@ def generalized_specaugment(
                 x_masked,
                 mask_axis=feature_dim,
                 broadcast_axis=spatial_dim,
-                min_num=2,
+                min_num=0,  # how many masks to apply
                 max_num=5,
-                max_dims=max_consecutive_feature_dims,
+                max_dims=max_consecutive_feature_dims,  # how many consecutive dims to mask
                 mask_value=wn,
             )
         return x_masked
@@ -203,7 +203,7 @@ class MixupWithBugsFixed(rf.Module):
             return src
 
         buffer_filled_size = rf.where(self.buffer_filled, opts.buffer_size, self.buffer_pos)
-        if (buffer_filled_size < spatial_dim.get_dim_value_tensor()).raw_tensor:
+        if (buffer_filled_size < spatial_dim.get_dim_value_tensor()).raw_tensor.item():
             return src
 
         # Apply Mixup. Collect all data we are going to add for each sequence.
