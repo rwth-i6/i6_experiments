@@ -1,6 +1,7 @@
 """
 utility functions needed by all/most TTS systems
 """
+
 import torch
 from torch.nn import functional as F
 from typing import Optional
@@ -50,6 +51,10 @@ def generate_path(duration: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     cum_duration_flat = cum_duration.view(b * t_x)
     path = sequence_mask(cum_duration_flat, t_y).to(mask.dtype)
     path = path.view(b, t_x, t_y)
-    path = path - F.pad(path, convert_pad_shape([[0, 0], [1, 0], [0, 0]]))[:, :-1]
-    path = path * mask
+    if path.requires_grad or mask.requires_grad:
+        path = path - F.pad(path, convert_pad_shape([[0, 0], [1, 0], [0, 0]]))[:, :-1]
+        path = path * mask
+    else:
+        path -= F.pad(path, convert_pad_shape([[0, 0], [1, 0], [0, 0]]))[:, :-1]
+        path *= mask
     return path

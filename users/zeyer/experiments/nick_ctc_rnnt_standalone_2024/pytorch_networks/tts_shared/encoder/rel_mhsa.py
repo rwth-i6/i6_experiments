@@ -46,7 +46,7 @@ class GlowTTSMultiHeadAttentionV1(nn.Module):
 
         self.cfg = cfg
         self.features_last = features_last
-        self.attn = None
+        # self.attn = None
 
         self.k_channels = cfg.input_dim // cfg.num_att_heads
         self.conv_q = nn.Conv1d(cfg.input_dim, cfg.input_dim, 1)
@@ -94,7 +94,7 @@ class GlowTTSMultiHeadAttentionV1(nn.Module):
             causal_mask = torch.ones((1, 1, attn_mask_full.size(2), attn_mask_full.size(3))).tril(0)
             attn_mask_full = attn_mask_full * causal_mask
 
-        x, self.attn = self.attention(q, k, v, mask=attn_mask_full)
+        x, _ = self.attention(q, k, v, mask=attn_mask_full)
 
         x = self.conv_o(x)
         return x.transpose(1, 2) if self.features_last else x
