@@ -22,7 +22,7 @@ class DecoderConfig:
     returnn_vocab: str
 
     # additional search options
-    lm_weight: float = 0.0
+    lm_scale: float = 0.0
     sil_score: float = 0.0
     word_score: float = 0.0
 
@@ -32,9 +32,6 @@ class DecoderConfig:
     prior_file: Optional[str] = None
 
     arpa_lm: Optional[str] = None
-
-    use_torch_compile: bool = False
-    torch_compile_options: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -78,7 +75,7 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
         lm=lm,
-        lm_weight=config.lm_weight,
+        lm_weight=config.lm_scale,
         tokens=labels + ["[blank]"],
         blank_token="[blank]",
         sil_token="[blank]",
@@ -98,10 +95,6 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.prior_scale = config.prior_scale
     else:
         run_ctx.prior = None
-
-    if config.use_torch_compile:
-        options = config.torch_compile_options or {}
-        run_ctx.engine._model = torch.compile(run_ctx.engine._model, **options)
 
     run_ctx.print_rtf = extra_config.print_rtf
     if run_ctx.print_rtf:

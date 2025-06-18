@@ -148,7 +148,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     hyps = []
     for lp, l in zip(logprobs, audio_features_len):
-        hypothesis = run_ctx.ctc_decoder.forward(lp, l, run_ctx.beam_size)
+        hypothesis = run_ctx.ctc_decoder.forward(lp[:l], l, run_ctx.beam_size)
         hyps.append(hypothesis[0].tokens[1:])
         # hyps = [hypothesis[0].tokens for hypothesis in batched_hypotheses]  # exclude last sentence end token
 

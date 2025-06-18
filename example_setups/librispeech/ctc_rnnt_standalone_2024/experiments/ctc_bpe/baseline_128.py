@@ -15,6 +15,7 @@ from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel, NeuralLM
+from ...report import tune_and_evalue_report
 from ...storage import get_lm_model
 from ... import PACKAGE
 
@@ -64,10 +65,10 @@ def bpe128_ls960_0924_base():
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig as FlashlightDecoderConfig
+    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig as FlashlightDecoderConfig
     from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_v3 import DecoderConfig as GreedyDecoderConfig
-    from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v4 import DecoderConfig as BeamSearchDecoderConfig
-    from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v4 import (
+    from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v5 import DecoderConfig as BeamSearchDecoderConfig
+    from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v5 import (
         DecoderExtraConfig as BeamSearchDecoderExtraConfig,
     )
 
@@ -101,9 +102,9 @@ def bpe128_ls960_0924_base():
 
         # Automatic selection of decoder module
         if isinstance(base_decoder_config, FlashlightDecoderConfig):
-            decoder_module = "ctc.decoder.flashlight_ctc_v1"
+            decoder_module = "ctc.decoder.flashlight_ctc_v2"
         elif isinstance(base_decoder_config, BeamSearchDecoderConfig):
-            decoder_module = "ctc.decoder.beam_search_bpe_ctc_v4"
+            decoder_module = "ctc.decoder.beam_search_bpe_ctc_v5"
             assert unhashed_decoder_config is not None
         else:
             assert False, "Invalid decoder config"
@@ -111,12 +112,13 @@ def bpe128_ls960_0924_base():
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
-        for lm_weight in lm_scales:
+        report_values = {}
+        for lm_scale in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
-                decoder_config.lm_weight = lm_weight
+                decoder_config.lm_scale = lm_scale
                 decoder_config.prior_scale = prior_scale
-                search_name = training_name + "/search_lm%.2f_prior%.2f" % (lm_weight, prior_scale)
+                search_name = training_name + "/search_lm%.2f_prior%.2f" % (lm_scale, prior_scale)
                 search_jobs, wers = search(
                     search_name,
                     forward_config=extra_forward_config if extra_forward_config else {},
@@ -130,7 +132,7 @@ def bpe128_ls960_0924_base():
                     use_gpu=use_gpu,
                     **default_returnn,
                 )
-                tune_parameters.append((lm_weight, prior_scale))
+                tune_parameters.append((lm_scale, prior_scale))
                 tune_values_clean.append((wers[search_name + "/dev-clean"]))
                 tune_values_other.append((wers[search_name + "/dev-other"]))
 
@@ -140,7 +142,7 @@ def bpe128_ls960_0924_base():
             )
             pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
             decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
+            decoder_config.lm_scale = pick_optimal_params_job.out_optimal_parameters[0]
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
                 training_name,
@@ -155,6 +157,16 @@ def bpe128_ls960_0924_base():
                 use_gpu=use_gpu,
                 **default_returnn,
             )
+            report_values[key] = wers[training_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=training_name,
+            tune_parameters=tune_parameters,
+            tuning_names=["LM", "Prior"],
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values
+        )
 
     def greedy_search_helper(training_name: str, asr_model: ASRModel, decoder_config: GreedyDecoderConfig):
         # remove prior if exists
@@ -188,20 +200,23 @@ def bpe128_ls960_0924_base():
     trafo_32x768: NeuralLM = get_lm_model("bpe%i_trafo32x768_5ep" % BPE_SIZE)
     lstm_2x2048: NeuralLM = get_lm_model("bpe%i_2x2024_kazuki_lstmlm_3ep" % BPE_SIZE)
 
-    lstmlm_beamsearch_decoder_config = BeamSearchDecoderConfig(
+    lstmlm_beamsearch_decoder_bs10_config = BeamSearchDecoderConfig(
         returnn_vocab=label_datastream_bpe.vocab,
         beam_size=10,
         lm_model_args=lstm_2x2048.net_args,
         lm_checkpoint=lstm_2x2048.checkpoint,
-        lm_module="pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v1_decoder.Model",
+        lm_module="pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v1_decoding.Model",
         lm_states_need_label_axis=False,
     )
+    lstmlm_beamsearch_decoder_bs32_config = copy.deepcopy(lstmlm_beamsearch_decoder_bs10_config)
+    lstmlm_beamsearch_decoder_bs32_config.beam_size = 32
+
     trafolm_beamsearch_decoder_config = BeamSearchDecoderConfig(
         returnn_vocab=label_datastream_bpe.vocab,
         beam_size=10,
         lm_model_args=trafo_32x768.net_args,
         lm_checkpoint=trafo_32x768.checkpoint,
-        lm_module="pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v1_decoder.Model",
+        lm_module="pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v1_decoding.Model",
         lm_states_need_label_axis=True,
     )
 
@@ -339,13 +354,24 @@ def bpe128_ls960_0924_base():
         prior_scales=[0.2, 0.3, 0.4],
     )
     tune_and_evaluate_helper(
-        training_name + "/beamsearch_lstm_2x2048",
+        training_name + "/beamsearch_lstm_2x2048_bs10",
         asr_model,
-        lstmlm_beamsearch_decoder_config,
-        lm_scales=[0.7, 0.75, 0.8, 0.85, 0.9],
-        prior_scales=[0.3, 0.35, 0.4],
+        lstmlm_beamsearch_decoder_bs10_config,
+        lm_scales=[0.6, 0.65, 0.7, 0.75, 0.8],
+        prior_scales=[0.0, 0.1, 0.15, 0.2, 0.25, 0.3],
         unhashed_decoder_config=beamsearch_decoder_extra_config,
         extra_forward_config={"batch_size": 200 * 16000},
+        use_gpu=True,
+    )
+    tune_and_evaluate_helper(
+        training_name + "/beamsearch_lstm_2x2048_bs32",
+        asr_model,
+        lstmlm_beamsearch_decoder_bs32_config,
+        lm_scales=[0.6, 0.65, 0.7, 0.75, 0.8],
+        prior_scales=[0.0, 0.1, 0.15, 0.2, 0.25, 0.3],
+        unhashed_decoder_config=beamsearch_decoder_extra_config,
+        extra_forward_config={"batch_size": 200 * 16000},
+        use_gpu=True,
     )
     tune_and_evaluate_helper(
         training_name + "/beamsearch_trafo_32x768",
@@ -355,4 +381,5 @@ def bpe128_ls960_0924_base():
         prior_scales=[0.3, 0.35, 0.4],
         unhashed_decoder_config=beamsearch_decoder_extra_config,
         extra_forward_config={"batch_size": 200 * 16000},
+        use_gpu=True,
     )
