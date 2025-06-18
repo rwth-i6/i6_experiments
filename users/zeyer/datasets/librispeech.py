@@ -518,9 +518,9 @@ class _DelayedDim(DelayedBase):
         assert running_in_worker(), "_DelayedDim: get() should only be called in worker"
         assert self.dimension.is_set(), f"_DelayedDim: dimension not set: {self.dimension}"
         dimension = instanciate_delayed_copy(self.dimension)
-        assert isinstance(
-            dimension, int
-        ), f"unexpected type {type(dimension)} for {dimension}, {self.dimension}, {self.dimension.get_path()}"
+        assert isinstance(dimension, int), (
+            f"unexpected type {type(dimension)} for {dimension}, {self.dimension}, {self.dimension.get_path()}"
+        )
         return Dim(dimension, **instanciate_delayed_copy(self.opts))
 
 
