@@ -1003,9 +1003,9 @@ def _char_to_words(bpe: RecogOutput) -> RecogOutput:
     # and it used txt.split(" ") in SearchCollapseRepeatedLabelsJob and SearchRemoveLabelJob.
     # So any whitespace labels in the search output stays as two spaces.
     # That's why we can just do the SearchOutputRawReplaceJob below.
-    # If we have do deal with non-white-space delimited outputs at some point (might occur with AED models?),
+    # If we have to deal with non-white-space delimited outputs at some point (might occur with AED models?),
     # some solutions:
-    # - In _returnn_v2_get_forward_callback, maybe don't use the vocab-dependend get_seq_labels,
+    # - In _returnn_v2_get_forward_callback, maybe don't use the vocab-dependent get_seq_labels,
     #   but just always output it white-space delimited.
     #   We can make this optional, and only apply for AED models (?),
     #   such that this does not break all existing hashes.
