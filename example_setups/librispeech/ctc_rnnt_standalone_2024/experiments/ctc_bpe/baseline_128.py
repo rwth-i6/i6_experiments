@@ -165,7 +165,7 @@ def bpe128_ls960_0924_base():
             tuning_names=["LM", "Prior"],
             tune_values_clean=tune_values_clean,
             tune_values_other=tune_values_other,
-            report_values=report_values
+            report_values=report_values,
         )
 
     def greedy_search_helper(training_name: str, asr_model: ASRModel, decoder_config: GreedyDecoderConfig):

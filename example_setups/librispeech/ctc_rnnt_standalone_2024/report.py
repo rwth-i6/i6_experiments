@@ -21,7 +21,7 @@ def search_report(report_values):
     :param dev_other_results:  same as above
     :param best_test_clean: single best test clean result
     :param best_test_other: single best test other result
-    :return: 
+    :return:
     """
     training_name = report_values["training_name"]
     tuning_tuples = report_values["tuning_tuples"]
@@ -32,6 +32,7 @@ def search_report(report_values):
     best_test_other = report_values["best_test_other"]
 
     from i6_core.util import instanciate_delayed
+
     dev_clean_results = instanciate_delayed(dev_clean_results)
     dev_other_results = instanciate_delayed(dev_other_results)
     tuning_tuples = instanciate_delayed(tuning_tuples)
@@ -67,13 +68,14 @@ test-other: {best_test_other.get()}
 
     return name_str + best_param_clean_str + best_param_other_str + final_results_str + latex_str
 
+
 def tune_and_evalue_report(
-        training_name: str,
-        tune_parameters: List[Any],
-        tuning_names: List[str],
-        tune_values_clean: List[tk.Variable],
-        tune_values_other: List[tk.Variable],
-        report_values: Dict[str, tk.Variable]
+    training_name: str,
+    tune_parameters: List[Any],
+    tuning_names: List[str],
+    tune_values_clean: List[tk.Variable],
+    tune_values_other: List[tk.Variable],
+    report_values: Dict[str, tk.Variable],
 ):
     """
     A helper function for the reporting, specifically targeting the tune_and_evalaute_helper for lexical search
@@ -95,8 +97,7 @@ def tune_and_evalue_report(
         "best_test_clean": report_values["test-clean"],
         "best_test_other": report_values["test-other"],
     }
-    report = GenerateReportStringJob(report_values=report_values, report_template=search_report,
-                                     compress=False).out_report
+    report = GenerateReportStringJob(
+        report_values=report_values, report_template=search_report, compress=False
+    ).out_report
     tk.register_output(training_name + "/tune_and_evaluate_report.txt", report)
-
-
