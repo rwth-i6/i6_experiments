@@ -417,7 +417,7 @@ class LibrispeechOggZip(DatasetConfig):
         """
         Get extern data
         """
-        from returnn.tensor import Dim, batch_dim
+        from returnn.tensor import batch_dim
 
         opts = {}
 
