@@ -25,7 +25,7 @@ from i6_experiments.users.zeyer.recog import (
 )
 
 if TYPE_CHECKING:
-    from returnn.tensor import Tensor, Dim, TensorDict
+    from returnn.tensor import TensorDict
 
 
 def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]]) -> RecogOutput:
@@ -33,8 +33,6 @@ def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]]) 
     Combine scores from multiple sources, linearly weighted by the given weights.
 
     :param scores: dict: recog output -> weight. We assume they have the same hyp txt.
-    :param same_txt: if all the hyps have the same txt across scores.
-    :param out_txt: used to define the hyp txt if not same_txt
     :return: combined scores
     """
     assert scores
@@ -163,7 +161,7 @@ def rescore(
 # Those are applied for both training, recog and potential others.
 # The values are only used if they are neither set in config nor post_config already.
 # They should also not infer with other things from the epilog.
-SharedPostConfig = {
+SharedPostConfig: Dict[str, Any] = {
     # In case pretraining overwrites some of these, they need a default.
     "accum_grad_multiple_step": None,
     "use_last_best_model": None,
@@ -194,7 +192,7 @@ def _returnn_rescore_config(
     # Note: we should not put SPM/BPE directly here,
     # because the recog output still has individual labels,
     # so no SPM/BPE encoding on the text.
-    vocab_opts = {"class": "Vocabulary", "vocab_file": vocab}
+    vocab_opts: Dict[str, Any] = {"class": "Vocabulary", "vocab_file": vocab}
     if vocab_opts_file:
         vocab_opts["special_symbols_via_file"] = vocab_opts_file
     else:
@@ -309,7 +307,7 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         batch_size = int(batch_dim.get_dim_value())
         for batch_idx in range(batch_size):
             seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
-            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+            print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
