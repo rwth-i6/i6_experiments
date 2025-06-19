@@ -2007,7 +2007,9 @@ def model_recog(
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
     )
     label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
-        label_log_prob, k_dim=Dim(beam_size, name="pre-filter-beam"), axis=[model.wb_target_dim]
+        label_log_prob,
+        k_dim=Dim(min(beam_size, model.wb_target_dim.dimension), name="pre-filter-beam"),
+        axis=[model.wb_target_dim],
     )  # seq_log_prob, backrefs_global: Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
     label_log_prob_pre_filter_ta = TensorArray.unstack(
         label_log_prob_pre_filter, axis=enc_spatial_dim
@@ -2021,7 +2023,9 @@ def model_recog(
         # Filter out finished beams
         seq_log_prob = seq_log_prob + label_log_prob_pre_filter_ta[t]  # Batch, InBeam, PreFilterBeam
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, pre_filter_beam_dim]
+            seq_log_prob,
+            k_dim=Dim(min(beam_size, beam_dim.dimension * pre_filter_beam_dim.dimension), name=f"dec-step{t}-beam"),
+            axis=[beam_dim, pre_filter_beam_dim],
         )  # seq_log_prob, backrefs, target: Batch, Beam. backrefs -> InBeam. target -> PreFilterBeam.
         target = rf.gather(backrefs_pre_filter_ta[t], indices=target)  # Batch, Beam -> Vocab
         seq_targets.append(target)
