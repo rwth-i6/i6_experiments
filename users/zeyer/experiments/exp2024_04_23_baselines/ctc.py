@@ -300,7 +300,7 @@ def py():
     #     enabled=False,
     # )
 
-    from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
+    # from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
 
     # Replacing batch norm in the Conformer Convolution Module with other normalization schemes.
     # for name, opts in {
@@ -432,7 +432,7 @@ def py():
         train_exp(
             f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
             f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-', '_')}" if sample else ""),
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
             config_updates={
@@ -508,8 +508,8 @@ def py():
     )
 
     train_exp(
-        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        f"-featBN-speedpertV2-spm10k-bpeSample001",
+        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
+        "-featBN-speedpertV2-spm10k-bpeSample001",
         config_24gb_v6,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
@@ -647,8 +647,8 @@ def py():
     # 5.63 {"dev-clean": 2.37, "dev-other": 5.63, "test-clean": 2.61, "test-other": 5.78}
     # (but no clear improvement on test)
     train_exp(
-        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        f"-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
+        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
+        "-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
         config_24gb_v6,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -2001,7 +2001,7 @@ def model_recog(
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
     )
     label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
-        label_log_prob, k_dim=Dim(beam_size, name=f"pre-filter-beam"), axis=[model.wb_target_dim]
+        label_log_prob, k_dim=Dim(beam_size, name="pre-filter-beam"), axis=[model.wb_target_dim]
     )  # seq_log_prob, backrefs_global: Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
     label_log_prob_pre_filter_ta = TensorArray.unstack(
         label_log_prob_pre_filter, axis=enc_spatial_dim
