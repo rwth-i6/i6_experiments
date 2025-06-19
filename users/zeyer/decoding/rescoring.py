@@ -97,7 +97,8 @@ def rescore(
     *,
     recog_output: RecogOutput,
     dataset: Optional[DatasetConfig] = None,
-    vocab: tk.Path,
+    vocab_opts: Optional[Dict[str, Any]] = None,
+    vocab: Optional[tk.Path] = None,
     vocab_opts_file: Optional[tk.Path] = None,
     model: ModelWithCheckpoint,
     rescore_def: RescoreDef,
@@ -114,6 +115,11 @@ def rescore(
     :param dataset: dataset to forward, using its get_main_dataset(),
         and also get_default_input() to define the default output,
         and get_extern_data().
+    :param vocab_opts:
+        Note: Usually, we get a whitespace-separated text file (spm-to-words or so not yet applied),
+        so we would use "class": "Vocabulary", and ``vocab`` would specify the labels.
+        However, there could be different cases. Also, e.g. for character-based outputs,
+        this scheme does not work, due to special handling of whitespace.
     :param vocab:
     :param vocab_opts_file: can contain info about EOS, BOS etc
     :param model:
@@ -134,6 +140,7 @@ def rescore(
         model_checkpoint=model.checkpoint.path if model.checkpoint is not None else None,
         returnn_config=_returnn_rescore_config(
             recog_output=recog_output,
+            vocab_opts=vocab_opts,
             vocab=vocab,
             vocab_opts_file=vocab_opts_file,
             dataset=dataset,
@@ -171,7 +178,8 @@ SharedPostConfig: Dict[str, Any] = {
 def _returnn_rescore_config(
     *,
     recog_output: RecogOutput,
-    vocab: tk.Path,
+    vocab_opts: Optional[Dict[str, Any]] = None,
+    vocab: Optional[tk.Path] = None,
     vocab_opts_file: Optional[tk.Path] = None,
     dataset: Optional[DatasetConfig] = None,
     model_def: Union[ModelDef, ModelDefWithCfg],
@@ -189,14 +197,17 @@ def _returnn_rescore_config(
     config_ = config
     config = {}
 
-    # Note: we should not put SPM/BPE directly here,
+    # Note: Usually, we should not put SPM/BPE directly here,
     # because the recog output still has individual labels,
     # so no SPM/BPE encoding on the text.
-    vocab_opts: Dict[str, Any] = {"class": "Vocabulary", "vocab_file": vocab}
-    if vocab_opts_file:
+    vocab_opts: Dict[str, Any] = vocab_opts.copy() if vocab_opts else {}
+    vocab_opts.setdefault("class", "Vocabulary")
+    if vocab is not None:
+        vocab_opts["vocab_file"] = vocab
+    if vocab_opts_file is not None:
         vocab_opts["special_symbols_via_file"] = vocab_opts_file
-    else:
-        vocab_opts["unknown_label"] = None
+    elif vocab_opts["class"] == "Vocabulary" and vocab_opts.get("special_symbols_via_file") is not None:
+        vocab_opts.setdefault("unknown_label", None)
 
     # Beam dim size unknown. Usually static size, but it's ok to leave this unknown here (right?).
     beam_dim = Dim(Tensor("beam_size", dims=[], dtype="int32"), name="beam")
