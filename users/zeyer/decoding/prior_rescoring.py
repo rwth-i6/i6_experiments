@@ -20,6 +20,7 @@ class Prior:
     file: tk.Path  # will be read via numpy.loadtxt
     type: str  # "log_prob" or "prob"
     vocab: tk.Path  # line-based, potentially gzipped
+    vocab_is_chars: bool = False
 
 
 def prior_score(res: RecogOutput, *, prior: Prior) -> RecogOutput:
@@ -32,7 +33,7 @@ def prior_score(res: RecogOutput, *, prior: Prior) -> RecogOutput:
     """
     return RecogOutput(
         output=SearchPriorRescoreJob(
-            res.output, prior=prior.file, prior_type=prior.type, vocab=prior.vocab
+            res.output, prior=prior.file, prior_type=prior.type, vocab=prior.vocab, vocab_is_chars=prior.vocab_is_chars
         ).out_search_results
     )
 
@@ -57,15 +58,26 @@ class SearchPriorRescoreJob(Job):
     """
 
     __sis_version__ = 2
+    __sis_hash_exclude__ = {"vocab_is_chars": False}
 
     def __init__(
-        self, search_py_output: tk.Path, *, prior: tk.Path, prior_type: str, vocab: tk.Path, output_gzip: bool = True
+        self,
+        search_py_output: tk.Path,
+        *,
+        prior: tk.Path,
+        prior_type: str,
+        vocab: tk.Path,
+        vocab_is_chars: bool = False,
+        output_gzip: bool = True,
     ):
         """
         :param search_py_output: a search output file from RETURNN in python format (single or n-best)
         :param prior:
         :param prior_type: "log_prob" or "prob"
         :param vocab: line-based, potentially gzipped
+        :param vocab_is_chars: if True, the vocab is a list of characters, otherwise a list of words/subwords.
+            If True, we expect that the search output is raw text.
+            If False, we expect that the search output is whitespace-separated labels.
         :param output_gzip: gzip the output
         """
         self.search_py_output = search_py_output
@@ -73,6 +85,7 @@ class SearchPriorRescoreJob(Job):
         assert prior_type in ["log_prob", "prob"], f"invalid prior_type {prior_type!r}"
         self.prior_type = prior_type
         self.vocab = vocab
+        self.vocab_is_chars = vocab_is_chars
         self.out_search_results = self.output_path("search_results.py" + (".gz" if output_gzip else ""))
 
     def tasks(self):
@@ -109,7 +122,7 @@ class SearchPriorRescoreJob(Job):
                 for _, text in entry:
                     assert isinstance(text, str)
                     scores = []
-                    for label in text.split():
+                    for label in text if self.vocab_is_chars else text.split():
                         if label not in vocab_to_idx:
                             raise ValueError(f"unknown label {label!r} in seq_tag {seq_tag!r}, seq {text!r}")
                         scores.append(prior[vocab_to_idx[label]])
