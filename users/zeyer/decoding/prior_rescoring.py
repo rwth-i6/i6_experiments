@@ -144,9 +144,9 @@ class PriorRemoveLabelRenormJob(Job):
         vocab: List[str] = util.uopen(self.vocab, "rt").read().splitlines()
         vocab_to_idx: Dict[str, int] = {word: i for (i, word) in enumerate(vocab)}
 
-        assert (
-            vocab.count(self.remove_label) == 1
-        ), f"remove_label {self.remove_label!r} not unique in vocab. found {vocab.count(self.remove_label)} times."
+        assert vocab.count(self.remove_label) == 1, (
+            f"remove_label {self.remove_label!r} not unique in vocab. found {vocab.count(self.remove_label)} times."
+        )
         remove_label_idx = vocab_to_idx[self.remove_label]
 
         prior = np.loadtxt(self.prior_file.get_path())
