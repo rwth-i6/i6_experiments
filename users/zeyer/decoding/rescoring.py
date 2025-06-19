@@ -206,7 +206,7 @@ def _returnn_rescore_config(
         vocab_opts["vocab_file"] = vocab
     if vocab_opts_file is not None:
         vocab_opts["special_symbols_via_file"] = vocab_opts_file
-    elif vocab_opts["class"] == "Vocabulary" and vocab_opts.get("special_symbols_via_file") is not None:
+    elif vocab_opts["class"] == "Vocabulary" and vocab_opts.get("special_symbols_via_file") is None:
         vocab_opts.setdefault("unknown_label", None)
 
     # Beam dim size unknown. Usually static size, but it's ok to leave this unknown here (right?).
