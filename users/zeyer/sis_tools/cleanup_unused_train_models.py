@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Cleanup unused train model checkpoints in the work dir.
+Cleanup unused train model checkpoints in the work dir,
+and also from active finished train jobs.
 """
 
 import os
@@ -49,7 +50,6 @@ def main():
     from sisyphus.loader import config_manager
     from sisyphus import graph
     from sisyphus import gs
-    from sisyphus import Job
     from i6_core.returnn.training import ReturnnTrainingJob
     from i6_experiments.users.zeyer.utils import job_aliases_from_info
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
@@ -80,14 +80,13 @@ def main():
     active_train_job_paths_set = set()
     active_train_job_finished_list = []
     for job in graph.graph.jobs():
-        job: Job
+        job: ReturnnTrainingJob
         # noinspection PyProtectedMember
         job_path: str = job._sis_path()
         # Note: no isinstance(job, ReturnnTrainingJob) check here,
         # to also catch fake jobs (via dependency_boundary).
         if not job_path.startswith("work/i6_core/returnn/training/ReturnnTrainingJob."):
             continue
-        job: ReturnnTrainingJob
         # print("active train job:", job._sis_path())
         if os.path.isdir(job_path):
             print("Active train job:", job)
