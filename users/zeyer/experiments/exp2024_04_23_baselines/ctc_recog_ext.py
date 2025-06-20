@@ -344,8 +344,6 @@ def py():
             lm_labelwise_prior_rescore,
             lm_am_labelwise_prior_rescore,
             lm_am_labelwise_prior_ngram_rescore,
-            prior_score,
-            lm_score,
         )
         from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
