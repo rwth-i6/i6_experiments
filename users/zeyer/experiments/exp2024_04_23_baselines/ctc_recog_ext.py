@@ -775,11 +775,13 @@ def get_ctc_with_lm_and_labelwise_prior(
 ) -> ModelWithCheckpoint:
     """Combined CTC model with LM and prior"""
     # Keep CTC model config as-is, extend below for prior and LM.
-    ctc_model_def = ctc_model.definition
-    if isinstance(ctc_model_def, ModelDefWithCfg):
-        config: Dict[str, Any] = ctc_model_def.config.copy()
+    ctc_model_def_ = ctc_model.definition
+    if isinstance(ctc_model_def_, ModelDefWithCfg):
+        config: Dict[str, Any] = ctc_model_def_.config.copy()
+        ctc_model_def_ = ctc_model_def_.model_def
     else:
         config = {}
+    assert ctc_model_def_ is ctc_model_def
 
     # Add prior.
     # Then the CTC Model log_probs_wb_from_logits will include the prior.
