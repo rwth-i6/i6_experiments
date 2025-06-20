@@ -100,12 +100,19 @@ def main():
                     break
                 print("  symlink ->", job_path_, "resolved to", job_path__)
                 job_path = job_path__
-            assert job_path not in active_train_job_paths_dict, (
-                f"Duplicate active train job path {job_path}:\n"
-                f"Previous: {active_train_job_paths_dict[job_path]}\n"
-                f"New: {job}"
-            )
-            active_train_job_paths_dict[job_path] = job
+            if job_path in active_train_job_paths_dict:
+                if isinstance(job, ReturnnTrainingJob):  # real job, not fake job
+                    # Expect that the prev job is a fake job.
+                    # (Note: fake job == via :func:`make_fake_job`)
+                    assert not isinstance(active_train_job_paths_dict[job_path], ReturnnTrainingJob), (
+                        f"Duplicate active train job path {job_path}:\n"
+                        f"Previous: {active_train_job_paths_dict[job_path]}\n"
+                        f"New: {job}"
+                    )
+                    active_train_job_paths_dict[job_path] = job  # update
+                # if this is a fake job, just keep the first one
+            else:
+                active_train_job_paths_dict[job_path] = job
             # noinspection PyProtectedMember
             if isinstance(job, ReturnnTrainingJob) and job._sis_finished():  # If finished, and also no fake job.
                 active_train_job_finished_list.append(job)
