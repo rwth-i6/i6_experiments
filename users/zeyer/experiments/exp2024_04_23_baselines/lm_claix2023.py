@@ -123,7 +123,7 @@ def py():
     )
 
     train(  # 38.28
-        f"lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-laplace100k-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -161,7 +161,7 @@ def py():
     )
 
     train(  # 37.45
-        f"lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-laplace1k-spm10k",
+        "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-laplace1k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -467,7 +467,7 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    from returnn.util.math import PiecewiseLinear, StepFunction
+    from returnn.util.math import PiecewiseLinear
 
     # Try warmup of batch size (warmupBs).
     # "batch_size": PiecewiseLinear({0: 1_000, 5: 80_000}, kw_name="epoch_continuous", ignore_other_kwargs=True)
@@ -568,7 +568,7 @@ def py():
 
     # accgrad2 again, now with shuffleBatch100 and gradClip0.01.
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-accgrad2-gradClip0.01-b2k_80k-laplace100k-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-accgrad2-gradClip0.01-b2k_80k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -834,7 +834,7 @@ def py():
     n_ep = 100
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -879,7 +879,7 @@ def py():
     # RAdam, gradClip0.01.
     # 39.39
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -929,7 +929,7 @@ def py():
     # Now again with same betas as our AdamW setup.
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdopt-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdopt-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -980,7 +980,7 @@ def py():
     # Try SOAP.
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optSoap-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optSoap-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -1027,7 +1027,7 @@ def py():
     # Try Lamb.
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optLamb-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optLamb-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -1071,7 +1071,7 @@ def py():
     # Try Shampoo.
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optShampoo-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optShampoo-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -1118,7 +1118,7 @@ def py():
     # The alpha (default 5) means that the update is 6 times larger than the normal update, thus divide LR by 6.
     peak_lr, low_lr, lowest_lr = (round(lr / 6, 6) for lr in (1e-3, 1e-5, 1e-6))
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdEMAMix-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdEMAMix-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -1212,7 +1212,7 @@ def py():
     # Try new model (Llama) (noAbsPos-rmsNorm-ffGated-rope-noBias instead of gelu).
     # 38.71 PPL (vs 39.85 PPL)
     train(
-        f"lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
