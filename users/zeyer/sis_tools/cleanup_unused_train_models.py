@@ -42,7 +42,26 @@ def main():
     arg_parser.add_argument("config", nargs="+")
     arg_parser.add_argument("--log-level", type=int, default=20)
     arg_parser.add_argument("--mode", default="dryrun", help="dryrun (default), remove")
+    arg_parser.add_argument(
+        "--filter-work-dir-fs",
+        nargs="*",
+        help="if set, only consider jobs where the realpath of the work dir is a prefix of the realpath of this",
+    )
     args = arg_parser.parse_args()
+
+    args.filter_work_dir_fs = (
+        [os.path.realpath(fs) + "/" for fs in args.filter_work_dir_fs] if args.filter_work_dir_fs else None
+    )
+
+    def _ignore_work_dir(d: str, *, is_realpath: bool = False) -> bool:
+        if not is_realpath:
+            d = os.path.realpath(d)
+        if args.filter_work_dir_fs:
+            for fs in args.filter_work_dir_fs:
+                if d.startswith(fs):
+                    return False
+            return True
+        return False
 
     # See Sisyphus __main__ for reference.
 
@@ -86,6 +105,8 @@ def main():
         # Note: no isinstance(job, ReturnnTrainingJob) check here,
         # to also catch fake jobs (via dependency_boundary).
         if not job_path.startswith("work/i6_core/returnn/training/ReturnnTrainingJob."):
+            continue
+        if _ignore_work_dir(job_path):
             continue
         # print("active train job:", job._sis_path())
         if os.path.isdir(job_path):
@@ -149,6 +170,8 @@ def main():
             assert fn not in active_train_job_paths_dict
             continue
         covered_real_job_paths.add(realpath)
+        if _ignore_work_dir(realpath, is_realpath=True):
+            continue
 
         total_train_job_count += 1
 
