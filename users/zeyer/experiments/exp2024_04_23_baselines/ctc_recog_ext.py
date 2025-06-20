@@ -781,7 +781,6 @@ def get_ctc_with_lm_and_labelwise_prior(
         ctc_model_def_ = ctc_model_def_.model_def
     else:
         config = {}
-    assert ctc_model_def_ is ctc_model_def
 
     # Add prior.
     # Then the CTC Model log_probs_wb_from_logits will include the prior.
@@ -805,13 +804,27 @@ def get_ctc_with_lm_and_labelwise_prior(
     )
     config.setdefault("preload_from_files", {})["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
 
+    combined_model_def = ctc_model_ext_def
+    if ctc_model_def_ is not ctc_model_def:
+        # Also see: denoising_lm_2024.sis_recipe.tts_model.get_asr_with_tts_model_def
+        # noinspection PyTypeChecker
+        combined_model_def: ModelDef = functools.partial(ctc_model_ext_def, orig_ctc_model_def=ctc_model_def_)
+        # Make it a proper ModelDef
+        combined_model_def.behavior_version = max(ctc_model_ext_def.behavior_version, ctc_model_def_.behavior_version)
+        combined_model_def.backend = ctc_model_def_.backend
+        combined_model_def.batch_size_factor = ctc_model_def_.batch_size_factor
+        # Need new recog serialization for the partial.
+        config["__serialization_version"] = max(2, config.get("__serialization_version", 0))
+
     return ModelWithCheckpoint(
-        definition=ModelDefWithCfg(model_def=ctc_model_ext_def, config=config),
+        definition=ModelDefWithCfg(model_def=combined_model_def, config=config),
         checkpoint=ctc_model.checkpoint,
     )
 
 
-def ctc_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+def ctc_model_ext_def(
+    *, epoch: int, in_dim: Dim, target_dim: Dim, orig_ctc_model_def: ModelDef = ctc_model_def
+) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
     import numpy
@@ -824,7 +837,7 @@ def ctc_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     assert isinstance(lm_scale, (int, float))
 
     # (framewise) ctc_prior_type / static_prior handled by ctc_model_def.
-    model = ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+    model = orig_ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
     model.lm = lm
     model.lm_scale = lm_scale
 
