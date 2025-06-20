@@ -287,10 +287,10 @@ def search_dataset(
         res = search_job.out_search_file
     else:
         out_files = [_v2_forward_out_filename]
-        if config and config.get("__recog_def_ext", False):
+        if _get_from_config((config, model), "__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
         get_search_config = {None: search_config_v2, 1: search_config_v2, 2: search_config_v3}[
-            config and config.get("__serialization_version", None)
+            _get_from_config((config, model), "__serialization_version", None)
         ]
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
@@ -339,6 +339,29 @@ def search_dataset(
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
     return RecogOutput(output=res)
+
+
+def _get_from_config(
+    config_sources: Sequence[Optional[Union[Dict[str, Any], ModelWithCheckpoint, ModelDefWithCfg, ModelDef]]],
+    attr: str,
+    default: Any = None,
+):
+    for src in config_sources:
+        if src is None:
+            continue
+        if isinstance(src, ModelWithCheckpoint):
+            src = src.definition
+        if isinstance(src, ModelDefWithCfg):
+            src = src.config
+            assert isinstance(src, dict)
+        if not isinstance(src, dict):
+            # Assume ModelDef. Just some sanity checks:
+            assert hasattr(src, "behavior_version") and hasattr(src, "backend")
+            continue
+        assert isinstance(src, dict)
+        if src.get(attr) is not None:
+            return src[attr]
+    return default
 
 
 def ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
@@ -694,7 +717,7 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         batch_size = int(batch_dim.get_dim_value())
         for batch_idx in range(batch_size):
             seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
-            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+            print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
