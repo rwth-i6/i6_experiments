@@ -830,9 +830,9 @@ def ctc_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     if labelwise_prior:
         assert isinstance(labelwise_prior, dict) and set(labelwise_prior.keys()) == {"type", "file", "scale"}
         v = numpy.loadtxt(labelwise_prior["file"])
-        assert v.shape == (
-            target_dim.dimension,
-        ), f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r}, expected dim {target_dim}"
+        assert v.shape == (target_dim.dimension,), (
+            f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r}, expected dim {target_dim}"
+        )
         # The `type` is about what is stored in the file.
         # We always store it in log prob here, so we potentially need to convert it.
         if labelwise_prior["type"] == "log_prob":
