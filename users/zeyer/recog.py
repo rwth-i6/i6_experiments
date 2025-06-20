@@ -740,7 +740,7 @@ _v2_forward_ext_out_filename = "output_ext.py.gz"
 
 def _returnn_v2_get_forward_callback():
     from typing import TextIO
-    from returnn.tensor import Tensor, TensorDict
+    from returnn.tensor import Tensor
     from returnn.forward_iface import ForwardCallbackIface
     from returnn.config import get_global_config
 
