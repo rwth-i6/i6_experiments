@@ -5,7 +5,7 @@ LM CLAIX 2023 experiments
 from __future__ import annotations
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
-from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
+# from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 from .configs import (
     config_96gb_bf16_accgrad1,
@@ -832,334 +832,336 @@ def py():
     # (..., "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True, ...)
     # Now again, with shuffleBatch100, lrNoWarmup. -> 39.62 PPL, stable (vs 39.85 PPL with AdamW, LR warmup, stable)
     # TODO is this now the shorter (no) LR warmup? AdamW with shorter LR warmup?
-    n_ep = 100
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [peak_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": "RAdam",
-                "optimizer.decoupled_weight_decay": True,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # train(  # 39.62
+    #     "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [peak_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": "RAdam",
+    #             "optimizer.decoupled_weight_decay": True,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # RAdam, gradClip0.01.
     # 39.39
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [peak_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": "RAdam",
-                "optimizer.decoupled_weight_decay": True,
-                "optimizer.weight_decay": 1e-2,
-                "gradient_clip_global_norm": 0.01,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
-
-    from .optim_ext.adopt import ADOPT
+    # n_ep = 100
+    # train(  # 39.39
+    #     "lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [peak_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": "RAdam",
+    #             "optimizer.decoupled_weight_decay": True,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "gradient_clip_global_norm": 0.01,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # ADOPT optimizer (optAdopt).
     # 40.89 PPL (vs AdamW 39.85) (but different betas=(0.9, 0.9999))
     # Now again with same betas as our AdamW setup.
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdopt-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": rf.build_dict(ADOPT)["class"],
-                "optimizer.decoupled": True,
-                "optimizer.weight_decay": 1e-2,
-                # Adopt defaults: betas: Tuple[float, float] = (0.9, 0.9999), eps: float = 1e-6,
-                # AdamW defaults: betas: Tuple[float, float] = (0.9, 0.999),, eps: float = 1e-8,
-                # But we anyway overwrite epsilon as 1e-16.
-                "optimizer.betas": (0.9, 0.999),
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
-
-    from .optim_ext.soap import SOAP
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # train(  # 40.27
+    #     "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdopt-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": rf.build_dict(ADOPT)["class"],
+    #             "optimizer.decoupled": True,
+    #             "optimizer.weight_decay": 1e-2,
+    #             # Adopt defaults: betas: Tuple[float, float] = (0.9, 0.9999), eps: float = 1e-6,
+    #             # AdamW defaults: betas: Tuple[float, float] = (0.9, 0.999),, eps: float = 1e-8,
+    #             # But we anyway overwrite epsilon as 1e-16.
+    #             "optimizer.betas": (0.9, 0.999),
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Try SOAP.
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optSoap-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": rf.build_dict(SOAP)["class"],
-                # Suggested in repo (https://github.com/nikhilvyas/SOAP/tree/main):
-                "optimizer.betas": (0.95, 0.95),
-                "optimizer.precondition_frequency": 10,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # train(  # 40.29
+    #     "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optSoap-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": rf.build_dict(SOAP)["class"],
+    #             # Suggested in repo (https://github.com/nikhilvyas/SOAP/tree/main):
+    #             "optimizer.betas": (0.95, 0.95),
+    #             "optimizer.precondition_frequency": 10,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Try Lamb.
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optLamb-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": "torch_optimizer.Lamb",  # pip install torch_optimizer
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # train(  # 51.56
+    #     "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optLamb-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": "torch_optimizer.Lamb",  # pip install torch_optimizer
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Try Shampoo.
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optShampoo-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": "pytorch_optimizer.Shampoo",  # pip install pytorch-optimizer
-                "optimizer.preconditioning_compute_steps": 100,  # takes approx 70 secs!
-                "optimizer.weight_decouple": True,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # train(  # broken, 2833.913
+    #     "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optShampoo-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": "pytorch_optimizer.Shampoo",  # pip install pytorch-optimizer
+    #             "optimizer.preconditioning_compute_steps": 100,  # takes approx 70 secs!
+    #             "optimizer.weight_decouple": True,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Try AdEMAMix.
     # The alpha (default 5) means that the update is 6 times larger than the normal update, thus divide LR by 6.
-    peak_lr, low_lr, lowest_lr = (round(lr / 6, 6) for lr in (1e-3, 1e-5, 1e-6))
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdEMAMix-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": "pytorch_optimizer.AdEMAMix",  # pip install pytorch-optimizer
-                "optimizer.weight_decouple": True,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = (round(lr / 6, 6) for lr in (1e-3, 1e-5, 1e-6))
+    # train(  # broken, 619.31
+    #     "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdEMAMix-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             "__num_epochs": n_ep,
+    #             "batch_size": 80_000,
+    #             "max_seqs": 2_000,
+    #             "learning_rate": 1.0,
+    #             "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #             "learning_rate_piecewise_by_epoch_continuous": True,
+    #             "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+    #             "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    #             "optimizer.class": "pytorch_optimizer.AdEMAMix",  # pip install pytorch-optimizer
+    #             "optimizer.weight_decouple": True,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # TODO try timm.optim.adafactor_bv.AdafactorBigVision
 
@@ -1211,51 +1213,52 @@ def py():
     # https://github.com/epfLLM/Megatron-LLM/blob/main/megatron/core/tensor_parallel/cross_entropy.py
 
     # Try new model (Llama) (noAbsPos-rmsNorm-ffGated-rope-noBias instead of gelu).
-    # 38.71 PPL (vs 39.85 PPL)
-    train(
-        "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    pos_enc=None,
-                    norm=rf.build_dict(rf.RMSNorm),
-                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # 38.71 PPL (vs 39.85 PPL vanilla Transformer)
+    # (laplace1k, no shuffleBatch100, b2k_20k gives 37.45)
+    # train(  # 38.71
+    #     "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
+    #             "max_seqs": 2_000,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 100,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(
+    #         vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+    #     ),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=24,
+    #                 model_dim=512,
+    #                 pos_enc=None,
+    #                 norm=rf.build_dict(rf.RMSNorm),
+    #                 ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #                 decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Llama (noAbsPos-rmsNorm-ffGated-rope-noBias) + optRAdam + lrNoWarmup + warmupBs + lossSeqNorm
     # (trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k-warmupBs-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k-lossSeqNorm)
     # -> 39.74 PPL (maybe suboptimal grad clip here)
     # Now without lossSeqNorm -> 39.59
-    n_ep = 100
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # n_ep = 100
+    # peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     # train(  # 39.59
     #     "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k"
     #     "-warmupBs-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
@@ -1314,35 +1317,36 @@ def py():
     bpe1k = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=1000)
     bpe1k = Bpe(dim=1056, codes=bpe1k.bpe_codes, vocab=bpe1k.bpe_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>")
     assert bpe1k.codes.creator.job_id() == "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV"
-    train(  # 12.79
-        "lm/trafo-n32-d1024-gelu-drop0-b400_20k-bpe1k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
-                "max_seqs": 400,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(vocab=bpe1k, train_epoch_split=20),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=32,
-                    model_dim=1024,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
+    # TODO max_seq_len needs fixing. it's max_seq_length_default_target=75...
+    # train(  # 12.79
+    #     "lm/trafo-n32-d1024-gelu-drop0-b400_20k-bpe1k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
+    #             "max_seqs": 400,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(vocab=bpe1k, train_epoch_split=20),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=32,
+    #                 model_dim=1024,
+    #                 ff_activation=rf.build_dict(rf.gelu),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    # )
 
     # Llama, laplace100k, batch shuffling:
     #   trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_30k-laplace100k-shuffleBatch100-bpe1k: 12.64
@@ -1350,41 +1354,41 @@ def py():
     #   trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-gradClip0.01-b2k_30k-laplace100k-shuffleBatch100-bpe1k:
     #     12.71
 
-    # TODO max_seq_len needs fixing? it's max_seq_length_default_target=75...
+    # TODO max_seq_len needs fixing. it's max_seq_length_default_target=75...
     # laplace10k, less batch shuffling.
-    train(
-        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_30k-laplace10k-shuffleBatch10-bpe1k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
-                "batch_size": 30_000,
-                "max_seqs": 2000,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 10,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(vocab=bpe1k, train_epoch_split=20, train_sort_laplace_num_seqs=10_000),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=32,
-                    model_dim=1024,
-                    pos_enc=None,
-                    norm=rf.build_dict(rf.RMSNorm),
-                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # train(  # 12.61
+    #     "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_30k-laplace10k-shuffleBatch10-bpe1k",
+    #     config=dict_update_deep(
+    #         config_96gb_bf16_accgrad1,
+    #         {
+    #             **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
+    #             "batch_size": 30_000,
+    #             "max_seqs": 2000,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "calculate_exp_loss": True,
+    #             "online_shuffle_batches": 10,
+    #         },
+    #     ),
+    #     post_config={"log_grad_norm": True},
+    #     train_dataset=get_librispeech_lm_dataset(vocab=bpe1k, train_epoch_split=20, train_sort_laplace_num_seqs=10_000),
+    #     model_def=ModelDefWithCfg(
+    #         lm_model_def,
+    #         {
+    #             "_model_def_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 encoder_dim=None,
+    #                 num_layers=32,
+    #                 model_dim=1024,
+    #                 pos_enc=None,
+    #                 norm=rf.build_dict(rf.RMSNorm),
+    #                 ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #                 decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #                 dropout=0.0,
+    #                 att_dropout=0.0,
+    #             )
+    #         },
+    #     ),
+    #     train_def=lm_train_def,
+    #     # avoid oom
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
