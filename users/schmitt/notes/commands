@@ -22,3 +22,5 @@ maybe need to do: module load CUDA
 /usr/sbin/sshd -f /home/az668407/user-sshd/sshd_config
 
 export LD_LIBRARY_PATH=/rwthfs/rz/cluster/work/oz301122/py-envs/py3.12-torch2.5/lib/python3.12/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+
+openvpn3 session-start --config <ovpn profile file>

@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import os
 import json
-from typing import Union
+from typing import Union, Tuple, Callable
 
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
@@ -22,6 +22,9 @@ from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.decoding 
   convert_to_output_hyps
 from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
+
+
+_ctc_greedy_targets_cache = [None, None]
 
 
 def ctc_train(*, model: Union[Model, Wav2VecModel], data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor,
@@ -353,40 +356,37 @@ def ctc_train(*, model: Union[Model, Wav2VecModel], data: rf.Tensor, data_spatia
       custom_inv_norm_factor=norm_dim.get_size_tensor(),
       use_normalized_loss=use_normalized_loss,
     )
+    loss.mark_as_loss(
+      "ctc_frame_norm",
+      custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+      use_normalized_loss=use_normalized_loss,
+      as_error=True,
+    )
   else:
     assert sup_loss == "post-hmm-fs", f"Unsupported supervised loss: {sup_loss}"
 
     from i6_native_ops.fbw import fbw_loss
-    from i6_models.parts.rasr_fsa import RasrFsaBuilder
-
-    fsa_builder = RasrFsaBuilder(
-      "/u/schmitt/experiments/2025_03_10_ctc_usr/work/i6_core/returnn/training/ReturnnTrainingJob.66JjDkkrrCWQ/work/rasr.config",
-      1.0)
+    # from i6_models.parts.rasr_fsa import RasrFsaBuilder
+    #
+    # fsa_builder = RasrFsaBuilder(
+    #   "/u/schmitt/experiments/2025_03_10_ctc_usr/work/i6_core/returnn/training/ReturnnTrainingJob.66JjDkkrrCWQ/work/rasr.config",
+    #   1.0)
+    fsa_builder = config.typed_value("fsa_builder")
 
     device = enc.device
 
     seq_tags_raw = seq_tags.raw_tensor
     target_fsa = fsa_builder.build_batch(seq_tags_raw).to(device)
 
-    ml_loss = fbw_loss(log_probs.raw_tensor, target_fsa, enc_spatial_dim.get_size_tensor().raw_tensor.to(device))
+    ml_loss = fbw_loss(log_probs.raw_tensor, target_fsa, enc_spatial_dim.get_size_tensor().raw_tensor.to(device))  # [T, B]
+    # for each batch, ml_loss has the loss copied T times, so we need to sum over the time dimension and divide by T
+    ml_loss = torch.sum(ml_loss, dim=0) / enc_spatial_dim.get_size_tensor().raw_tensor.to(ml_loss.device)
     rf.get_run_ctx().mark_as_loss(
       ml_loss,
-      "post-hmm-fs",
-      custom_inv_norm_factor=norm_dim.get_size_tensor(),
+      "post-hmm-fs_frame-norm",
+      custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
       use_normalized_loss=use_normalized_loss,
     )
-    print("log_probs: ", log_probs.raw_tensor.shape)
-    print("ml_loss: ", ml_loss.detach().cpu().numpy())
-    print("ml_loss.shape: ", ml_loss.shape)
-    exit()
-
-
-  loss.mark_as_loss(
-    "ctc_frame_norm",
-    custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
-    use_normalized_loss=use_normalized_loss,
-    as_error=True,
-  )
 
   _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim)
 
@@ -447,42 +447,43 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
 
   def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor, use_max: bool = False,
                       separate_eos: bool = False) -> torch.Tensor:
-    lengths = lengths.to(log_probs.device)
-    assert lengths.size(0) == log_probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
-
-    mask_bool = torch.arange(log_probs.size(1), device=log_probs.device).expand(log_probs.size(0),
-                                                                                -1) < lengths.unsqueeze(1)
-    mask = torch.where(mask_bool, 0.0, float("-inf"))
-    mask = mask.unsqueeze(-1).expand(-1, -1, log_probs.size(2))
-    log_probs = log_probs + mask
-
-    sum_frames = lengths.sum()
-    if use_max:
-      if separate_eos:
-        raise NotImplementedError("Separate EOS not implemented for max prior")
-      else:
-        argmaxs = log_probs.argmax(dim=2)
-        argmaxs = argmaxs.flatten()
-        argmaxs = argmaxs[mask_bool.flatten()]
-        assert argmaxs.size(
-          0) == sum_frames, f"Prior calculation frame count does not match (max) ({argmaxs.size(0)} != {sum_frames})"
-        sum_probs = argmaxs.bincount(minlength=log_probs.size(2))
-        sum_frames += (sum_probs == 0).sum()
-        sum_probs = torch.where(sum_probs == 0, 1, sum_probs)
-        log_sum_probs = sum_probs.log()
-    else:
-      if separate_eos:
-        log_sum_probs = torch.full((log_probs.size(2) + 1,), float("-inf"), device=log_probs.device)
-        log_sum_probs[1:-1] = safe_logsumexp(safe_logsumexp(log_probs[:, :, 1:], dim=0),
-                                             dim=0)  # Sum over batch and time
-        log_sum_probs[0] = safe_logsumexp(log_probs[:, 0, 0], dim=0)  # BOS prob
-        log_sum_probs[-1] = safe_logsumexp(safe_logsumexp(log_probs[:, 1:, 0], dim=0), dim=0)  # EOS prob
-      else:
-        log_sum_probs = safe_logsumexp(safe_logsumexp(log_probs, dim=0), dim=0)
-
-    log_mean_probs = log_sum_probs - sum_frames.log()
-
     with torch.no_grad():
+      lengths = lengths.to(log_probs.device)
+      assert lengths.size(0) == log_probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
+
+      mask_bool = torch.arange(log_probs.size(1), device=log_probs.device).expand(log_probs.size(0),
+                                                                                  -1) < lengths.unsqueeze(1)
+      mask = torch.where(mask_bool, 0.0, float("-inf"))
+      mask = mask.unsqueeze(-1).expand(-1, -1, log_probs.size(2))
+      log_probs_ = log_probs + mask
+
+      sum_frames = lengths.sum()
+      if use_max:
+        if separate_eos:
+          raise NotImplementedError("Separate EOS not implemented for max prior")
+        else:
+          argmaxs = log_probs_.argmax(dim=2)
+          argmaxs = argmaxs.flatten()
+          argmaxs = argmaxs[mask_bool.flatten()]
+          assert argmaxs.size(
+            0) == sum_frames, f"Prior calculation frame count does not match (max) ({argmaxs.size(0)} != {sum_frames})"
+          sum_probs = argmaxs.bincount(minlength=log_probs.size(2))
+          sum_frames += (sum_probs == 0).sum()
+          sum_probs = torch.where(sum_probs == 0, 1, sum_probs)
+          log_sum_probs = sum_probs.log()
+      else:
+        if separate_eos:
+          log_sum_probs = torch.full((log_probs_.size(2) + 1,), float("-inf"), device=log_probs_.device)
+          log_sum_probs[1:-1] = safe_logsumexp(safe_logsumexp(log_probs_[:, :, 1:], dim=0),
+                                               dim=0)  # Sum over batch and time
+          log_sum_probs[0] = safe_logsumexp(log_probs_[:, 0, 0], dim=0)  # BOS prob
+          log_sum_probs[-1] = safe_logsumexp(safe_logsumexp(log_probs_[:, 1:, 0], dim=0), dim=0)  # EOS prob
+        else:
+          log_sum_probs = safe_logsumexp(safe_logsumexp(log_probs_, dim=0), dim=0)
+
+      log_mean_probs = log_sum_probs - sum_frames.log()
+
+
       assert log_mean_probs.exp().sum().allclose(torch.tensor(1.0,
                                                               device=log_mean_probs.device)), f"Prior probs do not sum to 1.0, but to {log_mean_probs.exp().sum()}"
       if log_mean_probs.isclose(torch.tensor([0.0],
@@ -497,7 +498,9 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   use_normalized_loss = config.bool("use_normalized_loss", True)
   lm_name = config.typed_value("train_lm_model")
 
-  am_scale = config.float("am_scale", 1.0)
+  am_scale = config.typed_value("am_scale", 1.0)
+  if isinstance(am_scale, Callable):
+    am_scale = am_scale("am_scale", rf.get_run_ctx().step)
   lm_scale = config.float("lm_scale", 1.0)
   prior_scale = config.float("prior_scale", 1.0)
 
@@ -511,6 +514,13 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   blank_correction_version = config.int("blank_correction_version", 0)
   correction_in_final_score = config.bool("correction_in_final_score", False)
   use_prior = prior_scale > 0.0
+
+  w2v_opts = config.typed_value("w2v_opts", {})
+  freeze_encoder_first_n_steps = w2v_opts.get("freeze_encoder_first_n_steps", 0)
+  gradient_penalty_opts = config.typed_value("gradient_penalty_opts", {})
+  if gradient_penalty_opts and rf.get_run_ctx().train_flag and freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps:
+    # print("unfreezing wav2vec encoder for gradient penalty")
+    model.set_wav2vec_encoder_trainable(True)
 
   print_gradients = config.bool("print_gradients", False)
   version = config.int("version", 1)
@@ -725,6 +735,10 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     use_normalized_loss=use_normalized_loss,
   )
 
+  # reset ctc greedy cache
+  global _ctc_greedy_targets_cache
+  _ctc_greedy_targets_cache = [None, None]
+
   _ctc_error(log_probs, targets, model, targets_spatial_dim, enc_spatial_dim)
   _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim, targets)
 
@@ -733,8 +747,14 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     _prior_penalty(log_probs, model, prior_penalty_opts, log_prior)
 
   gradient_penalty_opts = config.typed_value("gradient_penalty_opts", {})
-  if gradient_penalty_opts:
+  if gradient_penalty_opts and rf.get_run_ctx().train_flag:
     _gradient_penalty(log_probs, model, loss, gradient_penalty_opts)
+
+    if freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps:
+      model.set_wav2vec_encoder_trainable(False)
+
+  if model.rescore_language_model is not None:
+    _lm_rescoring(log_probs, model, enc_spatial_dim)
 
   # if version == 5:
   #     loss = torch.ctc_loss( # ctc_loss_fixed_grad
@@ -1367,6 +1387,12 @@ def _blank_penalty(log_probs, model, blank_penalty_opts):
 
 
 def _gradient_penalty(log_probs, model, loss, opts):
+  from returnn.config import get_global_config
+  import matplotlib.pyplot as plt
+  import os
+
+  config = get_global_config()
+
   loss_raw = loss.raw_tensor
   log_probs_raw = log_probs.raw_tensor
   B = log_probs_raw.size(0)  # noqa
@@ -1381,12 +1407,38 @@ def _gradient_penalty(log_probs, model, loss, opts):
   feature_gradients_raw = model._current_extracted_features.grad
   l2_feature_gradients_raw = torch.linalg.vector_norm(feature_gradients_raw, dim=-1)
   log_mean_l2_feature_gradients_raw = torch.log(torch.mean(l2_feature_gradients_raw))
-  feature_gradients_penalty = torch.pow(log_mean_l2_feature_gradients_raw - opts["target_gradient_log_l2_norm"], 2)
+
+  target_l2_norm = opts["target_gradient_log_l2_norm"]
+  if target_l2_norm == "same":
+    feature_gradients_penalty = torch.Tensor([0.0])
+  else:
+    feature_gradients_penalty = torch.pow(log_mean_l2_feature_gradients_raw - opts["target_gradient_log_l2_norm"], 2)
 
   rf.get_run_ctx().mark_as_loss(
     feature_gradients_penalty,
     name="feature_gradients_penalty"
   )
+
+  # the backward pass here should not be used for training the model, but only to compute the gradient penalty
+  # therefore, we set the gradients of the model parameters to zero
+  model.set_param_grads_to_zero()
+
+  if rf.get_run_ctx().train_flag and rf.get_run_ctx().step % 100 == 0 and config.bool("debug_print_gradients", False):
+    alias = "model-prior_no-bp_no-gp_no-frz_ss-enc"
+    gradient_folder = os.path.join("feature_gradients", alias)
+    os.makedirs(gradient_folder, exist_ok=True)
+
+    # Plot the feature gradients
+    plt.figure(figsize=(20, len(l2_feature_gradients_raw) * 0.4))
+    plt.matshow(l2_feature_gradients_raw.detach().cpu().numpy(), label='Feature Gradients')
+    plt.title('Feature Gradients L2 Norm')
+    plt.xlabel('Time')
+    plt.ylabel('Batch')
+    plt.legend()
+    plt.colorbar()
+    plt.grid()
+    plt.savefig(os.path.join(gradient_folder, f"gradients_step_{rf.get_run_ctx().step}.png"))
+    plt.close()
 
 
 # TODO: implement correctly in log space
@@ -1414,29 +1466,70 @@ def _prior_penalty(log_probs, model, opts, log_prior):
   )
 
 
+def _get_ctc_greedy_targets(log_probs, model, enc_spatial_dim) -> Tuple[rf.Tensor, rf.Dim]:
+  global _ctc_greedy_targets_cache
+  if _ctc_greedy_targets_cache[0] is not None:
+    return tuple(_ctc_greedy_targets_cache)
+
+  argmax = rf.reduce_argmax(log_probs, axis=model.wb_target_dim)
+  argmax = argmax.copy_transpose([batch_dim, enc_spatial_dim])
+  argmax = argmax.raw_tensor.detach().cpu().numpy()
+
+  enc_spatial_sizes = enc_spatial_dim.dyn_size_ext.raw_tensor.numpy()
+  num_argmax_non_blank = 0
+  seqs_collapsed = []
+  for batch_idx, seq in enumerate(argmax):
+    seq_ = list(seq)
+    seq_collapsed = [t1 for i, (t1, t2) in enumerate(zip(seq_, [None] + seq_)) if
+                     t1 != t2 and i < enc_spatial_sizes[batch_idx] and t1 != model.blank_idx]
+    seqs_collapsed.append(seq_collapsed)
+    num_argmax_non_blank += len(seq_collapsed)
+
+  collapsed_lens = [len(seq) for seq in seqs_collapsed]
+  max_len = max(collapsed_lens)
+  seqs_collapsed_padded = []
+  for i, seq in enumerate(seqs_collapsed):
+    seqs_collapsed_padded.append(seq)
+    if collapsed_lens[i] != max_len:
+      seqs_collapsed_padded[-1] += [0] * (max_len - collapsed_lens[i])
+
+  new_spatial_dim = Dim(
+    dimension=rf.Tensor(
+      "ctc_greedy_lens",
+      dims=[batch_dim],
+      raw_tensor=torch.tensor(collapsed_lens, dtype=torch.int32),
+      dtype="int32"
+    ))
+  _ctc_greedy_targets_cache[0] = rf.Tensor(
+    "ctc_greedy_targets",
+    dims=[
+      batch_dim,
+      new_spatial_dim,
+    ],
+    raw_tensor=torch.tensor(seqs_collapsed_padded, dtype=torch.int32, device=log_probs.device),
+    dtype="int32",
+    sparse_dim=model.target_dim,
+  )
+  _ctc_greedy_targets_cache[1] = new_spatial_dim
+
+  return tuple(_ctc_greedy_targets_cache)
+
+
 def _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim, targets=None):
   from returnn.config import get_global_config
   config = get_global_config()  # noqa
 
   with torch.no_grad():
-    argmax = rf.reduce_argmax(log_probs, axis=model.wb_target_dim)
-    argmax = argmax.copy_transpose([batch_dim, enc_spatial_dim])
-    argmax = argmax.raw_tensor.detach().cpu().numpy()
-
-    enc_spatial_sizes = enc_spatial_dim.dyn_size_ext.raw_tensor.numpy()
-    num_argmax_non_blank = 0
-    seqs_collapsed = []
-    for batch_idx, seq in enumerate(argmax):
-      seq_ = list(seq)
-      seq_collapsed = [t1 for i, (t1, t2) in enumerate(zip(seq_, [None] + seq_)) if
-                       t1 != t2 and i < enc_spatial_sizes[batch_idx] and t1 != model.blank_idx]
-      seqs_collapsed.append(seq_collapsed)
-      num_argmax_non_blank += len(seq_collapsed)
+    greedy_targets, greedy_spatial_dim = _get_ctc_greedy_targets(
+      log_probs=log_probs,
+      model=model,
+      enc_spatial_dim=enc_spatial_dim,
+    )
 
     num_target_non_blank = targets_spatial_dim.dyn_size_ext.raw_tensor.sum()
 
     greedy_non_blank_to_ground_truth_fraction = rf.convert_to_tensor(
-      num_argmax_non_blank / num_target_non_blank,
+      greedy_spatial_dim.get_size_tensor().raw_tensor.sum() / num_target_non_blank,
     )
     greedy_non_blank_to_ground_truth_fraction.mark_as_loss("greedy_non_blank_to_ground_truth_fraction_error",
                                                            as_error=True)
@@ -1444,11 +1537,70 @@ def _seq_len_error(log_probs, model, targets_spatial_dim, enc_spatial_dim, targe
     if rf.get_run_ctx().step % 100 == 0 and config.typed_value("debug_print_greedy", False):
       if targets is not None:
         vocab = targets.vocab
-        print("GREEDY: ", [vocab.id_to_label(idx) for idx in seqs_collapsed[0]])
-        print("GROUND TRUTH: ", [vocab.id_to_label(idx) for idx in targets.raw_tensor.detach().cpu().numpy()[0]])
+
+        alias = "model-prior_no-bp_no-gp_no-frz_ss-enc"
+        greedy_folder = os.path.join("greedy", alias)
+        os.makedirs(greedy_folder, exist_ok=True)
+        greedy = [vocab.id_to_label(idx) for idx in greedy_targets.raw_tensor.detach().cpu().numpy()[0]]
+        ground_truth = [vocab.id_to_label(idx) for idx in targets.raw_tensor.detach().cpu().numpy()[0]]
+
+        with open(os.path.join(greedy_folder, f"greedy_step_{rf.get_run_ctx().step}.txt"), "w+") as f:
+          f.write("Greedy:\n")
+          f.write((" ".join(greedy) + "\n").replace("@@ ", ""))
+          f.write("Ground truth:\n")
+          f.write((" ".join(ground_truth) + "\n").replace("@@ ", ""))
+          f.write(f"Fraction: {greedy_non_blank_to_ground_truth_fraction.raw_tensor.item()}\n")
+
+
+def _lm_rescoring(log_probs, model, enc_spatial_dim=None, targets=None, targets_spatial_dim=None):
+  from returnn.config import get_global_config
+  config = get_global_config()  # noqa
+
+  with torch.no_grad():
+    if targets and targets_spatial_dim:
+      greedy_targets = targets
+      greedy_spatial_dim = targets_spatial_dim
+    else:
+      greedy_targets, greedy_spatial_dim = _get_ctc_greedy_targets(
+        log_probs=log_probs,
+        model=model,
+        enc_spatial_dim=enc_spatial_dim,
+      )
+
+    # print("greedy_targets.raw_tensor: ", greedy_targets.raw_tensor)
+    # print("greedy_spatial: ", greedy_spatial_dim.get_size_tensor().raw_tensor)
+    # exit()
+
+    greedy_targets_w_eos, greedy_targets_w_eos_spatial_dim = rf.pad(
+      greedy_targets,
+      axes=[greedy_spatial_dim],
+      padding=[(0, 1)],
+      value=model.eos_idx,
+      # out_dims=[targets_w_eos_spatial_dim],
+    )
+
+    logits, _ = model.rescore_language_model(
+      greedy_targets,
+      spatial_dim=greedy_spatial_dim,
+      out_spatial_dim=greedy_targets_w_eos_spatial_dim[0],
+      state=model.default_initial_state(batch_dims=[batch_dim]),
+    )
+    log_probs = rf.log_softmax(logits, axis=model.target_dim)
+    neg_target_log_probs = -rf.gather(log_probs, axis=model.target_dim, indices=greedy_targets_w_eos)
+    # target_log_probs_sum = rf.reduce_mean(neg_target_log_probs, axis=greedy_targets_w_eos_spatial_dim[0])
+
+    neg_target_log_probs.mark_as_loss(
+      "lm_ce",
+      custom_inv_norm_factor=greedy_targets_w_eos_spatial_dim[0].get_size_tensor(),
+      use_normalized_loss=True,
+      as_error=True
+    )
 
 
 def _ctc_error(log_probs, targets, model, targets_spatial_dim, enc_spatial_dim):
+  from returnn.config import get_global_config
+  config = get_global_config()
+
   with torch.no_grad():
     loss = rf.ctc_loss(
       logits=log_probs,
@@ -1458,6 +1610,10 @@ def _ctc_error(log_probs, targets, model, targets_spatial_dim, enc_spatial_dim):
       targets_spatial_dim=targets_spatial_dim,
       blank_index=model.blank_idx,
     )
+    if config.bool("collapse_logits_segments", False):
+      if torch.any(torch.isnan(loss.raw_tensor)).item():
+        loss.raw_tensor = torch.ones_like(loss.raw_tensor) * -1234
+
     loss.mark_as_loss(
       "ctc_error",
       custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),

@@ -21,11 +21,17 @@ from i6_experiments.users.mueller.utils import calc_stats
 from i6_experiments.users.schmitt.experiments.marten_exps.language_models.n_gram import get_count_based_n_gram, \
   get_prior_from_unigram
 from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm, get_ffnn_lm
-from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.configs import _get_cfg_lrlin_oclr_by_bs_nep, \
-  _batch_size_factor, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, dict_update_deep, post_config
-
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.configs import (
+  _get_cfg_lrlin_oclr_by_bs_nep,
+  _batch_size_factor,
+  config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+  dict_update_deep,
+  post_config,
+  _get_cfg_generic_piecewise_linear,
+)
 from i6_experiments.users.schmitt.experiments.exp2025_03_10_ctc_usr.configs import (
-  _get_cfg_lrlin_oclr_by_bs_nep_v4, _get_cfg_lrlin_oclr_by_bs_nep_v5
+  _get_cfg_lrlin_oclr_by_bs_nep_v4,
+  _get_cfg_lrlin_oclr_by_bs_nep_v5,
 )
 
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, OUT_BLANK_LABEL, _log_mel_feature_dim
@@ -40,7 +46,9 @@ from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_libr
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
 from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 from i6_experiments.common.setups import serialization
-from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.rasr import get_bpe_lexicon
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.rasr import get_bpe_lexicon, get_librasr_fsa_config
+
+from i6_core.corpus.transform import MergeCorporaJob
 
 if TYPE_CHECKING:
   from i6_experiments.common.setups import serialization
@@ -55,7 +63,7 @@ num_shards_recog = 4  # None, 4, 16
 num_shards_recog_init = 4
 num_shards_pseudo = 64  # 32, 64
 num_shards_prior = 64
-num_shards_prior_init = None
+num_shards_prior_init =None  #  4
 calculate_pseudo_label_scores = True
 calculate_pseudo_label_scores_init = True
 decode_nbest_epochs = 0
@@ -66,7 +74,23 @@ exclude_epochs = True
 cache_manager = True
 tune_version = 3
 
+bliss_corpora = get_bliss_corpus_dict(audio_format="ogg")
+merged_corpus = MergeCorporaJob(
+  bliss_corpora=[
+    bliss_corpora["train-clean-100"],
+    bliss_corpora["train-clean-360"],
+    bliss_corpora["train-other-500"],
+    bliss_corpora["dev-clean"],
+    bliss_corpora["dev-other"],
+  ],
+  name="corpus",
+).out_merged_corpus
+
 bpe_lexicon = get_bpe_lexicon(vocab_str="bpe128", train_small=True)
+get_librasr_fsa_config(
+  lexicon_path=bpe_lexicon,
+  corpus_path=merged_corpus
+)
 
 
 def py():
@@ -403,33 +427,199 @@ def py():
         "freeze_encoder_first_n_steps": 0,
       }
     ),
+    # *[dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v1),
+    #   {
+    #     "blank_penalty_opts": {"blank_penalty": bp},
+    #     "freeze_encoder_first_n_steps": 0,
+    #   }
+    # ) for bp in (10.0, 20.0, 40.0, 80.0)],
+    # dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v1),
+    #   {
+    #     "model_config.use_subsampled_enc_logits": True,
+    #     "collapse_logits_segments": True,
+    #   }
+    # ),
     *[dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
-        "blank_penalty_opts": {"blank_penalty": bp},
-        "freeze_encoder_first_n_steps": 0,
-      }
-    ) for bp in (10.0, 20.0, 40.0, 80.0)],
-    dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "gradient_penalty_opts": {"target_gradient_log_l2_norm": -1.3},
-        "blank_penalty_opts": {"blank_penalty": 2.0},
-        # "freeze_encoder_first_n_steps": 3_600,  # roughly 10 sub-epochs -> not implemented for FS yet
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": emp_prior,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000,
         "train_epoch_wise_filter": {
           (1, 20): {"max_mean_len": 1000},
         },
-        "epochs": 20,
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": am_lm_prior,
+      }
+    ) for am_lm_prior, emp_prior in (
+      ((0.1, 1.5, 0.4), False),
+      ((0.6, 1.0, 0.6), False),
+      ((0.1, 1.5, 0.4), True),
+    )],
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (0.1, lm_scale, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for lm_scale in (
+      0.5,
+      0.7, 0.9,
+      1.1, 1.3, 1.5
+    )],
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (am_scale, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for am_scale in (
+      0.1,
+      0.3, 0.5
+    )],
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
         "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
     ),
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000,
+        "train_epoch_wise_filter": {
+          (1, 80): {"max_mean_len": 1000},
+        },
+        "epochs": 80,
+        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ),
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ),
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        "freeze_encoder_first_n_steps": 1_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ),
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+  ),
+    # <warning component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder.orthographic-parser">
+    #   substituting unknown word "ILLUMINANTS " with "[UNKNOWN]"
+    # </warning>
+    # <critical-error component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder">
+    #   lemma-pronuncation graph is empty. Probably the current sentence contains a word that has no pronunciation.
     dict_update_deep(
       copy.deepcopy(wav2vec_config_v3),
       {
         "sup_loss": "post-hmm-fs",
         "num_gpus": 1,
       }
-    )
+    ),
+    # dict_update_deep(
+    #   copy.deepcopy(marten_baseline_config),
+    #   {
+    #     "sup_loss": "post-hmm-fs",
+    #   }
+    # ),
+    # dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v1),
+    #   {
+    #     # "blank_penalty_opts": {"target_mean_blank_prob": 2 / 3},
+    #     "freeze_encoder_first_n_steps": 1_000_000,
+    #     "vocab": "phon",
+    #     "num_enc_layers": 15,
+    #   }
+    # ),
   ]
 
   for train_config in train_configs:
@@ -437,6 +627,8 @@ def py():
     config_updates = {}
 
     aux_loss = train_config["aux_loss"]
+    empirical_prior = train_config.get("empirical_prior", True)
+    accum_grad_multiple_step_init = train_config.get("accum_grad_multiple_step_init", 1)
     model_config = train_config["model_config"]
     use_w2v_model = train_config["use_w2v_model"]
     lr_schedule_type = train_config["lr_schedule_type"]
@@ -469,6 +661,10 @@ def py():
     if train_lm_config:
       model_config["train_language_model"] = train_lm_config
 
+    rescore_lm_config = train_config.get("rescore_lm_config", {})
+    if rescore_lm_config:
+      model_config["rescore_language_model"] = rescore_lm_config
+
     blank_penalty_opts = train_config.get("blank_penalty_opts", {})
     if blank_penalty_opts:
       assert len(blank_penalty_opts) == 1 and "blank_penalty" in blank_penalty_opts
@@ -483,6 +679,15 @@ def py():
     if gradient_penalty_opts:
       assert len(gradient_penalty_opts) == 1 and "target_gradient_log_l2_norm" in gradient_penalty_opts
       config_updates["gradient_penalty_opts"] = gradient_penalty_opts
+
+    # use_subsampled_enc_logits = train_config.get("use_subsampled_enc_logits", False)
+    use_subsampled_enc_logits = model_config.get("use_subsampled_enc_logits", False)
+    # if use_subsampled_enc_logits:
+    #   config_updates["use_subsampled_enc_logits"] = True
+
+    collapse_logits_segments = train_config.get("collapse_logits_segments", False)
+    if collapse_logits_segments:
+      config_updates["collapse_logits_segments"] = True
 
     # Read out correct number of epochs dependent on self-training iterations
     if train_config["epochs"] is None:
@@ -693,8 +898,8 @@ def py():
         every_step_hyperparameters_init["lm_order"] = train_lm_config["order"] if train_lm_config[
                                                                                     "class"] == "ngram" else f"ffnn{train_lm_config['context_size']}"
         config_updates["hyperparameters_decoder"] = every_step_hyperparameters_init
-        if accum_grad_multiple_step_init > 1:
-          config_updates["accum_grad_multiple_step"] = accum_grad_multiple_step_init
+      if accum_grad_multiple_step_init > 1:
+        config_updates["accum_grad_multiple_step"] = accum_grad_multiple_step_init
       if not random_init:
         assert with_prior and empirical_prior
         model_config["output_bias_init"] = True
@@ -705,14 +910,24 @@ def py():
       if pseudo_nbest_init > 1:
         config_updates["ps_nbest"] = pseudo_nbest_init
       elif pseudo_nbest_init == 0:
-        assert empirical_prior
+        # assert empirical_prior
         assert start_with_prior_gamma_steps == 0
         assert random_init
-        config_updates["am_scale"] = am_lm_prior_full_sum_init[0]
-        config_updates["lm_scale"] = am_lm_prior_full_sum_init[1]
-        config_updates["prior_scale"] = am_lm_prior_full_sum_init[2]
+        am_lm_prior_full_sum_init = {
+          "am_scale": am_lm_prior_full_sum_init[0],
+          "lm_scale": am_lm_prior_full_sum_init[1],
+          "prior_scale": am_lm_prior_full_sum_init[2],
+        }
+        for name, scale in am_lm_prior_full_sum_init.items():
+          if isinstance(scale, float):
+            config_updates[name] = scale
+          else:
+            assert isinstance(scale, dict) and set(scale.keys()) == {"steps", "values"}
+            config_updates.update(
+              _get_cfg_generic_piecewise_linear(name=name, steps=scale["steps"], values=scale["values"])
+            )
 
-        config_updates["empirical_prior"] = True
+        # config_updates["empirical_prior"] = empirical_prior
         if label_prior:
           config_updates["horizontal_prior"] = False
           config_updates["blank_prior"] = False
@@ -992,6 +1207,12 @@ def py():
       blank_penalty_opts=blank_penalty_opts,
       prior_penalty_opts=prior_penalty_opts,
       gradient_penalty_opts=gradient_penalty_opts,
+      use_subsampled_enc_logits=use_subsampled_enc_logits,
+      collapse_logits_segments=collapse_logits_segments,
+      empirical_prior=empirical_prior,
+      am_lm_prior_full_sum_init=am_lm_prior_full_sum_init,
+      train_epoch_wise_filter=train_epoch_wise_filter,
+      rescore_lm_config=rescore_lm_config,
     )
 
     if decoding_imp in ["flashlight", "marten-greedy"]:
@@ -1077,6 +1298,12 @@ def get_alias(
         blank_penalty_opts,
         prior_penalty_opts,
         gradient_penalty_opts,
+        use_subsampled_enc_logits,
+        collapse_logits_segments,
+        empirical_prior,
+        am_lm_prior_full_sum_init,
+        train_epoch_wise_filter,
+        rescore_lm_config,
 ):
   # Base loss type
   loss_type = "ce" if use_ce_loss else ("seq_ce" if use_seq_gamma_loss else sup_loss)
@@ -1131,6 +1358,32 @@ def get_alias(
   if gradient_penalty_opts:
     gp_suffix = f"_gp-{gradient_penalty_opts['target_gradient_log_l2_norm']}"
 
+  ss_enc_suffix = ""
+  if use_subsampled_enc_logits:
+    ss_enc_suffix = "-ss-enc"
+  collapse_enc_suffix = ""
+  if collapse_logits_segments:
+    collapse_enc_suffix = "_collapse-logits"
+
+  ep_wise_filter_suffix = ""
+  if isinstance(train_epoch_wise_filter, dict):
+    assert len(train_epoch_wise_filter) == 1
+    ep_wise_filter = list(train_epoch_wise_filter.keys())[0]
+    ep_wise_filter_suffix = f"-ep-wise-{ep_wise_filter[1]}"
+
+  rescore_lm_suffix = ""
+  if rescore_lm_config:
+    assert rescore_lm_config["class"] == "FeedForwardLm"
+    rescore_lm_suffix = f"resc-ff-{rescore_lm_config['context_size']}"
+
+  am_lm_prior_suffix = ""
+  if isinstance(am_lm_prior_full_sum_init, dict) and init == "100h-unsupervised":
+    for name, scale in am_lm_prior_full_sum_init.items():
+      if isinstance(scale, float):
+        am_lm_prior_suffix += f"{name[:-len('_scale')]}-{scale}"
+      else:
+        am_lm_prior_suffix += f"{name[:-len('_scale')]}-st-{scale['steps']}-val-{scale['values']}"
+
   # Final construction
   alias_name = (
           loss_type +
@@ -1140,13 +1393,19 @@ def get_alias(
           init_suffix +
           pl_suffix +
           f"-{vocab}" +
+          "_" + ("emp" if empirical_prior else "model") +
           ("-laPR" if label_prior else "-frPR") +
           ("_no-sp" if not speed_pert else "") +
           decoding_str +
           (f"_v{train_version}" if train_version != 1 else "") +
           bp_suffix +
           lpp_suffix +
-          gp_suffix
+          gp_suffix +
+          ss_enc_suffix +
+          collapse_enc_suffix +
+          ep_wise_filter_suffix +
+          rescore_lm_suffix +
+          "/" + am_lm_prior_suffix
   )
 
   return alias_name
@@ -1232,7 +1491,8 @@ def train_exp(
     emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab, label_prior)
 
   if config_updates.get("decode_every_step", False):
-    config_updates["empirical_prior"] = emp_prior
+    if with_prior and empirical_prior:
+      config_updates["empirical_prior"] = emp_prior
     if config_updates.get("start_with_prior_gamma_steps", 0) > 0 and label_prior:
       config_updates["frame_prior"] = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab, False)
 
@@ -1291,17 +1551,35 @@ def train_exp(
           },
         })
         if config and config.get("decode_every_step", False):
-          config.update({
-            "preload_from_files": {
-              "train_lm": {
-                "prefix": "train_language_model.",
-                "filename": lm_checkpoint.checkpoint,
-              },
+          preload_from_files = config.get("preload_from_files", {})
+          preload_from_files.update({
+            "train_lm": {
+              "prefix": "train_language_model.",
+              "filename": lm_checkpoint.checkpoint,
             },
           })
+          config["preload_from_files"] = preload_from_files
       train_lm = lm_checkpoint
     else:
       train_lm = get_count_based_n_gram(task.train_dataset.vocab, train_language_model["order"])
+
+  # Create LM for training
+  rescore_lm = None
+  if (model_config and "rescore_language_model" in model_config):
+    rescore_language_model = model_config["rescore_language_model"].copy()
+    cls_name = rescore_language_model.pop("class")
+    assert cls_name == "FeedForwardLm"
+    lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **rescore_language_model)
+    preload_from_files = config.get("preload_from_files", {})
+    preload_from_files.update({
+      "rescore_lm": {
+        "init_for_train": True,
+        "prefix": "rescore_language_model.",
+        "filename": lm_checkpoint.checkpoint,
+      },
+    })
+    config["preload_from_files"] = preload_from_files
+    rescore_lm = lm_checkpoint
 
   # Get recog ffnn LM
   search_config = None
@@ -1333,7 +1611,8 @@ def train_exp(
 
   # We do full-sum training from the beginning
   if "am_scale" in config:
-    config["empirical_prior"] = emp_prior
+    if with_prior and empirical_prior:
+      config["empirical_prior"] = emp_prior
 
     train_def = ctc_sum_training
     if isinstance(train_lm, tk.Path):
@@ -1341,6 +1620,10 @@ def train_exp(
     else:
       assert isinstance(train_lm, ModelWithCheckpoint)
       config["train_lm_model"] = "ffnn" + str(model_config["train_language_model"]["context_size"])
+
+    if rescore_lm is not None:
+      assert isinstance(rescore_lm, ModelWithCheckpoint)
+      config["rescore_lm_model"] = "ffnn" + str(model_config["rescore_language_model"]["context_size"])
 
   model_with_checkpoint = []
   model_with_checkpoint.append(train(
@@ -1750,6 +2033,15 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     assert cls_name == "FeedForwardLm"
     recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
 
+  rescore_language_model = config.typed_value("rescore_language_model", None)
+  rescore_lm = None
+  if rescore_language_model is not None:
+    assert isinstance(rescore_language_model, dict)
+    rescore_language_model = rescore_language_model.copy()
+    cls_name = rescore_language_model.pop("class")
+    assert cls_name == "FeedForwardLm"
+    rescore_lm = FeedForwardLm(vocab_dim=target_dim, **rescore_language_model)
+
   if config.bool("use_w2v_model", False):
     w2v_opts = config.typed_value("w2v_opts", {})
     return Wav2VecModel(
@@ -1760,6 +2052,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
       eos_idx=_get_eos_idx(target_dim),
       train_language_model=train_lm,
       recog_language_model=recog_lm,
+      rescore_language_model=rescore_lm,
     )
 
   enc_aux_logits = config.typed_value("aux_loss_layers")

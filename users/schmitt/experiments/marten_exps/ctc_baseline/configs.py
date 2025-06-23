@@ -4,7 +4,7 @@ shared across several setups here in this directory.
 """
 
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, List
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.lr_schedules.lin_warmup_invsqrt_decay import dyn_lr_lin_warmup_invsqrt_decay
 from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
@@ -131,6 +131,94 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v2(bs_feat: int, n_ep: int, *, peak_lr: float 
         # If the dict has no entry for the bs_feat,n_ep combination, see above.
         "learning_rate_piecewise_steps": steps,
         "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
+    }
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep_v4(
+    n_ep: int,
+    *,
+    base_lr: float = 1.0,
+    peak_lr: float = 1e-3,
+    low_lr: float = 1e-5,
+    lowest_lr: float = 1e-6,
+    step_peak_fraction: float = 0.45,
+    step_finetune_fraction: float = 0.9,
+) -> Dict[str, Any]:
+    """
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "learning_rate": base_lr,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        "learning_rate_piecewise_by_epoch_continuous": True,
+        "learning_rate_piecewise_steps": [step_peak_fraction * n_ep, step_finetune_fraction * n_ep, n_ep],
+        "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    }
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep_v5(
+    n_ep: int,
+    *,
+    base_lr: float = 1.0,
+    const_lr: float = 1e-3,
+    low_lr: float = 1e-5,
+    # lowest_lr: float = 1e-6,
+    step_peak_fraction: float = 0.45,
+    step_const_fraction: float = 0.9,
+) -> Dict[str, Any]:
+    """
+    This warms up, stays constant for a while, and then decays.
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "learning_rate": base_lr,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        "learning_rate_piecewise_by_epoch_continuous": True,
+        "learning_rate_piecewise_steps": [step_peak_fraction * n_ep, step_const_fraction * n_ep, n_ep],
+        "learning_rate_piecewise_values": [low_lr, const_lr, const_lr, low_lr],
+    }
+
+
+def generic_piecewise_linear(
+    name: str,
+    global_train_step: int,
+) -> float:
+    """
+    Piecewise linear
+    """
+    from returnn.config import get_global_config
+    from returnn.util.math import PiecewiseLinear
+
+    config = get_global_config()
+    f = config.typed_dict.get(f"_{name}_piecewise_cache")
+    if f is None:
+        steps = config.float_list(f"{name}_piecewise_steps")
+        values = config.float_list(f"{name}_piecewise_values")
+        assert len(steps) + 1 == len(values)
+        last_step = 0
+        for i, step in enumerate(steps):
+            assert step > last_step
+            last_step = step
+        f = PiecewiseLinear(dict(zip([0] + list(steps), values)))
+        config.typed_dict[f"_{name}_piecewise_cache"] = f
+
+    return f(global_train_step + 1)
+
+
+def _get_cfg_generic_piecewise_linear(
+        name: str,
+        steps: List[int],
+        values: List[float],
+):
+    """
+    This warms up, stays constant for a while, and then decays.
+    """
+    return {
+        name: generic_piecewise_linear,
+        f"{name}_piecewise_steps": steps,
+        f"{name}_piecewise_values": values,
     }
 
 

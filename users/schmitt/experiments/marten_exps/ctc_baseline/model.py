@@ -350,7 +350,8 @@ class Wav2VecModel(rf.Module):
           eos_idx: int,
           bos_idx: int,
           train_language_model: Optional[FeedForwardLm] = None,
-          recog_language_model: Optional[FeedForwardLm] = None
+          recog_language_model: Optional[FeedForwardLm] = None,
+          rescore_language_model: Optional[FeedForwardLm] = None,
   ):
     super(Wav2VecModel, self).__init__()
 
@@ -405,31 +406,44 @@ class Wav2VecModel(rf.Module):
     w2v_hidden_size = self.wav2vec2.encoder.layers[0].feed_forward.output_dense.out_features
     self.enc_out_dim = Dim(name="enc", dimension=w2v_hidden_size, kind=Dim.Types.Feature)
 
-    enc_logits = []
-    enc_logits_n_layers = w2v_opts.get("enc_logits_n_layers", 1)
-    for i in range(enc_logits_n_layers):
-      if i == enc_logits_n_layers - 1:
-        out_dim = wb_target_dim
-      else:
-        out_dim = self.enc_out_dim
-      enc_logits.append(rf.Linear(self.enc_out_dim, out_dim))
-
-      if i != enc_logits_n_layers - 1:
-        enc_logits.append(rf.relu)
-
-    if len(enc_logits) > 1:
-      self.enc_logits = rf.Sequential(enc_logits)
+    if config.bool("use_subsampled_enc_logits", False):
+      # Subsampled encoder logits.
+      self.enc_logits = EncLogitsSubsample(
+        in_dim=self.enc_out_dim,
+        out_dim=wb_target_dim,
+      )
     else:
-      self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
+      enc_logits = []
+      enc_logits_n_layers = w2v_opts.get("enc_logits_n_layers", 1)
+      for i in range(enc_logits_n_layers):
+        if i == enc_logits_n_layers - 1:
+          out_dim = wb_target_dim
+        else:
+          out_dim = self.enc_out_dim
+        enc_logits.append(rf.Linear(self.enc_out_dim, out_dim))
+
+        if i != enc_logits_n_layers - 1:
+          enc_logits.append(rf.relu)
+
+      if len(enc_logits) > 1:
+        self.enc_logits = rf.Sequential(enc_logits)
+      else:
+        self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
 
     self.train_language_model = train_language_model
     self.recog_language_model = recog_language_model
+    self.rescore_language_model = rescore_language_model
+    self.decoder = None
 
   def set_wav2vec_encoder_trainable(self, trainable: bool):
     for param in self.wav2vec2.encoder.parameters():
       param.requires_grad = trainable
     for param in self.wav2vec2.feature_projection.parameters():
       param.requires_grad = trainable
+
+  def set_param_grads_to_zero(self):
+    for param in self.parameters(recurse=True):
+      param.raw_tensor.grad = None
 
   def __call__(
           self,
@@ -489,8 +503,10 @@ class Wav2VecModel(rf.Module):
 
     w2v_output = self.wav2vec2(source_raw)
     enc_raw = w2v_output.last_hidden_state
-
     self._current_extracted_features = w2v_output.extract_features
+    # gradient_penalty_opts = config.typed_value("gradient_penalty_opts", {})
+    # if gradient_penalty_opts and rf.get_run_ctx().train_flag:
+    #   self._current_extracted_features.requires_grad = True
 
     # get dyn seq lengths of wav2vec encoder output
     enc_dyn_lengths_raw = source_dyn_lengths
@@ -512,15 +528,14 @@ class Wav2VecModel(rf.Module):
       raw_tensor=enc_raw,
     )
 
-    # # SpecAugment
-    # source = rf.audio.specaugment(
-    #   source,
-    #   spatial_dim=in_spatial_dim,
-    #   feature_dim=self.in_dim,
-    #   **self._specaugment_opts,
-    # )
+    if isinstance(self.enc_logits, EncLogitsSubsample):
+      logits, enc_spatial_dim = self.enc_logits(enc, in_spatial_dim=enc_spatial_dim)
+    else:
+      logits = self.enc_logits(enc)
 
-    logits = self.enc_logits(enc)
+    if config.bool("collapse_logits_segments", False):
+      logits, enc_spatial_dim = collapse_logits_segment(logits, self.wb_target_dim, enc_spatial_dim)
+
     return logits, enc, enc_spatial_dim
 
   def log_probs_wb_from_logits(self, logits: Tensor) -> Tensor:
@@ -531,3 +546,102 @@ class Wav2VecModel(rf.Module):
     """
     log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
     return log_probs
+
+
+class EncLogitsSubsample(rf.Module):
+  def __init__(
+          self,
+          *,
+          in_dim: Dim,
+          out_dim: Dim,
+  ):
+    super(EncLogitsSubsample, self).__init__()
+
+    self.batch_norm = rf.BatchNorm(in_dim)
+    self.batch_norm.gamma.initial = 30.0  # as in https://arxiv.org/pdf/2204.02492
+    self.linear = rf.Linear(in_dim, in_dim)
+    self.conv = rf.Conv1d(
+      in_dim=in_dim,
+      out_dim=out_dim,
+      filter_size=9,
+      strides=3,
+      with_bias=False,
+      padding="valid",  # no padding
+    )
+
+  def __call__(
+          self,
+          x: Tensor,  # [B, T, F]
+          *,
+          in_spatial_dim: Dim,
+  ) -> Tuple[Tensor, Dim]:
+    x = self.batch_norm(x)
+    inter_x = self.linear(rf.dropout(x, 0.1))
+    x = x + inter_x  # residual connection
+    x = rf.dropout(x, 0.1)
+    x, spatial_dim = self.conv(x, in_spatial_dim=in_spatial_dim)
+    x = x.copy_transpose([batch_dim, spatial_dim, self.conv.out_dim])
+
+    return x, spatial_dim
+
+
+def collapse_logits_segment(logits: Tensor, vocab_dim: Dim, in_spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+  """
+  From https://github.com/facebookresearch/fairseq/blob/main/examples/wav2vec/unsupervised/models/wav2vec_u.py#L146
+  """
+  logits = logits.copy_transpose([batch_dim, in_spatial_dim, vocab_dim])
+  logits_raw = logits.raw_tensor
+  padding_mask = ~in_spatial_dim.get_mask(dim_order=[batch_dim, in_spatial_dim]).raw_tensor
+
+  preds = logits_raw.argmax(dim=-1)
+
+  if padding_mask.any():
+    preds[padding_mask] = -1  # mark pad
+  uniques = []
+
+  bsz, tsz, csz = logits_raw.shape
+
+  for b, p in enumerate(preds):
+    uniques.append(p.cpu().unique_consecutive(return_inverse=True, return_counts=True))
+
+  new_tsz = max(u[0].numel() for u in uniques)
+  new_logits_raw = logits_raw.new_zeros(bsz, new_tsz, csz)
+  new_enc_sizes = rf.Tensor("enc_collapsed_sizes", dims=[batch_dim], dtype="int32", raw_tensor=torch.zeros(bsz, dtype=torch.int32))
+
+  for b in range(bsz):
+    u, idx, c = uniques[b]
+    keep = u != -1
+
+    if rf.get_run_ctx().train_flag:
+      # randomly select index from segment to keep
+      u[0] = 0
+      u[1:] = c.cumsum(0)[:-1]
+      m = c > 1
+      r = torch.rand(m.sum())
+      o = (c[m] * r).long()
+      u[m] += o
+      new_logits_raw[b, : u.numel()] = logits_raw[b, u]
+    else:
+      # mean pool logits over segment
+      new_logits_raw[b].index_add_(
+        dim=0, index=idx.to(new_logits_raw.device), source=logits_raw[b]
+      )
+      new_logits_raw[b, : c.numel()] /= c.unsqueeze(-1).to(new_logits_raw.device)
+
+    new_sz = keep.sum()
+    if not keep.all():
+      kept_logits = new_logits_raw[b, : c.numel()][keep]
+      new_logits_raw[b, :new_sz] = kept_logits
+
+    if new_sz < new_tsz:
+      pad = new_tsz - new_sz
+      new_logits_raw[b, -pad:] = 0
+
+    new_enc_sizes.raw_tensor[b] = new_sz
+
+  new_enc_spatial_dim = Dim(new_enc_sizes)
+
+  new_logits = rf.Tensor("collapsed_logits", dims=[batch_dim, new_enc_spatial_dim, vocab_dim], raw_tensor=new_logits_raw, dtype=logits.dtype)
+  new_logits.feature_dim = vocab_dim
+
+  return new_logits, new_enc_spatial_dim

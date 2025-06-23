@@ -1,5 +1,7 @@
 import re
 import os
+from collections import OrderedDict
+from ast import literal_eval
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 from i6_experiments.common.datasets.librispeech.lexicon import _get_raw_bliss_lexicon, _get_special_lemma_lexicon
@@ -9,8 +11,58 @@ from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 from i6_core.lexicon.bpe import CreateBPELexiconJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
+import i6_core.rasr as rasr
+from i6_core.am.config import acoustic_model_config
+from i6_core.lib import lexicon
+from i6_core.util import write_xml
 
-from sisyphus import tk
+from sisyphus import tk, Job, Task
+
+
+def get_librasr_fsa_config(lexicon_path: tk.Path, corpus_path: tk.Path):
+  crp = rasr.CommonRasrParameters()
+  rasr.crp_add_default_output(crp)
+
+  crp.corpus_config = rasr.RasrConfig()  # type: ignore
+  crp.corpus_config.file = corpus_path  # type: ignore
+  crp.corpus_config.capitalize_transcriptions = False
+  crp.corpus_config.progress_indication = "global"
+  crp.corpus_config.warn_about_unexpected_elements = False
+
+  crp.lexicon_config = rasr.RasrConfig()  # type: ignore
+  crp.lexicon_config.file = lexicon_path  # type: ignore
+  crp.lexicon_config.normalize_pronunciation = False  # type: ignore
+
+  crp.acoustic_model_config = acoustic_model_config(
+    states_per_phone=1,
+    tdp_transition=(0.0, 0.0, "infinity", 0.0),  # type: ignore
+    tdp_silence=(0.0, 0.0, "infinity", 0.0),  # type: ignore
+  )  # type: ignore
+  crp.acoustic_model_config.allophones.add_all = False  # type: ignore
+  crp.acoustic_model_config.allophones.add_from_lexicon = True  # type: ignore
+  crp.acoustic_model_config.tdp.applicator_type = "corrected"  # type: ignore
+  crp.acoustic_model_config.tdp.entry_m1.loop = "infinity"  # type: ignore
+  crp.acoustic_model_config.tdp.entry_m2.loop = "infinity"  # type: ignore
+  crp.acoustic_model_config.fix_allophone_context_at_word_boundaries = True
+  crp.acoustic_model_config.transducer_builder_filter_out_invalid_allophones = True
+
+  # Make config from crp
+  mapping = {
+    "acoustic_model": "lib-rasr.alignment-fsa-exporter.model-combination.acoustic-model",
+    "corpus": "lib-rasr.corpus",
+    "lexicon": "lib-rasr.alignment-fsa-exporter.model-combination.lexicon",
+  }
+  config, post_config = rasr.build_config_from_mapping(
+    crp,
+    mapping,
+    parallelize=False,
+  )
+
+  config.lib_rasr.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = False
+  config.lib_rasr.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = False
+
+  config_file = rasr.WriteRasrConfigJob(config, post_config).out_config
+  tk.register_output("config/librasr_fsa_config", config_file)
 
 
 def get_phoneme_lexicon_wo_special_dict(
@@ -98,4 +150,48 @@ def get_bpe_lexicon(
   merge_lexicon_job.add_alias(os.path.join(alias_path, "merge_lexicon_job"))
   tk.register_output(f"lexica/{vocab_str}", merge_lexicon_job.out_bliss_lexicon)
 
-  return merge_lexicon_job.out_bliss_lexicon
+  reorder_lexicon_job = ReorderLexiconPhonemesJob(
+    bliss_lexicon=merge_lexicon_job.out_bliss_lexicon,
+    vocab=vocab.vocab,
+  )
+  tk.register_output(f"lexica/{vocab_str}_reorderd", reorder_lexicon_job.out_bliss_lexicon)
+
+  return reorder_lexicon_job.out_bliss_lexicon
+
+
+class ReorderLexiconPhonemesJob(Job):
+  def __init__(self, bliss_lexicon, vocab):
+    self.bliss_lexicon = bliss_lexicon
+    self.vocab = vocab
+
+    self.out_bliss_lexicon = self.output_path("out_lexicon.xml.gz")
+
+  def tasks(self):
+    yield Task("run", mini_task=True)
+
+  def run(self):
+    with open(self.vocab.get_path(), "r") as f:
+      vocab_dict = literal_eval(f.read())
+
+    bliss_lexicon = lexicon.Lexicon()
+    bliss_lexicon.load(self.bliss_lexicon.get_path())
+
+    bliss_lexicon.phonemes = OrderedDict()
+
+    # add phonemes in the order of the vocab
+    for phoneme in vocab_dict:
+      if phoneme == "<s>":
+        continue
+
+      bliss_lexicon.phonemes[phoneme] = "context"
+
+    # add special silence phoneme at the end
+    bliss_lexicon.phonemes["[SILENCE]"] = "none"
+
+    # map SOS lemma to </s> in order to use the same phoneme for SOS and EOS
+    for lemma in bliss_lexicon.lemmata:
+      if lemma.special == "sentence-begin":
+        lemma.synt = ["</s>"]
+
+    write_xml(self.out_bliss_lexicon.get_path(), bliss_lexicon.to_xml())
+
