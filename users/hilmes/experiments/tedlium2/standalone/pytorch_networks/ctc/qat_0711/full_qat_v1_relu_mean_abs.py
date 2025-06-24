@@ -1,6 +1,7 @@
 """
 V3 adds option to quantize bias
 V4 adds option to use observer only in training
+Relu instead of Silu
 """
 
 import math
@@ -43,7 +44,6 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         super().__init__()
 
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
-
         self.linear_ff = LinearQuant(
             in_features=cfg.input_dim,
             out_features=cfg.hidden_dim,
@@ -260,10 +260,6 @@ class ConformerMHSAQuant(torch.nn.Module):
         input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
         output_tensor = input_tensor / (torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5))
         output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
-        # print(
-        #     "Post norm MHSA", output_tensor[0, 0, :10], torch.sum(torch.abs(output_tensor), dim=-1, keepdim=True)[0, 0]
-        # )
-        # output_tensor = self.layernorm(input_tensor)  # [B,T,F]
         output_tensor = self.layer_norm_out_quant(output_tensor)
 
         output_tensor, _ = self.mhsa(output_tensor, output_tensor, output_tensor, mask=inv_sequence_mask)  # [B,T,F]
@@ -464,8 +460,6 @@ class ConformerConvolutionQuant(nn.Module):
         tensor = tensor - torch.mean(tensor, dim=-1, keepdim=True)
         tensor = tensor / (torch.sum(torch.abs(tensor), dim=-1, keepdim=True) / tensor.size(-1) + torch.tensor(1e-5))
         tensor = tensor * self.layer_norm_scale + self.layer_norm_bias
-        # print("Post norm Conv", tensor[0, 0, :10], torch.sum(torch.abs(tensor), dim=-1, keepdim=True)[0, 0])
-        # tensor = self.layer_norm(tensor)
         tensor = self.layer_norm_out_quant(tensor)
         tensor = self.pconv_1_in_quant(tensor)
         tensor = self.pointwise_conv1(tensor, self.pconv_1_in_quant)  # [B,T,2F]
@@ -669,7 +663,7 @@ class ConformerBlockQuant(nn.Module):
         self.mhsa = ConformerMHSAQuant(cfg=cfg.mhsa_cfg)
         self.conv = ConformerConvolutionQuant(model_cfg=cfg.conv_cfg)
         self.ff2 = ConformerPositionwiseFeedForwardQuant(cfg=cfg.ff_cfg)
-        # self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
+        self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
         self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.ff_cfg.input_dim), requires_grad=True)
         self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.ff_cfg.input_dim), requires_grad=True)
         init.ones_(self.layer_norm_scale)
@@ -705,6 +699,7 @@ class ConformerBlockQuant(nn.Module):
         x = x / (torch.sum(torch.abs(x), dim=-1, keepdim=True) / x.size(-1)  + torch.tensor(1e-5))
         x = x * self.layer_norm_scale + self.layer_norm_bias
         x = self.ln_out_quant(x)
+
         return x
 
     def prep_quant(self, extra_act_quant: bool, decompose: bool):
@@ -801,7 +796,7 @@ class Model(torch.nn.Module):
                     input_dim=conformer_size,
                     hidden_dim=self.train_config.ff_dim,
                     dropout=self.train_config.ff_dropout,
-                    activation=nn.functional.silu,
+                    activation=nn.functional.relu,
                     weight_quant_dtype=self.train_config.weight_quant_dtype,
                     weight_quant_method=self.train_config.weight_quant_method,
                     activation_quant_dtype=self.train_config.activation_quant_dtype,
@@ -840,7 +835,7 @@ class Model(torch.nn.Module):
                     channels=conformer_size,
                     kernel_size=self.train_config.conv_kernel_size,
                     dropout=self.train_config.conv_dropout,
-                    activation=nn.functional.silu,
+                    activation=nn.functional.relu,
                     norm=LayerNormNC(conformer_size),
                     weight_bit_prec=self.train_config.weight_bit_prec,
                     weight_quant_dtype=self.train_config.weight_quant_dtype,

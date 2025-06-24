@@ -422,11 +422,9 @@ def eow_phon_ls960_distill_hubert():
             distill_report = {}
             distill_report["baselines"] = {}
             for dim, spec_start, spec, num_heads, layer_count, drop in [
-                (384, 1, 16, 8, 12, 0.1),
+                #(384, 1, 16, 8, 12, 0.1),
                 (512, 1, 16, 8, 12, 0.1),
             ]:
-                if epochs > 500 and dim in [384]:
-                    continue
                 distill_report["baselines"][
                     baseline_prefix + "/" + baseline_module + f"_500_{dim}_{num_heads}_{spec}_{spec_start}"
                 ] = baselines[
@@ -456,7 +454,6 @@ def eow_phon_ls960_distill_hubert():
                     "gradient_clip_norm": 1.0,
                 }
                 #######################################################################################################
-                ## TODO: update to v5
                 for distill_scale in [0.25, 0.9, 1.0]:
                     for T in [2]:
                         specaug_config = SpecaugConfig(
@@ -858,7 +855,7 @@ def eow_phon_ls960_distill_hubert():
                         del results
                         #######################################################################################################
                         ## Tresholding
-                        for thresh in [0.1, 0.2]:
+                        for thresh in [0.05, 0.1, 0.2, 0.3]:
                             teacher_config = TeacherConfigV4(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
@@ -939,7 +936,7 @@ def eow_phon_ls960_distill_hubert():
                             del results
                         #######################################################################################################
                         ## Random Selection
-                        for rnd in [0.5, 1.0, 2.0]:
+                        for rnd in [0.25, 0.5, 0.75, 1.0, 2.0]:
                             teacher_config = TeacherConfigV4(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,

@@ -98,29 +98,36 @@ def build_memristor_base_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_baselines[exp + "/" + best] = dic[best]
+            best_baselines[exp] = (dic[best], best)
         else:
-            best_baselines[exp] = "None"
+            best_baselines[exp] = ("None", "")
     line = []
     best_dc = {}
     bits = {1.5, 2, 3, 4, 5, 6, 8}
+    line.append("Baselines")
     for exp, best in best_baselines.items():
-        line.append(f"{exp.split('/')[5]}: {best}   {' '.join(exp.split('/')[10:])}")
+        line.append(f"{exp.split('/')[4]}: {best[0]}   {' '.join(best[1].split('/')[5:])}")
+    line.append("")
     for exp, dic in report.items():
-        tmp = {}
         for bit in bits:
+            tmp = {}
             for name in dic:
+                # print(bit, name)
+                # print(f"weight_{bit}" in name)
+                # print(bit == ceil(bit))
+                # print(f"weight_{int(bit)}" in name)
                 if f"weight_{bit}" in name or (bit == ceil(bit) and f"weight_{int(bit)}" in name):
+                    # print(bit, name)
                     tmp[name] = dic[name]
+            instanciate_delayed(tmp)
             if all(tmp.values()):
-                instanciate_delayed(tmp)
                 best = min(tmp, key=tmp.get)
-                best_dc[exp + "/" + best] = tmp[best]
+                best_dc["/".join(best.split("/")[:9])] = (tmp[best], best)
             else:
-                best_dc[exp] = "None"
+                best_dc[exp] = ("None", "")
     for exp, value in best_dc.items():
         if isinstance(exp, float):
             line.append(f"{exp}: {value}")
         else:
-            line.append(f"{' '.join(exp.split('/')[9:12])}: {value}   {' '.join(exp.split('/')[12:])}")
+            line.append(f"{' '.join(exp.split('/')[4:])}: {value[0]}   {' '.join(value[1].split('/')[9:])}")
     return "\n".join(line)

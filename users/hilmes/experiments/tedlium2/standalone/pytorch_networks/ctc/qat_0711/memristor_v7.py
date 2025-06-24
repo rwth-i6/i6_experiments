@@ -2,6 +2,7 @@
 v4 adds num cycles
 v5 adds Conv
 v6 adds option for noise to weights for Linear
+v7 adds option for cycle correction  TODO: for Conv1D
 """
 
 import math
@@ -22,15 +23,15 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .memristor_v6_cfg import (
-    QuantModelTrainConfigV6,
+from .memristor_v7_cfg import (
+    QuantModelTrainConfigV7,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
     ConformerConvolutionQuantV4Config,
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .memristor_v6_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
+from .memristor_v7_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
 from torch.nn.quantized._reference.modules import Conv1d
 
 # from lovely_tensors import monkey_patch
@@ -105,6 +106,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.dropout = cfg.dropout
         self.converter_hardware_settings = cfg.converter_hardware_settings
 
+
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         """
         :param tensor: shape [B,T,F], F=input_dim
@@ -139,7 +141,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.lin_1_in_quant,
             linear_quant=self.linear_ff,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=self.model_cfg.correction_settings,
         )
         self.linear_ff = mem_lin
 
@@ -156,7 +159,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.lin_2_in_quant,
             linear_quant=self.linear_out,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=self.model_cfg.correction_settings,
         )
         self.linear_out = mem_lin
         self.lin_1_in_quant = nn.Identity()
@@ -235,6 +239,9 @@ class ConformerConvolutionQuant(nn.Module):
             weight_bit_prec=model_cfg.weight_bit_prec,
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
+            weight_noise_func=model_cfg.weight_noise_func,
+            weight_noise_start_epoch=model_cfg.weight_noise_start_epoch,
+            weight_noise_values=model_cfg.weight_noise_values,
         )
         self.dconv_1_in_quant = ActivationQuantizer(
             bit_precision=model_cfg.activation_bit_prec,
@@ -345,7 +352,8 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.pconv_1_in_quant,
             linear_quant=self.pointwise_conv1,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=self.model_cfg.correction_settings,
         )
         self.pointwise_conv1 = mem_lin
 
@@ -367,6 +375,7 @@ class ConformerConvolutionQuant(nn.Module):
             activation_quant=self.dconv_1_in_quant,
             conv_quant=self.depthwise_conv,
             num_cycles=self.model_cfg.num_cycles,
+            correction_settings=self.model_cfg.correction_settings,
         )
         # self.depth_tmp = self.depthwise_conv
         self.depthwise_conv = mem_conv
@@ -385,7 +394,8 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.pconv_2_in_quant,
             linear_quant=self.pointwise_conv2,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=self.model_cfg.correction_settings,
         )
         self.pointwise_conv2 = mem_lin
         self.pconv_1_in_quant = nn.Identity()
@@ -497,7 +507,7 @@ class Model(torch.nn.Module):
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
 
         super().__init__()
-        self.train_config = QuantModelTrainConfigV6.from_dict(model_config_dict)
+        self.train_config = QuantModelTrainConfigV7.from_dict(model_config_dict)
         fe_config = self.train_config.feature_extraction_config
         frontend_config = self.train_config.frontend_config
         conformer_size = self.train_config.conformer_size
@@ -523,6 +533,7 @@ class Model(torch.nn.Module):
                     weight_noise_func=self.train_config.weight_noise_func,
                     weight_noise_start_epoch=self.train_config.weight_noise_start_epoch,
                     weight_noise_values=self.train_config.weight_noise_values,
+                    correction_settings=self.train_config.correction_settings
                 ),
                 mhsa_cfg=QuantizedMultiheadAttentionV4Config(
                     input_dim=conformer_size,
@@ -551,6 +562,7 @@ class Model(torch.nn.Module):
                     weight_noise_func=self.train_config.weight_noise_func,
                     weight_noise_start_epoch=self.train_config.weight_noise_start_epoch,
                     weight_noise_values=self.train_config.weight_noise_values,
+                    correction_settings=self.train_config.correction_settings
                 ),
                 conv_cfg=ConformerConvolutionQuantV4Config(
                     channels=conformer_size,
@@ -570,6 +582,7 @@ class Model(torch.nn.Module):
                     weight_noise_func=self.train_config.weight_noise_func,
                     weight_noise_start_epoch=self.train_config.weight_noise_start_epoch,
                     weight_noise_values=self.train_config.weight_noise_values,
+                    correction_settings=self.train_config.correction_settings
                 ),
             ),
         )
@@ -667,7 +680,8 @@ class Model(torch.nn.Module):
             mem_lin.init_from_linear_quant(
                 activation_quant=self.lin_out_in_quant,
                 linear_quant=self.lin_out,
-                num_cycles=self.train_config.num_cycles,
+                num_cycles_init=self.train_config.num_cycles,
+                correction_settings=self.train_config.correction_settings
             )
             self.final_linear = mem_lin
         self.conformer.prep_quant(decompose=decompose)

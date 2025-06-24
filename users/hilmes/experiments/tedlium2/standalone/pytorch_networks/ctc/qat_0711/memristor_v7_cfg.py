@@ -11,7 +11,7 @@ from typing import Callable, Optional, Union, Dict
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
-from torch_memristor.memristor_modules import DacAdcHardwareSettings
+from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
 
 
 @dataclass(kw_only=True)
@@ -58,6 +58,7 @@ class ConformerPositionwiseFeedForwardQuantV4Config(ModelConfiguration):
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
+    correction_settings: Optional[CycleCorrectionSettings]
     activation: Callable[[torch.Tensor], torch.Tensor] = nn.functional.silu
 
 
@@ -87,6 +88,7 @@ class QuantizedMultiheadAttentionV4Config(ModelConfiguration):
     quant_in_linear: bool
     converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
+    correction_settings: Optional[CycleCorrectionSettings]
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
@@ -121,6 +123,7 @@ class ConformerConvolutionQuantV4Config(ModelConfiguration):
     moving_average: Optional[float]  # Moving average for input quantization
     converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
+    correction_settings: Optional[CycleCorrectionSettings]
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
@@ -178,7 +181,7 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
-class QuantModelTrainConfigV6:
+class QuantModelTrainConfigV7:
     feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
@@ -209,6 +212,7 @@ class QuantModelTrainConfigV6:
     quant_in_linear: bool
     converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
+    correction_settings: Optional[CycleCorrectionSettings]
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
@@ -216,10 +220,12 @@ class QuantModelTrainConfigV6:
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
+        print(d)
         d["feature_extraction_config"] = LogMelFeatureExtractionV1Config(**d["feature_extraction_config"])
         d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
         d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
         d["converter_hardware_settings"] = DacAdcHardwareSettings(**d["converter_hardware_settings"])
+        d["correction_settings"] = CycleCorrectionSettings(**d["correction_settings"]) if d["correction_settings"] is not None else None
         for name in ["weight_quant_dtype", "activation_quant_dtype", "dot_quant_dtype", "Av_quant_dtype"]:
             if d[name] == "qint8":
                 weight_dtype = torch.qint8
@@ -234,7 +240,7 @@ class QuantModelTrainConfigV6:
             d["weight_noise_func"] = None
         else:
             raise NotImplementedError
-        return QuantModelTrainConfigV6(**d)
+        return QuantModelTrainConfigV7(**d)
 
     def __post_init__(self):
         for param in [self.weight_quant_dtype, self.activation_quant_dtype, self.dot_quant_dtype, self.Av_quant_dtype]:

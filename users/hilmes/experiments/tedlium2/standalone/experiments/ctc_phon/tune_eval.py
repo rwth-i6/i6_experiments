@@ -47,7 +47,7 @@ def eval_model(
     decoder_config: DecoderConfig,
     dev_dataset_tuples: Dict[str, Any],
     result_dict: Optional[Dict[str, Any]] = None,
-    lm_scales: Optional[List[float]] = None,
+    lm_scales: Optional[List[Union[float, Tuple[tk.Path, str]]]] = None,
     prior_scales: Optional[List[float]] = None,
     specific_epoch: Optional[Union[int, List]] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
@@ -63,6 +63,7 @@ def eval_model(
     run_rtf: bool = False,  # for now only for last epoch
     rtf_args: Optional[RTFArgs] = None,
     with_prior: bool = True,
+    get_best_params: bool = False,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -75,6 +76,7 @@ def eval_model(
     if result_dict is None:
         result_dict = {}
     debug = train_args.get("debug", False)
+    best_params = None
     for epoch in specific_epoch:
         asr_model = prepare_asr_model(
             training_name + f"/{epoch}",
@@ -88,7 +90,7 @@ def eval_model(
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
             asr_model.network_module = train_args["network_module"]
-        res, _ = tune_and_evaluate_helper(
+        res, best_params = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
             decoder_config,
@@ -104,6 +106,7 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
             run_rtf=run_rtf,
             rtf_args=rtf_args,
+            get_best_params=get_best_params
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -164,7 +167,10 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
         )
         result_dict.update(res)
-    return result_dict
+    if get_best_params is True:
+        return result_dict, best_params
+    else:
+        return result_dict
 
 
 def tune_and_evaluate_helper(
@@ -185,6 +191,7 @@ def tune_and_evaluate_helper(
     run_test: bool = False,
     run_rtf: bool = False,
     rtf_args: Optional[RTFArgs] = None,
+    get_best_params: bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -204,13 +211,17 @@ def tune_and_evaluate_helper(
     for lm_weight in lm_scales:
         for prior_scale in prior_scales:
             decoder_config = copy.deepcopy(base_decoder_config)
+            if isinstance(lm_weight, tuple):
+                lm_weight, search_name = lm_weight
+            else:
+                search_name = "lm%.1f_prior%.1f" % (lm_weight, prior_scale)
             if not lm_weight == 0.0:
                 decoder_config.lm_weight = lm_weight
             if not prior_scale == 0.0:
                 decoder_config.prior_scale = prior_scale
-            #else:
+            # else:
             #    assert asr_model.prior_file is None, "Prior scale is set to 0"
-            search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+            search_name = training_name + f"/search_{search_name}"
             search_jobs, wers = search(
                 search_name,
                 forward_config=extra_forward_config or {},
@@ -325,7 +336,11 @@ def tune_and_evaluate_helper(
                 asr_model=asr_model,
                 rtf_args=rtf_args,
             )
-
+    if get_best_params is True:
+        pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+            parameters=tune_parameters, values=tune_values, mode="minimize"
+        )
+        pick_optimal_params_job.add_alias(training_name + f"/pick_best_get")
     return results, pick_optimal_params_job
 
 
@@ -344,7 +359,6 @@ def run_rtf_test(
     rtf_args: Optional[RTFArgs] = None,
 ):
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1_rescale_measure import DecoderConfig
-
 
     decoder_module = rtf_args.decoder_module or "ctc.decoder.flashlight_ctc_v1_rescale_measure"
 
@@ -454,7 +468,7 @@ def build_distill_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_baselines[" ".join(exp.split("/")[4:])] = "{:.1f}".format(float(dic[best]))
+            best_baselines[" ".join(exp.split("/")[4:])] = "{:.2f}".format(float(dic[best]))
         else:
             best_baselines[" ".join(exp.split("/")[4:])] = "None"
     best_dc = {}
@@ -462,7 +476,7 @@ def build_distill_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[4:])] = "{:.1f}".format(float(dic[best]))
+            best_dc[" ".join(exp.split("/")[4:])] = "{:.2f}".format(float(dic[best]))
         else:
             best_dc[" ".join(exp.split("/")[4:])] = "None"
     line = []
@@ -647,7 +661,7 @@ def build_hubert_distill_report(report: Dict):
         tmp = {x: dic[x] for x in dic.keys() if not "test" in x}
         if all(tmp.values()):
             best = min(tmp, key=tmp.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(tmp[best])), best)
+            best_dc[" ".join(exp.split("/")[5:])] = ("{:.2f}".format(float(tmp[best])), best)
             if "/".join(best.split("/")[:-2]) + "/test" in dic:
                 if dic["/".join(best.split("/")[:-2]) + "/test"] is not None:
                     best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
@@ -780,7 +794,7 @@ def build_hubert_distill_report(report: Dict):
 def build_qat_report(report: Dict):
     import numpy as np
 
-    exps = ["cycle", "smaller", "greedy"]
+    exps = ["correction", "noise", "cycle", "smaller", "greedy"]
 
     best_dc = {}
     bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
@@ -789,13 +803,14 @@ def build_qat_report(report: Dict):
         if all(dic.values()):
             best = min(dic, key=dic.get)
             if "cycle" in exp:
-                mean = np.mean(list(dic.values()))
+                mean = np.round(np.mean(list(dic.values())), decimals=2)
                 mini = np.min(list(dic.values()))
                 maxi = np.max(list(dic.values()))
-                std = np.std(list(dic.values()))
+                std = np.round(np.std(list(dic.values())), decimals=4)
+                ln = len(dic.values())
                 best_dc[" ".join(exp.split("/")[5:])] = (
-                    "{:.1f}".format(float(dic[best])),
-                    best + f"  {mean=} {std=} {mini=} {maxi=}",
+                    "{:.1f}".format(mean),
+                    best + f" {mean=} {std=} min: {'{:.1f}'.format(mini)} max: {'{:.1f}'.format(maxi)} runs: {ln}",
                 )
             else:
                 best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
@@ -822,14 +837,92 @@ def build_qat_report(report: Dict):
     for x in exps:
         first = True
         best_dc = copy.deepcopy(tmp)
-        for exp, value in best_dc.items():
-            if x in exp:
-                if first is True:
-                    line.append(x)
-                    line.append("")
-                    first = False
-                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-                del tmp[exp]
+        if x == "noise":
+            w_bits = set()
+            a_bits = set()
+            starts = set()
+            devs = set()
+            dropouts = set()
+            for exp in best_dc:
+                if "noise" in exp:
+                    pref = "_".join(exp.split("_")[:3])
+                    w_bits.add(exp.split("_")[3])
+                    a_bits.add(exp.split("_")[4])
+                    starts.add(exp.split("_")[5][len("noise"):])
+                    devs.add(exp.split("_")[6])
+                    dropouts.add(exp.split("_")[7].split(" ")[0][len("drop"):])
+            if all(len(x) == 0 for x in [w_bits, a_bits, starts, devs, dropouts]):
+                continue
+            line.append(x)
+            line.append("Weight B".ljust(10) + "Start".ljust(10) + "Dropout".ljust(10) + "Deviation".ljust(10) + "No Noise".ljust(10) + "Noise".ljust(10) + "Memristor".ljust(10))
+            for w_bit in sorted(w_bits, reverse=True):
+                for a_bit in sorted(a_bits, reverse=True):
+                    for start in sorted(starts):
+                        for dev in sorted(devs):
+                            for dropout in sorted(dropouts):
+                                if pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" without_noise" in best_dc:
+                                    no_noise = best_dc[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" without_noise"]
+                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" without_noise"]
+                                else:
+                                    no_noise = "NaN"
+                                if pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" with_noise" in best_dc:
+                                    noise = best_dc[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" with_noise"]
+                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" with_noise"]
+                                else:
+                                    noise = "NaN"
+                                if pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" cycle_combined" in best_dc:
+                                    cycle = best_dc[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" cycle_combined"]
+                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" cycle_combined"]
+                                else:
+                                    cycle = "NaN"
+                                if all(x == "NaN" for x in [no_noise, noise, cycle]):
+                                    continue
+                                line.append(f"{str(w_bit).ljust(10)}{str(start).ljust(10)}{str(dropout).ljust(10)}{str(dev).ljust(10)}{no_noise[0].ljust(10)}{noise[0].ljust(10)}{cycle[0].ljust(10)}{' '.join(cycle[1].split(' ')[1:]).ljust(25)} {' ' if len(cycle[1]) <= 1 else cycle[1].split('/')[-2]}")
+            line.append("")
+        elif x == "correction":
+            w_bits = set()
+            a_bits = set()
+            cycles = set()
+            devs = set()
+            tests = set()
+            for exp in best_dc:
+                if "correction_" in exp and not "correction_baseline" in exp:
+                    pref = "_".join(exp.split("_")[:3])
+                    w_bits.add(exp.split("_")[3])
+                    a_bits.add(exp.split("_")[4])
+                    cycles.add(exp.split("_")[6])
+                    devs.add(exp.split("_")[8][:-len(" cycle")])
+                    tests.add(exp.split("_")[7])
+            if all(len(x) == 0 for x in [w_bits, a_bits, cycles, devs, tests]):
+                continue
+            line.append(x)
+            line.append("Weight B".ljust(10) + "Cycles".ljust(10) + "Test Val".ljust(10) + "Deviation".ljust(10) + "Correction".ljust(10))
+            for w_bit in sorted(w_bits, reverse=True):
+                for a_bit in sorted(a_bits, reverse=True):
+                    line.append(f"{w_bit.ljust(10)}Baseline: {best_dc[pref + '_' + w_bit + '_' + a_bit + '_correction_baseline'][0]}")
+                    line.append(
+                        f"{w_bit.ljust(10)}No Correction: {best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][0]} {' '.join(best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split(' ')[1:])} {best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split('/')[-2]}")
+                    del tmp[pref + '_' + w_bit + '_' + a_bit + '_correction_baseline']
+                    del tmp[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined']
+                    for cycle in sorted(cycles):
+                        for dev in sorted(devs):
+                            for test_v in sorted(tests):
+                                if pref+"_"+w_bit+"_"+a_bit+"_correction_"+cycle+"_"+test_v+"_"+dev+" cycle_combined" in best_dc:
+                                    mem = best_dc[pref+"_"+w_bit+"_"+a_bit+"_correction_"+cycle+"_"+test_v+"_"+dev+" cycle_combined"]
+                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_correction_"+cycle+"_"+test_v+"_"+dev+" cycle_combined"]
+                                else:
+                                    continue
+                                line.append(f"{str(w_bit).ljust(10)}{str(cycle).ljust(10)}{str(test_v).ljust(10)}{str(dev).ljust(10)}{mem[0].ljust(10)}{' '.join(mem[1].split(' ')[1:])} {' ' if len(mem[1]) <= 1 else mem[1].split('/')[-2].ljust(25)}")
+            line.append("")
+        else:
+            for exp, value in best_dc.items():
+                if x in exp:
+                    if first is True:
+                        line.append(x)
+                        line.append("")
+                        first = False
+                    line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                    del tmp[exp]
         if first is False:
             line.append("")
     assert len(tmp) == 0, tmp

@@ -3,6 +3,8 @@ from dataclasses import asdict
 import numpy as np
 from typing import cast
 
+import torch.nn
+
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from ...data.common import DatasetSettings, build_test_dataset
@@ -160,6 +162,7 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
                                 separate_pos_emb_per_head=True,
                                 pos_emb_dropout=0.0,
                             )
+
                             model_config_pos_enc = RelPosModelConfig(
                                 feature_extraction_config=fe_config,
                                 frontend_config=frontend_config,

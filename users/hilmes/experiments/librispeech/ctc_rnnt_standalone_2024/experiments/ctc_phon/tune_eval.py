@@ -394,7 +394,7 @@ def build_hubert_distill_report(report: Dict):
             elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
-            elif name == "random" and "random" in exp.split("_")[-2]:
+            elif name == "random" and "random" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
                 if "/".join(value[1].split("/")[:-2]) + "/test-other" in best_dc:
@@ -403,7 +403,7 @@ def build_hubert_distill_report(report: Dict):
                         f"{' '.join(value[1].split('.')[2:-2]) + '/test-other'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
                     )
                     del tmp["/".join(value[1].split("/")[:-2]) + "/test-other"]
-            elif name == "thresh" and "thresh" in exp.split("_")[-2]:
+            elif name == "thresh" and "thresh" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
                 if "/".join(value[1].split("/")[:-2]) + "/test-other" in best_dc:

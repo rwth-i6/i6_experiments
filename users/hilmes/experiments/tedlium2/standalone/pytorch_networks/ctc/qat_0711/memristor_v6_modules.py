@@ -7,10 +7,12 @@ from torch import nn
 from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
-from typing import Optional, Union
-from .memristor_v4_cfg import QuantizedMultiheadAttentionV4Config
+from typing import Optional, Union, Dict, Callable
+from .memristor_v6_cfg import QuantizedMultiheadAttentionV4Config
 import math
 from torch.ao.quantization.utils import check_min_max_valid
+from returnn.torch.context import get_run_ctx
+import numpy
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):
@@ -204,6 +206,9 @@ class LinearQuant(nn.Module):
         weight_quant_dtype: torch.dtype,
         weight_quant_method: str,
         bias: bool,
+        weight_noise_func: Optional[Union[Callable, str]],
+        weight_noise_values: Optional[Dict[str, float]],
+        weight_noise_start_epoch: Optional[int],
     ):
         super().__init__()
         self.in_features = in_features
@@ -227,9 +232,20 @@ class LinearQuant(nn.Module):
             dtype=self.weight_quant_dtype,
             method=self.weight_quant_method,
         )
+        self.weight_noise_func = weight_noise_func
+        self.weight_noise_start_epoch = weight_noise_start_epoch
+        self.weight_noise_values = weight_noise_values
 
     def forward(self, tensor: torch.Tensor):
-        lin = F.linear(tensor, self.weight_quantizer(self.weight), self.bias)
+        weight = self.weight_quantizer(self.weight)
+        if self.weight_noise_func is not None and (self.weight_noise_start_epoch is None or not self.training or self.weight_noise_start_epoch >= get_run_ctx().epoch):
+            for i in range(self.weight_bit_prec-1):
+                mean = 2 * (-self.weight_quantizer.zero_point).expand(self.weight.size()).to(weight.device).to(torch.float32)
+                std = (torch.tensor(self.weight_noise_values["dev"]) * (2 ** i)).expand(self.weight.size()).to(weight.device).to(torch.float32)
+                std = numpy.sqrt(2) * std  # this is sqrt(std ^ 2 + std ^ 2)
+                noise = self.weight_noise_func(mean=mean, std=std).to(weight.device) * self.weight_quantizer.scale
+                weight = weight + noise
+        lin = F.linear(tensor, weight, self.bias)
         return lin
 
 
@@ -385,6 +401,9 @@ class QuantizedMultiheadAttention(nn.Module):
             weight_quant_dtype=self.weight_quant_dtype,
             weight_quant_method=self.weight_quant_method,
             bias=True,
+            weight_noise_func=self.cfg.weight_noise_func,
+            weight_noise_start_epoch=self.cfg.weight_noise_start_epoch,
+            weight_noise_values=self.cfg.weight_noise_values,
         )
 
     def forward(
@@ -461,7 +480,7 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(
-            activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj, num_cycles_init=self.cfg.num_cycles, correction_settings=None
+            activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj, num_cycles=self.cfg.num_cycles
         )
         self.out_proj = mem_lin
         self.out_proj_in_quant = nn.Identity()
@@ -477,7 +496,7 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(
-            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj, num_cycles_init=self.cfg.num_cycles, correction_settings=None
+            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj, num_cycles=self.cfg.num_cycles
         )
         self.in_proj = mem_lin
         self.in_proj_in_quant = nn.Identity()
