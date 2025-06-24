@@ -1347,19 +1347,29 @@ def _LM_score(
         assert lm_name == "word4gram"
         assert arpa_file is not None, "ARPA file must be provided for word4gram LM"
         import kenlm
-        assert targets.raw_tensor.ndim == 2
+        assert targets.raw_tensor.ndim in [2, 3]
         
+        batch_dims = targets.remaining_dims(targets_spatial_dim)
         dev = targets.raw_tensor.device
         lm = kenlm.Model(arpa_file)
         targets = targets.raw_tensor
         lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
         lm_log_probs = []
-        for i in range(targets.size(0)):
-            t = targets[i, :lengths[i]].tolist()
-            word_target = hyps_ids_to_label(model, t)
-            lm_log_probs.append(lm.score(word_target, bos=True, eos=True))
+        if targets.ndim == 2:
+            for i in range(targets.size(0)):
+                t = targets[i, :lengths[i]].tolist()
+                word_target = hyps_ids_to_label(model, t)
+                lm_log_probs.append(lm.score(word_target, bos=True, eos=True))
+        else:
+            for i in range(targets.size(0)):
+                lm_log_probs_i = []
+                for j in range(targets.size(1)):
+                    t = targets[i, j, :lengths[i, j]].tolist()
+                    word_target = hyps_ids_to_label(model, t)
+                    lm_log_probs_i.append(lm.score(word_target, bos=True, eos=True))
+                lm_log_probs.append(lm_log_probs_i)
         lm_log_probs = torch.tensor(lm_log_probs, dtype=torch.float32, device=dev)
-        lm_log_probs = rf.convert_to_tensor(lm_log_probs, dims=[batch_dim], dtype="float32", name="lm_log_probs")
+        lm_log_probs = rf.convert_to_tensor(lm_log_probs, dims=batch_dims, dtype="float32", name="lm_log_probs")
     
     return lm_log_probs
 
@@ -1603,14 +1613,14 @@ def _prior_penalty(log_probs: rf.Tensor, enc_spatial_dim: Dim, empirical_prior_p
         log_probs.raw_tensor,
         enc_spatial_dim.get_size_tensor().raw_tensor,
     )
-    emprirical_prior = np.loadtxt(empirical_prior_path, dtype="float32")
-    emprirical_prior = torch.tensor(emprirical_prior, dtype=torch.float32, device=log_probs.device)
-    assert emprirical_prior.shape[0] == log_probs.raw_tensor.shape[-1]
+    empirical_prior = np.loadtxt(empirical_prior_path, dtype="float32")
+    empirical_prior = torch.tensor(empirical_prior, dtype=torch.float32, device=log_probs.device)
+    assert empirical_prior.shape[0] == log_probs.raw_tensor.shape[-1]
     
-    # prior_penalty = safe_logaddexp(emprirical_prior, -model_prior) * 2
+    # prior_penalty = safe_logaddexp(empirical_prior, -model_prior) * 2
     # prior_penalty = safe_logsumexp(prior_penalty, dim=0)
     
-    prior_penalty = torch.nn.functional.mse_loss(model_prior, emprirical_prior)
+    prior_penalty = torch.nn.functional.mse_loss(model_prior, empirical_prior)
     prior_penalty = prior_penalty.unsqueeze(0)
     
     prior_penalty = rf.convert_to_tensor(

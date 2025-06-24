@@ -347,16 +347,16 @@ class Wav2VecModel(rf.Module):
   """Model definition"""
 
   def __init__(
-          self,
-          *,
-          w2v_opts: Dict[str, Any],
-          target_dim: Dim,
-          wb_target_dim: Optional[Dim] = None,
-          blank_idx: int,
-          eos_idx: int,
-          bos_idx: int,
-          train_language_model: Optional[FeedForwardLm] = None,
-          recog_language_model: Optional[FeedForwardLm] = None
+        self,
+        *,
+        w2v_opts: Dict[str, Any],
+        target_dim: Dim,
+        wb_target_dim: Optional[Dim] = None,
+        blank_idx: int,
+        eos_idx: int,
+        bos_idx: int,
+        train_language_model: Optional[FeedForwardLm] = None,
+        recog_language_model: Optional[FeedForwardLm] = None,
   ):
     super(Wav2VecModel, self).__init__()
 

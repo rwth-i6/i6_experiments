@@ -117,10 +117,11 @@ def py():
     freeze_encoder_first_n_steps = 5_000
     enc_logits_n_layers = 2
     w2v_enc_layers = 10
+    model_prior_unsup = False
     random_init = True                         # Start from random init during unsupervised init training, alternatively use empirical prior
     with_bias = False                            # Whether the output layers have a learnable bias
     start_with_prior_gamma_steps = 0            # Number of steps to train with the prior as gammas in CE before CTC training on decoding targets
-    pseudo_nbest_init = 10                       # Number of pseudo-label sequences for unsupervised init training
+    pseudo_nbest_init = 1                       # Number of pseudo-label sequences for unsupervised init training
     prior_penalty_scale = 0.0                   # Scale for the model prior penalty during unsupervised init training
     gradient_penalty_opts = {
         "target_gradient_log_l2_norm": -1.2,
@@ -346,7 +347,7 @@ def py():
             if accum_grad_multiple_step_init > 1:
                 config_updates["accum_grad_multiple_step"] = accum_grad_multiple_step_init
         if not random_init:
-            assert with_prior and empirical_prior
+            assert with_prior and empirical_prior and not model_prior_unsup
             model_config["output_bias_init"] = True
         if num_gpus != 4:
             config_updates["__num_processes"] = num_gpus
@@ -358,7 +359,7 @@ def py():
             if start_with_prior_gamma_steps > 0:
                 config_updates["ps_nbest"] = 0
             else:
-                assert empirical_prior
+                assert empirical_prior and not model_prior_unsup
                 config_updates["am_scale"] = am_lm_prior_full_sum_init[0]
                 config_updates["lm_scale"] = am_lm_prior_full_sum_init[1]
                 config_updates["prior_scale"] = am_lm_prior_full_sum_init[2]
@@ -370,9 +371,9 @@ def py():
                     
                 config_updates.pop("hyperparameters_decoder", None)
         if module_selection:
-            config_updates["module_selection"] = module_selection
+            model_config["module_selection"] = module_selection
         if not with_bias:
-            config_updates["with_bias"] = with_bias
+            model_config["with_bias"] = with_bias
         if label_prior is not None and not label_prior:
             config_updates["rescore_alignment_prior"] = True
         if train_version != 1:
@@ -383,6 +384,8 @@ def py():
             config_updates["prior_penalty_scale"] = prior_penalty_scale
         if gradient_penalty_opts["gradient_penalty_scale"] > 0.0:
             config_updates["gradient_penalty_opts"] = gradient_penalty_opts
+        if model_prior_unsup:
+            config_updates["model_prior_train"] = model_prior_unsup
         if False:
             peak_lr = 1e-3
             config_updates["learning_rate_piecewise_values"] = [peak_lr * 1e-3, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
@@ -590,7 +593,7 @@ def py():
         (sum_str if use_sum_criterion else "") + \
         (f"-st_{self_training_rounds}" + LR_str + ("_no_norm" if not use_norm_st_loss else "") + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else (f"_b1-{str(adamw_betas[0]).replace('.', '')}_b2-{str(adamw_betas[1]).replace('.', '')}" if adamw_betas else "")) + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") + ("_nsp" if not speed_pert else "") if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
-        (f"-ds100h" if init == "100h-supervised" else ("-ds100US" + (f"-accum{accum_grad_multiple_step_init}" if accum_grad_multiple_step_init > 1 else "") + ("-emp_init" if not random_init else "") + (f"-emp_gam{start_with_prior_gamma_steps}" if start_with_prior_gamma_steps > 0 else "") + (f"-n{pseudo_nbest_init}" if pseudo_nbest_init > 1 else "") + (f"-p{str(am_lm_prior_full_sum_init[2]).replace('.', '')}_l{str(am_lm_prior_full_sum_init[1]).replace('.', '')}_a{str(am_lm_prior_full_sum_init[0]).replace('.', '')}" if pseudo_nbest_init == 0 else "") + ("-ms" if module_selection else "") + ("-nb" if not with_bias else "") + (f"_pp{str(prior_penalty_scale).replace('.', '')}" if prior_penalty_scale > 0.0 else "") + (f"-gp{str(gradient_penalty_opts['gradient_penalty_scale']).replace('.', '')}" if gradient_penalty_opts["gradient_penalty_scale"] > 0.0 else "") if init == "100h-unsupervised" else "")) + \
+        (f"-ds100h" if init == "100h-supervised" else ("-ds100US" + (f"-accum{accum_grad_multiple_step_init}" if accum_grad_multiple_step_init > 1 else "") + ("-emp_init" if not random_init else "") + (f"-emp_gam{start_with_prior_gamma_steps}" if start_with_prior_gamma_steps > 0 else "") + (f"-n{pseudo_nbest_init}" if pseudo_nbest_init > 1 else "") + (f"-p{str(am_lm_prior_full_sum_init[2]).replace('.', '')}_l{str(am_lm_prior_full_sum_init[1]).replace('.', '')}_a{str(am_lm_prior_full_sum_init[0]).replace('.', '')}" if pseudo_nbest_init == 0 else "") + ("-ms" if module_selection else "") + ("-nb" if not with_bias else "") + (f"_pp{str(prior_penalty_scale).replace('.', '')}" if prior_penalty_scale > 0.0 else "") + (f"-gp{str(gradient_penalty_opts['gradient_penalty_scale']).replace('.', '')}" if gradient_penalty_opts["gradient_penalty_scale"] > 0.0 else "") + (f"_Mpr" if model_prior_unsup else "") if init == "100h-unsupervised" else "")) + \
         (w2v_str if use_w2v else "") + \
         (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
         f"-{vocab}" + \
@@ -877,7 +880,7 @@ def train_exp(
     
     subset_score_args = None
     if score_models_on_subset or score_manual_model_on_subset:
-        from i6_experiments.users.mueller.experiments.ctc_baseline.misc import subset_scoring
+        from i6_experiments.users.mueller.experiments.ctc_baseline.misc import subset_scoring, histogram_scoring
         assert with_prior and empirical_prior
         assert isinstance(decoder_hyperparameters, dict)
         lm_checkpoint_path = search_config.get("preload_from_files", {}).get("recog_lm", {}).get("filename", None) if search_config else None
@@ -903,33 +906,71 @@ def train_exp(
                 forward_alias_name=f"{prefix}/subset_score",
                 **subset_score_args,
             )
+            histogram_scoring(
+                model_def=model_def_t,
+                checkpoint=None,
+                forward_alias_name=f"{prefix}/nbest_hist_scratch",
+                **subset_score_args,
+            )
+            histogram_scoring(
+                model_def=model_def_t,
+                checkpoint=model_with_checkpoint[0].get_last_fixed_epoch().checkpoint,
+                forward_alias_name=f"{prefix}/nbest_hist",
+                **subset_score_args,
+            )
             
         if score_manual_model_on_subset:
             from i6_core.returnn.training import PtCheckpoint
             # Manual checkpoint
-            md_cnf = model_def_t.config.copy()
-            md_cnf["module_selection"] = config.get("module_selection", [])
-            md_cnf["with_bias"] = config.get("with_bias", True)
-            model_def_t = ModelDefWithCfg(
-                model_def_t.model_def,
-                md_cnf
-            )
+            # md_cnf = model_def_t.config.copy()
+            # md_cnf["module_selection"] = config.get("module_selection", [])
+            # md_cnf["with_bias"] = config.get("with_bias", True)
+            # model_def_t = ModelDefWithCfg(
+            #     model_def_t.model_def,
+            #     md_cnf
+            # )
+            # subset_scoring(
+            #     model_def=model_def_t,
+            #     checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX_v2/train/output/models/epoch.001.pt")),
+            #     forward_alias_name=f"{prefix}/subset_score_manual1",
+            #     **subset_score_args,
+            # )
+            # subset_scoring(
+            #     model_def=model_def_t,
+            #     checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX_v2/train/output/models/epoch.003.pt")),
+            #     forward_alias_name=f"{prefix}/subset_score_manual3",
+            #     **subset_score_args,
+            # )
+            # subset_scoring(
+            #     model_def=model_def_t,
+            #     checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX_v2/train/output/models/epoch.005.pt")),
+            #     forward_alias_name=f"{prefix}/subset_score_manual5",
+            #     **subset_score_args,
+            # )
+            # histogram_scoring(
+            #     model_def=model_def_t,
+            #     checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX_v2/train/output/models/epoch.005.pt")),
+            #     forward_alias_name=f"{prefix}/nbest_hist_manual5",
+            #     **subset_score_args,
+            # )
+            
+            
             subset_scoring(
                 model_def=model_def_t,
-                checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX/train/output/models/epoch.001.pt")),
-                forward_alias_name=f"{prefix}/subset_score_manual1",
+                checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-wo_aux_loss-ds100US-accum60-n10-ms-nb_init-w2v_large_60kh_w2v-config-large-lv60_frz-enc-n-5000_enc-n-10_enc-logits-n-2-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b80_w125ffnn8_noLEX/train/output/models/epoch.004.pt")),
+                forward_alias_name=f"{prefix}/subset_score_manual4",
                 **subset_score_args,
             )
             subset_scoring(
                 model_def=model_def_t,
-                checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX/train/output/models/epoch.003.pt")),
-                forward_alias_name=f"{prefix}/subset_score_manual3",
+                checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-wo_aux_loss-ds100US-accum60-n10-ms-nb_init-w2v_large_60kh_w2v-config-large-lv60_frz-enc-n-5000_enc-n-10_enc-logits-n-2-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b80_w125ffnn8_noLEX/train/output/models/epoch.008.pt")),
+                forward_alias_name=f"{prefix}/subset_score_manual8",
                 **subset_score_args,
             )
-            subset_scoring(
+            histogram_scoring(
                 model_def=model_def_t,
-                checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-ds100US-accum480-n10-ms-nb-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b10_w08ffnn8_noLEX/train/output/models/epoch.005.pt")),
-                forward_alias_name=f"{prefix}/subset_score_manual5",
+                checkpoint=PtCheckpoint(tk.Path("/u/marten.mueller/dev/ctc_baseline/alias/ctc/ctc-wo_aux_loss-ds100US-accum60-n10-ms-nb_init-w2v_large_60kh_w2v-config-large-lv60_frz-enc-n-5000_enc-n-10_enc-logits-n-2-bpe128-frPR-recog_v_lm_r-b-a-s_p03-emp_max_n1_b80_w125ffnn8_noLEX/train/output/models/epoch.008.pt")),
+                forward_alias_name=f"{prefix}/nbest_hist_manual8",
                 **subset_score_args,
             )
 
@@ -1056,7 +1097,7 @@ def train_exp(
             train_def = ce_training
         elif use_seq_gamma_loss:
             train_def = seq_gamma_training
-        elif "hyperparameters_decoder" in config_self and "lm_order" not in config_self["hyperparameters_decoder"]:
+        elif "hyperparameters_decoder" in config_self and ("lm_order" not in config_self["hyperparameters_decoder"] or config_self["hyperparameters_decoder"]["lm_order"] == "word4gram"):
             assert recog_lm is not None and isinstance(recog_lm, tk.Path)
             config_self["hyperparameters_decoder"]["lm_order"] = "word4gram"
             config_self["arpa_file"] = recog_lm
@@ -1103,12 +1144,18 @@ def train_exp(
             for k, v in env_updates.items():
                 train_job.set_env(k, v)
                 
-        if i == self_training_rounds - 1 and score_models_on_subset:
+        if score_models_on_subset: # i == self_training_rounds - 1 and 
             assert subset_score_args is not None
             subset_scoring(
                 model_def=model_with_checkpoint[i + 1].get_last_fixed_epoch().definition,
                 checkpoint=model_with_checkpoint[i + 1].get_last_fixed_epoch().checkpoint,
                 forward_alias_name=f"{prefix_self_training}/subset_score",
+                **subset_score_args,
+            )
+            histogram_scoring(
+                model_def=model_with_checkpoint[i + 1].get_last_fixed_epoch().definition,
+                checkpoint=model_with_checkpoint[i + 1].get_last_fixed_epoch().checkpoint,
+                forward_alias_name=f"{prefix_self_training}/nbest_hist",
                 **subset_score_args,
             )
         
