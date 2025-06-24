@@ -1363,8 +1363,10 @@ def eow_phon_ls960_relposencoder_0924_base():
     from ...pytorch_networks.ctc.features.wav2vec import (
         Wav2vecFeatureExtractionV1Config
     )
-    for specaug_version, conv_layers in [
-        ("stft_v47", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512,2,2)] * 3)
+    for name, specaug_version, conv_layers in [
+        ("w2v_fe", "stft_v47", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe_lrgfiltv1", "stft_v47", [(512, 64, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe_lrgfiltv2", "stft_v47", [(512, 64, 5)] + [(512, 32, 2)] * 4 + [(512, 16, 2)] * 3),
     ]:
         w2v_config = Wav2vecFeatureExtractionV1Config(
             conv_layers=conv_layers,
@@ -1377,7 +1379,7 @@ def eow_phon_ls960_relposencoder_0924_base():
             frontend_config_class="LinearConfig",
             **model_base_args_feat,
         )
-        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".w2v_fe"
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{name}"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
