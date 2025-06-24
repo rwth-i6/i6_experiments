@@ -336,6 +336,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         SpecaugStftConfig,
         SpecaugStftV2Config,
         SpecaugStftV3Config,
+        SpecaugStftV4Config,
         SpecaugMultiplierLinearConfig,
         VGGNLayerActFrontendV1Config,
         VGGNLayerActFrontendV2Config,
@@ -608,6 +609,17 @@ def eow_phon_ls960_relposencoder_0924_base():
             fft_size=512,
             num_mels=1024,
         ),
+        "stft_v64": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=80,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+        ),
     }
     model_config = FeatureModelConfigV2(
         specaug_config=specaug_configs["stft_v1"],
@@ -650,7 +662,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # rerun log mel with STFT-domain SpecAugment
     logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
-    for specaug_version in ["stft_v47", "stft_v61", "stft_v62", "stft_v63"]:
+    for specaug_version in ["stft_v47", "stft_v61", "stft_v62", "stft_v63", "stft_v64"]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
             feature_extraction_config=logmel_config,

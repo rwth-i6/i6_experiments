@@ -82,6 +82,15 @@ class SpecaugStftV3Config(SpecaugStftConfig):
 
 
 @dataclass
+class SpecaugStftV4Config(SpecaugStftConfig):
+    """
+    Compute standard log Mel masks and convert them into STFT domain.
+    """
+    num_mels: int
+    window: str
+
+
+@dataclass
 class LogMelFeatureExtractionV2Config(LogMelFeatureExtractionV1Config):
     module_class: str = "LogMelFeatureExtractionV1"
 
@@ -182,6 +191,8 @@ class ModelConfig:
         specaug_config_class = SpecaugConfig
         if "fft_size" in d["specaug_config"] and "min_num_time" in d["specaug_config"]:
             specaug_config_class = SpecaugStftV2Config
+        elif all(key in d["specaug_config"] for key in ["fft_size", "num_mels", "window"]):
+            specaug_config_class = SpecaugStftV4Config
         elif "fft_size" in d["specaug_config"] and "num_mels" in d["specaug_config"]:
             specaug_config_class = SpecaugStftV3Config
         elif "fft_size" in d["specaug_config"]:
