@@ -43,3 +43,11 @@ def get_prior_from_pickle(path):
     with open(path, "rb") as f:
         priors = pickle.load(f)
     return priors
+
+
+def get_lexicon_label_indices_from_statetying(state_tying_path):
+    with open(state_tying_path, "rt") as st:
+        state_tying = {k: int(v) for line in st for k, v in [line.strip().split()[0:2]]}
+    labels = list(state_tying.values())
+    return list(sorted(set(labels)))
+

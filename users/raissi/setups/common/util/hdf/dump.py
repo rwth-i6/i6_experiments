@@ -3,7 +3,22 @@ __all__ = [
     "build_rasr_feature_hdfs" "RasrFeaturesToHdf",
     "RasrAlignmentToHDF",
     "RasrForcedTriphoneAlignmentToHDF",
+    "RasrFeatureAndLinearAlignmenHDF",
 ]
+
+import dataclasses
+from dataclasses import dataclass
+import h5py
+from IPython import embed
+import itertools as it
+import logging
+import numpy as np
+import os
+import random
+import shutil
+import tempfile
+import time
+from typing import Any, Dict, List, Optional, Union
 
 from sisyphus import gs, Job, Path, Task, tk
 
@@ -15,19 +30,6 @@ from i6_core import rasr
 from i6_core.returnn import ReturnnDumpHDFJob
 from i6_core.returnn.hdf import BlissToPcmHDFJob
 from i6_core.util import MultiPath
-
-import dataclasses
-from dataclasses import dataclass
-import h5py
-from IPython import embed
-import logging
-import numpy as np
-import os
-import random
-import shutil
-import tempfile
-import time
-from typing import Any, Dict, List, Optional, Union
 
 from i6_experiments.users.raissi.setups.common.util.cache_manager import cache_file
 from i6_experiments.common.setups.rasr.util import ReturnnRasrDataInput
@@ -263,6 +265,200 @@ class RasrAlignmentToHDF(Job):
 
     def compute_targets(self, alignment_states: List[str], state_tying: Dict[str, int]) -> List[int]:
         targets = [state_tying[allophone] for allophone in alignment_states]
+        return targets
+
+
+class RasrFeatureAndLinearAlignmenHDF(Job):
+    def __init__(
+        self,
+        feature_caches: List[tk.Path],
+        alignment_caches: List[tk.Path],
+        allophones: tk.Path,
+        state_tying: tk.Path,
+        boundary_silence_length: int,
+        num_classes: int,
+    ):
+        self.feature_caches = feature_caches
+        self.alignment_caches = alignment_caches
+        self.allophones = allophones
+        self.state_tying = state_tying
+        self.boundary_silence_length = boundary_silence_length
+        self.num_classes = num_classes
+        self.hdf_files = [self.output_path("data.hdf.%d" % d, cached=False) for d in range(len(feature_caches))]
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 0.5}
+
+    def tasks(self):
+        yield Task("run", resume="run", rqmt=self.rqmt, args=range(1, (len(self.feature_caches) + 1)))
+
+    def run(self, task_id):
+        string_dt = h5py.special_dtype(vlen=str)
+        state_tying = dict((k, int(v)) for l in open(self.state_tying.get_path()) for k, v in [l.strip().split()[0:2]])
+
+        feature_cache = FileArchive(self.feature_caches[task_id - 1].get_path())
+        alignment_cache = FileArchive(
+            self.alignment_caches[min(task_id - 1, len(self.alignment_caches) - 1)].get_path()
+        )
+        alignment_cache.setAllophones(self.allophones.get_path())
+
+        seq_names = []
+        out = h5py.File(self.hdf_files[task_id - 1].get_path(), "w")
+
+        # root
+        streams_group = out.create_group("streams")
+
+        # first level
+        feature_group = streams_group.create_group("features")
+        feature_group.attrs["parser"] = "feature_sequence"
+
+        alignment_group = streams_group.create_group("classes")
+        alignment_group.attrs["parser"] = "sparse"
+        alignment_group.create_dataset(
+            "feature_names", data=[b"label_%d" % l for l in range(self.num_classes)], dtype=string_dt
+        )
+
+        # second level
+        feature_data = feature_group.create_group("data")
+        alignment_data = alignment_group.create_group("data")
+
+        for file in feature_cache.ft:
+            info = feature_cache.ft[file]
+            if info.name.endswith(".attribs"):
+                continue
+
+            seq_names.append(info.name)
+
+            # features
+            times, features = feature_cache.read(file, "feat")
+            feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features)
+
+            # alignment
+            alignment = alignment_cache.read(file, "align")
+            alignmentStates = ["%s.%d" % (alignment_cache.allophones[t[1]], t[2]) for t in alignment]
+            targets = self.compute_linear_targets(alignmentStates, state_tying)
+
+            alignment_data.create_dataset(seq_names[-1].replace("/", "\\"), data=np.array(targets, dtype="int32"))
+
+        out.create_dataset("seq_names", data=[s.encode() for s in seq_names], dtype=string_dt)
+
+    def compute_linear_targets(self, alignment_states: List[str], state_tying: Dict[str, int]) -> List[int]:
+
+        # create the sequence of allophones
+        phone_seq = []
+        for k, g in it.groupby(alignment_states):
+            if k != "[SILENCE]{#+#}@i@f.0":
+                phone_seq.append(k)
+
+        linear_align = ["[SILENCE]{#+#}@i@f.0" for _ in range(self.boundary_silence_length)]
+        seq_len = len(alignment_states)
+        average_phone_length = (seq_len - self.boundary_silence_length * 2) // len(phone_seq)
+        for ele in phone_seq:
+            linear_align.extend([ele for _ in range(average_phone_length)])
+        # fill the rest with silence
+        linear_align.extend(["[SILENCE]{#+#}@i@f.0" for _ in range(seq_len - len(linear_align))])
+
+        targets = [state_tying[allophone] for allophone in linear_align]
+        return targets
+
+
+class RasrAlignmentAndFeaturesToLinearAlignmentAndFeaturesHDF(Job):
+    def __init__(
+        self,
+        alignment_bundle: tk.Path,
+        allophones: tk.Path,
+        state_tying: tk.Path,
+        num_classes: int,
+        boundary_silence_length: int,
+    ):
+        self.alignment_bundle = alignment_bundle
+        self.allophones = allophones
+        self.num_classes = num_classes
+        self.state_tying = state_tying
+        self.boundary_silence_length = boundary_silence_length
+
+        self.hdf_files = [self.output_path("data.hdf.%d" % d, cached=False) for d in range(len(feature_caches))]
+        self.out_segments = self.output_path("segments")
+
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+
+    def tasks(self, task_id):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            f = os.path.join(tmp_dir, "data.hdf")
+            logging.info(f"processing using temporary file {f}")
+
+            with h5py.File(f, "w") as file:
+                self.__run(file)
+
+            shutil.move(f, self.out_hdf_file.get_path())
+
+    def __run(self, out: h5py.File):
+        string_dt = h5py.special_dtype(vlen=str)
+
+        with open(self.state_tying, "rt") as st:
+            state_tying = {k: int(v) for line in st for k, v in [line.strip().split()[0:2]]}
+
+        cached_alignment_bundle = cache_file(self.alignment_bundle)
+        alignment_cache = FileArchiveBundle(cached_alignment_bundle)
+        alignment_cache.setAllophones(self.allophones.get_path())
+
+        seq_names = []
+
+        # root
+        streams_group = out.create_group("streams")
+
+        # first level
+        alignment_group = streams_group.create_group("classes")
+        alignment_group.attrs["parser"] = "sparse"
+        alignment_group.create_dataset(
+            "feature_names",
+            data=[b"label_%d" % l for l in range(self.num_classes)],
+            dtype=string_dt,
+        )
+
+        # second level
+        alignment_data = alignment_group.create_group("data")
+
+        for file in alignment_cache.file_list():
+            if file.endswith(".attribs"):
+                continue
+
+            seq_names.append(file)
+
+            # alignment
+            alignment = alignment_cache.read(file, "align")
+
+            alignment_states = [f"{alignment_cache.files[file].allophones[t[1]]}.{t[2]:d}" for t in alignment]
+            targets = self.compute_linear_targets(alignment_states=alignment_states, state_tying=state_tying)
+
+            alignment_data.create_dataset(
+                seq_names[-1].replace("/", "\\"),
+                data=np.array(targets).astype(np.int32),
+            )
+
+        out.create_dataset("seq_names", data=[s.encode() for s in seq_names], dtype=string_dt)
+
+        with open(self.out_segments, "wt") as file:
+            file.writelines((f"{seq_name.strip()}\n" for seq_name in seq_names))
+
+    def compute_linear_targets(self, alignment_states: List[str], state_tying: Dict[str, int]) -> List[int]:
+
+        # create the sequence of allophones
+        phone_seq = []
+        for k, g in it.groupby(alignment_states):
+            if k != "[SILENCE]{#+#}@i@f.0":
+                phone_seq.append(k)
+
+        linear_align = ["[SILENCE]{#+#}@i@f.0" for _ in range(self.boundary_silence_length)]
+        seq_len = len(alignment_states)
+        average_phone_length = (seq_len - self.boundary_silence_length * 2) // len(sequence)
+        for ele in phone_seq:
+            linear_align.extend([ele for _ in range(average_phone_length)])
+        # fill the rest with silence
+        linear_align.extend(["[SILENCE]{#+#}@i@f.0" for _ in range(seq_len - len(linear_align))])
+
+        targets = [state_tying[allophone] for allophone in linear_align]
         return targets
 
 

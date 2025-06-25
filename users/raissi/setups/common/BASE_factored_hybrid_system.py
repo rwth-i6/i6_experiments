@@ -835,7 +835,7 @@ class BASEFactoredHybridSystem(NnSystem):
             "files": train_hdfs,
             "input_stream_name": "features",
             "partition_epoch": self.partition_epochs["train"],
-            "seq_ordering": f"random:{PRIOR_RNG_SEED}",
+            "seq_ordering": f"random:42",
             **(train_data or {}),
         }
 
