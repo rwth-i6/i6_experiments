@@ -821,7 +821,7 @@ class BASEFactoredHybridSystem(NnSystem):
         if "partition_epochs" in nn_train_args:
             for k in ["train", "dev"]:
                 assert nn_train_args["partition_epochs"][k] == self.partition_epochs[k], "wrong partition_epochs"
-        nn_train_args.pop("partition_epochs")
+            nn_train_args.pop("partition_epochs")
 
         dev_data = {
             "class": "NextGenHDFDataset",

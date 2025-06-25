@@ -17,11 +17,13 @@ subpaths = {
 def get_denominator_path(
     lm_scale,
     tdp_scale,
+    root_to_sil_weight,
     lm_type="word",
     lm_gram=1,
     apply_weight_pushing=False,
+
 ):
-    subname = f"denominators/denom_LM{lm_scale}_tdp{tdp_scale}.fsa"
+    subname = f"denominators/denom_LM{lm_scale}_tdp{tdp_scale}_rootSil{root_to_sil_weight}.pickle"
     hash_key = "weight_push_mint" if apply_weight_pushing else "base_mint"
     return ("/").join([subpaths[lm_gram][lm_type], WORD_UNIGRAM_HASHES[hash_key], subname])
 
