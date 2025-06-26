@@ -100,6 +100,14 @@ class SpecaugStftV4Config(SpecaugStftConfig):
 
 
 @dataclass
+class SpecaugStftV5Config(SpecaugStftConfig):
+    """
+    Just like SpecaugStftConfig, but with window.
+    """
+    window: str
+
+
+@dataclass
 class LogMelFeatureExtractionV2Config(LogMelFeatureExtractionV1Config):
     module_class: str = "LogMelFeatureExtractionV1"
 
@@ -204,6 +212,8 @@ class ModelConfig:
             specaug_config_class = SpecaugStftV4Config
         elif "fft_size" in d["specaug_config"] and "num_mels" in d["specaug_config"]:
             specaug_config_class = SpecaugStftV3Config
+        elif "fft_size" in d["specaug_config"] and "window" in d["specaug_config"]:
+            specaug_config_class = SpecaugStftV5Config
         elif "fft_size" in d["specaug_config"]:
             specaug_config_class = SpecaugStftConfig
         d["specaug_config"] = specaug_config_class.from_dict(d["specaug_config"])

@@ -34,6 +34,7 @@ from .i6models_relposV1_VGGNLayerActFrontendV1_feat_v2_cfg import (
     SpecaugStftV2Config,
     SpecaugStftV3Config,
     SpecaugStftV4Config,
+    SpecaugStftV5Config,
     SpecaugMultiplierLinearConfig,
     VGGNLayerActFrontendV1Config,
     VGGNLayerActFrontendV2Config,
@@ -532,6 +533,37 @@ class Model(torch.nn.Module):
                             audio_features_masked.abs().mean() * torch.exp(j * phase),
                         )
 
+                        audio_features_masked = torch.istft(
+                            audio_features_masked,
+                            self.cfg.specaug_config.fft_size,
+                            self.cfg.specaug_config.window_shift,
+                            self.cfg.specaug_config.window_size,
+                            window=window,
+                            onesided=True,
+                        )
+                    elif isinstance(self.cfg.specaug_config, SpecaugStftV5Config):
+                        if self.cfg.specaug_config.window == "hann":
+                            window = torch.hann_window(self.cfg.specaug_config.window_size).to(audio_features)
+                        else:
+                            raise NotImplementedError
+                        audio_features_masked = torch.stft(
+                            audio_features,
+                            self.cfg.specaug_config.fft_size,
+                            self.cfg.specaug_config.window_shift,
+                            self.cfg.specaug_config.window_size,
+                            window=window,
+                            return_complex=True,
+                            onesided=True,
+                        )
+                        audio_features_masked = specaugment_v1_by_length(
+                            audio_features_masked,
+                            time_min_num_masks=2,  # TODO: make configurable
+                            time_max_mask_per_n_frames=self.cfg.specaug_config.repeat_per_n_frames,
+                            time_mask_max_size=self.cfg.specaug_config.max_dim_time,
+                            freq_min_num_masks=2,
+                            freq_mask_max_size=self.cfg.specaug_config.max_dim_feat,
+                            freq_max_num_masks=self.cfg.specaug_config.num_repeat_feat,
+                        )
                         audio_features_masked = torch.istft(
                             audio_features_masked,
                             self.cfg.specaug_config.fft_size,
