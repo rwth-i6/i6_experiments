@@ -147,6 +147,9 @@ U22_RASR_BINARY_PATH_IDIAP_SIS = tk.Path(
     get_rasr_binary_path("/idiap/home/traissi/dev/rasr_tf2.14"), hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2"
 )
 
+
+RETURNN_ROOT_IDIAP_MMI = tk.Path( "/idiap/home/traissi/dev/returnn_lfmm" ,hash_overwrite="RETURNN_IDIAP_MMI" )
+
 RETURNN_ROOT_IDIAP_SIS = tk.Path( "/idiap/home/traissi/dev/returnn" ,hash_overwrite="RETURNN_IDIAP_APRIL2025" )
 RETURNN_LAUNCHER_IDIAP_SIS =  tk.Path( "/idiap/home/traissi/bin/apptainer_launchers/returnn_tf2.14_apptainer_u22_launcher.sh" ,hash_overwrite="RETURNN_LAUNCHER_IDIAP_APRIL2025" )
 
