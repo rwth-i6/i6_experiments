@@ -354,6 +354,12 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
     specaug_configs = {
         "default": specaug_config,
+        "none": SpecaugConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=0,
+            max_dim_feat=0,
+            num_repeat_feat=5,
+        ),
         "default_v11": SpecaugConfig(
             repeat_per_n_frames=25,
             max_dim_time=55,
@@ -674,7 +680,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # rerun log mel with STFT-domain SpecAugment
     logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
-    for specaug_version in ["stft_v47", "stft_v61", "stft_v62", "stft_v63", "stft_v64"]:
+    for specaug_version in ["none", "stft_v47", "stft_v49", "stft_v61", "stft_v62", "stft_v63", "stft_v64"]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
             feature_extraction_config=logmel_config,
@@ -682,6 +688,9 @@ def eow_phon_ls960_relposencoder_0924_base():
             frontend_config_class="VGGNLayerActFrontendV1Config",
             **model_base_args_feat,
         )
+        if specaug_version == "none":
+            model_config_exp.specaug_start_epoch = 1001
+            specaug_version = "nosa"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config_exp, name_ext="." + specaug_version.replace("_", "sa") + ".logmel", move_to_hpc=True,
