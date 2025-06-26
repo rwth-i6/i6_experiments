@@ -612,13 +612,14 @@ def eow_phon_ls960_relposencoder_0924_base():
         "stft_v64": SpecaugStftV4Config(
             repeat_per_n_frames=25,
             max_dim_time=20,
-            max_dim_feat=80,
+            max_dim_feat=16,
             num_repeat_feat=5,
             window_size=400,
             window_shift=160,
             fft_size=512,
             window="hann",
             num_mels=80,
+            mel_triangle_percentage=0.5,
         ),
     }
     model_config = FeatureModelConfigV2(

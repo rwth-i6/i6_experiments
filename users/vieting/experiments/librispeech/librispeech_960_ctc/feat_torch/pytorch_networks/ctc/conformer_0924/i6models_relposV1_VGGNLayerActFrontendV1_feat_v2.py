@@ -507,8 +507,8 @@ class Model(torch.nn.Module):
                             self._mel_fbank[:torch.argmax(self._mel_fbank[:, 0]), 0] = 1.0
                             self._mel_fbank[torch.argmax(self._mel_fbank[:, -1]) + 1:, -1] = 1.0
 
-                        mel_mask_shape = list(audio_features_masked.shape)
-                        mel_mask_shape[-2] = self.cfg.specaug_config.num_mels
+                        mel_mask_shape = list(audio_features_masked.transpose(1, 2).shape)
+                        mel_mask_shape[-1] = self.cfg.specaug_config.num_mels
                         mel_mask = specaugment_v1_by_length(
                             torch.ones(mel_mask_shape).to(device),
                             time_min_num_masks=2,
@@ -520,7 +520,8 @@ class Model(torch.nn.Module):
                         )
 
                         # convert mask to STFT-domain
-                        stft_mask = torch.einsum("...mt,fm->...ft", mel_mask, self._mel_fbank) >= 1.0
+                        stft_mask = torch.einsum("...tm,fm->...ft", mel_mask, self._mel_fbank)
+                        stft_mask = stft_mask >= self.cfg.specaug_config.mel_triangle_percentage
 
                         # apply mask: set masked regions to mean magnitude with random phase
                         phase = torch.rand(audio_features_masked.shape).to(device) * 2 * torch.pi

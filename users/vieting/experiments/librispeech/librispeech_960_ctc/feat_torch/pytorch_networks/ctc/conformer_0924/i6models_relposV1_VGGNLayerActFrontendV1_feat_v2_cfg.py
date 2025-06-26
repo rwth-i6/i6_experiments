@@ -85,8 +85,17 @@ class SpecaugStftV3Config(SpecaugStftConfig):
 class SpecaugStftV4Config(SpecaugStftConfig):
     """
     Compute standard log Mel masks and convert them into STFT domain.
+
+    Attributes:
+        num_mels: number of mel filters to sample mask for
+        mel_triangle_percentage: when summing up all non-masked triangles, this is the threshold to get a binary mask
+            1.0 corresponds to masking every STFT channel that any masked triangle sees,
+            0.5 means masking until the intersection of masked and non-masked triangles,
+            eps > 0.0 means masking only STFT channels that are seen exclusively by masked triangles.
+        window: window used for STFT
     """
     num_mels: int
+    mel_triangle_percentage: float
     window: str
 
 
