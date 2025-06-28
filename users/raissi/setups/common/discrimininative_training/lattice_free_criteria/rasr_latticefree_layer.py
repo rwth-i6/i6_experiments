@@ -164,17 +164,6 @@ def augment_for_lfmmi_loss(
         )
 
         returnn_config.config["network"]["output_bw"]["loss_scale"] = fs_ce_smoothing
-        scaled_output_layer = returnn_config.config["network"]["fast_bw"]["from"]
-    else:
-        out_denot = output_layer.split("-")[0]
-        scaled_output_layer = ("_").join(["multiply-scale", out_denot])
-        returnn_config.config["network"][scaled_output_layer] = {
-            "class": "combine",
-            "kind": "eval",
-            "eval": "am_scale*(safe_log(source(0)))",
-            "eval_locals": {"am_scale": log_linear_scales.label_posterior_scale},
-            "from": [output_layer],
-        }
 
     automaton_config = create_rasrconfig_for_alignment_fsa(
         crp=crp,

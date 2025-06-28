@@ -743,6 +743,41 @@ def remove_label_pops_and_losses_from_returnn_config(
     return cfg
 
 
+def add_label_prior_layer_to_network(
+    network: Network,
+    reference_layer: str = "center-output",
+    label_prior_type: Optional[PriorType] = None,
+    label_prior: Optional[returnn.CodeWrapper] = None,
+    label_prior_estimation_axes: str = None,
+):
+    out_denot = reference_layer.split("-")[0]
+    prior_name = ("_").join(["label_prior", out_denot])
+
+    if label_prior_type == PriorType.TRANSCRIPT:
+        assert label_prior is not None, "You forgot to provide the prior values"
+        network[prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+    elif label_prior_type == PriorType.AVERAGE:
+        network[prior_name] = {
+            "class": "accumulate_mean",
+            "exp_average": 0.001,
+            "from": reference_layer,
+            "is_prob_distribution": True,
+        }
+    elif label_prior_type == PriorType.ONTHEFLY:
+        assert (
+            label_prior_estimation_axes is not None
+        ), "You forgot to set one which axis you want to average the prior, eg. bt"
+        network[prior_name] = {
+            "class": "reduce",
+            "mode": "mean",
+            "from": reference_layer,
+            "axis": label_prior_estimation_axes,
+        }
+    else:
+        raise NotImplementedError("Unknown PriorType")
+
+    return network, prior_name
+
 def add_fast_bw_layer_to_network(
     crp: rasr.CommonRasrParameters,
     network: Network,
