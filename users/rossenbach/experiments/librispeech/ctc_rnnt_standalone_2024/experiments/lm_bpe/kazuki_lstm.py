@@ -287,6 +287,8 @@ def bpe_kazuki_lstm():
     train_job = training(training_name, train_data_bpe10k_part100, train_args_modern_v1, num_epochs=100, **lm_returnn)
 
 
+
+
     # with larger batch and LR
     train_config_modern_v1 = {
         "optimizer": {"class": "RAdam"},

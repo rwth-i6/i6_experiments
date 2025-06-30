@@ -11,8 +11,7 @@ from torchaudio.models import RNNT
 @dataclass
 class Hypothesis:
     tokens: List[int]
-    predictor_output: torch.Tensor
-    predictor_state: List[List[torch.Tensor]]
+    last_emission: int
     score: float
     lm_output: Optional[torch.Tensor]
     lm_state: Optional[List[List[torch.Tensor]]]
@@ -29,19 +28,6 @@ def _get_hypo_key(hypo: Hypothesis) -> str:
     """
     return str(hypo.tokens)
 
-def _batch_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
-    """
-    Batch predictor state variables as a new first axis
-    :param hypos: list of hypos, each entry of the batch will correspond to one hypo
-    :return: list of layers with list of states for each layer, resulting tensor batched with shape [hyps, ...]
-    """
-    states: List[List[torch.Tensor]] = []
-    for i in range(len(hypos[0].predictor_state)):
-        batched_state_components: List[torch.Tensor] = []
-        for j in range(len(hypos[0].predictor_state[i])):
-            batched_state_components.append(torch.cat([hypo.predictor_state[i][j] for hypo in hypos]))
-        states.append(batched_state_components)
-    return states
 
 def _batch_lm_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
     """
@@ -56,7 +42,6 @@ def _batch_lm_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
             batched_state_components.append(torch.cat([hypo.lm_state[i][j] for hypo in hypos]))
         states.append(batched_state_components)
     return states
-
 
 
 def _batch_lm_state_with_label_axis(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
@@ -117,8 +102,8 @@ def _compute_updated_scores(
     """
     hypo_scores = torch.tensor([h.score for h in hypos]).unsqueeze(1)  # [beam_width, 1]
 
-    # multiply each hypothesis score with all output scores except blank
-    nonblank_scores = hypo_scores + next_token_probs[:, :-1]  # [beam_width, num_tokens - 1]
+    # multiply each hypothesis score with all output scores
+    nonblank_scores = hypo_scores + next_token_probs  # [beam_width, num_tokens]
 
     # flatten the scores and select the #beam best scores and their index
     nonblank_nbest_scores, nonblank_nbest_idx = nonblank_scores.reshape(-1).topk(beam_width)
@@ -139,14 +124,14 @@ def _remove_hypo(hypo: Hypothesis, hypo_list: List[Hypothesis]) -> None:
             break
 
 
-class RNNTBeamSearch(torch.nn.Module):
-    r"""Beam search decoder for RNN-T model.
+class CTCBeamSearch(torch.nn.Module):
+    r"""Beam search decoder for CTC model.
 
     See Also:
         * :class:`torchaudio.pipelines.RNNTBundle`: ASR pipeline with pretrained model.
 
     Args:
-        model (RNNT): RNN-T model to use.
+        model (nn.Module): CTC model to use.
         blank (int): index of blank token in vocabulary.
         device: torch device
         temperature (float, optional): temperature to apply to joint network output.
@@ -155,27 +140,25 @@ class RNNTBeamSearch(torch.nn.Module):
             for a given hypothesis to rank hypotheses by. If ``None``, defaults to callable that returns
             hypothesis score normalized by token sequence length. (Default: None)
         step_max_tokens (int, optional): maximum number of tokens to emit per input time step. (Default: 100)
-        blank_penalty: a constant log-space value to subtract from each blank logprob
         lm_model: optional torch model for language modelling, taking token and current state, and returning probs and state
         lm_sos_token_index: the token index to use for state initialization (usually zero)
         lm_scale: log space scale for the LM log probs
-        zero_ilm_scale: log space scale for subtracting zero ILM estimated log probs (pass positive number for subtraction)
     """
 
     def __init__(
         self,
-        model: RNNT,
+        model: torch.nn.Module,
         blank: int,
         device,
         temperature: float = 1.0,
         hypo_sort_key: Optional[Callable[[Hypothesis], float]] = None,
         step_max_tokens: int = 100,
-        blank_penalty: Optional[float] = None,
         lm_model: Optional[torch.nn.Module] = None,
         lm_has_label_axis: bool = False,
-        lm_sos_token_index: Optional[int] = None,
+        lm_sos_token_index: int = 0,
         lm_scale: Optional[float] = None,
-        zero_ilm_scale: Optional[float] = None,
+        prior: Optional[torch.Tensor] = None,
+        prior_scale: Optional[float] = None,
     ) -> None:
         super().__init__()
         self.model = model
@@ -189,7 +172,6 @@ class RNNTBeamSearch(torch.nn.Module):
             self.hypo_sort_key = hypo_sort_key
 
         self.step_max_tokens = step_max_tokens
-        self.blank_penalty = blank_penalty
         self.lm_model = lm_model
         self.lm_has_label_axis = lm_has_label_axis
         self.lm_sos_token_index = lm_sos_token_index
@@ -197,11 +179,12 @@ class RNNTBeamSearch(torch.nn.Module):
             assert self.lm_sos_token_index is not None
             assert lm_scale is not None
             self.lm_scale = torch.tensor(lm_scale, device=device)
-            self.zero_ilm_scale = torch.tensor(zero_ilm_scale, device=device)
+            self.prior = prior
+            self.prior_scale = torch.tensor(prior_scale, device=device)
 
         self.default_init_hypo = None
 
-    def _init_outer_hypos(self, hypo: Optional[Hypothesis], device: torch.device) -> List[Hypothesis]:
+    def _init_hypos(self, hypo: Optional[Hypothesis], device: torch.device) -> List[Hypothesis]:
         """
         Initialize outer hypothesis
 
@@ -214,40 +197,34 @@ class RNNTBeamSearch(torch.nn.Module):
         :return:
         """
         if hypo is not None:
-            token = hypo.tokens[-1]
-            state = hypo.predictor_state
             lm_token = hypo.tokens[-1]
             lm_state = hypo.lm_state
+            last_emission = hypo.last_emission
         else:
             # if we already stored a default initial hypothesis, we can just load this
             if self.default_init_hypo is not None:
                 return [self.default_init_hypo]
-            token = self.blank
-            state = None
-            lm_token = 0
+            lm_token = self.lm_sos_token_index
             lm_state = None
+            last_emission = self.blank
 
         one_tensor = torch.tensor([1], device=device)
-        pred_out, _, pred_state = self.model.predict(torch.tensor([[token]], device=device), one_tensor, state)
-
-        if self.lm_model is not None:
+        if self.lm_model is not None and lm_state is None:
             if self.lm_has_label_axis:
                 lm_args = torch.tensor([[lm_token]], device=device), one_tensor, lm_state
             else:
                 lm_args = torch.tensor([[lm_token]], device=device), lm_state
             lm_out, pred_lm_state = self.lm_model(*lm_args)
-
         else:
             lm_out = None
             pred_lm_state = None
 
         init_hypo = Hypothesis(
-            tokens=[token],
-            predictor_output=pred_out[0].detach(),
-            predictor_state=pred_state,
+            tokens=[lm_token],
             score=0.0,
             lm_output=lm_out[0].detach() if lm_out is not None else None,
             lm_state=[pred_lm_state],  # convert to list of list, but got single list
+            last_emission=last_emission,
         )
 
         # if we had no special context, we store this as default initial hypothesis, as this will never change
@@ -269,28 +246,7 @@ class RNNTBeamSearch(torch.nn.Module):
         :return:
         """
         one_tensor = torch.tensor([1], device=device)
-        predictor_out = torch.stack([h.predictor_output for h in hypos], dim=0)
-        joined_out, _, _ = self.model.join(
-            enc_out,
-            one_tensor,
-            predictor_out,
-            torch.tensor([1] * len(hypos), device=device),
-        )  # [beam_width, 1, 1, num_tokens]
-        logprobs_joiner = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=3)
-
-
-        # optional pass with zeros as encoder output for zero-ILM estimation
-        if self.zero_ilm_scale != 0.0:
-            joined_out_zero, _, _ = self.model.join(
-                torch.zeros_like(enc_out),
-                one_tensor,
-                predictor_out,
-                torch.tensor([1] * len(hypos), device=device),
-            )
-            logprobs_zero = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=3)
-            logprobs_joiner = logprobs_joiner - self.zero_ilm_scale * logprobs_zero
-
-        logprobs_joiner = logprobs_joiner[:, 0, 0]  # drop T and U
+        logprobs_ctc = torch.nn.functional.log_softmax(enc_out / self.temperature, dim=2)[:, 0]
 
         if self.lm_model is not None:
             lm_out = torch.stack([h.lm_output for h in hypos], dim=0)
@@ -298,63 +254,19 @@ class RNNTBeamSearch(torch.nn.Module):
             # apply log softmax and remove fake T axis from LM
             logprobs_lm = torch.nn.functional.log_softmax(lm_out / self.temperature, dim=2)[:, 0]
 
+
             # add blank with prob 1 (log 0)
             logprobs_lm = torch.nn.functional.pad(logprobs_lm, (0, 1))
-            logprobs_joiner = logprobs_joiner + self.lm_scale * logprobs_lm
+            logprobs_joiner = logprobs_ctc + self.lm_scale * logprobs_lm - self.prior_scale * self.prior
 
-        if self.blank_penalty is not None:
-            logprobs_joiner[:, self.blank] -= self.blank_penalty
-        
+
         return logprobs_joiner
 
-    def _gen_outer_hypos(
-        self,
-        b_hypos: List[Hypothesis],
-        a_hypos: List[Hypothesis],
-        next_token_probs: torch.Tensor,
-        key_to_b_hypo: Dict[str, Hypothesis],
-    ) -> List[Hypothesis]:
-        """
-
-        :param b_hypos: the list of existing outer hypotheses to add to
-        :param a_hypos: inner hypothesis to be converted
-        :param next_token_probs: needed to retrieve the blank score to be added
-        :param key_to_b_hypo: list of existing token based keys related to b_hypos, used for detecting recombination
-        :return:
-        """
-        for i in range(len(a_hypos)):
-            h_a = a_hypos[i]
-            append_blank_score = h_a.score + next_token_probs[i, -1]
-            if _get_hypo_key(h_a) in key_to_b_hypo:
-                # we have two hypothesis with identical labels but different scores, so perform recombination
-                h_b = key_to_b_hypo[_get_hypo_key(h_a)]
-                _remove_hypo(h_b, b_hypos)
-                # perform addition in logspace
-                score = float(torch.tensor(h_b.score).logaddexp(append_blank_score))
-            else:
-                score = float(append_blank_score)
-            # to create an "outer" hypothesis from an inner hypothesis, we simply added the blank score
-            # so that the hypothesis ends in a "went to the next frame" state
-            # labels and label-based states are unchanged, also when recombination happens
-            h_b = Hypothesis(
-                tokens=h_a.tokens,
-                predictor_output=h_a.predictor_output,
-                predictor_state=h_a.predictor_state,
-                lm_output=h_a.lm_output,
-                lm_state=h_a.lm_state,
-                score=score,
-            )
-            b_hypos.append(h_b)
-            key_to_b_hypo[_get_hypo_key(h_b)] = h_b
-        _, sorted_idx = torch.tensor([hypo.score for hypo in b_hypos]).sort()
-        return [b_hypos[idx] for idx in sorted_idx]
 
     def _gen_inner_hypos(
         self,
-        a_hypos: List[Hypothesis],
-        b_hypos: List[Hypothesis],
+        hypos: List[Hypothesis],
         next_token_probs: torch.Tensor,
-        t: int,
         beam_width: int,
         device: torch.device,
     ) -> List[Hypothesis]:
@@ -373,32 +285,20 @@ class RNNTBeamSearch(torch.nn.Module):
             nonblank_nbest_scores,
             nonblank_nbest_hypo_idx,
             nonblank_nbest_token,
-        ) = _compute_updated_scores(a_hypos, next_token_probs, beam_width)
-
-        if len(b_hypos) < beam_width:
-            # we did not yet collect enough hypothesis anyway
-            b_nbest_score = -float("inf")
-        else:
-            b_nbest_score = b_hypos[-beam_width].score
+        ) = _compute_updated_scores(hypos, next_token_probs, beam_width)
 
         base_hypos: List[Hypothesis] = []
         new_tokens: List[int] = []
         new_scores: List[float] = []
         for i in range(beam_width):
             score = float(nonblank_nbest_scores[i])
-            # here we check if a non-blank expansion would end up in the top beam size many entries
-            # so if all outer hypothesis (b_hyp) ending in blank are better, this will never trigger
-            if score > b_nbest_score:
-                a_hypo_idx = int(nonblank_nbest_hypo_idx[i])
-                base_hypos.append(a_hypos[a_hypo_idx])
-                new_tokens.append(int(nonblank_nbest_token[i]))
-                new_scores.append(score)
+            hypo_idx = int(nonblank_nbest_hypo_idx[i])
+            base_hypos.append(hypos[hypo_idx])
+            new_tokens.append(int(nonblank_nbest_token[i]))
+            new_scores.append(score)
 
-        if base_hypos:
-            with torch.no_grad():
-                new_hypos = self._gen_new_hypos(base_hypos, new_tokens, new_scores, t, device)
-        else:
-            new_hypos: List[Hypothesis] = []
+        with torch.no_grad():
+            new_hypos = self._gen_new_hypos(base_hypos, new_tokens, new_scores, device)
 
         return new_hypos
 
@@ -407,7 +307,6 @@ class RNNTBeamSearch(torch.nn.Module):
         base_hypos: List[Hypothesis],
         tokens: List[int],
         scores: List[float],
-        t: int,
         device: torch.device,
     ) -> List[Hypothesis]:
         """
@@ -420,26 +319,25 @@ class RNNTBeamSearch(torch.nn.Module):
         :param device:
         :return:
         """
-        tgt_tokens = torch.tensor([[token] for token in tokens], device=device)
-        states = _batch_state(base_hypos)
-        pred_out, _, pred_states = self.model.predict(
-            tgt_tokens,
-            torch.tensor([1] * len(base_hypos), device=device),
-            states,
-        )
-        if self.lm_model:
+        # only compute LM for non-blank non-repetition
+        compute_indices = set([i for i, token in enumerate(tokens) if (token != base_hypos[i].last_emission and token != self.blank)])
+        tgt_tokens = torch.tensor([[token] for i, token in enumerate(tokens) if i in compute_indices], device=device)
+        compute_hyps = [hyp for i, hyp in enumerate(base_hypos) if i in compute_indices]
+
+
+        if self.lm_model and len(compute_indices) > 0:
             if self.lm_has_label_axis:
-                extra_args = {"cache_length": torch.tensor([len(base_hyp.tokens) for base_hyp in base_hypos], device=device)}
+                extra_args = {"cache_length": torch.tensor([len(hyp.tokens) for hyp in compute_hyps], device=device)}
             else:
                 extra_args = {}
             if self.lm_has_label_axis:
-                lm_states = _batch_lm_state_with_label_axis(base_hypos)
+                lm_states = _batch_lm_state_with_label_axis(compute_hyps)
             else:
-                lm_states = _batch_lm_state(base_hypos)
+                lm_states = _batch_lm_state(compute_hyps)
             # TODO: current LM interface assumes single layer state input, thus using index 0
             lm_out, pred_lm_state = self.lm_model(
                 tgt_tokens,
-                torch.tensor([1] * len(base_hypos), device=device),
+                torch.tensor([1] * len(compute_indices), device=device),
                 cache=lm_states[0],
                 cache_length=extra_args["cache_length"]
             )
@@ -448,16 +346,29 @@ class RNNTBeamSearch(torch.nn.Module):
             pred_lm_state = None
 
         new_hypos: List[Hypothesis] = []
+
+        # this is an extra index we only increase if we finished a computed hypothesis
+        # this index matches the entries in compute_hyps
+        compute_index = 0
         for i, h_a in enumerate(base_hypos):
-            new_tokens = h_a.tokens + [tokens[i]]
-            new_hypo = Hypothesis(
-                tokens=new_tokens,
-                predictor_output=pred_out[i].detach(),
-                predictor_state=_slice_state(pred_states, i, device),
-                score=scores[i],
-                lm_output=lm_out[i].detach(),
-                lm_state=_slice_state([pred_lm_state], i, device),
-            )
+            if i in compute_indices:
+                # a hypothesis we did updates for (non-blank, non-repetition)
+                new_hypo = Hypothesis(
+                    tokens=h_a.tokens + [tokens[i]],
+                    last_emission=tokens[i],
+                    score=scores[i],
+                    lm_output=lm_out[compute_index].detach(),
+                    lm_state=_slice_state([pred_lm_state], compute_index, device),
+                )
+                compute_index += 1
+            else:
+                new_hypo = Hypothesis(
+                    tokens=h_a.tokens,
+                    last_emission=tokens[i],
+                    score=scores[i],
+                    lm_output=h_a.lm_output,
+                    lm_state=h_a.lm_state,
+                )
             new_hypos.append(new_hypo)
         return new_hypos
 
@@ -478,48 +389,25 @@ class RNNTBeamSearch(torch.nn.Module):
         n_time_steps = enc_out.shape[1]
         device = enc_out.device
 
-        inner_hypos: List[Hypothesis] = []
-        outer_hypos = self._init_outer_hypos(hypo, device)
+        hypos = self._init_hypos(hypo, device)
         for t in range(n_time_steps):
-            # we arrive at a new time step, so we are treating all former outer hypos as new inner hypos
-            # for vertical expansion
-            inner_hypos = outer_hypos
-            # no outer hypos for now
-            outer_hypos = torch.jit.annotate(List[Hypothesis], [])
-            key_to_b_hypo: Dict[str, Hypothesis] = {}
-            symbols_vertical_step = 0
+            with torch.no_grad():
+                next_token_probs = self._gen_next_token_probs(enc_out[:, t : t + 1], hypos, device)
+            next_token_probs = next_token_probs.cpu()
 
-            while len(inner_hypos) > 0:
-                with torch.no_grad():
-                    next_token_probs = self._gen_next_token_probs(enc_out[:, t : t + 1], inner_hypos, device)
-                next_token_probs = next_token_probs.cpu()
-                # convert all inner hypothesis to other hypothesis by extending with blank score
-                # from the second inner loop call onwards we might have also recombination happening
-                outer_hypos = self._gen_outer_hypos(outer_hypos, inner_hypos, next_token_probs, key_to_b_hypo)
+            hypos = self._gen_inner_hypos(
+                hypos,
+                next_token_probs,
+                beam_width,
+                device,
+            )
 
-                if symbols_vertical_step == self.step_max_tokens:
-                    break
+        _, sorted_idx = torch.tensor([self.hypo_sort_key(hypo) for hypo in hypos]).topk(beam_width)
+        hypos = [hypos[idx] for idx in sorted_idx]
 
-                # create inner hypos by adding score of next non-blank emissions
-                # here we also forward the label state models for newly created inner hypos
-                # this means if we go into a next vertical step, we lose GPU efficiency because the batch dimension becomes smaller
-                inner_hypos = self._gen_inner_hypos(
-                    inner_hypos,
-                    outer_hypos,
-                    next_token_probs,
-                    t,
-                    beam_width,
-                    device,
-                )
-                if inner_hypos:
-                    symbols_vertical_step += 1
+        return hypos
 
-            _, sorted_idx = torch.tensor([self.hypo_sort_key(hypo) for hypo in outer_hypos]).topk(beam_width)
-            outer_hypos = [outer_hypos[idx] for idx in sorted_idx]
-
-        return outer_hypos
-
-    def forward(self, input: torch.Tensor, length: torch.Tensor, beam_width: int) -> List[Hypothesis]:
+    def forward(self, encoder_output: torch.Tensor, length: torch.Tensor, beam_width: int) -> List[Hypothesis]:
         r"""Performs beam search for the given input sequence.
 
         T: number of frames;
@@ -534,18 +422,17 @@ class RNNTBeamSearch(torch.nn.Module):
         Returns:
             List[Hypothesis]: top-``beam_width`` hypotheses found by beam search.
         """
-        if input.dim() != 2 and not (input.dim() == 3 and input.shape[0] == 1):
-            raise ValueError("input must be of shape (T, D) or (1, T, D)")
-        if input.dim() == 2:
-            input = input.unsqueeze(0)
+        if encoder_output.dim() != 2 and not (encoder_output.dim() == 3 and encoder_output.shape[0] == 1):
+            raise ValueError("encoder_output must be of shape (T, D) or (1, T, D)")
+        if encoder_output.dim() == 2:
+            encoder_output = encoder_output.unsqueeze(0)
 
         if length.shape != () and length.shape != (1,):
             raise ValueError("length must be of shape () or (1,)")
-        if input.dim() == 0:
-            input = input.unsqueeze(0)
+        if encoder_output.dim() == 0:
+            encoder_output = encoder_output.unsqueeze(0)
 
-        enc_out, _ = self.model.transcribe(input, length)
-        return self._search(enc_out, None, beam_width)
+        return self._search(encoder_output, None, beam_width)
 
     def forward_semi_batched(self, input: torch.Tensor, length: torch.Tensor, beam_width: int) -> List[List[Hypothesis]]:
         r"""Performs beam search for the given input sequence.

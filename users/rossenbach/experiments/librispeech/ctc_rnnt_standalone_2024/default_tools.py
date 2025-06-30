@@ -50,7 +50,7 @@ NISQA_REPO.hash_overwrite = "LIBRISPEECH_DEFAULT_NISQA_REPO"
 
 TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
     url="git@git.rwth-aachen.de:mlhlt/torch-memristor.git",
-    commit="b064e60120d96e7a542ac858591aae2ba600b797",
+    commit="7612ec85427e4e96c8f7f228f032938c6d82b1a1",
     checkout_folder_name="torch_memristor",
 ).out_repository.copy()
 TORCH_MEMRISTOR_PATH.hash_overwrite = "LIBRISPEECH_STANDALONE_DEFAULT_TORCH_MEMRISTOR_V2"

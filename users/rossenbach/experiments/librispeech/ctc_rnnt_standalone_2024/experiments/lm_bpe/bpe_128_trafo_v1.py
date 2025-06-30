@@ -122,15 +122,33 @@ def bpe128_kazuki_trafo():
         ))
 
 
+        # long training
+        train_config_modern_v1_long = {
+            "optimizer": {"class": "RAdam"},
+            #############
+            "batch_size": 3000,  # BPE tokens (take more than kazuki because this is small)
+            "accum_grad_multiple_step": 1,
+            "gradient_clip_norm": 2.0,
+            "learning_rates": ([1e-4] * 50) + list(np.linspace(1e-4, 1e-6, 450)),
+            "torch_amp_options": {"dtype": "bfloat16"},
+        }
+        train_args_long = copy.deepcopy(train_args)
+        train_args_long["config"] = train_config_modern_v1_long
+        training_name = prefix_name + "/" + network_module + ".12x768_3k_RAdam_1e-3_5ep_reduce_gcn2.0"
+        train_job = training(training_name, train_data_bpe128_part100, train_args_long, num_epochs=500, **lm_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        #train_job.hold()
+        #train_job.move_to_hpc = True
 
 
 
-        hidden_dim = 1024
+        # 24 layer
+        hidden_dim = 768
         trafo_block_config = generate_transformer_block_config(
             input_dim=hidden_dim,
             ff_dim= 4096,
             output_dim=hidden_dim,
-            num_heads=4,
+            num_heads=8,
             dropout=0.0,
         )
         trafo_base_config = TransformerLMConfig(
@@ -144,13 +162,14 @@ def bpe128_kazuki_trafo():
         )
 
         train_config_modern_v1 = {
-            "optimizer": {"class": "RAdam"},
+            "optimizer": {"class": "RAdam", "decoupled_weight_decay": True, "weight_decay": 0.005},
             #############
             "batch_size": 3000,  # BPE tokens
-            "accum_grad_multiple_step": 1,
+            "accum_grad_multiple_step": 2,
             "gradient_clip_norm": 1.0,
-            "learning_rates": list(np.linspace(5e-6, 4e-4, 100)) + list(np.linspace(4e-4, 1e-6, 150)),  # determined by OCLR test
+            "learning_rates": list(np.linspace(5e-6, 3e-4, 100)) + list(np.linspace(3e-4, 1e-6, 200)),  # determined by OCLR test
             "torch_amp_options": {"dtype": "bfloat16"},
+            "max_seq_length": 400,
         }
 
         train_args = {
@@ -162,15 +181,94 @@ def bpe128_kazuki_trafo():
             "add_cache_manager": True,
         }
 
-        training_name = prefix_name + "/" + network_module + ".24x1024_3k_RAdam_1e-3_3ep_reduce_gcn1.0"
+        training_name = prefix_name + "/" + network_module + ".24x768_2x3k_RAdam_3e-4_3ep_reduce_gcn1.0"
         train_job = training(training_name, train_data_bpe128_part100, train_args, num_epochs=300, **lm_returnn)
         train_job.rqmt["gpu_mem"] = 24
-        train_job.hold()
-        train_job.move_to_hpc = True
+        #train_job.hold()
+        #train_job.move_to_hpc = True
 
-        add_lm("bpe%i_trafo24x1024_3ep" % BPE_SIZE, lm_model=NeuralLM(
+        add_lm("bpe%i_trafo24x768_3ep" % BPE_SIZE, lm_model=NeuralLM(
             checkpoint=train_job.out_checkpoints[300],
             net_args=train_args["net_args"],
             network_module=network_module,
             prefix_name=training_name
         ))
+
+        # 24 layer longer training
+        train_config_modern_v1 = {
+            "optimizer": {"class": "RAdam", "decoupled_weight_decay": True, "weight_decay": 0.005},
+            #############
+            "batch_size": 3000,  # BPE tokens
+            "accum_grad_multiple_step": 2,
+            "gradient_clip_norm": 2.0,
+            "learning_rates": list(np.linspace(5e-6, 3e-4, 100)) + list(np.linspace(3e-4, 1e-6, 400)),  # determined by OCLR test
+            "torch_amp_options": {"dtype": "bfloat16"},
+            "max_seq_length": 400,
+        }
+
+        train_args = {
+            "config": train_config_modern_v1,
+            "post_config": {"num_workers_per_gpu": 1},
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(trafo_base_config)},
+            "debug": True,
+            "add_cache_manager": True,
+        }
+
+        training_name = prefix_name + "/" + network_module + ".24x768_2x3k_RAdam_3e-4_5ep_reduce_gcn2.0"
+        train_job = training(training_name, train_data_bpe128_part100, train_args, num_epochs=500, **lm_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        #train_job.hold()
+        #train_job.move_to_hpc = True
+
+        add_lm("bpe%i_trafo24x768_5ep" % BPE_SIZE, lm_model=NeuralLM(
+            checkpoint=train_job.out_checkpoints[500],
+            net_args=train_args["net_args"],
+            network_module=network_module,
+            prefix_name=training_name
+        ))
+        
+        # 32 layer longer training
+        trafo_base_config = TransformerLMConfig(
+            embed_dim=128,
+            hidden_dim=hidden_dim,
+            vocab_dim=vocab_size_without_blank,
+            num_layers=32,
+            block_config=trafo_block_config,
+            batch_first=True,  # very important, state management in decoder does not work otherwise
+            dropout=0.0,
+        )
+        train_config_modern_v1 = {
+            "optimizer": {"class": "RAdam", "decoupled_weight_decay": True, "weight_decay": 0.005},
+            #############
+            "batch_size": 3000,  # BPE tokens
+            "accum_grad_multiple_step": 2,
+            "gradient_clip_norm": 2.0,
+            "learning_rates": list(np.linspace(5e-6, 3e-4, 100)) + list(np.linspace(3e-4, 1e-6, 400)),  # determined by OCLR test
+            "torch_amp_options": {"dtype": "bfloat16"},
+            "max_seq_length": 400,
+        }
+
+        train_args = {
+            "config": train_config_modern_v1,
+            "post_config": {"num_workers_per_gpu": 1},
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(trafo_base_config)},
+            "debug": True,
+            "add_cache_manager": True,
+        }
+
+        training_name = prefix_name + "/" + network_module + ".32x768_2x3k_RAdam_3e-4_5ep_reduce_gcn2.0"
+        train_job = training(training_name, train_data_bpe128_part100, train_args, num_epochs=500, **lm_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        #train_job.hold()
+        #train_job.move_to_hpc = True
+
+        add_lm("bpe%i_trafo32x768_5ep" % BPE_SIZE, lm_model=NeuralLM(
+            checkpoint=train_job.out_checkpoints[500],
+            net_args=train_args["net_args"],
+            network_module=network_module,
+            prefix_name=training_name
+        ))
+
+

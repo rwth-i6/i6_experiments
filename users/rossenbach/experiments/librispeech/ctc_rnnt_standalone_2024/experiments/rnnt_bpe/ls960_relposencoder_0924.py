@@ -61,6 +61,8 @@ def rnnt_bpe_ls960_0924_relposencoder():
         use_gpu=False,
         decoder_module="rnnt.decoder.experimental_rnnt_decoder",
         debug=False,
+        with_test=True,
+        extra_forward_config={},
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -76,14 +78,15 @@ def rnnt_bpe_ls960_0924_relposencoder():
         decoder_config = copy.deepcopy(base_decoder_config)
         decoder_config.beam_size = beam_size
         search_name = training_name + "/search_bs%i" % beam_size
+        dataset_tuples = {**dev_dataset_tuples, **test_dataset_tuples} if with_test else {**dev_dataset_tuples}
         search_jobs, wers = search(
             search_name,
-            forward_config= {"seed": 2} if use_gpu else {},
+            forward_config= {"seed": 2, **extra_forward_config} if use_gpu else {**extra_forward_config},
             asr_model=asr_model,
             decoder_module=decoder_module,
             decoder_args={"config": asdict(decoder_config)},
             unhashed_decoder_args={"extra_config": asdict(unhashed_decoder_config)} if unhashed_decoder_config else None,
-            test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+            test_dataset_tuples=dataset_tuples,
             use_gpu=use_gpu,
             debug=debug,
             **default_returnn,
@@ -296,6 +299,33 @@ def rnnt_bpe_ls960_0924_relposencoder():
             lm_scale=0.2,
             zero_ilm_scale=0.1,
         )
+
+        trafo_12x768 : NeuralLM = get_lm_model("bpe%i_trafo12x768_2ep" % BPE_SIZE)
+        trafo_24x768 : NeuralLM = get_lm_model("bpe%i_trafo24x768_3ep" % BPE_SIZE)
+        trafo_24x768_5ep : NeuralLM = get_lm_model("bpe%i_trafo24x768_5ep" % BPE_SIZE)
+        trafo_32x768_5ep : NeuralLM = get_lm_model("bpe%i_trafo32x768_5ep" % BPE_SIZE)
+
+        decoder_config_trafo = DecoderConfigV3(
+            beam_size=1,  # greedy as default
+            returnn_vocab=label_datastream_bpe.vocab,
+            lm_model_args=trafo_12x768.net_args,
+            lm_checkpoint=trafo_12x768.checkpoint,
+            lm_module="pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v2.Model",
+            lm_scale=0.2,
+            zero_ilm_scale=0.1,
+        )
+        decoder_config_trafo_24 = copy.deepcopy(decoder_config_trafo)
+        decoder_config_trafo_24.lm_model_args=trafo_24x768.net_args
+        decoder_config_trafo_24.lm_checkpoint=trafo_24x768.checkpoint
+
+        decoder_config_trafo_24_5ep = copy.deepcopy(decoder_config_trafo)
+        decoder_config_trafo_24_5ep.lm_model_args=trafo_24x768_5ep.net_args
+        decoder_config_trafo_24_5ep.lm_checkpoint=trafo_24x768_5ep.checkpoint
+
+        decoder_config_trafo_32_5ep = copy.deepcopy(decoder_config_trafo)
+        decoder_config_trafo_32_5ep.lm_model_args=trafo_32x768_5ep.net_args
+        decoder_config_trafo_32_5ep.lm_checkpoint=trafo_32x768_5ep.checkpoint
+
         decoder_unhashed_config_v3 = DecoderExtraConfigV3(
             lm_package=PACKAGE,
         )
@@ -313,12 +343,12 @@ def rnnt_bpe_ls960_0924_relposencoder():
             )
 
         for lm_scale in [0.3, 0.35, 0.4, 0.45]:
-            for prior_scale in [0.2, 0.25, 0.3, 0.35]:
+            for prior_scale in [0.0, 0.1, 0.2, 0.25, 0.3, 0.35]:
                 decoder_settings = copy.deepcopy(decoder_config_bpeany_greedy_v3)
                 decoder_settings.lm_scale = lm_scale
                 decoder_settings.zero_ilm_scale = prior_scale
                 evaluate_helper(
-                    training_name + "/keep_%i_bs10_lsttlm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    training_name + "/keep_%i_bs10_lstmlm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
                     asr_model,
                     decoder_settings,
                     unhashed_decoder_config=decoder_unhashed_config_v3,
@@ -326,12 +356,14 @@ def rnnt_bpe_ls960_0924_relposencoder():
                     use_gpu=True,
                     decoder_module="rnnt.decoder.experimental_rnnt_decoder_v3",
                     debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200 * 16000}
                 )
                 decoder_settings = copy.deepcopy(decoder_config_bpeany_greedy_v3)
                 decoder_settings.lm_scale = lm_scale
                 decoder_settings.zero_ilm_scale = prior_scale
                 evaluate_helper(
-                    training_name + "/keep_%i_bs4_lsttlm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    training_name + "/keep_%i_bs4_lstmlm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
                     asr_model,
                     decoder_settings,
                     unhashed_decoder_config=decoder_unhashed_config_v3,
@@ -339,19 +371,135 @@ def rnnt_bpe_ls960_0924_relposencoder():
                     use_gpu=True,
                     decoder_module="rnnt.decoder.experimental_rnnt_decoder_v3",
                     debug=True,
+                    with_test=False
                 )
-                decoder_settings = copy.deepcopy(decoder_config_bpeany_greedy_v3)
+
+        for lm_scale in [0.4, 0.45, 0.5, 0.55, 0.60]:
+            for prior_scale in [0.3, 0.35, 0.4, 0.45]:
+                decoder_settings = copy.deepcopy(decoder_config_trafo)
                 decoder_settings.lm_scale = lm_scale
                 decoder_settings.zero_ilm_scale = prior_scale
                 evaluate_helper(
-                    training_name + "/keep_%i_bs4_lsttlm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    training_name + "/keep_%i_trafolm_12x768/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
                     asr_model,
                     decoder_settings,
                     unhashed_decoder_config=decoder_unhashed_config_v3,
                     beam_size=4,
                     use_gpu=True,
-                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v3",
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
                     debug=True,
+                    with_test=False,
+                )
+                decoder_settings = copy.deepcopy(decoder_config_trafo)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_12x768/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=10,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200*16000}
+                )
+                # 24 layer TRAFO
+                decoder_settings = copy.deepcopy(decoder_config_trafo_24)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_24x768/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=4,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200 * 16000}
+                )
+                # 24 layer TRAFO (OOM)
+                decoder_settings = copy.deepcopy(decoder_config_trafo_24)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_24x768/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=10,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200 * 16000}
+                )
+                # 24 layer TRAFO 5EP
+                decoder_settings = copy.deepcopy(decoder_config_trafo_24_5ep)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_24x768_5ep/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=4,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200 * 16000}
+                )
+                # 24 layer TRAFO 5EP
+                decoder_settings = copy.deepcopy(decoder_config_trafo_24_5ep)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_24x768_5ep/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=10,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200 * 16000}
+                )
+                # 32 layer TRAFO 5EP
+                decoder_settings = copy.deepcopy(decoder_config_trafo_32_5ep)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_32x768_5ep/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=4,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 200 * 16000}
+                )
+                # 32 layer TRAFO 5EP
+                decoder_settings = copy.deepcopy(decoder_config_trafo_32_5ep)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_32x768_5ep/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=10,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 100 * 16000}
                 )
 
 
@@ -368,5 +516,107 @@ def rnnt_bpe_ls960_0924_relposencoder():
                 use_gpu=True,
                 decoder_module="rnnt.decoder.experimental_rnnt_parallel_decoder_v3",
                 debug=True,
+                extra_forward_config={"batch_size": 200 * 16000},
             )
+            
+        # more tests -> dropout broadcasting does not work because of 4-dim pre-softmax tensor
+
+        # model_config_v5_sub6_512lstm_predbroadcast = copy.deepcopy(model_config_v5_sub6_512lstm)
+        # model_config_v5_sub6_512lstm_predbroadcast.dropout_broadcast_axes = "BT"
+        # train_args_radam = {
+        #     "config": train_config_24gbgpu_amp_radam,
+        #     "network_module": network_module,
+        #     "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm_predbroadcast)},
+        #     "include_native_ops": True,
+        #     "use_speed_perturbation": True,
+        #     "debug": False,
+        # }
+
+        # training_name = prefix_name + "/" + str(
+        #     BPE_SIZE) + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_accum1_gradclip_fullspec11_sp_morel2_dropbroadcastbt"
+        # train_job = training(training_name, train_data_bpe,
+        #                      train_args_radam,
+        #                      num_epochs=1000, **default_returnn)
+        # train_job.rqmt["gpu_mem"] = 24
+        # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        # asr_model = prepare_asr_model(
+        #     training_name, train_job, train_args_radam,
+        #     with_prior=False,
+        #     datasets=train_data_bpe, get_specific_checkpoint=keep
+        # )
+
+        # evaluate_helper(
+        #     training_name + "/keep_%i" % 1000,
+        #     asr_model,
+        #     decoder_config_bpeany_greedy,
+        #     beam_size=4,
+        #     use_gpu=True,
+        # )
+        
+        # NEW LR scheduling
+        network_module = "rnnt.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1"
+        train_config_24gbgpu_amp_radam = {
+            "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+            "learning_rates":list(np.linspace(5e-5, 5e-4, 480)) + list(
+            np.linspace(5e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40)),
+            #############
+            "batch_size": 240 * 16000,
+            "gradient_clip_norm": 1.0,
+            "max_seq_length": {"audio_features": 35 * 16000},
+            "accum_grad_multiple_step": 1,
+            "torch_amp_options": {"dtype": "bfloat16"},
+            "cleanup_old_models": {
+                "keep_last_n": 4,
+                "keep_best_n": 4,
+                "keep": KEEP
+            }
+        }
+        train_args_radam = {
+            "config": train_config_24gbgpu_amp_radam,
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm)},
+            "include_native_ops": True,
+            "use_speed_perturbation": True,
+            "debug": False,
+        }
+
+        training_name = prefix_name + "/" + str(
+            BPE_SIZE) + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_accum1_gradclip_fullspec11_sp_morel2_centerLR"
+        train_job = training(training_name, train_data_bpe,
+                             train_args_radam,
+                             num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_radam,
+            with_prior=False,
+            datasets=train_data_bpe, get_specific_checkpoint=1000
+        )
+        evaluate_helper(
+            training_name + "/keep_%i" % 1000,
+            asr_model,
+            decoder_config_bpeany_greedy,
+            use_gpu=True,
+        )
+        
+        
+        for lm_scale in [0.45, 0.5, 0.55, 0.60]:
+            for prior_scale in [0.3, 0.35, 0.4]:
+                # 32 layer TRAFO 5EP
+                decoder_settings = copy.deepcopy(decoder_config_trafo_32_5ep)
+                decoder_settings.lm_scale = lm_scale
+                decoder_settings.zero_ilm_scale = prior_scale
+                evaluate_helper(
+                    training_name + "/keep_%i_trafolm_32x768_5ep/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+                    asr_model,
+                    decoder_settings,
+                    unhashed_decoder_config=decoder_unhashed_config_v3,
+                    beam_size=10,
+                    use_gpu=True,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+                    debug=True,
+                    with_test=False,
+                    extra_forward_config={"batch_size": 100 * 16000}
+                )
 

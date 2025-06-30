@@ -128,7 +128,8 @@ def eval_model(
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
-            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            prior_config=None,
+            import_memristor=import_memristor,
         )
         if prior_args is not None:
             asr_model_best.net_args = train_args["net_args"]
@@ -205,10 +206,10 @@ def tune_and_evaluate_helper(
             )
             for search_job in search_jobs:
                 search_job.rqmt["gpu_mem"] = 48
-                search_job.rqmt["time"] = 24
+                search_job.rqmt["time"] = 48
 
             tune_parameters.append((lm_weight, prior_scale))
-            tune_values_clean.append((wers[search_name + "/dev-clean"]))
+            #tune_values_clean.append((wers[search_name + "/dev-clean"]))
             tune_values_other.append((wers[search_name + "/dev-other"]))
             results.update(wers)
     if quant_args is not None:
@@ -573,14 +574,16 @@ def build_qat_report(report: Dict):
                 mini = np.min(list(dic.values()))
                 maxi = np.max(list(dic.values()))
                 std = np.std(list(dic.values()))
-                best_dc[" ".join(exp.split("/")[5:])] = (
+                best_dc[" ".join(exp.split("/")[4:])] = (
                     "{:.1f}".format(float(dic[best])),
                     best + f"  {mean=} {std=} {mini=} {maxi=}",
                 )
             else:
-                best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+                best_dc[" ".join(exp.split("/")[4:])] = ("{:.1f}".format(float(dic[best])), best)
         else:
-            best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
+            best_dc[" ".join(exp.split("/")[4:])] = ("None", "")
+
+    print(best_dc)
     line = []
     tmp = copy.deepcopy(best_dc)
     for bit in bits:

@@ -515,6 +515,30 @@ def aed_bpe_ls960_1024_base():
                                 use_gpu=True,
                                 decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm"
                             )
+                            asr_model_zero_forced = copy.deepcopy(asr_model)
+                            asr_model_zero_forced.network_module = "aed.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_LSTMDecoder_v1_zero_forced_context"
+                            beam_search_with_lm_prototype(
+                                training_name + "/zeroilm_zero_force/lm%.2f_ilm%.2f_bs%i" % (lm_scale, ilm_scale, beam_size),
+                                asr_model=asr_model_zero_forced,
+                                decoder_config=BeamSearchZeroLmDecoderConfig(
+                                    returnn_vocab=label_datastream_bpe5000.vocab,
+                                    beam_search_opts=BeamSearchOpts(
+                                        beam_size=beam_size,
+                                        length_normalization_exponent=1.0,
+                                        length_reward=0.0,
+                                        bos_label=0,
+                                        eos_label=0,
+                                        num_labels=label_datastream_bpe5000.vocab_size,
+                                    ),
+                                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
+                                    lm_args=neural_lm.net_args,
+                                    lm_checkpoint=neural_lm.checkpoint,
+                                    lm_scale=lm_scale,
+                                    zero_ilm_scale=ilm_scale,
+                                ),
+                                use_gpu=True,
+                                decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm_v2"
+                            )
                             beam_search_with_lm_prototype(
                                 training_name + "/zeroilm_deocder_state/lm%.2f_ilm%.2f_bs%i" % (lm_scale, ilm_scale, beam_size),
                                 asr_model=asr_model,
@@ -538,7 +562,35 @@ def aed_bpe_ls960_1024_base():
                                 decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm_decoder_state"
                             )
 
-
+                asr_model_zero_forced = copy.deepcopy(asr_model)
+                asr_model_zero_forced.network_module = "aed.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_LSTMDecoder_v1_zero_forced_context"
+                # Trafo LM fun
+                neural_lm = get_lm_model("bpe5000_trafo32x768_5ep")
+                for lm_scale in [0.35, 0.40, 0.45, 0.5]:
+                    for ilm_scale in [0.0, 0.1, 0.15, 0.2]:
+                        beam_search_with_lm_prototype(
+                            training_name + "/zeroilm_trafolm/lm%.2f_ilm%.2f_bs%i" % (
+                            lm_scale, ilm_scale, beam_size),
+                            asr_model=asr_model_zero_forced,
+                            decoder_config=BeamSearchZeroLmDecoderConfig(
+                                returnn_vocab=label_datastream_bpe5000.vocab,
+                                beam_search_opts=BeamSearchOpts(
+                                    beam_size=beam_size,
+                                    length_normalization_exponent=1.0,
+                                    length_reward=0.0,
+                                    bos_label=0,
+                                    eos_label=0,
+                                    num_labels=label_datastream_bpe5000.vocab_size,
+                                ),
+                                lm_module="lm.trafo.kazuki_trafo_zijian_variant_v2",
+                                lm_args=neural_lm.net_args,
+                                lm_checkpoint=neural_lm.checkpoint,
+                                lm_scale=lm_scale,
+                                zero_ilm_scale=ilm_scale,
+                            ),
+                            use_gpu=True,
+                            decoder_module="aed.decoder.beam_search_single_v1_with_zero_ilm_v2_trafo_version"
+                        )
 
             train_args_4worker_veryhighlr_bs300 = copy.deepcopy(train_args_4worker_highlr_bs300)
             train_args_4worker_veryhighlr_bs300["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-5, 20)) + list(
@@ -640,4 +692,3 @@ def aed_bpe_ls960_1024_base():
                                 use_gpu=True,
                                 decoder_module="aed.decoder.beam_search_single_v1_with_avg_ilm"
                             )
-

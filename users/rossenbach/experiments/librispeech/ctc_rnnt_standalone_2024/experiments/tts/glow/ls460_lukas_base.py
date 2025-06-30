@@ -349,6 +349,7 @@ def run_flow_tts_460h():
         returnn_root=MINI_RETURNN_ROOT,
     )
     ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
+    print(train_name + "_train-clean-360")
     add_synthetic_data(
         train_name + "_train-clean-360",
         ogg_zip=ogg_zip_job.out_ogg_zip,
