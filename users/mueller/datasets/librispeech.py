@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
     
-from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels, MetaDataset
+from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels, MetaDataset, GetAlignmentTargets, TargetsToHDF, CorpusToHDF, DummyHDF, ScoresHDF
 
 _alias_prefix = "datasets/LibriSpeech/"
 
@@ -55,7 +55,6 @@ def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, 
     # to not break hashes of old setups.
     if pseudo_labels_path:
         assert part is not None
-        print("Made it to pseudo label combination", pseudo_labels_path)
         bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
         # load pseudo labels and replace here
         bliss_corpus = bliss_corpus_dict[part]
@@ -312,8 +311,14 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
         train_subset: Optional[int] = None,
+        forward_subset: Optional[int] = None,
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
+        pseudo_label_alignment: bool = -1,
+        pseudo_label_nbest: int = 1,
+        pseudo_label_scores: bool = False,
+        pseudo_label_sentences: bool = False,
+        keep_small_labels: bool = False,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -332,6 +337,11 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.train_ds_key = train_ds_key
         self.pseudo_label_path = pseudo_label_path
+        self.pseudo_label_alignment = pseudo_label_alignment
+        self.pseudo_label_nbest = pseudo_label_nbest
+        self.pseudo_label_sentences = pseudo_label_sentences
+        self.keep_small_labels = keep_small_labels
+        self.pseudo_label_scores = pseudo_label_scores
         self.test_self_training_on_small_dataset = 0 # Old param, not used. Needed for compatibility.
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
@@ -350,6 +360,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
         self.train_subset = train_subset
+        self.forward_subset = forward_subset
 
         self._time_dim = None
         self._feature_dim = None
@@ -384,6 +395,18 @@ class LibrispeechOggZip(DatasetConfig):
             state.pop("train_vocab")  # backward compat
         if self.train_subset is None:
             state.pop("train_subset")
+        if self.forward_subset is None:
+            state.pop("forward_subset")
+        if self.pseudo_label_alignment == -1:
+            state.pop("pseudo_label_alignment")
+        if self.pseudo_label_nbest == 1:
+            state.pop("pseudo_label_nbest")
+        if not self.pseudo_label_scores:
+            state.pop("pseudo_label_scores")
+        if not self.pseudo_label_sentences:
+            state.pop("pseudo_label_sentences")
+        if not self.keep_small_labels:
+            state.pop("keep_small_labels")
         state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
@@ -417,6 +440,21 @@ class LibrispeechOggZip(DatasetConfig):
                 "vocab": self.vocab.get_opts(),
             }
 
+        if self.pseudo_label_alignment > 0:
+            opts["targets_indices"] = {
+                "dim_tags": [batch_dim, Dim(None, name="out-spatial-grad", kind=Dim.Types.Spatial), Dim(self.pseudo_label_alignment, name="grad_best")],
+                "sparse_dim": self._classes_dim,
+            }
+        nbest_dim = Dim(self.pseudo_label_nbest, name="pseudo_nbest")
+        if self.pseudo_label_nbest > 1:
+            opts["nbest_lengths"] = {
+                "dim_tags": [batch_dim, nbest_dim],
+            }
+        if self.pseudo_label_scores:
+            opts["scores"] = {
+                "dim_tags": [batch_dim, nbest_dim],
+            }
+
         return opts
 
     def get_train_dataset(self) -> Dict[str, Any]:
@@ -432,11 +470,14 @@ class LibrispeechOggZip(DatasetConfig):
             return self.get_dataset(self.train_ds_key, subset=self.train_subset)
     
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
-        ds = {
-            "dev": self.get_dataset("dev", subset=self.eval_subset),
-        }
-        if not self.pseudo_label_path:
-            ds["devtrain"] = self.get_dataset("train", subset=self.eval_subset)
+        if self.eval_subset > 0:
+            ds = {
+                "dev": self.get_dataset("dev", subset=self.eval_subset),
+            }
+            if not self.pseudo_label_path:
+                ds["devtrain"] = self.get_dataset("train", subset=self.eval_subset)
+        else:
+            ds = {}
         return ds
 
     def get_main_name(self) -> str:
@@ -444,7 +485,7 @@ class LibrispeechOggZip(DatasetConfig):
 
     def get_main_dataset(self) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
-        return self.get_dataset(self.main_key)
+        return self.get_dataset(self.main_key, subset=self.forward_subset)
     
     def get_sharded_main_dataset(self, shard_index: int, num_shards: int) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
@@ -509,20 +550,329 @@ class LibrispeechOggZip(DatasetConfig):
         # Combine pseudo labels into MetaDataset
         if training and self.pseudo_label_path:
             files_new = []
-            for part in parts:
-                files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
-            d_pseudo = copy(d)
-            d.pop("fixed_random_subset", None)
-            d_pseudo["audio"] = None
-            d_pseudo["path"] = files_new
+            if self.pseudo_label_alignment > -1:
+                vocab = self.train_vocab if training and self.train_vocab else self.vocab
+                assert vocab is not None
+                for part in parts:
+                    files_new += [GetAlignmentTargets(part, self.pseudo_label_path, vocab.vocab).out_file]
+                d_pseudo = {
+                    "class": "HDFDataset",
+                    "files": files_new,
+                    "use_cache_manager": True,
+                }
+                order_key = "zip_dataset"
+            elif self.pseudo_label_nbest > 1:
+                vocab = self.train_vocab if training and self.train_vocab else self.vocab
+                assert vocab is not None
+                for part in parts:
+                    if part == "train-clean-100" and self.keep_small_labels:
+                        train100 = librispeech.get_bliss_corpus_dict(audio_format="ogg")[part]
+                        files_new += [CorpusToHDF(train100, vocab, self.pseudo_label_nbest).out_file]
+                    else:
+                        files_new += [TargetsToHDF(part, self.pseudo_label_path, vocab.vocab, self.pseudo_label_nbest, vocab if self.pseudo_label_sentences else None).out_file]
+                d_pseudo = {
+                    "class": "HDFDataset",
+                    "files": files_new,
+                    "use_cache_manager": True,
+                }
+                order_key = "zip_dataset"
+            else:
+                for part in parts:
+                    if part == "train-clean-100" and self.keep_small_labels:
+                        files_new += [_get_librispeech_ogg_zip_dict()[part]]
+                    else:
+                        ogg_files = _get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)
+                        files_new += [ogg_files[part]]
+                d_pseudo = copy(d)
+                if not self.pseudo_label_scores:
+                    d.pop("fixed_random_subset", None)
+                d_pseudo["audio"] = None
+                d_pseudo["path"] = files_new
+                order_key = "pseudo_labels_dataset"
             d_comb = {"zip_dataset": d, "pseudo_labels_dataset": d_pseudo}
             data_map = {
                 "data": ("zip_dataset", "data"),
                 "classes": ("pseudo_labels_dataset", "classes"),
             }
-            d = MetaDataset(data_map, d_comb, "pseudo_labels_dataset").as_returnn_opts()
+            if self.pseudo_label_alignment > -1:
+                data_map["classes"] = ("pseudo_labels_dataset", "data")
+                if self.pseudo_label_alignment > 0:
+                    data_map["targets_indices"] = ("pseudo_labels_dataset", "indices")
+            if self.pseudo_label_nbest > 1:
+                data_map["classes"] = ("pseudo_labels_dataset", "data")
+                data_map["nbest_lengths"] = ("pseudo_labels_dataset", "lengths")
+            if self.pseudo_label_scores:
+                # We are decoding every step (NOTE: works only for max approx so far)
+                score_files = []
+                for part in parts:
+                    if part == "train-clean-100" and self.keep_small_labels:
+                        train100 = librispeech.get_bliss_corpus_dict(audio_format="ogg")[part]
+                        score_files += [ScoresHDF(None, train100, None, 1).out_file]
+                    else:
+                        score_files += [ScoresHDF(part, None, self.pseudo_label_path, self.pseudo_label_nbest).out_file]
+                d_scores = {
+                    "class": "HDFDataset",
+                    "files": score_files,
+                    "use_cache_manager": True,
+                }
+                
+                # def _get_scores_dataset(*, epoch: int, **_):
+                #     import returnn.frontend as rf
+                #     from returnn.config import get_global_config
+                #     config = get_global_config()
+                #     train_dataset_dict = config.typed_value("train")
+                #     partition_epoch = train_dataset_dict["datasets"]["zip_dataset"]["partition_epoch"]
+
+                #     if 1 <= epoch <= partition_epoch or not rf.get_run_ctx().train_flag:
+                #         # return {
+                #         #     "class": "AnythingDataset",
+                #         #     "data_keys": {
+                #         #         "data": {
+                #         #             "dim": 1,
+                #         #             "shape": (None,),
+                #         #             "dtype": "int32",
+                #         #         },
+                #         #     }
+                #         # }
+                #         return d_scores
+                #     else:
+                #         n_finished_full_epochs = (epoch - 1) // partition_epoch
+                #         hdf_files = [f"scores-epoch-{n_finished_full_epochs}.hdf"]
+                #         return {
+                #             "class": "HDFDataset",
+                #             "files": hdf_files,
+                #             "use_cache_manager": True,
+                #         }
+                
+                # d_scores_variable = {
+                #     "class": "VariableDataset",
+                #     "get_dataset": _get_scores_dataset
+                # }
+                
+                d_comb["scores_dataset"] = d_scores
+                data_map["scores"] = ("scores_dataset", "data")
+                
+                if self.pseudo_label_alignment > -1 or self.pseudo_label_nbest > 1:
+                    d_tmp = d_pseudo
+                else:
+                    d_tmp = d_pseudo.copy()
+                    d_tmp.pop("partition_epoch")
+                    d_tmp = MetaDataset({"data": ("pseudo_labels_dataset", "classes")}, {"pseudo_labels_dataset": d_tmp}, "pseudo_labels_dataset").as_returnn_opts()
+                d_comb["init_pseudo_labels_dataset"] = d_tmp
+                
+                # always_same_tags
+                d_targets_variable = {
+                    "class": "VariableDataset",
+                    "get_dataset": _get_targets_dataset
+                }
+                
+                d_comb["pseudo_labels_dataset"] = d_targets_variable
+                data_map["classes"] = ("pseudo_labels_dataset", "data")
+                order_key = "zip_dataset"
+            d = MetaDataset(data_map, d_comb, order_key).as_returnn_opts()
+        elif self.pseudo_label_nbest > 1 or self.pseudo_label_scores:
+            d_comb = {"zip_dataset": d}
+            data_map = {
+                "data": ("zip_dataset", "data"),
+                "classes": ("zip_dataset", "classes"),
+            }
+            order_key = "zip_dataset"
+            if self.pseudo_label_nbest > 1:
+                files_new = []
+                for part in parts:
+                    corp = librispeech.get_bliss_corpus_dict(audio_format="ogg")[part]
+                    files_new += [DummyHDF(corp, self.pseudo_label_nbest).out_file]
+                dummy_ds = {
+                    "class": "HDFDataset",
+                    "files": files_new,
+                    "use_cache_manager": True,
+                }
+                d_comb["dummy"] = dummy_ds
+                data_map["nbest_lengths"] = ("dummy", "lengths")
+            if self.pseudo_label_scores:
+                score_files = []
+                for part in parts:
+                    corp = librispeech.get_bliss_corpus_dict(audio_format="ogg")[part]
+                    score_files += [ScoresHDF(None, corp, None, 1).out_file]
+                d_scores = {
+                    "class": "HDFDataset",
+                    "files": score_files,
+                    "use_cache_manager": True,
+                }
+                d_comb["scores_dataset"] = d_scores
+                data_map["scores"] = ("scores_dataset", "data")
+            d = MetaDataset(data_map, d_comb, order_key).as_returnn_opts()
         return d
 
+# return {
+#     "class": "AnythingDataset",
+#     "data_keys": {
+#         "data": {
+#             "dim": 1,
+#             "shape": (None,),
+#             "dtype": "int32",
+#         },
+#     }
+# }
+def _get_targets_dataset(*, epoch: int, **_):
+    import os
+    import returnn.frontend as rf
+    from returnn.config import get_global_config
+    config = get_global_config()
+    train_dataset_dict = config.typed_value("train")
+    partition_epoch = train_dataset_dict["dataset"]["datasets"]["zip_dataset"]["partition_epoch"]
+    
+    if 1 <= epoch <= partition_epoch:
+        print("load OLD")
+        return train_dataset_dict["dataset"]["datasets"]["init_pseudo_labels_dataset"]
+    else:
+        n_finished_full_epochs = (epoch - 1) // partition_epoch
+        print("load NEW epoch", n_finished_full_epochs)
+        hdf_files = os.listdir(".")
+        hdf_files = [f for f in hdf_files if f.startswith(f"targets-epoch-{n_finished_full_epochs}-") and f.endswith(".hdf")]
+        assert hdf_files, f"no target files found for epoch {n_finished_full_epochs}"
+        return {
+            "class": "HDFDataset",
+            "files": hdf_files,
+            "use_cache_manager": True,
+        }
+ 
+class LibrispeechLmDataset(DatasetConfig):
+    """
+    Librispeech LM dataset
+    """
+
+    def __init__(
+        self,
+        *,
+        vocab: VocabConfig,
+        train_vocab: Optional[VocabConfig] = None,
+        main_key: Optional[str] = None,
+        train_epoch_split: int = default_train_epoch_split,
+        train_sort_order: Optional[Any] = "laplace",
+        train_sort_laplace_num_seqs: Optional[int] = 1000,
+        eval_subset: Optional[int] = 3000,
+    ):
+        super().__init__()
+        self.vocab = vocab
+        self.train_vocab = train_vocab
+        self.main_key = main_key
+        self.train_epoch_split = train_epoch_split
+        self.train_sort_order = train_sort_order
+        self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
+        self.eval_subset = eval_subset
+
+    def _sis_hash(self) -> bytes:
+        import hashlib
+        from sisyphus.hash import sis_hash_helper
+
+        # Keep consistent once we do any changes.
+        state = self.__dict__.copy()
+        if not self.train_vocab:
+            state.pop("train_vocab")  # backward compat
+        if self.train_sort_order == "laplace":
+            state.pop("train_sort_order")  # backward compat
+        byte_list = [b"LibrispeechLmDataset", sis_hash_helper(state)]
+
+        # Same as sis_hash_helper.
+        byte_str = b"(" + b", ".join(byte_list) + b")"
+        if len(byte_str) > 4096:
+            return hashlib.sha256(byte_str).digest()
+        else:
+            return byte_str
+
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get extern data
+        """
+        from returnn.tensor import Dim, batch_dim
+
+        out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+        classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+
+        return {
+            "data": {
+                "dim_tags": [batch_dim, out_spatial_dim],
+                "sparse_dim": classes_dim,
+                "vocab": self.vocab.get_opts(),
+            }
+        }
+
+    def get_default_input(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_default_target(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_train_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset("full", training=True)
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
+        return self.get_dataset("full")
+
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            "dev": self.get_dataset("dev-other", subset=self.eval_subset),
+            "devtrain": self.get_dataset("train-clean-100", subset=self.eval_subset),
+        }
+
+    def get_main_name(self) -> str:
+        return self.main_key
+
+    def get_main_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset(self.main_key)
+
+    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
+        vocab = self.train_vocab if training and self.train_vocab else self.vocab
+        if key == "full":
+            from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+
+            d: Dict[str, Any] = {
+                "class": "LmDataset",
+                "corpus_file": [get_librispeech_normalized_lm_data(), _get_train_corpus_text()],
+                "use_cache_manager": True,
+                "orth_vocab": vocab.get_opts().copy(),
+                "seq_end_symbol": None,  # handled via orth_vocab
+                "unknown_symbol": None,  # handled via orth_vocab
+            }
+        else:
+            files = []
+            parts = [part for part in _Parts if part.startswith(key)]
+            assert parts, f"invalid key {key!r}"
+            for part in parts:
+                files += [_get_librispeech_ogg_zip_dict()[part]]
+            d: Dict[str, Any] = {
+                "class": "OggZipDataset",
+                "path": files,
+                "use_cache_manager": True,
+                "audio": None,
+                "targets": vocab.get_opts().copy(),
+            }
+        if training:
+            d["partition_epoch"] = self.train_epoch_split
+            if self.train_sort_order == "laplace":
+                if self.train_sort_laplace_num_seqs is not None:
+                    d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+                else:
+                    d["seq_ordering"] = "random"
+            else:
+                d["seq_ordering"] = self.train_sort_order
+        else:
+            if d["class"] == "OggZipDataset":
+                d["fixed_random_seed"] = 1
+            d["seq_ordering"] = "sorted_reverse"
+        if subset:
+            d["fixed_random_subset"] = subset  # faster
+        if d["class"] == "OggZipDataset":
+            d = {
+                "class": "MetaDataset",
+                "datasets": {"ogg_zip": d},
+                "data_map": {"data": ("ogg_zip", "classes")},
+                "seq_order_control_dataset": "ogg_zip",
+            }
+        return d
 
 class _DelayedDim(DelayedBase):
     """
@@ -570,8 +920,9 @@ def get_librispeech_task_raw_v2(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
-    save_pseudo_labels: bool = False,
+    save_pseudo_labels: Optional[TrainDatasetSel] = None,
     ds_sel: TrainDatasetSel,
+    init_small: bool,
     with_prior: bool,
     empirical_prior: bool,
     **dataset_train_opts,
@@ -587,15 +938,9 @@ def get_librispeech_task_raw_v2(
     
     vocab_ = vocab
     if isinstance(vocab, str):
-        vocab = get_vocab_by_str(vocab, train_small=True if (ds_sel == TrainDatasetSel.train_100h or ds_sel == TrainDatasetSel.train_860h) else False)
-        
-    if ds_sel == TrainDatasetSel.train_860h:
-        if dataset_train_opts:
-            dataset_train_opts["train_epoch_wise_filter"] = None
-        else:
-            dataset_train_opts = dict(train_epoch_wise_filter=None)
+        vocab = get_vocab_by_str(vocab, train_small=init_small)
 
-    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, with_prior, empirical_prior, dataset_train_opts))
+    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, init_small, with_prior, empirical_prior, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
         return _librispeech_task_raw_v2_cache[cache_key]
 
@@ -625,7 +970,8 @@ def get_librispeech_task_raw_v2(
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = LibrispeechOggZip(**dataset_common_opts, **dataset_train_opts, train_ds_key=train_ds_key)
     _extract_audio_seq_len_file(train_dataset)
-    _extract_text_seq_len_file(train_dataset, vocab_, name="target")
+    if not dataset_train_opts or (dataset_train_opts and dataset_train_opts.get("pseudo_label_alignment") == -1 and dataset_train_opts.get("pseudo_label_nbest") == 1):
+        _extract_text_seq_len_file(train_dataset, vocab_, name="target")
     eval_datasets = {
         "dev-clean": LibrispeechOggZip(**dataset_common_opts, main_key="dev-clean"),
         "dev-other": LibrispeechOggZip(**dataset_common_opts, main_key="dev-other"),
@@ -636,8 +982,9 @@ def get_librispeech_task_raw_v2(
     
     pseudo_labels_ds = {}
     train_100_ds = None
-    if save_pseudo_labels:
-        for ds_name in ["train-clean-360", "train-other-500"]:
+    if save_pseudo_labels is not None:
+        ds_ls = ["train-clean-360", "train-other-500"] if save_pseudo_labels == TrainDatasetSel.train_860h else ["train-clean-100", "train-clean-360", "train-other-500"]
+        for ds_name in ds_ls:
             pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
         train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")
             
@@ -731,6 +1078,8 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
     if ds_dict["class"] == "MetaDataset":
         ds_dict = ds_dict["datasets"]["pseudo_labels_dataset"]
     # The code is semi-generic. But anyway double check for now. Later to be extended...
+    if ds_dict["class"] == "VariableDataset":
+        return
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus", "LmDataset"}
     vocab_key = "targets" if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"} else "orth_vocab"
     ds_dict.pop("partition_epoch", None)

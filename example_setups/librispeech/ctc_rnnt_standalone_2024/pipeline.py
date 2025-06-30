@@ -32,6 +32,16 @@ class ASRModel:
     prefix_name: Optional[str]
 
 
+@dataclass
+class NeuralLM:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
+    bpe_vocab: Optional[tk.Path] = None
+    bpe_codes: Optional[tk.Path] = None
+
+
 def search_single(
     prefix_name: str,
     returnn_config: ReturnnConfig,
@@ -40,7 +50,7 @@ def search_single(
     recognition_bliss_corpus: tk.Path,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: float = 10,
+    mem_rqmt: float = 16,
     use_gpu: bool = False,
 ):
     """
@@ -96,6 +106,7 @@ def search(
     test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
+    unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     use_gpu: bool = False,
     debug: bool = False,
 ):
@@ -110,6 +121,7 @@ def search(
     :param test_dataset_tuples: tuple of (Dataset, tk.Path) for the dataset object and the reference bliss
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
+    :param unhashed_decoder_args: decoder arguments for the decoding forward_init_hook, but not hashed
     :param use_gpu: run search with GPU
     """
     if asr_model.prior_file is not None:
@@ -120,6 +132,7 @@ def search(
         config=forward_config,
         net_args=asr_model.net_args,
         decoder_args=decoder_args,
+        unhashed_decoder_args=unhashed_decoder_args,
         decoder=decoder_module,
         debug=debug,
     )
@@ -168,7 +181,7 @@ def compute_prior(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2,
+        time_rqmt=8,
         device="gpu",
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,

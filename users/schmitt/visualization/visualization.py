@@ -206,6 +206,7 @@ class PlotAttentionWeightsJobV2(Job):
           vmin: Optional[Union[Dict, int, float]] = 0.0,
           vmax: Optional[Union[Dict, int, float]] = 1.0,
           scale: float = 1.0,
+          ref_alignment_is_positional_alignment: Optional[bool] = None,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
@@ -216,6 +217,7 @@ class PlotAttentionWeightsJobV2(Job):
     self.vmin = vmin
     self.vmax = vmax
     self.scale = scale
+    self.ref_alignment_is_positional_alignment = ref_alignment_is_positional_alignment
 
     if isinstance(att_weight_hdf, list):
       self.att_weight_hdf = att_weight_hdf[0]
@@ -388,7 +390,6 @@ class PlotAttentionWeightsJobV2(Job):
       ref_labels = [ref_vocab[idx] for idx in ref_labels]
       # x axis
       if use_segment_center_as_label_position:
-        ref_label_positions -= 1
         ref_label_positions = np.concatenate([[0], ref_label_positions])
         ref_segment_sizes = ref_label_positions[1:] - ref_label_positions[:-1]
         xticks = ref_label_positions[:-1] + ref_segment_sizes / 2
@@ -632,6 +633,10 @@ class PlotAttentionWeightsJobV2(Job):
           gradient = np.repeat(gradient[None, :], att_weights.shape[0], axis=0)
           ax.imshow(gradient, aspect="auto", cmap="hsv", alpha=0.5, interpolation=None)
 
+        use_segment_center_as_label_position = "GmmAlignmentToWordBoundaries" in self.ref_alignment_hdf.get_path()
+        if self.ref_alignment_is_positional_alignment is not None:
+          use_segment_center_as_label_position = not self.ref_alignment_is_positional_alignment
+
         # set y ticks and labels
         self.set_ticks(
           ax=ax,
@@ -642,7 +647,7 @@ class PlotAttentionWeightsJobV2(Job):
           ref_alignment_blank_idx=self.ref_alignment_blank_idx,
           target_blank_idx=self.target_blank_idx,
           # a bit ugly but this is currently the only situation where we have a segmental ref alignment
-          use_segment_center_as_label_position="GmmAlignmentToWordBoundaries" in self.ref_alignment_hdf.get_path(),
+          use_segment_center_as_label_position=use_segment_center_as_label_position,
           upsample_factor=upsampling_factor,
           use_time_axis=i == len(axes) - 1,
           use_ref_axis=i == 0 and ref_alignment is not None,
@@ -674,7 +679,18 @@ class PlotAttentionWeightsJobV2(Job):
         cbar = fig.colorbar(mat, cax=cbar_ax)
         cbar.ax.tick_params(labelsize=self.font_size_medium * self.scale)
 
-      fig.text(0.07, 0.5, 'Output Labels ($\\rightarrow$)', va='center', rotation='vertical', fontsize=PlotAttentionWeightsJobV2.font_size_large * self.scale)
+      fig.text(0.02, 0.5, 'Output Labels ($\\rightarrow$)', va='center', rotation='vertical', fontsize=PlotAttentionWeightsJobV2.font_size_large * self.scale)
+      # left, width = .25, .5
+      # bottom, height = .25, .5
+      # top = bottom + height
+      # fig.text(
+      #   left, 0.5 * (bottom + top),
+      #   'Output Labels ($\\rightarrow$)',
+      #   horizontalalignment='right',
+      #   verticalalignment='center',
+      #   rotation='vertical',
+      #   transform=plt.gca().transAxes,
+      # )
 
       dirname = self.out_plot_dir.get_path()
       if seq_tag.startswith("dev-other"):
@@ -734,6 +750,8 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("vmax")
     if d["scale"] == 1.0:
       d.pop("scale")
+    if d["ref_alignment_is_positional_alignment"] is None:
+      d.pop("ref_alignment_is_positional_alignment")
 
     return super().hash(d)
 
@@ -801,9 +819,9 @@ class PlotSelfAttentionWeightsOverEpochsJob(Job):
       num_rows = 1
       num_cols = num_plots
 
-    title_fontsize = 38
-    ticklabel_fontsize = 28
-    axlabel_fontsize = 34
+    title_fontsize = 30  # 38
+    ticklabel_fontsize = 24  # 28
+    axlabel_fontsize = 26  # 34
 
     for seq_tag in att_weights_dicts[0]:
       # fig, axes = plt.subplots(
@@ -819,16 +837,22 @@ class PlotSelfAttentionWeightsOverEpochsJob(Job):
         epoch = self.epochs[i]
         time_len = att_weights.shape[0]
 
-        ax = axes[row, col]
+        if num_rows == 2:
+          ax = axes[row, col]
+        elif num_plots == 1:
+          ax = axes
+        else:
+          ax = axes[col]
         ax.matshow(att_weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
 
-        ax.set_title(f"Epoch {epoch * 4 / 20}", fontsize=title_fontsize, pad=7)
+        if num_plots != 1:
+          ax.set_title(f"Epoch {epoch * 4 / 20}", fontsize=title_fontsize, pad=7)
 
         time_step_size = 1 / 60 * 1000
         time_ticks = np.arange(0, time_len, time_step_size)
         tick_labels = [(time_tick * 60) / 1000 for time_tick in time_ticks]
 
-        if row == 0:
+        if row == 0 and num_rows == 2:
           ax.set_xticks([])
         else:
           ax.set_xticks(time_ticks)
@@ -845,12 +869,20 @@ class PlotSelfAttentionWeightsOverEpochsJob(Job):
 
         ax.invert_yaxis()
 
-      fig.text(0.5, 0.01, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
-      fig.text(0.06, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
+      # fig.text(0.5, 0.01, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
+      # fig.text(0.06, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
+      fig.text(0.5, -0.15, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
+      fig.text(-0.15, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
       # fig.tight_layout()
 
-      plt.savefig(os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.png"), bbox_inches='tight')
-      plt.savefig(os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.pdf"), bbox_inches='tight')
+      plt.savefig(
+        os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.png"),
+        bbox_inches='tight'
+      )
+      plt.savefig(
+        os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.pdf"),
+        bbox_inches='tight'
+      )
       plt.close()
 
 
@@ -1153,6 +1185,7 @@ def plot_att_weights(
         plot_w_color_gradient: bool = False,
         vmin: Optional[Dict] = 0.0,
         vmax: Optional[Dict] = 1.0,
+        ref_alignment_is_positional_alignment: bool = True,
 ):
   plot_att_weights_job = PlotAttentionWeightsJobV2(
     att_weight_hdf=att_weight_hdf,
@@ -1170,6 +1203,7 @@ def plot_att_weights(
     plot_w_cog=False,
     vmin=vmin,
     vmax=vmax,
+    ref_alignment_is_positional_alignment=ref_alignment_is_positional_alignment,
   )
 
   if plot_w_color_gradient:

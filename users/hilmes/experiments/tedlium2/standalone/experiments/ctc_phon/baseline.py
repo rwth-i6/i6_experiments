@@ -34,6 +34,20 @@ def eow_phon_ted_1023_base(full=False):
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
 
+    train_settings_4000 = DatasetSettings(
+        preemphasis=0.97,  # TODO: Check if this is really useful
+        peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+        # training
+        train_partition_epoch=5,
+        train_seq_ordering="laplace:.4000",
+    )
+
+    # build the training datasets object containing train, cv, dev-train and the extern_data dict
+    train_data_4000 = build_eow_phon_training_datasets(
+        prefix=prefix_name,
+        settings=train_settings_4000,
+    )
+
     dev_dataset_tuples = {}
     for testset in ["dev"]:
         dev_dataset_tuples[testset] = build_test_dataset(
@@ -330,7 +344,147 @@ def eow_phon_ted_1023_base(full=False):
         )
         results.update(res)
     generate_report(results=results, exp_name=training_name + f"_quantize/combined_results")
+    quant_results = {}
+    quant_results["baselines"] = {}
+    quant_results["baselines"][training_name] = results
     del results
+    results = {}
+    for activation_bit, weight_bit in [
+        (8, 8),
+        (8, 6),
+        (8, 5),
+        (8, 4),
+        (8, 3),
+        (8, 2),
+        (8, 1.5),
+    ]:
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor_symmetric",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor_symmetric",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor_symmetric",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor_symmetric",
+            moving_average=None,
+            weight_bit_prec=weight_bit,
+            activation_bit_prec=activation_bit,
+            linear_quant_output=True,
+        )
+        quant_args = QuantArgs(
+            sample_ls=[100],
+            quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+            decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            num_iterations=num_iterations,
+            datasets=train_data,
+            network_module="ctc.conformer_1023.quant.baseline_quant_v2_mem",
+        )
+        quant_str = f"/quantize/weight_{weight_bit}_act_{activation_bit}_mem"
+        asr_model = prepare_asr_model(
+            training_name + quant_str,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_specific_checkpoint=250,
+        )
+        res, _ = tune_and_evaluate_helper(
+            training_name,
+            asr_model,
+            default_decoder_config,
+            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            prior_scales=[0.5, 0.7, 0.9, 1.1],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+    generate_report(results=results, exp_name=training_name + f"_quantize/qat_memristor_results")
+    quant_results[training_name] = results
+    del results
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+    results = {}
+    training_name = prefix_name + "/" + network_module + "_better384dim_sub4_50eps"
+    train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    prior_scales = [0.1, 0.3, 0.5, 0.7, 0.9]
+    lm_scales = [1.8, 2.0, 2.2, 2.4, 2.6, 2.8]
+    res, _ = tune_and_evaluate_helper(
+        training_name,
+        asr_model,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
+    results.update(res)
+    asr_model_best4 = prepare_asr_model(
+        training_name + "/best4",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
+    )
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best4",
+        asr_model_best4,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
+    results.update(res)
+    asr_model_best = prepare_asr_model(
+        training_name + "/best",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc"),
+    )
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best",
+        asr_model_best,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)
+    quant_results["baselines"][training_name] = results
+    del results
+
     results = {}
     for activation_bit, weight_bit in [
         (8, 8),
@@ -385,7 +539,238 @@ def eow_phon_ted_1023_base(full=False):
         )
         results.update(res)
     generate_report(results=results, exp_name=training_name + f"_quantize/qat_memristor_results")
-    tk.register_report("reports/baseline_quant", partial(build_memristor_base_report, results), required=results)
+    quant_results[training_name] = results
+    del results
+
+    results = {}
+    for activation_bit, weight_bit in [
+        (8, 8),
+        (8, 6),
+        (8, 5),
+        (8, 4),
+        (8, 3),
+        (8, 2),
+        (8, 1.5),
+    ]:
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor_symmetric",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor_symmetric",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor_symmetric",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor_symmetric",
+            moving_average=None,
+            weight_bit_prec=weight_bit,
+            activation_bit_prec=activation_bit,
+            linear_quant_output=True,
+        )
+        quant_args = QuantArgs(
+            sample_ls=[100],
+            quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+            decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            num_iterations=num_iterations,
+            datasets=train_data,
+            network_module="ctc.conformer_1023.quant.baseline_quant_v3_mem",
+        )
+        quant_str = f"/quantizev3/weight_{weight_bit}_act_{activation_bit}_mem"
+        asr_model = prepare_asr_model(
+            training_name + quant_str,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_specific_checkpoint=250,
+        )
+        res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+            training_name,
+            asr_model,
+            default_decoder_config,
+            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            prior_scales=[0.5, 0.7, 0.9, 1.1],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+    generate_report(results=results, exp_name=training_name + f"_quantize/qat_memristor_results_v3")
+    quant_results[training_name + "_quant_with_conv"] = results
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 180 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+        "torch_amp_options": {"dtype": "bfloat16"},
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+    results = {}
+    training_name = prefix_name + "/" + network_module + "_180bs_384dim_sub4_50eps"
+    train_job = training(training_name, train_data_4000, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data_4000, get_specific_checkpoint=250
+    )
+    prior_scales = [0.1, 0.3, 0.5, 0.7, 0.9]
+    lm_scales = [1.8, 2.0, 2.2, 2.4, 2.6, 2.8]
+    res, _ = tune_and_evaluate_helper(
+        training_name,
+        asr_model,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
+    results.update(res)
+    asr_model_best4 = prepare_asr_model(
+        training_name + "/best4",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data_4000,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
+    )
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best4",
+        asr_model_best4,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
+    results.update(res)
+    asr_model_best = prepare_asr_model(
+        training_name + "/best",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data_4000,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc"),
+    )
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best",
+        asr_model_best,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)
+    quant_results["baselines"][training_name] = results
+    del results
+
+    results = {}
+    for activation_bit, weight_bit in [
+        (8, 8),
+        (8, 6),
+        (8, 5),
+        (8, 4),
+        (8, 3),
+        (8, 2),
+        (8, 1.5),
+    ]:
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor_symmetric",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor_symmetric",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor_symmetric",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor_symmetric",
+            moving_average=None,
+            weight_bit_prec=weight_bit,
+            activation_bit_prec=activation_bit,
+            linear_quant_output=True,
+        )
+        quant_args = QuantArgs(
+            sample_ls=[100],
+            quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+            decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            num_iterations=num_iterations,
+            datasets=train_data,
+            network_module="ctc.conformer_1023.quant.baseline_quant_v3_mem",
+        )
+        quant_str = f"/quantize/weight_{weight_bit}_act_{activation_bit}_mem"
+
+        res, _ = tune_and_evaluate_helper(
+            training_name,
+            asr_model,
+            default_decoder_config,
+            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            prior_scales=[0.5, 0.7, 0.9, 1.1],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+        asr_model_best4 = prepare_asr_model(
+            training_name + quant_str + "/best4",
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
+        )
+        res, _ = tune_and_evaluate_helper(
+            training_name + "/best4",
+            asr_model_best4,
+            default_decoder_config,
+            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            prior_scales=[0.5, 0.7, 0.9, 1.1],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+        asr_model_best = prepare_asr_model(
+            training_name + quant_str + "/best",
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(1, "dev_loss_ctc"),
+        )
+        res, _ = tune_and_evaluate_helper(
+            training_name + "/best",
+            asr_model_best,
+            default_decoder_config,
+            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            prior_scales=[0.5, 0.7, 0.9, 1.1],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+    generate_report(results=results, exp_name=training_name + f"_quantize/qat_memristor_results")
+    quant_results[training_name + "_quant_with_conv"] = results
+
+    tk.register_report(
+        "reports/baseline_quant", partial(build_memristor_base_report, quant_results), required=quant_results
+    )
     del results
 
     report = {}
@@ -536,373 +921,6 @@ def eow_phon_ted_1023_base(full=False):
 
         tk.register_report("reports/size_report", partial(build_report, report), required=report)
 
-        from ...pytorch_networks.ctc.conformer_distill_1206.self_distill_conformer_v1_cfg import (
-            ModelConfig as StudentConfig,
-            DistillConfig as TeacherConfig,
-        )
-
-        distill_report = {}
-        distill_report["baselines"] = {}
-        no_drop_stud_report = {}
-        no_drop_stud_report["baselines"] = {}
-        larger_distill_report = {}
-        larger_distill_report["baselines"] = {}
-        for dim in [64, 128, 256]:
-            for layer_count in [4, 8, 12]:
-                # for distill_scale in [0.35, 0.25, 1.0]:
-                for distill_scale in [0.25]:
-                    # for T in [1, 2, 3]:
-                    for T in [2]:
-                        distill_report["baselines"][
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"
-                        ] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
-                        no_drop_stud_report["baselines"][
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"
-                        ] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
-                        larger_distill_report["baselines"][
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"
-                        ] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
-
-                        distill_module = "ctc.conformer_distill_1206.self_distill_conformer_v4"
-                        teacher_config = TeacherConfig(
-                            frontend_config=default_frontend_config,
-                            label_target_size=vocab_size_without_blank,
-                            conformer_size=384,
-                            num_layers=12,
-                            num_heads=4,
-                            ff_dim=1536,
-                            att_weights_dropout=0.0,
-                            conv_dropout=0.0,
-                            ff_dropout=0.0,
-                            mhsa_dropout=0.0,
-                            conv_kernel_size=31,
-                            distill_scale=distill_scale,
-                            ctc_scale=1 - distill_scale,
-                            t=T,
-                        )
-                        frontend_config_student = VGG4LayerActFrontendV1Config_mod(
-                            in_features=80,
-                            conv1_channels=32,
-                            conv2_channels=64,
-                            conv3_channels=64,
-                            conv4_channels=32,
-                            conv_kernel_size=(3, 3),
-                            conv_padding=None,
-                            pool1_kernel_size=(2, 1),
-                            pool1_stride=(2, 1),
-                            pool1_padding=None,
-                            pool2_kernel_size=(2, 1),
-                            pool2_stride=(2, 1),
-                            pool2_padding=None,
-                            activation_str="ReLU",
-                            out_features=dim,
-                            activation=None,
-                        )
-
-                        student_config = StudentConfig(
-                            feature_extraction_config=fe_config,
-                            frontend_config=frontend_config_student,
-                            specaug_config=specaug_config,
-                            label_target_size=vocab_size_without_blank,
-                            conformer_size=dim,
-                            num_layers=layer_count,
-                            num_heads=4,
-                            ff_dim=4 * dim,
-                            att_weights_dropout=0.2,
-                            conv_dropout=0.2,
-                            ff_dropout=0.2,
-                            mhsa_dropout=0.2,
-                            conv_kernel_size=31,
-                            final_dropout=0.2,
-                            specauc_start_epoch=1,
-                        )
-                        train_config_distill = {
-                            "optimizer": {
-                                "class": "radam",
-                                "epsilon": 1e-16,
-                                "weight_decay": 1e-2,
-                                "decoupled_weight_decay": True,
-                            },
-                            "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                            + list(np.linspace(5e-4, 5e-5, 110))
-                            + list(np.linspace(5e-5, 1e-7, 30)),
-                            #############
-                            "batch_size": 180 * 16000,
-                            "max_seq_length": {"audio_features": 35 * 16000},
-                            "accum_grad_multiple_step": 1,
-                        }
-                        train_args_distill = {
-                            "config": train_config_distill,
-                            "network_module": distill_module,
-                            "net_args": {
-                                "model_config_dict": asdict(student_config),
-                                "distill_config_dict": asdict(teacher_config),
-                            },
-                            "debug": False,
-                        }
-                        train_args_distill["config"]["preload_from_files"] = {
-                            "teacher": {
-                                "filename": PRETRAIN_CHECKPOINT_DISTILL_V1,
-                                "init_for_train": True,
-                                "ignore_missing": False,
-                                "prefix": "teacher.",
-                                "ignore_params_prefixes": ["teacher.feature_extraction"],
-                            }
-                        }
-                        decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-                        training_name = prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"
-                        train_job = training(
-                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
-                        )
-                        results = eval_model(
-                            training_name=training_name,
-                            train_job=train_job,
-                            train_args=train_args_distill,
-                            train_data=train_data,
-                            decoder_config=default_decoder_config,
-                            dev_dataset_tuples=dev_dataset_tuples,
-                            specific_epoch=250,
-                            decoder_module=decoder_module,
-                        )
-                        generate_report(results=results, exp_name=training_name)
-                        distill_report[training_name] = results
-                        del results
-
-                        teacher_config = TeacherConfig(
-                            frontend_config=default_frontend_config,
-                            label_target_size=vocab_size_without_blank,
-                            conformer_size=384,
-                            num_layers=12,
-                            num_heads=4,
-                            ff_dim=1536,
-                            att_weights_dropout=0.0,
-                            conv_dropout=0.0,
-                            ff_dropout=0.0,
-                            mhsa_dropout=0.0,
-                            conv_kernel_size=31,
-                            distill_scale=distill_scale,
-                            ctc_scale=1 - distill_scale,
-                            t=T,
-                        )
-                        frontend_config_student = VGG4LayerActFrontendV1Config_mod(
-                            in_features=80,
-                            conv1_channels=32,
-                            conv2_channels=64,
-                            conv3_channels=64,
-                            conv4_channels=32,
-                            conv_kernel_size=(3, 3),
-                            conv_padding=None,
-                            pool1_kernel_size=(2, 1),
-                            pool1_stride=(2, 1),
-                            pool1_padding=None,
-                            pool2_kernel_size=(2, 1),
-                            pool2_stride=(2, 1),
-                            pool2_padding=None,
-                            activation_str="ReLU",
-                            out_features=dim,
-                            activation=None,
-                        )
-
-                        student_config = StudentConfig(
-                            feature_extraction_config=fe_config,
-                            frontend_config=frontend_config_student,
-                            specaug_config=specaug_config,
-                            label_target_size=vocab_size_without_blank,
-                            conformer_size=dim,
-                            num_layers=layer_count,
-                            num_heads=4,
-                            ff_dim=4 * dim,
-                            att_weights_dropout=0.0,
-                            conv_dropout=0.0,
-                            ff_dropout=0.0,
-                            mhsa_dropout=0.0,
-                            conv_kernel_size=31,
-                            final_dropout=0.0,
-                            specauc_start_epoch=1,
-                        )
-                        train_config_distill = {
-                            "optimizer": {
-                                "class": "radam",
-                                "epsilon": 1e-16,
-                                "weight_decay": 1e-2,
-                                "decoupled_weight_decay": True,
-                            },
-                            "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                            + list(np.linspace(5e-4, 5e-5, 110))
-                            + list(np.linspace(5e-5, 1e-7, 30)),
-                            #############
-                            "batch_size": 180 * 16000,
-                            "max_seq_length": {"audio_features": 35 * 16000},
-                            "accum_grad_multiple_step": 1,
-                        }
-                        train_args_distill = {
-                            "config": train_config_distill,
-                            "network_module": distill_module,
-                            "net_args": {
-                                "model_config_dict": asdict(student_config),
-                                "distill_config_dict": asdict(teacher_config),
-                            },
-                            "debug": False,
-                        }
-                        train_args_distill["config"]["preload_from_files"] = {
-                            "teacher": {
-                                "filename": PRETRAIN_CHECKPOINT_DISTILL_V1,
-                                "init_for_train": True,
-                                "ignore_missing": False,
-                                "prefix": "teacher.",
-                                "ignore_params_prefixes": ["teacher.feature_extraction"],
-                            }
-                        }
-                        decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-                        training_name = (
-                            prefix_name
-                            + "/"
-                            + distill_module
-                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_no_stud_drop"
-                        )
-                        train_job = training(
-                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
-                        )
-                        results = eval_model(
-                            training_name=training_name,
-                            train_job=train_job,
-                            train_args=train_args_distill,
-                            train_data=train_data,
-                            decoder_config=default_decoder_config,
-                            dev_dataset_tuples=dev_dataset_tuples,
-                            specific_epoch=250,
-                            decoder_module=decoder_module,
-                        )
-                        generate_report(results=results, exp_name=training_name)
-                        no_drop_stud_report[
-                            prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"
-                        ] = results
-                        del results
-
-                        teacher_config = TeacherConfig(
-                            frontend_config=default_frontend_config,
-                            label_target_size=vocab_size_without_blank,
-                            conformer_size=384,
-                            num_layers=12,
-                            num_heads=4,
-                            ff_dim=1536,
-                            att_weights_dropout=0.0,
-                            conv_dropout=0.0,
-                            ff_dropout=0.0,
-                            mhsa_dropout=0.0,
-                            conv_kernel_size=31,
-                            distill_scale=distill_scale + 0.000001,
-                            ctc_scale=1 - distill_scale + 0.000001,
-                            t=T,
-                        )
-                        frontend_config_student = VGG4LayerActFrontendV1Config_mod(
-                            in_features=80,
-                            conv1_channels=32,
-                            conv2_channels=64,
-                            conv3_channels=64,
-                            conv4_channels=32,
-                            conv_kernel_size=(3, 3),
-                            conv_padding=None,
-                            pool1_kernel_size=(2, 1),
-                            pool1_stride=(2, 1),
-                            pool1_padding=None,
-                            pool2_kernel_size=(2, 1),
-                            pool2_stride=(2, 1),
-                            pool2_padding=None,
-                            activation_str="ReLU",
-                            out_features=dim,
-                            activation=None,
-                        )
-
-                        student_config = StudentConfig(
-                            feature_extraction_config=fe_config,
-                            frontend_config=frontend_config_student,
-                            specaug_config=specaug_config,
-                            label_target_size=vocab_size_without_blank,
-                            conformer_size=dim,
-                            num_layers=layer_count,
-                            num_heads=4,
-                            ff_dim=4 * dim,
-                            att_weights_dropout=0.2,
-                            conv_dropout=0.2,
-                            ff_dropout=0.2,
-                            mhsa_dropout=0.2,
-                            conv_kernel_size=31,
-                            final_dropout=0.2,
-                            specauc_start_epoch=1,
-                        )
-                        train_config_distill = {
-                            "optimizer": {
-                                "class": "radam",
-                                "epsilon": 1e-16,
-                                "weight_decay": 1e-2,
-                                "decoupled_weight_decay": True,
-                            },
-                            "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                            + list(np.linspace(5e-4, 5e-5, 110))
-                            + list(np.linspace(5e-5, 1e-7, 30)),
-                            #############
-                            "batch_size": 180 * 16000,
-                            "max_seq_length": {"audio_features": 35 * 16000},
-                            "accum_grad_multiple_step": 1,
-                        }
-                        train_args_distill = {
-                            "config": train_config_distill,
-                            "network_module": distill_module,
-                            "net_args": {
-                                "model_config_dict": asdict(student_config),
-                                "distill_config_dict": asdict(teacher_config),
-                            },
-                            "debug": False,
-                        }
-                        train_args_distill["config"]["preload_from_files"] = {
-                            "teacher": {
-                                "filename": PRETRAIN_CHECKPOINT_DISTILL_V2,
-                                "init_for_train": True,
-                                "ignore_missing": False,
-                                "prefix": "teacher.",
-                                "ignore_params_prefixes": ["teacher.feature_extraction"],
-                            }
-                        }
-                        decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-                        training_name = (
-                            prefix_name
-                            + "/"
-                            + distill_module
-                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_larger_teacher"
-                        )
-                        train_job = training(
-                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
-                        )
-                        results = eval_model(
-                            training_name=training_name,
-                            train_job=train_job,
-                            train_args=train_args_distill,
-                            train_data=train_data,
-                            decoder_config=default_decoder_config,
-                            dev_dataset_tuples=dev_dataset_tuples,
-                            specific_epoch=250,
-                            decoder_module=decoder_module,
-                        )
-                        generate_report(results=results, exp_name=training_name)
-                        larger_distill_report[
-                            prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"
-                        ] = results
-                        del results
-
-        tk.register_report(
-            "reports/distill_report", partial(build_distill_report, distill_report), required=distill_report
-        )
-        tk.register_report(
-            "reports/distill_no_drop_stud_report",
-            partial(build_distill_report, no_drop_stud_report),
-            required=no_drop_stud_report,
-        )
-        tk.register_report(
-            "reports/distill_larger_report",
-            partial(build_distill_report, larger_distill_report),
-            required=larger_distill_report,
-        )
     train_config = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))

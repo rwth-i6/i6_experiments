@@ -44,6 +44,9 @@ class TrainExperiment(ABC):
       else:
         self.alias += "/wo_se_loss"
 
+      const_lr = self.train_opts["train_mini_lstm_opts"].get("const_lr", 1e-4)
+      self.alias += f"_const_lr_{const_lr}"
+
       self.alias += "_%d_epochs" % num_epochs
 
   @property

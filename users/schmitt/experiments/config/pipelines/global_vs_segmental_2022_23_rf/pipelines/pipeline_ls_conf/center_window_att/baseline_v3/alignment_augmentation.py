@@ -76,7 +76,7 @@ def run_exps():
           use_recombination="sum",
           corpus_keys=("dev-other", "test-other"),
           beam_size_list=(12, 84,),
-          sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive,gpu_11gb"]
+          sbatch_args=["-p", "gpu_48gb,gpu_11gb"]
         )
         recog.center_window_returnn_frame_wise_beam_search(
           alias=train_alias,
@@ -86,7 +86,7 @@ def run_exps():
           use_recombination="sum",
           corpus_keys=("test-other",),
           beam_size_list=(12,),
-          sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive,gpu_11gb"]
+          sbatch_args=["-p", "gpu_48gb,gpu_11gb"]
         )
         recog.center_window_returnn_frame_wise_beam_search(
           alias=train_alias,

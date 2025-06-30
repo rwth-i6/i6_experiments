@@ -112,6 +112,7 @@ def run_flow_tts_460h():
             cpu_rqmt=10,
             use_gpu=True,
             local_prefix=None,
+            seed=None,
     ):
         if local_prefix is None:
             local_prefix = prefix
@@ -128,6 +129,8 @@ def run_flow_tts_460h():
         # this is now characters!
         forward_config.config["batch_size"] = 10000
         forward_config.config["max_seqs"] = 32
+        if seed is not None:
+            forward_config.config["random_seed"] = seed
         forward_job = tts_eval_v2(
             prefix_name=local_prefix + "/" + tts_model.prefix_name + "/" + name,
             returnn_config=forward_config,
@@ -346,6 +349,7 @@ def run_flow_tts_460h():
         returnn_root=MINI_RETURNN_ROOT,
     )
     ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
+    print(train_name + "_train-clean-360")
     add_synthetic_data(
         train_name + "_train-clean-360",
         ogg_zip=ogg_zip_job.out_ogg_zip,
@@ -402,6 +406,27 @@ def run_flow_tts_460h():
         split={"part%i" % (i + 1): 1.0/750.0 for i in range(750)}
     )
     shuffle_job.add_alias(prefix + "/shuffle_job")
+
+
+    # Full lexicon for albert
+    lm_data_bliss = bliss_from_text(prefix=prefix, name="librispeech-full", lm_text=lm_data)
+    lm_data_lexicon = create_data_lexicon(prefix=prefix + "/librispeech-full_lexicon", lexicon_bliss=lm_data_bliss)
+    l = Lexicon()
+    l.add_lemma(
+        Lemma(
+            orth=["HHHH"],
+            phon=["HH HH AH"]
+        )
+    )
+    l.add_lemma(
+        Lemma(
+            orth=["HHH"],
+            phon=["HH HH AH"]
+        )
+    )
+    lexicon_edit_full = WriteLexiconJob(static_lexicon=l).out_bliss_lexicon
+    lm_data_lexicon = MergeLexiconJob(bliss_lexica=[lm_data_lexicon, lexicon_edit_full]).out_bliss_lexicon
+    tk.register_output(prefix + "librispeech-full_lexicon.xml.gz", lm_data_lexicon)
 
 
     for i in range(750):
@@ -479,11 +504,9 @@ def run_flow_tts_460h():
             text_bliss=tts_bliss,
             num_splits=1,  # we already splitted before
             ls_corpus_key="train-clean-460",
-            randomize_speaker=True
+            randomize_speaker=True,
+            seed=seed,
         )
-        if seed is not None:
-            decoder_options = copy.deepcopy(decoder_options)
-            decoder_options["seed"] = seed
         result_corpus = synthesize_dataset(
             corpus_name,
             tts_model=tts_model,
@@ -492,6 +515,7 @@ def run_flow_tts_460h():
             corpus_name=corpus_name,
             dataset=dataset_part,
             local_prefix=prefix + "/" + name,
+            seed=seed,
         )
 
         from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
@@ -518,6 +542,13 @@ def run_flow_tts_460h():
     medline_wmt22_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name, lm_text=medline_wmt22_clean)
     set_lex_name = set_name + "_sequiturg2p"
     medline_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt22_bliss)
+    medline_lexica_with_seed = {
+        None: medline_lexicon,
+        1: medline_lexicon,
+        2: create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt22_bliss, min_iter_seed=2),
+        3: create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt22_bliss,
+                           min_iter_seed=3),
+    }
 
     name = set_lex_name + "_glowtts460_noise07"
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
@@ -531,13 +562,13 @@ def run_flow_tts_460h():
 
 
 
-    for seed in [None, 1, 2]:
+    for seed in [None, 1, 2, 3]:
         name = set_lex_name + "_glowtts460_noise055" + ("_seed%i" % seed if seed is not None else "")
         merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
             prefix + "/" + name,
             "wmt22_medline_v1",
             bliss=medline_wmt22_bliss,
-            lexicon=medline_lexicon,
+            lexicon=medline_lexica_with_seed[seed],
             decoder_options=decoder_options_synthetic_055,
             seed=seed
         )
@@ -554,6 +585,28 @@ def run_flow_tts_460h():
     )
     tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
     add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
+
+    # 21, 23, 24 with 0.55
+    for wmtyear in [21, 23, 24]:
+        medline_wmt = Path(
+            "/work/asr4/rossenbach/domain_data/wmt_medline_test_data/wmt%i_medline_v2.txt" % wmtyear,
+            hash_overwrite="wmt%i_medline_v2.txt" % wmtyear
+        )
+        set_name = "wmt%i_medline_v2" % wmtyear
+        medline_wmt_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name, lm_text=medline_wmt)
+        set_lex_name = set_name + "_sequiturg2p"
+        medline_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt_bliss)
+        name = set_lex_name + "_glowtts460_noise055"
+        merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
+            prefix + "/" + name,
+            "wmt%i_medline_v2" % wmtyear,
+            bliss=medline_wmt_bliss,
+            lexicon=medline_lexicon,
+            decoder_options=decoder_options_synthetic_055,
+            seed=None
+        )
+        tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+        add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
 
     # dev-other test
     name = "dev-other_sequiturg2p_glowtts460_noise07"
@@ -614,3 +667,48 @@ def run_flow_tts_460h():
         )
         tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
         add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
+
+
+    # MTG Things
+    MTG_trial4_dev = Path(
+        "/work/asr4/rossenbach/domain_data/MTG/MTG_trial4_dev.txt",
+        hash_overwrite="MTG/MTG_trial4_dev.txt"
+    )
+    set_name = "MTG_trial4_dev"
+    MTG_trial4_dev_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name,
+                                           lm_text=MTG_trial4_dev)
+    set_lex_name = set_name + "_sequiturg2p"
+    mtg_trial4_dev_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=MTG_trial4_dev_bliss)
+
+    name = set_lex_name + "_glowtts460_noise055"
+    merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
+        prefix,
+        "MTG_trial4_dev",
+        bliss=MTG_trial4_dev_bliss,
+        lexicon=mtg_trial4_dev_lexicon,
+        decoder_options = decoder_options_synthetic_055,
+    )
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
+
+    # Test
+    MTG_trial4_test = Path(
+        "/work/asr4/rossenbach/domain_data/MTG/MTG_trial4_test.txt",
+        hash_overwrite="MTG/MTG_trial4_test.txt"
+    )
+    set_name = "MTG_trial4_test"
+    MTG_trial4_test_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name,
+                                           lm_text=MTG_trial4_test)
+    set_lex_name = set_name + "_sequiturg2p"
+    mtg_trial4_test_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=MTG_trial4_test_bliss)
+
+    name = set_lex_name + "_glowtts460_noise055"
+    merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
+        prefix,
+        "MTG_trial4_test",
+        bliss=MTG_trial4_test_bliss,
+        lexicon=mtg_trial4_test_lexicon,
+        decoder_options = decoder_options_synthetic_055,
+    )
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)

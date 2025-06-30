@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Tuple
 from dataclasses import dataclass
 
 from sisyphus import tk
-from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
@@ -20,6 +19,7 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
@@ -254,6 +254,7 @@ def _collect_stats_returnn_forward_config(
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+    from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
     returnn_recog_config_dict = dict(
         # dataset
@@ -262,27 +263,25 @@ def _collect_stats_returnn_forward_config(
         forward_data=dataset.get_main_dataset(),
     )
     if model_def:
-        returnn_recog_config_dict.update(
+        config_dict_update_(
+            returnn_recog_config_dict,
             dict(
                 backend=model_def.backend,
                 behavior_version=model_def.behavior_version,
-            )
+            ),
         )
     else:
         assert config and config.get("backend") and config.get("behavior_version")
     if config:
-        returnn_recog_config_dict.update(config)
+        config_dict_update_(returnn_recog_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_recog_config_dict.update(model_def.config)
-
-    from copy import deepcopy
+        config_dict_update_(returnn_recog_config_dict, model_def.config)
 
     extern_data_raw = dataset.get_extern_data()
-    extern_data_raw = deepcopy(extern_data_raw)  # instanciate_delayed can modify it inplace...
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_copy(extern_data_raw)
 
     returnn_forward_config = ReturnnConfig(
         config=returnn_recog_config_dict,

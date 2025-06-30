@@ -3,7 +3,8 @@ from sisyphus import Job, Task, tk
 import logging
 from i6_core.util import uopen
 
-from recipe.returnn.returnn.datasets.basic import Vocabulary
+from returnn.datasets.basic import Vocabulary
+
 
 class DatasetToTextDictJob(Job):
     """
@@ -62,7 +63,7 @@ class DatasetToTextDictJob(Job):
         dataset.init_seq_order(epoch=1)
 
         assert self.data_key in dataset.get_data_keys()
-        
+
         if self.take_vocab_from_key:
             vocab = Vocabulary.create_vocab_from_labels(dataset.labels[self.take_vocab_from_key])
         else:

@@ -10,18 +10,14 @@ from sisyphus.delayed_ops import DelayedFormat
 
 from i6_experiments.common.setups.rasr.config.lm_config import ArpaLmRasrConfig
 from i6_experiments.users.raissi.setups.common.decoder.config import SearchParameters
+from i6_experiments.users.raissi.setups.common.discrimininative_training.common import Criterion
 from i6_experiments.users.raissi.setups.common.discrimininative_training.config import BIGRAM_LM
+
 from i6_experiments.users.raissi.setups.common.helpers.network import (
     add_fast_bw_layer_to_returnn_config,
     LogLinearScales,
 )
 
-
-class Criterion(Enum):
-    ME = "ME"
-
-    def __str__(self):
-        return self.value
 
 
 @dataclass(frozen=True, eq=True)
@@ -311,6 +307,7 @@ def augment_for_smbr(
         params=smbr_params,
     )
     rasr_cfg_job = rasr.WriteRasrConfigJob(config, post_config)
+
 
     returnn_config.config.pop("chunking", None)
     returnn_config.config["network"][smbr_layer_name] = {

@@ -1,6 +1,7 @@
 """
 Pipeline parts to create the necessary jobs for training / forwarding / search etc...
 """
+
 import copy
 import enum
 from dataclasses import dataclass, asdict
@@ -42,6 +43,7 @@ def search_single(
     returnn_root: tk.Path,
     mem_rqmt: float = 10,
     use_gpu: bool = False,
+    additional_outputs: Optional[List[str]] = None,
 ):
     """
     Run search for a specific test dataset
@@ -58,17 +60,20 @@ def search_single(
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+    output_files = ["search_out.py"]
+    if additional_outputs is not None:
+        output_files += additional_outputs
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
+        time_rqmt=24 if not "cycle" in prefix_name else 48,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=8 if mem_rqmt < 30 else 16,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["search_out.py"],
+        output_files=output_files,
     )
     search_job.add_alias(prefix_name + "/search_job")
 
@@ -102,6 +107,7 @@ def search(
     use_gpu: bool = False,
     import_memristor: bool = False,
     debug: bool = False,
+    additional_outputs: Optional[List[str]] = None,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -136,10 +142,12 @@ def search(
         search_name = prefix_name + "/%s" % key
         if "hubert_tune" in search_name:
             mem = 30
-        elif "RelPosEnc" in search_name:
-            mem = 16
+        elif "12288" in search_name or "24576" in search_name:
+            mem = 60
+        elif "rtf_amd" in search_name or "rtf_intel" in search_name:  # RTF with larger search space might need more mem
+            mem = 40
         else:
-            mem = 10
+            mem = 16
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -150,6 +158,7 @@ def search(
             returnn_root,
             mem_rqmt=mem,
             use_gpu=use_gpu,
+            additional_outputs=additional_outputs,
         )
         search_jobs.append(search_job)
 
@@ -333,6 +342,7 @@ def prepare_asr_model(
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
+            import_memristor=(prior_config or {}).pop("import_memristor", False),
         )
         if "hubert_tune_v1_large" in training_name or "hubert_tune_v2_large" in training_name:
             returnn_config.config["max_seqs"] = 20
@@ -490,11 +500,73 @@ def calculate_blank_counts(
         log_verbosity=5,
         mem_rqmt=10,
         time_rqmt=2,
-        device="gpu",
+        device="cpu",
         cpu_rqmt=8,
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
-        output_files=["blank_counts.npy"],
+        output_files=["blank_counts.pkl"],
     )
     search_job.add_alias(prefix_name + "/calculate_blank_counts")
-    return search_job.out_files["blank_counts.npy"]
+    return search_job.out_files["blank_counts.pkl"]
+
+
+def calculate_blank_ratios(
+    prefix_name: str,
+    train_job: ReturnnTrainingJob,
+    train_args,
+    train_data: TrainingDatasets,
+    checkpoint: Union[int, str],
+    debug=False,
+):
+    if checkpoint == "best4":
+        asr_model = prepare_asr_model(
+            prefix_name,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
+        )
+    else:
+        asr_model = prepare_asr_model(
+            prefix_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=checkpoint
+        )
+    post_config = {
+        "num_workers_per_gpu": 2,
+    }
+
+    base_config = {
+        #############
+        "batch_size": 500 * 16000,
+        "max_seqs": 240,
+        #############
+        "forward": copy.deepcopy(train_data.cv.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy({})}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_forward(
+        network_module=train_args["network_module"],
+        net_args=train_args["net_args"],
+        unhashed_net_args=train_args.get("unhashed_net_args", None),
+        forward_module=None,  # same as network
+        forward_step_name="calc_blank_updates",
+        forward_init_args=None,
+        unhashed_forward_init_args=None,
+        debug=debug,
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=asr_model.checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=10,
+        time_rqmt=2,
+        device="cpu",
+        cpu_rqmt=8,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+        output_files=["blank_updates.pkl"],
+    )
+    search_job.add_alias(prefix_name + "/calculate_blank_ratios")
+    return search_job.out_files["blank_updates.pkl"]

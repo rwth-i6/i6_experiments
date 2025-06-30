@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict, Tuple
 
 from sisyphus import tk
-from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
@@ -20,6 +19,7 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_inplace_with_warning
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardRFDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
@@ -43,7 +43,20 @@ def forward_to_hdf(
     _config_v2: bool = True,  # testing...
 ) -> tk.Path:
     """
-    forward on the specific dataset
+    Forward on the specific dataset,
+    via the forward_def/forward_step (or a no-op copy),
+    maybe optionally using a model,
+    into an HDF file (using :class:`SimpleHDFWriter`).
+
+    The default output ("output") is saved as "data" key in the HDF file.
+    All other outputs keep their name.
+
+    Note that HDF currently has some limitations:
+    For sparse data, we expect the shape [time], for dense data, we expect the shape [time] or [time, feat].
+    The :class:`SimpleHDFWriter` will automatically convert it as necessary, e.g. flattening the data.
+    When the data was flattened, there will be an additional key "sizes" which contains the original sizes
+    of e.g. some tensor [time1,time2].
+    This flattening logic is however only supported for the main key "data", not for any other keys.
 
     :param dataset: dataset to forward, using its get_main_dataset(),
         and also get_default_input() to define the default output,
@@ -211,7 +224,11 @@ def _returnn_get_forward_callback():
                 dim=output.dim,
                 ndim=output.ndim,
                 labels=output.vocab and output.vocab.labels,
-                extra_type={k: (v.dim, v.ndim, v.dtype) for k, v in expected_outputs.data.items() if k != "output"},
+                extra_type={
+                    k: (v.shape[-1] if v.shape else None, v.ndim, v.dtype)
+                    for k, v in expected_outputs.data.items()
+                    if k != "output"
+                },
                 extra_labels={k: v.vocab.labels for k, v in expected_outputs.data.items() if k != "output" and v.vocab},
             )
 
@@ -220,7 +237,11 @@ def _returnn_get_forward_callback():
             out: Tensor = outputs["output"]
             self.hdf_writer.insert_batch(
                 out.raw_tensor[None, :],
-                seq_len={i: [out.raw_tensor.shape[i]] for i, dim in enumerate(out.dims) if dim.dyn_size_ext},
+                seq_len={
+                    i: [out.raw_tensor.shape[i]]
+                    for i, dim in enumerate(out.dims)
+                    if dim.dyn_size_ext is not None or out.sparse
+                },
                 seq_tag=[seq_tag],
                 extra={k: v.raw_tensor[None] for k, v in outputs.data.items() if k != "output"},
             )
@@ -298,12 +319,11 @@ def _returnn_forward_config(
                 lambda v_: {"dim": v_.dimension} if isinstance(v_, Dim) else v_, v
             )
 
-    extern_data_raw = dataset.get_extern_data()
     # TODO why is the instanciate_delayed needed?
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(dataset.get_extern_data)
 
     if (
         forward_step is _returnn_forward_noop_step
@@ -427,10 +447,14 @@ def _returnn_forward_config_v2(
     Create config for collecting stats.
     """
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
+    from returnn.tensor import Tensor, batch_dim
 
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
     if not forward_def and not forward_step:
         forward_step = _returnn_forward_noop_step
+
+    # Version 2: Trigger new hash because of a serious bug.
+    __forward_config_v2_extra_version = 2
 
     config = dict(
         **(config or {}),
@@ -443,22 +467,40 @@ def _returnn_forward_config_v2(
 
     if forward_step is _returnn_forward_noop_step and "model_outputs" not in config:
         # Copy the extern_data to model_outputs.
-        model_outputs = config["extern_data"].copy()
-        assert all(v.get("dims") is not None or v.get("dim_tags") is not None for v in model_outputs.values())
-        # Map the default input key (e.g. "data") to the default RF output key (which is "output").
+        extern_data: Dict[str, Dict[str, Any]] = config["extern_data"]
+        model_outputs: Dict[str, Dict[str, Any]] = {}
         input_key = dataset.get_default_input()
-        if input_key:
-            assert input_key in model_outputs
-            assert "output" not in model_outputs
-            model_outputs["output"] = model_outputs.pop(input_key)
+        for k, v in extern_data.items():
+            # Map the default input key (e.g. "data") to the default RF output key (which is "output").
+            if k == input_key:
+                k = "output"
+                assert k not in extern_data
+            model_outputs[k] = v
         config["model_outputs"] = model_outputs
+
+    # Do some sanity checks on model_outputs. Maybe also increase __forward_config_v2_extra_version.
+    assert "model_outputs" in config
+    model_outputs: Dict[str, Dict[str, Any]] = config["model_outputs"]
+    for k, v in model_outputs.items():
+        v_ = v.copy()
+        v_.pop("vocab", None)  # not needed here
+        out_templ = Tensor(k, **v_)
+        assert out_templ.dims and out_templ.dims[0] == batch_dim
+        assert all(
+            dim.dimension is not None for dim in out_templ.dims[2:]
+        ), f"all except the first dim (after batch dim) must be static, got {out_templ}"
+        if k != "output" and len(out_templ.dims) >= 3 and out_templ.dim != out_templ.dims[-1].dimension:
+            # Need new version because of new behavior when the out_templ.dim is not matching the last dim.
+            __forward_config_v2_extra_version = max(__forward_config_v2_extra_version, 3)
 
     if model_def:
         if "backend" not in config:
             config["backend"] = model_def.backend
         config["behavior_version"] = max(model_def.behavior_version, config.get("behavior_version", 0))
     else:
-        assert config and config.get("backend") and config.get("behavior_version")
+        assert (
+            config and config.get("backend") and config.get("behavior_version")
+        ), f"config: {config}\nbackend: {config.get('backend')}, behavior_version: {config.get('behavior_version')}"
 
     if isinstance(model_def, ModelDefWithCfg):
         config["_model_def"] = model_def.model_def
@@ -511,8 +553,7 @@ def _returnn_forward_config_v2(
             continue
         post_config[k] = v
 
-    # Trigger new hash because of a serious bug.
-    config["__forward_config_v2_extra_version"] = 2
+    config["__forward_config_v2_extra_version"] = __forward_config_v2_extra_version
 
     return ReturnnConfigWithNewSerialization(config, post_config)
 
@@ -527,14 +568,24 @@ def _returnn_get_model(*, epoch: int, **_kwargs_unused):
     if model_def is None:
         return rf.Module()  # empty dummy module
 
-    default_input_key = config.typed_value("default_input")
-    default_target_key = config.typed_value("target")
     extern_data_dict = config.typed_value("extern_data")
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
-    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-    assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
+    model_outputs_dict = config.typed_value("model_outputs")
 
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    default_input_key = config.typed_value("default_input")
+    data_templ_dict = {"name": default_input_key, **extern_data_dict[default_input_key]}
+    default_target_key = config.typed_value("target")
+    if default_target_key:
+        targets_templ_dict = {"name": default_target_key, **extern_data_dict[default_target_key]}
+    elif model_outputs_dict and "output" in model_outputs_dict:
+        targets_templ_dict = {"name": "output", **model_outputs_dict["output"]}
+    else:
+        raise ValueError(f"default_target_key {default_target_key} and model_outputs {model_outputs_dict}")
+
+    data = Tensor(**data_templ_dict)
+    targets = Tensor(**targets_templ_dict)
+    assert targets.feature_dim_or_sparse_dim, f"no feat or sparse dim for {targets}"
+
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.feature_dim_or_sparse_dim)
     return model
 
 
@@ -573,4 +624,6 @@ def _returnn_forward_noop_step(*, extern_data: TensorDict, **_kwargs_unused):
     for k, v in extern_data.data.items():
         if k == default_input_key:
             k = "output"
+        if k == "seq_tag":
+            continue  # ignore
         rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)

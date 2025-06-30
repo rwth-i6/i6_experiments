@@ -18,7 +18,10 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import PriorType
 
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
-from i6_experiments.users.raissi.setups.common.helpers.align.FSA import correct_rasr_FSA_bug
+from i6_experiments.users.raissi.setups.common.helpers.align.FSA import (
+    correct_rasr_FSA_bug,
+    create_rasrconfig_for_alignment_fsa,
+)
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
@@ -685,13 +688,15 @@ def augment_net_with_triphone_outputs(
         "pastEmbed",
     ]
 
-    network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
+    if "loss_opts" in network[f"{prefix}center-output"]:
+        network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
 
 
 def remove_label_pops_and_losses(network: Network, except_layers: Optional[Iterable[str]] = None) -> Network:
     network = copy.copy(network)
+    except_layers = [] if except_layers is None else except_layers
 
     layers_to_pop = {
         "centerPhoneme",
@@ -705,7 +710,7 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
         network.pop(k, None)
 
     for center_target in ["centerState", "singleStateCenter"]:
-        if center_target in network:
+        if center_target in network and center_target not in except_layers:
             network.pop(center_target, None)
 
     for layer in network.values():
@@ -718,13 +723,15 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
 
 
 def remove_label_pops_and_losses_from_returnn_config(
-    cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None, modify_chunking: bool = True
+    cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None, except_extern_data: Optional[Iterable[str]] = None, modify_chunking: bool = True
 ) -> returnn.ReturnnConfig:
     cfg = copy.deepcopy(cfg)
+    except_layers = [] if except_layers is None else except_layers
+    except_extern_data = [] if except_extern_data is None else except_extern_data
     cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
 
     for k in ["centerState", "singleStateCenter", "classes", "futureLabel", "pastLabel"]:
-        if k in cfg.config["extern_data"]:
+        if k in cfg.config["extern_data"] and k not in except_extern_data:
             cfg.config["extern_data"].pop(k, None)
 
 
@@ -735,6 +742,41 @@ def remove_label_pops_and_losses_from_returnn_config(
 
     return cfg
 
+
+def add_label_prior_layer_to_network(
+    network: Network,
+    reference_layer: str = "center-output",
+    label_prior_type: Optional[PriorType] = None,
+    label_prior: Optional[returnn.CodeWrapper] = None,
+    label_prior_estimation_axes: str = None,
+):
+    out_denot = reference_layer.split("-")[0]
+    prior_name = ("_").join(["label_prior", out_denot])
+
+    if label_prior_type == PriorType.TRANSCRIPT:
+        assert label_prior is not None, "You forgot to provide the prior values"
+        network[prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+    elif label_prior_type == PriorType.AVERAGE:
+        network[prior_name] = {
+            "class": "accumulate_mean",
+            "exp_average": 0.001,
+            "from": reference_layer,
+            "is_prob_distribution": True,
+        }
+    elif label_prior_type == PriorType.ONTHEFLY:
+        assert (
+            label_prior_estimation_axes is not None
+        ), "You forgot to set one which axis you want to average the prior, eg. bt"
+        network[prior_name] = {
+            "class": "reduce",
+            "mode": "mean",
+            "from": reference_layer,
+            "axis": label_prior_estimation_axes,
+        }
+    else:
+        raise NotImplementedError("Unknown PriorType")
+
+    return network, prior_name
 
 def add_fast_bw_layer_to_network(
     crp: rasr.CommonRasrParameters,
@@ -830,38 +872,12 @@ def add_fast_bw_layer_to_network(
         "tdp_scale": log_linear_scales.transition_scale,
     }
 
-    # Create additional Rasr config file for the automaton
-    mapping = {
-        "corpus": "neural-network-trainer.corpus",
-        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
-        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
-    }
-    config, post_config = rasr.build_config_from_mapping(crp, mapping)
-    post_config["*"].output_channel.file = "fastbw.log"
+    automaton_config = create_rasrconfig_for_alignment_fsa(
+        crp=crp,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
 
-    # Define action
-    config.neural_network_trainer.action = "python-control"
-    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
-        False
     )
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
-        False
-    )
-    # neural_network_trainer.alignment_fsa_exporter
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
-        True
-    )
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
-        True
-    )
-
-    # additional config
-    config._update(extra_rasr_config)
-    post_config._update(extra_rasr_post_config)
-
-    automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
-    tk.register_output("train/bw.config", automaton_config)
 
     network["fast_bw"]["sprint_opts"] = {
         "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
@@ -1016,38 +1032,12 @@ def add_fast_bw_factored_layer_to_network(
         "n_out": label_info.n_contexts * 2 + label_info.get_n_state_classes(),
     }
 
-    # Create additional Rasr config file for the automaton
-    mapping = {
-        "corpus": "neural-network-trainer.corpus",
-        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
-        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
-    }
-    config, post_config = rasr.build_config_from_mapping(crp, mapping)
-    post_config["*"].output_channel.file = "fastbw.log"
+    automaton_config = create_rasrconfig_for_alignment_fsa(
+        crp=crp,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
 
-    # Define action
-    config.neural_network_trainer.action = "python-control"
-    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
-        False
     )
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
-        False
-    )
-    # neural_network_trainer.alignment_fsa_exporter
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
-        True
-    )
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
-        True
-    )
-
-    # additional config
-    config._update(extra_rasr_config)
-    post_config._update(extra_rasr_post_config)
-
-    automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
-    tk.register_output("train/bw.config", automaton_config)
 
     network["fast_bw"]["sprint_opts"] = {
         "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),

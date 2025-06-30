@@ -15,7 +15,7 @@ from ..auxil.functional import TrainingStrategy
 
 
 @dataclass
-class ModelConfig():
+class ModelConfig:
     feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     predictor_config: PredictorConfig

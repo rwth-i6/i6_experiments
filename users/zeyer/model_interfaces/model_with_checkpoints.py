@@ -3,7 +3,7 @@ Model with checkpoints structure
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Dict, Set, Union
+from typing import TYPE_CHECKING, Optional, List, Dict, Set, Union
 import dataclasses
 from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint as _TfCheckpoint, PtCheckpoint as _PtCheckpoint
 from i6_experiments.users.zeyer.returnn.training import default_returnn_keep_epochs
@@ -24,7 +24,7 @@ class ModelWithCheckpoint:
     """
 
     definition: Union[ModelDef, ModelDefWithCfg]
-    checkpoint: Checkpoint
+    checkpoint: Optional[Checkpoint]
 
     def with_recog(self, recog: RecogDef) -> ModelWithCheckpointAndRecog:
         """add recog def"""

@@ -10,10 +10,10 @@ def dict_update_deep(
     d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]], deep_deletes: Optional[Sequence[str]] = None
 ) -> Dict[str, Any]:
     """
-    :param d: dict to update
+    :param d: dict to update (not inplace, new copy is returned if there are updates)
     :param deep_updates: might also contain "." in the key, for nested dicts
     :param deep_deletes: might also contain "." in the key, for nested dicts
-    :return: updated dict
+    :return: updated dict (new copy in case there are changes, otherwise ``d`` is returned)
     """
     d = _dict_update_delete_deep(d, deep_deletes)
     if not deep_updates:

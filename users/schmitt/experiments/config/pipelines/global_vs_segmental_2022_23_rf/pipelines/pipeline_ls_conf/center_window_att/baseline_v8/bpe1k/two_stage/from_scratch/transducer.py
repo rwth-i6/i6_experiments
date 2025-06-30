@@ -75,34 +75,89 @@ def run_exps():
                 "lr2": 1e-5,
               },
       ):
+        if alias == "v1":
+          checkpoint_aliases = ("best",)
+        else:
+          checkpoint_aliases = ("last",)
+        for length_normalization_exponent in [0.0, 1.0]:
+          recog.center_window_returnn_frame_wise_beam_search(
+            alias=fixed_path_train_alias,
+            config_builder=config_builder,
+            checkpoint=fixed_path_checkpoint,
+            checkpoint_aliases=checkpoint_aliases,
+            use_recombination=None,
+            length_normalization_exponent=length_normalization_exponent,
+          )
+
         recog.center_window_returnn_frame_wise_beam_search(
           alias=fixed_path_train_alias,
           config_builder=config_builder,
           checkpoint=fixed_path_checkpoint,
           use_recombination=None,
+          corpus_keys=("test-other",),
+          checkpoint_aliases=("last",) if alias == "v2" else ("best",)
         )
 
-        # if alias == "v1" and gpu_mem_rqmt == 24:
-        #   for lm_scale, ilm_scale in [
-        #     (0.54, 0.4),
-        #     (0.6, 0.4),
-        #     (0.7, 0.4),
-        #     (0.7, 0.3),
-        #     (0.8, 0.4),
-        #   ]:
-        #     lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
-        #     recog.center_window_returnn_frame_wise_beam_search(
-        #       alias=fixed_path_train_alias,
-        #       config_builder=config_builder,
-        #       checkpoint=fixed_path_checkpoint,
-        #       checkpoint_aliases=("last",),
-        #       lm_type="trafo",
-        #       lm_scale_list=(lm_scale,),
-        #       ilm_scale_list=(ilm_scale,),
-        #       ilm_type="mini_att",
-        #       lm_alias=lm_alias,
-        #       lm_checkpoint=lm_checkpoints[lm_alias],
-        #     )
+        if alias in ["v1", "v2"]:
+          if alias == "v1":
+            params = [
+              (0.0, 0.0),
+              (0.1, 0.0),
+              (0.2, 0.0),
+              (0.3, 0.0),
+              (0.4, 0.0),
+              (0.4, 0.1),
+              (0.4, 0.2),
+              (0.4, 0.3),
+              (0.4, 0.4),
+              (0.5, 0.0),
+              (0.5, 0.1),
+              (0.5, 0.2),
+              (0.5, 0.3),
+              (0.5, 0.4),
+            ]
+          else:
+            params = [
+              (0.0, 0.0),
+              (0.1, 0.0),
+              (0.2, 0.0),
+              (0.3, 0.0),
+              (0.4, 0.0),
+              (0.4, 0.1),
+              (0.4, 0.2),
+              (0.4, 0.3),
+              # (0.4, 0.4),
+              # (0.5, 0.0),
+              # (0.5, 0.1),
+              # (0.5, 0.2),
+              # (0.5, 0.3),
+              # (0.5, 0.4),
+            ]
+          for lm_scale, ilm_scale in params:
+            length_normalization_exponents = [1.0]
+            for length_normalization_exponent in length_normalization_exponents:
+              corpus_keys = ["dev-other"]
+              if lm_scale == 0.4 and ilm_scale == 0.0:
+                corpus_keys += ["test-other"]
+              lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=fixed_path_train_alias,
+                config_builder=config_builder,
+                checkpoint=fixed_path_checkpoint,
+                checkpoint_aliases=checkpoint_aliases,
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="zero_att",
+                lm_alias=lm_alias,
+                lm_checkpoint=lm_checkpoints[lm_alias],
+                use_recombination=None,
+                sbatch_args=["-p", "gpu_48gb,gpu_24gb,gpu_11gb"],
+                length_normalization_exponent=length_normalization_exponent,
+                batch_size=None if alias == "v2" else 10_000,
+                subtract_ilm_eos_score=True,
+                corpus_keys=corpus_keys,
+              )
 
         for epoch, chckpt in fixed_path_checkpoint["checkpoints"].items():
           if epoch in keep_epochs_fixed_path:

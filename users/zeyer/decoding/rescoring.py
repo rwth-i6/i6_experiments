@@ -5,6 +5,7 @@ Rescoring multiple text dicts / search outputs.
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple, Set
 from sisyphus import Job, Task, tk
+from sisyphus.delayed_ops import DelayedBase
 
 import i6_core.util as util
 from i6_core.returnn import ReturnnConfig
@@ -24,16 +25,14 @@ from i6_experiments.users.zeyer.recog import (
 )
 
 if TYPE_CHECKING:
-    from returnn.tensor import Tensor, Dim, TensorDict
+    from returnn.tensor import TensorDict
 
 
-def combine_scores(scores: List[Tuple[float, RecogOutput]]) -> RecogOutput:
+def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]]) -> RecogOutput:
     """
     Combine scores from multiple sources, linearly weighted by the given weights.
 
     :param scores: dict: recog output -> weight. We assume they have the same hyp txt.
-    :param same_txt: if all the hyps have the same txt across scores.
-    :param out_txt: used to define the hyp txt if not same_txt
     :return: combined scores
     """
     assert scores
@@ -47,9 +46,9 @@ class SearchCombineScoresJob(Job):
     and combines the scores with some weights.
     """
 
-    def __init__(self, search_py_output: List[Tuple[float, tk.Path]], *, output_gzip: bool = True):
+    def __init__(self, search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]], *, output_gzip: bool = True):
         """
-        :param search_py_output: dict: search output file from RETURNN in python format (n-best list) -> weight
+        :param search_py_output: list of tuple (search output file from RETURNN in python format (n-best list), weight)
         :param output_gzip: gzip the output
         """
         assert len(search_py_output) > 0
@@ -62,10 +61,13 @@ class SearchCombineScoresJob(Job):
 
     def run(self):
         """run"""
-        data: List[Tuple[float, Dict[str, List[Tuple[float, str]]]]] = [
-            (weight, eval(util.uopen(fn, "rt").read(), {"nan": float("nan"), "inf": float("inf")}))
-            for weight, fn in self.search_py_output
-        ]
+        data: List[Tuple[float, Dict[str, List[Tuple[float, str]]]]] = []
+        for weight, fn in self.search_py_output:
+            if isinstance(weight, DelayedBase):
+                weight = weight.get()
+            assert isinstance(weight, (int, float)), f"invalid weight {weight!r} type {type(weight)}"
+            out = eval(util.uopen(fn, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+            data.append((weight, out))
         weights: List[float] = [weight for weight, _ in data]
         seq_tags: List[str] = list(data[0][1].keys())
         seq_tags_set: Set[str] = set(seq_tags)
@@ -95,7 +97,8 @@ def rescore(
     *,
     recog_output: RecogOutput,
     dataset: Optional[DatasetConfig] = None,
-    vocab: tk.Path,
+    vocab_opts: Optional[Dict[str, Any]] = None,
+    vocab: Optional[tk.Path] = None,
     vocab_opts_file: Optional[tk.Path] = None,
     model: ModelWithCheckpoint,
     rescore_def: RescoreDef,
@@ -112,6 +115,11 @@ def rescore(
     :param dataset: dataset to forward, using its get_main_dataset(),
         and also get_default_input() to define the default output,
         and get_extern_data().
+    :param vocab_opts:
+        Note: Usually, we get a whitespace-separated text file (spm-to-words or so not yet applied),
+        so we would use "class": "Vocabulary", and ``vocab`` would specify the labels.
+        However, there could be different cases. Also, e.g. for character-based outputs,
+        this scheme does not work, due to special handling of whitespace.
     :param vocab:
     :param vocab_opts_file: can contain info about EOS, BOS etc
     :param model:
@@ -129,9 +137,10 @@ def rescore(
             forward_post_config and forward_post_config.pop("__env_updates", None)
         )
     forward_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint.path,
+        model_checkpoint=model.checkpoint.path if model.checkpoint is not None else None,
         returnn_config=_returnn_rescore_config(
             recog_output=recog_output,
+            vocab_opts=vocab_opts,
             vocab=vocab,
             vocab_opts_file=vocab_opts_file,
             dataset=dataset,
@@ -145,6 +154,7 @@ def rescore(
         returnn_root=tools_paths.get_returnn_root(),
         device=forward_device,
     )
+    forward_job.rqmt["mem"] = 16  # often needs more mem
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
     if env_updates:
@@ -158,7 +168,7 @@ def rescore(
 # Those are applied for both training, recog and potential others.
 # The values are only used if they are neither set in config nor post_config already.
 # They should also not infer with other things from the epilog.
-SharedPostConfig = {
+SharedPostConfig: Dict[str, Any] = {
     # In case pretraining overwrites some of these, they need a default.
     "accum_grad_multiple_step": None,
     "use_last_best_model": None,
@@ -168,7 +178,8 @@ SharedPostConfig = {
 def _returnn_rescore_config(
     *,
     recog_output: RecogOutput,
-    vocab: tk.Path,
+    vocab_opts: Optional[Dict[str, Any]] = None,
+    vocab: Optional[tk.Path] = None,
     vocab_opts_file: Optional[tk.Path] = None,
     dataset: Optional[DatasetConfig] = None,
     model_def: Union[ModelDef, ModelDefWithCfg],
@@ -181,17 +192,22 @@ def _returnn_rescore_config(
     """
     from returnn.tensor import Tensor, Dim, batch_dim
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
+    from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
-    config = config.copy() if config else {}
+    config_ = config
+    config = {}
 
-    # Note: we should not put SPM/BPE directly here,
+    # Note: Usually, we should not put SPM/BPE directly here,
     # because the recog output still has individual labels,
     # so no SPM/BPE encoding on the text.
-    vocab_opts = {"class": "Vocabulary", "vocab_file": vocab}
-    if vocab_opts_file:
+    vocab_opts: Dict[str, Any] = vocab_opts.copy() if vocab_opts else {}
+    vocab_opts.setdefault("class", "Vocabulary")
+    if vocab is not None:
+        vocab_opts["vocab_file"] = vocab
+    if vocab_opts_file is not None:
         vocab_opts["special_symbols_via_file"] = vocab_opts_file
-    else:
-        vocab_opts["unknown_label"] = None
+    elif vocab_opts["class"] == "Vocabulary" and vocab_opts.get("special_symbols_via_file") is None:
+        vocab_opts.setdefault("unknown_label", None)
 
     # Beam dim size unknown. Usually static size, but it's ok to leave this unknown here (right?).
     beam_dim = Dim(Tensor("beam_size", dims=[], dtype="int32"), name="beam")
@@ -206,14 +222,20 @@ def _returnn_rescore_config(
         "data_seq_lens": {"dims": [batch_dim, beam_dim], "dtype": "int32"},
     }
     if dataset:
+        ds_extern_data = dataset.get_extern_data()
         default_input = dataset.get_default_input()
-        assert default_input not in extern_data
-        extern_data[default_input] = dataset.get_extern_data()[default_input]
+        assert default_input in ds_extern_data
+        ds_target = dataset.get_default_target()
+        for key, value in ds_extern_data.items():
+            if key == ds_target:
+                continue  # skip (mostly also to keep hashes consistent)
+            assert key not in extern_data
+            extern_data[key] = value
         forward_data = {
             "class": "MetaDataset",
             "datasets": {"orig_data": dataset.get_main_dataset(), "hyps": forward_data},
             "data_map": {
-                default_input: ("orig_data", default_input),
+                **{key: ("orig_data", key) for key in ds_extern_data if key != ds_target},
                 "data_flat": ("hyps", "data_flat"),
                 "data_seq_lens": ("hyps", "data_seq_lens"),
             },
@@ -244,6 +266,9 @@ def _returnn_rescore_config(
     config["_rescore_def"] = rescore_def
     config["forward_step"] = _returnn_score_step
     config["forward_callback"] = _returnn_v2_get_forward_callback
+
+    if config_:
+        config_dict_update_(config, config_)
 
     # post_config is not hashed
     post_config_ = dict(
@@ -293,7 +318,7 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         batch_size = int(batch_dim.get_dim_value())
         for batch_idx in range(batch_size):
             seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
-            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+            print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")

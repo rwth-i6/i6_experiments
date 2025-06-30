@@ -416,7 +416,7 @@ def rnnt_bpe_ls960_1023_low_bpe():
                 use_gpu=True,
                 beam_size=12
             )
-
+            """
             # TODO: remove, just for sampling update steps
             model_config_v6_sub6_512lstm_start11_full_spec = copy.deepcopy(
                 model_config_v5_sub6_512lstm_start1_full_spec)
@@ -434,7 +434,39 @@ def rnnt_bpe_ls960_1023_low_bpe():
                                  num_epochs=2, **default_returnn)
             train_job.rqmt["gpu_mem"] = 24
             train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            """
 
+
+            #
+            # 150 eps baseline
+            #
+            KEEP = [300, 750, 1000, 1400]
+
+            train_args_150eps = copy.deepcopy(train_args_warprnnt_fullspec_noacumm_morel2_radam)
+            train_args_150eps["config"]["learning_rates"] = list(
+                np.linspace(5e-5, 5e-4, int(240 * 1.5))) + list(
+                np.linspace(5e-4, 5e-5, int(720 * 1.5))) + list(np.linspace(5e-5, 1e-7, int(40 * 1.5)))
+
+            network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native"
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".512dim_sub6_24gbgpu_150eps_accum1_gradclip_fullspec11_morel2_from_scratch"
+            train_job = training(training_name, train_data_bpe, train_args_150eps,
+                                 num_epochs=1500, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP + [1500]:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_150eps, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_bpeany_greedy,
+                    use_gpu=True,
+                    beam_size=12
+                )
 
             """
             network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native_conv_first"

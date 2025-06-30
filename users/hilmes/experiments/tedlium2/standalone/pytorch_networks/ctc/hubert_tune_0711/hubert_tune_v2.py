@@ -196,7 +196,10 @@ def calc_blank_init_hook(run_ctx, **kwargs):
 
 
 def calc_blank_finish_hook(run_ctx, **kwargs):
-    np.save("blank_counts.npy", run_ctx.seqs)
+    import pickle
+
+    with open("blank_counts.pkl", "wb") as f:
+        pickle.dump(run_ctx.seqs, f)
 
 
 def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
@@ -207,7 +210,7 @@ def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
-    for seq, tag in zip(logprobs, data["labels"]):
+    for seq, tag in zip(logprobs, data["seq_tag"]):
         pos = torch.argmax(seq, dim=-1)
         pos_blank: torch.Tensor = pos == model.cfg.label_target_size
         pos_non_blank: torch.Tensor = ~pos_blank
@@ -230,3 +233,60 @@ def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
             else:
                 assert False, "Matrix is not boolean for some reason"
         run_ctx.seqs[tag] = groups
+
+
+def calc_blank_updates_init_hook(run_ctx, **kwargs):
+    run_ctx.seqs = {}
+
+
+def calc_blank_updates_finish_hook(run_ctx, **kwargs):
+    import pickle
+
+    with open("blank_updates.pkl", "wb") as f:
+        pickle.dump(run_ctx.seqs, f)
+
+
+def calc_blank_updates_step(*, model: Model, data, run_ctx, **kwargs):
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+    for seq, tag in zip(logprobs, data["seq_tag"]):
+        run_ctx.seqs[tag] = {}
+        pos = torch.argmax(seq, dim=-1)
+        pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+        sum_blanks = torch.sum(pos_blank, dim=-1, keepdim=True)
+        pos_non_blank: torch.Tensor = ~pos_blank
+        pos_non_blank_old = pos_non_blank
+        sum_non_blanks = torch.sum(pos_non_blank_old, dim=-1, keepdim=True)
+        tmp = pos_non_blank
+        shift = tmp
+        pos_non_dc = {}
+        for x in range(1, 6):
+            shift = torch.roll(shift, -1, dims=-1)
+            shift[-1] = tmp[-1]
+            pos_non_blank = pos_non_blank + shift
+            pos_non_dc[x] = pos_non_blank
+        shift = tmp
+        for x in range(1, 6):
+            shift = torch.roll(shift, 1, dims=-1)
+            shift[0] = tmp[0]
+            pos_non_blank = pos_non_dc[x] + shift
+            pos_non_dc[x] = pos_non_blank
+        for x in pos_non_dc:
+            pos_non_dc[x] = torch.clamp(pos_non_dc[x], min=0, max=1)
+        for x in range(1, 6):
+            sum_new_non_blanks = torch.sum(pos_non_dc[x], dim=-1, keepdim=True)
+            added_blanks = sum_new_non_blanks - sum_non_blanks
+            ratio = added_blanks / sum_blanks
+            ratio_non_blank = added_blanks / sum_non_blanks
+            run_ctx.seqs[tag][x] = {
+                "ratio added / blank": ratio,
+                "ratio added / non blank": ratio_non_blank,
+                "num blanks": sum_blanks,
+                "num new non blanks": sum_new_non_blanks,
+                "num old non blanks": sum_non_blanks,
+            }

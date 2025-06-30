@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, List, Tuple
 
 from ...rnnt.decoder.chunk_handler import AudioStreamer
 from ...rnnt.auxil.functional import Mode, num_samples_to_frames
-from .greedy_bpe_ctc_v3 import forward_step as forward_offline
+from .flashlight_ctc_v1 import forward_step as forward_offline
 
 
 @dataclass
@@ -33,9 +33,8 @@ class DecoderConfig:
     chunk_size: Optional[int] = None
     lookahead_size: Optional[int] = None
     stride: Optional[int] = None
-
     carry_over_size: Optional[float] = None
-    
+
     pad_value: Optional[float] = None
 
     test_version: Optional[float] = 0.0
@@ -263,6 +262,6 @@ def infer(
                                                              lookahead_size=model.cfg.lookahead_size)
         
         encoder_out = model.final_linear(encoder_out) # (1, C', V+1)
-        encoder_out_lengths = torch.sum(out_mask, dim=1)  # [B, T] -> [B]
+        encoder_out_lengths = torch.sum(out_mask, dim=1)  # [1, T] -> [1]
 
     return encoder_out, encoder_out_lengths, [state]

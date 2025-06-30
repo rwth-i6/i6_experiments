@@ -61,7 +61,7 @@ Final results:
 dev-clean: {dev_clean_results[best_clean]}
 dev-other: {dev_other_results[best_other]}
 test-clean: {best_test_clean.get()}
-test-clean: {best_test_other.get()}   
+test-other: {best_test_other.get()}   
 """
 
     latex_str = f"Latex:\n{dev_clean_results[best_clean]} & {dev_other_results[best_other]} & {best_test_clean.get()} & {best_test_other.get()}\\\\ \n\n"

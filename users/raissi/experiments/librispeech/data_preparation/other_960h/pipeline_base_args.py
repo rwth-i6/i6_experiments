@@ -34,3 +34,18 @@ def get_final_output(name=InputKey.BASE):
     output_args.add_feature_to_extract("gt")
 
     return output_args
+
+
+def get_final_output_traindecode(name=InputKey.BASE):
+    output_args = rasr_util.OutputArgs(name)
+
+    output_args.define_corpus_type("train-other-960", "dev")
+    output_args.define_corpus_type("dev-clean", "dev")
+    output_args.define_corpus_type("dev-other", "dev")
+    output_args.define_corpus_type("dev-other_dev-clean", "cv")
+    output_args.define_corpus_type("test-clean", "test")
+    output_args.define_corpus_type("test-other", "test")
+
+    output_args.add_feature_to_extract("gt")
+
+    return output_args

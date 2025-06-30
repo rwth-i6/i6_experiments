@@ -78,6 +78,7 @@ class DecodingExperiment(ABC):
         train_mini_lstm_opts = {
           "use_se_loss": self.ilm_correction_opts["use_se_loss"],
           "get_global_att_config_builder_rf_func": self.ilm_correction_opts.get("get_global_att_config_builder_rf_func"),
+          "const_lr": self.ilm_correction_opts.get("const_lr", 1e-4),
         }
         self.ilm_correction_opts["mini_att_checkpoint"] = self.get_mini_att_checkpoint(
           train_mini_lstm_opts=train_mini_lstm_opts
@@ -97,6 +98,8 @@ class DecodingExperiment(ABC):
           alias += "/wo_se_loss"
         if self.ilm_correction_opts.get("mini_att_train_num_epochs", None):
           alias += "/mini_att_train_num_epochs-%d" % self.ilm_correction_opts["mini_att_train_num_epochs"]
+        const_lr = self.ilm_correction_opts.get("const_lr", 1e-4)
+        alias += f"_const_lr-{const_lr:.0e}"
       elif self.ilm_correction_opts["type"] == "zero_att":
         alias += "/zero_att"
 
@@ -227,7 +230,7 @@ class GlobalAttDecodingExperiment(DecodingExperiment, ABC):
           "aux_loss_layers": None,
           "lr_opts": {
             "type": "const_then_linear",
-            "const_lr": 1e-4,
+            "const_lr": train_mini_lstm_opts["const_lr"],
             "const_frac": 1 / 3,
             "final_lr": 1e-6,
             "num_epochs": num_epochs

@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict, Tuple
 
 from sisyphus import tk
-from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2

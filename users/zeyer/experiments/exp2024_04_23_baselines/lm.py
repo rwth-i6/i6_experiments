@@ -43,6 +43,8 @@ def py():
     # TODO tune LR
     # TODO devtrain better
 
+    # TODO depthwise convolution after QKV (via Primer arXiv:2109.08668)
+
     train(
         "lm/trafo-n12-d512-drop0-b200_10k-wrongLr",
         config=dict_update_deep(
@@ -329,7 +331,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
 
-    train(
+    train(  # 34.04 (!!)
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k",
         config=dict_update_deep(
             config_11gb_lm_v1,

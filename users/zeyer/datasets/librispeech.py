@@ -10,7 +10,6 @@ from functools import cache
 
 from sisyphus import tk, Task as SisTask
 from sisyphus.delayed_ops import DelayedBase
-from i6_core.util import instanciate_delayed
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
@@ -22,6 +21,7 @@ from i6_experiments.common.datasets import librispeech
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.utils.basic import make_hashable
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
     speed_pert_librosa_09_10_11_kaiser_fast as _default_train_audio_preprocess,
 )
@@ -417,7 +417,7 @@ class LibrispeechOggZip(DatasetConfig):
         """
         Get extern data
         """
-        from returnn.tensor import Dim, batch_dim
+        from returnn.tensor import batch_dim
 
         opts = {}
 
@@ -517,11 +517,11 @@ class _DelayedDim(DelayedBase):
 
         assert running_in_worker(), "_DelayedDim: get() should only be called in worker"
         assert self.dimension.is_set(), f"_DelayedDim: dimension not set: {self.dimension}"
-        dimension = instanciate_delayed(self.dimension)
-        assert isinstance(
-            dimension, int
-        ), f"unexpected type {type(dimension)} for {dimension}, {self.dimension}, {self.dimension.get_path()}"
-        return Dim(dimension, **instanciate_delayed(self.opts))
+        dimension = instanciate_delayed_copy(self.dimension)
+        assert isinstance(dimension, int), (
+            f"unexpected type {type(dimension)} for {dimension}, {self.dimension}, {self.dimension.get_path()}"
+        )
+        return Dim(dimension, **instanciate_delayed_copy(self.opts))
 
 
 class LibrispeechOldFlacTarZip(DatasetConfig):
@@ -755,12 +755,18 @@ def get_librispeech_task_raw_v2(
     if cache_key in _librispeech_task_raw_v2_cache:
         return _librispeech_task_raw_v2_cache[cache_key]
 
+    # See :func:`search_dataset`.
+    # We first optionally do :func:`ctc_alignment_to_label_seq` if ``recog_def.output_blank_label`` is set.
+    # (SearchCollapseRepeatedLabelsJob, SearchRemoveLabelJob).
+    # Then ``recog_post_proc_funcs`` are applied.
+    # Then SearchTakeBestJob.
+    # Then, for Sclite scoring, there is SearchWordsDummyTimesToCTMJob.
     if isinstance(vocab, Bpe):
-        vocab_to_words = [_bpe_to_words_v2]
+        recog_post_proc_funcs = [_bpe_to_words_v2]
     elif isinstance(vocab, SentencePieceModel):
-        vocab_to_words = [_spm_to_words]
-    elif isinstance(vocab, (Utf8BytesVocab, VocabConfigStatic)):
-        vocab_to_words = []  # assume it can just stay that way
+        recog_post_proc_funcs = [_spm_to_words]
+    elif _is_char_vocab(vocab):
+        recog_post_proc_funcs = [_char_to_words]
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
@@ -791,10 +797,18 @@ def get_librispeech_task_raw_v2(
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev-other",
         score_recog_output_func=_score_recog_out_v2,
-        recog_post_proc_funcs=vocab_to_words,
+        recog_post_proc_funcs=recog_post_proc_funcs,
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
+
+
+def _is_char_vocab(vocab: VocabConfig) -> bool:
+    if isinstance(vocab, Utf8BytesVocab):
+        return True
+    if isinstance(vocab, VocabConfigStatic):
+        return vocab.opts.get("class") == "CharacterTargets"
+    return False
 
 
 _librispeech_task_text_only_cache = {}
@@ -853,7 +867,7 @@ def get_librispeech_task_text_only(
         score_recog_output_func=_score_recog_out_v2,
         recog_post_proc_funcs=vocab_to_words,
     )
-    _librispeech_task_raw_v2_cache[cache_key] = task
+    _librispeech_task_text_only_cache[cache_key] = task
     return task
 
 
@@ -965,6 +979,40 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     from i6_core.returnn.search import SearchOutputRawReplaceJob
 
     words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
+    return RecogOutput(output=words)
+
+
+def _char_to_words(bpe: RecogOutput) -> RecogOutput:
+    """Char to words"""
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+
+    # Note, our standard search uses :func:`_returnn_v2_get_forward_callback`,
+    # and that uses ``hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)``.
+    # Utf8ByteTargets/CharacterTargets would output non-white-space delimited labels
+    # (CharacterTargets.get_seq_labels: ``"".join(map(self._labels.__getitem__, seq))``).
+    # However, most of the CTC models then do sth like this:
+    #   vocab_labels = list(target_dim.vocab.labels) + [model_recog.output_blank_label]
+    #   wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+    #      vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx})
+    # And that create_vocab_from_labels has some special logic,
+    # but with output_blank_label = "<blank>", i.e. len(output_blank_label) > 1,
+    # this will result in a static Vocabulary where get_seq_labels is ``" ".join(map(labels.__getitem__, seq))``,
+    # i.e. white-space delimited.
+    # utf8/char, after SearchRemoveLabelJob, produces: "H I S  A B O D E  W H I C H  H E  H A D  F I X E D ..."
+    # This is somewhat an artefact of the processing because it assumed white-space separated words,
+    # and it used txt.split(" ") in SearchCollapseRepeatedLabelsJob and SearchRemoveLabelJob.
+    # So any whitespace labels in the search output stays as two spaces.
+    # That's why we can just do the SearchOutputRawReplaceJob below.
+    # If we have to deal with non-white-space delimited outputs at some point (might occur with AED models?),
+    # some solutions:
+    # - In _returnn_v2_get_forward_callback, maybe don't use the vocab-dependent get_seq_labels,
+    #   but just always output it white-space delimited.
+    #   We can make this optional, and only apply for AED models (?),
+    #   such that this does not break all existing hashes.
+    # - Maybe we can handle it here? But it might need some further modifications...
+    words = SearchOutputRawReplaceJob(
+        bpe.output, [("  ", "▁"), (" ", ""), ("▁", " ")], output_gzip=True
+    ).out_search_results
     return RecogOutput(output=words)
 
 

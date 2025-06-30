@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
 
 from returnn.tensor import Tensor, Dim, batch_dim
 import returnn.frontend as rf
@@ -18,8 +18,14 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
-from .configs import *
-from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
+from .configs import (
+    config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    config_24gb_v6,
+    dict_update_deep,
+    post_config,
+    _get_cfg_lrlin_oclr_by_bs_nep,
+    _batch_size_factor,
+)
 
 if TYPE_CHECKING:
     from i6_experiments.common.setups import serialization
@@ -300,7 +306,7 @@ def py():
     #     enabled=False,
     # )
 
-    from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
+    # from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
 
     # Replacing batch norm in the Conformer Convolution Module with other normalization schemes.
     # for name, opts in {
@@ -432,7 +438,7 @@ def py():
         train_exp(
             f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
             f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-', '_')}" if sample else ""),
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
             config_updates={
@@ -508,8 +514,8 @@ def py():
     )
 
     train_exp(
-        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        f"-featBN-speedpertV2-spm10k-bpeSample001",
+        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
+        "-featBN-speedpertV2-spm10k-bpeSample001",
         config_24gb_v6,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
@@ -642,10 +648,13 @@ def py():
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
             )
 
-    # Blank separated with fixed grad on 24GB.
+    # Blank separated (blankSep) with fixed grad (ctcFixGrad) on 24GB.
+    # (Baseline: 5.76 {"dev-clean": 2.34, "dev-other": 5.76, "test-clean": 2.59, "test-other": 5.81})
+    # 5.63 {"dev-clean": 2.37, "dev-other": 5.63, "test-clean": 2.61, "test-other": 5.78}
+    # (but no clear improvement on test)
     train_exp(
-        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        f"-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
+        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
+        "-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
         config_24gb_v6,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -686,7 +695,10 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
-    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01). (baseline: 5.77)
+    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01).
+    # (baseline: 5.77 {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03})
+    # (baseline with blankSep: 5.73 {"dev-clean": 2.41, "dev-other": 5.73, "test-clean": 2.59, "test-other": 6.02})
+    # 5.94 {"dev-clean": 2.4, "dev-other": 5.94, "test-clean": 2.62, "test-other": 5.94}
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01",
@@ -710,6 +722,9 @@ def py():
     )
 
     # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01) and fixed grad. (baseline: 5.77)
+    # Baseline: 5.77 {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
+    # Baseline blankSep-fixedGrad: 5.79 {"dev-clean": 2.4, "dev-other": 5.79, "test-clean": 2.54, "test-other": 5.86}
+    # 5.79 {"dev-clean": 2.37, "dev-other": 5.79, "test-clean": 2.64, "test-other": 6.09}
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad-ctcLS01",
@@ -1052,6 +1067,7 @@ def py():
     #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     # )
 
+    # v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
     # noBias. (Baseline: 5.77)
     train_exp(  # 5.65 (!!!)
         "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
@@ -1623,8 +1639,10 @@ def train_exp(
     name: str,
     config: Dict[str, Any],
     *,
+    prefix: Optional[str] = None,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
+    task: Optional[Task] = None,
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
@@ -1643,24 +1661,32 @@ def train_exp(
     """
     Train experiment
     """
-    from i6_experiments.users.zeyer.train_v3 import train
+    from i6_experiments.users.zeyer.train_v3 import train as train_v3
+    from i6_experiments.users.zeyer.train_v4 import train as train_v4
     from i6_experiments.users.zeyer.recog import recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
     if not enabled:
         return None
 
-    if _sis_prefix is None:
-        _sis_setup_global_prefix()
+    if prefix is not None:
+        pass
+    else:
+        if _sis_prefix is None:
+            _sis_setup_global_prefix()
+        prefix = _sis_prefix + "/"
+    prefix += name
 
-    prefix = _sis_prefix + "/" + name
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
+    if not task:
+        task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
+
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
     if "__train_audio_preprocess" in config:
         task: Task = copy.copy(task)
         task.train_dataset = copy.copy(task.train_dataset)
+        assert hasattr(task.train_dataset, "train_audio_preprocess")  # e.g. LibrispeechOggZip
         task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
     if not model_def:
@@ -1669,12 +1695,17 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = ctc_training
-    model_with_checkpoint = train(
+    serialization_version = config.get("__serialization_version", None)
+    train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
+    train_kwargs = {}
+    if epilog:
+        assert train is train_v3
+        train_kwargs["epilog"] = epilog
+    model_with_checkpoints = train(
         prefix,
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
-        epilog=epilog,
         model_def=model_def,
         train_def=train_def,
         num_epochs=num_epochs,
@@ -1682,17 +1713,26 @@ def train_exp(
         num_processes=num_processes,
         time_rqmt=time_rqmt,
         env_updates=env_updates,
+        **train_kwargs,
     )
 
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
+    search_config = None
+    if serialization_version is not None:
+        search_config = {"__serialization_version": serialization_version}
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+        prefix,
+        task,
+        model_with_checkpoints,
+        recog_def=model_recog,
+        search_config=search_config,
+        recog_post_proc_funcs=recog_post_proc_funcs,
     )
 
-    _train_experiments[name] = model_with_checkpoint
-    return model_with_checkpoint
+    _train_experiments[name] = model_with_checkpoints
+    return model_with_checkpoints
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -1967,7 +2007,9 @@ def model_recog(
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
     )
     label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
-        label_log_prob, k_dim=Dim(beam_size, name=f"pre-filter-beam"), axis=[model.wb_target_dim]
+        label_log_prob,
+        k_dim=Dim(min(beam_size, model.wb_target_dim.dimension), name="pre-filter-beam"),
+        axis=[model.wb_target_dim],
     )  # seq_log_prob, backrefs_global: Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
     label_log_prob_pre_filter_ta = TensorArray.unstack(
         label_log_prob_pre_filter, axis=enc_spatial_dim
@@ -1981,7 +2023,9 @@ def model_recog(
         # Filter out finished beams
         seq_log_prob = seq_log_prob + label_log_prob_pre_filter_ta[t]  # Batch, InBeam, PreFilterBeam
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, pre_filter_beam_dim]
+            seq_log_prob,
+            k_dim=Dim(min(beam_size, beam_dim.dimension * pre_filter_beam_dim.dimension), name=f"dec-step{t}-beam"),
+            axis=[beam_dim, pre_filter_beam_dim],
         )  # seq_log_prob, backrefs, target: Batch, Beam. backrefs -> InBeam. target -> PreFilterBeam.
         target = rf.gather(backrefs_pre_filter_ta[t], indices=target)  # Batch, Beam -> Vocab
         seq_targets.append(target)
@@ -2228,6 +2272,10 @@ class Model(rf.Module):
         self.decoder = None
         aux_attention_decoder = config.typed_value("aux_attention_decoder", None)
         if aux_attention_decoder:
+            # Auxiliary attention decoder for regularization.
+            # "Keep Decoding Parallel With Effective Knowledge Distillation
+            #  From Language Models To End-To-End Speech Recognisers", 2024
+            # https://ieeexplore.ieee.org/document/10447305
             assert isinstance(aux_attention_decoder, dict)
             aux_attention_decoder = aux_attention_decoder.copy()
             aux_attention_decoder.setdefault("class", "returnn.frontend.decoder.transformer.TransformerDecoder")

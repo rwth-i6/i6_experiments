@@ -139,7 +139,7 @@ def forward_sequence(
   config = get_global_config()
 
   if type(model) is TransformerDecoder:
-    logits, _, _ = model(
+    logits, _ = model(
       rf.shift_right(targets, axis=targets_spatial_dim, pad_value=0),
       spatial_dim=targets_spatial_dim,
       encoder=model.transform_encoder(att_enc_args["enc"], axis=enc_spatial_dim),

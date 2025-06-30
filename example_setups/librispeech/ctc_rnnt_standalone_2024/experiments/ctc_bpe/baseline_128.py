@@ -1,10 +1,10 @@
 """
-WARNING: This baseline is highly outdated, updates coming soon
+Modern baseline for June 2025
 """
 import copy
 from dataclasses import asdict
 import numpy as np
-from typing import cast, List
+from typing import cast, List, Optional
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
@@ -14,12 +14,16 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import add_ctc_model
+from ...pipeline import training, prepare_asr_model, search, ASRModel, NeuralLM
+from ...report import tune_and_evalue_report
+from ...storage import get_lm_model
+from ... import PACKAGE
 
 
-def bpe_ls960_1023_base():
+def bpe128_ls960_0924_base():
     prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_bpe_128"
+
+    BPE_SIZE = 128
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -29,16 +33,16 @@ def bpe_ls960_1023_base():
         train_seq_ordering="laplace:.1000",
     )
 
-    # build the training datasets object containing train, cv, dev-train and the extern_data dict
-    train_data_bpe5000 = build_bpe_training_datasets(
+    train_data_bpe = build_bpe_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
-        bpe_size=128,
+        bpe_size=BPE_SIZE,
         settings=train_settings,
         use_postfix=False,
     )
-    label_datastream_bpe5000 = cast(LabelDatastream, train_data_bpe5000.datastreams["labels"])
-    vocab_size_without_blank = label_datastream_bpe5000.vocab_size
+
+    label_datastream_bpe = cast(LabelDatastream, train_data_bpe.datastreams["labels"])
+    vocab_size_without_blank = label_datastream_bpe.vocab_size
 
     dev_dataset_tuples = {}
     for testset in ["dev-clean", "dev-other"]:
@@ -61,8 +65,14 @@ def bpe_ls960_1023_base():
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig as FlashlightDecoderConfig
     from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_v3 import DecoderConfig as GreedyDecoderConfig
+    from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v5 import DecoderConfig as BeamSearchDecoderConfig
+    from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v5 import (
+        DecoderExtraConfig as BeamSearchDecoderExtraConfig,
+    )
+
+    DecoderConfig = FlashlightDecoderConfig | GreedyDecoderConfig | BeamSearchDecoderConfig
 
     def tune_and_evaluate_helper(
         training_name: str,
@@ -70,6 +80,9 @@ def bpe_ls960_1023_base():
         base_decoder_config: DecoderConfig,
         lm_scales: List[float],
         prior_scales: List[float],
+        unhashed_decoder_config: Optional[BeamSearchDecoderExtraConfig] = None,
+        extra_forward_config=None,
+        use_gpu=False,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -82,26 +95,44 @@ def bpe_ls960_1023_base():
         :param base_decoder_config: any decoder config dataclass
         :param lm_scales: lm scales for tuning
         :param prior_scales: prior scales for tuning, same length as lm scales
+        :param unhashed_decoder_config: decoder config without hashing, used for BeamSearch configs
+        :param extra_forward_config: additional args to the ReturnnForwardJob, e.g. to modify batch size
+        :param use_gpu: for GPU decoding
         """
+
+        # Automatic selection of decoder module
+        if isinstance(base_decoder_config, FlashlightDecoderConfig):
+            decoder_module = "ctc.decoder.flashlight_ctc_v2"
+        elif isinstance(base_decoder_config, BeamSearchDecoderConfig):
+            decoder_module = "ctc.decoder.beam_search_bpe_ctc_v5"
+            assert unhashed_decoder_config is not None
+        else:
+            assert False, "Invalid decoder config"
+
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
-        for lm_weight in lm_scales:
+        report_values = {}
+        for lm_scale in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
-                decoder_config.lm_weight = lm_weight
+                decoder_config.lm_scale = lm_scale
                 decoder_config.prior_scale = prior_scale
-                search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+                search_name = training_name + "/search_lm%.2f_prior%.2f" % (lm_scale, prior_scale)
                 search_jobs, wers = search(
                     search_name,
-                    forward_config={},
+                    forward_config=extra_forward_config if extra_forward_config else {},
                     asr_model=asr_model,
-                    decoder_module="ctc.decoder.flashlight_ctc_v1",
+                    decoder_module=decoder_module,
                     decoder_args={"config": asdict(decoder_config)},
                     test_dataset_tuples=dev_dataset_tuples,
+                    unhashed_decoder_args={"extra_config": asdict(unhashed_decoder_config)}
+                    if unhashed_decoder_config
+                    else None,
+                    use_gpu=use_gpu,
                     **default_returnn,
                 )
-                tune_parameters.append((lm_weight, prior_scale))
+                tune_parameters.append((lm_scale, prior_scale))
                 tune_values_clean.append((wers[search_name + "/dev-clean"]))
                 tune_values_other.append((wers[search_name + "/dev-other"]))
 
@@ -111,17 +142,31 @@ def bpe_ls960_1023_base():
             )
             pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
             decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
+            decoder_config.lm_scale = pick_optimal_params_job.out_optimal_parameters[0]
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
                 training_name,
-                forward_config={},
+                forward_config=extra_forward_config if extra_forward_config else {},
                 asr_model=asr_model,
-                decoder_module="ctc.decoder.flashlight_ctc_v1",
+                decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
+                unhashed_decoder_args={"extra_config": asdict(unhashed_decoder_config)}
+                if unhashed_decoder_config
+                else None,
+                use_gpu=use_gpu,
                 **default_returnn,
             )
+            report_values[key] = wers[training_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=training_name,
+            tune_parameters=tune_parameters,
+            tuning_names=["LM", "Prior"],
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values,
+        )
 
     def greedy_search_helper(training_name: str, asr_model: ASRModel, decoder_config: GreedyDecoderConfig):
         # remove prior if exists
@@ -139,20 +184,52 @@ def bpe_ls960_1023_base():
             **default_returnn,
         )
 
-    default_decoder_config_bpe5000 = DecoderConfig(
-        lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=5000),
-        returnn_vocab=label_datastream_bpe5000.vocab,
+    default_flashlight_decoder_config = FlashlightDecoderConfig(
+        lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=BPE_SIZE),
+        returnn_vocab=label_datastream_bpe.vocab,
         beam_size=1024,  # Untuned
         beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,  # Untuned
     )
 
-    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import (
+    default_greedy_config = GreedyDecoderConfig(
+        returnn_vocab=label_datastream_bpe.vocab,
+    )
+
+    trafo_32x768: NeuralLM = get_lm_model("bpe%i_trafo32x768_5ep" % BPE_SIZE)
+    lstm_2x2048: NeuralLM = get_lm_model("bpe%i_2x2024_kazuki_lstmlm_3ep" % BPE_SIZE)
+
+    lstmlm_beamsearch_decoder_bs10_config = BeamSearchDecoderConfig(
+        returnn_vocab=label_datastream_bpe.vocab,
+        beam_size=10,
+        lm_model_args=lstm_2x2048.net_args,
+        lm_checkpoint=lstm_2x2048.checkpoint,
+        lm_module="pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v1_decoding.Model",
+        lm_states_need_label_axis=False,
+    )
+    lstmlm_beamsearch_decoder_bs32_config = copy.deepcopy(lstmlm_beamsearch_decoder_bs10_config)
+    lstmlm_beamsearch_decoder_bs32_config.beam_size = 32
+
+    trafolm_beamsearch_decoder_config = BeamSearchDecoderConfig(
+        returnn_vocab=label_datastream_bpe.vocab,
+        beam_size=10,
+        lm_model_args=trafo_32x768.net_args,
+        lm_checkpoint=trafo_32x768.checkpoint,
+        lm_module="pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v1_decoding.Model",
+        lm_states_need_label_axis=True,
+    )
+
+    beamsearch_decoder_extra_config = BeamSearchDecoderExtraConfig(
+        lm_package=PACKAGE,
+    )
+
+    from ...pytorch_networks.ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
         SpecaugConfig,
         VGG4LayerActFrontendV1Config_mod,
         ModelConfig,
         LogMelFeatureExtractionV1Config,
+        ConformerPosEmbConfig,
     )
 
     fe_config = LogMelFeatureExtractionV1Config(
@@ -168,10 +245,10 @@ def bpe_ls960_1023_base():
     specaug_config = SpecaugConfig(
         repeat_per_n_frames=25,
         max_dim_time=20,
-        max_dim_feat=16,  # Albert style
+        max_dim_feat=16,  # classic style
         num_repeat_feat=5,
     )
-    frontend_config_sub6 = VGG4LayerActFrontendV1Config_mod(
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
         in_features=80,
         conv1_channels=32,
         conv2_channels=64,
@@ -190,9 +267,20 @@ def bpe_ls960_1023_base():
         activation=None,
     )
 
+    # Try to do like returnn frontend
+    posemb_config = ConformerPosEmbConfig(
+        learnable_pos_emb=False,
+        rel_pos_clip=16,
+        with_linear_pos=True,
+        with_pos_bias=True,
+        separate_pos_emb_per_head=True,
+        pos_emb_dropout=0.0,
+    )
+
     model_config = ModelConfig(
         feature_extraction_config=fe_config,
-        frontend_config=frontend_config_sub6,
+        frontend_config=frontend_config,
+        pos_emb_config=posemb_config,
         specaug_config=specaug_config,
         label_target_size=vocab_size_without_blank,
         conformer_size=512,
@@ -203,48 +291,95 @@ def bpe_ls960_1023_base():
         conv_dropout=0.1,
         ff_dropout=0.1,
         mhsa_dropout=0.1,
+        mhsa_with_bias=True,
         conv_kernel_size=31,
         final_dropout=0.1,
-        specauc_start_epoch=11,  # BPE does not converge otherwise
+        specauc_start_epoch=11,
+        dropout_broadcast_axes=None,  # No dropout broadcast yet to properly compare
+        module_list=["ff", "conv", "mhsa", "ff"],
+        module_scales=[0.5, 1.0, 1.0, 0.5],
+        aux_ctc_loss_layers=None,
+        aux_ctc_loss_scales=None,
     )
 
-    train_config_24gbgpu_amp = {
-        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
-        "learning_rates": list(np.linspace(7e-6, 5e-4, 240))
-        + list(np.linspace(5e-4, 5e-5, 240))
-        + list(np.linspace(5e-5, 1e-7, 20)),
+    # New test more closer to other setup
+    train_config_24gbgpu_amp_radam = {
+        "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+        "learning_rates": list(np.linspace(5e-5, 5e-4, 480))
+        + list(np.linspace(5e-4, 5e-5, 480))
+        + list(np.linspace(5e-5, 1e-7, 40)),
         #############
-        "batch_size": 360 * 16000,  # GPU MEM still very moderate, but larger batch did not help
+        "batch_size": 240 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
         "torch_amp_options": {"dtype": "bfloat16"},
-        "gradient_clip": 1.0,
+        "num_workers_per_gpu": 2,
     }
 
-    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6"
-    train_args = {
-        "config": train_config_24gbgpu_amp,
+    network_module = "ctc.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1"
+    train_args_radam = {
+        "config": train_config_24gbgpu_amp_radam,
         "network_module": network_module,
         "net_args": {"model_config_dict": asdict(model_config)},
+        "use_speed_perturbation": True,
         "debug": False,
     }
 
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps"
-    train_job = training(training_name, train_data_bpe5000, train_args, num_epochs=500, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe5000, get_specific_checkpoint=500
+    training_name = (
+        prefix_name
+        + "/"
+        + str(BPE_SIZE)
+        + "/"
+        + network_module
+        + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_radam_lr5e-4"
     )
-    add_ctc_model("ls960_ctc_bpe_5k." + network_module + ".512dim_sub6_24gbgpu_50eps_ckpt500", asr_model)
-    tune_and_evaluate_helper(
+    train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=1000, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+
+    asr_model = prepare_asr_model(
         training_name,
+        train_job,
+        train_args_radam,
+        with_prior=True,
+        datasets=train_data_bpe,
+        get_specific_checkpoint=1000,
+    )
+    greedy_search_helper(training_name + "/greedy", asr_model, default_greedy_config)
+    tune_and_evaluate_helper(
+        training_name + "/flashlight_4gram",
         asr_model,
-        default_decoder_config_bpe5000,
+        default_flashlight_decoder_config,
         lm_scales=[1.6, 1.8, 2.0],
         prior_scales=[0.2, 0.3, 0.4],
     )
-
-    greedy_decoder_config = GreedyDecoderConfig(
-        returnn_vocab=label_datastream_bpe5000.vocab,
+    tune_and_evaluate_helper(
+        training_name + "/beamsearch_lstm_2x2048_bs10",
+        asr_model,
+        lstmlm_beamsearch_decoder_bs10_config,
+        lm_scales=[0.6, 0.65, 0.7, 0.75, 0.8],
+        prior_scales=[0.0, 0.1, 0.15, 0.2, 0.25, 0.3],
+        unhashed_decoder_config=beamsearch_decoder_extra_config,
+        extra_forward_config={"batch_size": 200 * 16000},
+        use_gpu=True,
     )
-    greedy_search_helper(training_name=training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+    tune_and_evaluate_helper(
+        training_name + "/beamsearch_lstm_2x2048_bs32",
+        asr_model,
+        lstmlm_beamsearch_decoder_bs32_config,
+        lm_scales=[0.6, 0.65, 0.7, 0.75, 0.8],
+        prior_scales=[0.0, 0.1, 0.15, 0.2, 0.25, 0.3],
+        unhashed_decoder_config=beamsearch_decoder_extra_config,
+        extra_forward_config={"batch_size": 200 * 16000},
+        use_gpu=True,
+    )
+    tune_and_evaluate_helper(
+        training_name + "/beamsearch_trafo_32x768",
+        asr_model,
+        trafolm_beamsearch_decoder_config,
+        lm_scales=[0.7, 0.75, 0.8, 0.85, 0.9],
+        prior_scales=[0.3, 0.35, 0.4],
+        unhashed_decoder_config=beamsearch_decoder_extra_config,
+        extra_forward_config={"batch_size": 200 * 16000},
+        use_gpu=True,
+    )

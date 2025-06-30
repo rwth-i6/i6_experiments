@@ -695,7 +695,17 @@ def run_scf_stage1():
         alignment=ctc_alignment,
         features="waveform_pcm",
     )
-    returnn_args = {
+
+    alignment = tk.Path(
+        "/work/asr3/vieting/share/kannen/swb_alignment_ctc_lgm_to_scf.hdf",
+        hash_overwrite="swb_alignment_ctc_lgm_to_scf.hdf",
+    )
+    returnn_datasets_align_ctc_lgm = copy.deepcopy(returnn_datasets_align_ctc)
+    for key in ["train", "dev"]:
+        returnn_datasets_align_ctc_lgm[key]["datasets"]["align"]["files"] = [alignment]
+    returnn_datasets_align_ctc_lgm["eval_datasets"]["devtrain"]["datasets"]["align"]["files"] = [alignment]
+
+    returnn_base_args = {
         "batch_size": 15000,
         "datasets": returnn_datasets_align_ctc,
         "extra_args": {
@@ -717,7 +727,6 @@ def run_scf_stage1():
                 "classes": {"dim": 88, "dtype": "int8", "sparse": True},
             },
         },
-        "specaug_old": {"max_feature": 15},
     }
 
     feature_args = {
@@ -752,31 +761,104 @@ def run_scf_stage1():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_align-ctc-conf-e400": dict(
-                returnn_args=returnn_args,
+                returnn_args={
+                    **returnn_base_args,
+                    "specaug_old": {"max_feature": 15},
+                },
                 report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
-            "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
+            "bs15k_align-ctc-conf-e400_featinit-ctc-e400": dict(
                 returnn_args={
-                    **returnn_args,
+                    **returnn_base_args,
+                    "specaug_old": {"max_feature": 15},
                     "extra_args": {
-                        **returnn_args["extra_args"],
+                        **returnn_base_args["extra_args"],
                         "preload_from_files": preload_dict,
                     },
                 },
                 report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
-            "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
+            "bs15k_align-ctc-conf-e400_featinit-ctc-e400_froozen": dict(
                 returnn_args={
-                    **returnn_args,
+                    **returnn_base_args,
+                    "specaug_old": {"max_feature": 15},
                     "extra_args": {
-                        **returnn_args["extra_args"],
+                        **returnn_base_args["extra_args"],
                         "preload_from_files": preload_dict,
                     },
                     "staged_opts": {1: "freeze_features"},
                 },
                 report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+            "bs15k_align_lgm-ctc-featinit_stft20ms_fmask_15of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "datasets": returnn_datasets_align_ctc_lgm,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
+                **common_args,
+            ),
+            "bs15k_align_lgm-ctc-featinit-stft20ms_fmask_8of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "datasets": returnn_datasets_align_ctc_lgm,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "max_feature": 8,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
+                **common_args,
+            ),
+            "bs15k_align_scf-ctc-featinit_stft20ms_fmask_15of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
+                **common_args,
+            ),
+            "bs15k_align_scf-ctc-featinit_stft20ms_fmask_8of512": dict(
+                returnn_args={
+                    **returnn_base_args,
+                    "extra_args": {
+                        **returnn_base_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "specaug_stft": {
+                        "max_feature": 8,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                report_args={"alignment": "lgm"},
                 **common_args,
             ),
         },
@@ -805,7 +887,6 @@ def run_scf_stage2():
             "min_learning_rate": 1e-6,
             "max_seq_length": {"classes": 600},
         },
-        "specaug_old": {"max_feature": 15},
         "rasr_loss_args": {"transducer_training_stage": "fullsum"},
         "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
     }
@@ -827,7 +908,7 @@ def run_scf_stage2():
                 "max-batch-size": 256,
                 "reduction-factors": 80 * 4,
                 # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RASR needs -1.
-                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1, 
+                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1,
                 "start-label-index": 89,
                 "transform-output-negate": True,
                 "use-start-label": True,
@@ -860,6 +941,37 @@ def run_scf_stage2():
                     "preload_checkpoint": nn_system_stage1.train_jobs[
                         "viterbi_scf_bs15k_align-ctc-conf-e400"
                     ].out_checkpoints[300],
+                    "specaug_old": {"max_feature": 15},
+                    **returnn_args,
+                },
+                report_args={"stage": "fullsum"},
+                **common_args,
+            ),
+            "bs3k_v1_align-lgm_stft20ms_fmask_15of512": dict(
+                returnn_args={
+                    "preload_checkpoint": nn_system_stage1.train_jobs[
+                        "viterbi_scf_bs15k_align_lgm-ctc-featinit_stft20ms_fmask_15of512"
+                    ].out_checkpoints[300],
+                    "specaug_stft": {
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                    **returnn_args,
+                },
+                report_args={"stage": "fullsum"},
+                **common_args,
+            ),
+            "bs3k_v1_align-scf_stft20ms_fmask_15of512": dict(
+                returnn_args={
+                    "preload_checkpoint": nn_system_stage1.train_jobs[
+                        "viterbi_scf_bs15k_align_scf-ctc-featinit_stft20ms_fmask_15of512"
+                    ].out_checkpoints[300],
+                    "specaug_stft": {
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
                     **returnn_args,
                 },
                 report_args={"stage": "fullsum"},
@@ -880,6 +992,7 @@ def run_scf_stage2():
     for training_name in nn_system.train_jobs:
         nn_system.train_jobs[training_name].rqmt["gpu_mem"] = 24
     return nn_system, report
+
 
 def run_scf_stage3():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
@@ -936,11 +1049,8 @@ def run_scf_stage3():
         "label_scorer_type": "tf-ffnn-transducer",
         "epochs": [210],
     }
-    nn_system_stage2.returnn_configs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].recog_configs["recog"].config["network"]["output"][
-        "unit"
-    ]["label_context"][
-        "from"
-    ] = "output"  # no ILM, just SF
+    nn_system_stage2.returnn_configs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].recog_configs["recog"].config[
+        "network"]["output"]["unit"]["label_context"]["from"] = "output"  # no ILM, just SF
     nn_system_stage2.run_recogs_for_corpora(
         ["train"], "fullsum_scf_bs3k_v1_align-ctc-conf-e400", SearchTypes.GenericSeq2SeqSearchJob, **recog_args_nbest
     )
@@ -1026,7 +1136,6 @@ def run_scf_stage3():
         "specaug_old": False,
         "rasr_loss_args": {"transducer_training_stage": "mbr"},
         "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
-        "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].out_checkpoints[210],
     }
     feature_args = {
         "class": "ScfNetwork",
@@ -1074,8 +1183,33 @@ def run_scf_stage3():
     # set up experiments
     nn_base_args = {
         "bs2k_v1": dict(
-            returnn_args=returnn_args,
+            returnn_args={
+                **returnn_args,
+                "preload_checkpoint": nn_system_stage2.train_jobs[
+                    "fullsum_scf_bs3k_v1_align-ctc-conf-e400"
+                ].out_checkpoints[210],
+            },
             report_args={"stage": "mbr"},
+            **common_args,
+        ),
+        "bs2k_v1_lgm_stage3": dict(
+            returnn_args={
+                **returnn_args,
+                "preload_checkpoint": nn_system_stage2.train_jobs[
+                    "fullsum_scf_bs3k_v1_align-lgm_stft20ms_fmask_15of512"
+                ].out_checkpoints[210],
+            },
+            report_args={"stage": "mbr", "model": "scf_align-lgm_stft"},
+            **common_args,
+        ),
+        "bs2k_v1_scf_stage3": dict(
+            returnn_args={
+                **returnn_args,
+                "preload_checkpoint": nn_system_stage2.train_jobs[
+                    "fullsum_scf_bs3k_v1_align-scf_stft20ms_fmask_15of512"
+                ].out_checkpoints[210],
+            },
+            report_args={"stage": "mbr", "model": "scf_stft"},
             **common_args,
         ),
     }

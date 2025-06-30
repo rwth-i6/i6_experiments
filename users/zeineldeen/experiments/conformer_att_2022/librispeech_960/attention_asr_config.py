@@ -413,6 +413,7 @@ def create_config(
     retrain_checkpoint=None,
     decouple_constraints_factor=0.025,
     extra_str=None,
+    extra_prolog=None,
     preload_from_files=None,
     min_lr_factor=50,
     specaug_str_func_opts=None,
@@ -694,9 +695,9 @@ def create_config(
     if feature_extraction_net:
         if global_stats:
             add_global_stats_norm(global_stats, exp_config["network"])
-        else:
-            # use per-seq norm
-            add_per_seq_norm(exp_config["network"])
+        # else:
+        #     # use per-seq norm
+        #     add_per_seq_norm(exp_config["network"])
 
     if mixup_aug_opts:
         add_mixup_layers(
@@ -727,8 +728,8 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
-                    else:
-                        add_per_seq_norm(net)
+                    # else:
+                    #     add_per_seq_norm(net)
 
                 if (mixup_aug_opts and enable_mixup_in_pretrain) or (
                     global_stats and not global_stats.get("use_legacy_version", False)
@@ -861,6 +862,10 @@ def create_config(
 
     if horovod_params:
         exp_config.update(horovod_params)
+
+    if extra_prolog:
+        assert isinstance(extra_prolog, list)
+        python_prolog += extra_prolog
 
     returnn_config = ReturnnConfig(
         exp_config,

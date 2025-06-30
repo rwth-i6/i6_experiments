@@ -18,19 +18,15 @@ from functools import reduce
 
 _my_dir = os.path.dirname(__file__)
 _base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
-_setup_base_dir = os.path.dirname(_base_recipe_dir)
-_checked_setup_base_dir = False
 
 
 def get_setup_base_dir() -> str:
     """
     :return: The setup base dir, where there is work and recipe.
     """
-    global _checked_setup_base_dir
-    if not _checked_setup_base_dir:
-        assert os.path.exists(f"{_setup_base_dir}/work") and os.path.exists(f"{_setup_base_dir}/recipe")
-        _checked_setup_base_dir = True
-    return _setup_base_dir
+    from i6_experiments.users.zeyer.utils import sis_path
+
+    return sis_path.get_setup_base_dir()
 
 
 def get_work_dir() -> str:
@@ -51,13 +47,13 @@ def get_work_dir_prefix2() -> str:
     return sis_path.get_work_dir_prefix2()
 
 
-def get_job_aliases(job: str) -> Optional[List[str]]:
+def get_job_aliases(job: str) -> List[str]:
     """
     :param job: without "work/" prefix
     """
-    from i6_experiments.users.zeyer.utils import job_aliases_from_log
+    from i6_experiments.users.zeyer.utils import job_aliases_from_info
 
-    return job_aliases_from_log.get_job_aliases(job)
+    return job_aliases_from_info.get_job_aliases(job)
 
 
 @contextmanager
@@ -74,6 +70,10 @@ def get_inputs(job: str) -> list[str]:
     inputs = []
     with open(work_dir_prefix + job + "/info") as f:
         for line in f.read().splitlines():
+            if line.endswith(":"):  # e.g. "STACKTRACE:"
+                continue
+            if line.startswith("  "):  # e.g. the stacktrace itself
+                continue
             key, value = line.split(": ", 1)
             if key != "INPUT":
                 continue
@@ -106,9 +106,19 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
     elif filename.startswith("work/") and os.path.exists(get_setup_base_dir() + "/" + filename):
         filename = filename[len("work/") :]
     else:
+        if "/output/" in filename:
+            path = os.path.realpath(filename[: filename.rindex("/output/")])
+            if is_job_dir(path):
+                f = None
+                while True:
+                    f = path.rindex("/", None, f)
+                    if f <= 0:
+                        break
+                    if os.path.realpath(get_work_dir_prefix() + path[f + 1 :]) == path:
+                        return path[f + 1 :]
         if allow_none:
             return None
-        raise ValueError(f"invalid {filename=}")
+        raise ValueError(f"invalid {filename=}, not prefixed by {work_dir_prefix=} or {work_dir_prefix2=}")
     s = 0
     while True:
         f = filename.find("/", s)
@@ -123,9 +133,12 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
 
 def is_job_dir(job: str) -> bool:
     """
-    :param job: without "work/" prefix
+    :param job: without "work/" prefix, or absolute
     """
-    d = get_work_dir_prefix() + job
+    if job.startswith("/"):
+        d = job
+    else:
+        d = get_work_dir_prefix() + job
     if not os.path.isdir(d):
         return False
     if not os.path.isfile(d + "/info"):
@@ -135,11 +148,18 @@ def is_job_dir(job: str) -> bool:
     return True
 
 
-def get_job_from_arg(job: str) -> str:
+def get_job_from_arg(job: str, *, set_setup_base_dir: bool = False) -> str:
     """
     :param job: job path, job name, job output
+    :param set_setup_base_dir: if True, potentially allow to set setup base dir based on job
     :return: job, such that is_job_dir(job) is True
     """
+    from i6_experiments.users.zeyer.utils import sis_path
+
+    if set_setup_base_dir:
+        setup_base_dir = sis_path.get_setup_base_dir_from_job(job)
+        if setup_base_dir:
+            sis_path.set_setup_base_dir(setup_base_dir)
     work_dir_prefix = get_work_dir_prefix()
     if job.startswith("work/"):
         job = job[len("work/") :]
@@ -151,6 +171,8 @@ def get_job_from_arg(job: str) -> str:
         job = "i6_core/recognition/scoring/" + job
     elif job.startswith("ReturnnSearchJobV2."):  # shortcut
         job = "i6_core/returnn/search/" + job
+    elif os.path.exists(job):
+        job = get_job_from_work_output(os.path.realpath(job), allow_none=True) or job
     assert os.path.exists(work_dir_prefix + job), f"job '{work_dir_prefix}{job}' does not exist"
     assert os.path.exists(work_dir_prefix + job + "/info")
     assert os.path.exists(work_dir_prefix + job + "/output")
@@ -311,7 +333,7 @@ def collect_inputs_per_key(info_params: list[ParsedInfoParameter]) -> dict[str, 
                 continue
             break
 
-    jobs_ = {"/".join(path): job for path, job in jobs.items()}
+    jobs_ = {"/".join(str(p) for p in path): job for path, job in jobs.items()}
     assert len(jobs_) == len(jobs)  # unique joined paths
     return jobs_
 

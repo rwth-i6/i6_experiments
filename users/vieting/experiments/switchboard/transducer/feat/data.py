@@ -14,6 +14,8 @@ from i6_experiments.common.datasets.switchboard import (
     get_train_corpus_object_ldc,
     get_hub5e00,
     get_hub5e00_corpus_object,
+    get_hub5e01,
+    get_hub5e01_corpus_object,
     get_bliss_lexicon,
 )
 from i6_experiments.common.setups.rasr.util import RasrDataInput, HdfDataInput, OggZipHdfDataInput
@@ -100,6 +102,7 @@ def get_switchboard_data(lexicon_remove_sentence_boundary: bool = False):
         lm=lm_args,
     )
     hub5e00 = get_hub5e00()
+    hub5e01 = get_hub5e01()
     dev_corpora = {
         "ctc": {
             "hub5e00": RasrDataInput(
@@ -108,6 +111,13 @@ def get_switchboard_data(lexicon_remove_sentence_boundary: bool = False):
                 lm=lm_args,
                 stm=hub5e00.stm,
                 glm=hub5e00.glm,
+            ),
+            "hub5e01": RasrDataInput(
+                corpus_object=get_hub5e01_corpus_object(),
+                lexicon={"filename": lexicon_recog_ctc, **lexicon_args},
+                lm=lm_args,
+                stm=hub5e01.stm,
+                glm=hub5e01.glm,
             ),
         },
         "transducer": {

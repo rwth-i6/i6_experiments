@@ -16,6 +16,7 @@ def serialize_training(
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
+    import_memristor: bool = False,
 ) -> Collection:
     """
     Helper function to create the serialization collection
@@ -45,6 +46,11 @@ def serialize_training(
         pytorch_model_import,
         pytorch_train_step,
     ]
+    if import_memristor is True:
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
+        # serializer_objects.insert(1, memristor_modules)
+        serializer_objects.append(memristor_modules)
+
     serializer = Collection(
         serializer_objects=serializer_objects,
         make_local_package_copy=not debug,
@@ -98,7 +104,7 @@ def serialize_forward(
     ]
     if import_memristor is True:
         memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
-        serializer_objects.append(memristor_modules)
+        serializer_objects.insert(1, memristor_modules)
 
     forward_module = forward_module or network_module
 

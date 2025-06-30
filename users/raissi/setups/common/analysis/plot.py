@@ -167,6 +167,7 @@ class PlotViterbiAlignmentsJob(Job):
 
     def run(self):
         from matplotlib import pyplot as plt
+        
 
         processor = AlignmentProcessor(
             alignment_bundle_path=self.alignment_bundle_path.get_path(),

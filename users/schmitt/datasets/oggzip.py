@@ -23,6 +23,8 @@ def get_dataset_dict(
         model_file: Optional[Path] = None,
         post_process: Optional[CodeWrapper] = None,
         text_only: bool = False,
+        hdf_features: Optional[Union[Path, List[Path]]] = None,
+        seq_order_control_dataset: str = "zip_dataset",
 ):
   # either not use targets or pass arguments for either BPE or SentencePieces
   assert not use_targets or ((bpe_file is not None and vocab_file is not None) or model_file is not None)
@@ -49,7 +51,7 @@ def get_dataset_dict(
         "epoch_wise_filter": epoch_wise_filter
       }
     },
-    "seq_order_control_dataset": "zip_dataset",
+    "seq_order_control_dataset": seq_order_control_dataset,
   }
 
   if post_process is not None:
@@ -87,5 +89,14 @@ def get_dataset_dict(
     )
 
     dataset_dict["data_map"]["targets"] = ("align", "data")
+
+  if hdf_features is not None:
+    dataset_dict["datasets"]["features"] = hdf.get_dataset_dict(
+      hdf_files=hdf_features if isinstance(hdf_features, list) else [hdf_features],
+      partition_epoch=partition_epoch,
+      segment_file=segment_file
+    )
+
+    dataset_dict["data_map"]["data"] = ("features", "data")
 
   return dataset_dict

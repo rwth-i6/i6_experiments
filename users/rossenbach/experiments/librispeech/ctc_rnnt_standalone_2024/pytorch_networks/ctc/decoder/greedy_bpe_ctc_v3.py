@@ -13,6 +13,7 @@ class DecoderConfig:
     returnn_vocab: str
 
 
+
 @dataclass
 class ExtraConfig:
     # used for RTF logging

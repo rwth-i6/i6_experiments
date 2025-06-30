@@ -20,6 +20,7 @@ def global_att_returnn_label_sync_beam_search(
         lm_type: Optional[str] = None,
         ilm_scale_list: Tuple[float, ...] = (0.0,),
         ilm_type: Optional[str] = None,
+        mini_lstm_const_lr: Optional[float] = None,
         lm_alias: Optional[str] = "kazuki-10k",
         lm_checkpoint: Optional[Checkpoint] = lm_checkpoints["kazuki-10k"],
         beam_size_list: Tuple[int, ...] = (12,),
@@ -60,6 +61,7 @@ def global_att_returnn_label_sync_beam_search(
   if ilm_type == "mini_att":
     ilm_opts.update({
       "use_se_loss": False,
+      "const_lr": 1e-4 if mini_lstm_const_lr is None else mini_lstm_const_lr,
     })
 
   recog_opts = {

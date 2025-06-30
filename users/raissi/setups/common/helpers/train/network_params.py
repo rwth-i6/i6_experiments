@@ -49,6 +49,12 @@ default_sa_args = SpecAugmentParams()
 # no chunking for full-sum
 default_blstm_fullsum = GeneralNetworkParams(l2=1e-4, use_multi_task=False, add_mlps=False)
 
+blstm_viterbi_singlestate = GeneralNetworkParams(
+    l2=5e-6,
+    chunking="256:128",
+    specaug_args=asdict(default_sa_args),
+    frame_rate_reduction_ratio_factor=1,
+)
 ################
 # Conformer
 ################
@@ -77,6 +83,14 @@ frameshift40_conformer_viterbi_zhou = GeneralNetworkParams(
     chunking="256:128",
     specaug_args=asdict(default_sa_args),
     frame_rate_reduction_ratio_factor=4,
+    auxilary_loss_layers=[6, 12],
+)
+
+frameshift40_conformer_viterbi_zhou_singlestate = GeneralNetworkParams(
+    l2=5e-6,
+    chunking="256:128",
+    specaug_args=asdict(default_sa_args),
+    frame_rate_reduction_ratio_factor=1,
     auxilary_loss_layers=[6, 12],
 )
 

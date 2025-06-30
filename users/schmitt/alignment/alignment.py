@@ -2,9 +2,8 @@ from sisyphus import *
 
 from returnn.datasets.hdf import SimpleHDFWriter
 
-from recipe.i6_core.util import create_executable
-from recipe.i6_core.rasr.config import build_config_from_mapping
-from recipe.i6_core.rasr.command import RasrCommand
+from i6_core.util import create_executable
+from i6_core.rasr.command import RasrCommand
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJob
 from i6_core.lib import corpus
@@ -23,7 +22,7 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from i6_experiments.users.schmitt import hdf
-import recipe.i6_experiments.users.schmitt.tools as tools_mod
+import i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
 
 from i6_experiments.users.schmitt.tools.compare_bpe_and_gmm_alignment import write_state_tying, get_allophone_word_end_positions

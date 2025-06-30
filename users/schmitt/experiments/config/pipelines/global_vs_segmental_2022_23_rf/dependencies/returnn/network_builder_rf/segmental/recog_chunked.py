@@ -193,6 +193,7 @@ def get_score(
         model: SegmentalAttentionModel,
         i: int,
         chunk_idx: Optional[Tensor],
+        num_windows: Optional[Tensor],
         input_embed_label_model: Optional[Tensor],
         input_embed_blank_model: Optional[Tensor],
         input_embed_aed_model: Optional[Tensor],
@@ -202,6 +203,7 @@ def get_score(
         blank_decoder_state: Optional[State],
         lm_state: Optional[State],
         ilm_state: Optional[State],
+        ilm_type: Optional[str],
         aed_decoder_state: Optional[State],
         enc_args: Dict[str, Tensor],
         att_enc_args: Dict[str, Tensor],
@@ -311,6 +313,7 @@ def get_score(
     label_log_prob = alpha * label_log_prob + (1 - alpha) * h_t_label_log_prob
 
   label_log_prob *= base_model_scale
+  # print("label_log_prob", label_log_prob.raw_tensor)
 
   # ------------------- external AED step -------------------
   aed_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
@@ -353,25 +356,39 @@ def get_score(
 
   lm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
   if lm_state is not None:
-    lm_logits, lm_state, _ = model.language_model(
+    lm_logits, lm_state, = model.language_model(
       nb_target,
       spatial_dim=single_step_dim,
       state=lm_state,
     )
     lm_label_log_prob = rf.log_softmax(lm_logits, axis=model.target_dim)
+    # print("chunk_idx", chunk_idx.raw_tensor)
+    # print("lm_label_log_prob", lm_label_log_prob.raw_tensor)
 
     # do not apply LM scores to blank
     if model.use_joint_model:
+      # set EOS log prob of LM to 0
       lm_label_log_prob_ = rf.where(
         rf.range_over_dim(model.target_dim) == model.blank_idx,
         rf.zeros(batch_dims, dtype="float32"),
         lm_label_log_prob
       )
-      lm_label_log_prob = rf.where(
-        rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
-        lm_label_log_prob,
-        lm_label_log_prob_
-      )
+      # keep EOS log prob of LM in case of last chunk/ last frame
+      if chunk_idx is None:
+        lm_label_log_prob = rf.where(
+          rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+          lm_label_log_prob,
+          lm_label_log_prob_
+        )
+      else:
+        # print("chunk_idx", chunk_idx.raw_tensor)
+        # print("num_windows", num_windows.raw_tensor)
+        lm_label_log_prob = rf.where(
+          chunk_idx == num_windows - 1,
+          lm_label_log_prob,
+          lm_label_log_prob_
+        )
+        # print("lm_label_log_prob", lm_label_log_prob.raw_tensor)
     else:
       lm_eos_log_prob = rf.where(
         rf.convert_to_tensor(
@@ -395,7 +412,8 @@ def get_score(
       segment_starts=segment_starts,
       center_positions=center_positions,
       state=ilm_state,
-      use_mini_att=True
+      use_mini_att=ilm_type == "mini_att",
+      use_zero_att=ilm_type == "zero_att"
     )
     ilm_logits, _ = model.label_decoder.decode_logits(
       input_embed=input_embed_label_model,
@@ -413,11 +431,18 @@ def get_score(
         ilm_label_log_prob
       )
       if subtract_ilm_eos_score:
-        ilm_label_log_prob = rf.where(
-          rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
-          ilm_label_log_prob,
-          ilm_label_log_prob_
-        )
+        if chunk_idx is None:
+          ilm_label_log_prob = rf.where(
+            rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+            ilm_label_log_prob,
+            ilm_label_log_prob_
+          )
+        else:
+          ilm_label_log_prob = rf.where(
+            chunk_idx == num_windows - 1,
+            ilm_label_log_prob,
+            ilm_label_log_prob_
+          )
       else:
         ilm_label_log_prob = ilm_label_log_prob_.copy()
     else:
@@ -525,6 +550,7 @@ def model_recog(
         cheating_targets_spatial_dim: Optional[Dim] = None,
         return_non_blank_seqs: bool = True,
         separate_readout_alpha: Optional[float] = None,
+        length_normalization_exponent: float = 0.0,
 ) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
@@ -652,7 +678,11 @@ def model_recog(
 
   # ILM
   if ilm_type is not None:
-    ilm_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_, use_mini_att=True)
+    ilm_state = model.label_decoder.default_initial_state(
+      batch_dims=batch_dims_,
+      use_mini_att=ilm_type == "mini_att",
+      use_zero_att=ilm_type == "zero_att"
+    )
   else:
     ilm_state = None
 
@@ -743,8 +773,10 @@ def model_recog(
     while_cond = "True"
   else:
     chunk_idx = None
+    num_windows = None
     while_cond = f"i < {max_seq_len.raw_tensor}"
   while eval(while_cond):
+    # print("i", i)
     if i > 0:
       target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
       target_non_blank.sparse_dim = target_non_blank_dim
@@ -795,6 +827,7 @@ def model_recog(
       model=model,
       i=i,
       chunk_idx=chunk_idx,
+      num_windows=num_windows,
       input_embed_label_model=input_embed,
       input_embed_blank_model=input_embed_length_model,
       input_embed_aed_model=input_embed_aed,
@@ -804,6 +837,7 @@ def model_recog(
       blank_decoder_state=blank_decoder_state,
       lm_state=lm_state,
       ilm_state=ilm_state,
+      ilm_type=ilm_type,
       aed_decoder_state=aed_decoder_state,
       enc_args=enc_args,
       att_enc_args=att_enc_args,
@@ -871,7 +905,7 @@ def model_recog(
     # ------------------- recombination -------------------
 
     if use_recombination:
-      seq_log_prob = recombination.recombine_seqs(
+      seq_log_prob, _ = recombination.recombine_seqs(
         seq_targets,
         seq_log_prob,
         seq_hash,
@@ -883,6 +917,10 @@ def model_recog(
     # ------------------- top-k -------------------
 
     seq_log_prob = seq_log_prob + output_log_prob  # Batch, InBeam, Vocab
+
+    # print("seq_log_prob", seq_log_prob.raw_tensor)
+    # print("------------------------------------------------------------------")
+
     seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
       seq_log_prob,
       k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
@@ -922,6 +960,16 @@ def model_recog(
         rf.copy_to_device(i >= enc_spatial_sizes * 2)
       )
 
+      if i > 1 and length_normalization_exponent != 0:
+        # Length-normalized scores, so we evaluate score_t/len.
+        # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
+        # Because we count with EOS symbol, shifted by one.
+        seq_log_prob *= rf.where(
+          ended,
+          (i / (i - 1)) ** length_normalization_exponent,
+          1.0,
+        )
+
       # update chunk idx, if model output blank and chunk_idx < num_windows - 1
       chunk_idx = rf.where(
         rf.logical_and(~update_state_mask, chunk_idx < num_windows - 1),
@@ -960,7 +1008,7 @@ def model_recog(
 
   # last recombination
   if use_recombination:
-    seq_log_prob = recombination.recombine_seqs(
+    seq_log_prob, _ = recombination.recombine_seqs(
       seq_targets,
       seq_log_prob,
       seq_hash,
@@ -968,6 +1016,9 @@ def model_recog(
       batch_dims[0],
       use_sum=use_recombination == "sum"
     )
+
+  if i > 0 and length_normalization_exponent != 0:
+    seq_log_prob *= (1 / i) ** length_normalization_exponent
 
   best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
 

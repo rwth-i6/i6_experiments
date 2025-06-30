@@ -4,6 +4,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
+import copy
 import os
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
@@ -12,6 +13,7 @@ from sisyphus import tk
 from sisyphus import tools as sis_tools
 from i6_core.util import instanciate_delayed, uopen
 
+from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
 from i6_core.returnn.search import (
@@ -27,18 +29,22 @@ from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
-from .datasets.task import Task
+from i6_experiments.users.mueller.datasets.task import Task
+from i6_experiments.users.mueller.utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
+from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert, model_recog, model_recog_gradients
+from i6_experiments.users.mueller.experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm, get_count_based_n_gram
+from i6_experiments.users.mueller.datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
+from i6_experiments.users.mueller.scoring import ComputeWERJob, _score_recog
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+from i6_experiments.common.datasets.librispeech.language_model import get_arpa_lm_dict
+
+from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 
 import numpy as np
 
-from .experiments.ctc_baseline.ctc import model_recog_lm
-from .experiments.language_models.librispeech_lm import get_4gram_binary_lm
-from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
-from .scoring import ComputeWERJob, _score_recog
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -48,10 +54,12 @@ def recog_training_exp(
     prefix_name: str,
     task: Task,
     model: ModelWithCheckpoints,
-    recog_def: RecogDef,
+    recog_def: RecogDef | tuple[RecogDef, RecogDef],
     *,
-    decoder_hyperparameters: Optional[dict] = None,
+    decoder_hyperparameters: Optional[dict | tuple[dict, dict]] = None,
     save_pseudo_labels: Optional[tuple[dict, Optional[LibrispeechOggZip]]] = None,
+    pseudo_label_alignment: bool = False,
+    pseudo_nbest: int = 1,
     calculate_pseudo_label_scores: bool = True,
     search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -63,18 +71,44 @@ def recog_training_exp(
     num_shards_pseudo: Optional[int] = None,
     num_shards_prior: Optional[int] = None,
     is_last: bool = False,
+    get_prev: tuple[bool, bool] = (False, False),
     empirical_prior: Optional[tk.Path] = None,
     prior_from_max: bool = False,
-    return_summary: bool = False
+    return_summary: bool = False,
+    cache_manager: bool = True,
+    check_train_scores_nbest: int = 2,
+    return_beam: bool = False,
+    scales: Optional[Dict] = None,
 ) -> Optional[tk.Path]:
+    if isinstance(recog_def, tuple):
+        recog_def_eval = recog_def[0]
+        recog_def_pl = recog_def[1]
+    else:
+        recog_def_eval = recog_def
+        recog_def_pl = recog_def
+        
+    if decoder_hyperparameters is not None:
+        if isinstance(decoder_hyperparameters, tuple):
+            decoder_hyperparameters_eval = decoder_hyperparameters[0]
+            decoder_hyperparameters_pl = decoder_hyperparameters[0].copy()
+            decoder_hyperparameters_pl.update(decoder_hyperparameters[1])
+        else:
+            decoder_hyperparameters_eval = decoder_hyperparameters
+            decoder_hyperparameters_pl = decoder_hyperparameters
+    
+    sc = None
+    if search_config is not None:
+        sc = search_config.copy()
+        sc.pop("__prev_hyps", None)
+    
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
-        decoder_hyperparameters,
+        decoder_hyperparameters_eval,
         task,
         model,
-        recog_def,
-        search_config=search_config,
+        recog_def_eval,
+        search_config=sc,
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
@@ -82,12 +116,15 @@ def recog_training_exp(
         num_shards_prior=num_shards_prior,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
+        cache_manager=cache_manager
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=recog_and_score_func,
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
+        check_train_scores_n_best=check_train_scores_nbest,
         exclude_epochs=exclude_epochs,
+        scales=scales
     )
     summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
@@ -118,13 +155,18 @@ def recog_training_exp(
             recog_post_proc_funcs=task.recog_post_proc_funcs,
         )
         
+        pseudo_hyperparameters = decoder_hyperparameters_pl.copy()
+        if pseudo_nbest > 1 and not is_last:
+            pseudo_hyperparameters["ps_nbest"] = pseudo_nbest
+            
         pseudo_label_recog_func = _RecogAndScoreFunc(
             prefix_name + "/pseudo_labels",
-            decoder_hyperparameters,
+            pseudo_hyperparameters,
             task_pseudo_labels,
             model,
-            recog_def,
+            recog_def_pl,
             save_pseudo_labels=pseudo_labels_ds,
+            pseudo_label_alignment=pseudo_label_alignment,
             calculate_scores=calculate_pseudo_label_scores,
             search_config=search_config,
             search_post_config=search_post_config,
@@ -134,12 +176,17 @@ def recog_training_exp(
             num_shards_prior=num_shards_prior,
             empirical_prior=empirical_prior,
             prior_from_max=prior_from_max,
+            cache_manager=cache_manager,
+            get_prev=get_prev[1],
+            return_beam=return_beam,
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
             pseudo_recog_func=pseudo_label_recog_func,
             recog_input=summarize_job.out_summary_json,
             calculate_score=False,
+            pseudo_label_alignment=pseudo_label_alignment,
+            get_prev=get_prev[0],
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
         if is_last:
@@ -163,10 +210,10 @@ def recog_training_exp(
             
             score_func = _RecogAndScoreFunc(
                 prefix_name + "/pseudo_labels",
-                decoder_hyperparameters,
+                decoder_hyperparameters_pl,
                 task_score,
                 model,
-                recog_def,
+                recog_def_pl,
                 save_pseudo_labels=None,
                 calculate_scores=True,
                 search_config=search_config,
@@ -178,6 +225,8 @@ def recog_training_exp(
                 register_output=False,
                 empirical_prior=empirical_prior,
                 prior_from_max=prior_from_max,
+                cache_manager=cache_manager,
+                get_prev=get_prev[1],
             )
             
             score_job = GetScoreJob(score_func, summarize_job.out_summary_json)
@@ -197,6 +246,7 @@ class _RecogAndScoreFunc:
         recog_def: RecogDef,
         *,
         save_pseudo_labels: Optional[dict] = None,
+        pseudo_label_alignment: bool = False,
         calculate_scores: bool = True,
         search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
@@ -207,6 +257,9 @@ class _RecogAndScoreFunc:
         register_output: bool = True,
         empirical_prior: Optional[tk.Path] = None,
         prior_from_max: bool = False,
+        cache_manager: bool = True,
+        get_prev: bool = False,
+        return_beam: bool = False,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -219,14 +272,18 @@ class _RecogAndScoreFunc:
         self.recog_post_proc_funcs = recog_post_proc_funcs
         self.search_mem_rqmt = search_mem_rqmt
         self.save_pseudo_labels = save_pseudo_labels
+        self.pseudo_label_alignment = pseudo_label_alignment
         self.calculate_scores = calculate_scores
         self.num_shards_recog = num_shards_recog
         self.num_shards_prior = num_shards_prior
         self.register_output = register_output
         self.empirical_prior = empirical_prior
         self.prior_from_max = prior_from_max
+        self.cache_manager = cache_manager
+        self.get_prev = get_prev
+        self.return_beam = return_beam
 
-    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
             model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
         elif isinstance(epoch_or_ckpt, PtCheckpoint):
@@ -245,19 +302,21 @@ class _RecogAndScoreFunc:
                     prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
                     num_shards=self.num_shards_prior,
                     prior_from_max=self.prior_from_max,
+                    cache_manager=self.cache_manager
                 )
                 if isinstance(epoch_or_ckpt, int):
                     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
         else:
             prior_path = None
 
-        res, label_paths = recog_model(
+        res, label_paths, prev_res = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
             self.decoder_hyperparameters,
             prior_path,
             save_pseudo_labels=True if self.save_pseudo_labels else False,
+            pseudo_label_alignment=self.pseudo_label_alignment,
             calculate_scores=self.calculate_scores,
             config=self.search_config,
             search_post_config=self.search_post_config,
@@ -265,10 +324,13 @@ class _RecogAndScoreFunc:
             search_mem_rqmt=self.search_mem_rqmt,
             name=self.prefix_name + f"/search/{epoch_or_ckpt:03}",
             num_shards=self.num_shards_recog,
+            cache_manager=self.cache_manager,
+            get_prev=self.get_prev,
+            return_beam=self.return_beam,
         )
         if self.calculate_scores and isinstance(epoch_or_ckpt, int) and self.register_output:
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/score", res.output)
-        return res, label_paths
+        return res, label_paths, prev_res
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
@@ -281,8 +343,28 @@ class _RecogAndScoreFunc:
         del d["num_shards_prior"]
         del d["num_shards_recog"]
         del d["register_output"]
+        del d["cache_manager"]
+        if not d["return_beam"]:
+            del d["return_beam"]
+        else:
+            d["return_beam_version"] = 1
+        if not d["get_prev"]:
+            del d["get_prev"]
+        if not self.pseudo_label_alignment:
+            del d["pseudo_label_alignment"]
+        else:
+            d["align_version"] = 1
+        if "ps_nbest" in d["decoder_hyperparameters"] and d["decoder_hyperparameters"]["ps_nbest"] > 1:
+            d["nbest_version"] = 1
         if not self.search_config:
             del d["search_config"]  # compat
+        else:
+            conf = copy.deepcopy(d["search_config"])
+            if "preload_from_files" in conf:
+                for v in conf["preload_from_files"].values():
+                    if "filename" in v and isinstance(v["filename"], DelayedCodeWrapper):
+                        v["filename"] = v["filename"].args[0]
+            d["search_config"] = conf
         if not self.recog_post_proc_funcs:
             del d["recog_post_proc_funcs"]  # compat
         # Not the whole task object is relevant but only some minimal parts.
@@ -311,6 +393,7 @@ def recog_model(
     prior_path: tk.Path,
     *,
     save_pseudo_labels: bool = False,
+    pseudo_label_alignment: bool = False,
     calculate_scores: bool = True,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -320,41 +403,57 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
     num_shards: Optional[int] = None,
-) -> tuple[ScoreResultCollection, tk.Path]:
+    cache_manager: bool = True,
+    get_prev: bool = False,
+    return_beam: bool = False,
+) -> tuple[ScoreResultCollection, tk.Path, tk.Path]:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
     recog_paths = {}
+    prev_outs = {}
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
             if dataset_name not in dev_sets:
                 continue
-        recog_out = search_dataset(
+        cfg = config
+        if get_prev:
+            cfg = config.copy() if config else {}
+            cfg["__ds_name"] = dataset_name
+        recog_out, beam_recog_out, prev_out = search_dataset(
             decoder_hyperparameters=decoder_hyperparameters,
             dataset=dataset,
             model=model,
             recog_def=recog_def,
             prior_path=prior_path,
             save_pseudo_labels=save_pseudo_labels,
-            config=config,
+            pseudo_label_alignment=pseudo_label_alignment,
+            config=cfg,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             num_shards=num_shards,
+            cache_manager=cache_manager,
+            return_beam=return_beam,
+            # dataset_stats_path=f"{name.replace('/search/', '/ds_stats/')}/{dataset_name}" if name and "/125" in name and not "/tune/" in name else None
         )
         if calculate_scores:
             if dataset_name.startswith("train"):
-                score_out = _score_recog(dataset, recog_out)
+                score_out = _score_recog(dataset, recog_out, alias_name=name + f"/sclite/{dataset_name}")
                 # score_out = ComputeWERJob(recog_out.output, corpus_text_dict).out_wer
             else:
                 score_out = task.score_recog_output_func(dataset, recog_out)
             outputs[dataset_name] = score_out
         if save_pseudo_labels:
-            recog_paths[dataset_name] = recog_out.output
-    return task.collect_score_results_func(outputs) if calculate_scores else None, recog_paths if save_pseudo_labels else None
+            if ("ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1) or pseudo_label_alignment or recog_def is model_recog_gradients or return_beam:
+                recog_paths[dataset_name] = beam_recog_out
+            else:
+                recog_paths[dataset_name] = recog_out.output
+            prev_outs[dataset_name] = prev_out
+    return task.collect_score_results_func(outputs) if calculate_scores else None, recog_paths if save_pseudo_labels else None, prev_outs if save_pseudo_labels else None
 
 
 def compute_prior(
@@ -365,13 +464,14 @@ def compute_prior(
     prior_alias_name: Optional[str] = None,
     num_shards: Optional[int] = None,
     prior_from_max: bool = False,
+    cache_manager: bool = True
 ) -> tk.Path:
     if num_shards is not None:
         prior_frames_res = []
         prior_probs_res = []
         for i in range(num_shards):
             shard_prior_sum_job = ReturnnForwardJobV2(
-                model_checkpoint=model.checkpoint,
+                model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
                 returnn_config=prior_config(dataset, model.definition, shard_index=i, num_shards=num_shards),
                 output_files=["output_frames.npy", "output_probs.npy"],
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -389,7 +489,7 @@ def compute_prior(
         res = prior_job.out_comined_results
     else:
         prior_job = ReturnnForwardJobV2(
-            model_checkpoint=model.checkpoint,
+            model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
             returnn_config=prior_config(dataset, model.definition),
             output_files=["prior.txt"],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -413,6 +513,7 @@ def search_dataset(
     recog_def: RecogDef,
     prior_path: tk.Path,
     save_pseudo_labels: bool = False,
+    pseudo_label_alignment: bool = False,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 8,
@@ -420,7 +521,10 @@ def search_dataset(
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     num_shards: Optional[int] = None,
-) -> RecogOutput:
+    cache_manager: bool = True,
+    dataset_stats_path: Optional[str] = None,
+    return_beam: bool = False,
+) -> tuple[RecogOutput, tk.Path, tk.Path]:
     """
     Recog on the specific dataset using RETURNN.
 
@@ -451,16 +555,23 @@ def search_dataset(
         env_updates = (config and config.pop("__env_updates", None)) or (
             search_post_config and search_post_config.pop("__env_updates", None)
         )
+    device= "cpu"
     if save_pseudo_labels:
-        time_rqmt = 4.0
-        cpu_rqmt = 4
+        time_rqmt = 16.0
         if search_mem_rqmt < 8:
+            cpu_rqmt = 4
             search_mem_rqmt = 8
+        else:
+            cpu_rqmt = 8
+            
+        if recog_def is model_recog_gradients and decoder_hyperparameters.get("beam_size", 1) == 0:
+            device = "gpu"
+            num_shards = None
     else:
-        time_rqmt = 4.0
-        cpu_rqmt = 4
+        time_rqmt = 16.0
+        cpu_rqmt = 8
         if search_mem_rqmt < 8:
-            search_mem_rqmt = 8
+            search_mem_rqmt = 32
     if getattr(model.definition, "backend", None) is None:
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
@@ -486,14 +597,14 @@ def search_dataset(
             shard_search_res = []
             for i in range(num_shards):
                 shard_search_job = ReturnnForwardJobV2(
-                    model_checkpoint=model.checkpoint,
+                    model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
                     returnn_config=search_config_v2(
                         dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config, shard_index=i, num_shards=num_shards
                     ),
                     output_files=out_files,
                     returnn_python_exe=tools_paths.get_returnn_python_exe(),
                     returnn_root=tools_paths.get_returnn_root(),
-                    device="cpu",
+                    device=device,
                     time_rqmt=time_rqmt,
                     mem_rqmt=search_mem_rqmt,
                     cpu_rqmt=cpu_rqmt,
@@ -505,23 +616,29 @@ def search_dataset(
                     for k, v in env_updates.items():
                         shard_search_job.set_env(k, v)
                 shard_search_res.append(res)
-            search_job = SearchCombineShardsJob(shard_search_res)
+            if recog_def is model_recog_gradients:
+                search_job = SearchCombineShardsToHDFJob(shard_search_res)
+            else:
+                search_job = SearchCombineShardsJob(shard_search_res)
             res = search_job.out_comined_results
         else:
             search_job = ReturnnForwardJobV2(
-                model_checkpoint=model.checkpoint,
+                model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
                 returnn_config=search_config_v2(
                     dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config
                 ),
                 output_files=out_files,
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
                 returnn_root=tools_paths.get_returnn_root(),
-                device="cpu",
+                device=device,
                 time_rqmt=time_rqmt,
                 mem_rqmt=search_mem_rqmt,
                 cpu_rqmt=cpu_rqmt,
             )
             res = search_job.out_files[_v2_forward_out_filename]
+            if recog_def is model_recog_gradients:
+                search_job = SearchCombineShardsToHDFJob([res])
+                res = search_job.out_comined_results
     if num_shards is None:
         if search_rqmt:
             search_job.rqmt.update(search_rqmt)
@@ -530,22 +647,39 @@ def search_dataset(
                 search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
-        
+    
+    prev_res = res
+    
+    if recog_def is model_recog_gradients:
+        return None, res, prev_res
     use_lexicon = decoder_hyperparameters.get("use_lexicon", False) # if we have lexicon we already have the full words
+    beam_res = None
+    if pseudo_label_alignment:
+        beam_res = res
     if not use_lexicon:
         if recog_def.output_blank_label:
             if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
                 # Also assume we should collapse repeated labels first.
                 res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
             res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+        if dataset_stats_path is not None:
+            cnt = DataSetStatsJob(res).out_count_results
+            tk.register_output(dataset_stats_path, cnt)
+        if not pseudo_label_alignment:
+            beam_res = res
         for f in recog_post_proc_funcs:  # for example BPE to words
             res = f(RecogOutput(output=res)).output
+        if recog_post_proc_funcs and recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert or recog_def is model_recog:
+            from i6_core.returnn.search import SearchOutputRawReplaceJob
+            res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
+    if return_beam or use_lexicon:
+        beam_res = res
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res)
+    return RecogOutput(output=res), beam_res, prev_res
 
 
 # Those are applied for both training, recog and potential others.
@@ -844,6 +978,7 @@ def search_config_v2(
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
     
+    args_cached = {}
     if recog_def is model_recog_lm:
         from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
         
@@ -857,32 +992,71 @@ def search_config_v2(
         else:
             print("No vocab found in dataset!!!")
             lexicon = None
-            
-        lm = get_4gram_binary_lm()
+        
+        if "lm_order" in decoder_hyperparameters:
+            lm_name = decoder_hyperparameters["lm_order"]
+            if isinstance(lm_name, int):
+                lm = get_binary_lm(get_kenlm_n_gram(vocab = dataset.vocab, N_order = int(lm_name)))
+            elif lm_name.startswith("ffnn"):
+                lm = None
+            else:
+                raise NotImplementedError(f"Unknown lm_name {lm_name}")
+        else:
+            lm = get_binary_lm(get_arpa_lm_dict()["4gram"])
             
         args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
+        if lexicon:
+            args_cached["lexicon"] = DelayedCodeWrapper("cf('{}')", lexicon.get_path())
+        if lm:
+            args_cached["arpa_4gram_lm"] = DelayedCodeWrapper("cf('{}')", lm.get_path())
     
         if prior_path:
             args["prior_file"] = prior_path
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
+    elif recog_def is model_recog_gradients:
+        args = {"hyperparameters": decoder_hyperparameters}
+        
+        if "lm_order" in decoder_hyperparameters and isinstance(decoder_hyperparameters["lm_order"], int):
+            lm = get_count_based_n_gram(vocab = dataset.vocab, N_order = int(decoder_hyperparameters["lm_order"]))
+            args["arpa_lm"] = lm
+            args_cached["arpa_lm"] = DelayedCodeWrapper("cf('{}')", lm.get_path())
+            
+        if prior_path:
+            args["prior_file"] = prior_path
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
+    elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
+        args = {"hyperparameters": decoder_hyperparameters}
+        if prior_path:
+            args["prior_file"] = prior_path
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
+        # if "ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1:
+        #     args["version"] = 1
     else:
         args = {}
 
-    returnn_recog_config = ReturnnConfig(
+    returnn_recog_config = ReturnnConfigCustom(
         config=returnn_recog_config_dict,
-        python_epilog=[
+        python_prolog=[
             serialization.Collection(
                 [
                     serialization.NonhashedCode(get_import_py_code()),
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                ]
+            )
+        ],
+        python_epilog=[
+            serialization.Collection(
+                [
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
                     *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
-                    serialization.PartialImport(
+                    PartialImportCustom(
                         code_object_path=recog_def,
                         unhashed_package_root=None,
                         hashed_arguments=args,
-                        unhashed_arguments={},
+                        unhashed_arguments=args_cached,
                         import_as="_recog_def",
                         ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
@@ -895,7 +1069,6 @@ def search_config_v2(
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                    serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
                 ]
             )
@@ -1009,11 +1182,16 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
     extra = {}
+    beam_dim = None
     if config.bool("cheating", False):
         default_target_key = config.typed_value("target")
         targets = extern_data[default_target_key]
         extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
-    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
+    if recog_def.func is model_recog_lm_albert or recog_def.func is model_recog_flashlight or recog_def.func is model_recog_gradients:
+        seq_tags = extern_data["seq_tag"]
+        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, seq_tags=seq_tags, **extra)
+    else:
+        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
     if len(recog_out) == 5:
         # recog results including beam {batch, beam, out_spatial},
         # log probs {batch, beam},
@@ -1027,12 +1205,24 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         assert len(recog_out) == 4, f"mismatch, got {len(recog_out)} outputs recog_def_ext=False"
         hyps, scores, out_spatial_dim, beam_dim = recog_out
         extra = {}
+    elif len(recog_out) == 3:
+        # No beam dim given
+        assert len(recog_out) == 3, f"mismatch, got {len(recog_out)} outputs"
+        gradients_indices, scores, out_spatial_dim = recog_out
+        hyps = gradients_indices[0]
+        extra = {}
     else:
         raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
     assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
-    assert isinstance(out_spatial_dim, Dim) and isinstance(beam_dim, Dim)
-    rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
-    rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    assert isinstance(out_spatial_dim, Dim) and (isinstance(beam_dim, Dim) or beam_dim is None)
+    if beam_dim is not None:
+        rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
+        rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
+    else:
+        rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, out_spatial_dim, hyps.dims[-1]])
+        if gradients_indices[1] is not None:
+            rf.get_run_ctx().mark_as_output(gradients_indices[1], "indices", dims=[batch_dim, out_spatial_dim, hyps.dims[-1]])
+        rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim])
     assert isinstance(extra, dict)
     for k, v in extra.items():
         assert isinstance(k, str) and isinstance(v, Tensor)
@@ -1052,11 +1242,14 @@ def _returnn_v2_get_forward_callback():
 
     config = get_global_config()
     recog_def_ext = config.bool("__recog_def_ext", False)
+    previous_hyps = config.typed_value("__prev_hyps", None)
+    dataset_name = config.typed_value("__ds_name", None)
 
     class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
             self.out_file: Optional[TextIO] = None
             self.out_ext_file: Optional[TextIO] = None
+            self.previous_hyps = None
 
         def init(self, *, model):
             import gzip
@@ -1067,11 +1260,44 @@ def _returnn_v2_get_forward_callback():
             if recog_def_ext:
                 self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
                 self.out_ext_file.write("{\n")
+                
+            if previous_hyps is not None:
+                assert dataset_name is not None and isinstance(dataset_name, str)
+                d = eval(uopen(previous_hyps, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+                assert isinstance(d, dict)
+                assert "prev" in d
+                assert dataset_name in d["prev"]
+                self.previous_hyps = eval(gzip.open(d["prev"][dataset_name], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+                assert isinstance(self.previous_hyps, dict)
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
-            if hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
+            if scores.raw_tensor.shape == () and hyps.raw_tensor.shape[0] > 1: # hyps hold gradients
+                assert not self.out_ext_file, "not implemented"
+                self.out_file.write(f"{seq_tag!r}: [\n")
+                score = float(scores.raw_tensor)
+                tensor = hyps.raw_tensor.tolist()
+                # Compare to previous score
+                used_prev = False
+                if self.previous_hyps is not None:
+                    prev_hyps = self.previous_hyps.get(seq_tag)
+                    assert prev_hyps is not None, f"previous_hyps {seq_tag} not found"
+                    assert len(prev_hyps) == 1
+                    prev_hyps = prev_hyps[0]
+                    prev_score = float(prev_hyps[0])
+                    if prev_score >= score:
+                        self.out_file.write(f"  {prev_hyps!r},\n")
+                        used_prev = True
+                if not used_prev:
+                    if "indices" in outputs:
+                        indices: Tensor = outputs["indices"]
+                        indices = indices.raw_tensor.tolist()
+                        self.out_file.write(f"  ({score!r}, {tensor!r}, {indices!r}),\n")
+                    else:
+                        self.out_file.write(f"  ({score!r}, {tensor!r}),\n")
+                self.out_file.write("],\n")
+            elif hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
                 assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
                 assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
                 # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
@@ -1082,13 +1308,26 @@ def _returnn_v2_get_forward_callback():
                 num_beam = hyps.raw_tensor.shape[0]
                 # Consistent to old search task, list[(float,str)].
                 self.out_file.write(f"{seq_tag!r}: [\n")
-                for i in range(num_beam):
-                    score = float(scores.raw_tensor[i])
-                    hyp_ids = hyps.raw_tensor[
-                        i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
-                    ]
-                    hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
-                    self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+                # Compare to previous score
+                used_prev = False
+                if self.previous_hyps is not None:
+                    prev_hyps = self.previous_hyps.get(seq_tag)
+                    assert prev_hyps is not None, f"previous_hyps {seq_tag} not found"
+                    # Only check if first score was better
+                    prev_score = float(prev_hyps[0][0])
+                    score = float(scores.raw_tensor[0])
+                    if prev_score >= score:
+                        for prev in prev_hyps:
+                            self.out_file.write(f"  {prev!r},\n")
+                        used_prev = True
+                if not used_prev:
+                    for i in range(num_beam):
+                        score = float(scores.raw_tensor[i])
+                        hyp_ids = hyps.raw_tensor[
+                            i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
+                        ]
+                        hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+                        self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
                 self.out_file.write("],\n")
 
                 if self.out_ext_file:
@@ -1104,10 +1343,23 @@ def _returnn_v2_get_forward_callback():
                 num_beam = hyps.raw_tensor.shape[0]
                 # Consistent to old search task, list[(float,str)].
                 self.out_file.write(f"{seq_tag!r}: [\n")
-                for i in range(num_beam):
-                    score = float(scores.raw_tensor[i])
-                    words = hyps.raw_tensor[i][0]
-                    self.out_file.write(f"  ({score!r}, {words!r}),\n")
+                # Compare to previous score
+                used_prev = False
+                if self.previous_hyps is not None:
+                    prev_hyps = self.previous_hyps.get(seq_tag)
+                    assert prev_hyps is not None, f"previous_hyps {seq_tag} not found"
+                    # Only check if first score was better
+                    prev_score = float(prev_hyps[0][0])
+                    score = float(scores.raw_tensor[0])
+                    if prev_score >= score:
+                        for prev in prev_hyps:
+                            self.out_file.write(f"  {prev!r},\n")
+                        used_prev = True
+                if not used_prev:
+                    for i in range(num_beam):
+                        score = float(scores.raw_tensor[i])
+                        words = hyps.raw_tensor[i][0]
+                        self.out_file.write(f"  ({score!r}, {words!r}),\n")
                 self.out_file.write("],\n")
 
                 assert not self.out_ext_file, "not implemented"
@@ -1142,6 +1394,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         main_measure_lower_is_better: bool = True,
         check_train_scores_n_best: int = 2,
         exclude_epochs: Collection[int] = (),
+        scales: Optional[Dict] = None,
     ):
         """
         :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
@@ -1160,6 +1413,9 @@ class GetBestRecogTrainExp(sisyphus.Job):
         self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
         for epoch in exp.fixed_epochs:
             self._add_recog(epoch)
+        if scales is not None:
+            for k, v in scales.items():
+                self.add_input(v)
 
     @classmethod
     def hash(cls, parsed_args: Dict[str, Any]) -> str:
@@ -1171,12 +1427,14 @@ class GetBestRecogTrainExp(sisyphus.Job):
         d = parsed_args.copy()
         if not d["exclude_epochs"]:
             d.pop("exclude_epochs")
+        if d["scales"] is None:
+            d.pop("scales")
         exp: ModelWithCheckpoints = d["exp"]
         assert isinstance(exp, ModelWithCheckpoints)
         assert exp.fixed_epochs  # need some fixed epochs to define the hash
         last_fixed_epoch = max(exp.fixed_epochs)
         recog_and_score_func = d["recog_and_score_func"]
-        res, _ = recog_and_score_func(last_fixed_epoch)
+        res, _, _ = recog_and_score_func(last_fixed_epoch)
         assert isinstance(res, ScoreResultCollection)
         # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
         d["_last_fixed_epoch_results"] = res
@@ -1222,7 +1480,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
             return
         if epoch in self.exclude_epochs:
             return
-        res, _ = self.recog_and_score_func(epoch)
+        res, _, _ = self.recog_and_score_func(epoch)
         assert isinstance(res, ScoreResultCollection)
         self.add_input(res.main_measure_value)
         self.add_input(res.output)
@@ -1230,7 +1488,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1275,7 +1533,7 @@ class GetBestTuneValue(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1304,6 +1562,8 @@ class ExtractPseudoLabels(sisyphus.Job):
         pseudo_recog_func: Optional[Callable[[int], ScoreResultCollection]],
         recog_input: tk.Path,
         calculate_score: bool,
+        pseudo_label_alignment: bool,
+        get_prev: bool = False,
     ):
         super(ExtractPseudoLabels, self).__init__()
         self.pseudo_recog_func = pseudo_recog_func
@@ -1311,7 +1571,10 @@ class ExtractPseudoLabels(sisyphus.Job):
         self.out_best_labels_path = self.output_path("best_labels_path.json")
         self._recog_score = None
         self._recog_label_paths = None
+        self._prev_res = None
         self.calculate_score = calculate_score
+        self.pseudo_label_alignment = pseudo_label_alignment
+        self.get_prev = get_prev
 
     def update(self):
         if self._recog_label_paths:
@@ -1322,11 +1585,16 @@ class ExtractPseudoLabels(sisyphus.Job):
         
         self.best_epoch = d["best_epoch"]
         
-        res, label_paths = self.pseudo_recog_func(self.best_epoch)
+        res, label_paths, prev_res = self.pseudo_recog_func(self.best_epoch)
         assert isinstance(label_paths, dict)
+        assert isinstance(prev_res, dict)
         for k in label_paths.keys():
             self.add_input(label_paths[k])
+            if self.get_prev:
+                self.add_input(prev_res[k])
         self._recog_label_paths = label_paths
+        if self.get_prev:
+            self._prev_res = prev_res
         if self.calculate_score:
             assert isinstance(res, ScoreResultCollection)
             self.add_input(res.output)
@@ -1334,7 +1602,7 @@ class ExtractPseudoLabels(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1348,6 +1616,11 @@ class ExtractPseudoLabels(sisyphus.Job):
             self._recog_label_paths[k] = self._recog_label_paths[k].get_path()
         
         label_path_dict = {"path": self._recog_label_paths, "score": score, "epoch": self.best_epoch}
+        if self.get_prev:
+            for k in self._prev_res.keys():
+                self._prev_res[k] = self._prev_res[k].get_path()
+            label_path_dict["prev"] = self._prev_res
+        
         with open(self.out_best_labels_path.get_path(), "w") as f:
             f.write(json.dumps(label_path_dict))
             f.write("\n")
@@ -1361,8 +1634,16 @@ class ExtractPseudoLabels(sisyphus.Job):
         # Extend the default hash() function.
         d = parsed_args.copy()
         
+        if not d["get_prev"]:
+            d.pop("get_prev")
+        
+        if not d["pseudo_label_alignment"]:
+            d["_nr"] = 1
+        else:
+            d["_nr"] = 2
+        d.pop("pseudo_label_alignment")
+        
         # Add this to the hash to change the hash.
-        d["_nr"] = 1
         return sis_tools.sis_hash(d)
     
 class GetScoreJob(sisyphus.Job):
@@ -1386,13 +1667,13 @@ class GetScoreJob(sisyphus.Job):
         
         self.best_epoch = d["best_epoch"]
         
-        res, _ = self.score_func(self.best_epoch)
+        res, _, _ = self.score_func(self.best_epoch)
         assert isinstance(res, ScoreResultCollection)
         self.add_input(res.output)
         self._recog_score = res
 
     def tasks(self) -> Iterator[sisyphus.Task]:
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         import json
@@ -1547,7 +1828,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1571,21 +1852,96 @@ class SearchCombineShardsJob(sisyphus.Job):
 
     def tasks(self):
         """task"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
-        res_dict = {}
-        for path in self.shard_search_outputs:
-            d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-            assert isinstance(d, dict)  # seq_tag -> bpe string
-            res_dict.update(d)
         with uopen(self.out_comined_results, "wt") as out:
             out.write("{\n")
-            for seq_tag, entry in res_dict.items():
-                assert isinstance(entry, list)
-                out.write("%r: %r,\n" % (seq_tag, entry))
+            for path in self.shard_search_outputs:
+                d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+                assert isinstance(d, dict)  # seq_tag -> bpe string
+                for seq_tag, entry in d.items():
+                    assert isinstance(entry, list)
+                    out.write("%r: %r,\n" % (seq_tag, entry))
             out.write("}\n")
+            
+class SearchCombineShardsToHDFJob(sisyphus.Job):
+
+    def __init__(self, shard_search_outputs: list[tk.Path]):
+        self.shard_search_outputs = shard_search_outputs
+        self.out_comined_results = self.output_path("combined.hdf")
+
+    def tasks(self):
+        """task"""
+        yield sisyphus.Task("run", rqmt={"cpu": 8, "mem": 32, "time": 4})
+
+    def run(self):
+        """run"""
+        SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
+        out_hdf = SimpleHDFWriter(filename=self.out_comined_results.get_path(), dim=None, ndim=2)
+        for path in self.shard_search_outputs:
+            if len(self.shard_search_outputs) == 1:
+                with uopen(path, "rt") as f:
+                    e = f.readline()
+                    seq_tag = None
+                    while e != "}\n":
+                        e = f.readline()
+                        if e.endswith(": [\n"):
+                            seq_tag = e[:-4]
+                            seq_tag = eval(seq_tag, {"nan": float("nan"), "inf": float("inf")})
+                        elif e.endswith("),\n"):
+                            v = eval(e[3:-3], {"nan": float("nan"), "inf": float("inf")})
+                            assert isinstance(v, tuple)
+                            e = f.readline()
+                            assert e == "],\n"
+                            
+                            assert isinstance(v[1], list)
+                            assert seq_tag is not None
+                            l = v[1]
+                            l = np.expand_dims(np.array(l, dtype=np.float32), axis=0)
+                            if len(v) == 3:
+                                assert isinstance(v[2], list)
+                                indices = np.expand_dims(np.array(v[2], dtype=np.int32), axis=0)
+                                out_hdf.insert_batch(
+                                    inputs=l,
+                                    seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                                    seq_tag=[seq_tag],
+                                    extra={"indices": indices},
+                                )
+                            else:
+                                out_hdf.insert_batch(
+                                    inputs=l,
+                                    seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                                    seq_tag=[seq_tag],
+                                )
+            else:
+                d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+                assert isinstance(d, dict)  # seq_tag -> bpe string
+                for seq_tag, entry in d.items():
+                    assert isinstance(entry, list)
+                    # assert len(entry) > 0
+                    assert len(entry) == 1
+                    v = entry[0]
+                    assert isinstance(v[1], list)
+                    l = v[1]
+                    l = np.expand_dims(np.array(l, dtype=np.float32), axis=0)
+                    if len(v) == 3:
+                        assert isinstance(v[2], list)
+                        indices = np.expand_dims(np.array(v[2], dtype=np.int32), axis=0)
+                        out_hdf.insert_batch(
+                            inputs=l,
+                            seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                            seq_tag=[seq_tag],
+                            extra={"indices": indices},
+                        )
+                    else:
+                        out_hdf.insert_batch(
+                            inputs=l,
+                            seq_len={0: [l.shape[1]], 1: [l.shape[2]]},
+                            seq_tag=[seq_tag],
+                        )
+        out_hdf.close()
             
 class PriorCombineShardsJob(sisyphus.Job):
     def __init__(self, shard_prior_frames_outputs: list[tk.Path], shard_prior_probs_outputs: list[tk.Path]):
@@ -1595,7 +1951,7 @@ class PriorCombineShardsJob(sisyphus.Job):
 
     def tasks(self):
         """task"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""

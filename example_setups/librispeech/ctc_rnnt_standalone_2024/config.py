@@ -24,6 +24,7 @@ def get_training_config(
     debug: bool = False,
     use_speed_perturbation: bool = False,
     post_config: Optional[Dict[str, Any]] = None,
+    add_cache_manager: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -39,7 +40,7 @@ def get_training_config(
     """
 
     # changing these does not change the hash
-    base_post_config = {"stop_on_nonfinite_train_score": True, "num_workers_per_gpu": 2, "backend": "torch"}
+    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
 
     base_config = {
         "cleanup_old_models": {
@@ -61,20 +62,25 @@ def get_training_config(
         include_native_ops=include_native_ops,
         debug=debug,
     )
-    python_prolog = None
+    python_prolog_serializer_objects = []
 
-    # TODO: maybe make nice (if capability added to RETURNN itself)
     if use_speed_perturbation:
-        prolog_serializer = TorchCollection(
-            serializer_objects=[
-                Import(
-                    code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
-                    unhashed_package_root=PACKAGE,
-                )
-            ]
+        python_prolog_serializer_objects.append(
+            Import(
+                code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
+                unhashed_package_root=PACKAGE,
+            )
         )
-        python_prolog = [prolog_serializer]
         config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+
+    if add_cache_manager:
+        from i6_experiments.common.setups.serialization import PythonCacheManagerFunctionNonhashedCode, Collection
+
+        python_prolog_serializer_objects.append(PythonCacheManagerFunctionNonhashedCode)
+
+    python_prolog = None
+    if len(python_prolog_serializer_objects) > 0:
+        python_prolog = [TorchCollection(python_prolog_serializer_objects)]
 
     returnn_config = ReturnnConfig(
         config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
@@ -102,19 +108,18 @@ def get_prior_config(
     """
 
     # changing these does not change the hash
-    post_config = {
-        "num_workers_per_gpu": 2,
-    }
+    # we anyway only support torch
+    post_config = {"backend": "torch"}
 
     base_config = {
         #############
+        "num_workers_per_gpu": 2,
         "batch_size": 500 * 16000,
         "max_seqs": 240,
         #############
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
     config = {**base_config, **copy.deepcopy(config)}
-    post_config["backend"] = "torch"
 
     serializer = serialize_forward(
         network_module=network_module,
@@ -154,15 +159,15 @@ def get_forward_config(
     """
 
     # changing these does not change the hash
-    post_config = {}
+    post_config = {"backend": "torch"}
 
     # changeing these does change the hash
     base_config = {
+        "num_workers_per_gpu": 2,
         "batch_size": 1000 * 16000,
         "max_seqs": 240,
     }
     config = {**base_config, **copy.deepcopy(config)}
-    post_config["backend"] = "torch"
 
     serializer = serialize_forward(
         network_module=network_module,

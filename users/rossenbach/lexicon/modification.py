@@ -105,5 +105,44 @@ class EnsureSilenceFirst(Job):
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
 
+class QuickAndDirtyUpdateLexiconPronunciationsJob(Job):
+
+    def __init__(self, source_lexicon, update_lexicon):
+        """
+
+        :param source_lexicon:
+        :param update_lexicon:
+        """
+        self.source_lexicon = source_lexicon
+        self.update_lexicon = update_lexicon
+
+        self.out_lexicon = self.output_path("lexicon.xml")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        source_lexicon = Lexicon()
+        source_lexicon.load(self.source_lexicon.get_path())
+
+        update_lexicon = Lexicon()
+        update_lexicon.load(self.update_lexicon.get_path())
+
+        phon_map = {}
+        for lemma in update_lexicon.lemmata:
+            # assert len(lemma.orth) <= 1
+            for orth in lemma.orth[:1]:
+                phon_map[orth] = lemma.phon
+
+        for lemma in source_lexicon.lemmata:
+            # assert len(lemma.orth) <= 1
+            if len(lemma.orth) == 1:
+                if lemma.orth[0] in phon_map.keys():
+                    lemma.phon = phon_map[lemma.orth[0]]
+
+        write_xml(self.out_lexicon.get_path(), source_lexicon.to_xml())
+
+
+
 
 

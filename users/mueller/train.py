@@ -6,13 +6,14 @@ helpers for training.
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
+import torch
 import copy
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from sisyphus import tk
 
 if TYPE_CHECKING:
-    from returnn.tensor import TensorDict, Tensor
+    from returnn.tensor import TensorDict, Tensor, Dim
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
@@ -31,9 +32,13 @@ def train(
     model_def: Union[ModelDefWithCfg, ModelDef[ModelT]],
     train_def: TrainDef[ModelT],
     init_params: Optional[Checkpoint] = None,
+    reset_steps: bool = True,
+    finish_all: bool = False,
     extra_hash: Any = None,
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
+    init_hdf_writer: bool = False,
+    keep_train_lm_def: bool = True,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -121,7 +126,11 @@ def train(
     )
     returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_def.config)
+        model_conf = model_def.config.copy()
+        model_conf.pop("recog_language_model", None)
+        if not keep_train_lm_def:
+            model_conf.pop("train_language_model", None)
+        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_conf)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:
@@ -136,6 +145,10 @@ def train(
 
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
+        if not reset_steps:
+            returnn_train_config_dict["reset_steps"] = False
+    if finish_all:
+        returnn_train_config_dict["_horovod_finish_all"] = True
 
     extern_data_raw = train_dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
@@ -159,6 +172,12 @@ def train(
                     # Consider the imports as non-hashed. We handle any logic changes via the explicit hash below.
                     serialization.Import(_returnn_v2_get_model, import_as="get_model", use_for_hash=False),
                     serialization.Import(_returnn_v2_train_step, import_as="train_step", use_for_hash=False),
+                ]
+                + ([
+                    serialization.Import(_returnn_epoch_start_hdf_writer, import_as="epoch_start", use_for_hash=False),
+                    serialization.Import(_returnn_epoch_end_hdf_writer, import_as="epoch_end", use_for_hash=False),
+                ] if init_hdf_writer else [])
+                + [
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this train() function,
@@ -194,6 +213,7 @@ def train(
             watch_memory=True,
             use_lovely_tensors=True,
             use_train_proc_manager=True,
+            alias=prefix_name
         ),
         sort_config=False,
     )
@@ -271,7 +291,39 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             model=model,
             data=data,
             data_spatial_dim=data_spatial_dim,
-            lm_path=config.typed_value("lm_path"),
+            seq_tags=seq_tags,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+        )
+    elif train_def.__name__ == "ce_training":
+        targets_indices = None
+        if "targets_indices" in extern_data:
+            targets_indices = extern_data["targets_indices"]
+            
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            targets_indices=targets_indices
+        )
+    elif train_def.__name__ == "ctc_training" or train_def.__name__ == "seq_gamma_training":
+        nbest_lengths = None
+        scores = None
+        if "nbest_lengths" in extern_data:
+            nbest_lengths = extern_data["nbest_lengths"]
+        if "scores" in extern_data:
+            scores = extern_data["scores"]
+        seq_tags = extern_data["seq_tag"]
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            nbest_lengths=nbest_lengths,
+            scores=scores,
             seq_tags=seq_tags,
         )
     else:
@@ -282,9 +334,45 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
         )
+        
+def _returnn_epoch_start_hdf_writer(*, epoch: int, step: int, model: ModelT, dataset_name: str, **_kwargs_unused):
+    if dataset_name == "train":
+        device_id = torch.cuda.current_device()
+        if device_id == 0:
+            import os
+            from returnn.config import get_global_config
+            from i6_core.lib.hdf import get_returnn_simple_hdf_writer
+            config = get_global_config()
+            
+            SimpleHDFWriter = get_returnn_simple_hdf_writer(None)
+            train_dataset_dict = config.typed_value("train")
+            partition_epoch = train_dataset_dict["dataset"]["datasets"]["zip_dataset"]["partition_epoch"]
+            
+            hdf_filename = f"targets-epoch-{((epoch - 1) // partition_epoch) + 1}-{device_id}.hdf"
+            hdf_writer = SimpleHDFWriter(
+                filename=hdf_filename,
+                dim=None,
+                ndim=1,
+                extend_existing_file=os.path.exists(hdf_filename),
+            )
+            
+            print("TMP:", hdf_writer.tmp_filename, "Filename:", hdf_writer.filename)
+            
+            config.set("train_hdf_writer", hdf_writer)
+        
+def _returnn_epoch_end_hdf_writer(*, epoch: int, step: int, model: ModelT, dataset_name: str, **_kwargs_unused):
+    if dataset_name == "train":
+        device_id = torch.cuda.current_device()
+        if device_id == 0:
+            from returnn.config import get_global_config
 
+            config = get_global_config()
+            
+            hdf_writer = config.typed_value("train_hdf_writer")
+            hdf_writer.close()
+            del config.typed_dict["train_hdf_writer"]
 
-class ExtendedTrainDef(TrainDef):
+class SumTrainDef(TrainDef):
     """
     Extended version of TrainDef, which also allows to return some additional values.
     """
@@ -295,7 +383,25 @@ class ExtendedTrainDef(TrainDef):
         model: ModelT,
         data: Tensor,
         data_spatial_dim: Tensor,
-        lm_path: tk.Path,
-        seq_tags: Tensor = None
+        seq_tags: Tensor = None,
+        targets: Tensor,
+        targets_spatial_dim: Dim
+    ) -> Dict[str, Tensor]:
+        raise NotImplementedError
+    
+class CETrainDef(TrainDef):
+    """
+    Extended version of TrainDef, which also allows to return some additional values.
+    """
+
+    def __call__(
+        self,
+        *,
+        model: ModelT,
+        data: Tensor,
+        data_spatial_dim: Tensor,
+        targets: Tensor,
+        targets_spatial_dim: Dim,
+        targets_indices: Tensor = None
     ) -> Dict[str, Tensor]:
         raise NotImplementedError

@@ -9,6 +9,7 @@ from i6_core.returnn import CodeWrapper
 from i6_experiments.users.berger.network.helpers.conformer import add_conformer_stack as add_conformer_stack_simon
 from ....ctc.feat.network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
 from ....ctc.feat.network_helpers.specaug_sort_layer2 import add_specaug_layer as add_specaug_layer_sort_layer2
+from ....ctc.feat.network_helpers.specaug_stft import add_specaug_layer as add_specaug_layer_stft
 from ....ctc.feat.network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from ....ctc.feat.network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
@@ -496,6 +497,7 @@ def make_conformer_transducer_model(
     output_args: Optional[Dict] = None,
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
+    specaug_stft: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
 ) -> Tuple[Dict, Union[str, List[str]]]:
     network = {}
@@ -504,11 +506,43 @@ def make_conformer_transducer_model(
     if recognition:
         python_code = []
     else:
-        if specaug_old is None:
-            from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
+        if specaug_stft is not None:
+            frame_size = specaug_stft.pop("frame_size", 200)
+            frame_shift = specaug_stft.pop("frame_shift", 80)
+            fft_size = specaug_stft.pop("fft_size", 256)
+
+            specaug_stft_args = {
+                "max_time_num": 1,
+                "max_time": 15,
+                "max_feature_num": 5,
+                "max_feature": 15,
+                **specaug_stft,
+            }
+
+            # Add STFT layer
+            network["stft"] = {
+                "class": "stft",
+                "from": ["data"],
+                "frame_size": frame_size,
+                "frame_shift": frame_shift,
+                "fft_size": fft_size,
+            }
+            from_list = ["stft"]
+
+            from_list, python_code = add_specaug_layer_stft(network, from_list=from_list, **specaug_stft_args)
+
+            # Add iSTFT layer
+            network["istft"] = {
+                "class": "istft",
+                "from": from_list,
+                "frame_size": frame_size,
+                "frame_shift": frame_shift,
+                "fft_size": fft_size,
+            }
         elif specaug_old is False:
             python_code = []  # no specaugment
-        else:
+        elif specaug_old is not None:
+
             sort_layer2 = specaug_old.pop("sort_layer2", False)
             specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
             specaug_old_args = {
@@ -518,7 +552,9 @@ def make_conformer_transducer_model(
                 "max_feature": 4,
                 **specaug_old,
             }
-            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)      
+        else:
+            from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 
     if conformer_type == "wei":
         network, from_list = add_vgg_stack_wei(network, from_list)

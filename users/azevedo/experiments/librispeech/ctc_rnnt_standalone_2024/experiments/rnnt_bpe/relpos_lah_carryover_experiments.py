@@ -362,7 +362,7 @@ def run_experiments(**kwargs):
 
 def lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
     experiment_configs = {
-        50: {
+        10: {
             "model_params": {
                 "chunk_size": [2.4],
                 "lookahead_size": [8],
@@ -377,6 +377,23 @@ def lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
+        },
+
+        20: {
+            "model_params": {
+                "chunk_size": [2.4],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(strat) for strat in [TrainingStrategy.STREAMING]]
+            },
+
+            "network_module": "model_relpos_streaming_v1",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1500,
+            "keep": [100, 800, 1200],
         },
 
     }

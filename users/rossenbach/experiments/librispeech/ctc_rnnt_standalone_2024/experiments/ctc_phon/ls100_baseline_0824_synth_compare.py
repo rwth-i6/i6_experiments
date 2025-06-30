@@ -214,6 +214,9 @@ def eow_phon_ls100_0824_synth_compare():
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_nodrop_gl32_noise0.7_syn_train-clean-360-sub100",
         "glow_tts.glow_tts_v1_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn_train-clean-360-sub100",
         "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn_train-clean-360-sub100",
+        # ------------------------------------
+        # "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360",
+        # "glow_tts.glow_tts_v1_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn_train-clean-360",
     ]
 
     for synth_key in synth_keys:
@@ -279,3 +282,38 @@ def eow_phon_ls100_0824_synth_compare():
             get_specific_checkpoint=300
         )
         tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+
+    # Data from new experiments
+
+    from ...storage import get_synthetic_data
+    synth_keys = [
+        "glow_tts.glow_tts_v1_base256_400eps_train-clean-360", # note: trained from ls-460
+    ]
+    for synth_key in synth_keys:
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/full_synth/ls460trained_" + synth_key
+        lexicon_key = "train-clean-460" if "train-clean-360" in synth_key else "train-clean-100"
+        synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+            prefix=prefix_name + "/synth_data_prep/" + synth_key,
+            bliss=get_synthetic_data(synth_key)[0],
+            lexicon_librispeech_key=lexicon_key
+        )
+        train_data_synth = build_eow_phon_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-clean-100",
+            settings=train_settings,
+            extra_train_ogg_zips=[synth_ogg],
+            data_repetition_factors=[0, 1], ## only synth
+        )
+
+        segments = ls100_from_360_segments
+        train_data_synth.train.datasets["zip_dataset"]["segment_file"] = segments
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+

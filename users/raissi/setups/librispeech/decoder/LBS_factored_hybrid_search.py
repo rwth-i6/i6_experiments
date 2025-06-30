@@ -76,7 +76,8 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             gpu=gpu,
         )
         self.trafo_lm_config = self.get_eugen_trafo_with_quant_and_compress_config()
-        self.lstm_lm_config = self.get_kazuki_lstm_config()
+        if self.library_path is not None:
+            self.lstm_lm_config = self.get_kazuki_lstm_config()
 
 
     def get_kazuki_lstm_config(
@@ -403,6 +404,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         name_prefix: str = "",
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
+        lmgc_mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
         rtf_gpu: Optional[float] = None,
         rtf_cpu: Optional[float] = None,
@@ -418,6 +420,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             calculate_stats=calculate_stats,
             cpu_rqmt=cpu_rqmt,
             mem_rqmt=mem_rqmt,
+            lmgc_mem_rqmt=lmgc_mem_rqmt,
             is_min_duration=is_min_duration,
             is_nn_lm=True,
             keep_value=keep_value,
@@ -462,11 +465,13 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         name_prefix: str = "",
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
+        lmgc_mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
         rtf_gpu: Optional[float] = None,
         rtf_cpu: Optional[float] = None,
         create_lattice: bool = True,
         lm_lookahead_options: Optional = None,
+        search_rqmt_update: Optional = None,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
     ) -> DecodingJobs:
@@ -477,6 +482,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             calculate_stats=calculate_stats,
             cpu_rqmt=cpu_rqmt,
             mem_rqmt=mem_rqmt,
+            lmgc_mem_rqmt=lmgc_mem_rqmt,
             is_min_duration=is_min_duration,
             is_nn_lm=True,
             keep_value=keep_value,
@@ -499,4 +505,5 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             create_lattice=create_lattice,
             adv_search_extra_config=adv_search_extra_config,
             adv_search_extra_post_config=adv_search_extra_post_config,
+            search_rqmt_update=search_rqmt_update,
         )

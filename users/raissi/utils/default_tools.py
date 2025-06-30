@@ -72,11 +72,17 @@ u22_rasr_path_onnxtorch = tk.Path(
 )
 
 u22_rasr_path_tf = tk.Path(
-    get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
+    get_rasr_binary_path("/work/tools/users/raissi/rasr/rasr_tf2.14"),
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF214",
 )
 
+#used by samir, should not be recompiled
 u22_rasr_path_tf_test = tk.Path(
+    get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
+)
+
+u22_rasr_path_tf_hashu16 = tk.Path(
     get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
 )
@@ -99,6 +105,13 @@ u22_returnn_launcher_tf2 = tk.Path(
 )
 U22_RETURNN_LAUNCHERS = {"TF2": u22_returnn_launcher_tf2}
 
+
+u22_returnn_launcher_tf2_hashu16 = tk.Path(
+    "/u/raissi/bin/apptainer-launchers/u22/TF/returnn_tf2.14_apptainer_u22_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF2",
+)
+
+
 # common
 RETURNN_ROOT = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="CONFORMER_RETURNN_ROOT")
 RETURNN_ROOT_MORITZ = tk.Path(
@@ -112,9 +125,33 @@ RETURNN_ROOT_BW_FACTORED = tk.Path(
     "/work/tools/users/raissi/returnn_versions/bw-factored", hash_overwrite="BW_RETURNN_ROOT"
 )
 RETURNN_ROOT_SMBR = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="SMBR_RETURNN_ROOT")
+RETURNN_ROOT_LATTICEFREE = tk.Path("/work/tools/users/raissi/returnn_versions/lattice_free", hash_overwrite="LATTICEFREE_RETURNN_ROOT")
+#SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
+#SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
 
-SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
-SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
+RETURNN_ROOT_LATEST = tk.Path("/work/tools/users/raissi/returnn_versions/latest", hash_overwrite="RETURNN_LATEST")
+
+
+
+
+#Idiap cluster
+U22_RASR_BINARY_PATH_IDIAP = tk.Path(
+    get_rasr_binary_path("/idiap/home/traissi/dev/rasr_tf2.14"), hash_overwrite="RASR_BINARY_PATH_TF2.14_IDIAP"
+)
+
+RETURNN_ROOT_IDIAP = tk.Path( "/idiap/home/traissi/dev/returnn" ,hash_overwrite="RETURNN_IDIAP_APRIL2025" )
+RETURNN_LAUNCHER_IDIAP =  tk.Path( "/idiap/home/traissi/bin/apptainer_launchers/returnn_tf2.14_apptainer_u22_launcher.sh" ,hash_overwrite="RETURNN_LAUNCHER_IDIAP_APRIL2025" )
+
+
+U22_RASR_BINARY_PATH_IDIAP_SIS = tk.Path(
+    get_rasr_binary_path("/idiap/home/traissi/dev/rasr_tf2.14"), hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2"
+)
+
+
+RETURNN_ROOT_IDIAP_MMI = tk.Path( "/idiap/home/traissi/dev/returnn_lfmm" ,hash_overwrite="RETURNN_IDIAP_MMI" )
+
+RETURNN_ROOT_IDIAP_SIS = tk.Path( "/idiap/home/traissi/dev/returnn" ,hash_overwrite="RETURNN_IDIAP_APRIL2025" )
+RETURNN_LAUNCHER_IDIAP_SIS =  tk.Path( "/idiap/home/traissi/bin/apptainer_launchers/returnn_tf2.14_apptainer_u22_launcher.sh" ,hash_overwrite="RETURNN_LAUNCHER_IDIAP_APRIL2025" )
 
 
 
@@ -164,14 +201,34 @@ u16_tools_factored = ToolPaths(
 )
 
 
+u22_tools_tf_hashu16 = ToolPaths(
+    returnn_root=RETURNN_ROOT,
+    returnn_python_exe=u22_returnn_launcher_tf2_hashu16,
+    rasr_binary_path=u22_rasr_path_tf_hashu16,
+)
+
+
 u22_tools_tf = ToolPaths(
     returnn_root=RETURNN_ROOT_TORCH,
     returnn_python_exe=U22_RETURNN_LAUNCHERS["TF2"],
     rasr_binary_path=u22_RASR_BINARY_PATHS["TF"],
 )
 
+
 u22_tools_tf_test = ToolPaths(
     returnn_root=RETURNN_ROOT,
     returnn_python_exe=U22_RETURNN_LAUNCHERS["TF2"],
     rasr_binary_path=u22_RASR_BINARY_PATHS["TF-TEST"],
+)
+
+u22_tools_tf_idiap = ToolPaths(
+    returnn_root=RETURNN_ROOT_IDIAP,
+    returnn_python_exe=RETURNN_LAUNCHER_IDIAP,
+    rasr_binary_path=U22_RASR_BINARY_PATH_IDIAP ,
+)
+
+u22_tools_tf_idiap_sis = ToolPaths(
+    returnn_root=RETURNN_ROOT_IDIAP_SIS,
+    returnn_python_exe=RETURNN_LAUNCHER_IDIAP_SIS,
+    rasr_binary_path=U22_RASR_BINARY_PATH_IDIAP_SIS ,
 )

@@ -1,0 +1,26 @@
+apptainer shell --nv -B /u/lkleppel -B /work/asr4 -B /work/asr3 -B /work/common -B /work/tools -B /u/berger -B /u/zeineldeen -B /u/rossenbach -B /u/beck -B /work/speech/tuske -B /u/zeyer -B /u/raissi -B /u/schmitt -B /u/atanas.gruev -B /u/zhou -B /work/smt4 -B /u/corpora /work/tools22/users/schmitt/apptainer/images/i6_torch-2.2_onnx-1.16_fairseq_transformers.sif
+/work/asr4/berger/apptainer/images/i6_tensorflow-2.8_onnx-1.15.sif
+/work/asr4/berger/apptainer/images/i6_torch-2.2_onnx-1.16.sif
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.8/dist-packages/scipy/.libs
+export NUMBA_CACHE_DIR=/var/tmp/numba_cache_schmitt/  # librosa
+scontrol update job=<job_id> partition=gpu_48gb
+
+# inlcude in path to use librasr
+/u/lkleppel/rasr_dev/tree-labelsync-search/rasr_test/arch/linux-x86_64-standard
+
+# delete all error and corresponding log files
+for f in error.run.*; do n="${f##*.}"; rm -f "error.run.$n" "log.run.$n"; done
+
+# installing flash-attn
+pip install torch torchvision torchaudio
+pip install packaging
+pip install ninja
+export CPATH=$CPATH:.../Python/3.10.4-GCCcore-11.3.0/include/python3.10
+export CC=gcc
+maybe need to do: module load CUDA
+
+/usr/sbin/sshd -f /home/az668407/user-sshd/sshd_config
+
+export LD_LIBRARY_PATH=/rwthfs/rz/cluster/work/oz301122/py-envs/py3.12-torch2.5/lib/python3.12/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+
+openvpn3 session-start --config <ovpn profile file>

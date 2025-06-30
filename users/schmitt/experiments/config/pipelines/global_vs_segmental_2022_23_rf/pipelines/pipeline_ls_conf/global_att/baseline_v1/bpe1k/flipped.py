@@ -50,19 +50,21 @@ def run_exps():
     ["v3_wo-wf-w-ctx-in-state_ctc", None, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
     ["v3_wo-wf-wo-ctx-in-state_ctc", None, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
     ["v3_w-wf-w-ctx-in-state_ctc", 9999, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
-    ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand - flipped
-    ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand -
-    ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
-    ["v3_rand-4321", 4321, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
-    ["v3_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    # ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand - flipped
+    # ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand -
+    # ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    # ["v3_rand-4321", 4321, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    # ["v3_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
     ["v3_big_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
-    ["v3_rand-8765", 8765, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
-    ["v3_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    # ["v3_rand-8765", 8765, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    # ["v3_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
     ["v3_big_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
-    ["v3_rand-3333", 3333, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    # ["v3_rand-3333", 3333, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
     ["v5", None, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
-    ["v5_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    # ["v5_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
     ["v5_big_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    # ["v5_big_rand-2222", 2222, 21, None, False, 12, 512, False, False, False, [2000], 24, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    # ["v5_big_rand-3333", 3333, 21, None, False, 12, 512, False, False, False, [2000], 24, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
     ["v6_big", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v6_big: same as v3_big, but use both absolute and relative positional encodings
     ["v6", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None], # v6_big: same as v3_big, but use both absolute and relative positional encodings
     # ["v7_big", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 24, None, None, False],  # v7_big: same as v3_big, but do not use final layer norm in conformer encoder layers
@@ -190,26 +192,113 @@ def run_exps():
         )
         analyze_gradients_jobs[alias] = pipeline.decoding_exps[0].analyze_gradients_job
 
-        if alias in ["v20", "v5_big_rand-1234", "v85_big", "v3_rand-2222", "v5"]:
+        if alias in [
+          # "v20",
+          "v5_big_rand-1234",
+          # "v85_big",
+          # "v3_rand-2222",
+          "v5"
+        ]:
           for lm_scale, ilm_scale in [
-            (0.54, 0.4),
+            # (0.2, 0.0),
+            # (0.25, 0.0),
+            # (0.3, 0.0),
+            # (0.35, 0.0),
+            # (0.4, 0.0),
+            # (0.45, 0.0),
+            (0.5, 0.0),
+            (0.5, 0.1),
+            (0.5, 0.2),
+            (0.5, 0.3),
             # (0.5, 0.4),
           ]:
+            for lm_alias in [
+              # "1k_max-seq-length-112_24-layers_512-dim",
+              "1k_max-seq-length-112_24-layers_1024-dim",
+            ]:
+              corpus_keys = ["dev-other"]
+              if alias == "v5_big_rand-1234" and lm_scale == 0.4 and ilm_scale == 0.0:
+                corpus_keys += ["test-other"]
+              if alias == "v20" and lm_scale == 0.5 and ilm_scale == 0.4:
+                corpus_keys += ["test-other"]
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=checkpoint,
+                corpus_keys=corpus_keys,
+                checkpoint_aliases=("last",),
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="zero_att",
+                lm_alias=lm_alias,
+                lm_checkpoint=lm_checkpoints[lm_alias],
+                behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
+                sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive"],
+              )
+
+        if alias in ("v5_big_rand-1234", "v20"):
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            corpus_keys=("dev-other", "test-other"),
+            checkpoint_aliases=("last",),
+            beam_size_list=(100,)
+          )
+
+        # test different const LRs for mini LSTM
+        if alias in ["v5_big_rand-1234"]:
+          for lm_scale, ilm_scale in [
+            (0.54, 0.4),
+          ]:
             lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
+            for mini_lstm_const_lr in [
+              1e-4,
+              5e-5,
+              1e-5,
+            ]:
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=checkpoint,
+                corpus_keys=("dev-other",),
+                checkpoint_aliases=("last",),
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="mini_att",
+                lm_alias=lm_alias,
+                lm_checkpoint=lm_checkpoints[lm_alias],
+                behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
+                sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive"],
+                mini_lstm_const_lr=mini_lstm_const_lr,
+              )
+
+        if alias == "v3_rand-3333":
+          for epoch in [10, 50, 70]:
             recog.global_att_returnn_label_sync_beam_search(
-              alias=train_alias,
-              config_builder=config_builder,
-              checkpoint=checkpoint,
-              corpus_keys=("dev-other",),
-              checkpoint_aliases=("last",),
-              lm_type="trafo",
-              lm_scale_list=(lm_scale,),
-              ilm_scale_list=(ilm_scale,),
-              ilm_type="mini_att",
-              lm_alias=lm_alias,
-              lm_checkpoint=lm_checkpoints[lm_alias],
-              behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
-            )
+                  alias=train_alias,
+                  config_builder=config_builder,
+                  checkpoint=checkpoint["checkpoints"][epoch],
+                  checkpoint_aliases=(f"epoch-{epoch}",),
+                  corpus_keys=("train",),
+                  run_analysis=True,
+                  analyze_gradients=True,
+                  only_do_analysis=True,
+                  att_weight_seq_tags=[
+                    "train-other-960/1246-124548-0042/1246-124548-0042",
+                    "train-other-960/40-222-0033/40-222-0033",
+                    "train-other-960/103-1240-0038/103-1240-0038",
+                  ],
+                  analysis_ref_alignment_opts={
+                    "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+                    "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+                    "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+                  },
+                  analysis_analyze_gradients_plot_encoder_layers=True,
+                  # analsis_analyze_gradients_plot_log_gradients=True,
+                )
 
         if alias in ["v3_big_rand-5678", "v3_big_rand-2222"]:
           analysis_epochs = [100, 160, 180]
@@ -363,6 +452,7 @@ def run_exps():
 
   plot_flipped_cross_att_weight_evolution_v2(flipped_att_weights_evolution_epochs, flipped_att_weights_evolution)
   # plot_flipped_self_att_weight_evolution()
+  plot_flipped_self_att_energies_single_epochs()
   # plot_flipped_vs_normal_cross_att_weights()
   # plot_gradients_wrt_different_layers()
 
@@ -546,14 +636,31 @@ def plot_gradients_wrt_different_layers():
 
 
 def plot_flipped_self_att_weight_evolution():
-  epochs = [10, 20, 30, 32, 34, 38, 40, 50]
+  epochs = [10, 40, 50]
   for head in range(8, 9):
     plot_self_att_weights_job = PlotSelfAttentionWeightsOverEpochsJob(
       att_weight_hdfs=[
         Path(
-          f"/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-w-abs-pos/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-{epoch}-checkpoint/no-lm/beam-size-12/train/analysis/dump_self_att/ground-truth/output/self-att-energies_head-{head}.hdf") for epoch in epochs
+          f"/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-w-abs-pos/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_wd-1e-06_reg-v1_filter-data-312000.0_accum-4/lr_dyn_lr_piecewise_linear_epoch-wise_v2_peak_lr-0.001_init_lr-1e-05/returnn_decoding/epoch-{epoch}-checkpoint/scale-1.00_len-norm-exp-1.0/no-lm/wo_ilm_correction/beam-size-12/train/analysis/dump_self_att/ground-truth/output/self-att-energies_head-{head}.hdf") for epoch in epochs
       ],
       epochs=epochs,
     )
     plot_self_att_weights_job.add_alias(f"flipped_self_att_evolution_head-{head}")
     tk.register_output(plot_self_att_weights_job.get_one_alias(), plot_self_att_weights_job.out_plot_dir)
+
+
+def plot_flipped_self_att_energies_single_epochs():
+  epochs = [
+    10, 40,
+    50]
+  for epoch in epochs:
+    for head in range(8, 9):
+      plot_self_att_weights_job = PlotSelfAttentionWeightsOverEpochsJob(
+        att_weight_hdfs=[
+          Path(
+            f"/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-w-abs-pos/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_wd-1e-06_reg-v1_filter-data-312000.0_accum-4/lr_dyn_lr_piecewise_linear_epoch-wise_v2_peak_lr-0.001_init_lr-1e-05/returnn_decoding/epoch-{epoch}-checkpoint/scale-1.00_len-norm-exp-1.0/no-lm/wo_ilm_correction/beam-size-12/train/analysis/dump_self_att/ground-truth/output/self-att-energies_head-{head}.hdf")
+        ],
+        epochs=[epoch],
+      )
+      plot_self_att_weights_job.add_alias(f"flipped_self_att_evolution_head-{head}_epoch-{epoch}")
+      tk.register_output(plot_self_att_weights_job.get_one_alias(), plot_self_att_weights_job.out_plot_dir)

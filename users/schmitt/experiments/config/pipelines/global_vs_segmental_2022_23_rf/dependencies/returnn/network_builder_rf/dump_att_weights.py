@@ -34,6 +34,9 @@ def dump_hdfs(
         segment_starts: Optional[rf.Tensor] = None,
         align_targets: Optional[rf.Tensor] = None,
         align_target_dim: Optional[int] = None,
+        other_tensor: Optional[rf.Tensor] = None,
+        other_tensor_dim: Optional[int] = None,
+        other_tensor_name: Optional[str] = None,
         dirname: Optional[str] = None,
 ):
   assert len(batch_dims) == 1
@@ -47,6 +50,7 @@ def dump_hdfs(
           ("seg_lens", segment_lens, 1, 1),
           ("seg_starts", segment_starts, 1, 1),
           ("targets", align_targets, align_target_dim, 1),
+          (other_tensor_name, other_tensor, other_tensor_dim, 1),
   ):
     if tensor is None:
       continue

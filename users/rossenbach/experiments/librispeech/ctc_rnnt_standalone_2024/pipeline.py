@@ -62,7 +62,7 @@ def search_single(
     recognition_bliss_corpus: tk.Path,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: float = 12,
+    mem_rqmt: float = 16,
     use_gpu: bool = False,
 ):
     """
@@ -85,7 +85,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=0.5 if use_gpu else 12,
+        time_rqmt=8.0 if use_gpu else 12,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=int(((mem_rqmt + 1.99) // 4) * 2),
         returnn_python_exe=returnn_exe,
@@ -118,8 +118,10 @@ def search(
     test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
+    unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     use_gpu: bool = False,
     debug: bool = False,
+    import_memristor: bool = False,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -142,8 +144,10 @@ def search(
         config=forward_config,
         net_args=asr_model.net_args,
         decoder_args=decoder_args,
+        unhashed_decoder_args=unhashed_decoder_args,
         decoder=decoder_module,
         debug=debug,
+        import_memristor=import_memristor,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -190,7 +194,7 @@ def compute_prior(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2,
+        time_rqmt=8,
         device="gpu",
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
@@ -212,7 +216,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     """
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
     default_rqmt = {
-        "mem_rqmt": 20,
+        "mem_rqmt": 32,
         "time_rqmt": 168,
         "cpu_rqmt": 6,
         "log_verbosity": 5,
@@ -307,7 +311,8 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
-    quant_args: Optional[QuantArgs] = None
+    quant_args: Optional[QuantArgs] = None,
+    import_memristor = False,
 ):
     """
     :param training_name:
@@ -372,6 +377,7 @@ def prepare_asr_model(
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
+            import_memristor=import_memristor,
         )
         prior_file = compute_prior(
             training_name,

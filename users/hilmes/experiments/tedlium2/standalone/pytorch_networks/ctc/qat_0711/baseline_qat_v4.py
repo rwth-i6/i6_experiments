@@ -123,7 +123,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.linear_ff = Linear.from_float(
             self.linear_ff,
             weight_qparams={
-                "qscheme": self.linear_ff.weight_quant_method,
+                "qscheme": self.linear_ff.weight_quantizer.method,
                 "dtype": self.linear_ff.weight_quant_dtype,
                 "zero_point": self.linear_ff.weight_quantizer.zero_point,
                 "scale": self.linear_ff.weight_quantizer.scale,
@@ -136,7 +136,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.linear_out = Linear.from_float(
             self.linear_out,
             weight_qparams={
-                "qscheme": self.linear_out.weight_quant_method,
+                "qscheme": self.linear_out.weight_quantizer.method,
                 "dtype": self.linear_out.weight_quant_dtype,
                 "zero_point": self.linear_out.weight_quantizer.zero_point,
                 "scale": self.linear_out.weight_quantizer.scale,
@@ -345,7 +345,7 @@ class ConformerConvolutionQuant(nn.Module):
         self.pointwise_conv1 = Linear.from_float(
             self.pointwise_conv1,
             weight_qparams={
-                "qscheme": self.pointwise_conv1.weight_quant_method,
+                "qscheme": self.pointwise_conv1.weight_quantizer.method,
                 "dtype": self.pointwise_conv1.weight_quant_dtype,
                 "zero_point": self.pointwise_conv1.weight_quantizer.zero_point,
                 "scale": self.pointwise_conv1.weight_quantizer.scale,
@@ -358,7 +358,7 @@ class ConformerConvolutionQuant(nn.Module):
         self.depthwise_conv = Conv1d.from_float(
             self.depthwise_conv,
             weight_qparams={
-                "qscheme": self.depthwise_conv.weight_quant_method,
+                "qscheme": self.depthwise_conv.weight_quantizer.method,
                 "dtype": self.depthwise_conv.weight_quant_dtype,
                 "zero_point": self.depthwise_conv.weight_quantizer.zero_point,
                 "scale": self.depthwise_conv.weight_quantizer.scale,
@@ -371,7 +371,7 @@ class ConformerConvolutionQuant(nn.Module):
         self.pointwise_conv2 = Linear.from_float(
             self.pointwise_conv2,
             weight_qparams={
-                "qscheme": self.pointwise_conv2.weight_quant_method,
+                "qscheme": self.pointwise_conv2.weight_quantizer.method,
                 "dtype": self.pointwise_conv2.weight_quant_dtype,
                 "zero_point": self.pointwise_conv2.weight_quantizer.zero_point,
                 "scale": self.pointwise_conv2.weight_quantizer.scale,
@@ -683,7 +683,7 @@ class Model(torch.nn.Module):
             self.lin_out = Linear.from_float(
                 self.lin_out,
                 weight_qparams={
-                    "qscheme": self.lin_out.weight_quant_method,
+                    "qscheme": self.lin_out.weight_quantizer.method,
                     "dtype": self.lin_out.weight_quant_dtype,
                     "zero_point": self.lin_out.weight_quantizer.zero_point,
                     "scale": self.lin_out.weight_quantizer.scale,

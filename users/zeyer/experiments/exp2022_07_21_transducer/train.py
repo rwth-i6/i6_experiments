@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import Optional, Union, Dict, Any, Sequence
 
 import inspect
-from i6_core.util import instanciate_delayed
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
@@ -17,6 +16,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, TrainD
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint, AlignmentCollection
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_inplace_with_warning
 
 
 def train(
@@ -71,11 +71,10 @@ def train(
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
 
-    extern_data_raw = task.train_dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(task.train_dataset.get_extern_data)
 
     returnn_train_config = ReturnnConfig(
         returnn_train_config_dict,

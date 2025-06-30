@@ -20,12 +20,19 @@ def ufal_kenlm():
     dev_other_text = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="ogg")["dev-other"]).out_txt
     tk.register_output(prefix + "/dev_other.txt", dev_other_text)
 
+    dev_clean_text = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="ogg")["dev-clean"]).out_txt
+    tk.register_output(prefix + "/dev_clean.txt", dev_clean_text)
+
     librispeech_lexicon = get_bliss_lexicon(use_stress_marker=False, add_silence=False)
 
     # Full medical text version 1
     ufal_medical_version_1_text = Path(
         "/work/asr4/rossenbach/domain_data/UFAL_medical_shuffled/clean_version_1/all_en_medical_uniq_sorted_final.txt.gz",
         hash_overwrite="UFAL_medical_shuffled/clean_version_1/all_en_medical_uniq_sorted_final.txt.gz"
+    )
+    MTG_version_4_text = Path(
+        "/work/asr4/rossenbach/domain_data/MTG/MTG_trial4_train.txt",
+        hash_overwrite="MTG/MTG_trial4_train.txt"
     )
 
     ufal_kenlm_lslex_job = KenLMplzJob(
@@ -59,6 +66,12 @@ def ufal_kenlm():
             "ufal_v1_3more_only",
             ufal_medical_version_1_text,
             "/UFAL_medical_shuffled/clean_version_1/vocab_3more_onlyvalid.txt"
+        ),
+        (
+            "MTG_",
+            "MTG_trial4",
+            MTG_version_4_text,
+            "/MTG/MTG_trial4_lex.txt"
         )
     ]
 
@@ -85,14 +98,50 @@ def ufal_kenlm():
             lm_text_bliss=raw_bliss_lex,
             with_unknown=True
         )
+        rasr_with_unk_3var_bliss_lex = create_data_lexicon_rasr_style_v2(
+            prefix=prefix + "/" + name + "/rasr_unk_lex_3var",
+            lm_text_bliss=raw_bliss_lex,
+            with_unknown=True,
+            variants=3,
+        )
+        rasr_with_unk_lsoverride_bliss_lex = create_data_lexicon_rasr_style_v2(
+            prefix=prefix + "/" + name + "/rasr_unk_lex_lsoverride",
+            lm_text_bliss=raw_bliss_lex,
+            with_unknown=True,
+            ls_override=True,
+        )
+        rasr_with_unk_3var_lsoverride_bliss_lex = create_data_lexicon_rasr_style_v2(
+            prefix=prefix + "/" + name + "/rasr_unk_lex_lsoverride_3var",
+            lm_text_bliss=raw_bliss_lex,
+            with_unknown=True,
+            variants=3,
+            ls_override=True,
+        )
         rasr_without_unk_bliss_lex = create_data_lexicon_rasr_style_v2(
             prefix=prefix + "/" + name + "/rasr_non_unk_lex",
             lm_text_bliss=raw_bliss_lex,
             with_unknown=False,
         )
+        rasr_without_unk_lsoverride_bliss_lex = create_data_lexicon_rasr_style_v2(
+            prefix=prefix + "/" + name + "/rasr_non_unk_lex_lsoverride",
+            lm_text_bliss=raw_bliss_lex,
+            with_unknown=False,
+            ls_override=True,
+        )
+        rasr_without_unk_3var_bliss_lex = create_data_lexicon_rasr_style_v2(
+            prefix=prefix + "/" + name + "/rasr_non_unk_lex_3var",
+            lm_text_bliss=raw_bliss_lex,
+            with_unknown=False,
+            variants=3,
+        )
         tk.register_output(prefix + f"/{name}.xml.gz", g2p_bliss_lex)
         tk.register_output(prefix + f"/{name}.rasr_with_unk.xml.gz", rasr_with_unk_bliss_lex)
+        tk.register_output(prefix + f"/{name}.lsoverride.rasr_with_unk.xml.gz", rasr_with_unk_lsoverride_bliss_lex)
+        tk.register_output(prefix + f"/{name}.3var.lsoverride.rasr_with_unk.xml.gz", rasr_with_unk_3var_lsoverride_bliss_lex)
+        tk.register_output(prefix + f"/{name}.3var.rasr_with_unk.xml.gz", rasr_with_unk_3var_bliss_lex)
         tk.register_output(prefix + f"/{name}.rasr_without_unk.xml.gz", rasr_without_unk_bliss_lex)
+        tk.register_output(prefix + f"/{name}.lsoverride.rasr_without_unk.xml.gz", rasr_without_unk_lsoverride_bliss_lex)
+        tk.register_output(prefix + f"/{name}.3var.rasr_without_unk.xml.gz", rasr_without_unk_3var_bliss_lex)
 
         kenlm_job = KenLMplzJob(
             text=[data],
@@ -107,8 +156,10 @@ def ufal_kenlm():
 
         lex[name] = g2p_bliss_lex
         lex[name + "_nols"] = g2p_bliss_lex_nols
+        lex[name + "_rasr_lsoverride"] = rasr_without_unk_lsoverride_bliss_lex
         lm[name] = CreateBinaryLMJob(arpa_lm=kenlm_job.out_lm, kenlm_binary_folder=KENLM_BINARY_PATH).out_lm
         tk.register_output(prefix + f"/{name}.lm.gz", kenlm_job.out_lm)
+        tk.register_output(prefix + f"/{name}.g2plex_nols.xml.gz", g2p_bliss_lex_nols)
 
 
     # Legacy stuff

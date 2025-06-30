@@ -21,6 +21,13 @@ def run_exps():
         analyze_gradients=True,
         run_analysis=True,
       )
+      # recog.global_att_returnn_label_sync_beam_search(
+      #   alias=train_alias,
+      #   config_builder=config_builder,
+      #   checkpoint=checkpoint,
+      #   checkpoint_aliases=("epoch-498",),
+      #   beam_size_list=(100,),
+      # )
       for corpus_key in [
         # "dev-other_0.1-5.1",
         # "dev-other_5.1-10.1",
@@ -55,6 +62,26 @@ def run_exps():
           ]
         )
 
-
-
-
+  for model_alias, config_builder in baseline.global_att_baseline_rf(
+    use_weight_feedback=True,
+    label_type="bpe10025"
+  ):
+    for train_alias, checkpoint in train.train_global_att(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs=2_000,
+            batch_size=35_000,
+            gpu_mem_rqmt=24,
+            accum_grad_multiple_step=2,
+            use_mgpu=False,
+            use_torch_amp=False,
+            filter_data_len=19.5 * 16_000,
+            random_seed=None,
+            ctc_aux_loss_layers=(4, 8),
+    ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        beam_size_list=(12, 100,),
+      )
