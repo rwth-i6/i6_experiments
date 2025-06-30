@@ -9,7 +9,7 @@ from i6_experiments.common.setups.serialization import Collection, Import
 from sisyphus import Job, Task, tk
 
 from ...tools import returnn_python_exe, returnn_root
-from ..common.imports import recipe_imports
+from ..common.serializers import recipe_imports
 
 
 class AddOnnxMetadataJob(Job):

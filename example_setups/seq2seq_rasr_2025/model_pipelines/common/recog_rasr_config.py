@@ -1,16 +1,18 @@
 __all__ = [
     "get_no_op_label_scorer_config",
     "get_combine_label_scorer_config",
-    "RasrRecogOptions",
-    "get_rasr_config_file",
+    "get_lexiconfree_timesync_recog_config",
+    "get_lexiconfree_labelsync_recog_config",
+    "get_tree_timesync_recog_config",
 ]
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
+from i6_core.am.config import TdpValues, acoustic_model_config
 from i6_core.rasr.config import RasrConfig, WriteRasrConfigJob, build_config_from_mapping
 from i6_core.rasr.crp import CommonRasrParameters
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedFormat
 
 from ...tools import rasr_binary_path
 
@@ -34,25 +36,16 @@ def get_combine_label_scorer_config(sub_scorers: List[Tuple[RasrConfig, float]])
     return rasr_config
 
 
-@dataclass
-class RasrRecogOptions:
-    vocab_file: tk.Path
-    lexicon_file: Optional[tk.Path] = None
-    max_beam_size: int = 1
-    intermediate_max_beam_size: Optional[int] = None
-    score_threshold: Optional[float] = None
-    intermediate_score_threshold: Optional[float] = None
-    blank_index: Optional[int] = None
-    sentence_end_index: Optional[int] = None
-    collapse_repeated_labels: bool = False
-    length_norm_scale: Optional[float] = None
-    lm_config: Optional[RasrConfig] = None
-    am_config: Optional[RasrConfig] = None
-
-
-def get_rasr_config_file(
-    recog_options: RasrRecogOptions,
-    label_scorer_config: Optional[Union[List[RasrConfig], RasrConfig]] = None,
+def get_lexiconfree_timesync_recog_config(
+    vocab_file: tk.Path,
+    collapse_repeated_labels: bool,
+    label_scorer_config: Optional[RasrConfig] = None,
+    blank_index: Optional[int] = None,
+    max_beam_size: int = 1024,
+    intermediate_max_beam_size: Optional[int] = 1024,
+    score_threshold: Optional[float] = 18.0,
+    intermediate_score_threshold: Optional[float] = 18.0,
+    log_stepwise_statistics: bool = False,
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
@@ -78,52 +71,181 @@ def get_rasr_config_file(
 
     rasr_config.lib_rasr.lexicon = RasrConfig()
 
-    if recog_options.lm_config is not None:
-        rasr_config.lib_rasr.lm = recog_options.lm_config
+    rasr_config.lib_rasr.search_algorithm = RasrConfig()
+    rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-timesync-beam-search"
 
-    if recog_options.am_config is not None:
-        rasr_config.lib_rasr.acoustic_model = recog_options.am_config
+    rasr_config.lib_rasr.lexicon.file = DelayedFormat("vocab-text:{}", vocab_file)
+
+    rasr_config.lib_rasr.search_algorithm.max_beam_size = max_beam_size
+    if intermediate_max_beam_size is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = intermediate_max_beam_size
+    if score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
+    if intermediate_score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = intermediate_score_threshold
+    if blank_index is not None:
+        rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index
+    rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = collapse_repeated_labels
+    rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
+
+    if label_scorer_config is not None:
+        rasr_config.lib_rasr.label_scorer = label_scorer_config
+    else:
+        rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
+
+    recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
+
+    return recog_rasr_config_path
+
+
+def get_lexiconfree_labelsync_recog_config(
+    vocab_file: tk.Path,
+    label_scorer_config: Optional[RasrConfig] = None,
+    sentence_end_index: Optional[int] = None,
+    max_beam_size: int = 1024,
+    intermediate_max_beam_size: Optional[int] = 1024,
+    score_threshold: Optional[float] = 18.0,
+    intermediate_score_threshold: Optional[float] = 18.0,
+    max_labels_per_time_step: int = 1,
+    length_norm_scale: Optional[float] = 1.0,
+    log_stepwise_statistics: bool = False,
+) -> tk.Path:
+    crp = CommonRasrParameters()
+
+    # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
+    log_config = RasrConfig()
+    log_config["*.log.channel"] = "rasr.log"
+    log_config["*.warning.channel"] = "rasr.log"
+    log_config["*.error.channel"] = "rasr.log"
+    log_config["*.statistics.channel"] = "rasr.log"
+    log_config["*.unbuffered"] = True
+
+    log_post_config = RasrConfig()
+    log_post_config["*.encoding"] = "UTF-8"
+    crp.log_config = log_config  # type: ignore
+    crp.log_post_config = log_post_config  # type: ignore
+    crp.default_log_channel = "rasr.log"
+
+    crp.set_executables(rasr_binary_path=rasr_binary_path)
+
+    rasr_config, rasr_post_config = build_config_from_mapping(crp=crp, mapping={}, include_log_config=True)
+
+    rasr_config.lib_rasr = RasrConfig()
+
+    rasr_config.lib_rasr.lexicon = RasrConfig()
 
     rasr_config.lib_rasr.search_algorithm = RasrConfig()
-    if recog_options.lexicon_file is not None:
-        rasr_config.lib_rasr.search_algorithm.type = "tree-timesync-beam-search"
-        rasr_config.lib_rasr.lexicon.file = recog_options.lexicon_file
-        if recog_options.blank_index is not None and recog_options.collapse_repeated_labels:
-            rasr_config.lib_rasr.search_algorithm.tree_builder_type = "ctc"
-        elif recog_options.blank_index is not None and not recog_options.collapse_repeated_labels:
-            rasr_config.lib_rasr.search_algorithm.tree_builder_type = "rna"
-        else:
-            raise NotImplementedError
+    rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-labelsync-beam-search"
+
+    rasr_config.lib_rasr.lexicon.file = DelayedFormat("vocab-text:%s", vocab_file)
+
+    rasr_config.lib_rasr.search_algorithm.max_beam_size = max_beam_size
+    if intermediate_max_beam_size is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = intermediate_max_beam_size
+    if score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
+    if intermediate_score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = intermediate_score_threshold
+    if sentence_end_index is not None:
+        rasr_config.lib_rasr.search_algorithm.sentence_end_index = sentence_end_index
+    if length_norm_scale is not None:
+        rasr_config.lib_rasr.search_algorithm.length_norm_scale = length_norm_scale
+    rasr_config.lib_rasr.search_algorithm.max_labels_per_time_step = max_labels_per_time_step
+    rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
+
+    if label_scorer_config is not None:
+        rasr_config.lib_rasr.label_scorer = label_scorer_config
     else:
-        rasr_config.lib_rasr.lexicon.file = f"vocab-text:{recog_options.vocab_file}"
-        if recog_options.sentence_end_index is None:
-            rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-timesync-beam-search"
-        else:
-            rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-labelsync-beam-search"
+        rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
 
-    rasr_config.lib_rasr.search_algorithm.max_beam_size = recog_options.max_beam_size
-    if recog_options.intermediate_max_beam_size is not None:
-        rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = recog_options.intermediate_max_beam_size
-    if recog_options.score_threshold is not None:
-        rasr_config.lib_rasr.search_algorithm.score_threshold = recog_options.score_threshold
-    if recog_options.intermediate_score_threshold is not None:
-        rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = recog_options.intermediate_score_threshold
+    recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
 
-    if recog_options.blank_index is not None:
-        rasr_config.lib_rasr.search_algorithm.use_blank = True
-        rasr_config.lib_rasr.search_algorithm.blank_label_index = recog_options.blank_index
-        if recog_options.lexicon_file is not None and recog_options.collapse_repeated_labels:
-            rasr_config.lib_rasr.search_algorithm.force_blank_between_repeated_labels_across_words = True
+    return recog_rasr_config_path
 
-    if recog_options.sentence_end_index is not None:
-        rasr_config.lib_rasr.search_algorithm.sentence_end_index = recog_options.sentence_end_index
 
-    if recog_options.length_norm_scale is not None:
-        rasr_config.lib_rasr.search_algorithm.length_norm_scale = recog_options.length_norm_scale
+def get_tree_timesync_recog_config(
+    lexicon_file: tk.Path,
+    collapse_repeated_labels: bool,
+    label_scorer_config: Optional[RasrConfig] = None,
+    am_config: Optional[RasrConfig] = None,
+    lm_config: Optional[RasrConfig] = None,
+    blank_index: Optional[int] = None,
+    max_beam_size: int = 1024,
+    max_word_end_beam_size: Optional[int] = None,
+    intermediate_max_beam_size: Optional[int] = 1024,
+    score_threshold: Optional[float] = 18.0,
+    word_end_score_threshold: Optional[float] = None,
+    intermediate_score_threshold: Optional[float] = 18.0,
+    sentence_end_fallback: bool = True,
+    log_stepwise_statistics: bool = False,
+) -> tk.Path:
+    crp = CommonRasrParameters()
 
-    rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = recog_options.collapse_repeated_labels
+    # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
+    log_config = RasrConfig()
+    log_config["*.log.channel"] = "rasr.log"
+    log_config["*.warning.channel"] = "rasr.log"
+    log_config["*.error.channel"] = "rasr.log"
+    log_config["*.statistics.channel"] = "rasr.log"
+    log_config["*.unbuffered"] = True
 
-    rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = True
+    log_post_config = RasrConfig()
+    log_post_config["*.encoding"] = "UTF-8"
+    crp.log_config = log_config  # type: ignore
+    crp.log_post_config = log_post_config  # type: ignore
+    crp.default_log_channel = "rasr.log"
+
+    crp.set_executables(rasr_binary_path=rasr_binary_path)
+
+    rasr_config, rasr_post_config = build_config_from_mapping(crp=crp, mapping={}, include_log_config=True)
+
+    rasr_config.lib_rasr = RasrConfig()
+
+    rasr_config.lib_rasr.lexicon = RasrConfig()
+
+    rasr_config.lib_rasr.search_algorithm = RasrConfig()
+    rasr_config.lib_rasr.search_algorithm.type = "tree-timesync-beam-search"
+
+    rasr_config.lib_rasr.lexicon.file = lexicon_file
+
+    if lm_config is not None:
+        rasr_config.lib_rasr.lm = lm_config
+    else:
+        rasr_config.lib_rasr.lm = RasrConfig()
+        rasr_config.lib_rasr.lm.scale = 0.0
+
+    if am_config is None:
+        am_config = acoustic_model_config(
+            states_per_phone=1,
+            tdp_transition=TdpValues(loop=0.0, forward=0.0, skip="infinity", exit=0.0),
+            tdp_silence=TdpValues(loop=0.0, forward=0.0, skip="infinity", exit=0.0),
+            phon_history_length=1,
+            phon_future_length=1,
+        )
+    rasr_config.lib_rasr.acoustic_model = am_config
+
+    if collapse_repeated_labels:
+        rasr_config.lib_rasr.search_algorithm.tree_builder_type = "ctc"
+    else:
+        rasr_config.lib_rasr.search_algorithm.tree_builder_type = "rna"
+
+    rasr_config.lib_rasr.search_algorithm.max_beam_size = max_beam_size
+    if max_word_end_beam_size is not None:
+        rasr_config.lib_rasr.search_algorithm.max_word_end_beam_size = max_word_end_beam_size
+    if intermediate_max_beam_size is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = intermediate_max_beam_size
+    if score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
+    if word_end_score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.word_end_score_threshold = word_end_score_threshold
+    if intermediate_score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = intermediate_score_threshold
+    if blank_index is not None:
+        rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index
+    rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = collapse_repeated_labels
+    rasr_config.lib_rasr.search_algorithm.force_blank_between_repeated_labels = collapse_repeated_labels
+    rasr_config.lib_rasr.search_algorithm.sentence_end_fall_back = sentence_end_fallback
+    rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
 
     if label_scorer_config is not None:
         rasr_config.lib_rasr.label_scorer = label_scorer_config

@@ -1,11 +1,9 @@
-from copy import copy
 from dataclasses import fields
-from typing import List, Literal, Optional
+from typing import List
 
 import torch
-from i6_experiments.common.setups.rasr.config.am_config import StateTying, acoustic_model_config
-from i6_core.rasr.config import RasrConfig
 from i6_core.returnn import PtCheckpoint
+from i6_experiments.common.datasets.librispeech.vocab import get_lm_vocab
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer import (
@@ -27,32 +25,27 @@ from ...data.librispeech.datasets import (
     get_default_score_corpus,
 )
 from ...data.librispeech.lexicon import get_bpe_bliss_lexicon
-from ...data.librispeech.lm import get_arpa_lm_config
-from ...model_pipelines.bpe_ctc.prior import compute_priors
-from ...model_pipelines.bpe_ctc.pytorch_modules import (
+from ...data.librispeech.lm import get_arpa_lm_config, get_transformer_lm_config
+from ...model_pipelines.common.experiment_context import ExperimentContext
+from ...model_pipelines.common.learning_rates import OCLRConfig
+from ...model_pipelines.common.optimizer import AdamWConfig
+from ...model_pipelines.common.recog_rasr import RecogResult, recog_rasr
+from ...model_pipelines.common.recog_rasr_config import (
+    get_lexiconfree_timesync_recog_config,
+    get_no_op_label_scorer_config,
+    get_tree_timesync_recog_config,
+)
+from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.serializers import get_model_serializers
+from ...model_pipelines.common.train import TrainOptions
+from ...model_pipelines.ctc.prior import compute_priors
+from ...model_pipelines.ctc.pytorch_modules import (
     ConformerCTCConfig,
     ConformerCTCRecogConfig,
     ConformerCTCRecogModel,
     SpecaugmentByLengthConfig,
 )
-from ...model_pipelines.bpe_ctc.train import train
-from ...model_pipelines.bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
-from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
-from ...model_pipelines.common.experiment_context import ExperimentContext
-from ...model_pipelines.common.imports import get_model_serializers
-from ...model_pipelines.common.learning_rates import OCLRConfig
-from ...model_pipelines.common.optimizer import AdamWConfig
-from ...model_pipelines.common.recog import RecogResult, recog_rasr
-from ...model_pipelines.common.recog_rasr_config import (
-    RasrRecogOptions,
-    get_combine_label_scorer_config,
-    get_no_op_label_scorer_config,
-    get_rasr_config_file,
-)
-from ...model_pipelines.common.report import create_report
-from ...model_pipelines.common.train import TrainOptions
-
-# from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
+from ...model_pipelines.ctc.train import train
 
 BPE_SIZE = 128
 
@@ -172,90 +165,8 @@ def get_baseline_train_options() -> TrainOptions:
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
-    )
-
-
-def get_baseline_recog_options() -> RasrRecogOptions:
-    return RasrRecogOptions(
-        blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
-        vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
-        max_beam_size=1,
-        score_threshold=None,
-        collapse_repeated_labels=True,
-    )
-
-
-def run_recog(
-    descriptor: str,
-    corpus_name: str,
-    checkpoint: PtCheckpoint,
-    model_config: ConformerCTCConfig,
-    # lm_checkpoint: Optional[PtCheckpoint] = None,
-    # lm_config: Optional[LstmLmConfig] = None,
-    lm_scale: float = 0.0,
-    prior_scale: float = 0.0,
-    blank_penalty: float = 0.0,
-    recog_options: Optional[RasrRecogOptions] = None,
-    compute_search_errors: bool = False,
-    device: Literal["cpu", "gpu"] = "cpu",
-) -> RecogResult:
-    recog_options = recog_options or get_baseline_recog_options()
-
-    prior_file = compute_priors(
-        prior_data_config=get_default_prior_data(),
-        model_config=model_config,
-        checkpoint=checkpoint,
-    )
-
-    recog_model_config = ConformerCTCRecogConfig(
-        **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-        prior_file=prior_file,
-        prior_scale=prior_scale,
-        blank_penalty=blank_penalty,
-    )
-
-    label_scorer_config = get_no_op_label_scorer_config()
-
-    # if lm_scale != 0:
-    #     assert lm_checkpoint is not None
-    #     assert lm_config is not None
-    #     lm_label_scorer_config = get_lstm_lm_label_scorer_config(model_config=lm_config, checkpoint=lm_checkpoint)
-    #     label_scorer_config = get_combine_label_scorer_config(
-    #         [(label_scorer_config, 1.0), (lm_label_scorer_config, lm_scale)]
-    #     )
-
-    rasr_config_file = get_rasr_config_file(
-        recog_options=recog_options,
-        label_scorer_config=label_scorer_config,
-    )
-
-    align_recog_options = RasrRecogOptions(
-        vocab_file=recog_options.vocab_file,
-        lexicon_file=recog_options.lexicon_file,
-        max_beam_size=2048,
-        score_threshold=20.0,
-        blank_index=recog_options.blank_index,
-        collapse_repeated_labels=recog_options.collapse_repeated_labels,
-        lm_config=recog_options.lm_config,
-        am_config=recog_options.am_config,
-    )
-    align_rasr_config_file = get_rasr_config_file(
-        recog_options=align_recog_options,
-        label_scorer_config=label_scorer_config,
-    )
-
-    return recog_rasr(
-        descriptor=descriptor,
-        recog_data_config=get_default_recog_data(corpus_name=corpus_name),
-        recog_corpus=get_default_score_corpus(corpus_name=corpus_name),
-        model_serializers=get_model_serializers(model_class=ConformerCTCRecogModel, model_config=recog_model_config),
-        rasr_config_file=rasr_config_file,
-        rasr_align_config_file=align_rasr_config_file,
-        compute_search_errors=compute_search_errors,
-        sample_rate=16000,
-        lm_scale=lm_scale,
-        device=device,
-        checkpoint=checkpoint,
+        max_seqs=None,
+        max_seq_length=None,
     )
 
 
@@ -267,73 +178,190 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
         train_job = train(options=train_config, model_config=model_config)
         checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
-        recog_options = get_baseline_recog_options()
+        prior_file = compute_priors(
+            prior_data_config=get_default_prior_data(),
+            model_config=model_config,
+            checkpoint=checkpoint,
+        )
 
-        # lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
-        # lstm_lm_checkpoint = PtCheckpoint(
-        #     tk.Path(
-        #         "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
-        #     )
-        # )
+        vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
+        lm_vocab_file = get_lm_vocab(output_prefix="").vocab
+        lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
+        blank_index = bpe_to_vocab_size(bpe_size=BPE_SIZE)
+
+        arpa_lm_config = get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file)
+        arpa_lm_config.scale = 0.6
+
+        recog_data = {
+            corpus_name: get_default_recog_data(corpus_name)
+            for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
+        }
+
+        score_corpora = {
+            corpus_name: get_default_score_corpus(corpus_name)
+            for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
+        }
 
         recog_results = []
-        for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+
+        # =====================================
+        # === Lexiconfree Search without LM ===
+        # =====================================
+
+        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
             recog_results.append(
-                run_recog(
-                    descriptor="bpe-ctc_recog-rasr",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
+                recog_rasr(
+                    descriptor="bpe-ctc_lexiconfree",
                     checkpoint=checkpoint,
+                    recog_data_config=recog_data[recog_corpus],
+                    recog_corpus=score_corpora[recog_corpus],
+                    model_serializers=get_model_serializers(
+                        ConformerCTCRecogModel,
+                        ConformerCTCRecogConfig(
+                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                            prior_file=prior_file,
+                            prior_scale=0.0,
+                            blank_penalty=0.0,
+                        ),
+                    ),
+                    rasr_config_file=get_lexiconfree_timesync_recog_config(
+                        vocab_file=vocab_file,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
+                        blank_index=blank_index,
+                        max_beam_size=1,  # Lexiconfree search without LM is greedy so only one hyp is needed
+                    ),
+                    rasr_align_config_file=None,  # No search error computation needed since greedy search can't have search errors
+                    sample_rate=16000,
+                    device="cpu",
                 )
             )
 
-        recog_options.lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
-        recog_options.lm_config = get_arpa_lm_config("4gram", recog_options.lexicon_file)
-        recog_options.am_config = acoustic_model_config(state_tying=StateTying.MONOPHONE, states_per_phone=1)
-        recog_options.max_beam_size = 64
-        recog_options.score_threshold = 10.0
+        # =====================================
+        # === Tree Search without LM ==========
+        # =====================================
 
-        # for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        for corpus_name in ["dev-other"]:
-            for score_threshold in [10.0, 14.0, 18.0, 22.0]:
-                for max_beam_size in [64, 1024, 8192]:
-                    for lm_scale in [0.6]:
-                        for prior_scale in [0.0, 0.2]:
-                            recog_options.max_beam_size = max_beam_size
-                            recog_options.score_threshold = score_threshold
-                            recog_options.lm_config.scale = lm_scale
-                            recog_results.append(
-                                run_recog(
-                                    descriptor=f"bpe-ctc_recog-rasr_tree_prior-{prior_scale:.1f}_4gram-{lm_scale:.1f}_beam-{max_beam_size}_score-{score_threshold}",
-                                    corpus_name=corpus_name,
-                                    model_config=model_config,
-                                    checkpoint=checkpoint,
-                                    recog_options=recog_options,
-                                    prior_scale=prior_scale,
-                                    compute_search_errors=True,
-                                    lm_scale=lm_scale,
-                                )
-                            )
+        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+            recog_results.append(
+                recog_rasr(
+                    descriptor="bpe-ctc_tree",
+                    checkpoint=checkpoint,
+                    recog_data_config=recog_data[recog_corpus],
+                    recog_corpus=score_corpora[recog_corpus],
+                    model_serializers=get_model_serializers(
+                        ConformerCTCRecogModel,
+                        ConformerCTCRecogConfig(
+                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                            prior_file=prior_file,
+                            prior_scale=0.0,
+                            blank_penalty=0.0,
+                        ),
+                    ),
+                    rasr_config_file=get_tree_timesync_recog_config(
+                        lexicon_file=lexicon_file,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
+                        blank_index=blank_index,
+                        max_beam_size=1024,
+                        score_threshold=14.0,
+                    ),
+                    rasr_align_config_file=get_tree_timesync_recog_config(
+                        lexicon_file=lexicon_file,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
+                        blank_index=blank_index,
+                        max_beam_size=4096,
+                        score_threshold=22.0,
+                    ),
+                )
+            )
 
-        # for max_beam_size in [2, 4, 6, 8, 10]:
-        #     for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
-        #         beam_recog_options = get_baseline_recog_options()
-        #         beam_recog_options.max_beam_size = max_beam_size
-        #         beam_recog_options.score_threshold = score_threshold
-        #
-        #         recog_results.append(
-        #             run_recog(
-        #                 descriptor=f"bpe-ctc_recog-rasr_lm_beam-{max_beam_size}_score-{score_threshold}",
-        #                 corpus_name="dev-other",
-        #                 model_config=model_config,
-        #                 checkpoint=checkpoint,
-        #                 prior_scale=0.3,
-        #                 lm_scale=0.8,
-        #                 lm_config=lstm_lm_config,
-        #                 lm_checkpoint=lstm_lm_checkpoint,
-        #                 recog_options=beam_recog_options,
-        #             )
-        #         )
+        # =====================================
+        # === Tree Search with 4gram LM =======
+        # =====================================
+
+        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+            arpa_lm_config.scale = 0.6
+            recog_results.append(
+                recog_rasr(
+                    descriptor="bpe-ctc_tree_4gram",
+                    checkpoint=checkpoint,
+                    recog_data_config=recog_data[recog_corpus],
+                    recog_corpus=score_corpora[recog_corpus],
+                    model_serializers=get_model_serializers(
+                        ConformerCTCRecogModel,
+                        ConformerCTCRecogConfig(
+                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                            prior_file=prior_file,
+                            prior_scale=0.2,
+                            blank_penalty=0.0,
+                        ),
+                    ),
+                    rasr_config_file=get_tree_timesync_recog_config(
+                        lexicon_file=lexicon_file,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
+                        lm_config=arpa_lm_config,
+                        blank_index=blank_index,
+                        max_beam_size=8192,
+                        score_threshold=16.0,
+                    ),
+                    rasr_align_config_file=get_tree_timesync_recog_config(
+                        lexicon_file=lexicon_file,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
+                        lm_config=arpa_lm_config,
+                        blank_index=blank_index,
+                        max_beam_size=4096,
+                        score_threshold=22.0,
+                    ),
+                )
+            )
+
+        # =====================================
+        # === Tree Search with TraFo LM =======
+        # =====================================
+
+        for trafo_layers in [24, 48, 96]:
+            trafo_lm_config = get_transformer_lm_config(num_layers=trafo_layers, vocab_file=lm_vocab_file, lm_scale=0.6)
+            for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+                recog_results.append(
+                    recog_rasr(
+                        descriptor=f"bpe-ctc_tree_trafo-{trafo_layers}l",
+                        checkpoint=checkpoint,
+                        recog_data_config=recog_data[recog_corpus],
+                        recog_corpus=score_corpora[recog_corpus],
+                        model_serializers=get_model_serializers(
+                            ConformerCTCRecogModel,
+                            ConformerCTCRecogConfig(
+                                **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                                prior_file=prior_file,
+                                prior_scale=0.2,
+                                blank_penalty=0.0,
+                            ),
+                        ),
+                        rasr_config_file=get_tree_timesync_recog_config(
+                            lexicon_file=lexicon_file,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
+                            lm_config=trafo_lm_config,
+                            blank_index=blank_index,
+                            max_beam_size=256,
+                            max_word_end_beam_size=8,
+                            score_threshold=14.0,
+                        ),
+                        rasr_align_config_file=get_tree_timesync_recog_config(
+                            lexicon_file=lexicon_file,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
+                            lm_config=trafo_lm_config,
+                            blank_index=blank_index,
+                            max_beam_size=4096,
+                            max_word_end_beam_size=16,
+                            score_threshold=22.0,
+                        ),
+                    )
+                )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

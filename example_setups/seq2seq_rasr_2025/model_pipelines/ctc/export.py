@@ -6,8 +6,8 @@ from sisyphus import tk
 
 from i6_experiments.common.setups.serialization import Import
 
-from ..common.export import export_model as _export_model
-from ..common.imports import get_model_serializers
+from ..common.onnx_export import export_model as _export_model
+from ..common.serializers import get_model_serializers
 from .pytorch_modules import ConformerCTCRecogConfig, ConformerCTCRecogModel
 
 

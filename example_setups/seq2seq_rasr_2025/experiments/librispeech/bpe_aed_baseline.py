@@ -45,7 +45,7 @@ from ...model_pipelines.common.recog_rasr_config import (
 from ...model_pipelines.common.report import create_report
 from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
 
-BPE_SIZE = 128
+BPE_SIZE = 5000
 
 
 def get_baseline_model_config() -> AEDConfig:
@@ -201,7 +201,7 @@ def get_baseline_recog_options() -> RasrRecogOptions:
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=False),
         max_beam_size=8,
         score_threshold=12.0,
-        allow_label_loop=False,
+        collapse_repeated_labels=False,
         length_norm_scale=1.2,
     )
 

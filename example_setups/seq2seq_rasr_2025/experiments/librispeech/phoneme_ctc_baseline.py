@@ -1,3 +1,4 @@
+from dataclasses import fields
 from typing import List
 
 import torch
@@ -15,36 +16,39 @@ from i6_models.parts.frontend.generic_frontend import FrontendLayerType, Generic
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 from sisyphus import tk
 
-from ...data.librispeech.bpe import bpe_to_vocab_size, get_bpe_vocab_file
 from ...data.librispeech.datasets import (
-    get_default_bpe_cv_data,
-    get_default_bpe_train_data,
+    get_default_phoneme_cv_data,
+    get_default_phoneme_train_data,
+    get_default_prior_data,
     get_default_recog_data,
     get_default_score_corpus,
 )
-from ...data.librispeech.lexicon import get_bpe_bliss_lexicon
+from ...data.librispeech.lexicon import get_bliss_phoneme_lexicon
 from ...data.librispeech.lm import get_arpa_lm_config, get_transformer_lm_config
+from ...data.librispeech.phoneme import PHONEME_SIZE
 from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.learning_rates import OCLRConfig
-from ...model_pipelines.common.optimizer import RAdamConfig
-from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
+from ...model_pipelines.common.optimizer import AdamWConfig
 from ...model_pipelines.common.recog_rasr import RecogResult, recog_rasr
 from ...model_pipelines.common.recog_rasr_config import (
-    get_lexiconfree_timesync_recog_config,
+    get_no_op_label_scorer_config,
     get_tree_timesync_recog_config,
 )
 from ...model_pipelines.common.report import create_report
 from ...model_pipelines.common.serializers import get_model_serializers
-from ...model_pipelines.ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
-from ...model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerEncoder
-from ...model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, train
+from ...model_pipelines.common.train import TrainOptions
+from ...model_pipelines.ctc.prior import compute_priors
+from ...model_pipelines.ctc.pytorch_modules import (
+    ConformerCTCConfig,
+    ConformerCTCRecogConfig,
+    ConformerCTCRecogModel,
+    SpecaugmentByLengthConfig,
+)
+from ...model_pipelines.ctc.train import train
 
-BPE_SIZE = 128
 
-
-def get_baseline_model_config() -> FFNNTransducerConfig:
-    vocab_size = bpe_to_vocab_size(BPE_SIZE)
-    return FFNNTransducerConfig(
+def get_baseline_model_config() -> ConformerCTCConfig:
+    return ConformerCTCConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -57,7 +61,7 @@ def get_baseline_model_config() -> FFNNTransducerConfig:
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=41,
+            start_epoch=21,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
@@ -126,39 +130,23 @@ def get_baseline_model_config() -> FFNNTransducerConfig:
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
+        dim=512,
+        target_size=PHONEME_SIZE + 1,
         dropout=0.1,
-        enc_dim=512,
-        pred_num_layers=2,
-        pred_dim=640,
-        pred_activation=torch.nn.Tanh(),
-        context_history_size=1,
-        context_embedding_dim=256,
-        joiner_dim=1024,
-        joiner_activation=torch.nn.Tanh(),
-        target_size=vocab_size + 1,
     )
 
 
-def get_baseline_train_options() -> FFNNTransducerTrainOptions:
-    train_data_config = get_default_bpe_train_data(BPE_SIZE)
-    assert train_data_config.target_config
-    train_data_config.target_config["seq_postfix"] = [0]
-
-    cv_data_config = get_default_bpe_cv_data(BPE_SIZE)
-    assert cv_data_config.target_config
-    cv_data_config.target_config["seq_postfix"] = [0]
-
-    return FFNNTransducerTrainOptions(
+def get_baseline_train_options() -> TrainOptions:
+    return TrainOptions(
         descriptor="baseline",
-        train_data_config=get_default_bpe_train_data(BPE_SIZE),
-        cv_data_config=get_default_bpe_cv_data(BPE_SIZE),
+        train_data_config=get_default_phoneme_train_data(),
+        cv_data_config=get_default_phoneme_cv_data(),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=24_000 * 160,
         accum_grad_multiple_step=1,
-        optimizer_config=RAdamConfig(
-            epsilon=1e-12,
+        optimizer_config=AdamWConfig(
+            epsilon=1e-16,
             weight_decay=0.01,
-            decoupled_weight_decay=True,
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
@@ -173,39 +161,18 @@ def get_baseline_train_options() -> FFNNTransducerTrainOptions:
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
-        enc_loss_scale=0.2,
-        pred_loss_scale=0.2,
-        delay_penalty=0.0,
-        skip_epochs_before_pruned_loss=20,
-        prune_range=5,
-        smoothed_loss_scale=0.5,
         max_seqs=None,
         max_seq_length=None,
     )
 
 
-def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transducer") -> List[RecogResult]:
+def run_phoneme_ctc_baseline(prefix: str = "librispeech/phoneme_ctc") -> List[RecogResult]:
     with ExperimentContext(prefix):
         model_config = get_baseline_model_config()
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
         checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
-
-        label_scorer_config = get_ffnn_transducer_label_scorer_config(
-            model_config=model_config,
-            checkpoint=checkpoint,
-            ilm_scale=0.2,
-            blank_penalty=0.0,
-        )
-
-        vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
-        lm_vocab_file = get_lm_vocab(output_prefix="").vocab
-        lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
-        blank_index = bpe_to_vocab_size(bpe_size=BPE_SIZE)
-
-        arpa_lm_config = get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file)
-        arpa_lm_config.scale = 0.6
 
         recog_data = {
             corpus_name: get_default_recog_data(corpus_name)
@@ -217,40 +184,32 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
             for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
         }
 
+        lm_vocab_file = get_lm_vocab(output_prefix="").vocab
+
+        lexicon = get_bliss_phoneme_lexicon()
+
+        arpa_lm_config = get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon)
+        arpa_lm_config.scale = 0.6
+
+        blank_index = PHONEME_SIZE
+
         recog_results = []
 
-        # =====================================
-        # === Lexiconfree Search without LM ===
-        # =====================================
+        prior_file = compute_priors(
+            prior_data_config=get_default_prior_data(),
+            checkpoint=checkpoint,
+            model_config=model_config,
+        )
 
-        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_lexiconfree",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_lexiconfree_timesync_recog_config(
-                        vocab_file=vocab_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                    ),
-                    sample_rate=16000,
-                    device="cpu",
-                )
-            )
+        model_serializers = get_model_serializers(
+            ConformerCTCRecogModel,
+            ConformerCTCRecogConfig(
+                **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                prior_file=prior_file,
+                prior_scale=0.2,
+                blank_penalty=0.0,
+            ),
+        )
 
         # =====================================
         # === Tree Search without LM ==========
@@ -259,23 +218,31 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
         for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
             recog_results.append(
                 recog_rasr(
-                    descriptor="bpe-transducer_tree",
+                    descriptor="phon-ctc_tree",
                     checkpoint=checkpoint,
                     recog_data_config=recog_data[recog_corpus],
                     recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
+                    model_serializers=get_model_serializers(
+                        ConformerCTCRecogModel,
+                        ConformerCTCRecogConfig(
+                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                            prior_file=prior_file,
+                            prior_scale=0.0,
+                            blank_penalty=0.0,
+                        ),
+                    ),
                     rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
+                        lexicon_file=lexicon,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
                         blank_index=blank_index,
                         max_beam_size=64,
                         score_threshold=12.0,
                     ),
                     rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
+                        lexicon_file=lexicon,
                         collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
+                        label_scorer_config=get_no_op_label_scorer_config(),
                         blank_index=blank_index,
                         max_beam_size=256,
                         score_threshold=22.0,
@@ -293,24 +260,24 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
             arpa_lm_config.scale = 0.6
             recog_results.append(
                 recog_rasr(
-                    descriptor="bpe-transducer_tree_4gram",
+                    descriptor="phon-ctc_tree_4gram",
                     checkpoint=checkpoint,
                     recog_data_config=recog_data[recog_corpus],
                     recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
+                    model_serializers=model_serializers,
                     rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
+                        lexicon_file=lexicon,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
                         lm_config=arpa_lm_config,
                         blank_index=blank_index,
                         max_beam_size=64,
                         score_threshold=12.0,
                     ),
                     rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
+                        lexicon_file=lexicon,
+                        collapse_repeated_labels=True,
+                        label_scorer_config=get_no_op_label_scorer_config(),
                         lm_config=arpa_lm_config,
                         blank_index=blank_index,
                         max_beam_size=256,
@@ -330,28 +297,30 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
             for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
                 recog_results.append(
                     recog_rasr(
-                        descriptor=f"bpe-transducer_tree_trafo-{trafo_layers}l",
+                        descriptor=f"phon-ctc_tree_trafo-{trafo_layers}l",
                         checkpoint=checkpoint,
                         recog_data_config=recog_data[recog_corpus],
                         recog_corpus=score_corpora[recog_corpus],
-                        model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
+                        model_serializers=model_serializers,
                         rasr_config_file=get_tree_timesync_recog_config(
-                            lexicon_file=lexicon_file,
-                            collapse_repeated_labels=False,
-                            label_scorer_config=label_scorer_config,
+                            lexicon_file=lexicon,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
                             lm_config=trafo_lm_config,
                             blank_index=blank_index,
                             max_beam_size=64,
+                            max_word_end_beam_size=4,
                             score_threshold=12.0,
                         ),
                         rasr_align_config_file=get_tree_timesync_recog_config(
-                            lexicon_file=lexicon_file,
-                            collapse_repeated_labels=False,
-                            label_scorer_config=label_scorer_config,
+                            lexicon_file=lexicon,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
                             lm_config=trafo_lm_config,
                             blank_index=blank_index,
                             max_beam_size=256,
-                            score_threshold=22.0,
+                            max_word_end_beam_size=8,
+                            score_threshold=18.0,
                         ),
                         sample_rate=16000,
                         device="cpu",

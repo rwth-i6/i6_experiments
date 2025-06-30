@@ -209,7 +209,7 @@ def get_baseline_recog_options(blank: bool, sentence_end: bool, label_loop: bool
     return RasrRecogOptions(
         blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE) if blank else None,
         sentence_end_index=0 if sentence_end else None,
-        length_norm_scale=0.5 if sentence_end else None,
+        length_norm_scale=1.0 if sentence_end else None,
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=blank),
         max_beam_size_per_scorer=64,
         max_beam_size=16,
@@ -360,16 +360,16 @@ def run_bpe_combination_baseline(prefix: str = "switchboard/bpe_combination") ->
                 )
             )
 
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_attention-only",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    attention_score_scale=1.0,
-                    max_beam_size=8,
-                )
-            )
+            # recog_results.append(
+            #     run_recog(
+            #         descriptor="bpe-combination_recog-rasr_attention-only",
+            #         corpus_name=corpus_name,
+            #         model_config=model_config,
+            #         checkpoint=checkpoint,
+            #         attention_score_scale=1.0,
+            #         max_beam_size=4,
+            #     )
+            # )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

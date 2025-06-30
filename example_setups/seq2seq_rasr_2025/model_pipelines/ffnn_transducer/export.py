@@ -6,8 +6,8 @@ from sisyphus import tk
 
 from i6_experiments.common.setups.serialization import Import
 
-from ..common.export import export_model as _export_model
-from ..common.imports import get_model_serializers
+from ..common.onnx_export import export_model as _export_model
+from ..common.serializers import get_model_serializers
 from .pytorch_modules import (
     FFNNTransducerConfig,
     FFNNTransducerEncoder,
@@ -45,7 +45,7 @@ def _scorer_forward_step(*, model: FFNNTransducerScorer, extern_data: TensorDict
 
     run_ctx = rf.get_run_ctx()
 
-    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, F]
+    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, V]
     assert encoder_state is not None
     history = extern_data["history"].raw_tensor  # [B, S]
     assert history is not None

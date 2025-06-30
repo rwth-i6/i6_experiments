@@ -9,6 +9,21 @@ class OptimizerConfig(Protocol):
 
 
 @dataclass
+class SGDConfig:
+    weight_decay: float
+
+    def get_returnn_config(self) -> ReturnnConfig:
+        return ReturnnConfig(
+            config={
+                "optimizer": {
+                    "class": "sgd",
+                    "weight_decay": self.weight_decay,
+                },
+            },
+        )
+
+
+@dataclass
 class AdamWConfig:
     epsilon: float
     weight_decay: float

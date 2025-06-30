@@ -11,6 +11,32 @@ class LRConfig(Protocol):
 
 
 @dataclass
+class NewbobRelConfig:
+    learning_rate: float
+    lr_decay: float
+    error_measure: str
+    multi_num_epochs: int
+    multi_update_interval: int
+    relative_error_div_by_old: bool
+    relative_error_threshold: float
+
+    def get_returnn_config(self) -> ReturnnConfig:
+        return ReturnnConfig(
+            config={
+                "learning_rate": self.learning_rate,
+                "learning_rate_control": "newbob_rel",
+                "learning_rate_control_error_measure": self.error_measure,
+                "learning_rate_control_relative_error_relative_lr": False,
+                "newbob_learning_rate_decay": self.lr_decay,
+                "newbob_multi_num_epochs": self.multi_num_epochs,
+                "newbob_multi_update_interval": self.multi_update_interval,
+                "newbob_relative_error_div_by_old": self.relative_error_div_by_old,
+                "newbob_relative_error_threshold": self.relative_error_threshold,
+            },
+        )
+
+
+@dataclass
 class ConstConstDecayLRConfig:
     const_lr_1: float
     const_lr_2: float

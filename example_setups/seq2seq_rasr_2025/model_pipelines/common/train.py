@@ -1,7 +1,7 @@
 __all__ = ["TrainOptions", "train"]
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
@@ -10,9 +10,9 @@ from sisyphus import tk
 
 from ...data.base import DataConfig
 from ...tools import minireturnn_root, returnn_python_exe
-from ..common.imports import recipe_imports
 from ..common.learning_rates import LRConfig
 from ..common.optimizer import OptimizerConfig
+from ..common.serializers import recipe_imports
 
 
 @dataclass
@@ -29,6 +29,8 @@ class TrainOptions:
     num_workers_per_gpu: int
     automatic_mixed_precision: bool
     gpu_mem_rqmt: float
+    max_seqs: Optional[int]
+    max_seq_length: Optional[int]
 
 
 def train(options: TrainOptions, model_serializers: Collection, train_step_import: Import) -> ReturnnTrainingJob:
@@ -49,6 +51,12 @@ def train(options: TrainOptions, model_serializers: Collection, train_step_impor
     }
     if options.automatic_mixed_precision:
         config_dict["torch_amp_options"] = {"dtype": "bfloat16"}
+
+    if options.max_seqs:
+        config_dict["max_seqs"] = options.max_seqs
+
+    if options.max_seq_length:
+        config_dict["max_seq_length"] = options.max_seq_length
 
     train_returnn_config = ReturnnConfig(
         config=config_dict,

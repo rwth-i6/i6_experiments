@@ -1,7 +1,6 @@
-__all__ = ["recog_base", "recog_flashlight", "recog_rasr"]
+__all__ = ["recog_base", "base_recog_forward_step"]
 
 from dataclasses import dataclass
-from functools import lru_cache
 from time import perf_counter
 from typing import Iterator, List, Literal, Optional, Protocol, Tuple
 
@@ -11,20 +10,15 @@ from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchBPEtoWordsJob, SearchWordsToCTMJob
-from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import, PartialImport
-from returnn.datasets.util.vocabulary import Vocabulary
+from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import Tensor, TensorDict
 from sisyphus import Job, Task, tk
 
 from ...data.base import DataConfig
-from ...tools import returnn_python_exe, returnn_root
+from ...tools import rasr_binary_path, returnn_python_exe, returnn_root
 from .corpus import ScorableCorpus
-from .imports import recipe_imports
-
-# -------------------
-# --- Base ----------
-# -------------------
+from .serializers import recipe_imports
 
 
 @dataclass
@@ -199,7 +193,7 @@ class EncoderModel(Protocol):
     def forward(self, audio_samples: torch.Tensor, audio_samples_size: torch.Tensor) -> torch.Tensor: ...
 
 
-def _base_recog_forward_step(
+def base_recog_forward_step(
     *,
     model: EncoderModel,
     extern_data: TensorDict,
@@ -248,12 +242,17 @@ def _base_recog_forward_step(
         search_time = perf_counter() - search_start
         search_times.append(search_time)
 
-        recog_str = recog_str.replace("</s>", "")
-        recog_str = recog_str.replace("<blank>", "")
-        recog_str = " ".join(recog_str.split())
-
         print(f"Recognized sequence {repr(seq_tags[b])}")
         print(f'    Ground truth: "{orths[b]}"', flush=True)
+
+        recog_str = recog_str.replace("<s>", "")
+        recog_str = recog_str.replace("</s>", "")
+        recog_str = recog_str.replace("<blank>", "")
+        recog_str = recog_str.replace("[BLANK] [1]", "")
+        recog_str = recog_str.replace("[BLANK]", "")
+        recog_str = recog_str.replace("<silence>", "")
+        recog_str = recog_str.replace("[SILENCE]", "")
+        recog_str = " ".join(recog_str.split())
 
         tokens_array = np.array(recog_str.split(), dtype="U")
         tokens_arrays.append(tokens_array)
@@ -263,8 +262,13 @@ def _base_recog_forward_step(
 
         if align_function is not None:
             alignment_str, alignment_score = align_function(features=encoder_states, orth=orths[b])
+            alignment_str = alignment_str.replace("<s>", "")
             alignment_str = alignment_str.replace("</s>", "")
             alignment_str = alignment_str.replace("<blank>", "")
+            alignment_str = alignment_str.replace("[BLANK] [1]", "")
+            alignment_str = alignment_str.replace("[BLANK]", "")
+            alignment_str = alignment_str.replace("<silence>", "")
+            alignment_str = alignment_str.replace("[SILENCE]", "")
             alignment_str = " ".join(alignment_str.split())
 
             if alignment_str != orths[b]:
@@ -393,12 +397,12 @@ def _base_recog_forward_step(
 
 def recog_base(
     descriptor: str,
+    checkpoint: PtCheckpoint,
     recog_data_config: DataConfig,
     recog_corpus: ScorableCorpus,
     model_serializers: Collection,
     forward_step_import: Import,
     device: Literal["cpu", "gpu"] = "cpu",
-    checkpoint: Optional[PtCheckpoint] = None,
     extra_output_files: Optional[List[str]] = None,
 ) -> RecogResult:
     recog_returnn_config = ReturnnConfig(
@@ -451,15 +455,7 @@ def recog_base(
             "backend": "torch",
             "batch_size": 36_000 * 160,
         },
-        python_prolog=recipe_imports
-        + [
-            ExternalImport(
-                tk.Path(
-                    "/work/asr4/berger/rasr_dev/label_scorer/rasr/lib/linux-x86_64-standard",
-                    hash_overwrite="RASR_BINARY_PATH",
-                )
-            )
-        ],
+        python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
         python_epilog=[
             model_serializers,
             Import(
@@ -524,194 +520,4 @@ def recog_base(
         enc_rtf=extract_rtf_job.out_enc_rtf,
         search_rtf=extract_rtf_job.out_search_rtf,
         total_rtf=extract_rtf_job.out_total_rtf,
-    )
-
-
-# -------------------
-# --- Flashlight ----
-# -------------------
-
-
-@lru_cache(maxsize=1)
-def _get_flashlight_search_function(
-    *,
-    vocab_file: tk.Path,
-    lm_weight: float = 0.0,
-    blank_token: str = "<blank>",
-    silence_token: str = "<blank>",
-    unk_word: str = "<unk>",
-    **kwargs,
-) -> SearchFunction:
-    from torchaudio.models.decoder import ctc_decoder
-
-    vocab = Vocabulary.create_vocab(vocab_file=vocab_file, unknown_label=None)
-    assert vocab._vocab is not None
-    labels = list({value: key for key, value in vocab._vocab.items()}.values())
-
-    if "<blank>" not in labels:
-        labels.append("<blank>")
-
-    print(f"labels: {labels}")
-
-    decoder = ctc_decoder(
-        tokens=labels,
-        lm_weight=lm_weight,
-        blank_token=blank_token,
-        silence_token=silence_token,
-        unk_word=unk_word,
-        **kwargs,
-    )
-
-    def wrapper(features: torch.Tensor) -> Tuple[str, float]:
-        nonlocal labels
-        nonlocal decoder
-
-        hyps = decoder(-features)
-        recog_str = " ".join([labels[token] for token in hyps[0][0].tokens])
-        return recog_str, hyps[0][0].score
-
-    return wrapper
-
-
-def _flashlight_recog_forward_step(
-    *,
-    model: EncoderModel,
-    extern_data: TensorDict,
-    sample_rate: int = 16000,
-    **kwargs,
-):
-    search_function = _get_flashlight_search_function(**kwargs)
-    return _base_recog_forward_step(
-        model=model, extern_data=extern_data, search_function=search_function, sample_rate=sample_rate
-    )
-
-
-def recog_flashlight(
-    descriptor: str,
-    recog_data_config: DataConfig,
-    recog_corpus: ScorableCorpus,
-    model_serializers: Collection,
-    sample_rate: int = 16000,
-    device: Literal["cpu", "gpu"] = "cpu",
-    checkpoint: Optional[PtCheckpoint] = None,
-    **kwargs,
-) -> RecogResult:
-    flashlight_forward_step_import = PartialImport(
-        code_object_path=f"{_flashlight_recog_forward_step.__module__}.{_flashlight_recog_forward_step.__name__}",
-        unhashed_package_root="",
-        hashed_arguments={**kwargs, "sample_rate": sample_rate},
-        unhashed_arguments={},
-        import_as="forward_step",
-    )
-    return recog_base(
-        descriptor=descriptor,
-        recog_data_config=recog_data_config,
-        recog_corpus=recog_corpus,
-        model_serializers=model_serializers,
-        forward_step_import=flashlight_forward_step_import,
-        device=device,
-        checkpoint=checkpoint,
-    )
-
-
-# -------------------
-# --- RASR ----------
-# -------------------
-
-
-@lru_cache(maxsize=1)
-def _get_rasr_search_function(config_file: tk.Path, lm_scale: float) -> SearchFunction:
-    from librasr import Configuration, SearchAlgorithm
-
-    config = Configuration()
-    config.set_from_file(config_file)
-
-    search_algorithm = SearchAlgorithm(config=config)
-
-    def wrapper(features: torch.Tensor) -> Tuple[str, float]:
-        nonlocal search_algorithm
-        traceback = search_algorithm.recognize_segment(features)
-        recog_str = " ".join([traceback_item.lemma for traceback_item in traceback])
-        recog_score = traceback[-1].am_score + traceback[-1].lm_score * lm_scale
-        return recog_str, recog_score
-
-    return wrapper
-
-
-@lru_cache(maxsize=1)
-def _get_rasr_align_function(config_file: tk.Path, lm_scale: float) -> AlignFunction:
-    from librasr import Configuration, Aligner
-
-    config = Configuration()
-    config.set_from_file(config_file)
-
-    aligner = Aligner(config=config)
-
-    def wrapper(features: torch.Tensor, orth: str) -> Tuple[str, float]:
-        nonlocal aligner
-        traceback = aligner.align_segment(features, orth + " ")  # RASR requires a trailing space in transcription
-        align_str = " ".join([traceback_item.lemma for traceback_item in traceback])
-        align_score = traceback[-1].am_score + traceback[-1].lm_score * lm_scale
-        return align_str, align_score
-
-    return wrapper
-
-
-def _rasr_recog_forward_step(
-    *,
-    model: EncoderModel,
-    extern_data: TensorDict,
-    config_file: tk.Path,
-    sample_rate: int = 16000,
-    compute_search_errors: bool = False,
-    align_config_file: Optional[tk.Path] = None,
-    lm_scale: float = 1.0,
-    **_,
-) -> None:
-    _base_recog_forward_step(
-        model=model,
-        extern_data=extern_data,
-        search_function=_get_rasr_search_function(config_file, lm_scale),
-        align_function=(
-            _get_rasr_align_function(align_config_file or config_file, lm_scale) if compute_search_errors else None
-        ),
-        sample_rate=sample_rate,
-    )
-
-
-def recog_rasr(
-    descriptor: str,
-    recog_data_config: DataConfig,
-    recog_corpus: ScorableCorpus,
-    model_serializers: Collection,
-    rasr_config_file: tk.Path,
-    compute_search_errors: bool = False,
-    rasr_align_config_file: Optional[tk.Path] = None,
-    sample_rate: int = 16000,
-    lm_scale: float = 1.0,
-    device: Literal["cpu", "gpu"] = "cpu",
-    checkpoint: Optional[PtCheckpoint] = None,
-) -> RecogResult:
-    rasr_forward_step_import = PartialImport(
-        code_object_path=f"{_rasr_recog_forward_step.__module__}.{_rasr_recog_forward_step.__name__}",
-        unhashed_package_root="",
-        hashed_arguments={
-            "config_file": rasr_config_file,
-            "align_config_file": rasr_align_config_file,
-            "sample_rate": sample_rate,
-            "lm_scale": lm_scale,
-            "compute_search_errors": compute_search_errors,
-        },
-        unhashed_arguments={},
-        import_as="forward_step",
-    )
-    return recog_base(
-        descriptor=descriptor,
-        recog_data_config=recog_data_config,
-        recog_corpus=recog_corpus,
-        model_serializers=model_serializers,
-        forward_step_import=rasr_forward_step_import,
-        device=device,
-        checkpoint=checkpoint,
-        extra_output_files=["rasr.log"],
     )

@@ -35,7 +35,7 @@ def get_ffnn_transducer_label_scorer_config(
     rasr_config.onnx_model.session.intra_op_num_threads = 2
 
     rasr_config.onnx_model.io_map = RasrConfig()
-    rasr_config.onnx_model.io_map.encoder_state = "encoder_state"
+    rasr_config.onnx_model.io_map.input_feature = "encoder_state"
     rasr_config.onnx_model.io_map.history = "history"
     rasr_config.onnx_model.io_map.scores = "scores"
 
