@@ -445,9 +445,15 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   pg = PrintGradients.apply
   ng = NormGradients.apply
 
-  def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor, use_max: bool = False,
-                      separate_eos: bool = False) -> torch.Tensor:
-    with torch.no_grad():
+  def _calc_log_prior(
+          log_probs: torch.Tensor,
+          lengths: torch.Tensor,
+          use_max: bool = False,
+          separate_eos: bool = False,
+          no_grad: bool = True,
+  ) -> torch.Tensor:
+    import contextlib
+    with torch.no_grad() if no_grad else contextlib.nullcontext():
       lengths = lengths.to(log_probs.device)
       assert lengths.size(0) == log_probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
 
@@ -501,8 +507,12 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   am_scale = config.typed_value("am_scale", 1.0)
   if isinstance(am_scale, Callable):
     am_scale = am_scale("am_scale", rf.get_run_ctx().step)
-  lm_scale = config.float("lm_scale", 1.0)
-  prior_scale = config.float("prior_scale", 1.0)
+  lm_scale = config.typed_value("lm_scale", 1.0)
+  if isinstance(lm_scale, Callable):
+    lm_scale = lm_scale("lm_scale", rf.get_run_ctx().step)
+  prior_scale = config.typed_value("prior_scale", 1.0)
+  if isinstance(prior_scale, Callable):
+    prior_scale = prior_scale("prior_scale", rf.get_run_ctx().step)
 
   horizontal_prior = config.bool("horizontal_prior", True)
   blank_prior = config.bool("blank_prior", True)
@@ -518,8 +528,13 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   w2v_opts = config.typed_value("w2v_opts", {})
   freeze_encoder_first_n_steps = w2v_opts.get("freeze_encoder_first_n_steps", 0)
   gradient_penalty_opts = config.typed_value("gradient_penalty_opts", {})
-  if gradient_penalty_opts and rf.get_run_ctx().train_flag and freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps:
-    # print("unfreezing wav2vec encoder for gradient penalty")
+  if (
+          # we have reached the unfreeze step
+          freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step == w2v_opts.get("freeze_encoder_first_n_steps", 0)
+  ) or (
+          # we have not reached the unfreeze step, but we need to unfreeze the encoder for gradient penalty
+          gradient_penalty_opts and rf.get_run_ctx().train_flag and freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps
+  ):
     model.set_wav2vec_encoder_trainable(True)
 
   print_gradients = config.bool("print_gradients", False)
@@ -662,7 +677,12 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
         assert model.blank_idx == log_prior.size(0)
         log_prior = torch.cat([log_prior, torch.tensor([0.0], device=log_probs_raw.device)], dim=0)
     else:
-      log_prior = _calc_log_prior(log_probs_raw, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
+      log_prior = _calc_log_prior(
+        log_probs_raw,
+        enc_spatial_dim.dyn_size_ext.raw_tensor,
+        use_max=max_prior,
+        no_grad=config.bool("prior_no_grad", True),
+      )
       if not prior_gradient:
         log_prior = log_prior.detach()
 
@@ -751,6 +771,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     _gradient_penalty(log_probs, model, loss, gradient_penalty_opts)
 
     if freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps:
+      # freeze the encoder again, if we are not past the unfreeze step
       model.set_wav2vec_encoder_trainable(False)
 
   if model.rescore_language_model is not None:

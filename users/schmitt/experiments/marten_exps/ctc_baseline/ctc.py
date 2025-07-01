@@ -282,9 +282,61 @@ def py():
     }
   )
 
+  max_config_v1 = dict_update_deep(
+    wav2vec_config_v3,
+    {
+      "epochs": 100,
+      "num_gpus": 1,
+      "label_prior": False,
+      "empirical_prior": False,
+      "random_init": True,
+      "init": "100h-unsupervised",
+      "decode_every_step_init": True,
+      "pseudo_nbest_init": 1,
+      "num_enc_layers": 10,
+      "freeze_encoder_first_n_steps": 1_000_000,
+      "w2v_model": "large_60kh",
+      "w2v_config": "large-lv60",
+      "use_spec_augment": False,
+      "speed_pert": False,
+      "use_tensorboard": True,
+      "self_training_rounds": 4,
+      "decoding_imp": "albert-lm",
+      "alt_decoder": True,
+      "train_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      # "tune_hyperparameters": True,
+    }
+  )
+
   train_configs = [
     # marten ###########################
     marten_baseline_config,
+    *[dict_update_deep(
+      marten_baseline_config,
+      {
+        "aux_loss": False,
+        "use_w2v_model": True,
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "epochs": n_epochs,
+        "lr_schedule_type": "relative_oclr",
+        "bs_feat": 20_000,
+        "num_enc_layers": 10,
+        "num_gpus": 1,
+        "freeze_encoder_first_n_steps": freeze_steps,
+        "unfrozen_encoder_layers": [9],
+        "use_tensorboard": True,
+        "train_epoch_wise_filter": {
+          (1, n_epochs): {"max_mean_len": 1000},
+        },
+        "use_spec_augment": False,
+        "speed_pert": False,
+      }
+    ) for freeze_steps, n_epochs in [
+      (1_000_000, 20),
+      (1_000_000, 40),
+      (0, 20),
+    ]],
     # wav2vec-base ###########################
     # uses all encoder layers
     wav2vec_config_v1,
@@ -371,6 +423,21 @@ def py():
         # just set very large so that encoder remains frozen for whole training
       }
     ) for n_epochs in (30, 60)],
+    # ----------------------- only freeze first N-1 layers -------------------------------
+    dict_update_deep(
+      copy.deepcopy(wav2vec_config_v4),
+      {
+        "w2v_model": "large_60kh",
+        "w2v_config": "large-lv60",
+        "num_enc_layers": 10,
+        "vocab": "bpe128",
+        "train_epoch_wise_filter": None,
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "epochs": 20,
+        "num_gpus": 1,
+        "unfrozen_encoder_layers": [9],
+      }
+    ),
     *[dict_update_deep(
       copy.deepcopy(wav2vec_config_v4),
       {
@@ -441,27 +508,7 @@ def py():
     #     "collapse_logits_segments": True,
     #   }
     # ),
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": emp_prior,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000,
-        "train_epoch_wise_filter": {
-          (1, 20): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": am_lm_prior,
-      }
-    ) for am_lm_prior, emp_prior in (
-      ((0.1, 1.5, 0.4), False),
-      ((0.6, 1.0, 0.6), False),
-      ((0.1, 1.5, 0.4), True),
-    )],
+    # ----------------------- Different LM scales -------------------------------
     *[dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
@@ -471,7 +518,7 @@ def py():
         "label_prior": False,
         "accum_grad_multiple_step_init": 40,
         # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000,
+        "freeze_encoder_first_n_steps": 1_000_000,
         "train_epoch_wise_filter": {
           (1, 40): {"max_mean_len": 1000},
         },
@@ -484,6 +531,7 @@ def py():
       0.7, 0.9,
       1.1, 1.3, 1.5
     )],
+    # ----------------------- Different AM scales -------------------------------
     *[dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
@@ -493,7 +541,7 @@ def py():
         "label_prior": False,
         "accum_grad_multiple_step_init": 40,
         # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000,
+        "freeze_encoder_first_n_steps": 1_000_000,
         "train_epoch_wise_filter": {
           (1, 40): {"max_mean_len": 1000},
         },
@@ -505,7 +553,8 @@ def py():
       0.1,
       0.3, 0.5
     )],
-    dict_update_deep(
+    # ----------------------- Different prior scales -------------------------------
+    *[dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
         "model_config.use_subsampled_enc_logits": True,
@@ -514,16 +563,38 @@ def py():
         "label_prior": False,
         "accum_grad_multiple_step_init": 40,
         # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000,
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (0.1, 1.5, prior_scale),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for prior_scale in (0.0, 0.2, 0.4, 0.6, 0.8)
+    ],
+    # ----------------------- Different random seeds -------------------------------
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
         "train_epoch_wise_filter": {
           (1, 40): {"max_mean_len": 1000},
         },
         "epochs": 40,
         "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
         "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+        "random_seed": rand_seed,
       }
-    ),
-    dict_update_deep(
+    ) for rand_seed in [None, 1234]],
+    # ----------------------- longer training -------------------------------
+    *[dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
         "model_config.use_subsampled_enc_logits": True,
@@ -532,15 +603,16 @@ def py():
         "label_prior": False,
         "accum_grad_multiple_step_init": 40,
         # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000,
+        "freeze_encoder_first_n_steps": 1_000_000,
         "train_epoch_wise_filter": {
-          (1, 80): {"max_mean_len": 1000},
+          (1, n_epochs): {"max_mean_len": 1000},
         },
-        "epochs": 80,
+        "epochs": n_epochs,
         "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
         "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
-    ),
+    ) for n_epochs in (80,)],
+    # ----------------------- freeze encoder -------------------------------
     dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
@@ -559,6 +631,122 @@ def py():
         "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
     ),
+    # ----------------------- freeze encoder + longer training + larger prior + diff AM sched. ------------------
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 80): {"max_mean_len": 1000},
+        },
+        "epochs": 80,
+        "am_lm_prior_full_sum_init": (am_scale, 1.5, prior_scale),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for am_scale, prior_scale in [
+      (0.1, 0.8),
+      ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, 0.8),
+      ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, {"steps": [8_000, 10_000], "values": [0.8, 0.8, 1.0]}),
+    ]],
+    # ----------------------- freeze encoder + prior gradient -------------------------------
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+        "prior_no_grad": False,
+      }
+    ),
+    # ----------------------- longer training + frz encoder + different AM schedules + smaller LM scale --------------
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 80): {"max_mean_len": 1000},
+        },
+        "epochs": 80,
+        "am_lm_prior_full_sum_init": (am_scale, 0.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for am_scale in [
+      0.1,
+      {"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]},
+      {"steps": [8_000, 20_000], "values": [0.1, 0.1, 0.2]},
+      {"steps": [8_000, 30_000], "values": [0.1, 0.1, 0.2]},
+    ]],
+    # ----------------------- longer training + frz encoder + different AM schedules + larger LM scale --------------
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 80): {"max_mean_len": 1000},
+        },
+        "epochs": 80,
+        "am_lm_prior_full_sum_init": (am_scale, 1.5, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for am_scale in [
+      0.1,
+      {"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]},
+      {"steps": [8_000, 20_000], "values": [0.1, 0.1, 0.2]},
+      {"steps": [8_000, 30_000], "values": [0.1, 0.1, 0.2]},
+    ]],
+    # ----------------------- longer training + frz encoder + different AM schedules + different LM schedules -------
+    *[dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        # "collapse_logits_segments": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        # "blank_penalty_opts": {"blank_penalty": 5.0},
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 80): {"max_mean_len": 1000},
+        },
+        "epochs": 80,
+        "am_lm_prior_full_sum_init": (am_scale, lm_scale, 0.4),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      }
+    ) for am_scale, lm_scale in [
+      (
+        {"steps": [10_000, 15_000, 20_000, 25_000, 28_000], "values": [0.5, 0.5, 0.1, 0.5, 0.1, 0.5]},
+        {"steps": [10_000, 15_000, 20_000, 25_000, 28_000], "values": [1.5, 1.5, 0.5, 1.5, 0.5, 1.5]}
+      ),
+    ]],
+    # ----------------------- custom_wav2vec_chkpt -----------------------
     dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
@@ -566,7 +754,24 @@ def py():
         "empirical_prior": False,
         "label_prior": False,
         "accum_grad_multiple_step_init": 40,
-        "freeze_encoder_first_n_steps": 1_000,
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "train_epoch_wise_filter": {
+          (1, 40): {"max_mean_len": 1000},
+        },
+        "epochs": 40,
+        "am_lm_prior_full_sum_init": (1.0, 0.5, 0.8),
+        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+        "custom_wav2vec_chkpt": "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.T7SfxDy1lwig/output/models/epoch.020.pt",
+      }
+    ),
+    dict_update_deep(
+      copy.deepcopy(full_sum_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        "empirical_prior": False,
+        "label_prior": False,
+        "accum_grad_multiple_step_init": 40,
+        "freeze_encoder_first_n_steps": 1_000_000,
         "train_epoch_wise_filter": {
           (1, 40): {"max_mean_len": 1000},
         },
@@ -584,7 +789,7 @@ def py():
         "label_prior": False,
         "accum_grad_multiple_step_init": 40,
         # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000,
+        "freeze_encoder_first_n_steps": 1_000_000,
         "train_epoch_wise_filter": {
           (1, 40): {"max_mean_len": 1000},
         },
@@ -592,7 +797,19 @@ def py():
         "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
         "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
-  ),
+    ),
+    dict_update_deep(
+      copy.deepcopy(max_config_v1),
+      {
+        "model_config.use_subsampled_enc_logits": True,
+        "accum_grad_multiple_step_init": 40,
+        "train_epoch_wise_filter": {
+          (1, 10): {"max_mean_len": 1000},
+        },
+        "epochs": 10,
+        "self_training_rounds": 4,
+      }
+    ),
     # <warning component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder.orthographic-parser">
     #   substituting unknown word "ILLUMINANTS " with "[UNKNOWN]"
     # </warning>
@@ -643,11 +860,14 @@ def py():
     am_lm_prior_full_sum_init = train_config.get("am_lm_prior_full_sum_init", (0.1, 1.5, 0.4))
     init = train_config.get("init", "100h-supervised")
     decode_every_step_init = train_config.get("decode_every_step_init", True)
+    alt_decoder = train_config.get("alt_decoder", False)
+    decoding_imp = train_config.get("decoding_imp", "albert-greedy")
     if not init.endswith("unsupervised"):
       decode_every_step_init = False
 
     start_with_prior_gamma_steps = train_config.get("start_with_prior_gamma_steps", 0)
     pseudo_nbest_init = train_config.get("pseudo_nbest_init", 1)
+    self_training_rounds = train_config.get("self_training_rounds", 0)
     speed_pert = train_config.get("speed_pert", True)
     use_tensorboard = train_config.get("use_tensorboard", False)
     if use_tensorboard:
@@ -679,6 +899,14 @@ def py():
     if gradient_penalty_opts:
       assert len(gradient_penalty_opts) == 1 and "target_gradient_log_l2_norm" in gradient_penalty_opts
       config_updates["gradient_penalty_opts"] = gradient_penalty_opts
+
+    random_seed = train_config.get("random_seed", None)
+    if random_seed:
+      config_updates["random_seed"] = random_seed
+
+    prior_no_grad = train_config.get("prior_no_grad", True)
+    if not prior_no_grad:
+      config_updates["prior_no_grad"] = False
 
     # use_subsampled_enc_logits = train_config.get("use_subsampled_enc_logits", False)
     use_subsampled_enc_logits = model_config.get("use_subsampled_enc_logits", False)
@@ -997,6 +1225,11 @@ def py():
           target_filename="wav2vec2_base_no_finetune_config.json",
         ).out_file
 
+      custom_wav2vec_chkpt = train_config.get("custom_wav2vec_chkpt", None)
+      if custom_wav2vec_chkpt is not None:
+        wav2vec2_chkpt = custom_wav2vec_chkpt
+        decoding_str += f"_cstm_chckpt"
+
       config_updates["preload_from_files"] = {
         "wav2vec2_base": {
           "filename": wav2vec2_chkpt,
@@ -1015,6 +1248,9 @@ def py():
 
       if train_config.get("freeze_encoder_first_n_steps", 2_500) != 2_500:  # 4 GPUS, otherwise: 10_000
         decoding_str += f"_frz-enc-n-{w2v_opts['freeze_encoder_first_n_steps']}"
+      if train_config.get("unfrozen_encoder_layers", None) is not None and w2v_opts['freeze_encoder_first_n_steps'] > 0:
+        w2v_opts["unfrozen_encoder_layers"] = train_config["unfrozen_encoder_layers"]
+        decoding_str += f"_unfrz-{w2v_opts['unfrozen_encoder_layers']}"
       if train_config.get("num_enc_layers", 12) != 12:
         w2v_opts["num_enc_layers"] = train_config["num_enc_layers"]
         decoding_str += f"_enc-n-{w2v_opts['num_enc_layers']}"
@@ -1093,9 +1329,10 @@ def py():
         config_updates_self_training["accum_grad_multiple_step"] = accum_grad_multiple_step
       if not use_norm_st_loss:
         config_updates_self_training["use_normalized_loss"] = use_norm_st_loss
-      if not speed_pert:
-        config_deletes_self_training.append("speed_pert_discrete_values")
-        config_updates_self_training.pop("__train_audio_preprocess")
+      # i already handle this above now
+      # if not speed_pert:
+      #   config_deletes_self_training.append("speed_pert_discrete_values")
+      #   config_updates_self_training.pop("__train_audio_preprocess")
       if not aux_loss:
         config_deletes_self_training.append("aux_loss_layers")
       if use_sgd:
@@ -1174,6 +1411,8 @@ def py():
                   ("_wo_h_pr" if not horizontal_prior else "") + \
                   ("_wo_b_pr" if not blank_prior else "") + \
                   ("_wo_pr_grad" if not prior_gradient else "")
+      else:
+        sum_str = ""
     else:
       sum_str = ""
       self_epochs = None
@@ -1213,6 +1452,9 @@ def py():
       am_lm_prior_full_sum_init=am_lm_prior_full_sum_init,
       train_epoch_wise_filter=train_epoch_wise_filter,
       rescore_lm_config=rescore_lm_config,
+      random_seed=random_seed,
+      prior_no_grad=prior_no_grad,
+      num_gpus=num_gpus,
     )
 
     if decoding_imp in ["flashlight", "marten-greedy"]:
@@ -1304,6 +1546,9 @@ def get_alias(
         am_lm_prior_full_sum_init,
         train_epoch_wise_filter,
         rescore_lm_config,
+        random_seed,
+        prior_no_grad,
+        num_gpus,
 ):
   # Base loss type
   loss_type = "ce" if use_ce_loss else ("seq_ce" if use_seq_gamma_loss else sup_loss)
@@ -1391,12 +1636,14 @@ def get_alias(
           st_suffix +
           aux_suffix +
           init_suffix +
+          f"_{num_gpus}-g" +
           pl_suffix +
           f"-{vocab}" +
-          "_" + ("emp" if empirical_prior else "model") +
+          "_" + ("emp" if empirical_prior else "mod") +
           ("-laPR" if label_prior else "-frPR") +
+          ("-grad" if not prior_no_grad else "") +
           ("_no-sp" if not speed_pert else "") +
-          decoding_str +
+          decoding_str + "/" +
           (f"_v{train_version}" if train_version != 1 else "") +
           bp_suffix +
           lpp_suffix +
@@ -1405,7 +1652,8 @@ def get_alias(
           collapse_enc_suffix +
           ep_wise_filter_suffix +
           rescore_lm_suffix +
-          "/" + am_lm_prior_suffix
+          "/" + am_lm_prior_suffix +
+          (f"_sd-{random_seed}" if random_seed is not None else "")
   )
 
   return alias_name
@@ -1786,8 +2034,8 @@ def train_exp(
     elif use_seq_gamma_loss:
       train_def = seq_gamma_training
 
-    if config_self.get("empirical_prior", False) or config_self.get("decode_every_step", False) or config_self.get(
-            "ps_nbest", 1) > 1:
+    if config_self.get("empirical_prior", False) and (
+            config_self.get("decode_every_step", False) or config_self.get("ps_nbest", 1) > 1):
       config_self["empirical_prior"] = emp_prior
 
     # Use different LR if second iteration, NOTE: this is very specific to 860h training
