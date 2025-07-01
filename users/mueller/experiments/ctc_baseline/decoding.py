@@ -68,7 +68,7 @@ def recog_flashlight_ngram(
         label_log_prob = model.log_probs_wb_from_logits(logits)
         label_log_prob = label_log_prob.raw_tensor.cpu()
     
-        # Subtract prior of labels if available
+        # Subtract frame prior if available
         if prior_file and prior_weight > 0.0:
             prior = np.loadtxt(prior_file, dtype="float32")
             assert prior.shape[0] == label_log_prob.shape[-1]

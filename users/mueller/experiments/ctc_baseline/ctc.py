@@ -60,6 +60,7 @@ def py():
     # General config
     vocab = "bpe128"                            # Vocab, e.g. "bpe128", "spm20k", "char", "bpe10k"
     self_training_rounds = 0                   # Self-supervised training rounds
+    total_epochs_all_iterations = 100          # Total number of full epochs for all self-training iterations combined
     reset_steps = True                         # Whether to reset step count after the first self-training round (affects LR schedule)
     from_scratch = True                        # Self-training starts from scratch
     pseudo_label_small = False                  # 860h pseudo-labels if True, 960h pseudo-labels if False
@@ -78,11 +79,11 @@ def py():
     gamma_scaling = 1.0                         # Scaling for the sequence gammas
     use_ce_loss = False                         # Use CE loss instead of CTC loss
     speed_pert = True                           # Whether to use speed perturbation
-    # train_lm_config = {}                        # LM selection for decoding during training
-    train_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding during training
+    train_lm_config = {}                        # LM selection for decoding during training
+    # train_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding during training
     # train_lm_config = {"class": "ngram", "order": 3} # LM selection for decoding during training
     train_version = 1                           # Version for training added to change the hash
-    num_gpus = 1                                # Number of GPUs to use during training
+    num_gpus = 4                                # Number of GPUs to use during training
     if self_training_rounds == 0:
         from_scratch = True
         pseudo_label_small = True
@@ -91,26 +92,26 @@ def py():
         norm_nbest_rescore = False
     
     # Decoder config (more further down)
-    decoding_imp = "albert-lm"                  # Decoding implementation, e.g. "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients", "gradientsF"
+    decoding_imp = "flashlight"                  # Decoding implementation, e.g. "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients", "gradientsF"
     with_prior = True                           # Whether to use a prior during decoding
     label_prior = False                          # Use the label prior instead of frame prior (None if we want to use frame for recog and label for training)
     empirical_prior = True                      # Whether to use an empirical prior instead of a model prior
     prior_from_max = False                      # Whether to calculate the model prior by max instead of softmax (not fully supported)
     alt_decoder = True                          # Whether to use different decoder hyperparameters for self-training
     tune_hyperparameters = False                # Tune decoder hyperparameters in between self-training rounds
-    # decoder_lm_config = {}                      # LM selection for decoding, empty for word-level 4-gram
-    decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding, empty for word-level 4-gram
+    decoder_lm_config = {}                      # LM selection for decoding, empty for word-level 4-gram
+    # decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8} # LM selection for decoding, empty for word-level 4-gram
     # decoder_lm_config = {"class": "ngram", "order": 2} # LM selection for decoding, empty for word-level 4-gram
     use_recombination = True                    # Use recombination during decoding (only albert-lm)
     recombine_blank = True                      # Recombine sequences ending on blank with last seen same label (only albert-lm)
     recombine_after_topk = True                 # Recombine after top-k extraction instead of before (only albert-lm)
-    recombine_with_sum = True                  # Use sum during recombination
+    recombine_with_sum = False                  # Use sum during recombination
     if self_training_rounds == 0:
         alt_decoder = False
     assert decoding_imp in ["flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy", "gradients", "gradientsF"]
     
     # Configs for init training
-    init = "100h-unsupervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
+    init = "100h-supervised"                    # Which initialization to use, "100h-supervised", "960h-supervised", "100h-unsupervised"
     use_w2v = True                              # Whether to use the wav2vec encoder
     w2v_model = "large_60kh"
     w2v_config = "large-lv60"
@@ -121,7 +122,7 @@ def py():
     random_init = True                         # Start from random init during unsupervised init training, alternatively use empirical prior
     with_bias = False                            # Whether the output layers have a learnable bias
     start_with_prior_gamma_steps = 0            # Number of steps to train with the prior as gammas in CE before CTC training on decoding targets
-    pseudo_nbest_init = 1                       # Number of pseudo-label sequences for unsupervised init training
+    pseudo_nbest_init = 10                       # Number of pseudo-label sequences for unsupervised init training
     prior_penalty_scale = 0.0                   # Scale for the model prior penalty during unsupervised init training
     gradient_penalty_opts = {
         "target_gradient_log_l2_norm": -1.2,
@@ -191,10 +192,18 @@ def py():
             self_epochs = 56
             # self_epochs = 2
         else:
-            if pseudo_label_small:
-                epoch_dict = {1: 450, 2: 225, 4: 113, 6: 75, 8: 56, 10: 45, 25: 18, 50: 9}
-            else:
-                epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50, 25: 20, 50: 10}
+            assert total_epochs_all_iterations in [100, 200], "Total epochs for all iterations must be 100 or 200"
+            if total_epochs_all_iterations == 100:
+                if pseudo_label_small:
+                    epoch_dict = {1: 450, 2: 225, 4: 113, 6: 75, 8: 56, 10: 45, 25: 18, 50: 9}
+                else:
+                    epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50, 25: 20, 50: 10}
+            elif total_epochs_all_iterations == 200:
+                if pseudo_label_small:
+                    epoch_dict = {1: 900, 2: 450, 4: 225, 6: 150, 8: 113, 10: 90, 25: 36, 50: 18}
+                else:
+                    epoch_dict = {1: 1000, 2: 500, 4: 250, 6: 167, 8: 125, 10: 100, 25: 40, 50: 20}
+                
             self_epochs = epoch_dict[self_training_rounds]
     
     # Create decoder hyperparameters

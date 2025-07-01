@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
 import torch
 import numpy as np
 import copy
+from torcheval.metrics.functional import word_error_rate
 
 from sisyphus import tk
 from returnn.tensor import batch_dim
@@ -22,7 +23,7 @@ from i6_core.util import instanciate_delayed
 
 from i6_experiments.users.mueller.experiments.ctc_baseline.training import _LM_score, _prior_score, _rescore
 from i6_experiments.users.mueller.experiments.ctc_baseline.decoding import recog_flashlight_ngram, recog_ffnn
-from i6_experiments.users.mueller.experiments.ctc_baseline.utils import convert_to_output_hyps
+from i6_experiments.users.mueller.experiments.ctc_baseline.utils import convert_to_output_hyps, hyps_ids_to_label
 from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model, Wav2VecModel, _log_mel_feature_dim
 from i6_experiments.users.mueller.experiments.ctc_baseline.sum_criterion import get_lm_logits, sum_loss_ngram
 from i6_experiments.users.mueller.experiments.ctc_baseline.configs import _batch_size_factor
@@ -747,7 +748,7 @@ def histogram_scoring(
     if LENGTH_NORM:
         config["length_norm"] = True
         
-    config["_version"] = 2
+    config["_version"] = 3
         
     audio_opts_ = _raw_audio_opts.copy()
     dataset_common_opts = dict(audio=audio_opts_, audio_dim=1, vocab=vocab)
@@ -918,7 +919,7 @@ def _returnn_hist_score_step(*, model, extern_data: TensorDict, **_kwargs_unused
     targets_spatial_dim = targets.get_time_dim_tag()
 
     score_def = config.typed_value("_score_def")
-    nbest_scores = score_def(
+    nbest_scores_dict = score_def(
         model=model,
         data=data,
         data_spatial_dim=data_spatial_dim,
@@ -931,34 +932,60 @@ def _returnn_hist_score_step(*, model, extern_data: TensorDict, **_kwargs_unused
         lexicon=config.typed_value("lexicon", default=None),
         length_norm=config.typed_value("length_norm", default=False),
     )
-    assert isinstance(nbest_scores, rf.Tensor)
-    rf.get_run_ctx().mark_as_output(nbest_scores, "hist_scores", dims=nbest_scores.dims)
+    assert isinstance(nbest_scores_dict, dict)
+    dims = nbest_scores_dict["combined"].dims
+    rf.get_run_ctx().mark_as_output(nbest_scores_dict["combined"], "combined", dims=dims)
+    rf.get_run_ctx().mark_as_output(nbest_scores_dict["am"], "am", dims=dims)
+    rf.get_run_ctx().mark_as_output(nbest_scores_dict["lm"], "lm", dims=dims)
+    rf.get_run_ctx().mark_as_output(nbest_scores_dict["prior"], "prior", dims=dims)
+    rf.get_run_ctx().mark_as_output(nbest_scores_dict["wer"], "wer", dims=dims)
         
 def _returnn_hist_get_forward_callback():
     from typing import TextIO
     from returnn.forward_iface import ForwardCallbackIface
     import gzip
+    from scipy.special import logsumexp
 
     class _ReturnnHistScoringForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
             self.out_file: Optional[TextIO] = None
 
         def init(self, *, model):
-            self.scores = []
+            self.scores_dict = {
+                "combined": [],
+                "am": [],
+                "lm": [],
+                "prior": [],
+                "wer": [],
+            }
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
-            self.scores.append(outputs["hist_scores"].raw_tensor)
+            self.scores_dict["combined"].append(outputs["combined"].raw_tensor)
+            self.scores_dict["am"].append(outputs["am"].raw_tensor)
+            self.scores_dict["lm"].append(outputs["lm"].raw_tensor)
+            self.scores_dict["prior"].append(outputs["prior"].raw_tensor)
+            self.scores_dict["wer"].append(outputs["wer"].raw_tensor)
 
         def finish(self):
-            scores = np.stack(self.scores, axis=0)
-            np.save("hist_scores.npy", scores)
-            
-            mean_nbest = scores.mean(axis=0)
-            std_nbest = scores.std(axis=0, ddof=1)
-            
             self.out_file = open("hist_scores_stats.txt", "wt", encoding="utf-8")
-            self.out_file.write(f"Mean per nbest: {mean_nbest.tolist()}\n")
-            self.out_file.write(f"Std per nbest: {std_nbest.tolist()}")
+            for key, sc in self.scores_dict.items():
+                scores = np.stack(sc, axis=0)
+                if key == "combined":
+                    np.save("hist_scores.npy", scores)
+                
+                if key == "wer":
+                    mean_nbest = scores.mean(axis=0)
+                    std_nbest = scores.std(axis=0, ddof=1)
+                else:
+                    n = scores.shape[0]
+                    log_sum = logsumexp(scores, axis=0)
+                    mean_nbest = log_sum - np.log(n)
+                    mean_dev = np.logaddexp(scores, -mean_nbest) * 2
+                    avg_mean_dev = logsumexp(mean_dev, axis=0) - np.log(n - 1)
+                    std_nbest = avg_mean_dev * 0.5
+                
+                self.out_file.write(f"{key}: Mean per nbest: {mean_nbest.tolist()}\n")
+                self.out_file.write(f"{key}: Std per nbest: {std_nbest.tolist()}")
             self.out_file.close()
 
     return _ReturnnHistScoringForwardCallbackIface()
@@ -976,7 +1003,7 @@ def score_histogram(
     arpa_file: Optional[tk.Path],
     lexicon: Optional[tk.Path],
     length_norm: bool,
-) -> Tensor:
+) -> dict:
     if use_word_4gram:
         assert lexicon and arpa_file
     
@@ -1022,8 +1049,52 @@ def score_histogram(
     )
     ctc_loss = -ctc_loss
     
-    lm_prior_score = _rescore(nbest_hyps, nbest_hyps_spatial_dim, model, hyperparameters, prior_file, train_lm = False, arpa_file=arpa_file)
+    prior_weight = hyperparameters.get("prior_weight", 0.0)
+    prior_score = None
+    if prior_file and prior_weight > 0.0:
+        prior_score = _prior_score(
+            targets=nbest_hyps,
+            targets_spatial_dim=nbest_hyps_spatial_dim,
+            model=model,
+            prior_file=prior_file,
+            force_label_prior=True,
+        )
     
-    combined_score = ctc_loss + lm_prior_score
+    lm_weight = hyperparameters["lm_weight"]
+    lm_score = _LM_score(
+        nbest_hyps,
+        nbest_hyps_spatial_dim,
+        model,
+        hyperparameters.get("lm_order", None),
+        train_lm=False,
+        arpa_file=arpa_file,
+    )
     
-    return combined_score
+    combined_score = ctc_loss + lm_score * lm_weight
+    if prior_score is not None:
+        combined_score -= prior_score * prior_weight
+    
+    # Compute WER
+    hyps = nbest_hyps.raw_tensor
+    wer = []
+    for i in range(hyps.size(0)):
+        wer_i = []
+        t = targets.raw_tensor[i, :targets_spatial_dim.dyn_size_ext.raw_tensor[i]].tolist()
+        target_hyp = hyps_ids_to_label(model, t)
+        for j in range(hyps.size(1)):
+            h = hyps[i, j, :lengths[i][j]].tolist()
+            word_hyp = hyps_ids_to_label(model, h)
+            wer_i.append(word_error_rate(word_hyp, target_hyp))
+        wer.append(wer_i)
+    wer = torch.tensor(wer, dtype=torch.float32, device=data.raw_tensor.device)
+    wer = rf.convert_to_tensor(wer, dims=[batch_dim, beam_dim], name="word_error_rate")
+                
+    ret = {
+        "combined": combined_score,
+        "am": ctc_loss,
+        "lm": lm_score,
+        "prior": prior_score,
+        "wer": wer,
+    }
+    
+    return ret
