@@ -54,9 +54,8 @@ def forward_init_hook(run_ctx, **kwargs):
     :param kwargs:
     :return:
     """
-    import sys
-    sys.path.insert(0, "/u/kaloyan.nikolov/git/returnn")
-    del sys.path[3]
+
+    import os
     import torch
     from torchaudio.models.decoder import ctc_decoder
 
@@ -106,67 +105,29 @@ def forward_init_hook(run_ctx, **kwargs):
     from torch.onnx import export as onnx_export
     from torch import nn
     model = run_ctx.engine._model
-    sys.path.insert(0, '/u/kaloyan.nikolov/git/returnn')
-    sys.path.insert(1, "/u/kaloyan.nikolov/experiments/on_device_asr_24/recipe/i6_experiments/users/nikolov/experiments/tedlium2/asr_2023/hybrid/distil_hubert/pytorch_networks/")
-
-    from distill_hubert_v2 import Model
 
     dummy_data = torch.rand(3,16000, device='cpu')
     dummy_data_len = torch.ones((3,), dtype=torch.int32)*16000
-    
-    #assert False, (model)
-    model_kwargs = {
-    "hubert_dict": {"model_name": "base-ls960", "distill_scale": 0.0},
-    "conformer_dict": {
-        "hidden_d": 384,
-        "conv_kernel_size": 7,
-        "att_heads": 6,
-        "ff_dim": 1536,
-        "spec_num_time": 20,
-        "spec_max_time": 20,
-        "spec_num_feat": 5,
-        "spec_max_feat": 16,
-        "pool_1_stride": (3, 1),
-        "pool_1_kernel_size": (1, 2),
-        "pool_1_padding": None,
-        "pool_2_stride": None,
-        "pool_2_kernel_size": (1, 2),
-        "pool_2_padding": None,
-        "num_layers": 12,
-        "upsample_kernel": 3,
-        "upsample_stride": 3,
-        "upsample_padding": 0,
-        "upsample_out_padding": 0,
-        "dropout": 0.2,
-        "feat_extr": True,
-    },
-    }
-    model = Model(**model_kwargs)
-
-    checkpoint_state = torch.load('/work/asr4/hilmes/sis_work_folder/asr_2023/i6_core/returnn/training/GetBestPtCheckpointJob.6TVqYk7TaGje/output/checkpoint.pt', map_location=run_ctx.device)
-   
-    missing_keys, unexpected_keys = model.load_state_dict(checkpoint_state["model"], strict=False)
-
     
     print(f'Torch version: {torch.__version__}')
     onnx_export(
             model.eval(),
             (dummy_data, dummy_data_len),
             f='model.onnx',
-            verbose=True,
+            #verbose=True,
             input_names=['data', 'data_len'],
             output_names=['classes', 'classes_len'],
-            opset_version=17,
+            #opset_version=17,
             dynamic_axes={
                 'data': {0: 'batch', 1: 'time'},
                 'data_len': {0: 'batch'},
                 'classes': {0: 'batch', 1: 'time'}, 
                 'classes_len': {0: 'batch'},
-                }           
+                }
             )
     sess_options = ort.SessionOptions()
-    sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
-
+    sess_options.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 1))
+    sess_options.inter_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 1))
 
     run_ctx.onnx_sess = ort.InferenceSession(
             'model.onnx', providers=['CPUExecutionProvider'], sess_options=sess_options)
@@ -208,11 +169,12 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         run_ctx.running_audio_len_s += audio_len_batch
 
     am_start = time.time()
+    raw_audio=np.squeeze(raw_audio.numpy())
     logprobs, audio_features_len = run_ctx.onnx_sess.run(
             None,
             {
-                'data': np.squeeze(raw_audio.numpy()),
-                'data_len': raw_audio_len.numpy()
+                'data': raw_audio,
+                'data_len': raw_audio_len.numpy().astype(np.int32)
             } )
 
     tags = data["seq_tag"]

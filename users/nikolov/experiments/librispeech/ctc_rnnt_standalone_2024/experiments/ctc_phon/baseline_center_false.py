@@ -15,7 +15,7 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 
 def eow_phon_ls960_1023_base():
-    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon/torch113"
+    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon/baseline"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -33,6 +33,7 @@ def eow_phon_ls960_1023_base():
     )
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
+
 
     dev_dataset_tuples = {}
     for testset in ["dev-clean", "dev-other"]:
@@ -236,8 +237,9 @@ def eow_phon_ls960_1023_base():
         training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500
     )
     tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+        training_name+"/torch_reference", asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
     )
+    
     asr_model_onnx = copy.deepcopy(asr_model)
     asr_model_onnx.network_module = "ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable" 
     tune_and_evaluate_helper(
@@ -263,7 +265,11 @@ def eow_phon_ls960_1023_base():
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
         training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500
+    ) 
+    tune_and_evaluate_helper(
+        training_name+"/torch_reference", asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
     )
+
     asr_model.network_module = "ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable" 
     tune_and_evaluate_helper(
         training_name+"/onnx_export", asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4], decoder_module='ctc.decoder.flashlight_ctc_v1_onnx_v2'
