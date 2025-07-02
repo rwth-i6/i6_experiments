@@ -23,9 +23,9 @@ def make_bins(
             bin_idx = min(int((value - val_range[0]) * num_bins / (val_range[1] - val_range[0])), num_bins - 1)
         elif bin_align == "center":
             bin_idx = int((value - val_range[0]) * (num_bins - 1) / (val_range[1] - val_range[0]) + 0.5)
-        assert (
-            0 <= bin_idx < num_bins
-        ), f"bin_idx {bin_idx} out of range {val_range[0]}-{val_range[1]} for value {value}"
+        assert 0 <= bin_idx < num_bins, (
+            f"bin_idx {bin_idx} out of range {val_range[0]}-{val_range[1]} for value {value}"
+        )
 
         avg += value * weight
         bins[bin_idx] += weight
@@ -45,6 +45,7 @@ class ScliteToWerDistributionGraph(Job):
         kl_divergence: bool = False,
         logscale: bool = True,
         xlim: Optional[Tuple[float, float]] = (0.0, 100.0),
+        graph_type: Literal["bar", "line"] = "bar",
     ):
         assert isinstance(report_dir, dict)
 
@@ -55,10 +56,11 @@ class ScliteToWerDistributionGraph(Job):
         self.kl_divergence = kl_divergence
         self.log_scale = logscale
         self.xlim = xlim or (0.0, 100.0)
+        self.graph_type = graph_type
 
-        assert (
-            100 % num_bins == 0
-        ), "num_bins must be a divisor of 100"  # otherwise some bins will get more values than others
+        assert 100 % num_bins == 0, (
+            "num_bins must be a divisor of 100"
+        )  # otherwise some bins will get more values than others
 
         # self.out_file = self.output_path("vals.csv")
         # self.distrib_file = self.output_path("distrib.csv")
@@ -72,7 +74,7 @@ class ScliteToWerDistributionGraph(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 21
+        d["__version"] = 22
         return super().hash(d)
 
     def tasks(self):
@@ -154,19 +156,31 @@ class ScliteToWerDistributionGraph(Job):
             for i, name in enumerate(name_with_vals.keys()):
                 binvals = name_with_vals[name]
                 bins, avg, total, num_offscreen = make_bins(binvals, self.num_bins, metric_range, bin_align="edge")
-                assert (
-                    abs(sum([count / total for count in bins]) - 1.0) < 1e-8
-                ), "bins should make a probability distribution"
-                xs = range(self.num_bins)
-                xs = [float(x) + i * BAR_WIDTH for x in xs]
-                ax.bar(
-                    xs,
-                    [count / total for count in bins],
-                    align="edge",
-                    width=BAR_WIDTH,
-                    label=name,
-                    color=colors[i % len(colors)],
+                assert abs(sum([count / total for count in bins]) - 1.0) < 1e-8, (
+                    "bins should make a probability distribution"
                 )
+                xs = range(self.num_bins)
+                
+                if self.graph_type == "bar":
+                    xs = [float(x) + i * BAR_WIDTH for x in xs]
+                    ax.bar(
+                        xs,
+                        [count / total for count in bins],
+                        align="edge",
+                        width=BAR_WIDTH,
+                        label=name,
+                        color=colors[i % len(colors)],
+                    )
+                elif self.graph_type == "line":
+                    xs = [float(x) for x in xs]
+                    ax.plot(
+                        xs,
+                        [count / total for count in bins],
+                        label=name,
+                        color=colors[i % len(colors)],
+                        marker="o",
+                        markersize=3,
+                    )
 
                 if self.plot_metrics:
                     # plot avg (this should be the wer score as reported by sclite)
@@ -178,7 +192,7 @@ class ScliteToWerDistributionGraph(Job):
                     )
                     offscreen_vals.append(num_offscreen)
             if any([n_off > 0 for n_off in offscreen_vals]):
-                ax.text(0.0, 0.8, f"Offscreen: {", ".join([str(x) for x in offscreen_vals])} instances", fontsize=10)
+                ax.text(0.0, 0.8, f"Offscreen: {', '.join([str(x) for x in offscreen_vals])} instances", fontsize=10)
             if self.kl_divergence:
                 # compute kl divergence
                 kl_text = self.make_kl_div_text(name_with_vals, metric_range)
@@ -208,7 +222,7 @@ class ScliteToWerDistributionGraph(Job):
                 ax.set_title(f"{metric} distribution\n" + self.plot_title)
             ax.set_xticks(
                 range(0, self.num_bins, max(1, self.num_bins // 10)),
-                [f"{100 * i/self.num_bins:.2f}" for i in range(0, self.num_bins, max(1, self.num_bins // 10))],
+                [f"{100 * i / self.num_bins:.2f}" for i in range(0, self.num_bins, max(1, self.num_bins // 10))],
             )
             ax.set_xlim(self.xlim[0] / 100 * self.num_bins, self.xlim[1] / 100 * self.num_bins)
             ax.grid(axis="y")
@@ -311,9 +325,9 @@ class CompareTwoScliteWerDistributions(Job):
             max(1, 2 * self.num_bins_in_each_direction // 10),
         )
         if is_ratio:
-            plt.xticks(x_range, [f"{1.0 + i/self.num_bins_in_each_direction*extents:.2f}" for i in x_range])
+            plt.xticks(x_range, [f"{1.0 + i / self.num_bins_in_each_direction * extents:.2f}" for i in x_range])
         else:
-            plt.xticks(x_range, [f"{i/self.num_bins_in_each_direction*extents:.2f}" for i in x_range])
+            plt.xticks(x_range, [f"{i / self.num_bins_in_each_direction * extents:.2f}" for i in x_range])
         plt.grid(axis="y")
         plt.legend(loc="upper right")
         if self.ignore_perfect_seqs:
@@ -574,7 +588,7 @@ class SclitePrintExamples(Job):
                 f.write(f"seq {seq_tag}\n")
                 for name, _ in self.report_dirs:
                     f.write(f"{name}:\n")
-                    f.write(f"\t{reports[name][seq_tag]["ref"]}\n")
-                    f.write(f"\t{reports[name][seq_tag]["hyp"]}\n")
-                    f.write(f"\t{reports[name][seq_tag]["eval"]}\n")
+                    f.write(f"\t{reports[name][seq_tag]['ref']}\n")
+                    f.write(f"\t{reports[name][seq_tag]['hyp']}\n")
+                    f.write(f"\t{reports[name][seq_tag]['eval']}\n")
                 f.write("\n")
