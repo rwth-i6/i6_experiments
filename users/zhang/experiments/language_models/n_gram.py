@@ -36,18 +36,20 @@ default_rqmt = [("mem", 4),("time", 1)]
 
 
 
-def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Optional[float]) -> Tuple[tk.Path, tk.Path]:
+def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Optional[float], train_fraction: float = None, word_ppl: bool =False, bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[tk.Path, tk.Path]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
 
-    if N_order > 4:
+    if N_order > 4 and vocab != "bpe128":
         rqmt = dict(rqmt_map[N_order])
     else:
         rqmt = dict(default_rqmt)
     subword_nmt = get_returnn_subword_nmt()
 
     lm_data = get_librispeech_lm_combined_txt()
+    if train_fraction:
+        lm_data = ReduceCorpusByTokenFractionJob(lm_data, target_fraction=train_fraction).out
     eval_lm_data = _get_test_corpus_text()
     if re.match("^bpe[0-9]+.*$", vocab):
         from ..language_models.librispeech import _get_bpe_vocab, bpe10k
@@ -88,9 +90,13 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
     ).out_lm
     if prune_thresh:
         lm_arpa = PruneLMJob(N_order, lm_arpa, prune_thresh, SRILM_PATH.join_right("ngram")).out_lm
-    arpa_binary_lm = CreateBinaryLMJob(
-        arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH,**rqmt
-    ).out_lm
+        arpa_binary_lm = CreateBinaryLMJob(
+            arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH, probing_multiplier=2.0 if prune_thresh > 4.2e-6 else None,**rqmt
+        ).out_lm
+    else:
+        arpa_binary_lm = CreateBinaryLMJob(
+            arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH, **rqmt
+        ).out_lm
 
     ppl_job = ComputeNgramLmPerplexityJob(
         ngram_order=N_order,
@@ -101,8 +107,11 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         time_rqmt=1,
         extra_ppl_args= '-debug 2'
     )
-
-    tk.register_output(f"ppl/{N_order}gram_{prune_thresh}/ppl", ppl_job.out_ppl_log)
+    exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1.0, 10_025: 1.0}  # 184-bpe128 10_025-bpe10k
+    if word_ppl:
+        ppl_job = PPLConvertJob(ppl_job.out_ppl_log, bpe_ratio)
+    alias_name = f"ppl/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + ("word_ppl" if word_ppl else "")
+    tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
     # conversion_job = ConvertARPAtoTensor(
     #     lm=lm_arpa,
     #     bpe_vocab=vocab.vocab,
@@ -167,6 +176,101 @@ def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], v
 
     return prior_job.out_prior_tensor
 
+class PPLConvertJob(Job):
+    def __init__(self, ppl:tk.Path, exponent: Union[float,tk.Variable]):
+        self.original_ppl = ppl
+        self.exponent = exponent.get() if isinstance(exponent, tk.Variable) else exponent
+        self.out_ppl_log = self.output_path("out_ppl")
+    def tasks(self):
+        yield Task("run", mini_task=True)
+    def run(self):
+        with open(self.original_ppl.get_path(), "rt") as f:
+            lines = f.readlines()[-2:]
+            for line in lines:
+                line = line.split(" ")
+                for idx, ln in enumerate(line):
+                    if ln == "ppl=" or ln == "Perplexity:":
+                        ppl = float(line[idx + 1])
+        with open(self.out_ppl_log.get_path(), "wt") as f:
+            f.write(f"ppl={ppl**self.exponent}\n")
+
+class ReduceCorpusByTokenFractionJob(Job):
+    # TODO: add a random seed
+    """
+    Reduces a text corpus to a given percentage of total tokens (based on space-separated tokens).
+    Output will be plain or gzipped depending on `zip_out`.
+    """
+
+    def __init__(self, input_file: tk.Path, target_fraction: float, zip_out: bool = True):
+        """
+        :param input_file: path to the input text corpus (raw or gz)
+        :param target_fraction: target fraction of total tokens to keep (e.g., 0.10 for 10%)
+        :param zip_out: whether to gzip the output
+        :param out_name: name prefix for the output file
+        """
+        assert 0 < target_fraction <= 1.0, "target_fraction must be in (0, 1]"
+        assert isinstance(input_file, tk.Path)
+
+        self.input_file = input_file
+        self.target_fraction = target_fraction
+        self.zip_out = zip_out
+
+        self.out = self.output_path("reduced_train.txt" + (".gz" if zip_out else ""))
+
+    def tasks(self):
+        yield Task("run", rqmt={"mem": 3, "time": 3})
+
+    def run(self):
+        import gzip
+        import random
+        # Resolve path and detect gzip
+        in_path = gs.file_caching(self.input_file) if isinstance(self.input_file,
+                                                                 str) else self.input_file.get_cached_path()
+        is_gz = str(in_path).endswith('.gz')
+        open_in = gzip.open if is_gz else open
+
+        # First pass: count total tokens
+        print("Counting total tokens...\n")
+        total_tokens = 0
+        with open_in(in_path, 'rt', encoding='utf-8') as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                total_tokens += len(stripped.split())
+
+        target_tokens = int(total_tokens * self.target_fraction)
+        remaining_tokens = total_tokens
+        selected_tokens = 0
+        selected_lines = 0
+
+        # Prepare output stream
+        print(f"Try to picking {self.target_fraction*100}% from original corpus...\n")
+        mode = 'wt'
+        open_out = gzip.open if self.zip_out else open
+        with open_out(self.out, mode, encoding='utf-8') as fo:
+            # Second pass: reservoir-style weighted sampling by tokens
+            with open_in(in_path, 'rt', encoding='utf-8') as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    ntoks = len(stripped.split())
+                    if remaining_tokens <= 0:
+                        break
+                    # Probability of selecting this line
+                    prob = (target_tokens - selected_tokens) / remaining_tokens
+                    prob = min(max(prob, 0.0), 1.0)
+                    if random.random() < prob:
+                        fo.write(line)
+                        selected_tokens += ntoks
+                        selected_lines += 1
+                        if selected_tokens >= target_tokens:
+                            break
+                    remaining_tokens -= ntoks
+
+        print(f"Wrote {selected_lines} lines, approx. {selected_tokens} tokens ({self.target_fraction:.2%}).")
+
 class PruneLMJob(Job):
     """
     Job that prunes the given LM
@@ -180,7 +284,7 @@ class PruneLMJob(Job):
         ngram_exe: tk.Path,
         *,
         mem_rqmt: int = 48,
-        time_rqmt: float = 24,
+        time_rqmt: float = 3,
         cpu_rqmt: int = 1,
         fs_rqmt: str = "100G",
     ):
@@ -222,6 +326,7 @@ class PruneLMJob(Job):
             f"  -renorm -unk \\\n",
             f"  -lm {self.lm.get_path()} \\\n",
             f"  -write-lm pruned.lm.gz \\\n",
+            #f"  -preserve-vocab \\\n" if self.prune_thresh > 1e-5 else "",
             f"  -prune {self.prune_thresh} \\\n",
             f"  -memuse \n",
         ]
@@ -246,7 +351,7 @@ class CreateBinaryLMJob(Job):
     """
     Run the build_binary command of the KenLM toolkit to create a binary LM from an given ARPA LM
     """
-
+    __sis_hash_exclude__ = {"probing_multiplier" : None}
     def __init__(
         self,
         *,
@@ -254,6 +359,7 @@ class CreateBinaryLMJob(Job):
         kenlm_binary_folder: tk.Path,
         mem: float = 4.0,
         time: float = 1.0,
+        probing_multiplier: float = None,
     ):
         """
         :param arpa_lm: any ARPA format LM
@@ -262,7 +368,7 @@ class CreateBinaryLMJob(Job):
         """
         self.arpa_lm = arpa_lm
         self.kenlm_binary_folder = kenlm_binary_folder
-
+        self.probing_multiplier = f"-p {probing_multiplier}" if probing_multiplier else ""
         self.out_lm = self.output_path("lm.bin")
 
         self.rqmt = {"cpu": 1, "mem": mem, "time": time}
@@ -272,8 +378,10 @@ class CreateBinaryLMJob(Job):
 
     def run(self):
         build_binary = os.path.join(self.kenlm_binary_folder.get_path(), "build_binary")
-        sp.check_call([build_binary, self.arpa_lm.get_path(), self.out_lm.get_path()])
-
+        if self.probing_multiplier:
+            sp.check_call([build_binary, self.probing_multiplier, self.arpa_lm.get_path(), self.out_lm.get_path()])
+        else:
+            sp.check_call([build_binary, self.arpa_lm.get_path(), self.out_lm.get_path()])
 
 class ConvertARPAtoTensor(Job):
     def __init__(

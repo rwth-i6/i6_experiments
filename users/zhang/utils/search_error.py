@@ -39,7 +39,10 @@ class ComputeSearchErrorsJob(Job):
 
             score_ground_truth, targets_ground_truth, oov = d_gt[seq_tag][0]
             num_oov += oov
-            score_search, targets_search = d_rec[seq_tag][0]
+            try:
+                score_search, targets_search = d_rec[seq_tag][0]
+            except ValueError:
+                score_search, targets_search = d_rec[seq_tag]
             num_words += len(targets_ground_truth.split())
 
             # we count as search error if the label seqs differ and the search score is worse than the ground truth score

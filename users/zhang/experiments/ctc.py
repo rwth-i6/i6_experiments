@@ -243,6 +243,7 @@ _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
 def train_exp(
     name: str,
+    first_pass_name: str,
     config: Dict[str, Any],
     decoder_def: Callable,
     *,
@@ -270,11 +271,13 @@ def train_exp(
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
+    tune_rescore_scale: bool = False,
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
     recog: bool = False,
     batch_size: int = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.path]]:
+    eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
 
     """
     Train experiment
@@ -348,6 +351,7 @@ def train_exp(
     if recog:
         return recog_exp(
         name=name,
+        first_pass_name=first_pass_name,
         config=config,
         decoder_def=decoder_def,
         prefix=prefix,
@@ -364,16 +368,20 @@ def train_exp(
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
         tune_hyperparameters=tune_hyperparameters,
+        tune_rescore_scale=tune_rescore_scale,
         search_mem_rqmt=search_mem_rqmt,
         search_rqmt=search_rqmt,
         recog_epoch=recog_epoch,
         batch_size=batch_size,
+        eval_dataset_keys=eval_dataset_keys,
     )
 
     recog_res = recog_training_exp(
         prefix,
         task,
         model_with_checkpoints,
+        #first_pass_name=first_pass_name,
+        decoding_config=decoding_config,
         recog_def=model_recog,
         search_config=search_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
@@ -386,6 +394,7 @@ def train_exp(
 # noinspection PyShadowingNames
 def recog_exp(
     name: str,
+    first_pass_name: str,
     config: Dict[str, Any],
     decoder_def: Callable,
     model_with_checkpoints: ModelWithCheckpoints,
@@ -412,16 +421,19 @@ def recog_exp(
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
+    tune_rescore_scale: bool = False,
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
     batch_size: int = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path], Optional[tk.path], Optional[tk.path]]:
+    eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
     """
     Train experiment
     """
     from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
     from i6_experiments.users.zhang.experiments.language_models.n_gram import get_prior_from_unigram
 
+    tune_with_rescoring = decoding_config.pop("tune_with_rescoring", False)
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
@@ -447,13 +459,18 @@ def recog_exp(
 
     best_lm_tune = None
     best_prior_tune = None
-    if tune_hyperparameters and decoding_config["use_lm"]:
+    if tune_hyperparameters and decoding_config["use_lm"] and not tune_with_rescoring:
         original_params = decoding_config
         params = copy.copy(original_params)
         if tune_config_updates:
             params.update(tune_config_updates)
+
+        # Not sure why is this necessary:
         params.pop("lm_weight_tune", None)
         params.pop("prior_weight_tune", None)
+        params.pop("cheat", None)
+        params.pop("check_search_error_rescore", None)
+
         params.pop("tune_range", None)
         default_lm = original_params.get("lm_weight")
         default_prior = original_params.get("prior_weight")
@@ -467,6 +484,7 @@ def recog_exp(
             else tune_config_updates["priro_tune_range"]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
+
             task_copy = copy.deepcopy(task)
             # score = recog_training_exp(u
             #     prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
@@ -481,9 +499,9 @@ def recog_exp(
             #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
             #     dev_sets=["dev-other"],
             # )
-            print(f"param before lm_tune:{params}")
-            score, _ = recog_exp_(
-                prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+            #print(f"param before lm_tune:{params}")
+            score, *_ = recog_exp_(
+                first_pass_name + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
                 task_copy,
                 model_with_checkpoints,
                 epoch=recog_epoch,
@@ -506,6 +524,7 @@ def recog_exp(
             params["lm_weight"] = default_lm
             params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
             original_params["lm_weight_tune"] = best_lm_tune  # This will be implicitly used by following exps, i.e through decoding_config
+
         if with_prior:
             for dc_prior in prior_tune_ls:
                 params["prior_weight"] = default_prior + dc_prior
@@ -524,8 +543,8 @@ def recog_exp(
                 #     dev_sets=["dev-other"],
                 #     search_rqmt=search_rqmt,
                 # )
-                score, _ = recog_exp_(
-                    prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                score, *_ = recog_exp_(
+                    first_pass_name + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
                     task_copy,
                     model_with_checkpoints,
                     epoch=recog_epoch,
@@ -546,6 +565,131 @@ def recog_exp(
             tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
             original_params["prior_weight_tune"] = best_prior_tune
 
+    #print(f"\n{name}: tune?{tune_rescore_scale}, lm_rescore:{decoding_config.get('lm_rescore', 'Nothing')}!")
+    if tune_rescore_scale and decoding_config["lm_rescore"]:
+        #print("tune 2rd pass scales!")
+        original_params = decoding_config
+        params = copy.copy(original_params)
+        # if tune_config_updates:
+        #     params.update(tune_config_updates)
+        if decoding_config.get("lm_order", False) and tune_with_rescoring:
+            first_pass_greedy_config = {
+                "log_add": False,
+                "nbest": 200,
+                "beam_size": 300,
+                "beam_threshold": None,
+                "lm_weight": None,
+                "use_logsoftmax": True,
+                "use_lm": False,
+                "use_lexicon": False,
+                "lm_order": None,
+                "lm": None,
+                }
+            params.update(first_pass_greedy_config)
+            params.pop("recog_language_model",None)
+        params.pop("lm_weight_tune", None)
+        params.pop("prior_weight_tune", None)
+        params.pop("prior_weight", None)
+        params.pop("cheat", None)
+        params.pop("check_search_error_rescore", None)
+        params.pop("tune_range_2", None)
+        default_lm = original_params.get("rescore_lmscale")
+        default_prior = original_params.get("rescore_priorscale")
+        lm_scores = []
+        prior_scores = []
+
+        lm_tune_ls = [scale/100 for scale in range(-50,51,5)] if not tune_config_updates.get("tune_range_2") \
+            else tune_config_updates["tune_range_2"]
+
+        prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1] if not tune_config_updates.get("prior_tune_range_2") \
+            else tune_config_updates["prior_tune_range_2"]
+        for dc_lm in lm_tune_ls:
+            params["rescore_lmscale"] = default_lm + dc_lm
+            params["rescore_priorscale"] = 0.0 # !! Tune 2pass lm_scale without prior(emprically best prior scale is 0)
+            task_copy = copy.deepcopy(task)
+            # score = recog_training_exp(u
+            #     prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+            #     task_copy,
+            #     model_with_checkpoint,
+            #     recog_def=decoder_def,
+            #     decoding_config=params,
+            #     recog_post_proc_funcs=recog_post_proc_funcs,
+            #     exclude_epochs=exclude_epochs,
+            #     search_mem_rqmt=search_mem_rqmt,
+            #     prior_from_max=prior_from_max,
+            #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            #     dev_sets=["dev-other"],
+            # )
+            #print(f"param before lm_tune:{params}")
+            score, *_ = recog_exp_(
+                first_pass_name + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+                task_copy,
+                model_with_checkpoints,
+                first_pass_name=first_pass_name,
+                epoch=recog_epoch,
+                recog_def=decoder_def,
+                decoding_config=params,
+                #search_config=search_config,
+                recog_post_proc_funcs=recog_post_proc_funcs,
+                exclude_epochs=exclude_epochs,
+                search_mem_rqmt=search_mem_rqmt,
+                prior_from_max=prior_from_max,
+                empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                dev_sets=["dev-other"],
+                #search_rqmt=search_rqmt,
+            )
+            lm_scores.append(score)
+
+        if len(lm_scores):
+            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls, default_scale=default_lm).out_best_tune_var
+            tk.register_output(prefix + "/tune/2_pass_lm_best", GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune)
+            params["rescore_lmscale"] = best_lm_tune
+            if tune_with_rescoring:
+                original_params["lm_weight"] = best_lm_tune
+            original_params["rescore_lmscale"] = best_lm_tune  # This will be implicitly used by following exps, i.e through decoding_config
+        if with_prior:
+            for dc_prior in prior_tune_ls:
+                params["rescore_priorscale"] = default_prior + dc_prior
+                task_copy = copy.deepcopy(task)
+                # score = recog_training_exp(
+                #     prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                #     task_copy,
+                #     model_with_checkpoint,
+                #     recog_def=decoder_def,
+                #     decoding_config=params,
+                #     recog_post_proc_funcs=recog_post_proc_funcs,
+                #     exclude_epochs=exclude_epochs,
+                #     search_mem_rqmt=search_mem_rqmt,
+                #     prior_from_max=prior_from_max,
+                #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                #     dev_sets=["dev-other"],
+                #     search_rqmt=search_rqmt,
+                # )
+                score, *_ = recog_exp_(
+                    first_pass_name + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                    task_copy,
+                    model_with_checkpoints,
+                    first_pass_name=first_pass_name,
+                    epoch=recog_epoch,
+                    recog_def=decoder_def,
+                    decoding_config=params,
+                    #search_config=search_config,
+                    recog_post_proc_funcs=recog_post_proc_funcs,
+                    exclude_epochs=exclude_epochs,
+                    search_mem_rqmt=search_mem_rqmt,
+                    prior_from_max=prior_from_max,
+                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                    dev_sets=["dev-other"],
+                    #search_rqmt=search_rqmt,
+                )
+                prior_scores.append(score)
+        if len(prior_scores):
+            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls, default_scale=default_prior).out_best_tune_var
+            tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
+            if tune_with_rescoring:
+                original_params["prior_weight"] = best_prior_tune
+            original_params["rescore_priorscale"] = best_prior_tune
+
 
     # recog_result = recog_training_exp(
     #     prefix, task, model_with_checkpoint, recog_def=decoder_def,
@@ -560,8 +704,10 @@ def recog_exp(
     # )
     if recog_config_updates:
         decoding_config.update(recog_config_updates)
-    recog_result, search_error = recog_exp_(
+    search_error_check = True if decoding_config.get("lm_order", False) else False
+    recog_result, search_error, search_error_rescore = recog_exp_(
         prefix, task, model_with_checkpoints,
+        first_pass_name=first_pass_name,
         epoch=recog_epoch,
         recog_def=decoder_def,
         decoding_config=decoding_config,
@@ -571,13 +717,13 @@ def recog_exp(
         search_mem_rqmt=search_mem_rqmt,
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
-        dev_sets=["test-other","dev-other"],
+        dev_sets=eval_dataset_keys,
         search_rqmt=search_rqmt,
-        search_error_check=False,
+        search_error_check=search_error_check,
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, best_lm_tune, best_prior_tune
+    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_tune, best_prior_tune
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -2652,7 +2798,7 @@ scoring: RecogDef[Model]
 scoring.output_with_beam = True
 scoring.output_blank_label = OUT_BLANK_LABEL
 scoring.beam_size_dependent = False
-scoring.batch_size_dependent = False  # not totally correct, but we treat it as such...
+scoring.batch_size_dependent = True  # not totally correct, but we treat it as such...
 
 def scoring_v2(
         *,
@@ -2660,10 +2806,10 @@ def scoring_v2(
         data: Tensor,
         targets: Tensor,
         data_spatial_dim: Dim,
-        lm: str,
-        lexicon: str,
         hyperparameters: dict,
         prior_file: tk.Path = None,
+        lm: str,
+        lexicon: str,
         seq_tags: Tensor = None,
 ) -> Tensor:
     """
@@ -2781,6 +2927,7 @@ def scoring_v2(
     torch.cuda.empty_cache()
 
     '''Mask the label_log_prob using the forced alignment'''
+    # TODO: add a branch-If there is no LM involved we can just use viterbi_scores
     masked_label_log_prob = torch.full_like(label_log_prob_raw, fill_value=-1e30)
 
     for i in range(label_log_prob_raw.shape[0]):
@@ -3659,48 +3806,56 @@ def decode_nn(
             seq_targets_wb = rf.gather(seq_targets_wb, axis=beam_dim, indices=indices)
             beam_dim = beam_dim_new
 
-    # '''Rescoring and reordering the n-best list using second pass LM if provided'''
-    # # Score are not replaced for search error check
-    # if lm_name_2pass is not None:
-    #     def extract_ctx_size(s):
-    #         match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
-    #         return match.group(1) if match else None
-    #     assert model.rescor_language_model
-    #     assert model.rescor_language_model.vocab_dim == model.target_dim
-    #
-    #     if lm_name_2pass.startswith("ffnn"):
-    #         context_size = int(extract_ctx_size(lm_name))
-    #         assert isinstance(model.rescor_language_model, FeedForwardLm)
-    #         lm_2pass: FeedForwardLm = model.rescor_language_model
-    #         assert lm.conv_filter_size_dim.dimension == context_size
-    #
-    #
-    #     elif lm_name_2pass.startswith("trafo"):
-    #         assert isinstance(model.rescor_language_model, TransformerDecoder)
-    #         lm_2pass: TransformerDecoder = model.rescor_language_model
-    #
-    #     elif lm_name_2pass.startswith("Llama"):
-    #         def raw_text_from_bpe_seq(seq:list):
-    #             token_list = [model.target_dim.vocab.id_to_label(idx) if idx != model. for idx in seq]
-    #             return " ".join(token_list).replace("@@ ","").replace(" <s>", "")
-    #         assert isinstance(model.rescor_language_model, tk.Path)
-    #         from transformers import AutoModelForCausalLM, AutoTokenizer
-    #         from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
-    #         model_path = get_content_dir_from_hub_cache_dir(model.rescor_language_model)
-    #         tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-    #         if tokenizer.pad_token is None:
-    #             tokenizer.pad_token = tokenizer.eos_token
-    #         print(f"\nTokenizer_max_length:{tokenizer.model_max_length}\n")
-    #         model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True)
-    #         model.eval()
-    #         model.to(dev)
-    #         raw_text = [raw_text_from_bpe_seq(hyp) for hyp in seq_targets_wb.raw_tensor]
-    #     else:
-    #         raise Exception("Not supported language model:" + lm_name_2pass + f"{model.rescor_language_model}")
-
-
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
 
+"""Rescore definition"""
+def ctc_model_rescore(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+) -> Tensor:
+    """RescoreDef API"""
+    """This gives the summed score, not viterbi"""
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+    assert logits.feature_dim  # we expect a feature dim
+    assert enc_spatial_dim in logits.dims
+    log_probs = model.log_probs_wb_from_logits(logits)
+    assert isinstance(log_probs, Tensor)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+
+    # Note: Using ctc_loss directly requires quite a lot of memory,
+    # as we would broadcast the log_probs over the beam dim.
+    # Instead, we do a loop over the beam dim to avoid this.
+    neg_log_prob_ = []
+    for beam_idx in range(targets_beam_dim.get_dim_value()):
+        targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
+        targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+        targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
+        # Note: gradient does not matter (not used), thus no need use our ctc_loss_fixed_grad.
+        neg_log_prob = rf.ctc_loss(
+            logits=log_probs,
+            logits_normalized=True,
+            targets=targets_b,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_b_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        neg_log_prob_.append(neg_log_prob)
+    neg_log_prob, _ = rf.stack(neg_log_prob_, out_dim=targets_beam_dim)
+    log_prob_targets_seq = -neg_log_prob
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
 
 class Model(rf.Module):
     """Model definition"""

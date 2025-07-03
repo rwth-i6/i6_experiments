@@ -182,7 +182,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
     return returnn_config
 
 
-def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], exponent: float=1, epochs:List[int]=[], same_seq:bool=False, batch_size:int=80_000, **kwargs_unused):
+def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], exponent: Union[float, tk.Variable]=1, epochs:List[int]=[], same_seq:bool=False, batch_size:int=80_000, **kwargs_unused):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
@@ -241,11 +241,11 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model
     return ppls["test-other"]
 
 class ComputePerplexityJob(Job):
-    def __init__(self, scores_and_lens_file: Optional[Path], exponent:Optional[float] = 2.6):
+    def __init__(self, scores_and_lens_file: Optional[Path], exponent:Union[float,tk.Variable] = 1.0):
         self.scores_and_lens_file = scores_and_lens_file
 
         self.out_ppl = self.output_path("ppl")
-        self.exponent = exponent
+        self.exponent = exponent.get() if isinstance(exponent, tk.Variable) else exponent
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)

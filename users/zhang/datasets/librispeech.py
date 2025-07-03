@@ -72,6 +72,21 @@ def get_train_corpus_text() -> tk.Path:
     tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
     return job.out_text_lines
 
+def get_subword_ratio(keys:list[str], vocab: Bpe):
+    from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+    from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
+    lm_data = get_test_corpus_text(keys)
+    subword_nmt = get_returnn_subword_nmt()
+    job = ApplyBPEToTextJob(
+        text_file=lm_data,
+        bpe_codes=vocab.codes,
+        bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),  #
+        subword_nmt_repo=subword_nmt,
+        gzip_output=True,
+        mini_task=False,
+    )
+
+    return 
 
 @cache
 def _get_test_corpus_text() -> tk.Path:
