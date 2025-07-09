@@ -1,35 +1,37 @@
-from typing import Optional, List
+from typing import Optional, Union, Any, Dict, List
 from sisyphus import Job, Task, tk
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
 
 
 class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
-    __sis_hash_exclude__ = {"speech_prompt": "Transcribe the audio clip into text."}
+    """
+    ... ()
+    """
 
     def __init__(
         self,
         *,
-        model_dir: tk.Path,
         dataset_dir: tk.Path,
         dataset_key: str,
         returnn_root: Optional[tk.Path] = None,
-        speech_prompt: str = "Transcribe the audio clip into text.",
-        grad_score_type: str,
+        model_config: Dict[str, Any],
+        grad_wrt: str = "speech_embeddings",
+        fake_logits_factor: float = 0.0,
+        attr_method: Union[str, Dict[str, Any]],  # {},  {"type": "captum.attr.IntegratedGradients"}
+        attr_reduction: str,  # "sum", "L2", "L1", ...
     ):
         """
-        :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
         :param dataset_dir: hub cache dir, e.g. via DownloadHuggingFaceRepoJobV2. for load_dataset
         :param dataset_key: e.g. "train", "test", whatever the dataset provides
         :param returnn_root: for some utils. version of RETURNN should not really matter
-        :param speech_prompt: text-only part of the prompt
+        :param model_config:
         :param grad_score_type: see :func:`get_grad_score_func`. e.g. "dot_e_grad" or "L1_e_grad"
         """
         super().__init__()
-        self.model_dir = model_dir
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
-        self.speech_prompt = speech_prompt
+        self.model_opts = model_opts
         self.grad_score_type = grad_score_type
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
@@ -223,6 +225,10 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
                 else:
                     words_start_end[-1][1] = t + 1
             assert len(words_start_end) == len(data["word_detail"]["utterance"]), f"got {tokens=}"
+
+            import captum
+
+            captum.attr.LLMAttribution
 
             # Not needed here, as we already have only the selected audio embedding part.
             src_start, src_end = None, None
