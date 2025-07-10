@@ -724,8 +724,6 @@ def eow_phon_ls960_relposencoder_0924_base():
         (".sa64.scf", []),
         (".sa128.scf", []),
         (".stftsa.scf", []),
-        (".stftsav41.scf", []),
-        (".stftsav43.scf", []),
         (".stftsav47.scf", []),
         (".stftsav65.scf", []),
         (".defaultsav11.scf", []),
@@ -754,7 +752,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     # rerun log mel with STFT-domain SpecAugment
     logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
     for specaug_version in [
-        "none", "stft_v47", "stft_v49", "stft_v61", "stft_v62", "stft_v63", "stft_v64", "stft_v65", "stft_v66",
+        "none", "stft_v47", "stft_v61", "stft_v62", "stft_v63", "stft_v64", "stft_v65", "stft_v66",
     ]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
@@ -1111,30 +1109,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # 2D experiments: Tune STFT SpecAugment settings
     for exp_name, window_size, window_shift, n_fft, specaug_version in [
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v21"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v22"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v23"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v24"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v25"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v26"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v27"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v28"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v29"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v31"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v41"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v42"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v43"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v44"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v45"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v46"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v47"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v48"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v51"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v52"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v53"),
-        (f".stftsa.2Dx2v2", 400, 160, None, "stft_v43"),
-        (f".stftsa.2Dx6v1", 400, 10, None, "stft_v43"),
-        (f".stftsa.2Dx5v1", 400, 20, None, "stft_v43"),
         (f".stftsa.2Dx7v1", 400, 5, None, "stft_v47"),
         (f".stftsa.2Dx6v1", 400, 10, None, "stft_v47"),
         (f".stftsa.2Dx5v1", 400, 20, None, "stft_v47"),
@@ -1245,8 +1220,6 @@ def eow_phon_ls960_relposencoder_0924_base():
         ConvFeatureExtractionV1Config, ConvFeatureExtractionV2Config
     )
     for fe_key, specaug_version, out_channels, kernel_size, stride, freeze, init, activation in [
-        ("2Dx6v1", "stft_v22", 80, 256, 10, False, "gammatone", None),
-        ("2Dx6v1", "stft_v22", 80, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 256, 10, True, "gammatone", None),
         ("2Dx6v1", "stft_v47", 80, 256, 10, False, "gammatone", None),
         ("2Dx6v1", "stft_v47", 80, 256, 10, False, None, None),
@@ -1298,7 +1271,6 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx6v14", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v15", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v1", "default", 32, 256, 10, False, None, None),
-        ("2Dx6v1", "stft_v41", 32, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v61", 32, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v65", 128, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v66", 128, 256, 10, False, None, None),
