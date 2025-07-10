@@ -205,8 +205,10 @@ class WER_ppl_PlotAndSummaryJob(Job):
                     import re
                     search_error_rescore = f.readline()
                     search_error_rescore = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error_rescore).group(0)
-            table_data.append([key, f"{ppl:.2f}", f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error, search_error_rescore, scores.get("dev-clean","-"), scores.get("dev-other","-"), scores.get("test-clean","-"),
-                               scores.get("test-other","-")])
+            row = [key, f"{ppl:.2f}", f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error, search_error_rescore]
+            for dataset_key in self.eval_dataset_keys:
+                row.append(scores.get(dataset_key,"-"))
+            table_data.append(row)
 
         # Save to a CSV file manually
         with open(csv_filename, mode="w", newline="") as file:
@@ -321,9 +323,9 @@ class GnuPlotJob(Job):
         for t in ticks:
             # choose a sensible label formatting:
             if t < 1:
-                label = f"{t:.2g}"
+                label = f"{t:.2f}"
             elif t < 10:
-                label = f"{t:.3g}"
+                label = f"{t:.1f}"
             else:
                 label = f"{t:.0f}"
             entries.append(f'"{label}" {t:g}')

@@ -45,7 +45,7 @@ class GetBpeRatioJob(Job):
         self.out_ratio = self.output_var("bpe_to_word_ratio")
 
         self.mini_task = mini_task
-        self.rqmt = {"cpu": 2, "mem": 4, "time": 12}
+        self.rqmt = {"cpu": 2, "mem": 4, "time": 2}
 
     def tasks(self):
         if self.mini_task:
@@ -172,7 +172,7 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe
     lm_types = {"trafo"}
     match = re.search(r"bpe(.+)", vocab)
     config = {"num_layers": 12, "model_dim": 512, "dropout": 0.0, "class": "TransformerLm"}
-    epochs = [50] #20
+    epochs = [20, 50] #20
     from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
     bpe_data = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=int(match.group(1)))

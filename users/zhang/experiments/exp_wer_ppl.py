@@ -27,7 +27,8 @@ CHEAT_N_BEST = False
 LLM_FXIED_CTX = False # Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 10
 LLM_PREV_ONE_CTX = True
-assert LLM_PREV_ONE_CTX != LLM_FXIED_CTX
+if LLM_FXIED_CTX or LLM_PREV_ONE_CTX:
+    assert LLM_PREV_ONE_CTX != LLM_FXIED_CTX
 # --- Helpers for ctc_exp ---
 
 def get_encoder_model_config(encoder: str) -> Tuple[dict, Optional[callable]]:
@@ -231,8 +232,10 @@ def ctc_exp(
             tune_rescore_scale = True
             decoding_config["rescore_lmscale"] = 0.5
             decoding_config["rescore_priorscale"] = 0.10
-            tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-20, 31, 2)]
-            tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 21, 2)]
+            tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-50, 51, 2)]
+            tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 3, 2)]
+            # tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-20, 31, 2)]
+            # tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 21, 2)]
 
         elif "gram" in rescore_lm_name and "word" not in rescore_lm_name:
             tune_rescore_scale = True
@@ -331,7 +334,7 @@ def py():
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
     available = [("bpe128", "ctc", "blstm"), ("bpe128", "ctc", "conformer"), ("bpe10k", "ctc", "conformer")]
     models = {"ctc": ctc_exp}
-    encoder = "conformer" # blstm conformer
+    encoder = "blstm" # blstm conformer
     train = False
 
     for vocab in ["bpe128",
@@ -344,8 +347,8 @@ def py():
                     "trafo", #nn has better result on second pass for cfm
                     ]  if encoder == "blstm" else ["ffnn"] # Don know why, for conformer now the WER of trafo LMs are better by second pass...
         lm_kinds_2 = [#"ngram", # LM that do second pass
-                    #"ffnn", "trafo",
-                      "LLM"
+                    "ffnn", "trafo",
+                      #"LLM"
                     ]
         if "LLM" in lm_kinds_2:
             word_ppl = True

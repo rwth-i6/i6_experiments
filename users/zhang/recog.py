@@ -367,13 +367,17 @@ def recog_model(
         elif "NoLM" in rescoreLM_name:
             lm_rescor_rqmt = {"cpu": 2, "mem": 4, "time": 1}
         else:
-            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2, "gpu_mem": 11},
-                              "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6, "gpu_mem": 48},
-                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2, "gpu_mem": 11},
-                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4, "gpu_mem": 24},
-                              "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12, "gpu_mem": 24},
-                              "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6, "gpu_mem": 48},
-                              "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4, "gpu_mem": 24},}.get(rescoreLM_name)
+            prev_one_ctx = False
+            if isinstance(rescoringLM, dict):
+                prev_one_ctx = rescoringLM.get("prev_one_ctx", False)
+            time_factor = 2 if prev_one_ctx else 1
+            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2*time_factor, "gpu_mem": 11},
+                              "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
+                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 11},
+                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 24},
+                              "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 24},
+                              "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
+                              "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 24},}.get(rescoreLM_name)
             assert lm_rescor_rqmt is not None, f"LM type{rescoreLM_name} not found"
             #print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
 

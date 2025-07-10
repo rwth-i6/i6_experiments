@@ -526,7 +526,223 @@ class HuggingFaceLmPerplexityJobV2(Job):
             out_f.write(f"bpe level: {bpe_ppl}\n")
             out_f.write(f"Perplexity: {ppl}\n")
 
+"""Compute perplexity for a HuggingFace Transformer LLM model on LibriSpeech."""
+class HuggingFaceLmPerplexityJobV3(Job):
+    """Compute perplexity of a HuggingFace LM over a text corpus.
+        Using a fixed context from training set
+    """
 
+    def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
+                 llm_name: str, lower_case:bool = False, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, version:int = 0):
+        super().__init__()
+        self.model_dir = model_dir
+        self.text_file = text_file
+        self.batch_size = {"Llama-3.2-1B": 8, "Llama-3.1-8B": 3}.get(llm_name,1) if batch_size is None else batch_size
+        self.lower_case = lower_case
+        self.add_eos_to_completion = add_eos_to_completion
+        self.eos_symbol = eos_symbol
+        delimiter = " " if not self.eos_symbol else (self.eos_symbol + " ") # Not sure
+        if isinstance(prompt, tk.Path):
+            with open(prompt.get_path(), "r", encoding="utf-8") as f:
+                prompt = [line.strip() for line in f.readlines()]
+        self.prompt = delimiter.join(prompt) if prompt else None
+        self.word_ppl = word_ppl
+        self.out_ppl = self.output_path("ppl")
+        self.rqmt = {"time": 4, "cpu": 3, "mem": 8 + self.batch_size//2, "gpu": 1, "gpu_mem": {"Llama-3.2-1B": 10, "Llama-3.1-8B": 36}.get(llm_name,10)}
+        self.rqmt.update({"mem": {"Llama-3.2-1B": 15, "Llama-3.1-8B": 40}.get(llm_name,25),
+                        "time": {"Llama-3.2-1B": 4, "Llama-3.1-8B": 6}.get(llm_name,4)})
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import torch
+        import math
+        import time
+        import returnn.util.basic as util # noqa
+
+        device_str = "cuda" if torch.cuda.is_available() else "cpu"
+        def _report_dev_memory_stats():
+            dev = torch.device(device_str)
+            if dev.type == "cuda":
+                stats = [
+                    f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
+                    f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
+                    f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
+                    f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
+                ]
+                print(f"Memory usage ({device_str}):", " ".join(stats))
+
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        start_time = time.time()
+        print("Loading model...")
+
+        model_path = get_content_dir_from_hub_cache_dir(self.model_dir)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        print(f"\nTokenizer_max_length:{tokenizer.model_max_length}\n")
+
+        model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True)
+        model.eval()
+        device = torch.device(device_str)
+        model.to(device)
+
+        print(f"({time.time() - start_time} secs)")
+        _report_dev_memory_stats()
+
+        for s in ["A BUSINESS. ", "a business \n"]:
+            enc = tokenizer(s, return_tensors="pt")
+            print(s, "→ token IDs:", enc.input_ids.tolist())
+        print(f"bos_token id:{tokenizer.bos_token}")
+        print(f"eos_token id:{tokenizer.eos_token}")
+
+        total_logprob = 0.0
+        total_tokens = 0
+        total_word_tokens = 0
+
+        lines_seen = 0
+        total_lines = 0
+        batch_count = 0
+        log_every = 1000  # print a message every 1k lines
+
+        past_kvs, ctx_mask = None, None
+        if self.prompt:
+            context = [self.prompt.strip().lower() if self.lower_case else self.prompt.strip() for _ in range(self.batch_size)]
+            ctx = tokenizer(context, return_tensors="pt").to(device)
+            with torch.no_grad():
+                out = model(**ctx, use_cache=True)
+                past_kvs = out.past_key_values  # cache for all layers
+                ctx_mask = ctx["attention_mask"].to(device)
+
+        debug_flag = True
+        def _score_batch(batch_lines, ctx_mask, tokenizer, model, device):
+            """
+            Tokenize a batch of lines, run through the model, and compute negative log-likelihood,
+            token count, and total BPE tokens (sum of sequence lengths).
+            Returns (neg_log_likelihood, token_count, total_bpe_tokens).
+            """
+            nonlocal debug_flag, past_kvs
+            past_kvs_copy = past_kvs.copy() # This reset the kvs back for each batch
+            encoding = tokenizer(
+                batch_lines,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                add_special_tokens=True if self.prompt is None else False,
+                max_length=tokenizer.model_max_length,
+            )
+            hyp_input_ids = encoding["input_ids"].to(device)
+            # Prepare inputs
+
+            input_ids = encoding["input_ids"].to(device)
+            attention_mask = encoding["attention_mask"].to(device)
+            if ctx_mask is not None:
+                attention_mask = torch.cat([ctx_mask, attention_mask], dim=1)
+
+            # Mask out padding tokens in the labels, only need for loss
+            # labels = input_ids.clone()
+            # labels[attention_mask == 0] = -100
+
+            # Compute logits and log-probs
+            with torch.no_grad():
+                if self.prompt:
+                    print(f"hyp shape{hyp_input_ids.shape}")
+                    print(f"ctx mask shape{ctx_mask.shape}")
+                    print(f"hyp mask shape{encoding['attention_mask'].shape}")
+                    logits = model(input_ids, attention_mask=attention_mask, past_key_values=past_kvs_copy, use_cache=False).logits
+                else:
+                    logits = model(input_ids, attention_mask=attention_mask).logits
+                gather_ids = hyp_input_ids.unsqueeze(-1)
+                scores_mask = encoding["attention_mask"].to(device)
+
+                log_probs = torch.log_softmax(logits, dim=-1)
+                nll = torch.gather(log_probs, dim=-1, index=gather_ids).squeeze()
+                nll = nll * scores_mask
+                nll = nll.sum()
+
+            # Total non-padded tokens across the batch
+            token_count = int(encoding["attention_mask"].sum().item())
+
+            return nll, token_count
+
+        for text_file in self.text_file:
+            if text_file.get_path().endswith(".gz"):
+                import gzip
+
+                open_func = gzip.open
+            else:
+                open_func = open
+
+            with open_func(text_file.get_path(), "rt") as f:
+                for line in f:
+                    total_lines += 1
+                    total_word_tokens += len(line.strip().split()) + (1 if self.eos_symbol else 0)
+
+        for text_file in self.text_file:
+        # Open the file and iterate line by line
+            if text_file.get_path().endswith(".gz"):
+                import gzip
+
+                open_func = gzip.open
+            else:
+                open_func = open
+            with open_func(text_file.get_path(), "rt") as f:
+                batch_lines = []
+                eos_symbol = (
+                            " " + tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol  # (" "+tokenizer.eos_token) makes ppl worse
+                eos_symbol = eos_symbol if self.add_eos_to_completion else ""
+                for raw_line in f:
+                    line = raw_line.strip().lower() if self.lower_case else raw_line.strip()
+                    if not line:
+                        continue
+                    batch_lines.append(line + eos_symbol)
+
+                    lines_seen += 1
+
+                    # Log after every `log_every` lines
+                    if lines_seen % log_every == 0:
+                        print(f"[Line {lines_seen:,}/{total_lines}] {100*lines_seen/total_lines:.2f}% processed…")
+                        print(f"current lines:{batch_lines}")
+                        _report_dev_memory_stats()
+                    # Once we have `batch_size` lines, tokenize & process them
+                    if len(batch_lines) == self.batch_size:
+                        batch_count += 1
+                        nll, tok_count = _score_batch(batch_lines, ctx_mask, tokenizer, model, device)
+                        total_logprob += nll
+                        total_tokens += tok_count
+
+                        if batch_count % 1000 == 0:
+                            print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
+
+                        batch_lines = []  # clear for next batch
+
+
+
+            # Process any leftover lines (if total lines % batch_size != 0)
+            if batch_lines:
+                nll, tok_count = _score_batch(batch_lines, ctx_mask, tokenizer, model, device)
+                total_logprob += nll
+                total_tokens += tok_count
+
+        #print(f"(Assumed batch size 1)Average bpe seq length:{bpe_length/total_lines:.2f}")
+        print(f"Average bpe/word length ratio:{total_tokens}/{total_word_tokens}->{total_tokens / total_word_tokens:.2f}")
+        # Explicit cleanup to avoid stuck CG state
+        del model
+        del tokenizer
+        torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+        print("Finished and cleaned up.")
+
+        # Finally compute PPL
+        bpe_ppl = math.exp(-total_logprob / total_tokens)
+        ppl = math.exp(-total_logprob / total_word_tokens) if self.word_ppl else bpe_ppl
+        with open(self.out_ppl.get_path(), "w") as out_f:
+            out_f.write(f"Average bpe/word length ratio:: {total_tokens / total_word_tokens:.2f}\n")
+            out_f.write(f"bpe level: {bpe_ppl}\n")
+            out_f.write(f"Perplexity: {ppl}\n")
 
 def raw_text_from_bpe_seq(seq:list):
     return " ".join(seq).replace("@@ ","").replace(" <s>", "")
@@ -788,13 +1004,14 @@ def py():
             for ctx_lines, context in [#(100,FIXED_CONTEXT_LBS_100),
                                        #(50,FIXED_CONTEXT_LBS_50),
                                        #(30, FIXED_CONTEXT_LBS_30),
-                                       (10,FIXED_CONTEXT_LBS_10),(10,CTX_10_STR),
+                                       (10,FIXED_CONTEXT_LBS_10),
+                                       (10,CTX_10_STR), # Default \n
                                        (0, None)
                                          ]:
                 for eos_name, eos_symbol in {"newline": "\n",
                                             "period":".",
-                                             "eos": "eos",
-                                             "" : "",
+                                             #"eos": "eos",
+                                             #"" : "",
                                              }.items():
                     add_eos_to_completion = True
                     if eos_name == "period" and ctx_lines >=20 :
@@ -802,7 +1019,7 @@ def py():
                     if isinstance(context, list) and eos_name: # eos is joined
                         if not add_eos_to_completion:
                             continue
-                    batch_size = {100: 1, 50: 1, 30: 2, 10:4, 0:LLM_Batch_size[llm_name]}[ctx_lines]
+                    batch_size = {100: 1, 50: 1, 30: 2, 10:1, 0:LLM_Batch_size[llm_name]}[ctx_lines]
                     if eos_name == "eos" and ctx_lines > 10:
                         batch_size = 1
 
@@ -825,5 +1042,5 @@ def py():
                     ppl_job.add_alias(
                         "lm/" + llm_name + "/ppl/librispeech_" + alias_name)  # + eos_name)
                     tk.register_output(
-                        "ppl/" + llm_name + "/librispeech-" + alias_name + "-ppl",
+                        "ppl/" + llm_name + "/librispeech-" + alias_name + "-ppl_V2",
                         ppl_job.out_ppl)

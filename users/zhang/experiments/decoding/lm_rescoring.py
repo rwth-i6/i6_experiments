@@ -291,11 +291,9 @@ class HuggingFaceLmScorer(LMScorer):
         batch_lines, batch_prompt, scores_buffer = [], [], []
         # Iterate records
         for hyp in sequence:
-            if self.prompt:
-                batch_prompt.append(self.prompt.strip().lower() if self.lower_case else self.prompt.strip())
             hyp = raw_text_from_bpe_seq(hyp.split())
             line = hyp.strip().lower() if self.lower_case else hyp.strip()
-            if not line: # Encount an empty hyp
+            if not line: # Encounter an empty hyp
                 if len(batch_lines)>0: # Process accumulated batch and append -1e30 as score for empty
                     _process_batch(batch_lines, batch_prompt, scores_buffer)
                     batch_lines, batch_prompt = [], []
@@ -303,8 +301,13 @@ class HuggingFaceLmScorer(LMScorer):
                 continue
             eos_symbol = (" " + self.tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol
             batch_lines.append(line + eos_symbol)
+            if self.prompt:
+                batch_prompt.append(self.prompt.strip().lower() if self.lower_case else self.prompt.strip())
 
             if len(batch_lines) == self.batch_size:
+                if len(batch_prompt)>1:
+                    if batch_prompt[0] == batch_prompt[1]:
+                        batch_prompt = [batch_prompt[0]] * len(batch_lines)
                 _process_batch(batch_lines, batch_prompt, scores_buffer)
                 batch_lines, batch_prompt = [], []
 
