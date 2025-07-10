@@ -13,9 +13,9 @@ def dyn_slice(input: torch.Tensor, slice: Optional[Tuple[torch.Tensor, torch.Ten
         return input
     start, end = slice
     if start.ndim == end.ndim == 0:  # scalars, can use simple code
-        return input[:, start:end]  # [B,T',F]
+        return input[:, start:end]  # [B,T',...]
     if start.numel() == end.numel() == 1:  # single-element tensors, can use simple code
-        return input[:, start.item() : end.item()]
+        return input[:, start.flatten()[0] : end.flatten()[0]]  # [B,T',...]
     assert start.shape == end.shape == input.shape[:1]
 
     slice_len = (end - start).max()
