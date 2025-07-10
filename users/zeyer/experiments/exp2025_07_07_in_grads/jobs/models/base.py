@@ -86,6 +86,12 @@ class ForwardOutput:
 
     outputs: Any  # any nested structure
 
+    def get_inputs_seq_lens_sliced(self) -> torch.Tensor:
+        if self.input_slice_start_end is None:
+            return self.input_seq_lens
+        start, end = self.input_slice_start_end
+        return end - start
+
 
 _classes = {}
 

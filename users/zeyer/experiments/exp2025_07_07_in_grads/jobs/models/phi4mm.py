@@ -3,9 +3,9 @@ import time
 import numpy as np
 import torch
 from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
+from i6_experiments.users.zeyer.torch.dyn_slice import dyn_slice
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
 from ..logits_transform import make_logits_transform
-from .utils import apply_input_slice
 from .base import BaseModelInterface, ForwardOutput
 
 
@@ -128,6 +128,7 @@ class Phi4MM(BaseModelInterface):
                 words_start_end[-1][1] = t + 1
         assert len(words_start_end) == raw_target_seq_lens[0], f"got {tokens=}"
 
+        assert self.grad_wrt == "speech_embeddings", f"{self.grad_wrt=!r}"
         return ForwardOutput(
             inputs=inputs_embeds,
             input_seq_lens=torch.tensor([inputs_embeds.shape[1]]),  # [B]
@@ -143,8 +144,8 @@ class Phi4MM(BaseModelInterface):
         t0, t1 = forward_output.target_start_end[:, raw_target_frame_index].unbind(1)  # [B], [B]
         last_out = forward_output.outputs["last_out"]
         dst_text_start = forward_output.outputs["dst_text_start"]
-        input_ids = apply_input_slice(forward_output.targets, (t0, t1))
-        last_out = apply_input_slice(last_out, (dst_text_start + t0 - 1, dst_text_start + t1 - 1))
+        input_ids = dyn_slice(forward_output.targets, (t0, t1))
+        last_out = dyn_slice(last_out, (dst_text_start + t0 - 1, dst_text_start + t1 - 1))
         assert input_ids.shape[:2] == last_out.shape[:2], f"{input_ids.shape=}, {last_out.shape=}"
 
         logits = self.model.lm_head(last_out)  # [B, T', V]

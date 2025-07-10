@@ -70,6 +70,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
 
         from returnn.util import better_exchook
         from returnn.datasets.hdf import SimpleHDFWriter
+        from i6_experiments.users.zeyer.torch.dyn_slice import dyn_slice
         from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
 
         # os.environ["DEBUG"] = "1"  # for better_exchook to use debug shell on error
@@ -82,7 +83,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         except ImportError:
             pass
 
-        from .models import make_model
+        from .models import make_model, ForwardOutput
         from .grad_score_types import get_grad_score_func
 
         grad_score_func = get_grad_score_func(self.grad_score_type)
@@ -134,38 +135,39 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
 
             start_time = time.time()
             print("** Forwarding")
-            assert len(transcription.split(" ")) == len(data["word_detail"]["utterance"])
+            num_words = len(data["word_detail"]["utterance"])
+            assert len(transcription.split(" ")) == num_words
+
+            forward_output: ForwardOutput = model(
+                raw_inputs=audio,
+                raw_inputs_sample_rate=samplerate,
+                raw_input_seq_lens=torch.tensor([len(audio)]),
+                raw_targets=[data["word_detail"]["utterance"]],
+                raw_target_seq_lens=torch.tensor([len(data["word_detail"]["utterance"])]),
+            )
 
             # Not needed here, as we already have only the selected audio embedding part.
             src_start, src_end = None, None
 
-            def _calc_input_grads(t0, t1, *, report_mem: bool = False) -> torch.Tensor:
-                logits = model.lm_head(last_out[:, t0 - 1 : t1 - 1])
-                logits = logits.float()
-                if logits.shape[0] > 1:
-                    logits = logits.mean(dim=0, keepdim=True)
-                fake_logits = logits + (-logits).detach()  # zero, but grads will go to logits
+            # noinspection PyShadowingNames
+            def _calc_input_grads(w: int, *, report_mem: bool = False, forward_output: ForwardOutput) -> torch.Tensor:
+                loss = model.score(forward_output=forward_output, raw_target_frame_index=w)  # [B]
+                (grad,) = torch.autograd.grad(loss.sum(), forward_output.inputs, retain_graph=True)
+                del loss
 
-                loss = torch.nn.functional.cross_entropy(
-                    fake_logits[0], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
-                )
-                loss.backward(retain_graph=True)
-                (grad,) = torch.autograd.grad(loss, inputs_embeds, retain_graph=True)
                 if report_mem:
-                    _report_dev_memory_stats()
-                del fake_logits, logits
-                grad, inputs_embeds.grad = inputs_embeds.grad, None
+                    report_dev_memory_stats(dev)
+
                 with torch.no_grad():
-                    e = inputs_embeds.float()[0, src_start:src_end]
-                    grad = grad.float()[0, src_start:src_end]
+                    e = dyn_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
+                    grad = dyn_slice(grad.float(), forward_output.input_slice_start_end)
                     return grad_score_func(e, grad)
 
             print("** Calculating grads")
-            num_input_frames = inputs_embeds[0, src_start:src_end].shape[0]
-            num_words = len(words_start_end)
+            num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0]
             grad_mat: List[torch.Tensor] = []
-            for w, (t0, t1) in enumerate(words_start_end):
-                grads = _calc_input_grads(t0, t1, report_mem=w in {0, num_words - 1})
+            for w in range(num_words):
+                grads = _calc_input_grads(w, report_mem=w in {0, num_words - 1}, forward_output=forward_output)
                 assert grads.shape == (num_input_frames,)
                 grad_mat.append(grads)
             grad_mat_ = torch.stack(grad_mat)  # [num_words,num_input_frames]
@@ -174,9 +176,9 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
             grad_mat__ = grad_mat_.detach().cpu().numpy().flatten()[None, :, None]
 
             print("** Freeing")
-            del last_out, inputs_embeds, inputs  # not needed anymore now
+            del forward_output  # not needed anymore now
             gc.collect()
-            _report_dev_memory_stats()
+            report_dev_memory_stats(dev)
             print(f"({time.time() - start_time} secs for the seq)")
 
             hdf_writer.insert_batch(
