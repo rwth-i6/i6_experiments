@@ -14,6 +14,8 @@ def apply_input_slice(input: torch.Tensor, slice: Optional[Tuple[torch.Tensor, t
     start, end = slice
     if start.ndim == end.ndim == 0:  # scalars, can use simple code
         return input[:, start:end]  # [B,T',F]
+    if start.numel() == end.numel() == 1:  # single-element tensors, can use simple code
+        return input[:, start.item() : end.item()]
 
     slice_len = (end - start).max()
     slice_indices = torch.arange(slice_len)  # [T']

@@ -5,6 +5,7 @@ import torch
 from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
 from ..logits_transform import make_logits_transform
+from .utils import apply_input_slice
 from .base import BaseModelInterface, ForwardOutput
 
 
@@ -100,6 +101,7 @@ class Phi4MM(BaseModelInterface):
         inputs = inputs.to(dev)
         input_ids = inputs["input_ids"]
         inputs_embeds = inputs["input_audio_embeds"]
+        print("inputs_embeds:", inputs_embeds)
         inputs_embeds.requires_grad = True
         inputs_embeds.retain_grad()
         # We don't need the logits here. There is currently no way to not compute them,
@@ -124,5 +126,28 @@ class Phi4MM(BaseModelInterface):
                 words_start_end[-1][1] = t + 1
         assert len(words_start_end) == raw_target_seq_lens[0], f"got {tokens=}"
 
+        return ForwardOutput(
+            inputs=inputs_embeds,
+        )
+
     def score(self, *, forward_output: ForwardOutput, raw_target_frame_index: int) -> torch.Tensor:
-        pass
+        t0, t1 = forward_output.target_start_end[:, raw_target_frame_index].unbind(1)  # [B], [B]
+        input_ids = forward_output.outputs["input_ids"]
+        last_out = forward_output.outputs["last_out"]
+        input_ids = apply_input_slice(input_ids, (t0, t1))
+        last_out = apply_input_slice(last_out, (t0 - 1, t1 - 1))
+        assert input_ids.shape[:2] == last_out.shape[:2], f"{input_ids.shape=}, {last_out.shape=}"
+
+        logits = self.model.lm_head(last_out)  # [B, T', V]
+        logits = logits.float()
+        for f in self.logits_transform:
+            logits = f(logits)
+
+        loss = (
+            torch.nn.functional.cross_entropy(
+                logits.flatten(0, 1), input_ids.flatten(0, 1), ignore_index=-100, reduction="none"
+            )  # [B*T']
+            .unflatten(0, logits.shape[:2])  # [B, T']
+            .sum(1)  # [B]
+        )
+        return loss
