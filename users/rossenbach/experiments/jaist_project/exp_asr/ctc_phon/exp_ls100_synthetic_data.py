@@ -373,6 +373,9 @@ def eow_phon_ls100_1023_synthetic():
                 "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-100",
                 "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn_train-clean-100",
         ], True, "all_except_narblstm_400eps_normal_random_merged"),
+        
+        # From older setups
+        "librispeech_tts_tacotron2_gmm_05_fixed_phonemes_ls100",
     ]
 
     for syn_name in syn_names:
@@ -463,6 +466,8 @@ def eow_phon_ls100_1023_synthetic():
         "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_glow256align_400eps_bs600_oclr_gl32_syn_train-clean-360",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-360",
         "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn_train-clean-360",
+        # From older setups
+        "librispeech_tts_tacotron2_gmm_05_fixed_phonemes_ls360",
     ]
     for syn_name in syn_names:
         syn_bliss = synthetic_bliss_data[syn_name]
