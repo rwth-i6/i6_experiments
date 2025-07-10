@@ -158,9 +158,9 @@ class Phi4MM(BaseModelInterface):
         t0, t1 = forward_output.target_start_end[:, raw_target_frame_index].unbind(1)  # [B], [B]
         last_out = forward_output.outputs["last_out"]
         dst_text_start = forward_output.outputs["dst_text_start"]
-        input_ids = dyn_slice(forward_output.targets, (t0, t1))
+        targets = dyn_slice(forward_output.targets, (t0, t1))
         last_out = dyn_slice(last_out, (dst_text_start + t0 - 1, dst_text_start + t1 - 1))
-        assert input_ids.shape[:2] == last_out.shape[:2], f"{input_ids.shape=}, {last_out.shape=}"
+        assert targets.shape[:2] == last_out.shape[:2], f"{targets.shape=}, {last_out.shape=}"
 
         logits = self.model.lm_head(last_out)  # [B, T', V]
         logits = logits.float()
@@ -169,7 +169,7 @@ class Phi4MM(BaseModelInterface):
 
         loss = (
             torch.nn.functional.cross_entropy(
-                logits.flatten(0, 1), input_ids.flatten(0, 1), ignore_index=-100, reduction="none"
+                logits.flatten(0, 1), targets.flatten(0, 1), ignore_index=-100, reduction="none"
             )  # [B*T']
             .unflatten(0, logits.shape[:2])  # [B, T']
             .sum(1)  # [B]
