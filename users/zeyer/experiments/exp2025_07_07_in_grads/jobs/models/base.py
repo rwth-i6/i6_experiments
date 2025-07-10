@@ -3,14 +3,14 @@ Base interface
 """
 
 from __future__ import annotations
-from typing import Optional, Union, Any, Dict, List
+from typing import Optional, Union, Any, List
 import torch
 import numpy as np
 import importlib
 from dataclasses import dataclass
 
 
-def make(opts: Dict[str, Any]) -> BaseModelInterface:
+def make_model(**opts) -> BaseModelInterface:
     """
     Make model wrapper
     """
@@ -42,7 +42,7 @@ class BaseModelInterface(torch.nn.Module):
         Process and (maybe partially) forward.
         Then :func:`score` is supposed to be called for each target frame.
 
-        :param raw_inputs: Input seqs. First dim is input-time, e.g. audio raw samples, or words.
+        :param raw_inputs: Input seqs. Shape [B,T_in_raw,...], e.g. audio raw samples, or words.
         :param raw_inputs_sample_rate: Sample rate of the input audio, if applicable.
         :param raw_input_seq_lens: Length of each input sequence.
         :param raw_targets: Target seqs. List of words.
