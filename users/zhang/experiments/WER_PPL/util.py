@@ -218,6 +218,7 @@ class GnuPlotJob(Job):
         self,
         res_table: tk.Path,
         eval_dataset_keys: List[str] = ["test-other","dev-other"],
+        version: int = 2,
     ):
         self.input_summary = res_table
         self.out_plot_dir = self.output_path("plots", directory=True)
@@ -239,7 +240,6 @@ class GnuPlotJob(Job):
             raise Exception(f"dataset key {dataset_key} not found.")
         os.makedirs(self.out_plot_dir.get_path(), exist_ok=True)
         # read header and locate columns
-
         for data_setkey in self.eval_dataset_keys:
             with open(self.input_summary.get_path(), 'r') as f:
                 groups = defaultdict(list)
@@ -250,6 +250,8 @@ class GnuPlotJob(Job):
                 for line in f:
                     cols = line.strip().split(',')
                     lm = cols[idx_name].split('_')[0]
+                    if "gram" in lm:
+                        lm = "Ngram"
                     ppl = float(cols[idx_ppl])
                     wer = float(cols[idx_wer])
                     groups[lm].append((ppl, wer))
@@ -260,8 +262,78 @@ class GnuPlotJob(Job):
                         for ppl, wer in sorted(pts):
                             o.write(f"{ppl}\t{wer}\n")
 
+    def merge_data(self, datafiles: List[str], data_setkey: str):
+        merged_path = os.path.join(self.out_plot_dir.get_path(), f"all_{data_setkey}.dat")
+        labels = []
+        with open(merged_path, "w") as fout:
+            for fn in datafiles:
+                # derive prefix: e.g. "plots/ffnn8_test-other.dat" → "ffnn8"
+                prefix = os.path.basename(fn).rsplit(f"_{data_setkey}.dat", 1)[0]
+                if "ffnn" in prefix:
+                    prefix = "FeedForward"
+                elif "gram" in prefix:
+                    prefix = "Ngram"
+                labels.append(prefix)
+                with open(fn) as fin:
+                    fout.write(fin.read())
+        return merged_path, " ".join(labels)
+
+    def make_tics_string(self, all_dat: str,
+                         axis: int = 0,
+                         num_ticks: int = 6,
+                         pad_frac: float = 0.05):
+        """
+        all_dat   : path to whitespace‐delimited two‐column PPL/WER file
+        axis      : 0 for x (PPL), 1 for y (WER)
+        num_ticks : how many ticks to generate
+        pad_frac  : fraction to pad below/above the data range
+        returns   : e.g. '("10" 10, "20" 20, "30" 30, "40" 40)'
+        """
+        import numpy as np
+        import math
+        # 1) load
+        data = np.loadtxt(all_dat)
+        vals = data[:, axis]
+        lo, hi = vals.min(), vals.max()
+
+        # 2) pad
+        span = hi - lo
+        lo = max(lo - span * pad_frac, 1.0)
+        hi = hi + span * pad_frac
+
+        # 2) work in log10 space
+        log_lo = math.log10(lo)
+        log_hi = math.log10(hi)
+        span = log_hi - log_lo
+
+        # 3) pad the log range
+        log_lo -= pad_frac * span
+        log_hi += pad_frac * span
+
+        # 4) linearly spaced exponents
+        exps = np.linspace(log_lo, log_hi, num_ticks)
+
+        # 5) back-transform and unique/round
+        ticks = sorted(set(10 ** exps))
+
+        # 6) format for Gnuplot: each -> '"label" pos'
+        entries = [f'"{vals.min():g}" {vals.min():g}']
+        for t in ticks:
+            # choose a sensible label formatting:
+            if t < 1:
+                label = f"{t:.2g}"
+            elif t < 10:
+                label = f"{t:.3g}"
+            else:
+                label = f"{t:.0f}"
+            entries.append(f'"{label}" {t:g}')
+
+        entries.append(f'"{vals.max():g}" {vals.max():g}')
+        range = f"[{lo}:{hi}]"
+        return "(" + ", ".join(entries) + ")", range
+
     def plot_gnuplot(self, dataset_key: str):
-        import os
+
         import textwrap
         # build gnuplot script dynamically
         plt_path = self.out_scripts[dataset_key].get_path()
@@ -277,64 +349,92 @@ class GnuPlotJob(Job):
             return f'"{path}"' if " " in path else path
 
         files_str = " ".join(q(p) for p in data_files)
+        merged_path, labels = self.merge_data(data_files, dataset_key)
 
+        xtics, xrange = self.make_tics_string(merged_path, axis=0, num_ticks=5, pad_frac=0.01)
+        ytics, yrange = self.make_tics_string(merged_path, axis=1, num_ticks=6)
         # Gnuplot script
         gp = textwrap.dedent(f"""
-          set terminal pdf size 6,4
-          set output "{self.out_plots[dataset_key].get_path()}"
+            #standard setup
+            set terminal pdf size 6,4
+            set output "{self.out_plots[dataset_key].get_path()}"
+            
+            set key outside right center box
+            set border linewidth 2
+            set tics scale 1.5
+            set xlabel "Perplexity (PPL)"
+            set ylabel "Word Error Rate (%)"
+            set grid
+            # Log scales on both axes
+            set logscale x 10
+            set logscale y 10
+            
+            #model + back-transform functions
+            f(x)     = a * x + b
+            f_log(x) = a * log10(x) + b
+            f_real(x)= 10**(f_log(x))
+            
+            #single fit on merged data
+            fit f(x) "{merged_path}" using (log10($1)):(log10($2)) via a,b
+            
+            #Find true WER range from the merged file
+            # stats "{merged_path}" using 2 name "Y" nooutput
+            # Y_min and Y_max now exist
+            
+            # ---Set y axis
+            #Pad it by, say, 5% above & below (in linear WER space!)
+            # pad = 0.05
+            # y_lo = Y_min * (1 - pad)
+            # y_hi = Y_max * (1 + pad)
+            set yrange {yrange}
+            set ytics {ytics}#("2.0" 2.0, "4.0" 4.0, "6.0" 6.0, "8.0" 8.0, "10.0" 10.0, "12.0" 12.0, "14.0" 14.0, "16.0" 16.0)
+            
+            #–– linear‐space Y-tics at 10% steps:
+            # dy = 10
+            # set ytics y_lo, dy, y_hi
+            
+            # ---X–axis similarly
+            # stats "{merged_path}" using 1 name "X" nooutput
+            # x_lo = X_min * 0.9
+            # x_hi = X_max * 1.1
+            set xrange {xrange}
+            set xtics {xtics}#("10" 10, "20" 20, "30" 30, "40" 40, "50" 50, "60" 60, "70" 70, "80" 80, "90" 90, "100" 100, "185" 185)
+            # dx = 10
+            # set xtics x_lo, dx, X_max
+            # # format the label
+            # label_hi = sprintf("%g", X_max)
+            # 
+            # set xtics add ( label_hi X_max )
+            
+            #Define point-types & colors
+            #    diamond=5, square=7, circle=9, triangle=13
+            set style line 1 lt 1 lc rgb "blue"    pt 5 ps 1.2  # diamond
+            set style line 2 lt 1 lc rgb "black"  pt 7 ps 1.2  # square
+            set style line 3 lt 1 lc rgb "purple"   pt 9 ps 1.2  # circle
+            set style line 4 lt 1 lc rgb "red" pt 13 ps 1.2 # triangle
+            set style line 5 lt 1 lc rgb "green" pt 11 ps 1.2 # cross
+            
+            # regression line style
+            set style line 6 lt 2 lc rgb "blue" lw 2 dashtype 3
 
-          set key outside right center box
-          set border linewidth 2
-          set tics scale 1.5
-          set xlabel "Perplexity (PPL)"
-          set ylabel "Word Error Rate (%)"
-          set grid
-          set logscale x 10
-          set logscale y 10
-          set xtics nomirror; set ytics nomirror
-          set mxtics 2;  set mytics 2
+            
+            #discover all per-LM .dat files
+            files  = "{files_str}"
+            N      = words(files)
+            labels = "{labels}"
+            
+            # place at a fixed screen‐coordinate outside the top‐right of the plot
+            set label 1 sprintf("log(WER)=%.2f+%.2f log(PPL)", b,a) \
+            at screen 0.95,0.03 right
+            
+            #finally, the plot command
+            plot \
+              for [i=1:N] word(files,i) using 1:2 \
+                  with points ls i title sprintf("%s", word(labels,i)), \
+              f_real(x) with lines ls 6 title "Regression"#sprintf("Regression: log(W)=%.2f+%.2f log(P)", a,b)
 
-          # marker + size pools
-          markers = "1 2 3 4 5 6 7 8 9"
-          ptsizes = "0.8 0.9 1.0 0.8 0.9 1.0 0.8 0.9 1.0"
-
-          # get list of all data files matching the chosen WER field
-          files = system("ls plots/*_{dataset_key}.dat")
-          N     = words(files)
-
-          # initialize PPL and WER stats with the first file
-          stats word(files,1) using 1 name "PPL" nooutput
-          stats word(files,1) using 2 name "WER" nooutput
-
-          # accumulate min/max across the rest
-          do for [i=2:N] {{
-            stats word(files,i) using 1 nooutput prefix "TMP"
-            PPL_min = min(PPL_min, TMP_min)
-            PPL_max = max(PPL_max, TMP_max)
-            stats word(files,i) using 2 nooutput prefix "TMP2"
-            WER_min = min(WER_min, TMP2_min)
-            WER_max = max(WER_max, TMP2_max)
-          }}
-
-          # pad ranges by 10%
-          xmin = PPL_min * 0.9;   xmax = PPL_max * 1.1
-          ymin = WER_min * 0.9;   ymax = WER_max * 1.1
-          set xrange [xmin:xmax]
-          set yrange [ymin:ymax]
-
-          # log-log regression
-          f(x) = 10**(a*log10(x) + b)
-          fit log10($2) via a, b using for [i=1:N] word(files,i) using (log10($1)):(log10($2)) nooutput
-
-          # plot each LM with its own marker, then the fit line
-          plot for [i=1:N] word(files,i) using 1:2 \
-                with points pt word(word(markers,i),i) \
-                             ps word(word(ptsizes,i),i) \
-                             title word(files,i), \
-               f(x) with lines lw 2 lt 3 lc rgb "black" \
-                             title sprintf("Fit: log(W)=%.2f+%.2f log(P)", a,b)
         """)
-    # write and run\ n
+
         with open(plt_path, 'w') as f:
             f.write(gp)
 
@@ -343,5 +443,5 @@ class GnuPlotJob(Job):
     def run(self):
         self.split_dat()
         for dataset_key in self.eval_dataset_keys:
-            print(f"\n\tPloting: {dataset_key}")
+            print(f"\n\n\tPloting: {dataset_key}")
             self.plot_gnuplot(dataset_key)

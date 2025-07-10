@@ -96,17 +96,17 @@ def build_ngram_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe
     for n_order in [2,
                     #4, 5,
                     6]:
-        for train_fraction in [0.1, 0.15, 0.2, 0.25, 0.3,
-                               #None,
+        for train_fraction in [0.1, 0.15, 0.2, 0.3,
+                               None,
                                ]:
             for prune_thresh in prune_threshs:
-                if n_order in [1,2] and prune_thresh is not None:
+                if n_order in [1,2] and prune_thresh is not None: # Setting for 2gram that need pruning
                     if prune_thresh < 5e-2:
                         continue
                 if n_order > 2 and prune_thresh is not None:
                     if prune_thresh > 5e-2:
                         continue
-                if train_fraction is not None and prune_thresh not in prune_threshs_sub:
+                if train_fraction is not None and prune_thresh not in prune_threshs_sub: # Only Specific subeset of threshs are used for fraction training
                     continue
                 print(f"build ngram {n_order} thresh{prune_thresh}!")
                 lm, ppl_log = get_count_based_n_gram(vocab, n_order, prune_thresh, train_fraction=train_fraction, word_ppl=word_ppl,bpe_ratio=bpe_ratio)
@@ -172,13 +172,13 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe
     lm_types = {"trafo"}
     match = re.search(r"bpe(.+)", vocab)
     config = {"num_layers": 12, "model_dim": 512, "dropout": 0.0, "class": "TransformerLm"}
-    epochs = [20, 50]
+    epochs = [50] #20
     from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
     bpe_data = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=int(match.group(1)))
     bpe = Bpe(dim=184, codes=bpe_data.bpe_codes, vocab=bpe_data.bpe_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>")
-    for checkpoint, ppl, epoch in get_trafo_lm(bpe, n_ep=50, bs_feat=10000, num_layers=12, word_ppl=word_ppl,
-                                               model_dim=512, max_seqs=200, max_seq_length_default_target=True, epochs=epochs, bpe_ratio=bpe_ratio):
+    for checkpoint, ppl, epoch in get_trafo_lm(bpe, n_ep=50, bs_feat=10000, num_layers=config["num_layers"], word_ppl=word_ppl,
+                                               model_dim=config["model_dim"], max_seqs=200, max_seq_length_default_target=True, epochs=epochs, bpe_ratio=bpe_ratio):
         name = f"trafo_{epoch}_bpe{match.group(1)}"
         lms[name] = {
             "preload_from_files": {
@@ -193,9 +193,10 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe
     return lms, ppl_results, lm_types
 
 def build_llms(word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
-    from i6_experiments.users.zhang.experiments.lm.llm import get_llm
+    from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size, FIXED_CONTEXT_LBS_100, FIXED_CONTEXT_LBS_50, FIXED_CONTEXT_LBS_30, FIXED_CONTEXT_LBS_10
     lm_types = {"LLM"}
-    llms, ppl_llms = get_llm(model_ids=["Llama-3.2-1B", "Llama-3.1-8B"], batch_sizes=[16, 4], prompt=None, word_ppl=word_ppl)
+    model_ids = LLM_Batch_size.keys()
+    llms, ppl_llms = get_llm(model_ids=model_ids, batch_sizes=[LLM_Batch_size[key] for key in model_ids], word_ppl=word_ppl)
     return llms, ppl_llms, lm_types
 
 def build_all_lms(vocab: str, lm_kinds: List[str] = None, as_ckpt: bool = False, word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
@@ -213,21 +214,39 @@ def build_all_lms(vocab: str, lm_kinds: List[str] = None, as_ckpt: bool = False,
     }
     bpe_ratio = None
     if word_ppl:
-        from datasets.librispeech import get_librispeech_lm_combined_txt
+        from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt
         from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
         bpe_ratio = GetBpeRatioJob(get_librispeech_lm_combined_txt(), vocab, get_returnn_subword_nmt()).out_ratio
     for kind, builder in builders.items():
         if kind not in lm_kinds:
             continue
-        try:
-            l, p, t = builder(vocab, as_ckpt, word_ppl, bpe_ratio) if "vocab" in builder.__code__.co_varnames else builder(word_ppl=word_ppl)
-            lms.update(l)
-            ppl.update(p)
-            types.update(t)
-        except Exception:
-            continue
+        #try:
+        l, p, t = builder(vocab, as_ckpt, word_ppl, bpe_ratio) if "vocab" in builder.__code__.co_varnames else builder(word_ppl=word_ppl)
+        lms.update(l)
+        ppl.update(p)
+        types.update(t)
+        # except Exception:
+        #     print(f"Something went wrong{kind}", Exception)
+        #     continue
 
     if not as_ckpt: # Consider move this to somewhere else
         lms.update({"NoLM": None})
 
     return lms, ppl, types
+
+def py():
+    from i6_experiments.users.zhang.datasets.librispeech import get_train_corpus_text, get_test_corpus_text
+    from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+    vocab = "bpe128"
+    for key in ["dev-clean",
+                        "dev-other",
+                        "test-clean",
+                        "test-other",
+                        "train",
+                        ]:
+        if key == "train":
+            getter = get_train_corpus_text()
+        else:
+            getter = get_test_corpus_text([key])
+        bpe_ratio = GetBpeRatioJob(getter, vocab, get_returnn_subword_nmt()).out_ratio
+        tk.register_output(f"test/LBS/bpe_ratio/{vocab}/{key}_bpe_ratio", bpe_ratio)

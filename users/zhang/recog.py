@@ -367,10 +367,15 @@ def recog_model(
         elif "NoLM" in rescoreLM_name:
             lm_rescor_rqmt = {"cpu": 2, "mem": 4, "time": 1}
         else:
-            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2, "gpu_mem": 24},
-                              "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 7, "gpu_mem": 48}}.get(rescoreLM_name)
+            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2, "gpu_mem": 11},
+                              "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6, "gpu_mem": 48},
+                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2, "gpu_mem": 11},
+                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4, "gpu_mem": 24},
+                              "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12, "gpu_mem": 24},
+                              "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6, "gpu_mem": 48},
+                              "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4, "gpu_mem": 24},}.get(rescoreLM_name)
             assert lm_rescor_rqmt is not None, f"LM type{rescoreLM_name} not found"
-            print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
+            #print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
 
 
         recog_pre_post_proc_funcs_ext = list(recog_pre_post_proc_funcs_ext)
@@ -390,10 +395,10 @@ def recog_model(
                     lm_rescore_rqmt=lm_rescor_rqmt,
                     vocab=vocab_file,
                     vocab_opts_file=vocab_opts_file,
-                    alias_name = name,
                 )
         ]
 
+    search_error_rescore_dict = {}
 
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
@@ -411,10 +416,11 @@ def recog_model(
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
-            first_pass_name=first_pass_name,
+            first_pass_name=first_pass_name + f"/{dataset_name}",
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             recog_pre_post_proc_funcs_ext=recog_pre_post_proc_funcs_ext,
         )
+        search_error_rescore_dict[dataset_name] = search_error_rescore
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
         if search_error_check: #Just report the search error on test-other
@@ -435,7 +441,9 @@ def recog_model(
                                    )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
-    return task.collect_score_results_func(outputs), search_error, search_error_rescore
+    dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys()))
+    search_error_key = "test-other" if "test-other" in dataset_names else list(dataset_names)[0]
+    return task.collect_score_results_func(outputs), search_error, search_error_rescore_dict[search_error_key]
 
 
 def compute_prior(
@@ -690,6 +698,7 @@ def search_dataset(
             search_labels_to_labels=functools.partial(
                 ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
             ),
+            alias_name=search_alias_name,
         ).output
         res = f(
             RecogOutput(output=res),
@@ -699,10 +708,11 @@ def search_dataset(
             search_labels_to_labels=functools.partial(
                 ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
             ),
+            alias_name=search_alias_name,
         ).output
     from .experiments.decoding.rescoring import RescoreSearchErrorJob, RescoreCheatJob
     search_error_rescore = None
-    if check_rescore_search_error and os.path.basename(search_alias_name) == "test-other":
+    if check_rescore_search_error:# and os.path.basename(search_alias_name) == "test-clean":#"test-other":
         search_error_rescore_job = RescoreSearchErrorJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
         search_error_rescore_job.add_alias(search_alias_name + "/search_error_job")
         search_error_rescore = search_error_rescore_job.out_search_errors
@@ -1597,6 +1607,7 @@ class GetRecogExp(sisyphus.Job):
         }
 
     !! Hash of this job mostly depends on the hash of recog_and_score_func
+    TODO: Sometimes it fails silently, try to find out why and slowly get rid of this Job
     """
 
     def __init__(
@@ -1665,14 +1676,20 @@ class GetRecogExp(sisyphus.Job):
             f.write(json.dumps(res))
             f.write("\n")
         import shutil
-        if (self._scores_outputs[best_epoch][1] and
-                os.path.exists(self._scores_outputs[best_epoch][1].get_path())):
-            os.symlink(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
-            #shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
-        if (self._scores_outputs[best_epoch][2] and
-                os.path.exists(self._scores_outputs[best_epoch][2].get_path())):
-            os.symlink(self._scores_outputs[best_epoch][2].get_path(),self.out_search_error_rescore.get_path())
+        def set_output(dst, src):
+            if os.path.exists(dst) or os.path.islink(dst):
+                os.remove(dst)
+            if (src and src.get_path()):
+                os.symlink(src.get_path(), dst)
+                # shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
 
+        search_error_dst = self.out_search_error.get_path()
+        search_error_src = self._scores_outputs[best_epoch][1]
+        set_output(search_error_dst, search_error_src)
+
+        search_error_re_dst = self.out_search_error_rescore.get_path()
+        search_error_re_src = self._scores_outputs[best_epoch][2]
+        set_output(search_error_re_dst, search_error_re_src)
 
 class GetBestRecogTrainExp(sisyphus.Job):
     """

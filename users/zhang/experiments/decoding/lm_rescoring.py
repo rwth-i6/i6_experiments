@@ -107,6 +107,8 @@ class LmRescoringJob(Job):
     def run(self):
         import math
         self.scorer: LMScorer = ScorerFactory.build(self.lm_cfg)
+        prev_one_ctx = self.lm_cfg.get("prev_one_ctx",False)
+
         import returnn.util.basic as util
 
         device_str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -137,20 +139,24 @@ class LmRescoringJob(Job):
         lines_seen = 0
         total_lines = sum(len(n_best) for _, n_best in d_rec.items())
         log_every = 1000  # print a message every 1k lines
+
         for seq_tag, n_best in d_rec.items():
             out_file.write(f"{seq_tag!r}: [\n")
             hyps = [x[1] for x in n_best]
             lines_seen += len(hyps)
-            am_scores = [x[0] for x in n_best]
-            lm_scores = self.scorer.batch_score(hyps) #Already contains lm scale
+            #am_scores = [x[0] for x in n_best]
+            lm_scores = self.scorer.batch_score(hyps)
             # reorder and select top
             if lines_seen % log_every == 0:
                 print(f"[Line {lines_seen:,}/{total_lines}] {100 * lines_seen / total_lines:.2f}% processed…")
                 _report_dev_memory_stats()
             write_multi_entries(out_file, lm_scores, hyps)
             # Should not do reordering here, there is an existing takeBestJob in downstream part
-            #reorder = list(zip(lm_scores, am_scores, hyps))
-            #reorder.sort(key=lambda x: x[1] + x[0], reverse=True)
+            # This is for add context
+            if prev_one_ctx:
+                reorder = list(zip(lm_scores, hyps))
+                reorder.sort(key=lambda x: x[0], reverse=True)
+                self.scorer.prompt = raw_text_from_bpe_seq(reorder[0][1].split())
             # out_file.write(f"  ({reorder[0][1]!r}, {reorder[0][2]!r}),\n")
             out_file.write("],\n")
 
@@ -192,17 +198,21 @@ class HuggingFaceLmScorer(LMScorer):
     def from_config(cls, cfg: Dict[str, Any]) -> 'HuggingFaceLmScorer':
         model_dir = cfg["model_dir"]
         batch_size = cfg.get("batch_size", 1)
-        weight = cfg.get("weight", 1)
         prompt = cfg.get("prompt", None)
+        eos_symbol = cfg.get("eos_symbol", "")
         # dummy init
         instance = cls()
         instance.batch_size = batch_size
         instance.model_dir = model_dir
-        #instance.scale = weight
-        instance.prompt = prompt # TODO:
+        delimiter = " " if not eos_symbol else (eos_symbol + " ")  # Not sure
+        if prompt:
+            assert isinstance(prompt, tk.Path)
+            with open(prompt.get_path(), "r", encoding="utf-8") as f:
+                prompt = [line.strip() for line in f.readlines()]
+        instance.prompt = delimiter.join(prompt) if prompt else None # TODO:
 
         instance.lower_case = False
-        instance.eos_symbol = ""
+        instance.eos_symbol = eos_symbol
 
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import time, torch
@@ -285,7 +295,12 @@ class HuggingFaceLmScorer(LMScorer):
                 batch_prompt.append(self.prompt.strip().lower() if self.lower_case else self.prompt.strip())
             hyp = raw_text_from_bpe_seq(hyp.split())
             line = hyp.strip().lower() if self.lower_case else hyp.strip()
-            #if not line: continue
+            if not line: # Encount an empty hyp
+                if len(batch_lines)>0: # Process accumulated batch and append -1e30 as score for empty
+                    _process_batch(batch_lines, batch_prompt, scores_buffer)
+                    batch_lines, batch_prompt = [], []
+                scores_buffer.append(-1e30)
+                continue
             eos_symbol = (" " + self.tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol
             batch_lines.append(line + eos_symbol)
 
@@ -760,7 +775,8 @@ def HF_lm_score(
     if lm["lm_type"] == "Dummy":
         resco_job.rqmt = {"time": 1, "cpu": 1, "mem": 8}
         alias_ext = "/NoLM"
-    resco_job.add_alias(alias_name + alias_ext)
+    if alias_name:
+        resco_job.add_alias(alias_name + alias_ext)
     #resco_job.rqmt["gpu_mem"] = 48
     #print(f"HF_lm_score: LM:{lm}")
     #resco_job.add_alias("lm/" + lm["name"] + "/rescoring")
@@ -822,7 +838,7 @@ def lm_am_framewise_prior_rescore(
         lm_scorer = ngram_score
     elif lm is None or lm_scale == 0:
         if lm is not None: # This only for float case of the scale
-            print(f"\nScale for {lm} is tuned to 0! Use Dummy rescorer, set prior scale to 0 too\n")
+            print(f"\nScale for {lm} is set to 0, not likely a tuned value! Use Dummy rescorer, set prior scale to 0 too\n")
         lm = {"lm_type": "Dummy"}
         prior_scale = 0.0
         lm_scorer = HF_lm_score
@@ -838,7 +854,7 @@ def lm_am_framewise_prior_rescore(
     alias_name = get_generic_alias_name(alias_name)
     res_labels_lm_scores = lm_scorer(
         raw_res_labels, lm=lm, lm_rescore_def=lm_rescore_def ,vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
-        alias_name=alias_name + ("/scale_" + str(lm_scale) if isinstance(lm_scale, float) else str(lm_scale.get())) + "/rescoring",
+        alias_name=None,#alias_name + ("/scale_" + str(lm_scale) if isinstance(lm_scale, float) else str(lm_scale.get())) + "/rescoring",
     )
     res_labels_am_scores = rescore(
         recog_output=raw_res_labels,
