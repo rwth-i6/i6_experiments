@@ -1,9 +1,10 @@
-from typing import Union, List, Optional
+from typing import Optional, Union, Any, Sequence, List, Dict
 import time
 import numpy as np
 import torch
 from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
+from ..logits_transform import make_logits_transform
 from .base import BaseModelInterface, ForwardOutput
 
 
@@ -19,7 +20,7 @@ class Phi4MM(BaseModelInterface):
         model_dir: str,
         speech_prompt: str = "Transcribe the audio clip into text.",
         grad_wrt: str = "speech_embeddings",
-        fake_logits_factor: float = 0.0,
+        logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
     ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
@@ -31,7 +32,7 @@ class Phi4MM(BaseModelInterface):
         self.model_dir = model_dir
         self.speech_prompt = speech_prompt
         self.grad_wrt = grad_wrt
-        self.fake_logits_factor = fake_logits_factor
+        self.logits_transform = make_logits_transform(logits_transform)
 
         print("Import Transformers...")
         start_time = time.time()
@@ -122,3 +123,6 @@ class Phi4MM(BaseModelInterface):
             else:
                 words_start_end[-1][1] = t + 1
         assert len(words_start_end) == raw_target_seq_lens[0], f"got {tokens=}"
+
+    def score(self, *, forward_output: ForwardOutput, raw_target_frame_index: int) -> torch.Tensor:
+        pass

@@ -150,6 +150,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
                     fake_logits[0], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
                 )
                 loss.backward(retain_graph=True)
+                (grad,) = torch.autograd.grad(loss, inputs_embeds, retain_graph=True)
                 if report_mem:
                     _report_dev_memory_stats()
                 del fake_logits, logits

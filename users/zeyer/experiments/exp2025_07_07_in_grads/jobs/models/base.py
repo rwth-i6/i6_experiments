@@ -3,7 +3,7 @@ Base interface
 """
 
 from __future__ import annotations
-from typing import Optional, Union, Any, List
+from typing import Optional, Union, Any, List, Tuple
 import torch
 import numpy as np
 import importlib
@@ -16,11 +16,7 @@ def make_model(**opts) -> BaseModelInterface:
     """
     opts = opts.copy()
     cls_name = opts.pop("type")
-    pkg_name, base_cls_name = cls_name.rsplit(".", 1)
-    mod = importlib.import_module(pkg_name, package=__package__)
-    cls = getattr(mod, base_cls_name)
-    if not issubclass(cls, BaseModelInterface):
-        raise TypeError(f"Class {cls_name} must inherit from BaseModelInterface.")
+    cls = _get_cls(cls_name)
     return cls(**opts)
 
 
@@ -60,7 +56,7 @@ class BaseModelInterface(torch.nn.Module):
 
         :param forward_output:
         :param raw_target_frame_index: in [0..T_out_raw-1] range, index of the target frame to score.
-        :return: Score tensor for the specified target frame.
+        :return: Score tensor for the specified target frame, shape [B]
         """
         raise NotImplementedError("Score method must be implemented by the subclass.")
 
@@ -75,8 +71,12 @@ class ForwardOutput:
     """
 
     inputs: torch.Tensor  # [B, T_in, F_in]. e.g. audio embeddings. grads will be calculated w.r.t. this.
-    input_seq_lens: torch.Tensor  # [B]: Length of each input sequence
-    input_raw_start_end: torch.Tensor  # [B, T_in, 2] -> T_in_raw: (start, end) of raw input frames
+    input_seq_lens: torch.Tensor  # [B]: Length of each input sequence (values in [0..T_in])
+    input_slice_start_end: Optional[Tuple[torch.Tensor, torch.Tensor]]  # (start, end) of input slices, each [B]
+    # If input_slice_start_end is set, we will only consider this slice (for saliency etc),
+    # And this results in shorter T_in', i.e. inputs' shape [B, T_in', F_in].
+    # See :func:`.utils.apply_input_slice` to apply this slice.
+    input_raw_start_end: torch.Tensor  # [B, T_in', 2] -> T_in_raw: (start, end) of raw input frames
     # (both start and end are inclusive)
 
     targets: torch.Tensor  # [B, T_out] -> class indices
@@ -85,3 +85,33 @@ class ForwardOutput:
     # (both start and end are inclusive)
 
     outputs: Any  # any nested structure
+
+
+_classes = {}
+
+
+def _get_cls(cls_name: str) -> type:
+    """
+    Get class by name.
+    """
+    if "." in cls_name:
+        pkg_name, base_cls_name = cls_name.rsplit(".", 1)
+        mod = importlib.import_module(pkg_name, package=__package__)
+        cls = getattr(mod, base_cls_name)
+        if not issubclass(cls, BaseModelInterface):
+            raise TypeError(f"Class {cls_name} must inherit from BaseModelInterface.")
+        return cls
+
+    if not _classes:
+        from . import phi4mm
+
+        for mod in [phi4mm]:
+            for name, cls in vars(mod).items():
+                if isinstance(cls, type) and issubclass(cls, BaseModelInterface):
+                    _classes[name] = cls
+
+        assert _classes
+
+    if cls_name not in _classes:
+        raise ValueError(f"Class {cls_name} not found in available classes: {list(_classes.keys())}")
+    return _classes[cls_name]
