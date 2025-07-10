@@ -33,6 +33,7 @@ class BaseModelInterface(torch.nn.Module):
         raw_input_seq_lens: torch.Tensor,
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
+        omitted_prev_context: Optional[torch.Tensor] = None,
     ) -> ForwardOutput:
         """
         Process and (maybe partially) forward.
@@ -43,6 +44,9 @@ class BaseModelInterface(torch.nn.Module):
         :param raw_input_seq_lens: Length of each input sequence.
         :param raw_targets: Target seqs. List of words.
         :param raw_target_seq_lens: Length of each target sequence.
+        :param omitted_prev_context: Specifies if there was any prev context omitted
+            (e.g. if there was a prev chunk, which had at least some words).
+            Shape [B]. Num raw targets.
         :return: Forward up to a common point. The :func:`score` could still do further computation on top,
             but this would be separate for every target frame.
             Might be useful to save memory.

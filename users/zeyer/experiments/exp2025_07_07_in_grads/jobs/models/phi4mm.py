@@ -68,6 +68,7 @@ class Phi4MM(BaseModelInterface):
         raw_input_seq_lens: torch.Tensor,
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
+        omitted_prev_context: Optional[torch.Tensor] = None,
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate is not None  # assume audio input
         assert (len(raw_inputs),) == raw_input_seq_lens.shape == (len(raw_targets),) == raw_target_seq_lens.shape, (
@@ -91,7 +92,12 @@ class Phi4MM(BaseModelInterface):
         (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
         (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
-        transcription = " ".join(raw_targets[0])
+        words = raw_targets[0]
+        transcription = " ".join(words)
+        added_prefix = False
+        if omitted_prev_context is not None and omitted_prev_context[0] > 0:
+            added_prefix = True
+            transcription = "... " + transcription
         prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
         inputs = self.processor(text=prompt, audios=[(raw_inputs[0], raw_inputs_sample_rate)], return_tensors="pt")
         input_ids = inputs["input_ids"]
@@ -117,16 +123,24 @@ class Phi4MM(BaseModelInterface):
         targets = input_ids[:, dst_text_start:dst_text_end]  # [B,T']
 
         words_start_end = [[0, 1]]
-        tokens = []
+        tokens = [tokenizer.decode(targets[0, :1])]
+        words_ = [tokens[-1]]
         for t in range(1, targets.shape[1]):
             s = tokenizer.decode(targets[0, t : t + 1])
             tokens.append(s)
             if s.startswith(" "):  # new word
+                words_.append(s[1:])
                 words_start_end[-1][1] = t
                 words_start_end.append([t, t + 1])
             else:
+                words_[-1] += s
                 words_start_end[-1][1] = t + 1
-        assert len(words_start_end) == raw_target_seq_lens[0], f"got {tokens=}"
+        if added_prefix:
+            assert words_[0] == "..."
+            words_start_end = words_start_end[1:]
+            words_ = words_[1:]
+        assert len(words_start_end) == len(words_) == len(words), f"got {tokens=}"
+        assert words_ == words, f"{tokens=} {words=} {words_=}"
 
         assert self.grad_wrt == "speech_embeddings", f"{self.grad_wrt=!r}"
         return ForwardOutput(

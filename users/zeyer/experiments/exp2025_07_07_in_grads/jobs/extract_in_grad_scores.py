@@ -7,6 +7,12 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 class ExtractInGradsFromModelJob(Job):
     """
     Extract grads to input for each output word with some model
+
+    This was derived/generalized from
+    :class:`i6_experiments.users.zeyer.experiments.exp2025_05_05_align.ExtractInGradsFromPhi4MultimodalInstructJob`
+    and
+    TODO
+    :class:`i6_experiments.users.zeyer.experiments.exp2025_05_05_align.ExtractInGradsFromPhi4MultimodalInstructLongFormJob`
     """
 
     def __init__(
