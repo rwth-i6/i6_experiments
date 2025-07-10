@@ -114,10 +114,12 @@ class Phi4MM(BaseModelInterface):
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)
 
-        words_start_end = [[dst_text_start, dst_text_start + 1]]
+        targets = input_ids[:, dst_text_start:dst_text_end]  # [B,T']
+
+        words_start_end = [[0, 1]]
         tokens = []
-        for t in range(dst_text_start + 1, dst_text_end):
-            s = tokenizer.decode(input_ids[0, t : t + 1])
+        for t in range(1, targets.shape[1]):
+            s = tokenizer.decode(targets[0, t : t + 1])
             tokens.append(s)
             if s.startswith(" "):  # new word
                 words_start_end[-1][1] = t
@@ -128,14 +130,21 @@ class Phi4MM(BaseModelInterface):
 
         return ForwardOutput(
             inputs=inputs_embeds,
+            input_seq_lens=torch.tensor([inputs_embeds.shape[1]]),  # [B]
+            input_slice_start_end=None,
+            input_raw_start_end=None,  # TODO...
+            targets=targets,
+            target_seq_lens=torch.tensor([targets.shape[1]]),  # [B]
+            target_start_end=torch.tensor(words_start_end, dtype=torch.int64).unsqueeze(0),  # [B, T, 2]
+            outputs=dict(dst_text_start=dst_text_start, last_out=last_out),
         )
 
     def score(self, *, forward_output: ForwardOutput, raw_target_frame_index: int) -> torch.Tensor:
         t0, t1 = forward_output.target_start_end[:, raw_target_frame_index].unbind(1)  # [B], [B]
-        input_ids = forward_output.outputs["input_ids"]
         last_out = forward_output.outputs["last_out"]
-        input_ids = apply_input_slice(input_ids, (t0, t1))
-        last_out = apply_input_slice(last_out, (t0 - 1, t1 - 1))
+        dst_text_start = forward_output.outputs["dst_text_start"]
+        input_ids = apply_input_slice(forward_output.targets, (t0, t1))
+        last_out = apply_input_slice(last_out, (dst_text_start + t0 - 1, dst_text_start + t1 - 1))
         assert input_ids.shape[:2] == last_out.shape[:2], f"{input_ids.shape=}, {last_out.shape=}"
 
         logits = self.model.lm_head(last_out)  # [B, T', V]
