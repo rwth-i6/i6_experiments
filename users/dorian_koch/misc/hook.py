@@ -1,7 +1,7 @@
 import functools
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
 from i6_experiments.users.zeyer.recog import ScoreResultCollection
-from typing import Any, Union, List
+from typing import Any, Dict, Tuple, Union, List
 from i6_experiments.users.dorian_koch.jobs.AggregateOutputsAsCsv import WriteFinishedPathsAsCsv
 from sisyphus import tk
 
@@ -54,23 +54,33 @@ def hook_and_make_evals(func, task):
 
 
 # these functions use the hook output:
-
-
-def write_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, List[str]]):
+def get_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, List[str]]) -> Dict[str, Dict[str, tk.Path]]:
     if isinstance(keys, str):
         keys = [keys]
 
+    report_dirs_dict = {}
     for k in target_to_output:
         if any([key not in k for key in keys]):
             continue
         assert k.endswith("score_results.txt"), f"Expected key to end with 'score_results.txt', got {k}"
         ctc_hyps = target_to_output[k]
+        report_dirs = {}
 
-        path_arr = []
         for ds, res in ctc_hyps.creator.score_results.items():
-            path_arr.append((ds, res.report))
+            report_dirs[ds] = res.report
+        report_dirs_dict[k] = report_dirs
 
-        log_paths = WriteFinishedPathsAsCsv(inputs=path_arr, seperator=": ")
+    return report_dirs_dict
+
+def get_sclite_report_dir(target_to_output: dict[str, Any], keys: Union[str, List[str]]) -> Tuple[str, Dict[str, tk.Path]]:
+    l = get_sclite_report_dirs(target_to_output, keys)
+    assert len(l) == 1, f"Expected exactly one report dir, got {len(l)}"
+    return list(l.items())[0]
+
+def write_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, List[str]]):
+    for k, path_arr in get_sclite_report_dirs(target_to_output, keys).items():
+
+        log_paths = WriteFinishedPathsAsCsv(inputs=list(path_arr.items()), seperator=": ")
         # TODO maybe just replace this with dirname
         base_pat = k[: -len("score_results.txt")]
         tk.register_output(
