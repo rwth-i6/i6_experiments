@@ -271,13 +271,13 @@ def base_recog_forward_step(
             alignment_str = alignment_str.replace("[SILENCE]", "")
             alignment_str = " ".join(alignment_str.split())
 
-            if alignment_str != orths[b]:
+            if alignment_str.replace("@@ ", "") != orths[b]:
                 print("    Could not successfully compute forced alignment. Transcription may contain OOV words.")
                 skipped.append(1)
                 search_errors.append(0)
                 model_errors.append(0)
                 correct.append(0)
-            elif recog_str == orths[b]:
+            elif recog_str.replace("@@ ", "") == orths[b]:
                 print("    Correct transcription found.")
                 skipped.append(0)
                 search_errors.append(0)

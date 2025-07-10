@@ -143,6 +143,34 @@ class FFNNTransducerModel(torch.nn.Module):
 
         return pred_states
 
+    def forward_joint_network(
+        self,
+        encoder_states: torch.Tensor,  # [B, T, E]
+        encoder_states_size: torch.Tensor,  # [B]
+        pred_states: torch.Tensor,  # [B, S+1, P]
+        targets_size: torch.Tensor,  # [B]
+    ) -> torch.Tensor:  # final logits [T_1 * (S_1+1) + T_2 * (S_2+1) + ... + T_B * (S_B+1), C]
+        encoder_states = encoder_states.to(dtype=torch.float32)
+        pred_states = pred_states.to(dtype=torch.float32)
+        batch_tensors = []
+        for b in range(encoder_states.size(0)):
+            valid_enc = encoder_states[b, : encoder_states_size[b], :]  # [T_b, E]
+            valid_pred = pred_states[b, : targets_size[b] + 1, :]  # [S_b+1, P]
+
+            expanded_enc = valid_enc.unsqueeze(1).expand(-1, int(targets_size[b].item()) + 1, -1)  # [T_b, S_b+1, E]
+            expanded_pred = valid_pred.unsqueeze(0).expand(
+                int(encoder_states_size[b].item()), -1, -1
+            )  # [T_b, S_b+1, P]
+
+            combination = torch.concat([expanded_enc, expanded_pred], dim=-1)  # [T_b, S_b+1, E+P]
+
+            batch_tensors.append(combination.reshape(-1, combination.size(2)))  # [T_b * (S_b+1), E+P]
+
+        joint_input = torch.concat(batch_tensors, dim=0)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), E+P]
+        joint_output = self.joint_net.forward(joint_input)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), V]
+
+        return joint_output
+
 
 class FFNNTransducerEncoder(FFNNTransducerModel):
     def __init__(self, cfg: FFNNTransducerConfig, **_):

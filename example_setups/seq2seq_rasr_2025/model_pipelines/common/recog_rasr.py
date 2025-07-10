@@ -101,5 +101,5 @@ def recog_rasr(
         forward_step_import=rasr_forward_step_import,
         device=device,
         checkpoint=checkpoint,
-        extra_output_files=["rasr.log"],
+        extra_output_files=["rasr.recog.log", "rasr.align.log"],
     )

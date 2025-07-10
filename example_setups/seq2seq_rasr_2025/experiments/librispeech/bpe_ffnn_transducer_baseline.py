@@ -153,8 +153,8 @@ def get_baseline_train_options() -> FFNNTransducerTrainOptions:
         train_data_config=get_default_bpe_train_data(BPE_SIZE),
         cv_data_config=get_default_bpe_cv_data(BPE_SIZE),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=24_000 * 160,
-        accum_grad_multiple_step=1,
+        batch_size=12_000 * 160,
+        accum_grad_multiple_step=2,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
             weight_decay=0.01,
@@ -173,191 +173,199 @@ def get_baseline_train_options() -> FFNNTransducerTrainOptions:
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
-        enc_loss_scale=0.2,
+        enc_loss_scale=0.5,
         pred_loss_scale=0.2,
-        delay_penalty=0.0,
-        skip_epochs_before_pruned_loss=20,
-        prune_range=5,
-        smoothed_loss_scale=0.5,
         max_seqs=None,
         max_seq_length=None,
     )
 
 
 def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transducer") -> List[RecogResult]:
-    with ExperimentContext(prefix):
-        model_config = get_baseline_model_config()
-        train_config = get_baseline_train_options()
+    for enc_loss_scale in [0.0, 0.5]:
+        for pred_loss_scale in [0.0, 0.2]:
+            with ExperimentContext(f"{prefix}_enc-{enc_loss_scale}_pred-{pred_loss_scale}"):
+                model_config = get_baseline_model_config()
+                train_config = get_baseline_train_options()
+                train_config.enc_loss_scale = enc_loss_scale
+                train_config.pred_loss_scale = pred_loss_scale
 
-        train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
+                train_job = train(options=train_config, model_config=model_config)
+                checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
-        label_scorer_config = get_ffnn_transducer_label_scorer_config(
-            model_config=model_config,
-            checkpoint=checkpoint,
-            ilm_scale=0.2,
-            blank_penalty=0.0,
-        )
-
-        vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
-        lm_vocab_file = get_lm_vocab(output_prefix="").vocab
-        lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
-        blank_index = bpe_to_vocab_size(bpe_size=BPE_SIZE)
-
-        arpa_lm_config = get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file)
-        arpa_lm_config.scale = 0.6
-
-        recog_data = {
-            corpus_name: get_default_recog_data(corpus_name)
-            for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
-        }
-
-        score_corpora = {
-            corpus_name: get_default_score_corpus(corpus_name)
-            for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
-        }
-
-        recog_results = []
-
-        # =====================================
-        # === Lexiconfree Search without LM ===
-        # =====================================
-
-        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_lexiconfree",
+                label_scorer_config = get_ffnn_transducer_label_scorer_config(
+                    model_config=model_config,
                     checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_lexiconfree_timesync_recog_config(
-                        vocab_file=vocab_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                    ),
-                    sample_rate=16000,
-                    device="cpu",
+                    ilm_scale=0.0,
+                    blank_penalty=0.0,
                 )
-            )
 
-        # =====================================
-        # === Tree Search without LM ==========
-        # =====================================
+                vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
+                lm_vocab_file = get_lm_vocab(output_prefix="").vocab
+                lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
+                blank_index = bpe_to_vocab_size(bpe_size=BPE_SIZE)
 
-        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_tree",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                    ),
-                    sample_rate=16000,
-                    device="cpu",
-                )
-            )
+                arpa_lm_config = get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file)
+                arpa_lm_config.scale = 0.6
 
-        # =====================================
-        # === Tree Search with 4gram LM =======
-        # =====================================
+                recog_data = {
+                    corpus_name: get_default_recog_data(corpus_name)
+                    for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
+                }
 
-        for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            arpa_lm_config.scale = 0.6
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_tree_4gram",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                    ),
-                    sample_rate=16000,
-                    device="cpu",
-                )
-            )
+                score_corpora = {
+                    corpus_name: get_default_score_corpus(corpus_name)
+                    for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
+                }
 
-        # =====================================
-        # === Tree Search with TraFo LM =======
-        # =====================================
+                recog_results = []
 
-        for trafo_layers in [24, 48, 96]:
-            trafo_lm_config = get_transformer_lm_config(num_layers=trafo_layers, vocab_file=lm_vocab_file, lm_scale=0.6)
-            for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-                recog_results.append(
-                    recog_rasr(
-                        descriptor=f"bpe-transducer_tree_trafo-{trafo_layers}l",
-                        checkpoint=checkpoint,
-                        recog_data_config=recog_data[recog_corpus],
-                        recog_corpus=score_corpora[recog_corpus],
-                        model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                        rasr_config_file=get_tree_timesync_recog_config(
-                            lexicon_file=lexicon_file,
-                            collapse_repeated_labels=False,
-                            label_scorer_config=label_scorer_config,
-                            lm_config=trafo_lm_config,
-                            blank_index=blank_index,
-                            max_beam_size=64,
-                            score_threshold=12.0,
-                        ),
-                        rasr_align_config_file=get_tree_timesync_recog_config(
-                            lexicon_file=lexicon_file,
-                            collapse_repeated_labels=False,
-                            label_scorer_config=label_scorer_config,
-                            lm_config=trafo_lm_config,
-                            blank_index=blank_index,
-                            max_beam_size=256,
-                            score_threshold=22.0,
-                        ),
-                        sample_rate=16000,
-                        device="cpu",
+                # =====================================
+                # === Lexiconfree Search without LM ===
+                # =====================================
+
+                for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+                    recog_results.append(
+                        recog_rasr(
+                            descriptor="bpe-transducer_lexiconfree",
+                            checkpoint=checkpoint,
+                            recog_data_config=recog_data[recog_corpus],
+                            recog_corpus=score_corpora[recog_corpus],
+                            model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
+                            rasr_config_file=get_lexiconfree_timesync_recog_config(
+                                vocab_file=vocab_file,
+                                collapse_repeated_labels=False,
+                                label_scorer_config=label_scorer_config,
+                                blank_index=blank_index,
+                                max_beam_size=64,
+                                score_threshold=12.0,
+                            ),
+                            rasr_align_config_file=get_tree_timesync_recog_config(
+                                lexicon_file=lexicon_file,
+                                collapse_repeated_labels=False,
+                                label_scorer_config=label_scorer_config,
+                                blank_index=blank_index,
+                                max_beam_size=256,
+                                score_threshold=22.0,
+                            ),
+                            sample_rate=16000,
+                            device="cpu",
+                        )
                     )
-                )
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+                # =====================================
+                # === Tree Search without LM ==========
+                # =====================================
+
+                for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+                    recog_results.append(
+                        recog_rasr(
+                            descriptor="bpe-transducer_tree",
+                            checkpoint=checkpoint,
+                            recog_data_config=recog_data[recog_corpus],
+                            recog_corpus=score_corpora[recog_corpus],
+                            model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
+                            rasr_config_file=get_tree_timesync_recog_config(
+                                lexicon_file=lexicon_file,
+                                collapse_repeated_labels=False,
+                                label_scorer_config=label_scorer_config,
+                                blank_index=blank_index,
+                                max_beam_size=64,
+                                score_threshold=12.0,
+                            ),
+                            rasr_align_config_file=get_tree_timesync_recog_config(
+                                lexicon_file=lexicon_file,
+                                collapse_repeated_labels=False,
+                                label_scorer_config=label_scorer_config,
+                                blank_index=blank_index,
+                                max_beam_size=256,
+                                score_threshold=22.0,
+                            ),
+                            sample_rate=16000,
+                            device="cpu",
+                        )
+                    )
+
+                # =====================================
+                # === Tree Search with 4gram LM =======
+                # =====================================
+
+                for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+                    arpa_lm_config.scale = 0.6
+                    recog_results.append(
+                        recog_rasr(
+                            descriptor="bpe-transducer_tree_4gram",
+                            checkpoint=checkpoint,
+                            recog_data_config=recog_data[recog_corpus],
+                            recog_corpus=score_corpora[recog_corpus],
+                            model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
+                            rasr_config_file=get_tree_timesync_recog_config(
+                                lexicon_file=lexicon_file,
+                                collapse_repeated_labels=False,
+                                label_scorer_config=label_scorer_config,
+                                lm_config=arpa_lm_config,
+                                blank_index=blank_index,
+                                max_beam_size=64,
+                                score_threshold=12.0,
+                            ),
+                            rasr_align_config_file=get_tree_timesync_recog_config(
+                                lexicon_file=lexicon_file,
+                                collapse_repeated_labels=False,
+                                label_scorer_config=label_scorer_config,
+                                lm_config=arpa_lm_config,
+                                blank_index=blank_index,
+                                max_beam_size=256,
+                                score_threshold=22.0,
+                            ),
+                            sample_rate=16000,
+                            device="cpu",
+                        )
+                    )
+
+                # =====================================
+                # === Tree Search with TraFo LM =======
+                # =====================================
+
+                for trafo_layers in [24, 48, 96]:
+                    trafo_lm_config = get_transformer_lm_config(
+                        num_layers=trafo_layers, vocab_file=lm_vocab_file, lm_scale=0.6
+                    )
+                    for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+                        recog_results.append(
+                            recog_rasr(
+                                descriptor=f"bpe-transducer_tree_trafo-{trafo_layers}l",
+                                checkpoint=checkpoint,
+                                recog_data_config=recog_data[recog_corpus],
+                                recog_corpus=score_corpora[recog_corpus],
+                                model_serializers=get_model_serializers(
+                                    FFNNTransducerEncoder, model_config=model_config
+                                ),
+                                rasr_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon_file,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    lm_config=trafo_lm_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=64,
+                                    score_threshold=12.0,
+                                ),
+                                rasr_align_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon_file,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    lm_config=trafo_lm_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=256,
+                                    score_threshold=22.0,
+                                ),
+                                sample_rate=16000,
+                                device="cpu",
+                            )
+                        )
+
+        tk.register_report(
+            f"{prefix}_enc-{enc_loss_scale}_pred-{pred_loss_scale}/report.txt",
+            values=create_report(recog_results),
+            required=True,
+        )
 
     return recog_results

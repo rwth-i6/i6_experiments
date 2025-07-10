@@ -1,3 +1,4 @@
+from sisyphus import tk
 from typing import Tuple
 
 from i6_core.returnn import PtCheckpoint
@@ -78,4 +79,8 @@ def run_word_transformer_lm_baseline(
         train_config = get_baseline_train_options()
 
         train_job = train(train_config, model_config)
+    if num_layers == 96:
+        return model_config, tk.Path(
+            "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.WuilWP7i1fS2/output/models/epoch.030.pt"
+        )
     return model_config, train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore

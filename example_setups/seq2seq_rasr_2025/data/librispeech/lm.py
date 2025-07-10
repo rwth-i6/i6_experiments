@@ -21,7 +21,6 @@ def get_arpa_lm_config(lm_name: str, lexicon_file: tk.Path, scale: float = 1.0) 
     rasr_config = RasrConfig()
     rasr_config.type = "ARPA"
     rasr_config.file = arpa_lm
-    rasr_config.map_oov_to_unk = True
     rasr_config.scale = scale
 
     crp = CommonRasrParameters()

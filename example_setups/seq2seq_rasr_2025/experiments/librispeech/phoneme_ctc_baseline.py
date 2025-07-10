@@ -38,6 +38,7 @@ from ...model_pipelines.common.report import create_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.common.train import TrainOptions
 from ...model_pipelines.ctc.prior import compute_priors
+from ...model_pipelines.ctc.export import export_model
 from ...model_pipelines.ctc.pytorch_modules import (
     ConformerCTCConfig,
     ConformerCTCRecogConfig,
@@ -199,6 +200,19 @@ def run_phoneme_ctc_baseline(prefix: str = "librispeech/phoneme_ctc") -> List[Re
             prior_data_config=get_default_prior_data(),
             checkpoint=checkpoint,
             model_config=model_config,
+        )
+
+        tk.register_output(
+            "phoneme_ctc.onnx",
+            export_model(
+                ConformerCTCRecogConfig(
+                    **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                    prior_file=prior_file,
+                    prior_scale=0.2,
+                    blank_penalty=0.0,
+                ),
+                checkpoint,
+            ),
         )
 
         model_serializers = get_model_serializers(

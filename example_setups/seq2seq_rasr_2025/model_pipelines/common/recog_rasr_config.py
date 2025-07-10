@@ -46,22 +46,27 @@ def get_lexiconfree_timesync_recog_config(
     score_threshold: Optional[float] = 18.0,
     intermediate_score_threshold: Optional[float] = 18.0,
     log_stepwise_statistics: bool = False,
+    logfile_suffix: Optional[str] = None,
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
     log_config = RasrConfig()
-    log_config["*.log.channel"] = "rasr.log"
-    log_config["*.warning.channel"] = "rasr.log"
-    log_config["*.error.channel"] = "rasr.log"
-    log_config["*.statistics.channel"] = "rasr.log"
-    log_config["*.unbuffered"] = True
+    if logfile_suffix is not None:
+        logfile_name = f"rasr.{logfile_suffix}.log"
+    else:
+        logfile_name = "rasr.log"
+    log_config["*.log.channel"] = logfile_name
+    log_config["*.log.channel"] = logfile_name
+    log_config["*.error.channel"] = logfile_name
+    log_config["*.statistics.channel"] = logfile_name
+    log_config["*.unbuffered"] = False
 
     log_post_config = RasrConfig()
     log_post_config["*.encoding"] = "UTF-8"
     crp.log_config = log_config  # type: ignore
     crp.log_post_config = log_post_config  # type: ignore
-    crp.default_log_channel = "rasr.log"
+    crp.default_log_channel = logfile_name
 
     crp.set_executables(rasr_binary_path=rasr_binary_path)
 
@@ -109,22 +114,27 @@ def get_lexiconfree_labelsync_recog_config(
     max_labels_per_time_step: int = 1,
     length_norm_scale: Optional[float] = 1.0,
     log_stepwise_statistics: bool = False,
+    logfile_suffix: Optional[str] = None,
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
+    if logfile_suffix is not None:
+        logfile_name = f"rasr.{logfile_suffix}.log"
+    else:
+        logfile_name = "rasr.log"
     log_config = RasrConfig()
-    log_config["*.log.channel"] = "rasr.log"
-    log_config["*.warning.channel"] = "rasr.log"
-    log_config["*.error.channel"] = "rasr.log"
-    log_config["*.statistics.channel"] = "rasr.log"
-    log_config["*.unbuffered"] = True
+    log_config["*.log.channel"] = logfile_name
+    log_config["*.warning.channel"] = logfile_name
+    log_config["*.error.channel"] = logfile_name
+    log_config["*.statistics.channel"] = logfile_name
+    log_config["*.unbuffered"] = False
 
     log_post_config = RasrConfig()
     log_post_config["*.encoding"] = "UTF-8"
     crp.log_config = log_config  # type: ignore
     crp.log_post_config = log_post_config  # type: ignore
-    crp.default_log_channel = "rasr.log"
+    crp.default_log_channel = logfile_name
 
     crp.set_executables(rasr_binary_path=rasr_binary_path)
 
@@ -178,22 +188,27 @@ def get_tree_timesync_recog_config(
     intermediate_score_threshold: Optional[float] = 18.0,
     sentence_end_fallback: bool = True,
     log_stepwise_statistics: bool = False,
+    logfile_suffix: Optional[str] = None,
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
+    if logfile_suffix is not None:
+        logfile_name = f"rasr.{logfile_suffix}.log"
+    else:
+        logfile_name = "rasr.log"
     log_config = RasrConfig()
-    log_config["*.log.channel"] = "rasr.log"
-    log_config["*.warning.channel"] = "rasr.log"
-    log_config["*.error.channel"] = "rasr.log"
-    log_config["*.statistics.channel"] = "rasr.log"
-    log_config["*.unbuffered"] = True
+    log_config["*.log.channel"] = logfile_name
+    log_config["*.warning.channel"] = logfile_name
+    log_config["*.error.channel"] = logfile_name
+    log_config["*.statistics.channel"] = logfile_name
+    log_config["*.unbuffered"] = False
 
     log_post_config = RasrConfig()
     log_post_config["*.encoding"] = "UTF-8"
     crp.log_config = log_config  # type: ignore
     crp.log_post_config = log_post_config  # type: ignore
-    crp.default_log_channel = "rasr.log"
+    crp.default_log_channel = logfile_name
 
     crp.set_executables(rasr_binary_path=rasr_binary_path)
 
