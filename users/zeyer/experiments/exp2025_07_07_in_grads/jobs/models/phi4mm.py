@@ -3,7 +3,7 @@ import time
 import numpy as np
 import torch
 from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
-from i6_experiments.users.zeyer.torch.dyn_slice import dyn_slice
+from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
 from ..logits_transform import make_logits_transform
 from .base import BaseModelInterface, ForwardOutput
@@ -154,24 +154,16 @@ class Phi4MM(BaseModelInterface):
             outputs=dict(dst_text_start=dst_text_start, last_out=last_out),
         )
 
-    def score(self, *, forward_output: ForwardOutput, raw_target_frame_index: int) -> torch.Tensor:
-        t0, t1 = forward_output.target_start_end[:, raw_target_frame_index].unbind(1)  # [B], [B]
+    def log_probs(
+        self, *, forward_output: ForwardOutput, start: Union[int, torch.Tensor], end: Union[int, torch.Tensor]
+    ) -> torch.Tensor:
         last_out = forward_output.outputs["last_out"]
         dst_text_start = forward_output.outputs["dst_text_start"]
-        targets = dyn_slice(forward_output.targets, (t0, t1))
-        last_out = dyn_slice(last_out, (dst_text_start + t0 - 1, dst_text_start + t1 - 1))
-        assert targets.shape[:2] == last_out.shape[:2], f"{targets.shape=}, {last_out.shape=}"
+        last_out = batch_slice(last_out, (dst_text_start + start - 1, dst_text_start + end - 1))
 
         logits = self.model.lm_head(last_out)  # [B, T', V]
         logits = logits.float()
         for f in self.logits_transform:
             logits = f(logits)
 
-        loss = (
-            torch.nn.functional.cross_entropy(
-                logits.flatten(0, 1), targets.flatten(0, 1), ignore_index=-100, reduction="none"
-            )  # [B*T']
-            .unflatten(0, logits.shape[:2])  # [B, T']
-            .sum(1)  # [B]
-        )
-        return loss
+        return logits.log_softmax(-1)  # [B, T', V]

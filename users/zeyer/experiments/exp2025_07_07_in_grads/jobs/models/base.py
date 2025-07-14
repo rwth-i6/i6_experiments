@@ -54,13 +54,18 @@ class BaseModelInterface(torch.nn.Module):
         """
         raise NotImplementedError("Forward method must be implemented by the subclass.")
 
-    def score(self, *, forward_output: ForwardOutput, raw_target_frame_index: int) -> torch.Tensor:
+    def log_probs(
+        self, *, forward_output: ForwardOutput, start: Union[int, torch.Tensor], end: Union[int, torch.Tensor]
+    ) -> torch.Tensor:
         """
         Calculate the score for a given target frame index.
 
         :param forward_output:
-        :param raw_target_frame_index: in [0..T_out_raw-1] range, index of the target frame to score.
-        :return: Score tensor for the specified target frame, shape [B]
+        :param start: start position in the target sequence, can be scalar or tensor of shape [B]
+        :param end: end position (excluding) in the target sequence, can be scalar or tensor of shape [B]
+            For start/end, you can use this:
+            ``start, end = forward_output.target_start_end[:, raw_target_frame_index].unbind(1)  # [B], [B]``.
+        :return: Log probs for the specified target frames, shape [B,T,V], where T = end-start.
         """
         raise NotImplementedError("Score method must be implemented by the subclass.")
 

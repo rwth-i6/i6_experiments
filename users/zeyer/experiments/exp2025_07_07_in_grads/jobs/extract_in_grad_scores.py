@@ -78,7 +78,8 @@ class ExtractInGradsFromModelJob(Job):
 
         from returnn.util import better_exchook
         from returnn.datasets.hdf import SimpleHDFWriter
-        from i6_experiments.users.zeyer.torch.dyn_slice import dyn_slice
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+        from i6_experiments.users.zeyer.torch.batch_gather import batches_gather
         from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
 
         # os.environ["DEBUG"] = "1"  # for better_exchook to use debug shell on error
@@ -158,7 +159,11 @@ class ExtractInGradsFromModelJob(Job):
 
             # noinspection PyShadowingNames
             def _calc_input_grads(w: int, *, report_mem: bool = False, forward_output: ForwardOutput) -> torch.Tensor:
-                loss = model.score(forward_output=forward_output, raw_target_frame_index=w)  # [B]
+                t0, t1 = forward_output.target_start_end[:, w].unbind(1)  # [B], [B]
+                loss = model.log_probs(forward_output=forward_output, start=t0, end=t1)  # [B,t1-t0,V]
+                targets = batch_slice(forward_output.targets, (t0, t1))  # [B,t1-t0]->V
+                loss = batches_gather(loss, indices=targets, num_batch_dims=2)  # [B,t1-t0]
+                loss.masked_fill_(torch.arange(loss.shape[1], device=loss.device)[None, :] >= (t1 - t0)[:, None], 0.0)
                 (grad,) = torch.autograd.grad(loss.sum(), forward_output.inputs, retain_graph=True)
                 del loss
 
@@ -166,9 +171,9 @@ class ExtractInGradsFromModelJob(Job):
                     report_dev_memory_stats(dev)
 
                 with torch.no_grad():
-                    attr = dyn_slice(grad.float(), forward_output.input_slice_start_end)  # [B,T,F]
+                    attr = batch_slice(grad.float(), forward_output.input_slice_start_end)  # [B,T,F]
                     if self.mult_grad_by_inputs:
-                        e = dyn_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
+                        e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
                         attr *= e
                     attr = attr_reduce_func(attr)  # [B,T]
                     return attr
