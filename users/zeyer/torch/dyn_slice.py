@@ -1,9 +1,11 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import torch
 
 
 # noinspection PyShadowingBuiltins
-def dyn_slice(input: torch.Tensor, slice: Optional[Tuple[torch.Tensor, torch.Tensor]]) -> torch.Tensor:
+def dyn_slice(
+    input: torch.Tensor, slice: Optional[Tuple[Union[int, torch.Tensor], Union[int, torch.Tensor]]]
+) -> torch.Tensor:
     """
     :param input: [B,T,...]
     :param slice: (start, end) where start and end are tensors of shape [B], or scalars.
@@ -12,6 +14,12 @@ def dyn_slice(input: torch.Tensor, slice: Optional[Tuple[torch.Tensor, torch.Ten
     if not slice:
         return input
     start, end = slice
+    if isinstance(start, int) and isinstance(end, int):  # scalars, can use simple code
+        return input[:, start:end]  # [B,T',...]
+    if not isinstance(start, torch.Tensor):
+        start = torch.tensor(start, device=input.device, dtype=input.dtype)
+    if not isinstance(end, torch.Tensor):
+        end = torch.tensor(end, device=input.device, dtype=input.dtype)
     if start.ndim == end.ndim == 0:  # scalars, can use simple code
         return input[:, start:end]  # [B,T',...]
     if start.numel() == end.numel() == 1:  # single-element tensors, can use simple code
