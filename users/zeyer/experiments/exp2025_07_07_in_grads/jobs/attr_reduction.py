@@ -1,3 +1,7 @@
+"""
+Attribution (saliency/grads, or grad*input, etc.) reduction functions.
+"""
+
 from __future__ import annotations
 from typing import Protocol
 from functools import partial
