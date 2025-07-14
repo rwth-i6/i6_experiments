@@ -3,7 +3,7 @@ import torch
 
 
 # noinspection PyShadowingBuiltins
-def dyn_slice(
+def batch_slice(
     input: torch.Tensor, slice: Optional[Tuple[Union[int, torch.Tensor], Union[int, torch.Tensor]]]
 ) -> torch.Tensor:
     """
