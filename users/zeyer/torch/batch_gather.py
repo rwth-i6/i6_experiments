@@ -47,3 +47,20 @@ def batch_gather(
     if batch_dim == 0 and index_dim == 1:
         assert out.shape == indices.shape + values.shape[2:]
     return out
+
+
+def batches_gather(values: torch.Tensor, *, indices: torch.Tensor, num_batch_dims: int) -> torch.Tensor:
+    """
+    Like :func:`batch_gather` with support for multiple batch dims.
+
+    :param values: shape [BatchDims...,Indices,ValuesDims...]
+    :param indices: shape [BatchDims...,IndicesDims] -> Indices
+    :param num_batch_dims: number of batch dims in values and indices.
+    :return: shape [BatchDims...,IndicesDims...,ValuesDims...]
+    """
+    assert num_batch_dims >= 1
+    values = values.flatten(0, num_batch_dims - 1)  # [FlatBatch,Indices,ValuesDims...]
+    indices = indices.flatten(0, num_batch_dims - 1)  # [FlatBatch,IndicesDims...]
+    res = batch_gather(values=values, indices=indices, batch_dim=0, index_dim=1)
+    res = res.unflatten(0, indices.shape[:-1])  # [BatchDims...,IndicesDims...,ValuesDims...]
+    return res
