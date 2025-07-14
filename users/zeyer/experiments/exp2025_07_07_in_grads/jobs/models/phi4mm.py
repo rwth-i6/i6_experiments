@@ -60,6 +60,10 @@ class Phi4MM(BaseModelInterface):
         self.processor = processor
         self.model = model
 
+        tokenizer = self.processor.tokenizer
+        (self.assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
+        (self.assistant_end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
+
     def forward(
         self,
         *,
@@ -89,8 +93,6 @@ class Phi4MM(BaseModelInterface):
         #   via liger_kernel.transformers.monkey_patch._patch_rms_norm_module?
 
         tokenizer = self.processor.tokenizer
-        (assistant_token_id,) = tokenizer.convert_tokens_to_ids(["<|assistant|>"])
-        (end_token_id,) = tokenizer.convert_tokens_to_ids(["<|end|>"])
 
         words = raw_targets[0]
         transcription = " ".join(words)
@@ -101,7 +103,7 @@ class Phi4MM(BaseModelInterface):
         prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"
         inputs = self.processor(text=prompt, audios=[(raw_inputs[0], raw_inputs_sample_rate)], return_tensors="pt")
         input_ids = inputs["input_ids"]
-        (dst_text_start,) = torch.nonzero(input_ids[0] == assistant_token_id).squeeze(dim=1)
+        (dst_text_start,) = torch.nonzero(input_ids[0] == self.assistant_token_id).squeeze(dim=1)
         dst_text_start = int(dst_text_start) + 1  # one past the assistant token
         dst_text_end = input_ids.shape[-1] - 1  # right before the <end> token. excluding.
         inputs = inputs.to(dev)

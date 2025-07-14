@@ -25,6 +25,8 @@ class BaseModelInterface(torch.nn.Module):
     Base interface for all models.
     """
 
+    assistant_end_token_idx: Optional[int] = None
+
     def forward(
         self,
         *,

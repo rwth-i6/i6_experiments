@@ -24,11 +24,10 @@ class ChunkSegmentationFromModelLongFormJob(Job):
         dump_wav_first_n_seqs: int = 0,
     ):
         """
-        :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
         :param dataset_dir: hub cache dir, e.g. via DownloadHuggingFaceRepoJobV2. for load_dataset
         :param dataset_key: e.g. "train", "test", whatever the dataset provides
         :param returnn_root:
-        :param speech_prompt: prompt to use for the audio
+        :param model_config:
         :param chunk_size_secs: chunk size in seconds
         :param chunk_overlap_secs:
         :param empty_exit_penalty:
@@ -89,7 +88,10 @@ class ChunkSegmentationFromModelLongFormJob(Job):
 
         from returnn.util import better_exchook
         from returnn.datasets.hdf import SimpleHDFWriter
+        from i6_experiments.users.zeyer.numpy.wave import write_wave_file
         from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+        from i6_experiments.users.zeyer.torch.batch_gather import batches_gather
 
         # os.environ["DEBUG"] = "1"  # for better_exchook to use debug shell on error
         better_exchook.install()
@@ -215,20 +217,24 @@ class ChunkSegmentationFromModelLongFormJob(Job):
                 # logits = logits.float()
                 # log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # [B,T-dst_text_start,V]
 
-                log_probs = ...
-
                 array.append([])
                 assert len(array) == cur_chunk_idx + 1
-                for w, (t0, t1) in enumerate(words_start_end + [(dst_text_end, dst_text_end + 1)]):
-                    score = model.score(forward_output=forward_output, raw_target_frame_index=w)
+                for w in range(cur_word_end - cur_word_start + 1):
+                    t0, t1 = forward_output.target_start_end[:, w].unbind(1)  # [B], [B]
+                    log_probs = model.log_probs(forward_output=forward_output, start=t0, end=t1)  # [B,t1-t0,V]
                     word_idx = cur_word_start + w
                     if word_idx < cur_word_end:
-                        word_log_prob = torch.sum(
-                            torch.stack([log_probs[0, t - dst_text_start][input_ids[0, t]] for t in range(t0, t1)])
-                        )  # []
+                        targets = batch_slice(forward_output.targets, (t0, t1))  # [B,t1-t0]->V
+                        word_log_prob = batches_gather(log_probs, indices=targets, num_batch_dims=2)  # [B,t1-t0]
+                        word_log_prob.masked_fill_(
+                            torch.arange(word_log_prob.shape[1], device=word_log_prob.device)[None, :]
+                            >= (t1 - t0)[:, None],
+                            0.0,
+                        )
+                        word_log_prob = word_log_prob.sum()  # []. assume single batch
                     else:
                         word_log_prob = None
-                    exit_log_prob = log_probs[0, t0 - dst_text_start][end_token_id]  # []
+                    exit_log_prob = log_probs[0, t0[0], model.assistant_end_token_idx]  # []. assume single batch
                     if w == 0:
                         # Add some penalty. For empty chunks, the prob is often overestimated.
                         exit_log_prob += self.empty_exit_penalty
