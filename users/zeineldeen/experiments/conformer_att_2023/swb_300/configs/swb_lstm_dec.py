@@ -71,23 +71,15 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
+trafo_lm_net = TransformerLM(source="prev:output", num_layers=6, vocab_size=534, use_as_ext_lm=True)
 trafo_lm_net.create_network()
-trafo_10k_lm_opts = {
+
+#     19  'dev_score_output/output:exp': 15.981490419184983,
+
+trafo_500_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
     "load_on_init_opts": {
-        "filename": "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023",
-        "params_prefix": "",
-        "load_if_prefix": "lm_output/",
-    },
-    "name": "trafo",
-}
-
-bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
-trafo_5k_lm_opts = {
-    "lm_subnet": bpe5k_lm.combination_network,
-    "load_on_init_opts": {
-        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
+        "filename": "/work/asr4/zeineldeen/setups-data/switchboard/2021-02-21--lm-bpe/work/crnn/training/CRNNTrainingFromFile.PMryuWQ3Faxm/output/models/epoch.019",
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
@@ -95,8 +87,7 @@ trafo_5k_lm_opts = {
 }
 
 trafo_lm_opts_map = {
-    BPE_10K: trafo_10k_lm_opts,
-    BPE_5K: trafo_5k_lm_opts,
+    BPE_500: trafo_500_lm_opts,
 }
 
 # ----------------------------------------------------------- #
@@ -184,6 +175,7 @@ def conformer_baseline():
         bpe_size,
         args,
         beam_size=12,
+        length_norm_exponent=1.0,
         prior_scales=None,
         prior_type=None,
         mini_lstm_ckpt=None,
@@ -233,6 +225,9 @@ def conformer_baseline():
 
         if not length_norm:
             search_args["decoder_args"].length_normalization = False
+        else:
+            if length_norm_exponent != 1.0:
+                search_args["decoder_args"].length_normalization_exponent = length_norm_exponent
 
         if "decoder_args" in kwargs:
             for k, v in kwargs["decoder_args"].items():
@@ -249,8 +244,8 @@ def conformer_baseline():
             for scale in scales:
                 lm_scale = scale[0]
                 prior_scale = scale[1] if len(scale) == 2 else None
-                if prior_scale and prior_scale > lm_scale:
-                    continue
+                # if prior_scale and prior_scale > lm_scale:
+                #     continue
 
                 # External LM opts
                 ext_lm_opts["lm_scale"] = lm_scale
@@ -302,7 +297,9 @@ def conformer_baseline():
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
-                test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
+                test_dataset_tuples = get_test_dataset_tuples(
+                    bpe_size=bpe_size, preemphasis=kwargs.get("preemphasis", None)
+                )
 
                 run_single_search(
                     exp_name=name,
@@ -582,7 +579,7 @@ def conformer_baseline():
 
         exp_prefix = os.path.join(prefix_name, exp_name, name)
         mini_lstm_train_data = build_training_datasets(
-            bpe_size=10000,
+            bpe_size=500,
             use_raw_features=True,
             epoch_wise_filter=None,
             link_speed_perturbation=False,  # depends only on text
@@ -1053,47 +1050,111 @@ def conformer_baseline():
 
             if ep == 1200:
                 for premphasis_val in [0.9, 0.95, 0.97, 1.0]:
-                    run_default_exp(
-                        exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
-                        train_args=args,
-                        num_epochs=ep,
-                        partition_epoch=6,
-                        gpu_mem=11,
-                        bpe_size=BPE_500,
-                        preemphasis=premphasis_val,
-                    )
+                    if premphasis_val == 0.95:
+                        # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100_premph0.95
+                        # 10.9        9.9     11.6  avg
 
-                # TODO: no ctc
-                no_ctc_args = copy.deepcopy(args)
-                no_ctc_args["encoder_args"].with_ctc = False
-                run_default_exp(
-                    exp_name + f"_bpeMaxSeq100_noCTC",
-                    train_args=no_ctc_args,
-                    num_epochs=ep,
-                    partition_epoch=6,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                    avg_key="dev_score",
-                )
+                        train_j, train_data = run_default_exp(
+                            exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
+                            train_args=args,
+                            num_epochs=ep,
+                            partition_epoch=6,
+                            gpu_mem=11,
+                            bpe_size=BPE_500,
+                            preemphasis=premphasis_val,
+                        )
 
-                for with_ctc in [True, False]:
-                    mgpu_args = copy.deepcopy(args)  # TODO: uses wrong LR!
-                    mgpu_args["encoder_args"].with_ctc = with_ctc
-                    mgpu_args["horovod_params"] = {
-                        "horovod_reduce_type": "param",
-                        "horovod_param_sync_step": 100,
-                        "horovod_dataset_distribution": "random_seed_offset",
-                    }
-                    run_default_exp(
-                        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100" + ("_noCTC" if not with_ctc else ""),
-                        train_args=mgpu_args,
-                        num_epochs=300,
-                        partition_epoch=6,
-                        gpu_mem=11,
-                        bpe_size=BPE_500,
-                        horovod_num_processes=4,
-                        avg_key="dev_score_output/output_prob" if with_ctc else "dev_score",
-                    )
+                        mini_lstm_j = train_mini_lstm(
+                            exp_name=exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
+                            checkpoint=train_job_avg_ckpt[exp_name + f"_bpeMaxSeq100_premph{premphasis_val}"],
+                            args=args,
+                            num_epochs=12,
+                            w_drop=True,
+                        )
+
+                        # TODO: SF
+                        # beam 12, lm-scale 0.18
+                        # 10.7/9.7/11.2
+                        for beam_size in [12]:
+                            for lm_scale in [0.18]:
+                                run_lm_fusion(
+                                    lm_type="trafo",
+                                    exp_name=exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
+                                    epoch="avg",
+                                    test_set_names=test_datasets,
+                                    lm_scales=[lm_scale],
+                                    train_job=train_j,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    args=args,
+                                    beam_size=beam_size,
+                                    batch_size=15000 * 80 if beam_size <= 32 else 10_000 * 80,
+                                    bpe_size=BPE_500,
+                                    preemphasis=premphasis_val,
+                                )
+
+                        # TODO: ILM
+                        for len_norm_exp in [0.0, 0.2]:
+                            for mini_lstm_ep in [8]:
+                                for beam_size in [12]:
+                                    for lm_scale in [0.19]:
+                                        for ilm_scale in [0.17]:
+                                            run_lm_fusion(
+                                                lm_type="trafo",
+                                                exp_name=exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
+                                                epoch="avg",
+                                                test_set_names=test_datasets,
+                                                lm_scales=[lm_scale],
+                                                prior_scales=[ilm_scale],
+                                                prior_type="mini_lstm",
+                                                prior_type_name=f"mini_lstm_ep{mini_lstm_ep if mini_lstm_ep != -1 else 'best'}_lenNormExp{len_norm_exp}",
+                                                mini_lstm_ckpt=(
+                                                    mini_lstm_j.out_checkpoints[mini_lstm_ep]
+                                                    if mini_lstm_ep != -1
+                                                    else get_best_checkpoint(mini_lstm_j, key="dev_score")
+                                                ),
+                                                train_job=train_j,
+                                                train_data=train_data,
+                                                feature_net=log10_net_10ms,
+                                                args=args,
+                                                beam_size=beam_size,
+                                                batch_size=10_000 * 80,
+                                                bpe_size=BPE_500,
+                                                preemphasis=premphasis_val,
+                                                length_norm_exponent=len_norm_exp,
+                                            )
+
+                # # TODO: no ctc
+                # no_ctc_args = copy.deepcopy(args)
+                # no_ctc_args["encoder_args"].with_ctc = False
+                # run_default_exp(
+                #     exp_name + f"_bpeMaxSeq100_noCTC",
+                #     train_args=no_ctc_args,
+                #     num_epochs=ep,
+                #     partition_epoch=6,
+                #     gpu_mem=11,
+                #     bpe_size=BPE_500,
+                #     avg_key="dev_score",
+                # )
+                #
+                # for with_ctc in [True, False]:
+                #     mgpu_args = copy.deepcopy(args)  # TODO: uses wrong LR!
+                #     mgpu_args["encoder_args"].with_ctc = with_ctc
+                #     mgpu_args["horovod_params"] = {
+                #         "horovod_reduce_type": "param",
+                #         "horovod_param_sync_step": 100,
+                #         "horovod_dataset_distribution": "random_seed_offset",
+                #     }
+                #     run_default_exp(
+                #         exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100" + ("_noCTC" if not with_ctc else ""),
+                #         train_args=mgpu_args,
+                #         num_epochs=300,
+                #         partition_epoch=6,
+                #         gpu_mem=11,
+                #         bpe_size=BPE_500,
+                #         horovod_num_processes=4,
+                #         avg_key="dev_score_output/output_prob" if with_ctc else "dev_score",
+                #     )
 
     # single gpu 200 epochs:
     # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100
@@ -1104,55 +1165,55 @@ def conformer_baseline():
     # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep300_epochOCLR-0.0001-0.001_bpeMaxSeq100_mgpu4_11g_paramSync_step100
     # 12.1       10.7     12.3  avg
 
-    mgpu_args, exp_name = get_base_v2_args(
-        num_epochs=300,
-        enc_num_blocks=12,
-        enc_reduce_factor=1.0,
-        lr_type="epoch-oclr",
-        lr_opts={"lr": 1e-3},
-        dec_weight_drop=0.0,
-    )
-    mgpu_args["batch_size"] = 15_000 * 80
-    mgpu_args["max_seq_length"] = {"bpe_labels": 100}
-    mgpu_args["horovod_params"] = {
-        "horovod_reduce_type": "param",
-        "horovod_param_sync_step": 100,
-        "horovod_dataset_distribution": "random_seed_offset",
-    }
-    mgpu_args["accum_grad"] = 2
-    run_default_exp(
-        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100",
-        train_args=mgpu_args,
-        num_epochs=300,
-        partition_epoch=6,
-        gpu_mem=11,
-        bpe_size=BPE_500,
-        horovod_num_processes=4,
-    )
-
-    # TODO: reduce grad accum
-    mgpu_args_accum1 = copy.deepcopy(mgpu_args)
-    mgpu_args_accum1["accum_grad"] = 1
-    run_default_exp(
-        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_accum1",
-        train_args=mgpu_args_accum1,
-        num_epochs=300,
-        partition_epoch=6,
-        gpu_mem=11,
-        bpe_size=BPE_500,
-        horovod_num_processes=4,
-    )
-
-    # TODO: add grad clip
-    for grad_clip in [1.0, 5.0, 10.0, 20.0]:
-        mgpu_args_clip = copy.deepcopy(mgpu_args)
-        mgpu_args_clip["gradient_clip_global_norm"] = grad_clip
-        run_default_exp(
-            exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_gradClipNorm{grad_clip}",
-            train_args=mgpu_args_clip,
-            num_epochs=300,
-            partition_epoch=6,
-            gpu_mem=11,
-            bpe_size=BPE_500,
-            horovod_num_processes=4,
-        )
+    # mgpu_args, exp_name = get_base_v2_args(
+    #     num_epochs=300,
+    #     enc_num_blocks=12,
+    #     enc_reduce_factor=1.0,
+    #     lr_type="epoch-oclr",
+    #     lr_opts={"lr": 1e-3},
+    #     dec_weight_drop=0.0,
+    # )
+    # mgpu_args["batch_size"] = 15_000 * 80
+    # mgpu_args["max_seq_length"] = {"bpe_labels": 100}
+    # mgpu_args["horovod_params"] = {
+    #     "horovod_reduce_type": "param",
+    #     "horovod_param_sync_step": 100,
+    #     "horovod_dataset_distribution": "random_seed_offset",
+    # }
+    # mgpu_args["accum_grad"] = 2
+    # run_default_exp(
+    #     exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100",
+    #     train_args=mgpu_args,
+    #     num_epochs=300,
+    #     partition_epoch=6,
+    #     gpu_mem=11,
+    #     bpe_size=BPE_500,
+    #     horovod_num_processes=4,
+    # )
+    #
+    # # TODO: reduce grad accum
+    # mgpu_args_accum1 = copy.deepcopy(mgpu_args)
+    # mgpu_args_accum1["accum_grad"] = 1
+    # run_default_exp(
+    #     exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_accum1",
+    #     train_args=mgpu_args_accum1,
+    #     num_epochs=300,
+    #     partition_epoch=6,
+    #     gpu_mem=11,
+    #     bpe_size=BPE_500,
+    #     horovod_num_processes=4,
+    # )
+    #
+    # # TODO: add grad clip
+    # for grad_clip in [1.0, 5.0, 10.0, 20.0]:
+    #     mgpu_args_clip = copy.deepcopy(mgpu_args)
+    #     mgpu_args_clip["gradient_clip_global_norm"] = grad_clip
+    #     run_default_exp(
+    #         exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_gradClipNorm{grad_clip}",
+    #         train_args=mgpu_args_clip,
+    #         num_epochs=300,
+    #         partition_epoch=6,
+    #         gpu_mem=11,
+    #         bpe_size=BPE_500,
+    #         horovod_num_processes=4,
+    #     )
