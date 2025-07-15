@@ -5,7 +5,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import get_content_d
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 
 
-class ChunkSegmentationFromModelLongFormJob(Job):
+class ChunkSegmentationFromModelJob(Job):
     """
     For chunked long-form recognition:
     This job finds an approximate optimal segmentation of what words to assign to which chunk.
