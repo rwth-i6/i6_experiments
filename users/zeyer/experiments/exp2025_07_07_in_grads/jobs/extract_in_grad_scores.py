@@ -11,7 +11,6 @@ class ExtractInGradsFromModelJob(Job):
     This was derived/generalized from
     :class:`i6_experiments.users.zeyer.experiments.exp2025_05_05_align.ExtractInGradsFromPhi4MultimodalInstructJob`
     and
-    TODO
     :class:`i6_experiments.users.zeyer.experiments.exp2025_05_05_align.ExtractInGradsFromPhi4MultimodalInstructLongFormJob`
     """
 
@@ -20,6 +19,7 @@ class ExtractInGradsFromModelJob(Job):
         *,
         dataset_dir: tk.Path,
         dataset_key: str,
+        chunk_segmentation_hdf: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
         model_config: Dict[str, Any],
         mult_grad_by_inputs: bool,
@@ -28,6 +28,7 @@ class ExtractInGradsFromModelJob(Job):
         """
         :param dataset_dir: hub cache dir, e.g. via DownloadHuggingFaceRepoJobV2. for load_dataset
         :param dataset_key: e.g. "train", "test", whatever the dataset provides
+        :param chunk_segmentation_hdf: via :class:`ChunkSegmentationFromModelJob`
         :param returnn_root: for some utils. version of RETURNN should not really matter
         :param model_config:
         :param mult_grad_by_inputs:
@@ -38,6 +39,7 @@ class ExtractInGradsFromModelJob(Job):
         super().__init__()
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
+        self.chunk_segmentation_hdf = chunk_segmentation_hdf
         self.returnn_root = returnn_root
         self.model_config = model_config
         self.mult_grad_by_inputs = mult_grad_by_inputs
@@ -110,7 +112,17 @@ class ExtractInGradsFromModelJob(Job):
 
         report_dev_memory_stats(dev)
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=1, ndim=2, extra_type={"sizes": (2, 2, "int32")})
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(),
+            # grads: [num_chunks * ~chunk_num_words * ~chunk_num_input_frames,1]
+            dim=1,
+            ndim=2,
+            extra_type={
+                "audio_frames_start_end": (2, 2, "int32"),  # [num_chunks * ~chunk_num_input_frames,2]
+                "num_input_frames": (1, 2, "int32"),  # [num_chunks,1]
+                "num_words": (1, 2, "int32"),  # [num_chunks,1]
+            },
+        )
 
         # Iter over data
 
@@ -121,6 +133,14 @@ class ExtractInGradsFromModelJob(Job):
         print("Dataset keys:", ds.keys())
         print("Using key:", self.dataset_key)
         print("Num seqs:", len(ds[self.dataset_key]))
+
+        from returnn.datasets.hdf import HDFDataset
+
+        chunk_segmentation_hdf_ds: Optional[HDFDataset] = None
+        if self.chunk_segmentation_hdf is not None:
+            chunk_segmentation_hdf_ds = HDFDataset([self.chunk_segmentation_hdf.get_path()])
+            chunk_segmentation_hdf_ds.initialize()
+            chunk_segmentation_hdf_ds.init_seq_order(epoch=1)
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             # For TIMIT: but not used currently...
@@ -138,76 +158,122 @@ class ExtractInGradsFromModelJob(Job):
             if not isinstance(audio, np.ndarray):
                 audio = np.array(audio)
             samplerate = data["audio"]["sampling_rate"]
-            transcription = " ".join(data["word_detail"]["utterance"])
+            words = data["word_detail"]["utterance"]
+            transcription = " ".join(words)
             print(f"seq {seq_idx}, {audio.shape=}, {samplerate=}, {transcription!r}")
+            num_words = len(words)
+            assert len(transcription.split(" ")) == num_words
 
             if seq_idx == 0:
                 print("data keys:", data.keys())
 
-            start_time = time.time()
-            print("** Forwarding")
-            num_words = len(data["word_detail"]["utterance"])
-            assert len(transcription.split(" ")) == num_words
+            if chunk_segmentation_hdf_ds is not None:
+                chunk_segmentation_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
+                chunk_audio_start_end = chunk_segmentation_hdf_ds.get_data(seq_idx, "audio_chunk_start_end")  # [C,2]
+                chunk_words_indices_start_end = chunk_segmentation_hdf_ds.get_data(seq_idx, "data")  # [C,2]
+                num_chunks = chunk_audio_start_end.shape[0]
+                assert num_chunks == chunk_words_indices_start_end.shape[0]
+                assert chunk_words_indices_start_end[:, 1].max() == len(words)
+            else:
+                num_chunks = 1
+                chunk_audio_start_end = np.array([[0, len(audio)]], dtype=np.int32)  # [C,2]
+                chunk_words_indices_start_end = np.array([[0, num_words]], dtype=np.int32)  # [C,2]
 
-            forward_output: ForwardOutput = model(
-                raw_inputs=audio,
-                raw_inputs_sample_rate=samplerate,
-                raw_input_seq_lens=torch.tensor([len(audio)]),
-                raw_targets=[data["word_detail"]["utterance"]],
-                raw_target_seq_lens=torch.tensor([len(data["word_detail"]["utterance"])]),
-            )
-
-            # noinspection PyShadowingNames
-            def _calc_input_grads(w: int, *, report_mem: bool = False, forward_output: ForwardOutput) -> torch.Tensor:
-                t0, t1 = forward_output.target_start_end[:, w].unbind(1)  # [B], [B]
-                loss = model.log_probs(forward_output=forward_output, start=t0, end=t1)  # [B,t1-t0,V]
-                targets = batch_slice(forward_output.targets, (t0, t1))  # [B,t1-t0]->V
-                loss = batches_gather(loss, indices=targets, num_batch_dims=2)  # [B,t1-t0]
-                loss.masked_fill_(torch.arange(loss.shape[1], device=loss.device)[None, :] >= (t1 - t0)[:, None], 0.0)
-                (grad,) = torch.autograd.grad(loss.sum(), forward_output.inputs, retain_graph=True)
-                del loss
-
-                if report_mem:
-                    report_dev_memory_stats(dev)
-
-                with torch.no_grad():
-                    attr = batch_slice(grad.float(), forward_output.input_slice_start_end)  # [B,T,F]
-                    if self.mult_grad_by_inputs:
-                        e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
-                        attr *= e
-                    attr = attr_reduce_func(attr)  # [B,T]
-                    return attr
-
-            print("** Calculating grads")
-            num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0].item()
             grad_mat: List[torch.Tensor] = []
-            for w in range(num_words):
-                grads = _calc_input_grads(w, report_mem=w in {0, num_words - 1}, forward_output=forward_output)
-                assert grads.shape == (1, num_input_frames)
-                grad_mat.append(grads[0])
-            grad_mat_ = torch.stack(grad_mat)  # [num_words,num_input_frames]
-            # Convert to Numpy and flatten and add dummy dim at the end to have it compatible for the HDF.
-            # Also add dummy batch dim in the beginning (for insert_batch).
-            grad_mat__ = grad_mat_.detach().cpu().numpy().flatten()[None, :, None]
+            audio_frames_start_end: List[torch.Tensor] = []
+            num_input_frames: List[int] = []
+            num_words_: List[int] = []
+
+            for chunk_idx in range(num_chunks):
+                start_time = time.time()
+                audio_start, audio_end = chunk_audio_start_end[chunk_idx]
+                audio_start, audio_end = max(audio_start, 0), min(audio_end, len(audio))  # just in case
+                words_start, words_end = chunk_words_indices_start_end[chunk_idx]
+                words_start, words_end = max(words_start, 0), min(words_end, num_words)  # just in case
+                print(
+                    f"** Forwarding chunk {chunk_idx + 1}/{num_chunks}"
+                    f" audio {audio_start / samplerate}-{audio_end / samplerate}"
+                    f" words {words_start}-{words_end} ({words[words_start:words_end]!r})"
+                )
+
+                forward_output: ForwardOutput = model(
+                    raw_inputs=torch.tensor(audio[audio_start:audio_end])[None],  # [1,T]
+                    raw_inputs_sample_rate=samplerate,
+                    raw_input_seq_lens=torch.tensor([audio_end - audio_start]),  # [1]
+                    raw_targets=[words[words_start:words_end]],  # [1,num_words]
+                    raw_target_seq_lens=torch.tensor([words_end - words_start]),  # [1]
+                )
+
+                # noinspection PyShadowingNames
+                def _calc_input_grads(
+                    w: int, *, report_mem: bool = False, forward_output: ForwardOutput
+                ) -> torch.Tensor:
+                    t0, t1 = forward_output.target_start_end[:, w].unbind(1)  # [B], [B]
+                    loss = model.log_probs(forward_output=forward_output, start=t0, end=t1)  # [B,t1-t0,V]
+                    targets = batch_slice(forward_output.targets, (t0, t1))  # [B,t1-t0]->V
+                    loss = batches_gather(loss, indices=targets, num_batch_dims=2)  # [B,t1-t0]
+                    loss.masked_fill_(
+                        torch.arange(loss.shape[1], device=loss.device)[None, :] >= (t1 - t0)[:, None], 0.0
+                    )
+                    (grad,) = torch.autograd.grad(loss.sum(), forward_output.inputs, retain_graph=True)
+                    del loss
+
+                    if report_mem:
+                        report_dev_memory_stats(dev)
+
+                    with torch.no_grad():
+                        attr = batch_slice(grad.float(), forward_output.input_slice_start_end)  # [B,T,F]
+                        if self.mult_grad_by_inputs:
+                            e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
+                            attr *= e
+                        attr = attr_reduce_func(attr)  # [B,T]
+                        return attr
+
+                print("** Calculating grads")
+                chunk_num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0].item()
+                num_input_frames.append(chunk_num_input_frames)
+                num_words_.append(words_end - words_start)
+                chunk_grad_mat: List[torch.Tensor] = []
+                for w in range(words_end - words_start):
+                    grads = _calc_input_grads(
+                        w, forward_output=forward_output, report_mem=w in {0, words_end - words_start - 1}
+                    )
+                    assert grads.shape == (1, chunk_num_input_frames)
+                    chunk_grad_mat.append(grads[0])
+                chunk_grad_mat_ = torch.stack(chunk_grad_mat)  # [chunk_num_words,chunk_num_input_frames]
+                chunk_grad_mat_ = chunk_grad_mat_.flatten()  # [chunk_num_words * chunk_num_input_frames]
+                grad_mat.append(chunk_grad_mat_)
+
+                # collect each [chunk_num_input_frames, 2] -> sample start/end
+                audio_frames_start_end.append(forward_output.input_raw_start_end[0])
+
+                print("** Freeing")
+                del forward_output  # not needed anymore now
+                gc.collect()
+                report_dev_memory_stats(dev)
+                print(f"({time.time() - start_time} secs for the seq)")
+
+            grad_mat_ = torch.concat(grad_mat)  # [num_chunks * ~chunk_num_words * ~chunk_num_input_frames]
+            audio_frames_start_end_ = torch.concat(audio_frames_start_end)  # [num_chunks * chunk_num_input_frames,2]
+            num_input_frames_ = torch.tensor(num_input_frames)  # [num_chunks]
+            num_words__ = torch.tensor(num_words_)  # [num_chunks]
 
             print("** Storing to HDF")
             hdf_writer.insert_batch(
-                grad_mat__,
-                seq_len=[num_words * num_input_frames],
+                # Convert to Numpy and add dummy dim at the end to have it compatible for the HDF.
+                # Also add dummy batch dim in the beginning (for insert_batch).
+                # [1,num_chunks * ~chunk_num_words * ~chunk_num_input_frames,1]
+                grad_mat_.cpu().numpy()[None, :, None],
+                seq_len=[len(grad_mat_)],
                 seq_tag=[f"seq-{seq_idx}"],
                 extra={
-                    "sizes": np.array([num_words, num_input_frames])[None, None],
                     # Mapping the input frames to audio samples (start/end for each input frame).
-                    "audio_start_end": forward_output.input_raw_start_end.detach().cpu().numpy(),
+                    # [1,num_chunks * ~chunk_num_input_frames,2]
+                    "audio_frames_start_end": audio_frames_start_end_.cpu().numpy()[None],
+                    "num_input_frames": num_input_frames_.cpu().numpy()[None, :, None],  # [1,num_chunks,1]
+                    "num_words": num_words__[None, :, None],  # [1,num_chunks,1]
                 },
-                # TODO chunk
             )
-
-            print("** Freeing")
-            del forward_output  # not needed anymore now
-            gc.collect()
-            report_dev_memory_stats(dev)
-            print(f"({time.time() - start_time} secs for the seq)")
 
         hdf_writer.close()
 
