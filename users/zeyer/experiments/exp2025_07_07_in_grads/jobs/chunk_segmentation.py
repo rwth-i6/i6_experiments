@@ -7,7 +7,12 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 class ChunkSegmentationFromModelLongFormJob(Job):
     """
-    Long-form variant
+    For chunked long-form recognition:
+    This job finds an approximate optimal segmentation of what words to assign to which chunk.
+    The chunks are fixed in size and amount of overlap.
+
+    The output HDF contains the word start/end indices per chunk,
+    and the audio sample start/end indices per chunk (although they are redundant, as they are fixed).
     """
 
     def __init__(
