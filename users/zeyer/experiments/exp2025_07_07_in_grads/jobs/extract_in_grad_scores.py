@@ -190,18 +190,24 @@ class ExtractInGradsFromModelJob(Job):
             # Also add dummy batch dim in the beginning (for insert_batch).
             grad_mat__ = grad_mat_.detach().cpu().numpy().flatten()[None, :, None]
 
+            print("** Storing to HDF")
+            hdf_writer.insert_batch(
+                grad_mat__,
+                seq_len=[num_words * num_input_frames],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={
+                    "sizes": np.array([num_words, num_input_frames])[None, None],
+                    # Mapping the input frames to audio samples (start/end for each input frame).
+                    "audio_start_end": forward_output.input_raw_start_end.detach().cpu().numpy(),
+                },
+                # TODO chunk
+            )
+
             print("** Freeing")
             del forward_output  # not needed anymore now
             gc.collect()
             report_dev_memory_stats(dev)
             print(f"({time.time() - start_time} secs for the seq)")
-
-            hdf_writer.insert_batch(
-                grad_mat__,
-                seq_len=[num_words * num_input_frames],
-                seq_tag=[f"seq-{seq_idx}"],
-                extra={"sizes": np.array([num_words, num_input_frames])[None, None]},
-            )
 
         hdf_writer.close()
 
