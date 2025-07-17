@@ -47,6 +47,11 @@ BPE_5K = 5000
 BPE_1K = 1000
 BPE_500 = 500
 
+GT_TRAIN_IVEC = tk.Path(
+    "/work/asr3/zhou/hiwis/wu/asr-exps/swb1/2022-04-27_hmm-transducer/adaptation/ivector/IVectorExtractionJob.loBXO1OGhPP3/output/ivec.bundle",
+    hash_overwrite="gt_train_ivec_v1",
+)
+
 # Seq-length 'audio_features' Stats:
 #   249536 seqs
 #   Mean: 35964.915503173834  (4.5 sec)
@@ -1053,6 +1058,14 @@ def conformer_baseline():
                     if premphasis_val == 0.95:
                         # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100_premph0.95
                         # 10.9        9.9     11.6  avg
+
+                        # TODO: speaker adaptation
+                        from i6_experiments.users.zeineldeen.recipe.hdf import ConvertRasrFeatureCacheToHdfJob
+
+                        ivec_as_hdf = ConvertRasrFeatureCacheToHdfJob(
+                            rasr_feature_cache=GT_TRAIN_IVEC, returnn_root=RETURNN_ROOT, dim=200
+                        ).out_hdf
+                        tk.register_output("ivec_hdf/train.hdf", ivec_as_hdf)
 
                         train_j, train_data = run_default_exp(
                             exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
