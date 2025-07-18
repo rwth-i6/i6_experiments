@@ -91,7 +91,7 @@ def recog_exp(
         epoch=epoch,
         recog_and_score_func=recog_and_score_func,
     )
-    summarize_job.add_alias(prefix_name + "/train-summarize")
+    #summarize_job.add_alias(prefix_name + "/train-summarize")
     #tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     if search_error_check:
         tk.register_output(prefix_name + "/search_error", summarize_job.out_search_error)
@@ -368,12 +368,14 @@ def recog_model(
             lm_rescor_rqmt = {"cpu": 2, "mem": 4, "time": 1}
         else:
             prev_one_ctx = False
+            prompt = None
             if isinstance(rescoringLM, dict):
                 prev_one_ctx = rescoringLM.get("prev_one_ctx", False)
-            time_factor = 2 if prev_one_ctx else 1
-            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2*time_factor, "gpu_mem": 11},
+                prompt = rescoringLM.get("prompt", None)
+            time_factor = 2 if prev_one_ctx or prompt else 1
+            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 3*time_factor, "gpu_mem": 24},
                               "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
-                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 11},
+                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 24},
                               "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 24},
                               "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 24},
                               "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
@@ -953,7 +955,7 @@ def search_error_config(
         decoder_params.pop("beam_size",None)
 
     decoder_params["nbest"] = 1
-    decoder_params.pop("beam_threshold") # Only relevant for flashlight decoder, wont use it any way
+    decoder_params.pop("beam_threshold", None) # Only relevant for flashlight decoder, wont use it any way
 
     args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
     if prior_path:

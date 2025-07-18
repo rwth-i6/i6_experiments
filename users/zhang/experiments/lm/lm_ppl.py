@@ -202,7 +202,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
                 returnn_root=tools_paths.get_returnn_root(),
             )
-
+            # print(f"Exponent:{exponent.get()}")
             ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename],exponent=exponent)
             dataset_key_ = (
                 dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key
@@ -241,7 +241,7 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model
     return ppls["test-other"]
 
 class ComputePerplexityJob(Job):
-    def __init__(self, scores_and_lens_file: Optional[Path], exponent:Union[float,tk.Variable] = 1.0):
+    def __init__(self, scores_and_lens_file: Optional[Path], exponent:Union[float,tk.Variable] = 1.0, version:int=1):
         self.scores_and_lens_file = scores_and_lens_file
 
         self.out_ppl = self.output_path("ppl")

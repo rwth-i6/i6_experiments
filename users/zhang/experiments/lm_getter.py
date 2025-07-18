@@ -6,6 +6,7 @@ from .lm.trafo import get_trafo_lm
 import re
 from sisyphus import Job, Task, tk, gs
 import i6_core.util as util
+from functools import lru_cache
 
 class GetBpeRatioJob(Job):
     """
@@ -136,12 +137,13 @@ def build_word_ngram_lms(word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
             lm_types.add(f"{n_order}gram")
     return lms, ppl_results, lm_types
 
+@lru_cache(maxsize=None)
 def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False,bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}
     ppl_results = {}
     lm_types = {"ffnn"}
     match = re.search(r"bpe(.+)", vocab)
-    epochs = [5, 10, 20, 40, 50]
+    epochs = [50]#[5, 10, 20, 40, 50]
     lm_configs = {
         "std": {"context_size": 8, "num_layers": 2, "ff_hidden_dim": 2048, "dropout": 0.1},
         #"low": {"context_size": 5, "num_layers": 2, "ff_hidden_dim": 1024, "dropout": 0.2}
@@ -165,6 +167,12 @@ def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False,bpe_r
             } if not as_ckpt else checkpoint
             ppl_results[name] = ppl
     return lms, ppl_results, lm_types
+
+def get_second_pass_lm_by_name(lm_name:str):
+    if 'ffnn' in lm_name:
+        return build_ffnn_lms(vocab="bpe128", as_ckpt=True)[0][lm_name]
+    elif "trafo" in lm_name:
+        return build_trafo_lms(vocab="bpe128", as_ckpt=True)[0][lm_name]
 
 def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}
@@ -193,7 +201,7 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe
     return lms, ppl_results, lm_types
 
 def build_llms(word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
-    from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size, FIXED_CONTEXT_LBS_100, FIXED_CONTEXT_LBS_50, FIXED_CONTEXT_LBS_30, FIXED_CONTEXT_LBS_10
+    from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size
     lm_types = {"LLM"}
     model_ids = LLM_Batch_size.keys()
     llms, ppl_llms = get_llm(model_ids=model_ids, batch_sizes=[LLM_Batch_size[key] for key in model_ids], word_ppl=word_ppl)
@@ -217,11 +225,12 @@ def build_all_lms(vocab: str, lm_kinds: List[str] = None, as_ckpt: bool = False,
         from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt
         from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
         bpe_ratio = GetBpeRatioJob(get_librispeech_lm_combined_txt(), vocab, get_returnn_subword_nmt()).out_ratio
+        tk.register_output(f"LBS_{vocab}_ratio", bpe_ratio)
     for kind, builder in builders.items():
         if kind not in lm_kinds:
             continue
         #try:
-        l, p, t = builder(vocab, as_ckpt, word_ppl, bpe_ratio) if "vocab" in builder.__code__.co_varnames else builder(word_ppl=word_ppl)
+        l, p, t = builder(vocab, as_ckpt, word_ppl, bpe_ratio) if kind not in ["word_ngram", "LLM"] else builder(word_ppl=word_ppl)
         lms.update(l)
         ppl.update(p)
         types.update(t)

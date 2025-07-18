@@ -2,6 +2,7 @@ from __future__ import annotations
 import functools
 from typing import Optional, Any, Dict, List, Sequence, TYPE_CHECKING
 
+from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_WITH_PROMPT, LLM_WITH_PROMPT_EXAMPLE
 from sisyphus import Job, Task, tk
 
 from i6_experiments.common.datasets.librispeech.language_model import (
@@ -25,15 +26,19 @@ from i6_core.util import uopen
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+def get_fix_context_file(size: int):
+    path = f"/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS_{size}.txt"
+    if os.path.isfile(path):
+        return path
+    else:
+        raise FileNotFoundError(path)
 
-FIXED_CONTEXT_LBS_100 = "/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS.txt"
-FIXED_CONTEXT_LBS_50 = "/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS_50.txt"
-FIXED_CONTEXT_LBS_30 = "/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS_30.txt"
-FIXED_CONTEXT_LBS_10 = "/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS_10.txt"
-CTX_10_STR = ["THEY SAID IT TO THE END VERSE ANSWERING VERSE AND THE PRAYER OF THE KING POET STILLED THE THROBBING OF HURTS TOO DEEP TO HEAL\nMARY DID YOU EVER THINK WHAT YOU WOULD DO IF YOU HAD TO LIVE ON JUST A FEW CENTS A DAY\nTRUE COAL HAD TO BE BROUGHT FROM SOME DISTANCE AND THERE WAS A GREAT NEED OF REALLY SKILLED LABOR\nWELL THEN WE'LL TALK ABOUT BEAUTIFUL WOMEN IF YOU PREFER\nWAS IT ON THE STAGE THAT YOU FOUND YOUR MOST INTENSE JOYS YOUR TRUE HAPPINESS\nIT WAS WELL KNOWN OF COURSE TO JEANJEAN THAT HIS PRISONER HAD BEEN GUILTY OF THE OFFENCE FOR WHICH HE HAD ARRESTED HIM AND THE COUP WAS QUITE EASY\nHE SNATCHED THE WHIP AND STRUCK THE CONDEMNED MAN WITH IT AS HIGH UP AS HE COULD REACH MAKING A GREAT WELT ACROSS HIS BARE STOMACH\nWHAT DID THAT CREEP WANT\nWE HAVE COME DOWN HERE TO DO A LITTLE PROSPECTING AND WERE JUST RIDING AROUND A BIT TO TAKE A LOOK AT THE COUNTRY\nBUT BECAUSE MANY OF THE SIMPLE IDEAS THAT MAKE UP OUR SPECIFIC IDEAS OF SUBSTANCES ARE POWERS WHICH LIE NOT OBVIOUS TO OUR SENSES IN THE THINGS AS THEY ORDINARILY APPEAR THEREFORE IN THE SIGNIFICATION OF OUR NAMES OF SUBSTANCES SOME PART OF THE SIGNIFICATION WILL BE BETTER MADE KNOWN BY ENUMERATING THOSE SIMPLE IDEAS THAN BY SHOWING THE SUBSTANCE ITSELF\n"]
-
-LLM_Batch_size = {"meta-llama/Llama-3.2-1B": 16, #"meta-llama/Llama-3.1-8B": 4,
-                  "Qwen/Qwen3-0.6B-Base": 18,"Qwen/Qwen3-1.7B-Base": 12, #"Qwen/Qwen3-4B-Base":8, #"Qwen/Qwen3-8B-Base":4,
+CTX_10_STR = ["THEY SAID IT TO THE END VERSE ANSWERING VERSE AND THE PRAYER OF THE KING POET STILLED THE THROBBING OF HURTS TOO DEEP TO HEAL\nMARY DID YOU EVER THINK WHAT YOU WOULD DO IF YOU HAD TO LIVE ON JUST A FEW CENTS A DAY\nTRUE COAL HAD TO BE BROUGHT FROM SOME DISTANCE AND THERE WAS A GREAT NEED OF REALLY SKILLED LABOR\nWELL THEN WE'LL TALK ABOUT BEAUTIFUL WOMEN IF YOU PREFER\nWAS IT ON THE STAGE THAT YOU FOUND YOUR MOST INTENSE JOYS YOUR TRUE HAPPINESS\nIT WAS WELL KNOWN OF COURSE TO JEANJEAN THAT HIS PRISONER HAD BEEN GUILTY OF THE OFFENCE FOR WHICH HE HAD ARRESTED HIM AND THE COUP WAS QUITE EASY\nHE SNATCHED THE WHIP AND STRUCK THE CONDEMNED MAN WITH IT AS HIGH UP AS HE COULD REACH MAKING A GREAT WELT ACROSS HIS BARE STOMACH\nWHAT DID THAT CREEP WANT\nWE HAVE COME DOWN HERE TO DO A LITTLE PROSPECTING AND WERE JUST RIDING AROUND A BIT TO TAKE A LOOK AT THE COUNTRY\nBUT BECAUSE MANY OF THE SIMPLE IDEAS THAT MAKE UP OUR SPECIFIC IDEAS OF SUBSTANCES ARE POWERS WHICH LIE NOT OBVIOUS TO OUR SENSES IN THE THINGS AS THEY ORDINARILY APPEAR THEREFORE IN THE SIGNIFICATION OF OUR NAMES OF SUBSTANCES SOME PART OF THE SIGNIFICATION WILL BE BETTER MADE KNOWN BY ENUMERATING THOSE SIMPLE IDEAS THAN BY SHOWING THE SUBSTANCE ITSELF"]
+PROMPT = ["THIS IS A TEXT DATA SOURCED FROM PUBLIC DOMAIN AUDIOBOOKS\nIT REPRESENTS THE DOMAIN OF READ, AND SCRIPTED SPEECH"]
+EXAMPLE = ["I SAY ADVERSARIES FOR ON RECALLING SUCH PROUD MEMORIES WE SHOULD AVOID THE WORD ENEMIES WHOSE HOSTILE SOUND PERPETUATES THE ANTAGONISMS AND STRIFE OF NATIONS SO IRREMEDIABLE PERHAPS SO FATEFUL AND ALSO SO VAIN"]
+LLM_Batch_size = {#"meta-llama/Llama-3.2-1B": 18*3,
+                  "meta-llama/Llama-3.1-8B": 4*3,
+                  #"Qwen/Qwen3-0.6B-Base": 51, #"Qwen/Qwen3-1.7B-Base": 27, #"Qwen/Qwen3-4B-Base":24, #"Qwen/Qwen3-8B-Base":4,
                   #"mistralai/Mistral-7B-v0.3": 4,
                   }
 LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 2, "cpu": 3, "mem": 16, "gpu": 1, "gpu_mem": 11},
@@ -44,24 +49,29 @@ LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 2, "cpu": 3, "mem": 16, "gpu": 1
             "Qwen/Qwen3-8B-Base":{"time": 4, "cpu": 3, "mem": 40, "gpu": 1, "gpu_mem": 48},
                   #"mistralai/Mistral-7B-v0.3": 4,
             }
+
+from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX
+
+def get_prompt():
+    prompt = None
+    if LLM_FXIED_CTX:
+        prompt = tk.Path(get_fix_context_file(LLM_FXIED_CTX_SIZE))
+    elif LLM_WITH_PROMPT:
+        prompt = PROMPT
+        if LLM_WITH_PROMPT_EXAMPLE:
+            prompt += [f"This is one sentence as an example: {EXAMPLE[0]}"]
+        prompt = prompt
+    return prompt
 #@functools.cache
 def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool = False) -> tuple[
     dict[Any, dict[str, int | str | Any]], dict[Any, Any]]:
     ds_name = "test-other"
-    from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX
-    llm_ctx = {10: FIXED_CONTEXT_LBS_10, 30: FIXED_CONTEXT_LBS_30, 50: FIXED_CONTEXT_LBS_50, 100: FIXED_CONTEXT_LBS_100}
-    prompt = None
-    if LLM_FXIED_CTX:
-        prompt = tk.Path(llm_ctx[LLM_FXIED_CTX_SIZE])
-
+    prompt = get_prompt()
     llms = dict()
     ppls = dict()
     if not batch_sizes:
         batch_sizes = [2 for _ in model_ids]
-    if isinstance(prompt, Sequence):
-        assert len(prompt) == len(model_ids)
-    else:
-        prompt = [prompt for _ in model_ids]
+    prompt = [prompt for _ in model_ids]
     assert len(model_ids) == len(batch_sizes)
     for model_id, prompt, batch_size in zip(model_ids, prompt, batch_sizes):
         if LLM_FXIED_CTX:
@@ -74,24 +84,30 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             model_dir=model.out_hub_cache_dir,
             text_file=[get_test_corpus_text(keys=[ds_name])],
             llm_name=model_id,
-            batch_size=batch_size,
+            batch_size=max(batch_size//2,1),
             word_ppl=word_ppl,
             prompt=prompt,
+            eos_symbol="\n",
         )
         name = os.path.basename(model_id)
         ppl_job.rqmt.update(LLM_rqmt[model_id])
+        ppl_job_name = f"ppl/{name}" + (f"_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "")
+        ppl_job.add_alias(ppl_job_name)
         lm_cfg = {"model_dir": model.out_hub_cache_dir, "batch_size": batch_size,
             "name": name, "prompt": prompt, "lm_type" : "HuggingFaceLm"}
         if LLM_FXIED_CTX:
-            lm_cfg.update({"eos_symbol": "."})
+            lm_cfg.update({"eos_symbol": "\n"})
         if LLM_PREV_ONE_CTX:
             lm_cfg.update({"prev_one_ctx": LLM_PREV_ONE_CTX})
         llms.update({name: lm_cfg})
         ppls.update({name: ppl_job.out_ppl})
         print(lm_cfg)
     # ppl_job.add_alias("lm/" + llm_name + "/ppl/librispeech_" + ds_name + ("low" if lower_case else "") + eos_name)
+        name_ext = f"{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else ""
+        name_ext += f"prev_one_ctx" if LLM_PREV_ONE_CTX else ""
+        name_ext += f"{'prompt' if LLM_WITH_PROMPT else ''}{'_example' if LLM_WITH_PROMPT_EXAMPLE else ''}"
         tk.register_output(
-            "ppl/" + name + "/librispeech-" + ds_name + "-ppl",
+            "ppl/" + name + "/librispeech-" + ds_name + name_ext + "-ppl",
             ppl_job.out_ppl)
     return llms, ppls
 
@@ -304,9 +320,9 @@ class HuggingFaceLmPerplexityJobV2(Job):
     """Compute perplexity of a HuggingFace LM over a text corpus.
         Using a fixed context from training set
     """
-
+    __sis_hash_exclude__ = {"batch_size" : None}
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
-                 llm_name: str, lower_case:bool = False, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, version:int = 4):
+                 llm_name: str, lower_case:bool = False, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, version:int = 5):
         super().__init__()
         #self.name = f"HFLM-PPL-{llm_name}-{self.text_file[0].basename()}"
         self.model_dir = model_dir
@@ -315,11 +331,14 @@ class HuggingFaceLmPerplexityJobV2(Job):
         self.lower_case = lower_case
         self.add_eos_to_completion = add_eos_to_completion
         self.eos_symbol = eos_symbol
-        delimiter = " " if not self.eos_symbol else (self.eos_symbol + " ") # Not sure
+        delimiter = " " if not self.eos_symbol else (self.eos_symbol)# + " ") # Not sure
+        self.prompt = None
         if isinstance(prompt, tk.Path):
             with open(prompt.get_path(), "r", encoding="utf-8") as f:
                 prompt = [line.strip() for line in f.readlines()]
-        self.prompt = delimiter.join(prompt) if prompt else None
+        if prompt:
+            prompt +=  [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
+            self.prompt = delimiter.join(prompt)
         self.word_ppl = word_ppl
         self.out_ppl = self.output_path("ppl")
         self.rqmt = {"time": 4, "cpu": 3, "mem": 8 + self.batch_size//2, "gpu": 1, "gpu_mem": {"Llama-3.2-1B": 10, "Llama-3.1-8B": 36}.get(llm_name,10)}
@@ -475,7 +494,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
                 eos_symbol = eos_symbol if self.add_eos_to_completion else ""
                 for raw_line in f:
                     if self.prompt:
-                        batch_prompt.append(self.prompt.strip().lower() if self.lower_case else self.prompt.strip())
+                        batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
                     line = raw_line.strip().lower() if self.lower_case else raw_line.strip()
                     if not line:
                         continue
@@ -528,8 +547,9 @@ class HuggingFaceLmPerplexityJobV2(Job):
 
 """Compute perplexity for a HuggingFace Transformer LLM model on LibriSpeech."""
 class HuggingFaceLmPerplexityJobV3(Job):
-    """Compute perplexity of a HuggingFace LM over a text corpus.
-        Using a fixed context from training set
+    """
+    Compute perplexity of a HuggingFace LM over a text corpus.
+        Using a fixed context from training set with caching(TODO)
     """
 
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
@@ -988,10 +1008,11 @@ def py():
     #            get_train_corpus_text(),
     #             _get_test_corpus_text()]
     for llm_name in [
-                    #"Qwen/Qwen3-4B-Base",
-                    #"Qwen/Qwen3-0.6B-Base",
-                     "meta-llama/Llama-3.2-1B",
-                     # "meta-llama/Llama-3.1-8B",
+                    # "Qwen/Qwen3-4B-Base",
+                    # "Qwen/Qwen3-0.6B-Base",
+                    # "Qwen/wen3-0.6B-Base",
+                    "meta-llama/Llama-3.2-1B",
+                     "meta-llama/Llama-3.1-8B",
                      ]:
         dl_model = DownloadHuggingFaceRepoJob(model_id=llm_name)
         for ds_name in [  # "dev-clean",
@@ -1004,12 +1025,13 @@ def py():
             for ctx_lines, context in [#(100,FIXED_CONTEXT_LBS_100),
                                        #(50,FIXED_CONTEXT_LBS_50),
                                        #(30, FIXED_CONTEXT_LBS_30),
-                                       (10,FIXED_CONTEXT_LBS_10),
-                                       (10,CTX_10_STR), # Default \n
+                                       #(10,FIXED_CONTEXT_LBS_10),
+                                       (1, FIXED_CONTEXT_LBS_1),
+                                       #(10,CTX_10_STR), # Default \n
                                        (0, None)
                                          ]:
                 for eos_name, eos_symbol in {"newline": "\n",
-                                            "period":".",
+                                            #"period":".",
                                              #"eos": "eos",
                                              #"" : "",
                                              }.items():
@@ -1017,9 +1039,9 @@ def py():
                     if eos_name == "period" and ctx_lines >=20 :
                         continue
                     if isinstance(context, list) and eos_name: # eos is joined
-                        if not add_eos_to_completion:
+                        if eos_name != "newline":
                             continue
-                    batch_size = {100: 1, 50: 1, 30: 2, 10:1, 0:LLM_Batch_size[llm_name]}[ctx_lines]
+                    batch_size = {100: 1, 50: 1, 30: 2, 10:4, 1:LLM_Batch_size[llm_name], 0:LLM_Batch_size[llm_name]}[ctx_lines]
                     if eos_name == "eos" and ctx_lines > 10:
                         batch_size = 1
 

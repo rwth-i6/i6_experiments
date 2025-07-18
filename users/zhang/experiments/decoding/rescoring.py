@@ -106,6 +106,8 @@ class SearchCombineScoresJob(Job):
                     out.write(f"({score!r}, {hyp!r}),\n")
                 out.write("],\n")
             out.write("}\n")
+        import time
+        time.sleep(1)
 
 
 class RescoreCheatJob(Job):
@@ -226,14 +228,14 @@ class RescoreSearchErrorJob(Job):
                     gt_present_num += 1
                 else:
                     targets_search_str += f"\n\t {hyp} \n\t"
-
+            targets_search_str += " ]"
             max_hyp_score = max([x[0] for x in n_lists[seq_tag]])
             if not gt_present and gt_score >= max_hyp_score:
                 search_error += 1
                 is_search_error = True
 
             with open("search_errors_log", "a") as f:
-                log_txt = "Seq Tag: %s\n\tGround-truth score: %f\n\tMax Search score: %f" % (
+                log_txt = "\nSeq Tag: %s\n\tGround-truth score: %f\n\tMax Search score: %f" % (
                     seq_tag,
                     gt_score,
                     max_hyp_score,

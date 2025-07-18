@@ -161,8 +161,8 @@ class WER_ppl_PlotAndSummaryJob(Job):
             return default_scale + lm_weight_tune
 
         # Prepare the data as a list of lists
-        table_data = [["Model Name", "Perplexity", "lm_scale", "prior_scale", "search_error", "search_error_rescore", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
-                       "Test-Other WER"]]
+        dataset_header = [dataset_key + " WER" for dataset_key in self.eval_dataset_keys]
+        table_data = [["Model Name", "Perplexity", "lm_scale", "prior_scale", "search_error", "search_error_rescore"] + dataset_header]
         for key, values in res.items():
             ppl = values[0]
             scores = values[1]["best_scores"]
@@ -242,12 +242,13 @@ class GnuPlotJob(Job):
             raise Exception(f"dataset key {dataset_key} not found.")
         os.makedirs(self.out_plot_dir.get_path(), exist_ok=True)
         # read header and locate columns
-        for data_setkey in self.eval_dataset_keys:
-            with open(self.input_summary.get_path(), 'r') as f:
-                groups = defaultdict(list)
-                header = next(f).strip().split(',')
-                idx_name = header.index('Model Name')
-                idx_ppl = header.index('Perplexity')
+
+        with open(self.input_summary.get_path(), 'r') as f:
+            groups = defaultdict(list)
+            header = next(f).strip().split(',')
+            idx_name = header.index('Model Name')
+            idx_ppl = header.index('Perplexity')
+            for data_setkey in self.eval_dataset_keys:
                 idx_wer = header.index(get_idx_name(header, data_setkey))
                 for line in f:
                     cols = line.strip().split(',')
@@ -319,7 +320,11 @@ class GnuPlotJob(Job):
         ticks = sorted(set(10 ** exps))
 
         # 6) format for Gnuplot: each -> '"label" pos'
-        entries = [f'"{vals.min():g}" {vals.min():g}']
+        if vals.max()<10:
+            entries = [f'"{vals.min():.1f}" {vals.min():.1f}']
+        else:
+            entries = [f'"{vals.min():.0f}" {vals.min():.0f}']
+
         for t in ticks:
             # choose a sensible label formatting:
             if t < 1:
@@ -329,8 +334,10 @@ class GnuPlotJob(Job):
             else:
                 label = f"{t:.0f}"
             entries.append(f'"{label}" {t:g}')
-
-        entries.append(f'"{vals.max():g}" {vals.max():g}')
+        if vals.max()<10:
+            entries.append(f'"{vals.max():.1f}" {vals.max():.1f}')
+        else:
+            entries.append(f'"{vals.max():.0f}" {vals.max():.0f}')
         range = f"[{lo}:{hi}]"
         return "(" + ", ".join(entries) + ")", range
 

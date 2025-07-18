@@ -16,19 +16,23 @@ from .lm_getter import build_all_lms  # NEW
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
-# --- Constants ---
+# --- Decoding Parameters ---
 USE_flashlight_decoder = False
 EVAL_DATASET_KEYS = ["test-other","dev-other"]#,"test-clean","dev-clean"]
 DEFAULT_PRIOR_WEIGHT = 0.15
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
-DEFAUL_RESCOR_LM_SCALE = 0.2
+DEFAUL_RESCOR_LM_SCALE = 0.5
 CHEAT_N_BEST = False
 
-LLM_FXIED_CTX = False # Will be Imported by llm.get_llm()
+BEAM_SIZE = 300
+NBEST = 50
+
+LLM_WITH_PROMPT = False
+LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
+
+LLM_FXIED_CTX = True and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 10
-LLM_PREV_ONE_CTX = True
-if LLM_FXIED_CTX or LLM_PREV_ONE_CTX:
-    assert LLM_PREV_ONE_CTX != LLM_FXIED_CTX
+LLM_PREV_ONE_CTX = False and not LLM_FXIED_CTX
 # --- Helpers for ctc_exp ---
 
 def get_encoder_model_config(encoder: str) -> Tuple[dict, Optional[callable]]:
@@ -59,14 +63,14 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
     if nbest:
         assert beam_size > nbest
     decoding_config = {
-        "log_add": False,
+        #"log_add": False,
         "nbest": nbest,
         "beam_size": beam_size,
-        "beam_threshold": 1e6,
+        #"beam_threshold": 1e6,
         "lm_weight": 1.45,
-        "use_logsoftmax": True,
+        #"use_logsoftmax": True,
         "use_lm": False,
-        "use_lexicon": False,
+        #"use_lexicon": False,
     }
     tune_config_updates = {}
     recog_config_updates = {}
@@ -93,7 +97,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         tune_hyperparameters = True
         decoding_config["beam_size"] = 500 if vocab == "bpe128" else 150
         decoding_config["lm_weight"] = 0.5
-        tune_config_updates["tune_range"] = [scale / 100 for scale in range(-20, 21, 5)]
+        tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
 
     elif "trafo" in lmname:
         tune_hyperparameters = True
@@ -184,7 +188,7 @@ def ctc_exp(
         search_rqmt,
         tune_hyperparameters,
         batch_size,
-    ) = get_decoding_config(lmname, lm, vocab, encoder, beam_size=300, nbest=200)
+    ) = get_decoding_config(lmname, lm, vocab, encoder, beam_size=BEAM_SIZE, nbest=NBEST)
 
     if decoding_config.get("recog_language_model", False):
         model_config["recog_language_model"] = decoding_config["recog_language_model"]
@@ -208,48 +212,43 @@ def ctc_exp(
 
 
 
+    def set_tune_range_by_name(rescore_lm_name, tune_config_updates, first_pass:bool = False):
+        lm_key = f"tune_range{'_2' if not first_pass else ''}"
+        prior_key = f"prior_tune_range{'_2' if not first_pass else ''}"
+        if "ffnn" in rescore_lm_name:
+            tune_config_updates[lm_key] = [scale / 100 for scale in range(-30, 51, 2)]
+            tune_config_updates[prior_key] = [scale / 100 for scale in range(-10, 21, 2)]
+
+        elif "trafo" in rescore_lm_name:
+            tune_config_updates[lm_key] = [scale / 100 for scale in range(-50, 51, 2)]
+            tune_config_updates[prior_key] = [scale / 100 for scale in range(-10, 3, 2)]
+            # tune_config_updates[lm_key] = [scale / 100 for scale in range(-20, 31, 2)]
+            # tune_config_updates[prior_key] = [scale / 100 for scale in range(-10, 21, 2)]
+
+        elif "gram" in rescore_lm_name and "word" not in rescore_lm_name:
+            tune_config_updates[lm_key] = [scale / 100 for scale in range(-50, 51, 2)]
+            tune_config_updates[prior_key] = [scale / 100 for scale in range(-10, 21, 2)]
+
+        elif any([llmname in rescore_lm_name for llmname in ["Llama", "Qwen"]]):
+            tune_config_updates[lm_key] = [scale / 100 for scale in range(-20, 51, 2)]
+            tune_config_updates[prior_key] = [scale / 100 for scale in range(-10, 21, 2)]
+
     recog_def = select_recog_def(lmname, USE_flashlight_decoder)
     tune_rescore_scale = False
     if rescore_lm or rescore_lm_name:
         if lm is not None: #First pass with a LM
             decoding_config["tune_with_rescoring"] = True
+            set_tune_range_by_name(lmname,tune_config_updates,first_pass=True)
+        tune_rescore_scale = True
         decoding_config["cheat"] = CHEAT_N_BEST
         decoding_config["check_search_error_rescore"] = True
         decoding_config["rescoring"] = True
         decoding_config["lm_rescore"] = rescore_lm
-        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE
-        decoding_config["rescore_priorscale"] = 0.15
+        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE #0.5
+        decoding_config["rescore_priorscale"] = 0.10
         decoding_config["rescore_lm_name"] = rescore_lm_name
         decoding_config["vocab"] = get_vocab_by_str(vocab)
-        if "ffnn" in rescore_lm_name:
-            tune_rescore_scale = True
-            decoding_config["rescore_lmscale"] = 0.5
-            decoding_config["rescore_priorscale"] = 0.10
-            tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-30, 51, 2)]
-            tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 21, 2)]
-
-        elif "trafo" in rescore_lm_name:
-            tune_rescore_scale = True
-            decoding_config["rescore_lmscale"] = 0.5
-            decoding_config["rescore_priorscale"] = 0.10
-            tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-50, 51, 2)]
-            tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 3, 2)]
-            # tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-20, 31, 2)]
-            # tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 21, 2)]
-
-        elif "gram" in rescore_lm_name and "word" not in rescore_lm_name:
-            tune_rescore_scale = True
-            decoding_config["rescore_lmscale"] = 0.5
-            decoding_config["rescore_priorscale"] = 0.10
-            tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-50, 51, 2)]
-            tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 21, 2)]
-
-        elif any([llmname in rescore_lm_name for llmname in ["Llama", "Qwen"]]):
-            tune_rescore_scale = True
-            decoding_config["rescore_lmscale"] = 0.5
-            decoding_config["rescore_priorscale"] = 0.10
-            tune_config_updates["tune_range_2"] = [scale / 100 for scale in range(-20, 51, 2)]
-            tune_config_updates["prior_tune_range_2"] = [scale / 100 for scale in range(-10, 21, 2)]
+        set_tune_range_by_name(rescore_lm_name,tune_config_updates,first_pass=False)
 
     if train:
         decoding_config = {
@@ -329,12 +328,14 @@ def ctc_exp(
 
 # --- Main py() function ---
 
+
+
 def py():
     # ! Note: for now when use rescoring, in first pass prior will not be considered, especially by greedy case
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
     available = [("bpe128", "ctc", "blstm"), ("bpe128", "ctc", "conformer"), ("bpe10k", "ctc", "conformer")]
     models = {"ctc": ctc_exp}
-    encoder = "blstm" # blstm conformer
+    encoder = "conformer" # blstm conformer
     train = False
 
     for vocab in ["bpe128",
@@ -347,12 +348,14 @@ def py():
                     "trafo", #nn has better result on second pass for cfm
                     ]  if encoder == "blstm" else ["ffnn"] # Don know why, for conformer now the WER of trafo LMs are better by second pass...
         lm_kinds_2 = [#"ngram", # LM that do second pass
-                    "ffnn", "trafo",
-                      #"LLM"
+                    #"ffnn",
+                    "trafo",
+                    "LLM"
                     ]
+        lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
         if "LLM" in lm_kinds_2:
             word_ppl = True
-            lm_kinds = []
+            lm_kinds = ["ffnn"]
 
         lms, ppl_results, lm_types_names = build_all_lms(vocab, lm_kinds=lm_kinds)  # NEW
         lms.update({"NoLM": None})
@@ -365,46 +368,49 @@ def py():
         #TODO also add the ppl of llm
         #print(lms)
         #print(rescor_lms)
-        for model, exp in models.items():
-            if (vocab, model, encoder) not in available:
-                train = True
 
-            wer_ppl_results = dict()
+        def greedy_first_pass_exp(lms, rescor_lms, lm_kinds, lm_kinds_2):
+            nonlocal vocab, encoder, train, ppl_results_2, word_ppl
             wer_ppl_results_2 = dict()
-            for name, lm in lms.items(): # First pass lms
+            for name, lm in lms.items():  # First pass lms
                 break_flag = False
-                for name_2, lm_2 in rescor_lms.items(): # Second pass lms
-                    #lm_hyperparamters_str seems not needed?
+                for name_2, lm_2 in rescor_lms.items():  # Second pass lms
+                    # lm_hyperparamters_str seems not needed?
                     # TODO: there is no distinguish between 1/2 pass scales here
-                    if any([lm_kind in name_2 for lm_kind in lm_kinds]): # Dont do second pass with first pass LMs
+                    if any([lm_kind in name_2 for lm_kind in lm_kinds]):  # Dont do second pass with first pass LMs
                         continue
-                    if lm: # Do second pass with same LM in first pass, scales tune with rescoring on Greedy
+                    if lm:  # Do second pass with same LM in first pass, scales tune with rescoring on Greedy
                         name_2 = name
                         lm_2 = rescor_lms[name]
-                        break_flag = True # Do it only once
+                        break_flag = True  # Do it only once
                     print(name, name_2)
                     wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(
                         name, lm, vocab,
                         rescore_lm=lm_2,
-                        rescore_lm_name = name_2,
+                        rescore_lm_name=name_2,
                         encoder=encoder, train=train
                     )
                     if lm_2:
                         wer_ppl_results_2[name_2] = (
-                        ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, dafault_lm_scale,
-                        dafault_prior_scale)
+                            ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
+                            prior_tune,
+                            dafault_lm_scale,
+                            dafault_prior_scale)
                     else:
-                        if lm: # First pass with a lm
+                        if lm:  # First pass with a lm
                             wer_ppl_results_2[name] = (
-                                ppl_results_2.get(name), wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, dafault_lm_scale,
-                        dafault_prior_scale)
-                        else: # NoLM at all := Uniform LM.?
+                                ppl_results_2.get(name), wer_result_path, search_error, search_error_rescore, lm_tune,
+                                prior_tune, dafault_lm_scale,
+                                dafault_prior_scale)
+                        else:  # NoLM at all := Uniform LM.?
                             if not word_ppl:
                                 wer_ppl_results_2["uniform"] = (
-                                ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore, None, None, 0, 0)
-                    if break_flag: # Ensure for lm do first pass not do second pass multiple times
+                                    ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
+                                    None,
+                                    None, 0, 0)
+                    if break_flag:  # Ensure for lm do first pass not do second pass multiple times
                         break
-                #print(wer_ppl_results_2)
+                # print(wer_ppl_results_2)
                 # if lm:
                 #     wer_ppl_results[name] = (
                 #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
@@ -419,19 +425,100 @@ def py():
                 dafault_lm_scales = [x[6] for x in res]
                 dafault_prior_scales = [x[7] for x in res]
 
-                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors, search_errors_rescore, dafault_lm_scales, dafault_prior_scales, eval_dataset_keys=EVAL_DATASET_KEYS)
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
+                                                       search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
+                                                       eval_dataset_keys=EVAL_DATASET_KEYS)
                 gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS)
-                alias_prefix = (f"wer_ppl/{'1st_pass_' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model + "_" + vocab + encoder
-                                + ("n_best_cheat" if CHEAT_N_BEST else "")
-                                + ("_LLMs" if "LLM" in lm_kinds_2 else "")
-                                + (f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "")
-                                + (f"prev_1ctx" if LLM_PREV_ONE_CTX else ""))
+                llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                    f"prev_1ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
+                alias_prefix = (
+                        f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model + "_" + vocab + encoder
+                        + ("n_best_cheat" if CHEAT_N_BEST else "")
+                        + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
+
+                tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
+                for i, key in enumerate(EVAL_DATASET_KEYS):
+                    tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
+                    tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
+
+        def first_pass_with_lm_exp(lms, rescor_lms, lm_kinds, lm_kinds_2):
+            lms.pop("NoLM",None)
+            nonlocal vocab, encoder, train, ppl_results_2, word_ppl
+            wer_ppl_results_2 = dict()
+            for name, lm in lms.items():  # First pass lms
+                break_flag = False
+
+                for name_2, lm_2 in rescor_lms.items():  # Second pass lms
+                    # lm_hyperparamters_str seems not needed?
+                    # TODO: there is no distinguish between 1/2 pass scales here
+                    if any([lm_kind in name_2 for lm_kind in lm_kinds]):  # Dont do second pass with same first pass LMs
+                        continue
+                    print(name, name_2)
+                    wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(
+                        name, lm, vocab,
+                        rescore_lm=lm_2,
+                        rescore_lm_name=name_2,
+                        encoder=encoder, train=train
+                    )
+                    if lm_2:
+                        wer_ppl_results_2[name_2] = (
+                            ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
+                            prior_tune,
+                            dafault_lm_scale,
+                            dafault_prior_scale)
+                    else:
+                        if lm:  # First pass with a lm
+                            wer_ppl_results_2[name] = (
+                                ppl_results_2.get(name), wer_result_path, search_error, search_error_rescore, lm_tune,
+                                prior_tune, dafault_lm_scale,
+                                dafault_prior_scale)
+                        else:  # NoLM at all := Uniform LM.?
+                            if not word_ppl:
+                                wer_ppl_results_2["uniform"] = (
+                                    ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
+                                    None,
+                                    None, 0, 0)
+                    if break_flag:  # Ensure for lm do first pass not do second pass multiple times
+                        break
+                # print(wer_ppl_results_2)
+                # if lm:
+                #     wer_ppl_results[name] = (
+                #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
+                #     dafault_prior_scale)
+            if wer_ppl_results_2 and not train:
+                names, res = zip(*wer_ppl_results_2.items())
+                results = [(x[0], x[1]) for x in res]
+                search_errors = [x[2] for x in res]
+                search_errors_rescore = [x[3] for x in res]
+                lm_tunes = [x[4] for x in res]
+                prior_tunes = [x[5] for x in res]
+                dafault_lm_scales = [x[6] for x in res]
+                dafault_prior_scales = [x[7] for x in res]
+
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
+                                                       search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
+                                                       eval_dataset_keys=EVAL_DATASET_KEYS)
+                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS)
+                llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                    f"prev_1ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
+                alias_prefix = (
+                        f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model + "_" + vocab + encoder
+                        + ("n_best_cheat" if CHEAT_N_BEST else "")
+                        + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
+
                 tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
                 for i, key in enumerate(EVAL_DATASET_KEYS):
                     tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                     tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
 
 
+        for model, exp in models.items():
+            if (vocab, model, encoder) not in available:
+                train = True
+
+            #wer_ppl_results = dict()
+            #greedy_first_pass_exp(lms, rescor_lms, lm_kinds, lm_kinds_2)
+            first_pass_with_lm_exp(lms, rescor_lms, lm_kinds, lm_kinds_2)
 
             # if wer_ppl_results and not train:
             #     names, res = zip(*wer_ppl_results.items())

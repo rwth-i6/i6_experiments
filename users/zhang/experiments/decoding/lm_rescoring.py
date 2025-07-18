@@ -208,7 +208,7 @@ class HuggingFaceLmScorer(LMScorer):
         if prompt:
             assert isinstance(prompt, tk.Path)
             with open(prompt.get_path(), "r", encoding="utf-8") as f:
-                prompt = [line.strip() for line in f.readlines()]
+                prompt = [line.strip() for line in f.readlines()] + [""] # So that for last prompt it also has eos
         instance.prompt = delimiter.join(prompt) if prompt else None # TODO:
 
         instance.lower_case = False
@@ -302,7 +302,7 @@ class HuggingFaceLmScorer(LMScorer):
             eos_symbol = (" " + self.tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol
             batch_lines.append(line + eos_symbol)
             if self.prompt:
-                batch_prompt.append(self.prompt.strip().lower() if self.lower_case else self.prompt.strip())
+                batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
 
             if len(batch_lines) == self.batch_size:
                 if len(batch_prompt)>1:
@@ -850,14 +850,14 @@ def lm_am_framewise_prior_rescore(
     def get_generic_alias_name(alias):
         parts = alias.strip().split("/")
         if len(parts) >= 2:
-            return "/".join(parts[:2])
+            return "/".join(parts[:2] + [parts[-1]])
         else:
             return alias
 
     alias_name = get_generic_alias_name(alias_name)
     res_labels_lm_scores = lm_scorer(
         raw_res_labels, lm=lm, lm_rescore_def=lm_rescore_def ,vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
-        alias_name=None,#alias_name + ("/scale_" + str(lm_scale) if isinstance(lm_scale, float) else str(lm_scale.get())) + "/rescoring",
+        alias_name=alias_name + "/rescoring",
     )
     res_labels_am_scores = rescore(
         recog_output=raw_res_labels,
