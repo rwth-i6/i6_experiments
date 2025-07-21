@@ -176,11 +176,11 @@ class ChunkSegmentationFromModelJob(Job):
 
             array: List[List[_Node]] = []  # [chunk_idx][rel word_idx]
 
-            # In the (S+1)*C grid (RNN-T style), but we are not filling all S+1 entries per chunk.
+            # In the (S+1)*C grid (RNN-T style), but we might not fill all S+1 entries per chunk idx.
             @dataclass
             class _Node:
                 chunk_idx: int  # 0 <= c < C. the chunk we are in.
-                word_idx: int  # 0 <= s <= S. we have seen this many words so far, words[:s]
+                word_idx: int  # 0 <= s <= S. we have seen this many words so far (incl. this chunk), words[:s]
                 accum_in_log_prob: torch.Tensor  # []. log prob of this node (accumulated all the way from the start)
                 # []. accum_in_log_prob+exit (end_token_id). horizontal transition to next chunk
                 accum_exit_log_prob: torch.Tensor
@@ -257,7 +257,8 @@ class ChunkSegmentationFromModelJob(Job):
                         prev_node = prev_node_left
                         accum_in_log_prob = prev_node_left.accum_exit_log_prob
                     elif prev_node_below and prev_node_left:
-                        # Max approx.
+                        # This is the only place for recombination.
+                        # Use maximum approximation.
                         if prev_node_below.accum_word_log_prob >= prev_node_left.accum_exit_log_prob:
                             prev_node = prev_node_below
                             accum_in_log_prob = prev_node_below.accum_word_log_prob
@@ -290,7 +291,7 @@ class ChunkSegmentationFromModelJob(Job):
 
             # Backtrack
             nodes_alignment: List[_Node] = []
-            node = array[-1][-1]
+            node = array[-1][-1]  # remember: RNN-T like grid, last chunk (frame), last entry covers all words
             assert node.word_idx == len(words)  # has seen all words
             while node:
                 nodes_alignment.append(node)
