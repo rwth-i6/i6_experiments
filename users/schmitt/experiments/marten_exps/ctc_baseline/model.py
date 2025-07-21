@@ -430,6 +430,10 @@ class Wav2VecModel(rf.Module):
       else:
         self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
 
+    model_prior = config.typed_value("model_prior", {"type": "batch-wise"})
+    if model_prior["type"] == "exp-moving-average":
+      self.model_prior = rf.RunningMean(wb_target_dim, alpha=model_prior["alpha"], is_prob_distribution=True)
+
     self.train_language_model = train_language_model
     self.recog_language_model = recog_language_model
     self.rescore_language_model = rescore_language_model
@@ -551,6 +555,17 @@ class Wav2VecModel(rf.Module):
         If out_blank_separated, we use a separate sigmoid for the blank.
     """
     log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
+
+    # optionally apply blank penalty
+    from returnn.config import get_global_config
+    config = get_global_config()
+    blank_penalty_opts = config.typed_value("blank_penalty_opts", {})
+    if blank_penalty_opts:
+      blank_penalty = blank_penalty_opts["blank_penalty"]
+      blank_penalty = rf.sparse_to_dense(
+        self.blank_idx, axis=self.wb_target_dim, label_value=blank_penalty, other_value=0.0)
+      log_probs -= blank_penalty
+
     return log_probs
 
 

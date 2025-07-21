@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Di
 import numpy as np
 
 import returnn.frontend as rf
+from i6_core.returnn import PtCheckpoint
 from returnn.tensor import Tensor, Dim, batch_dim
 from returnn.util.basic import NotSpecified
 
@@ -20,7 +21,7 @@ from i6_experiments.users.mueller.train import SumTrainDef, CETrainDef
 from i6_experiments.users.mueller.utils import calc_stats
 from i6_experiments.users.schmitt.experiments.marten_exps.language_models.n_gram import get_count_based_n_gram, \
   get_prior_from_unigram
-from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm, get_ffnn_lm
+from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm, get_ffnn_lm, FeedForwardLmV2
 from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.configs import (
   _get_cfg_lrlin_oclr_by_bs_nep,
   _batch_size_factor,
@@ -28,6 +29,7 @@ from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.configs i
   dict_update_deep,
   post_config,
   _get_cfg_generic_piecewise_linear,
+  _get_cfg_lrlin_invsqrt_decay,
 )
 from i6_experiments.users.schmitt.experiments.exp2025_03_10_ctc_usr.configs import (
   _get_cfg_lrlin_oclr_by_bs_nep_v4,
@@ -61,9 +63,9 @@ _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to 
 # Some params for the jobs influencing the hash
 num_shards_recog = 4  # None, 4, 16
 num_shards_recog_init = 4
-num_shards_pseudo = 64  # 32, 64
+num_shards_pseudo = 1  # 64  # 32, 64
 num_shards_prior = 64
-num_shards_prior_init =None  #  4
+num_shards_prior_init = None  # 4
 calculate_pseudo_label_scores = True
 calculate_pseudo_label_scores_init = True
 decode_nbest_epochs = 0
@@ -101,7 +103,7 @@ def py():
   self_training_rounds = 0  # Self-supervised training rounds
   reset_steps = False  # Whether to reset step count after the first self-training round (affects LR schedule)
   from_scratch = False  # Self-training starts from scratch
-  pseudo_label_small = False  # 860h pseudo-labels if True, 960h pseudo-labels if False
+  pseudo_label_ds_str = "960h"  # 860h pseudo-labels if True, 960h pseudo-labels if False
   keep_small_labels = True  # Keep true labels of 100h data during self-training
   pseudo_nbest = 1  # Number of pseudo-label sequences
   norm_nbest_rescore = False  # Normalize the LM and Prior values for each pseudo label sequence before adding them up
@@ -124,7 +126,7 @@ def py():
   num_gpus = 4  # Number of GPUs to use during training
   if self_training_rounds == 0:
     from_scratch = True
-    pseudo_label_small = True
+    pseudo_label_ds_str = "860h"
     keep_small_labels = False
     pseudo_nbest = 1
     norm_nbest_rescore = False
@@ -138,8 +140,7 @@ def py():
   alt_decoder = True  # Whether to use different decoder hyperparameters for self-training
   tune_hyperparameters = False  # True  # Tune decoder hyperparameters in between self-training rounds
   # decoder_lm_config = {}                    # LM selection for decoding, empty for word-level 4-gram
-  decoder_lm_config = {"class": "FeedForwardLm",
-                       "context_size": 8}  # LM selection for decoding, empty for word-level 4-gram
+  decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8}  # LM selection for decoding, empty for word-level 4-gram
   # decoder_lm_config = {"class": "ngram", "order": 2} # LM selection for decoding, empty for word-level 4-gram
   use_recombination = True  # Use recombination during decoding (only albert-lm)
   recombine_blank = True  # Recombine sequences ending on blank with last seen same label (only albert-lm)
@@ -209,19 +210,19 @@ def py():
   )
   tk.register_output("hubert_repos", dl_hubert_large_60k.out_hub_cache_dir)
 
-  marten_baseline_config = {
+  marten_baseline_config_v1 = {
     "aux_loss": True,
     "model_config": {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
     "use_w2v_model": False,
     "epochs": None,
-    "lr_schedule_type": "static",
+    "lr_schedule_type": "static_oclr",
     "bs_feat": 15_000,
     "vocab": vocab,
     "with_prior": with_prior,
   }
 
-  wav2vec_config_v1 = dict_update_deep(
-    marten_baseline_config,
+  wav2vec_base_config_v1 = dict_update_deep(
+    marten_baseline_config_v1,
     {
       "aux_loss": False,
       "use_w2v_model": True,
@@ -232,24 +233,24 @@ def py():
     }
   )
 
-  wav2vec_config_v2 = dict_update_deep(
-    wav2vec_config_v1,
+  wav2vec_base_config_v2 = dict_update_deep(
+    wav2vec_base_config_v1,
     {
       "epochs": 20,
       "bs_feat": 20_000
     }
   )
 
-  wav2vec_config_v3 = dict_update_deep(
-    wav2vec_config_v1,
+  wav2vec_base_config_v3 = dict_update_deep(
+    wav2vec_base_config_v1,
     {
       "epochs": 16,
       "bs_feat": 20_000
     }
   )
 
-  wav2vec_config_v4 = dict_update_deep(
-    wav2vec_config_v1,
+  wav2vec_base_config_v4 = dict_update_deep(
+    wav2vec_base_config_v1,
     {
       "epochs": 16,
       "bs_feat": 20_000,
@@ -258,8 +259,41 @@ def py():
     }
   )
 
+  wav2vec_large_lv60_config_v1 = dict_update_deep(
+    wav2vec_base_config_v4,
+    {
+      "w2v_model": "large_60kh",
+      "w2v_config": "large-lv60",
+    }
+  )
+
+  wav2vec_large_lv60_config_v2 = dict_update_deep(
+    wav2vec_base_config_v4,
+    {
+      "w2v_model": "large_60kh",
+    }
+  )
+
+  wav2vec_large_lv60_config_v3 = dict_update_deep(
+    marten_baseline_config_v1,
+    {
+      "aux_loss": False,
+      "use_w2v_model": True,
+      "w2v_model": "large_60kh",
+      "w2v_config": "large-lv60",
+      "lr_schedule_type": "relative_oclr",
+      "bs_feat": 20_000,
+      "num_enc_layers": 10,
+      "num_gpus": 1,
+      "unfrozen_encoder_layers": [9],
+      "use_tensorboard": True,
+      "use_spec_augment": False,
+      "speed_pert": False,
+    }
+  )
+
   full_sum_config_v1 = dict_update_deep(
-    wav2vec_config_v3,
+    wav2vec_base_config_v3,
     {
       "epochs": 100,
       "train_lm_config": {"class": "ngram", "order": 2},
@@ -282,8 +316,68 @@ def py():
     }
   )
 
+  full_sum_config_v2 = dict_update_deep(
+    full_sum_config_v1,
+    {
+      "model_config.use_subsampled_enc_logits": True,
+      "empirical_prior": False,
+      "label_prior": False,
+      "accum_grad_multiple_step_init": 40,
+      "freeze_encoder_first_n_steps": 1_000_000,
+      "train_epoch_wise_filter": {
+        (1, 40): {"max_mean_len": 1000},
+      },
+      "epochs": 40,
+      "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+    }
+  )
+
+  full_sum_config_v2_long = dict_update_deep(
+    full_sum_config_v1,
+    {
+      "model_config.use_subsampled_enc_logits": True,
+      "empirical_prior": False,
+      "label_prior": False,
+      "accum_grad_multiple_step_init": 40,
+      "freeze_encoder_first_n_steps": 1_000_000,
+      "train_epoch_wise_filter": {
+        (1, 80): {"max_mean_len": 1000},
+      },
+      "epochs": 80,
+      "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+    }
+  )
+
+  full_sum_sup_init_config_v1 = dict_update_deep(
+    copy.deepcopy(full_sum_config_v2),
+    {
+      # wav2vec-large-lv60-v3/nep-{40}_sgpu_frz-enc-{1_000_000}_max-audio-len-1000
+      "custom_wav2vec_chkpt": "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.IkNlQT6YYyGw/output/models/epoch.040.pt",
+      "unfrozen_encoder_layers": [9],
+      "lr_schedule_type": "static",
+      "epochs": 5,
+      "accum_grad_multiple_step_init": 1,
+    },
+  )
+
+  full_sum_sup_init_config_v2 = dict_update_deep(
+    copy.deepcopy(full_sum_sup_init_config_v1),
+    {
+      "ignore_params_prefixes": ["enc_logits"],
+      "unfrozen_encoder_layers": None,
+      "scales_stop_grad": True,
+    },
+  )
+
+  full_sum_sup_init_config_v3 = dict_update_deep(
+    copy.deepcopy(full_sum_sup_init_config_v2),
+    {
+      "model_prior": {"type": "exp-moving-average", "alpha": 0.001}
+    },
+  )
+
   max_config_v1 = dict_update_deep(
-    wav2vec_config_v3,
+    wav2vec_base_config_v3,
     {
       "epochs": 100,
       "num_gpus": 1,
@@ -308,113 +402,149 @@ def py():
     }
   )
 
+  gradients_config_v1 = dict_update_deep(
+    wav2vec_base_config_v3,
+    {
+      "epochs": 100,
+      "num_gpus": 1,
+      "label_prior": False,
+      "empirical_prior": False,
+      "random_init": True,
+      "init": "100h-unsupervised",
+      # "decode_every_step_init": True,
+      # "pseudo_nbest_init": 1,
+      "num_enc_layers": 10,
+      "freeze_encoder_first_n_steps": 1_000_000,
+      "w2v_model": "large_60kh",
+      "w2v_config": "large-lv60",
+      "use_spec_augment": False,
+      "speed_pert": False,
+      "use_tensorboard": True,
+      "self_training_rounds": 4,
+      "decoding_imp": "gradients",
+      "alt_decoder": True,
+      "train_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      # "tune_hyperparameters": True,
+      "skip_init_train": True,
+      "pseudo_label_ds_str": "_train-clean-100-short"
+    }
+  )
+
   train_configs = [
     # marten ###########################
-    marten_baseline_config,
-    *[dict_update_deep(
-      marten_baseline_config,
+    (marten_baseline_config_v1, f"marten-baseline-v1/nep-{50}_mgpu-{4}"),
+    *[(dict_update_deep(
+      wav2vec_large_lv60_config_v3,
       {
-        "aux_loss": False,
-        "use_w2v_model": True,
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "epochs": n_epochs,
-        "lr_schedule_type": "relative_oclr",
-        "bs_feat": 20_000,
-        "num_enc_layers": 10,
-        "num_gpus": 1,
         "freeze_encoder_first_n_steps": freeze_steps,
-        "unfrozen_encoder_layers": [9],
-        "use_tensorboard": True,
         "train_epoch_wise_filter": {
           (1, n_epochs): {"max_mean_len": 1000},
         },
-        "use_spec_augment": False,
-        "speed_pert": False,
+        "unfrozen_encoder_layers": unfrz_layers,
+        "num_enc_layers": n_enc,
       }
-    ) for freeze_steps, n_epochs in [
-      (1_000_000, 20),
-      (1_000_000, 40),
-      (0, 20),
+    ), (
+      f"wav2vec-large-lv60-v3/nep-{n_epochs}_sgpu_n-enc-{n_enc}_frz-enc-{freeze_steps}-unfrz-{unfrz_layers}_max-audio-len-1000"
+    )) for freeze_steps, n_epochs, unfrz_layers, n_enc in [
+      (1_000_000, 20, [9], 10),
+      (1_000_000, 40, [9], 10),
+      (1_000_000, 100, [9], 10),
+      (1_000_000, 40, [9, 10], 11),
+      (0, 20, [9], 10),
+    ]],
+    *[(dict_update_deep(
+      wav2vec_large_lv60_config_v3,
+      {
+        "epochs": n_epochs,
+        "freeze_encoder_first_n_steps": 1_000_000,
+        "model_config.use_subsampled_enc_logits": True,
+        "train_epoch_wise_filter": {
+          (1, n_epochs): {"max_mean_len": 1000},
+        },
+        "unfrozen_encoder_layers": unfrz_layers,
+        "num_enc_layers": n_enc,
+      }
+    ), (
+      f"wav2vec-large-lv60-v3/nep-{n_epochs}_sgpu_n-enc-{n_enc}_frz-enc-{1_000_000}-unfrz-{unfrz_layers}_ss-enc_max-audio-len-1000"
+    )) for n_epochs, unfrz_layers, n_enc in [
+      (40, [9], 10),
+      (80, [9], 10),
+      (40, [10], 11),
+      (40, [8, 9], 10),
     ]],
     # wav2vec-base ###########################
     # uses all encoder layers
-    wav2vec_config_v1,
+    (wav2vec_base_config_v1, f"wav2vec-base-v1/nep-{16}_mgpu-{4}"),
     # uses only first 8 encoder layers
-    *[dict_update_deep(
-      wav2vec_config_v1,
+    *[(dict_update_deep(
+      wav2vec_base_config_v1,
       {"num_enc_layers": n}
-    ) for n in [8, 9, 10, 11]],
+    ), (
+      f"wav2vec-base-v1/nep-{16}_mgpu-{4}_n-enc-layers-{n}"
+    )) for n in [8, 9, 10, 11]],
     # similar settings as Marten's baseline
-    dict_update_deep(
-      wav2vec_config_v1,
+    (dict_update_deep(
+      wav2vec_base_config_v1,
       {
         "freeze_encoder_first_n_steps": 0,
-        "epochs": None,
-        "lr_schedule_type": "static",
+        "epochs": 50,
+        "lr_schedule_type": "static_oclr",
       }
-    ),
-    wav2vec_config_v2,
-    wav2vec_config_v3,
-    wav2vec_config_v4,
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    ), f"wav2vec-base-v1/nep-{50}_mgpu-{4}_oclr-static"),
+    (wav2vec_base_config_v2, f"wav2vec-base-v2/nep-{20}_mgpu-{4}"),
+    (wav2vec_base_config_v3, f"wav2vec-base-v3/nep-{16}_mgpu-{4}"),
+    (wav2vec_base_config_v4, f"wav2vec-base-v4/nep-{16}_mgpu-{4}"),
+    (dict_update_deep(
+      copy.deepcopy(wav2vec_base_config_v4),
       {
         "enc_logits_n_layers": 2,
       }
-    ),
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    ), f"wav2vec-base-v4/nep-{16}_mgpu-{4}_enc-log-n-lay-{2}"),
+    (dict_update_deep(
+      copy.deepcopy(wav2vec_base_config_v4),
       {
         "enc_logits_n_layers": 2,
         "freeze_encoder_first_n_steps": 10_000,
       }
-    ),
+    ), f"wav2vec-base-v4/nep-{16}_mgpu-{4}_enc-log-n-lay-{2}_frz-enc-{10_000}"),
     # wav2vec-large lv60 config ###########################
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    (wav2vec_large_lv60_config_v1, f"wav2vec-large-lv60-v1/nep-{16}_mgpu-{4}"),
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
-      }
-    ),
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
-      {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "epochs": n_epochs,
       }
-    ) for n_epochs in (20, 30)],
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{n_epochs}_mgpu-{4}"
+    )) for n_epochs in (20, 30)],
     # test sup. char CTC performance on different number of layers when also training Transformer encoder
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "num_enc_layers": n,
         "num_gpus": 1,
         "train_epoch_wise_filter": None,
       }
-    ) for n in range(15, 25)],
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{16}_sgpu-n-enc-layers-{n}_no-ep-filter"
+    )) for n in range(15, 25)],
     # test sup. char and bpe128 CTC performance on different number of layers when not training Transformer encoder
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "num_enc_layers": n,
         "vocab": vocab_,
         "num_gpus": 1,
         "train_epoch_wise_filter": None,
         "freeze_encoder_first_n_steps": 1_000_000,  # just set very large so that encoder remains frozen for whole training
       }
-    ) for n in range(15, 25) for vocab_ in ["bpe128", "char"]],
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{16}_sgpu-n-enc-layers-{n}_frz-enc_vocab-{vocab_}_no-ep-filter"
+    )) for n in range(15, 25) for vocab_ in ["bpe128", "char"]],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "num_enc_layers": 10,
         "vocab": "bpe128",
         "train_epoch_wise_filter": None,
@@ -422,13 +552,13 @@ def py():
         "epochs": n_epochs,
         # just set very large so that encoder remains frozen for whole training
       }
-    ) for n_epochs in (30, 60)],
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{n_epochs}_mgpu-{4}-n-enc-layers-{10}_vocab-{'bpe128'}_frz-enc_no-ep-filter"
+    )) for n_epochs in (30, 60)],
     # ----------------------- only freeze first N-1 layers -------------------------------
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    (dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "num_enc_layers": 10,
         "vocab": "bpe128",
         "train_epoch_wise_filter": None,
@@ -437,12 +567,12 @@ def py():
         "num_gpus": 1,
         "unfrozen_encoder_layers": [9],
       }
-    ),
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{20}_sgpu-n-enc-layers-{10}_vocab-{'bpe128'}_frz-enc-unfrz-{[9]}_no-ep-filter"
+    )),
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "num_enc_layers": n,
         "vocab": vocab_,
         "num_gpus": 1,
@@ -450,396 +580,413 @@ def py():
         "freeze_encoder_first_n_steps": 1_000_000,
         # just set very large so that encoder remains frozen for whole training
       }
-    ) for n in range(2, 15) for vocab_ in ["bpe128"]],
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{16}_sgpu-n-enc-layers-{n}_vocab-{vocab_}_frz-enc_no-ep-filter"
+    )) for n in range(2, 15) for vocab_ in ["bpe128"]],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
       {
-        "w2v_model": "large_60kh",
-        "w2v_config": "large-lv60",
         "bs_feat": bs_feat_,
         "peak_lr": 2e-5,
       }
-    ) for bs_feat_ in [8_000, 20_000]],
+    ), (
+      f"wav2vec-large-lv60-v1/nep-{16}_mgpu-{4}-bs-feat-{bs_feat_}_peak-lr-{2e-5}_no-ep-filter"
+    )) for bs_feat_ in [8_000, 20_000]],
     # wav2vec-large config -> 100% WER in all cases ###########################
-    *[dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v2),
       {
-        "w2v_model": "large_60kh",
         "bs_feat": 8_000,
         "peak_lr": peak_lr,
         "epochs": 9,
       }
-    ) for peak_lr in [2e-5, 3e-5]],
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
+    ), (
+      f"wav2vec-large-lv60-v2/nep-{9}_mgpu-{4}-bs-feat-{8_000}_peak-lr-{peak_lr}_no-ep-filter"
+    )) for peak_lr in [2e-5, 3e-5]],
+    (dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v2),
       {
-        "w2v_model": "large_60kh",
         "bs_feat": 8_000,
         "peak_lr": 2e-5,
         "epochs": 9,
         "lr_schedule_type": "relative_oclr_const",
       }
-    ),
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v4),
-      {
-        "w2v_model": "large_60kh",
-      }
-    ),
-    full_sum_config_v1,
-    dict_update_deep(
+    ), (
+      f"wav2vec-large-lv60-v2/nep-{9}_mgpu-{4}-bs-feat-{8_000}_peak-lr-{2e-5}_no-ep-filter_oclr_const"
+    )),
+    (wav2vec_large_lv60_config_v2, f"wav2vec-large-lv60-v2/nep-{16}_mgpu-{4}"),
+    (full_sum_config_v1, f"full-sum-v1/nep-{100}_sgpu_am-{0.1}-lm-{1.5}-prior-{0.4}"),
+    (dict_update_deep(
       copy.deepcopy(full_sum_config_v1),
       {
-        # "blank_penalty_opts": {"target_mean_blank_prob": 2 / 3},
         "freeze_encoder_first_n_steps": 0,
       }
-    ),
-    # *[dict_update_deep(
+    ), f"full-sum-v1/nep-{100}_sgpu_no-frz_am-{0.1}-lm-{1.5}-prior-{0.4}"),
+    # ----------------------- blank penalty -------------------------------
+    # *[(dict_update_deep(
     #   copy.deepcopy(full_sum_config_v1),
     #   {
     #     "blank_penalty_opts": {"blank_penalty": bp},
     #     "freeze_encoder_first_n_steps": 0,
     #   }
-    # ) for bp in (10.0, 20.0, 40.0, 80.0)],
-    # dict_update_deep(
+    # ), (
+    #   f"full-sum-v1/nep-{100}_sgpu_no-frz_bp-{bp}_am-{0.1}-lm-{1.5}-prior-{0.4}"
+    # )) for bp in (10.0, 20.0, 40.0, 80.0)],
+    # ----------------------- collapse logits + subsample encoder -------------------------------
+    # (dict_update_deep(
     #   copy.deepcopy(full_sum_config_v1),
     #   {
     #     "model_config.use_subsampled_enc_logits": True,
     #     "collapse_logits_segments": True,
     #   }
-    # ),
+    # ), f"full-sum-v1/nep-{100}_sgpu_ss-logits_coll-seg_am-{0.1}-lm-{1.5}-prior-{0.4}"),
     # ----------------------- Different LM scales -------------------------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
         "am_lm_prior_full_sum_init": (0.1, lm_scale, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
-    ) for lm_scale in (
-      0.5,
-      0.7, 0.9,
-      1.1, 1.3, 1.5
-    )],
+    ), (
+      f"full-sum-v2/nep-{40}_sgpu_am-{0.1}-lm-{lm_scale}-prior-{0.4}"
+    )) for lm_scale in (0.5, 0.7, 0.9, 1.1, 1.3, 1.5)],
     # ----------------------- Different AM scales -------------------------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
         "am_lm_prior_full_sum_init": (am_scale, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
-    ) for am_scale in (
-      0.1,
-      0.3, 0.5
-    )],
+    ), (
+      f"full-sum-v2/nep-{40}_sgpu_am-{am_scale}-lm-{1.5}-prior-{0.4}"
+    )) for am_scale in (0.1, 0.3, 0.5)],
     # ----------------------- Different prior scales -------------------------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
         "am_lm_prior_full_sum_init": (0.1, 1.5, prior_scale),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
-    ) for prior_scale in (0.0, 0.2, 0.4, 0.6, 0.8)
+    ), (
+      f"full-sum-v2/nep-{100}_sgpu_am-{0.1}-lm-{1.5}-prior-{prior_scale}"
+    )) for prior_scale in (0.0, 0.2, 0.4, 0.6, 0.8)
     ],
     # ----------------------- Different random seeds -------------------------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
         "random_seed": rand_seed,
       }
-    ) for rand_seed in [None, 1234]],
+    ), (
+      f"full-sum-v2/nep-{100}_sgpu_am-{0.1}-lm-{1.5}-prior-{0.4}_rnd-sd-{rand_seed}"
+    )) for rand_seed in [None, 1234]],
     # ----------------------- longer training -------------------------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    (full_sum_config_v2_long, (
+      f"full-sum-v2/nep-{80}_sgpu_am-{0.1}-lm-{1.5}-prior-{0.4}"
+    )),
+    # ----------------------- custom_wav2vec_chkpt -----------------------
+    (dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
+        "custom_wav2vec_chkpt": "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.IkNlQT6YYyGw/output/models/epoch.040.pt",
+        "unfrozen_encoder_layers": [9],
+      },
+    ), (
+         f"full-sum-v2/nep-{40}_sgpu_am-{0.1}-lm-{1.5}-prior-{0.4}_cstm-chkpt_unfrz-enc-lay-{[9]}"
+     )),
+    # TODO: i forgot to also update the epoch wise filter when changing the epoch - does not matter as long as num_epochs <= 40
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_sup_init_config_v1),
+      {
+        "epochs": n_epochs,
+        "accum_grad_multiple_step_init": accum_grad,
+        "am_lm_prior_full_sum_init": (am_scale, lm_scale, prior_scale),
+        "peak_lr": peak_lr,
+        "scales_stop_grad": scales_stop_grad,
+      },
+    ), (
+      f"full-sum-sup-init-v1/nep-{n_epochs}_sgpu_am-{am_scale}-lm-{lm_scale}-prior-{prior_scale}_accum-{accum_grad}_lr-{peak_lr}_sg-{scales_stop_grad}"
+    )) for n_epochs, am_scale, lm_scale, prior_scale, accum_grad, peak_lr, scales_stop_grad in [
+      # no stop grad
+      (1, 0.1, 1.5, 0.4, 1, 1e-4, False),
+      (1, 0.1, 0.5, 0.4, 1, 1e-4, False),
+      (1, 0.1, 0.1, 0.4, 1, 1e-4, False),
+      (1, 0.1, 0.1, 0.1, 1, 1e-4, False),
+      (1, 0.1, 0.0, 0.0, 1, 1e-4, False),
+      (1, 0.2, 0.1, 0.4, 1, 1e-4, False),
+      (1, 0.4, 0.1, 0.4, 1, 1e-4, False),
+      # with stop grad
+      (1, 0.1, 1.5, 0.4, 1, 1e-4, True),
+      (1, 0.1, 0.5, 0.4, 1, 1e-4, True),
+      (1, 0.1, 0.1, 0.4, 1, 1e-4, True),
+      (1, 0.1, 0.1, 0.1, 1, 1e-4, True),
+      # stop grad + lower peak lr
+      (1, 0.1, 1.5, 0.4, 1, 1e-5, True),
+      (1, 0.1, 1.5, 0.4, 1, 5e-6, True),
+      (1, 0.1, 1.5, 0.4, 1, 1e-6, True),
+      # stop grad + lower peak lr + diff scales
+      (1, 0.1, 0.5, 0.4, 1, 1e-6, True),
+      (1, 0.2, 0.5, 0.4, 1, 1e-6, True),
+      (1, 0.5, 0.5, 0.4, 1, 1e-6, True),
+      (1, 0.8, 0.5, 0.4, 1, 1e-6, True),
+      (1, 1.0, 0.5, 0.4, 1, 1e-6, True),
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_sup_init_config_v2),
+      {
+        "epochs": n_epochs,
+        "accum_grad_multiple_step_init": accum_grad,
+        "am_lm_prior_full_sum_init": (am_scale, lm_scale, prior_scale),
+        "peak_lr": peak_lr,
+        "lr_schedule_type": lr_schedule_type,
+      },
+    ), (
+         f"full-sum-sup-init-v2/nep-{n_epochs}_sgpu_am-{am_scale}-lm-{lm_scale}-prior-{prior_scale}_accum-{accum_grad}_lr-{peak_lr}-sched-{lr_schedule_type}"
+       )) for n_epochs, am_scale, lm_scale, prior_scale, accum_grad, peak_lr, lr_schedule_type in [
+      # stop grad + lower peak lr + diff scales
+      (1, 1.0, 0.5, 0.4, 1, 5e-6, "static"),
+      (1, 1.0, 0.5, 0.4, 1, 1e-5, "static"),
+      (1, 1.0, 0.5, 0.4, 1, 1e-4, "static"),
+      (1, 0.1, 0.5, 0.4, 1, 5e-6, "static"),
+      (1, 0.1, 0.5, 0.4, 1, 1e-5, "static"),
+      (1, 0.1, 0.5, 0.4, 1, 1e-4, "static"),
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_sup_init_config_v3),
+      {
+        "epochs": n_epochs,
+        "accum_grad_multiple_step_init": accum_grad,
+        "am_lm_prior_full_sum_init": (am_scale, lm_scale, prior_scale),
+        "peak_lr": peak_lr,
+        "lr_schedule_type": lr_schedule_type,
         "train_epoch_wise_filter": {
           (1, n_epochs): {"max_mean_len": 1000},
         },
+        "blank_penalty_opts": blank_penalty_opts
+      },
+      [
+        "train_epoch_wise_filter"
+      ]
+    ), (
+         f"full-sum-sup-init-v3/nep-{n_epochs}_sgpu_am-{am_scale}-lm-{lm_scale}-prior-{prior_scale}_accum-{accum_grad}_lr-{peak_lr}-sched-{lr_schedule_type}{'_bp-' + str(blank_penalty_opts['blank_penalty']) if blank_penalty_opts else ''}"
+       )) for n_epochs, am_scale, lm_scale, prior_scale, accum_grad, peak_lr, lr_schedule_type, blank_penalty_opts in [
+      # stop grad + lower peak lr + diff scales
+      (1, 0.1, 0.5, 0.4, 1, 1e-4, "static", None),
+      (5, 0.1, 0.5, 0.4, 1, 1e-4, "static", None),
+      (5, {"steps": [500, 1_500], "values": [0.1, 0.1, 0.4]}, 0.5, 0.4, 1, 1e-4, "static", None),
+      (5, {"steps": [500, 1_500], "values": [0.1, 0.1, 0.4]}, 0.5, {"steps": [500, 1_500], "values": [0.4, 0.4, 0.8]}, 1, 1e-4, "static", None),
+      (5, 0.1, 0.5, 0.4, 10, 1e-4, "static", None),
+      (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", None),
+      (50, 0.1, 0.5, 0.4, 10, 1e-5, "static", None),
+      (100, 0.1, 0.5, 0.4, 10, 1e-5, "static", None),
+      (5, 0.1, 0.5, 0.4, 40, 1e-4, "static", None),
+      # higher lm scale
+      (10, 0.1, 1.0, 0.4, 1, 1e-4, "static", None),
+      (10, 0.1, 1.5, 0.4, 1, 1e-4, "static", None),
+      # higher prior scale
+      (10, 0.1, 0.5, 0.6, 1, 1e-4, "static", None),
+      (10, 0.1, 0.5, 0.8, 1, 1e-4, "static", None),
+      # (100, 0.1, 0.5, 0.8, 1, 1e-4, "static", None),  # leads to all blank
+      # (100, 0.1, 0.5, 0.8, 1, 5e-5, "static", None),  # leads to all blank
+      # blank penalty
+      (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 5.0}),
+      (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 2.0}),
+      # (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 1.0}),  # leads to all blank
+      # (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 0.5}),  # leads to all blank
+      (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 1.2}),
+      (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 1.5}),
+      (50, 0.1, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 1.7}),
+      # blank penalty + larger am scale
+      (50, 0.2, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 2.0}),
+      (50, {"steps": [5_000], "values": [0.1, 0.2]}, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 2.0}),
+      (50, {"steps": [5_000], "values": [0.1, 0.3]}, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 2.0}),
+      (50, {"steps": [5_000], "values": [0.1, 0.4]}, 0.5, 0.4, 10, 1e-4, "static", {"blank_penalty": 2.0}),
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(full_sum_sup_init_config_v3),
+      {
         "epochs": n_epochs,
-        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ) for n_epochs in (80,)],
-    # ----------------------- freeze encoder -------------------------------
-    dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
+        "accum_grad_multiple_step_init": accum_grad,
+        "am_lm_prior_full_sum_init": (am_scale, lm_scale, prior_scale),
+        "peak_lr": peak_lr,
+        "lr_schedule_type": lr_schedule_type,
         "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
+          (1, n_epochs): {"max_mean_len": 1000},
         },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ),
-    # ----------------------- freeze encoder + longer training + larger prior + diff AM sched. ------------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 80): {"max_mean_len": 1000},
-        },
-        "epochs": 80,
-        "am_lm_prior_full_sum_init": (am_scale, 1.5, prior_scale),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ) for am_scale, prior_scale in [
-      (0.1, 0.8),
-      ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, 0.8),
-      ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, {"steps": [8_000, 10_000], "values": [0.8, 0.8, 1.0]}),
+        "blank_penalty_opts": blank_penalty_opts,
+        "decoding_imp": "albert-lm",
+      },
+      [
+        "train_epoch_wise_filter"
+      ]
+    ), (
+         f"full-sum-sup-init-v3/nep-{n_epochs}_sgpu_am-{am_scale}-lm-{lm_scale}-prior-{prior_scale}_accum-{accum_grad}_lr-{peak_lr}-sched-{lr_schedule_type}{'_bp-' + str(blank_penalty_opts['blank_penalty']) if blank_penalty_opts else ''}"
+       )) for n_epochs, am_scale, lm_scale, prior_scale, accum_grad, peak_lr, lr_schedule_type, blank_penalty_opts in [
+      # higher prior scale
+      (10, 0.1, 0.5, 0.8, 1, 1e-4, "static", None),
     ]],
     # ----------------------- freeze encoder + prior gradient -------------------------------
-    dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    (dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
         "prior_no_grad": False,
       }
-    ),
-    # ----------------------- longer training + frz encoder + different AM schedules + smaller LM scale --------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
+    ), f"full-sum-v2/nep-{40}_sgpu_am-{0.1}-lm-{1.5}-prior-{0.4}_prior-grad"),
+    (dict_update_deep(
+      copy.deepcopy(full_sum_config_v2),
       {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 80): {"max_mean_len": 1000},
-        },
-        "epochs": 80,
-        "am_lm_prior_full_sum_init": (am_scale, 0.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ) for am_scale in [
-      0.1,
-      {"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]},
-      {"steps": [8_000, 20_000], "values": [0.1, 0.1, 0.2]},
-      {"steps": [8_000, 30_000], "values": [0.1, 0.1, 0.2]},
-    ]],
-    # ----------------------- longer training + frz encoder + different AM schedules + larger LM scale --------------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 80): {"max_mean_len": 1000},
-        },
-        "epochs": 80,
-        "am_lm_prior_full_sum_init": (am_scale, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ) for am_scale in [
-      0.1,
-      {"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]},
-      {"steps": [8_000, 20_000], "values": [0.1, 0.1, 0.2]},
-      {"steps": [8_000, 30_000], "values": [0.1, 0.1, 0.2]},
-    ]],
-    # ----------------------- longer training + frz encoder + different AM schedules + different LM schedules -------
-    *[dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        # "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 80): {"max_mean_len": 1000},
-        },
-        "epochs": 80,
-        "am_lm_prior_full_sum_init": (am_scale, lm_scale, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ) for am_scale, lm_scale in [
-      (
-        {"steps": [10_000, 15_000, 20_000, 25_000, 28_000], "values": [0.5, 0.5, 0.1, 0.5, 0.1, 0.5]},
-        {"steps": [10_000, 15_000, 20_000, 25_000, 28_000], "values": [1.5, 1.5, 0.5, 1.5, 0.5, 1.5]}
-      ),
-    ]],
-    # ----------------------- custom_wav2vec_chkpt -----------------------
-    dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": (1.0, 0.5, 0.8),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-        "custom_wav2vec_chkpt": "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.T7SfxDy1lwig/output/models/epoch.020.pt",
-      }
-    ),
-    dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
-      }
-    ),
-    dict_update_deep(
-      copy.deepcopy(full_sum_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
         "collapse_logits_segments": True,
-        "empirical_prior": False,
-        "label_prior": False,
-        "accum_grad_multiple_step_init": 40,
-        # "blank_penalty_opts": {"blank_penalty": 5.0},
-        "freeze_encoder_first_n_steps": 1_000_000,
-        "train_epoch_wise_filter": {
-          (1, 40): {"max_mean_len": 1000},
-        },
-        "epochs": 40,
-        "am_lm_prior_full_sum_init": (0.1, 1.5, 0.4),
-        "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       }
-    ),
-    dict_update_deep(
-      copy.deepcopy(max_config_v1),
-      {
-        "model_config.use_subsampled_enc_logits": True,
-        "accum_grad_multiple_step_init": 40,
-        "train_epoch_wise_filter": {
-          (1, 10): {"max_mean_len": 1000},
-        },
-        "epochs": 10,
-        "self_training_rounds": 4,
-      }
-    ),
-    # <warning component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder.orthographic-parser">
-    #   substituting unknown word "ILLUMINANTS " with "[UNKNOWN]"
-    # </warning>
-    # <critical-error component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder">
-    #   lemma-pronuncation graph is empty. Probably the current sentence contains a word that has no pronunciation.
-    dict_update_deep(
-      copy.deepcopy(wav2vec_config_v3),
-      {
-        "sup_loss": "post-hmm-fs",
-        "num_gpus": 1,
-      }
-    ),
-    # dict_update_deep(
-    #   copy.deepcopy(marten_baseline_config),
+    ), f"full-sum-v2/nep-{40}_sgpu_am-{0.1}-lm-{1.5}-prior-{0.4}_coll-seg"),
+    # TODO: need to add an alias for scheduled scales
+    # # ----------------------- freeze encoder + longer training + larger prior + diff AM sched. ------------------
+    # *[(dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v2_long),
     #   {
-    #     "sup_loss": "post-hmm-fs",
+    #     "am_lm_prior_full_sum_init": (am_scale, 1.5, prior_scale),
     #   }
-    # ),
+    # ), (
+    #   f"full-sum-v2/nep-{80}_sgpu_am-{am_scale}-lm-{1.5}-prior-{prior_scale}"
+    # )) for am_scale, prior_scale in [
+    #   (0.1, 0.8),
+    #   ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, 0.8),
+    #   ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, {"steps": [8_000, 10_000], "values": [0.8, 0.8, 1.0]}),
+    # ]],
+    # TODO: need to add an alias for scheduled scales
+    # # ----------------------- longer training + frz encoder + different AM schedules + smaller LM scale --------------
+    # *[dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v1),
+    #   {
+    #     "model_config.use_subsampled_enc_logits": True,
+    #     # "collapse_logits_segments": True,
+    #     "empirical_prior": False,
+    #     "label_prior": False,
+    #     "accum_grad_multiple_step_init": 40,
+    #     # "blank_penalty_opts": {"blank_penalty": 5.0},
+    #     "freeze_encoder_first_n_steps": 1_000_000,
+    #     "train_epoch_wise_filter": {
+    #       (1, 80): {"max_mean_len": 1000},
+    #     },
+    #     "epochs": 80,
+    #     "am_lm_prior_full_sum_init": (am_scale, 0.5, 0.4),
+    #     "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+    #   }
+    # ) for am_scale in [
+    #   0.1,
+    #   {"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]},
+    #   {"steps": [8_000, 20_000], "values": [0.1, 0.1, 0.2]},
+    #   {"steps": [8_000, 30_000], "values": [0.1, 0.1, 0.2]},
+    # ]],
+    # TODO: need to add an alias for scheduled scales
+    # # ----------------------- longer training + frz encoder + different AM schedules + larger LM scale --------------
+    # *[dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v1),
+    #   {
+    #     "model_config.use_subsampled_enc_logits": True,
+    #     # "collapse_logits_segments": True,
+    #     "empirical_prior": False,
+    #     "label_prior": False,
+    #     "accum_grad_multiple_step_init": 40,
+    #     # "blank_penalty_opts": {"blank_penalty": 5.0},
+    #     "freeze_encoder_first_n_steps": 1_000_000,
+    #     "train_epoch_wise_filter": {
+    #       (1, 80): {"max_mean_len": 1000},
+    #     },
+    #     "epochs": 80,
+    #     "am_lm_prior_full_sum_init": (am_scale, 1.5, 0.4),
+    #     "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+    #   }
+    # ) for am_scale in [
+    #   0.1,
+    #   {"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]},
+    #   {"steps": [8_000, 20_000], "values": [0.1, 0.1, 0.2]},
+    #   {"steps": [8_000, 30_000], "values": [0.1, 0.1, 0.2]},
+    # ]],
+    # TODO: need to add an alias for scheduled scales
+    # # ----------------------- longer training + frz encoder + different AM schedules + different LM schedules -------
+    # *[dict_update_deep(
+    #   copy.deepcopy(full_sum_config_v1),
+    #   {
+    #     "model_config.use_subsampled_enc_logits": True,
+    #     # "collapse_logits_segments": True,
+    #     "empirical_prior": False,
+    #     "label_prior": False,
+    #     "accum_grad_multiple_step_init": 40,
+    #     # "blank_penalty_opts": {"blank_penalty": 5.0},
+    #     "freeze_encoder_first_n_steps": 1_000_000,
+    #     "train_epoch_wise_filter": {
+    #       (1, 80): {"max_mean_len": 1000},
+    #     },
+    #     "epochs": 80,
+    #     "am_lm_prior_full_sum_init": (am_scale, lm_scale, 0.4),
+    #     "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+    #   }
+    # ) for am_scale, lm_scale in [
+    #   (
+    #     {"steps": [10_000, 15_000, 20_000, 25_000, 28_000], "values": [0.5, 0.5, 0.1, 0.5, 0.1, 0.5]},
+    #     {"steps": [10_000, 15_000, 20_000, 25_000, 28_000], "values": [1.5, 1.5, 0.5, 1.5, 0.5, 1.5]}
+    #   ),
+    # ]],
+    # TODO: need to add an alias for scheduled scales
     # dict_update_deep(
     #   copy.deepcopy(full_sum_config_v1),
     #   {
-    #     # "blank_penalty_opts": {"target_mean_blank_prob": 2 / 3},
+    #     "model_config.use_subsampled_enc_logits": True,
+    #     "empirical_prior": False,
+    #     "label_prior": False,
+    #     "accum_grad_multiple_step_init": 40,
     #     "freeze_encoder_first_n_steps": 1_000_000,
-    #     "vocab": "phon",
-    #     "num_enc_layers": 15,
+    #     "train_epoch_wise_filter": {
+    #       (1, 40): {"max_mean_len": 1000},
+    #     },
+    #     "epochs": 40,
+    #     "am_lm_prior_full_sum_init": ({"steps": [8_000, 10_000], "values": [0.1, 0.1, 0.2]}, 1.5, 0.4),
+    #     "rescore_lm_config": {"class": "FeedForwardLm", "context_size": 8},
     #   }
     # ),
+    # dict_update_deep(
+    #   copy.deepcopy(max_config_v1),
+    #   {
+    #     "model_config.use_subsampled_enc_logits": True,
+    #     "accum_grad_multiple_step_init": 40,
+    #     "train_epoch_wise_filter": {
+    #       (1, 10): {"max_mean_len": 1000},
+    #     },
+    #     "epochs": 10,
+    #     "self_training_rounds": 4,
+    #   }
+    # ),
+    # # <warning component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder.orthographic-parser">
+    # #   substituting unknown word "ILLUMINANTS " with "[UNKNOWN]"
+    # # </warning>
+    # # <critical-error component="lib-rasr.alignment-fsa-exporter.allophone-state-graph-builder">
+    # #   lemma-pronuncation graph is empty. Probably the current sentence contains a word that has no pronunciation.
+    # dict_update_deep(
+    #   copy.deepcopy(wav2vec_config_v3),
+    #   {
+    #     "sup_loss": "post-hmm-fs",
+    #     "num_gpus": 1,
+    #   }
+    # ),
+    # # dict_update_deep(
+    # #   copy.deepcopy(marten_baseline_config),
+    # #   {
+    # #     "sup_loss": "post-hmm-fs",
+    # #   }
+    # # ),
+    # # dict_update_deep(
+    # #   copy.deepcopy(full_sum_config_v1),
+    # #   {
+    # #     # "blank_penalty_opts": {"target_mean_blank_prob": 2 / 3},
+    # #     "freeze_encoder_first_n_steps": 1_000_000,
+    # #     "vocab": "phon",
+    # #     "num_enc_layers": 15,
+    # #   }
+    # # ),
   ]
 
-  for train_config in train_configs:
+  train_configs = [
+    (gradients_config_v1, "gradients-v1/base"),
+  ]
+
+  for train_config, alias_name in train_configs:
     config = copy.deepcopy(config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4)
     config_updates = {}
 
@@ -864,6 +1011,23 @@ def py():
     decoding_imp = train_config.get("decoding_imp", "albert-greedy")
     if not init.endswith("unsupervised"):
       decode_every_step_init = False
+    skip_init_train = train_config.get("skip_init_train", False)
+    pseudo_label_ds_str = train_config.get("pseudo_label_ds_str", "960h")
+
+    scales_stop_grad = train_config.get("scales_stop_grad", False)
+    if scales_stop_grad:
+      config_updates["scales_stop_grad"] = scales_stop_grad
+
+    model_prior = train_config.get("model_prior", {"type": "batch-wise"})
+    if not empirical_prior:
+      assert model_prior["type"] in ["exp-moving-average", "batch-wise"]
+      if model_prior["type"] == "exp-moving-average":
+        # quick hack: to avoid rerunning many greedy decoding jobs, just set the "model_prior" in the model_config
+        # in case the prior is used in recog. otherwise, just set it for the train config (config_updates)
+        if decoding_imp == "albert-greedy":
+          config_updates["model_prior"] = model_prior
+        else:
+          model_config["model_prior"] = model_prior
 
     start_with_prior_gamma_steps = train_config.get("start_with_prior_gamma_steps", 0)
     pseudo_nbest_init = train_config.get("pseudo_nbest_init", 1)
@@ -888,7 +1052,8 @@ def py():
     blank_penalty_opts = train_config.get("blank_penalty_opts", {})
     if blank_penalty_opts:
       assert len(blank_penalty_opts) == 1 and "blank_penalty" in blank_penalty_opts
-      config_updates["blank_penalty_opts"] = blank_penalty_opts
+      # config_updates["blank_penalty_opts"] = blank_penalty_opts
+      model_config["blank_penalty_opts"] = blank_penalty_opts
 
     prior_penalty_opts = train_config.get("prior_penalty_opts", {})
     if prior_penalty_opts:
@@ -908,11 +1073,6 @@ def py():
     if not prior_no_grad:
       config_updates["prior_no_grad"] = False
 
-    # use_subsampled_enc_logits = train_config.get("use_subsampled_enc_logits", False)
-    use_subsampled_enc_logits = model_config.get("use_subsampled_enc_logits", False)
-    # if use_subsampled_enc_logits:
-    #   config_updates["use_subsampled_enc_logits"] = True
-
     collapse_logits_segments = train_config.get("collapse_logits_segments", False)
     if collapse_logits_segments:
       config_updates["collapse_logits_segments"] = True
@@ -929,10 +1089,26 @@ def py():
     post_config_updates = {}
 
     # limit number of recog epochs for these models
-    if vocab != "char" and init == "100h-supervised":
+    if (vocab != "char" and init == "100h-supervised") or "full-sum-sup-init" in alias_name:
       post_config_updates["cleanup_old_models.keep"] = [epochs]
 
     if lr_schedule_type == "static":
+      lr_config = {
+        "learning_rate": peak_lr,
+        "batch_size": bs_feat * _batch_size_factor,
+        "__num_epochs": epochs,
+      }
+      config.pop("dynamic_learning_rate", None)
+      config.pop("learning_rate_warmup_steps", None)
+      config.pop("learning_rate_invsqrt_norm", None)
+    elif lr_schedule_type == "lin_warmup_invsqrt_decay":
+      lr_config = _get_cfg_lrlin_invsqrt_decay(
+        epochs,
+        base_lr=peak_lr,
+        learning_rate_warmup_steps=100,
+        learning_rate_invsqrt_norm=100,
+      )
+    elif lr_schedule_type == "static_oclr":
       lr_config = _get_cfg_lrlin_oclr_by_bs_nep(bs_feat, epochs)
     else:
       # TODO: hard code values for now, change later
@@ -955,7 +1131,7 @@ def py():
         self_epochs = 56
         # self_epochs = 2
       else:
-        if pseudo_label_small:
+        if pseudo_label_ds_str == "860h":
           epoch_dict = {1: 450, 2: 225, 4: 113, 6: 75, 8: 56, 10: 45, 25: 18, 50: 9}
         else:
           epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50, 25: 20, 50: 10}
@@ -967,13 +1143,14 @@ def py():
       decoder_hyperparameters = {
         "greedy": True
       }
-      decoding_str = "-recog_greedy"
+      # decoding_str = "-recog_greedy"
       if with_prior:
         decoder_hyperparameters["prior_weight"] = 0.2
-        decoding_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + (
-          "-emp" if empirical_prior else "")
+        # decoding_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + (
+        #   "-emp" if empirical_prior else "")
     elif decoding_imp == "albert-greedy":
-      decoding_str = "-recog_albert"
+      # decoding_str = "-recog_albert"
+      pass
     elif decoding_imp.endswith("flashlight") or decoding_imp == "albert-lm" or decoding_imp == "gradients":
       decoder_hyperparameters = {
         "log_add": False,
@@ -1000,7 +1177,7 @@ def py():
               decoder_hyperparameters["recomb_after_topk"] = True
             if recombine_with_sum:
               decoder_hyperparameters["recomb_with_sum"] = True
-      if decode_every_step or pseudo_nbest > 1 or decode_every_step_init or use_sum_criterion:
+      if decode_every_step or pseudo_nbest > 1 or decode_every_step_init or use_sum_criterion or init == "100h-unsupervised":
         assert train_lm_config
         model_config["train_language_model"] = train_lm_config
       else:
@@ -1016,36 +1193,36 @@ def py():
         if rescore_ctc_loss_for_grad:
           decoder_hyperparameters_grad["rescore_ctc_loss"] = rescore_ctc_loss_for_grad
 
-      p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + (
-        "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
-      p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
-      p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "") + (
-        f"-s{str(gamma_scaling).replace('.', '')}" if gamma_scaling != 1.0 else "")
-      p3 = f"b{decoder_hyperparameters['beam_size']}"
-      p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if
-                                                                                decoder_lm_config[
-                                                                                  "class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "") + (
-             ((f"_To{train_lm_config['order']}" if train_lm_config[
-                                                     "class"] == "ngram" else f"_Tf{train_lm_config['context_size']}") + (
-                f"b{decoder_hyperparameters_grad['beam_size']}" if "beam_size" in decoder_hyperparameters_grad else "")) if train_lm_config and train_lm_config != decoder_lm_config else "")
-      p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
-      p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
-      decoding_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p6}{p7}"
+      # p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + (
+      #   "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
+      # p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
+      # p2 = f"n{pseudo_nbest}" + ("-nm" if norm_nbest_rescore else "") + (
+      #   f"-s{str(gamma_scaling).replace('.', '')}" if gamma_scaling != 1.0 else "")
+      # p3 = f"b{decoder_hyperparameters['beam_size']}"
+      # p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if
+      #                                                                           decoder_lm_config[
+      #                                                                             "class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "") + (
+      #        ((f"_To{train_lm_config['order']}" if train_lm_config[
+      #                                                "class"] == "ngram" else f"_Tf{train_lm_config['context_size']}") + (
+      #           f"b{decoder_hyperparameters_grad['beam_size']}" if "beam_size" in decoder_hyperparameters_grad else "")) if train_lm_config and train_lm_config != decoder_lm_config else "")
+      # p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
+      # p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
+      # decoding_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p6}{p7}"
 
-      if decoding_imp == "albert-flashlight":
-        decoding_str = "-recog_albert_lm" + decoding_str
-      elif decoding_imp == "albert-lm":
-        decoding_str = "-recog_v_lm" + (
-          "_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") + (
-            "-s" if recombine_with_sum else "") if use_recombination else "") + decoding_str
-      elif decoding_imp == "gradients":
-        decoding_str = "-recog_grad" + (
-          "_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") + (
-            "-s" if recombine_with_sum else "") if use_recombination else "") + (
-                         f"_n{grad_nbest}" if grad_nbest != 0 else "") + (
-                         "_ctcL" if rescore_ctc_loss_for_grad else "") + decoding_str
-      else:
-        decoding_str = "-recog_lm" + decoding_str
+      # if decoding_imp == "albert-flashlight":
+      #   decoding_str = "-recog_albert_lm" + decoding_str
+      # elif decoding_imp == "albert-lm":
+      #   decoding_str = "-recog_v_lm" + (
+      #     "_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") + (
+      #       "-s" if recombine_with_sum else "") if use_recombination else "") + decoding_str
+      # elif decoding_imp == "gradients":
+      #   decoding_str = "-recog_grad" + (
+      #     "_r" + ("-b" if recombine_blank else "") + ("-a" if recombine_after_topk else "") + (
+      #       "-s" if recombine_with_sum else "") if use_recombination else "") + (
+      #                    f"_n{grad_nbest}" if grad_nbest != 0 else "") + (
+      #                    "_ctcL" if rescore_ctc_loss_for_grad else "") + decoding_str
+      # else:
+      #   decoding_str = "-recog_lm" + decoding_str
 
       if alt_decoder:
         alt_decoder_hyperparameters = decoder_hyperparameters.copy()
@@ -1068,13 +1245,13 @@ def py():
           every_step_hyperparameters["beam_size"] = 10
           if with_prior:
             every_step_hyperparameters["prior_weight"] = 0.3
-          a0 = f"p{str(every_step_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
-          a1 = f"b{every_step_hyperparameters['beam_size']}"
-          a2 = f"w{str(every_step_hyperparameters['lm_weight']).replace('.', '')}"
-          a3 = (
-                 f"dec{str(every_step_hyperparameters['decay']).replace('.', '')}" if 'decay' in every_step_hyperparameters else "") + (
-                 f"-lim{str(every_step_hyperparameters['decay_limit']).replace('.', '')}" if 'decay_limit' in every_step_hyperparameters else "")
-          every_step_str = f"_{a0}_{a1}_{a2}_{a3}"
+          # a0 = f"p{str(every_step_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
+          # a1 = f"b{every_step_hyperparameters['beam_size']}"
+          # a2 = f"w{str(every_step_hyperparameters['lm_weight']).replace('.', '')}"
+          # a3 = (
+          #        f"dec{str(every_step_hyperparameters['decay']).replace('.', '')}" if 'decay' in every_step_hyperparameters else "") + (
+          #        f"-lim{str(every_step_hyperparameters['decay_limit']).replace('.', '')}" if 'decay_limit' in every_step_hyperparameters else "")
+          # every_step_str = f"_{a0}_{a1}_{a2}_{a3}"
 
         if use_sum_criterion:  # or decode_every_step:
           alt_decoder_hyperparameters["lm_weight"] = 0.0
@@ -1085,15 +1262,15 @@ def py():
         else:
           str_add = ""
 
-        a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + (
-          "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
-        a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
-        a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
-        a3 = (f"-accum{accum_grad_multiple_step}" if accum_grad_multiple_step > 1 else "") + (
-          "_every-step" + every_step_str if decode_every_step else "") + (
-               ("_tuneR" if tune_version == 3 else "_tune") if tune_hyperparameters else "") + (
-               "_best" if keep_best_decoding else "")
-        decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
+        # a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + (
+        #   "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
+        # a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
+        # a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
+        # a3 = (f"-accum{accum_grad_multiple_step}" if accum_grad_multiple_step > 1 else "") + (
+        #   "_every-step" + every_step_str if decode_every_step else "") + (
+        #        ("_tuneR" if tune_version == 3 else "_tune") if tune_hyperparameters else "") + (
+        #        "_best" if keep_best_decoding else "")
+        # decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     else:
       raise ValueError(f"Unknown decoder selection: {decoding_imp}")
 
@@ -1169,7 +1346,7 @@ def py():
     if not aux_loss:
       config_updates["aux_loss_layers"] = None
 
-    decoding_str += f"_{epochs}-ep_{bs_feat}-bs"
+    # decoding_str += f"_{epochs}-ep_{bs_feat}-bs"
 
     train_gpu_mem = 11
     if num_gpus != 4:
@@ -1178,17 +1355,21 @@ def py():
       config_updates["__num_processes"] = num_gpus
 
     prolog = []
+    init_checkpoint = None
     if use_w2v_model:
       from i6_core.tools.download import DownloadJob
 
-      decoding_str += "_init-wv2ec"
+      # decoding_str += "_init-wv2ec"
       w2v_model = train_config.get("w2v_model", "base")
-      decoding_str += f"_{w2v_model}"
+      # decoding_str += f"_{w2v_model}"
       if train_config.get("w2v_model", "base") != "base":
         w2v_config = train_config.get("w2v_config", "large")
+        assert not (w2v_config == "large" and "wav2vec-large-lv60-v2" not in alias_name), (
+          "Do not use the 'large' config for wav2vec2, use 'large-lv60' instead."
+        )
         if w2v_config != "large":
           assert w2v_config == "large-lv60"
-          decoding_str += f"_w2v-config-{w2v_config}"
+          # decoding_str += f"_w2v-config-{w2v_config}"
 
         train_gpu_mem = 24
         if w2v_model == "large_960h":
@@ -1228,16 +1409,20 @@ def py():
       custom_wav2vec_chkpt = train_config.get("custom_wav2vec_chkpt", None)
       if custom_wav2vec_chkpt is not None:
         wav2vec2_chkpt = custom_wav2vec_chkpt
-        decoding_str += f"_cstm_chckpt"
+        # decoding_str += f"_cstm_chckpt"
 
       config_updates["preload_from_files"] = {
         "wav2vec2_base": {
           "filename": wav2vec2_chkpt,
           "ignore_missing": True,
           "init_for_train": True,
-          "checkpoint_key": None,
+          "checkpoint_key": None if custom_wav2vec_chkpt is None else "model",
         }
       }
+      init_checkpoint = wav2vec2_chkpt
+
+      if train_config.get("ignore_params_prefixes", None) is not None:
+        config_updates["preload_from_files"]["wav2vec2_base"]["ignore_params_prefixes"] = train_config["ignore_params_prefixes"]
 
       use_spec_augment = train_config.get("use_spec_augment", True)
 
@@ -1247,21 +1432,23 @@ def py():
       }
 
       if train_config.get("freeze_encoder_first_n_steps", 2_500) != 2_500:  # 4 GPUS, otherwise: 10_000
-        decoding_str += f"_frz-enc-n-{w2v_opts['freeze_encoder_first_n_steps']}"
+        # decoding_str += f"_frz-enc-n-{w2v_opts['freeze_encoder_first_n_steps']}"
+        pass
       if train_config.get("unfrozen_encoder_layers", None) is not None and w2v_opts['freeze_encoder_first_n_steps'] > 0:
         w2v_opts["unfrozen_encoder_layers"] = train_config["unfrozen_encoder_layers"]
-        decoding_str += f"_unfrz-{w2v_opts['unfrozen_encoder_layers']}"
+        # decoding_str += f"_unfrz-{w2v_opts['unfrozen_encoder_layers']}"
       if train_config.get("num_enc_layers", 12) != 12:
         w2v_opts["num_enc_layers"] = train_config["num_enc_layers"]
-        decoding_str += f"_enc-n-{w2v_opts['num_enc_layers']}"
+        # decoding_str += f"_enc-n-{w2v_opts['num_enc_layers']}"
       if train_config.get("enc_logits_n_layers", 1) != 1:
         w2v_opts["enc_logits_n_layers"] = train_config["enc_logits_n_layers"]
-        decoding_str += f"_enc-logits-n-{w2v_opts['enc_logits_n_layers']}"
+        # decoding_str += f"_enc-logits-n-{w2v_opts['enc_logits_n_layers']}"
       if peak_lr != 1e-4:
-        decoding_str += f"_peak-lr-{peak_lr}"
+        # decoding_str += f"_peak-lr-{peak_lr}"
+        pass
       if not use_spec_augment:
         w2v_opts["use_spec_augment"] = False
-        decoding_str += f"_wo-spec-aug"
+        # decoding_str += f"_wo-spec-aug"
 
       model_config.update({
         "use_w2v_model": True,
@@ -1274,7 +1461,7 @@ def py():
       prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/fairseq_package')\n"
       prolog += [serialization.NonhashedCode(prolog_content)]
 
-    decoding_str += f"_lr-sched-{lr_schedule_type}"
+    # decoding_str += f"_lr-sched-{lr_schedule_type}"
 
     # Create self-training config
     if self_training_rounds > 0:
@@ -1288,7 +1475,7 @@ def py():
         config_updates_self_training["optimizer.betas"] = adamw_betas
       if not reset_steps:
         if True:
-          if pseudo_label_small:
+          if pseudo_label_ds_str == "860h":
             config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 506_000, 562_000]
           else:
             config_updates_self_training["learning_rate_piecewise_steps"] = [20_000, 558_000, 620_000]
@@ -1297,7 +1484,7 @@ def py():
                                                                             peak_lr * 2e-3]
           # LR_str = "_LR2-6e4"
         else:
-          if pseudo_label_small:
+          if pseudo_label_ds_str == "860h":
             config_updates_self_training["learning_rate_piecewise_steps"] = [253_000, 506_000, 562_000]
           else:
             config_updates_self_training["learning_rate_piecewise_steps"] = [279_000, 558_000, 620_000]
@@ -1402,60 +1589,61 @@ def py():
 
         config_updates_self_training.update(config_full_sum)
 
-        sum_str = f"-full_sum" + \
-                  f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" + \
-                  (f"_topK{top_k}" + ("_align" if alignment_topk else "") + (f"_bc{blank_correction_version}" + (
-                    "sc" if correction_in_final_score else "") if blank_correction_version > 0 else "") if top_k > 0 else "") + \
-                  ("_emp" if empirical_prior_full_sum else "") + \
-                  ("_max_pr" if not empirical_prior_full_sum and prior_from_max_full_sum else "") + \
-                  ("_wo_h_pr" if not horizontal_prior else "") + \
-                  ("_wo_b_pr" if not blank_prior else "") + \
-                  ("_wo_pr_grad" if not prior_gradient else "")
+        # sum_str = f"-full_sum" + \
+        #           f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" + \
+        #           (f"_topK{top_k}" + ("_align" if alignment_topk else "") + (f"_bc{blank_correction_version}" + (
+        #             "sc" if correction_in_final_score else "") if blank_correction_version > 0 else "") if top_k > 0 else "") + \
+        #           ("_emp" if empirical_prior_full_sum else "") + \
+        #           ("_max_pr" if not empirical_prior_full_sum and prior_from_max_full_sum else "") + \
+        #           ("_wo_h_pr" if not horizontal_prior else "") + \
+        #           ("_wo_b_pr" if not blank_prior else "") + \
+        #           ("_wo_pr_grad" if not prior_gradient else "")
       else:
-        sum_str = ""
+        pass
+        # sum_str = ""
     else:
-      sum_str = ""
+      # sum_str = ""
       self_epochs = None
 
-    alias_name = get_alias(
-      sup_loss=sup_loss,
-      use_ce_loss=use_ce_loss,
-      use_seq_gamma_loss=use_seq_gamma_loss,
-      use_sum_criterion=use_sum_criterion,
-      sum_str=sum_str,
-      self_training_rounds=self_training_rounds,
-      LR_str=LR_str,
-      use_norm_st_loss=use_norm_st_loss,
-      reset_steps=reset_steps,
-      use_sgd=use_sgd,
-      adamw_betas=adamw_betas,
-      from_scratch=from_scratch,
-      self_train_subset=self_train_subset,
-      self_epochs=self_epochs,
-      speed_pert=speed_pert,
-      aux_loss=aux_loss,
-      init=init,
-      accum_grad_multiple_step_init=accum_grad_multiple_step_init,
-      random_init=random_init,
-      pseudo_label_small=pseudo_label_small,
-      keep_small_labels=keep_small_labels,
-      vocab=vocab,
-      label_prior=label_prior,
-      decoding_str=decoding_str,
-      train_version=train_version,
-      blank_penalty_opts=blank_penalty_opts,
-      prior_penalty_opts=prior_penalty_opts,
-      gradient_penalty_opts=gradient_penalty_opts,
-      use_subsampled_enc_logits=use_subsampled_enc_logits,
-      collapse_logits_segments=collapse_logits_segments,
-      empirical_prior=empirical_prior,
-      am_lm_prior_full_sum_init=am_lm_prior_full_sum_init,
-      train_epoch_wise_filter=train_epoch_wise_filter,
-      rescore_lm_config=rescore_lm_config,
-      random_seed=random_seed,
-      prior_no_grad=prior_no_grad,
-      num_gpus=num_gpus,
-    )
+    # alias_name = get_alias(
+    #   sup_loss=sup_loss,
+    #   use_ce_loss=use_ce_loss,
+    #   use_seq_gamma_loss=use_seq_gamma_loss,
+    #   use_sum_criterion=use_sum_criterion,
+    #   sum_str=sum_str,
+    #   self_training_rounds=self_training_rounds,
+    #   LR_str=LR_str,
+    #   use_norm_st_loss=use_norm_st_loss,
+    #   reset_steps=reset_steps,
+    #   use_sgd=use_sgd,
+    #   adamw_betas=adamw_betas,
+    #   from_scratch=from_scratch,
+    #   self_train_subset=self_train_subset,
+    #   self_epochs=self_epochs,
+    #   speed_pert=speed_pert,
+    #   aux_loss=aux_loss,
+    #   init=init,
+    #   accum_grad_multiple_step_init=accum_grad_multiple_step_init,
+    #   random_init=random_init,
+    #   pseudo_label_small=pseudo_label_small,
+    #   keep_small_labels=keep_small_labels,
+    #   vocab=vocab,
+    #   label_prior=label_prior,
+    #   decoding_str=decoding_str,
+    #   train_version=train_version,
+    #   blank_penalty_opts=blank_penalty_opts,
+    #   prior_penalty_opts=prior_penalty_opts,
+    #   gradient_penalty_opts=gradient_penalty_opts,
+    #   use_subsampled_enc_logits=use_subsampled_enc_logits,
+    #   collapse_logits_segments=collapse_logits_segments,
+    #   empirical_prior=empirical_prior,
+    #   am_lm_prior_full_sum_init=am_lm_prior_full_sum_init,
+    #   train_epoch_wise_filter=train_epoch_wise_filter,
+    #   rescore_lm_config=rescore_lm_config,
+    #   random_seed=random_seed,
+    #   prior_no_grad=prior_no_grad,
+    #   num_gpus=num_gpus,
+    # )
 
     if decoding_imp in ["flashlight", "marten-greedy"]:
       decoder_def = model_recog_lm
@@ -1487,7 +1675,7 @@ def py():
       vocab=vocab,
       self_training_rounds=self_training_rounds,
       init_small = init.startswith("100h"),
-      pseudo_label_small=pseudo_label_small,
+      pseudo_label_ds_str=pseudo_label_ds_str,
       keep_small_labels=keep_small_labels,
       with_prior=with_prior,
       label_prior=label_prior,
@@ -1505,6 +1693,9 @@ def py():
       post_config_updates=post_config_updates,
       train_gpu_mem=train_gpu_mem,
       train_epoch_wise_filter=train_epoch_wise_filter,
+      decoding_imp=decoding_imp,
+      init_checkpoint=init_checkpoint,
+      skip_init_train=skip_init_train,
     )
 
 
@@ -1688,7 +1879,7 @@ def train_exp(
         enabled: bool = True,
         self_training_rounds: int = 0,
         init_small: bool = False,
-        pseudo_label_small: bool = True,
+        pseudo_label_ds_str: str = "860h",
         keep_small_labels: bool = False,
         with_prior: bool = False,
         label_prior: bool = True,
@@ -1704,6 +1895,9 @@ def train_exp(
         reset_steps: bool = True,
         train_gpu_mem: int = 11,
         train_epoch_wise_filter=NotSpecified,
+        decoding_imp: str = "albert-greedy",
+        skip_init_train: bool = False,
+        init_checkpoint: Optional[tk.Path],
 ) -> Optional[ModelWithCheckpoints]:
   """
   Train experiment
@@ -1723,11 +1917,18 @@ def train_exp(
   prefix = _sis_prefix + "/" + name
   gradient_pseudo_labels = isinstance(decoder_def, tuple)
 
+  if pseudo_label_ds_str == "860h":
+    save_pseudo_labels = TrainDatasetSel.train_860h
+  elif pseudo_label_ds_str == "_train-clean-100-short":
+    save_pseudo_labels = TrainDatasetSel._train_clean_100_short
+  else:
+    assert pseudo_label_ds_str == "960h"
+    save_pseudo_labels = TrainDatasetSel.train_960h
+
   task, pseudo_labels_ds, train_100_ds = get_librispeech_task_raw_v2(
     vocab=vocab,
     train_vocab_opts=train_vocab_opts,
-    save_pseudo_labels=(
-      TrainDatasetSel.train_860h if pseudo_label_small else TrainDatasetSel.train_960h) if self_training_rounds > 0 or calc_last_pseudo_labels else None,
+    save_pseudo_labels=save_pseudo_labels if self_training_rounds > 0 or calc_last_pseudo_labels else None,
     ds_sel=TrainDatasetSel.train_100h if init_small else TrainDatasetSel.train_960h,
     init_small=init_small,
     with_prior=with_prior,
@@ -1874,29 +2075,42 @@ def train_exp(
       config["rescore_lm_model"] = "ffnn" + str(model_config["rescore_language_model"]["context_size"])
 
   model_with_checkpoint = []
-  model_with_checkpoint.append(train(
-    prefix,
-    task=task,
-    config=config,
-    post_config=dict_update_deep(post_config, post_config_updates),
-    epilog=epilog,
-    model_def=model_def,
-    train_def=train_def,
-    num_epochs=num_epochs,
-    gpu_mem=gpu_mem,
-    num_processes=num_processes,
-    time_rqmt=time_rqmt if time_rqmt else (36 if init_small else 132),
-  ))
-  train_job = model_with_checkpoint[0].get_training_job()
+  if skip_init_train:
+    assert init_checkpoint is not None, "If skip_init_train is True, init_checkpoint must be provided."
+    model_with_checkpoint.append(
+      ModelWithCheckpoint(
+        definition=model_def,
+        checkpoint=PtCheckpoint(init_checkpoint),
+      )
+    )
+  else:
+    model_with_checkpoint.append(train(
+      prefix,
+      task=task,
+      config=config,
+      post_config=dict_update_deep(post_config, post_config_updates),
+      epilog=epilog,
+      model_def=model_def,
+      train_def=train_def,
+      num_epochs=num_epochs,
+      gpu_mem=gpu_mem,
+      num_processes=num_processes,
+      time_rqmt=time_rqmt if time_rqmt else (36 if init_small else 132),
+    ))
+    train_job = model_with_checkpoint[0].get_training_job()
 
-  if train_gpu_mem > 11:
-    train_job.rqmt["gpu_mem"] = train_gpu_mem
+    if train_gpu_mem > 11:
+      train_job.rqmt["gpu_mem"] = train_gpu_mem
 
-  # this is super ugly but it allows us to reuse Marten's train function which we would need to change otherwise
-  train_job.returnn_config.python_prolog += prolog if train_job.returnn_config.python_prolog is not None else prolog
-  if env_updates:
-    for k, v in env_updates.items():
-      train_job.set_env(k, v)
+    # this is super ugly but it allows us to reuse Marten's train function which we would need to change otherwise
+    if train_job.returnn_config.python_prolog is None:
+      train_job.returnn_config.python_prolog = prolog
+    else:
+      train_job.returnn_config.python_prolog += prolog
+    # train_job.returnn_config.python_prolog += prolog if train_job.returnn_config.python_prolog is not None else prolog
+    if env_updates:
+      for k, v in env_updates.items():
+        train_job.set_env(k, v)
 
   recog_post_proc_funcs = []
   if config.get("use_eos_postfix", False):
@@ -1958,7 +2172,7 @@ def train_exp(
   pst = hyperparamters_self_training[0] if hyperparamters_self_training is not None and isinstance(
     hyperparamters_self_training, tuple) else hyperparamters_self_training
   pseudo_label_path_dict = recog_training_exp(
-    prefix,
+    f"{prefix}/{decoding_imp}",
     task,
     model_with_checkpoint[0],
     recog_def=decoder_def,
@@ -1995,7 +2209,7 @@ def train_exp(
     task, _, _ = get_librispeech_task_raw_v2(
       vocab=vocab,
       train_vocab_opts=train_vocab_opts,
-      ds_sel=TrainDatasetSel.train_860h if pseudo_label_small else TrainDatasetSel.train_960h,
+      ds_sel=save_pseudo_labels,
       init_small=init_small,
       with_prior=with_prior,
       empirical_prior=empirical_prior,
@@ -2271,7 +2485,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     train_language_model = train_language_model.copy()
     cls_name = train_language_model.pop("class")
     assert cls_name == "FeedForwardLm"
-    train_lm = FeedForwardLm(vocab_dim=target_dim, **train_language_model)
+    train_lm = FeedForwardLmV2(vocab_dim=target_dim, **train_language_model)
   recog_language_model = config.typed_value("recog_language_model", None)
   recog_lm = None
   if recog_language_model is not None:
@@ -2279,7 +2493,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     recog_language_model = recog_language_model.copy()
     cls_name = recog_language_model.pop("class")
     assert cls_name == "FeedForwardLm"
-    recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+    recog_lm = FeedForwardLmV2(vocab_dim=target_dim, **recog_language_model)
 
   rescore_language_model = config.typed_value("rescore_language_model", None)
   rescore_lm = None
@@ -2288,7 +2502,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     rescore_language_model = rescore_language_model.copy()
     cls_name = rescore_language_model.pop("class")
     assert cls_name == "FeedForwardLm"
-    rescore_lm = FeedForwardLm(vocab_dim=target_dim, **rescore_language_model)
+    rescore_lm = FeedForwardLmV2(vocab_dim=target_dim, **rescore_language_model)
 
   if config.bool("use_w2v_model", False):
     w2v_opts = config.typed_value("w2v_opts", {})

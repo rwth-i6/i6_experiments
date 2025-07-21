@@ -18,7 +18,7 @@ from i6_core.util import uopen
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm
 from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.model import Model, OUT_BLANK_LABEL
-from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.sum_criterion import sum_loss_ffnn, get_lm_logits, sum_loss_ngram_rf, sum_loss_ngram, sum_loss_ffnn_v2
 from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline import recombination
 from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
@@ -1017,14 +1017,14 @@ def recog_gradients(
         label_log_prob_raw = label_log_prob.raw_tensor
         label_log_prob_raw.requires_grad = True
         with torch.set_grad_enabled(True):
-            loss = sum_loss_ffnn(
+            loss = sum_loss_ffnn_v2(
                 model=model,
-                log_probs=label_log_prob,
+                label_log_prob=label_log_prob,
                 lm=lm,
                 context_size=context_size,
                 log_prior=prior,
-                input_lengths=enc_spatial_dim,
-                top_k=beam_size,
+                enc_spatial_dim=enc_spatial_dim,
+                beam_size=beam_size,
                 am_scale=am_scale,
                 lm_scale=lm_scale,
                 prior_scale=prior_weight,

@@ -655,13 +655,6 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
                          enc_spatial_dim.dyn_size_ext.raw_tensor[idx_t])
   else:
     log_probs = model.log_probs_wb_from_logits(logits)
-    blank_penalty_opts = config.typed_value("blank_penalty_opts", {})
-    if blank_penalty_opts:
-      blank_penalty = blank_penalty_opts["blank_penalty"]
-      blank_penalty = rf.sparse_to_dense(
-        model.blank_idx, axis=model.wb_target_dim, label_value=blank_penalty, other_value=0.0)
-      log_probs -= blank_penalty
-      # _blank_penalty(log_probs, model, enc_spatial_dim, blank_penalty_opts)
     log_probs_raw = log_probs.raw_tensor
 
   if use_prior:
@@ -677,19 +670,26 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
         assert model.blank_idx == log_prior.size(0)
         log_prior = torch.cat([log_prior, torch.tensor([0.0], device=log_probs_raw.device)], dim=0)
     else:
-      log_prior = _calc_log_prior(
-        log_probs_raw,
-        enc_spatial_dim.dyn_size_ext.raw_tensor,
-        use_max=max_prior,
-        no_grad=config.bool("prior_no_grad", True),
-      )
-      if not prior_gradient:
-        log_prior = log_prior.detach()
+      model_prior = config.typed_value("model_prior", {"type": "batch-wise"})
+      if model_prior["type"] == "exp-moving-average":
+        prior = model.model_prior(rf.exp(log_probs))
+        # renormalize to account for possible accumulated errors
+        log_prior = rf.log_softmax(rf.log(prior), axis=model.wb_target_dim).raw_tensor
+      else:
+        log_prior = _calc_log_prior(
+          log_probs_raw,
+          enc_spatial_dim.dyn_size_ext.raw_tensor,
+          use_max=max_prior,
+          no_grad=config.bool("prior_no_grad", True),
+        )
 
-      if not blank_prior:
-        log_prior[model.blank_idx] = float("-inf")
-        log_prior = torch.log_softmax(log_prior, dim=-1)
-        log_prior[model.blank_idx] = 0.0
+        if not prior_gradient:
+          log_prior = log_prior.detach()
+
+        if not blank_prior:
+          log_prior[model.blank_idx] = float("-inf")
+          log_prior = torch.log_softmax(log_prior, dim=-1)
+          log_prior[model.blank_idx] = 0.0
   else:
     log_prior = None
 
@@ -743,7 +743,8 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
       print_best_path_for_idx=print_for_idx,
       alignment_topk=alignment_topk,
       blank_correction_version=blank_correction_version,
-      correction_in_final_score=correction_in_final_score
+      correction_in_final_score=correction_in_final_score,
+      scales_stop_grad=config.bool("scales_stop_grad", False),
     )
   if print_gradients and fixed_seqs[1] in seq_tags:
     print("Loss:", loss[np.where(seq_tags == fixed_seqs[1])[
@@ -1435,10 +1436,12 @@ def _gradient_penalty(log_probs, model, loss, opts):
   else:
     feature_gradients_penalty = torch.pow(log_mean_l2_feature_gradients_raw - opts["target_gradient_log_l2_norm"], 2)
 
-  rf.get_run_ctx().mark_as_loss(
-    feature_gradients_penalty,
-    name="feature_gradients_penalty"
-  )
+  # in this mode, do not use as loss, but only for debugging
+  if not config.bool("debug_print_gradients", False):
+    rf.get_run_ctx().mark_as_loss(
+      feature_gradients_penalty,
+      name="feature_gradients_penalty"
+    )
 
   # the backward pass here should not be used for training the model, but only to compute the gradient penalty
   # therefore, we set the gradients of the model parameters to zero

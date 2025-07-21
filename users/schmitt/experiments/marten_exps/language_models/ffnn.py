@@ -15,7 +15,7 @@ import returnn.frontend as rf
 import returnn.torch.frontend as rtf
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDef, ModelDef
-from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
+from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm, FeedForwardLmV2
 
 from ..ctc_baseline.configs import (
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,

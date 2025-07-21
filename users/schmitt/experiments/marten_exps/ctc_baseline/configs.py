@@ -181,6 +181,26 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v5(
     }
 
 
+def _get_cfg_lrlin_invsqrt_decay(
+    n_ep: int,
+    *,
+    base_lr: float = 1.0,
+    learning_rate_warmup_steps: int = 20_000,
+    learning_rate_invsqrt_norm: int = 20_000,
+) -> Dict[str, Any]:
+    """
+    :param n_ep: num epochs
+    """
+
+    return {
+        "__num_epochs": n_ep,
+        "learning_rate": base_lr,
+        "dynamic_learning_rate": dyn_lr_lin_warmup_invsqrt_decay,
+        "learning_rate_warmup_steps": learning_rate_warmup_steps,
+        "learning_rate_invsqrt_norm": learning_rate_invsqrt_norm,
+    }
+
+
 def generic_piecewise_linear(
     name: str,
     global_train_step: int,
