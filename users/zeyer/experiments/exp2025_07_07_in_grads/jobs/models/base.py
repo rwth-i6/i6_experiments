@@ -91,8 +91,8 @@ class ForwardOutput:
     # (both start and end are inclusive)
 
     targets: torch.Tensor  # [B, T_out] -> class indices
-    target_seq_lens: torch.Tensor  # [B]: Length of each target sequence
-    target_start_end: torch.Tensor  # [B, T_out_raw, 2] -> T_out: (start, end) of raw target frames
+    target_seq_lens: torch.Tensor  # [B]: Length of each target sequence (values in [0..T_out])
+    target_start_end: torch.Tensor  # [B, T_out_raw, 2] -> T_out: (start, end) of raw target frames (word indices)
     # (both start and end are inclusive)
 
     outputs: Any  # any nested structure
