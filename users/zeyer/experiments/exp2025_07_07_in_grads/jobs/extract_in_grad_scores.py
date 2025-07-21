@@ -23,7 +23,7 @@ class ExtractInGradsFromModelJob(Job):
         returnn_root: Optional[tk.Path] = None,
         model_config: Dict[str, Any],
         mult_grad_by_inputs: bool,
-        attr_reduction: str,  # "sum", "L2", "L1", ...
+        attr_reduction: str,
     ):
         """
         :param dataset_dir: hub cache dir, e.g. via DownloadHuggingFaceRepoJobV2. for load_dataset
@@ -32,7 +32,7 @@ class ExtractInGradsFromModelJob(Job):
         :param returnn_root: for some utils. version of RETURNN should not really matter
         :param model_config:
         :param mult_grad_by_inputs:
-        :param attr_reduction:
+        :param attr_reduction: "sum", "L2", "L1", ... see :func:`get_attr_reduce_func`
 
         TODO We could extend this by `attr_method` or so, to support IntegratedGradients or others
         """
