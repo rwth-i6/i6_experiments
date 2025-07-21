@@ -1,4 +1,4 @@
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Tuple
 from sisyphus import Job, Task, tk
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
@@ -121,6 +121,9 @@ class ExtractInGradsFromModelJob(Job):
                 "audio_frames_start_end": (2, 2, "int32"),  # [num_chunks * ~chunk_num_input_frames,2]
                 "num_input_frames": (1, 2, "int32"),  # [num_chunks,1]
                 "num_words": (1, 2, "int32"),  # [num_chunks,1]
+                # For debugging/verification.
+                "log_probs_per_word": (1, 2, "float32"),  # [num_chunks * ~chunk_num_words,1]
+                "exit_log_probs": (1, 2, "float32"),  # [num_chunks,1]
             },
         )
 
@@ -179,10 +182,14 @@ class ExtractInGradsFromModelJob(Job):
                 chunk_audio_start_end = np.array([[0, len(audio)]], dtype=np.int32)  # [C,2]
                 chunk_words_indices_start_end = np.array([[0, num_words]], dtype=np.int32)  # [C,2]
 
+            # Per chunk, we will have:
             grad_mat: List[torch.Tensor] = []
             audio_frames_start_end: List[torch.Tensor] = []
             num_input_frames: List[int] = []
             num_words_: List[int] = []
+            # also store log probs for debugging/verification
+            log_probs: List[torch.Tensor] = []  # per word
+            exit_log_probs: List[torch.Tensor] = []  # exit log prob, for EOS
 
             for chunk_idx in range(num_chunks):
                 start_time = time.time()
@@ -197,17 +204,18 @@ class ExtractInGradsFromModelJob(Job):
                 )
 
                 forward_output: ForwardOutput = model(
-                    raw_inputs=torch.tensor(audio[audio_start:audio_end])[None],  # [1,T]
+                    raw_inputs=torch.tensor(audio[audio_start:audio_end])[None],  # [B=1,T]
                     raw_inputs_sample_rate=samplerate,
-                    raw_input_seq_lens=torch.tensor([audio_end - audio_start]),  # [1]
-                    raw_targets=[words[words_start:words_end]],  # [1,num_words]
-                    raw_target_seq_lens=torch.tensor([words_end - words_start]),  # [1]
+                    raw_input_seq_lens=torch.tensor([audio_end - audio_start]),  # [B=1]
+                    raw_targets=[words[words_start:words_end]],  # [B=1,num_words]
+                    raw_target_seq_lens=torch.tensor([words_end - words_start]),  # [B=1]
+                    omitted_prev_context=torch.tensor([words_start]),
                 )
 
                 # noinspection PyShadowingNames
-                def _calc_input_grads(
-                    w: int, *, report_mem: bool = False, forward_output: ForwardOutput
-                ) -> torch.Tensor:
+                def _calc_log_probs_and_input_grads(
+                    w: int, *, report_mem: bool = False, forward_output: ForwardOutput, no_grad: bool = False
+                ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
                     t0, t1 = forward_output.target_start_end[:, w].unbind(1)  # [B], [B]
                     loss = model.log_probs(forward_output=forward_output, start=t0, end=t1)  # [B,t1-t0,V]
                     targets = batch_slice(forward_output.targets, (t0, t1))  # [B,t1-t0]->V
@@ -215,8 +223,11 @@ class ExtractInGradsFromModelJob(Job):
                     loss.masked_fill_(
                         torch.arange(loss.shape[1], device=loss.device)[None, :] >= (t1 - t0)[:, None], 0.0
                     )
+                    loss = loss.sum(dim=-1)  # [B]
+                    if no_grad:
+                        return loss, None
                     (grad,) = torch.autograd.grad(loss.sum(), forward_output.inputs, retain_graph=True)
-                    del loss
+                    loss = loss.detach()  # detach to avoid memory leak. we return this here below
 
                     if report_mem:
                         report_dev_memory_stats(dev)
@@ -227,25 +238,36 @@ class ExtractInGradsFromModelJob(Job):
                             e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
                             attr *= e
                         attr = attr_reduce_func(attr)  # [B,T]
-                        return attr
+                        return loss, attr
 
                 print("** Calculating grads")
                 chunk_num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0].item()
                 num_input_frames.append(chunk_num_input_frames)
                 num_words_.append(words_end - words_start)
                 chunk_grad_mat: List[torch.Tensor] = []
+                chunk_log_probs: List[torch.Tensor] = []  # also store log probs for debugging/verification
                 for w in range(words_end - words_start):
-                    grads = _calc_input_grads(
+                    word_log_probs, grads = _calc_log_probs_and_input_grads(
                         w, forward_output=forward_output, report_mem=w in {0, words_end - words_start - 1}
                     )
-                    assert grads.shape == (1, chunk_num_input_frames)
+                    assert grads.shape == (1, chunk_num_input_frames) and word_log_probs.shape == (1,)
                     chunk_grad_mat.append(grads[0])
+                    chunk_log_probs.append(word_log_probs[0])
                 chunk_grad_mat_ = torch.stack(chunk_grad_mat)  # [chunk_num_words,chunk_num_input_frames]
                 chunk_grad_mat_ = chunk_grad_mat_.flatten()  # [chunk_num_words * chunk_num_input_frames]
                 grad_mat.append(chunk_grad_mat_)
+                log_probs.append(torch.stack(chunk_log_probs))  # [chunk_num_words]
 
                 # collect each [chunk_num_input_frames, 2] -> sample start/end
                 audio_frames_start_end.append(forward_output.input_raw_start_end[0])
+
+                # Get exit (EOS) log prob. Assume one behind last word is EOS.
+                with torch.no_grad():
+                    chunk_exit_log_prob, _ = _calc_log_probs_and_input_grads(
+                        w=words_end - words_start, forward_output=forward_output, no_grad=True
+                    )
+                    assert chunk_exit_log_prob.shape == (1,)
+                exit_log_probs.append(chunk_exit_log_prob[0])
 
                 print("** Freeing")
                 del forward_output  # not needed anymore now
@@ -257,6 +279,8 @@ class ExtractInGradsFromModelJob(Job):
             audio_frames_start_end_ = torch.concat(audio_frames_start_end)  # [num_chunks * chunk_num_input_frames,2]
             num_input_frames_ = torch.tensor(num_input_frames)  # [num_chunks]
             num_words__ = torch.tensor(num_words_)  # [num_chunks]
+            log_probs_ = torch.concat(log_probs)  # [num_chunks * ~chunk_num_words]
+            exit_log_probs_ = torch.stack(exit_log_probs)  # [num_chunks]
 
             print("** Storing to HDF")
             hdf_writer.insert_batch(
@@ -272,6 +296,10 @@ class ExtractInGradsFromModelJob(Job):
                     "audio_frames_start_end": audio_frames_start_end_.cpu().numpy()[None],
                     "num_input_frames": num_input_frames_.cpu().numpy()[None, :, None],  # [1,num_chunks,1]
                     "num_words": num_words__[None, :, None],  # [1,num_chunks,1]
+                    # Some extra info, e.g. for debugging/verification.
+                    # [1,num_chunks * ~chunk_num_words,1]
+                    "log_probs_per_word": log_probs_.cpu().numpy()[None, :, None],
+                    "exit_log_probs": exit_log_probs_.cpu().numpy()[None, :, None],  # [1,num_chunks,1]
                 },
             )
 
