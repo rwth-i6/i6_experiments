@@ -181,11 +181,11 @@ class ChunkSegmentationFromModelJob(Job):
             class _Node:
                 chunk_idx: int  # 0 <= c < C. the chunk we are in.
                 word_idx: int  # 0 <= s <= S. we have seen this many words so far, words[:s]
-                log_prob: torch.Tensor  # []. log prob of this node
-                exit_log_prob: torch.Tensor  # []. log_prob+exit (end_token_id). horizontal transition to next chunk
-                word_log_prob: Optional[
-                    torch.Tensor
-                ]  # []. log_prob+word (one or more labels). vertical transition to next word. (None if s==S)
+                accum_in_log_prob: torch.Tensor  # []. log prob of this node (accumulated all the way from the start)
+                # []. accum_in_log_prob+exit (end_token_id). horizontal transition to next chunk
+                accum_exit_log_prob: torch.Tensor
+                # []. accum_in_log_prob+word (one or more labels). vertical transition to next word. (None if s==S)
+                accum_word_log_prob: Optional[torch.Tensor]
                 backpointer: Optional[_Node]  # prev chunk, or prev word
 
             for cur_chunk_idx, (cur_audio_start, cur_audio_end) in enumerate(chunk_start_end):
@@ -195,7 +195,7 @@ class ChunkSegmentationFromModelJob(Job):
                 else:
                     # Heuristic. Look through last chunk, look out for best exit_log_prob
                     prev_array_word_idx = int(
-                        torch.stack([node.exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
+                        torch.stack([node.accum_exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
                     )
                     cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
                 cur_word_end = len(words)  # Go to the end. Not so expensive...
@@ -252,29 +252,32 @@ class ChunkSegmentationFromModelJob(Job):
                         assert prev_node_left.word_idx == word_idx
                     if prev_node_below and not prev_node_left:
                         prev_node = prev_node_below
-                        log_prob = prev_node_below.word_log_prob
+                        accum_in_log_prob = prev_node_below.accum_word_log_prob
                     elif not prev_node_below and prev_node_left:
                         prev_node = prev_node_left
-                        log_prob = prev_node_left.exit_log_prob
+                        accum_in_log_prob = prev_node_left.accum_exit_log_prob
                     elif prev_node_below and prev_node_left:
-                        if prev_node_below.word_log_prob >= prev_node_left.exit_log_prob:
+                        # Max approx.
+                        if prev_node_below.accum_word_log_prob >= prev_node_left.accum_exit_log_prob:
                             prev_node = prev_node_below
-                            log_prob = prev_node_below.word_log_prob
+                            accum_in_log_prob = prev_node_below.accum_word_log_prob
                         else:
                             prev_node = prev_node_left
-                            log_prob = prev_node_left.exit_log_prob
+                            accum_in_log_prob = prev_node_left.accum_exit_log_prob
                     else:
                         assert cur_chunk_idx == word_idx == 0
                         prev_node = None
-                        log_prob = torch.zeros(())
+                        accum_in_log_prob = torch.zeros(())
                     array[cur_chunk_idx].append(
                         _Node(
                             chunk_idx=cur_chunk_idx,
                             word_idx=word_idx,
-                            log_prob=log_prob,
+                            accum_in_log_prob=accum_in_log_prob,
                             backpointer=prev_node,
-                            word_log_prob=(log_prob + word_log_prob) if word_idx < cur_word_end else None,
-                            exit_log_prob=log_prob + exit_log_prob,
+                            accum_word_log_prob=(accum_in_log_prob + word_log_prob)
+                            if word_idx < cur_word_end
+                            else None,
+                            accum_exit_log_prob=accum_in_log_prob + exit_log_prob,
                         )
                     )
                 assert (
