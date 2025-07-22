@@ -1,4 +1,5 @@
 import functools
+import os
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
 from i6_experiments.users.zeyer.recog import ScoreResultCollection
 from typing import Any, Dict, Tuple, Union, List
@@ -54,7 +55,9 @@ def hook_and_make_evals(func, task):
 
 
 # these functions use the hook output:
-def get_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, List[str]]) -> Dict[str, Dict[str, tk.Path]]:
+def get_sclite_report_dirs(
+    target_to_output: dict[str, Any], keys: Union[str, List[str]]
+) -> Dict[str, Dict[str, tk.Path]]:
     if isinstance(keys, str):
         keys = [keys]
 
@@ -72,18 +75,24 @@ def get_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, Li
 
     return report_dirs_dict
 
-def get_sclite_report_dir(target_to_output: dict[str, Any], keys: Union[str, List[str]]) -> Tuple[str, Dict[str, tk.Path]]:
+
+def get_sclite_report_dir(
+    target_to_output: dict[str, Any], keys: Union[str, List[str]]
+) -> Tuple[str, Dict[str, tk.Path]]:
     l = get_sclite_report_dirs(target_to_output, keys)
-    assert len(l) == 1, f"Expected exactly one report dir, got {len(l)}"
+    assert len(l) == 1, f"Expected exactly one report dir, got {len(l)}. Keys: {list(l.keys())}"
     return list(l.items())[0]
 
-def write_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, List[str]]):
-    for k, path_arr in get_sclite_report_dirs(target_to_output, keys).items():
 
+def write_sclite_report_dirs(target_to_output: dict[str, Any], keys: Union[str, List[str]], out_dir=None):
+    for k, path_arr in get_sclite_report_dirs(target_to_output, keys).items():
         log_paths = WriteFinishedPathsAsCsv(inputs=list(path_arr.items()), seperator=": ")
         # TODO maybe just replace this with dirname
-        base_pat = k[: -len("score_results.txt")]
+        base_pat = os.path.dirname(k)
+        if out_dir is not None:
+            base_pat = out_dir
+        # base_pat = k[: -len("score_results.txt")]
         tk.register_output(
-            f"{base_pat}report_dirs.txt",
+            f"{base_pat}/report_dirs.txt",
             log_paths.out_file,
         )

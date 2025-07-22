@@ -144,6 +144,21 @@ def process_word(word: str) -> Tuple[str, str]:
     return word, pos
 
 
+def fix_sclite_pra(f):
+    it = iter(f)
+    while True:
+        line: str = next(it, None)
+        if line is None:
+            break
+        while line.endswith("%.2f\n"):
+            line = line[: -len("%.2f\n")]
+            line += "* "
+            line += next(it, "")
+
+        assert "%.2f" not in line, f"Line '{line}' still contains '%.2f' after fixing"
+        yield line
+
+
 class CategorizeWordsByPOS(Job):
     def __init__(self, word_freq: tk.Path):
         self.word_freq = word_freq
@@ -251,7 +266,7 @@ class ExtractWordStatsFromSclite(Job):
         numbers = []
         total_ref = []
         with open(f"{self.report_dir}/sclite.pra", errors="ignore") as f:
-            for line in f:
+            for line in fix_sclite_pra(f):
                 if line.startswith("id:"):
                     # id: (dev-clean/422-122949-0034/422-122949-0034-000)
                     cur_seq_id = line.split()[1][1:-1]
@@ -260,8 +275,8 @@ class ExtractWordStatsFromSclite(Job):
                     assert cur_seq_id is not None
                     # Scores: (#C #S #D #I) 79 2 2 0
                     parts = line.split()
-                    assert len(parts) == 9
-                    assert len(numbers) == 0
+                    assert len(parts) == 9, line
+                    assert len(numbers) == 0, f"{cur_seq_id}, {line}"
                     numbers = [int(p) for p in parts[-4:]]
 
                 elif line.startswith("REF:") or line.startswith(">> REF:"):
@@ -271,25 +286,28 @@ class ExtractWordStatsFromSclite(Job):
                     # remove empty words
                     words = [w.strip() for w in words if len(w.strip()) > 0]
                     total_ref += words
-                elif (
-                    line.strip() == ""
-                    and len(total_ref) > 0
-                    and len(total_ref) >= numbers[0] + numbers[1] + numbers[2] + numbers[3]
-                ):
-                    words = [w for w in total_ref if not all([c == "*" for c in w])]  # filter out *** for insertions
-                    word_counter.update([w.lower() for w in words])  # normalize to lowercase
-                    error_words = [w for w in words if all(c.isupper() or c == "'" for c in w)]
-                    error_counter.update([w.lower() for w in error_words])  # normalize to lowercase
+                elif line.strip() == "":
+                    if len(total_ref) > 0 and len(total_ref) >= numbers[0] + numbers[1] + numbers[2] + numbers[3]:
+                        words = [
+                            w for w in total_ref if not all([c == "*" for c in w])
+                        ]  # filter out *** for insertions
+                        word_counter.update([w.lower() for w in words])  # normalize to lowercase
+                        error_words = [w for w in words if all(c.isupper() or c == "'" for c in w)]
+                        error_counter.update([w.lower() for w in error_words])  # normalize to lowercase
 
-                    assert len(words) == numbers[0] + numbers[1] + numbers[2], (
-                        f"Expected {numbers[0]} words, {numbers[1]} substitutions and {numbers[2]} deletions, but found {len(words)} words in REF line for sequence {cur_seq_id}"
-                    )
+                        assert len(words) == numbers[0] + numbers[1] + numbers[2], (
+                            f"Expected {numbers[0]} words, {numbers[1]} substitutions and {numbers[2]} deletions, but found {len(words)} words in REF line for sequence {cur_seq_id}"
+                        )
 
-                    assert len(error_words) == numbers[1] + numbers[2], (
-                        f"Expected {numbers[1]} substitutions and {numbers[2]} deletions, but found {len(error_words)} error words in REF line for sequence {cur_seq_id}"
-                    )
-                    total_ref = []
-                    numbers = []
+                        assert len(error_words) == numbers[1] + numbers[2], (
+                            f"Expected {numbers[1]} substitutions and {numbers[2]} deletions, but found {len(error_words)} error words in REF line for sequence {cur_seq_id}"
+                        )
+                        total_ref = []
+                        numbers = []
+                    else:
+                        print(
+                            f"Empty line, but total_ref = {len(total_ref)} and numbers = {numbers} for sequence {cur_seq_id}, skipping for now"
+                        )
 
         print(f"Counted all the words")
         print(f"Total words counted: {len(word_counter)}")
@@ -399,6 +417,7 @@ class CategorizeWordStats(Job):
                 out_stat[category] += count
             out_stats[stat] = out_stat
 
+        out_stats = dict(sorted(out_stats.items(), key=lambda item: item[0]))
         with uopen(self.out_categorized_word_stats, "wt") as out:
             out.write(repr(out_stats))
             out.write("\n")
@@ -413,6 +432,7 @@ class CategorizeWordStats(Job):
                     continue
                 out_stat = {cat: val / out_stats["word_counter"].get(cat, 1) for cat, val in counters.items()}
                 out_stats_relative[stat] = out_stat
+            out_stats_relative = dict(sorted(out_stats_relative.items(), key=lambda item: item[0]))
             with uopen(self.out_categorized_word_stats_relative, "wt") as out:
                 out.write(repr(out_stats_relative))
                 out.write("\n")
@@ -421,3 +441,178 @@ class CategorizeWordStats(Job):
             with uopen(self.out_categorized_word_stats_relative, "wt") as out:
                 out.write(repr({}))
                 out.write("\n")
+
+
+class FigureOutHowManyCorrectWordsAreBungedUp(Job):
+    def __init__(self, before: tk.Path, after: tk.Path):
+        self.before = before  # sclite report dirs
+        self.after = after
+        self.out_stats_seqs = self.output_path("bungup_stats_sequence_level.py.gz")
+        self.out_stats_total = self.output_path("bungup_stats_total.py")
+        self.examples_bungled = self.output_path("bungled_examples.txt.gz")
+        self.examples_corrected = self.output_path("corrected_examples.txt.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 5
+        return super().hash(d)
+
+    def read_report_dir(self, report: tk.Path) -> Dict[str, Tuple[List[bool], int, str, str]]:
+        cur_seq_id = None
+        ret = {}
+        total_ref = []
+        total_hyp = []
+        numbers = []
+        with open(f"{report}/sclite.pra", errors="ignore") as f:
+            for line in fix_sclite_pra(f):
+                if line.startswith("id:"):
+                    # id: (dev-clean/422-122949-0034/422-122949-0034-000)
+                    cur_seq_id = line.split()[1][1:-1]
+                    assert len(cur_seq_id) > 0
+                elif line.startswith("Scores:"):
+                    assert cur_seq_id is not None
+                    # Scores: (#C #S #D #I) 79 2 2 0
+                    parts = line.split()
+                    assert len(parts) == 9
+                    assert len(numbers) == 0, f"{cur_seq_id}, {line}"
+                    numbers = [int(p) for p in parts[-4:]]
+
+                elif line.startswith("REF:") or line.startswith(">> REF:"):
+                    assert cur_seq_id is not None
+                    words = line[line.index(":") + 1 :].strip().split()
+                    words = [w.strip() for w in words if len(w.strip()) > 0]
+                    total_ref += words
+                elif line.startswith("HYP:") or line.startswith(">> HYP:"):
+                    assert cur_seq_id is not None
+                    words = line[line.index(":") + 1 :].strip().split()
+                    words = [w.strip() for w in words if len(w.strip()) > 0]
+                    total_hyp += words
+                elif line.strip() == "":
+                    if len(total_ref) > 0 and len(total_ref) >= numbers[0] + numbers[1] + numbers[2] + numbers[3]:
+                        words = [
+                            w for w in total_ref if not all([c == "*" for c in w])
+                        ]  # filter out *** for insertions
+                        insertions = [w for w in total_ref if all(c == "*" for c in w)]
+                        error_list = [not all(c.isupper() or c == "'" for c in w) for w in words]
+
+                        ret[cur_seq_id] = (
+                            error_list,  # True if correct
+                            len(insertions),
+                            " ".join(total_ref),
+                            " ".join(total_hyp),
+                        )
+
+                        total_ref = []
+                        total_hyp = []
+                        numbers = []
+                    else:
+                        print(
+                            f"Empty line, but total_ref = {len(total_ref)} and numbers = {numbers} for sequence {cur_seq_id}, skipping for now"
+                        )
+        return ret
+
+    def run(self):
+        before = self.read_report_dir(self.before)
+        after = self.read_report_dir(self.after)
+
+        assert len(before) == len(after), "Before and after reports must have the same number of sequences"
+        assert set(before.keys()) == set(after.keys()), "Before and after reports must have the same sequence IDs"
+
+        stats = {}
+        total_correct_made_incorrect = 0
+        total_incorrect_made_correct = 0
+        total_correct_before = 0
+        total_incorrect_before = 0
+        total_before_insertions = 0
+        total_after_insertions = 0
+
+        out_bungled = ""
+        out_corrected = ""
+
+        for seq_id in before.keys():
+            before_correct, before_insertions, before_refs, before_hyps = before[seq_id]
+            after_correct, after_insertions, after_refs, after_hyps = after[seq_id]
+
+            assert len(before_correct) == len(after_correct), (
+                f"Sequence {seq_id} has different number of errors before and after"
+            )
+
+            # count how many words were bunged up
+            correct_made_incorrect = sum(1 for b, a in zip(before_correct, after_correct) if b and not a)
+            incorrect_made_correct = sum(1 for b, a in zip(before_correct, after_correct) if not b and a)
+            # same = sum(1 for b, a in zip(before_correct, after_correct) if b == a)
+
+            if correct_made_incorrect == 0 and incorrect_made_correct > 0:
+                out_corrected += f"{seq_id}\n"
+                out_corrected += f"RefB: {before_refs}\n"
+                out_corrected += f"RefA: {after_refs}\n"
+                out_corrected += f"Before: {before_hyps}\n"
+                out_corrected += f"After: {after_hyps}\n"
+                out_corrected += "\n"
+            elif incorrect_made_correct == 0 and correct_made_incorrect > 0:
+                out_bungled += f"{seq_id}\n"
+                out_bungled += f"RefB: {before_refs}\n"
+                out_bungled += f"RefA: {after_refs}\n"
+                out_bungled += f"Before: {before_hyps}\n"
+                out_bungled += f"After: {after_hyps}\n"
+                out_bungled += "\n"
+
+            num_correct_before = sum(1 for b in before_correct if b)
+            num_incorrect_before = len(before_correct) - num_correct_before
+
+            stats[seq_id] = {
+                "correct_made_incorrect": correct_made_incorrect,
+                "incorrect_made_correct": incorrect_made_correct,
+                "num_correct_before": num_correct_before,
+                "num_incorrect_before": num_incorrect_before,
+                "before_insertions": before_insertions,
+                "after_insertions": after_insertions,
+            }
+            total_correct_made_incorrect += correct_made_incorrect
+            total_incorrect_made_correct += incorrect_made_correct
+            total_correct_before += num_correct_before
+            total_incorrect_before += num_incorrect_before
+            total_before_insertions += before_insertions
+            total_after_insertions += after_insertions
+
+        print(f"Total correct words made incorrect: {total_correct_made_incorrect}")
+        print(f"Total incorrect words made correct: {total_incorrect_made_correct}")
+        print(f"Total correct words before: {total_correct_before}")
+        print(f"Total incorrect words before: {total_incorrect_before}")
+        print(f"Total before insertions: {total_before_insertions}")
+        print(f"Total after insertions: {total_after_insertions}")
+
+        with uopen(self.out_stats_seqs, "wt") as out:
+            out.write(repr(stats))
+            out.write("\n")
+
+        print(f"Stats per sequence written to {self.out_stats_seqs}")
+
+        with uopen(self.out_stats_total, "w") as out:
+            out.write(
+                repr(
+                    {
+                        "total_correct_made_incorrect": total_correct_made_incorrect,
+                        "total_incorrect_made_correct": total_incorrect_made_correct,
+                        "total_correct_before": total_correct_before,
+                        "total_incorrect_before": total_incorrect_before,
+                        "total_before_insertions": total_before_insertions,
+                        "total_after_insertions": total_after_insertions,
+                    }
+                )
+            )
+            out.write("\n")
+
+        print(f"Total stats written to {self.out_stats_total}")
+
+        with uopen(self.examples_bungled, "wt") as out:
+            out.write(out_bungled)
+            out.write("\n")
+
+        with uopen(self.examples_corrected, "wt") as out:
+            out.write(out_corrected)
+            out.write("\n")
