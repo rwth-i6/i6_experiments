@@ -4,25 +4,15 @@ Config for RWTH IPC CLAIX-2023 cluster experiments for AED models
 
 from __future__ import annotations
 
-from typing import Any, Dict
 
-from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
-from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 from .configs import (
     config_96gb_bf16_accgrad1,
     _get_cfg_lrlin_oclr_by_bs_nep_v3,
-    _get_cfg_lrlin_oclr_by_bs_nep_v4,
     _batch_size_factor,
 )
 from .aed import train_exp as aed_train_exp
-
-from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
-
-import returnn.frontend as rf
-from returnn.frontend.decoder.transformer import TransformerDecoder
-from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerPositionwiseFeedForward
 
 
 def py():
@@ -54,7 +44,7 @@ def py():
     # {"dev-clean": 2.36, "dev-other": 5.35, "test-clean": 2.4, "test-other": 5.72}
     # Final 'devtrain_loss_ce': 0.11504180265534825, 'devtrain_loss_fer': 0.005836691916394713,
     aed_train_exp(
-        f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07",
+        "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
@@ -71,7 +61,7 @@ def py():
     # No curriculum learning (epoch filtering) (-> train_epoch_wise_filter=None)
     # {"dev-clean": 2.4, "dev-other": 5.22, "test-clean": 2.5, "test-other": 5.55}
     aed_train_exp(
-        f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
+        "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
@@ -90,7 +80,7 @@ def py():
     # SpecAugment adapted
     # {"dev-clean": 2.32, "dev-other": 5.24, "test-clean": 2.41, "test-other": 5.66}
     aed_train_exp(
-        f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
+        "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
@@ -116,7 +106,7 @@ def py():
     # bfloat16A with larger batch V2.
     # {"dev-clean": 4.28, "dev-other": 10.35, "test-clean": 4.22, "test-other": 10.08}
     aed_train_exp(
-        f"96gb-bf16A-bs300k-bsSeq400-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
+        "96gb-bf16A-bs300k-bsSeq400-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             "torch_amp": None,
@@ -143,7 +133,7 @@ def py():
     # {"dev-clean": 2.4, "dev-other": 5.26, "test-clean": 2.54, "test-other": 5.63}
     # -> unclear, maybe slightly better?
     aed_train_exp(
-        f"96gb-bf16-bs200k-accgrad1-wd5e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
+        "96gb-bf16-bs200k-accgrad1-wd5e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
@@ -163,7 +153,7 @@ def py():
     # TODO maybe needs more tuning? different wd, lr
     lion_lr_factor = 0.3
     aed_train_exp(
-        f"96gb-bf16-bs200k-accgrad1-wd0.0333-lrlinEpCont-lr3e_4-optLion-noCrl-speedpertV2-spm10k-spmSample07",
+        "96gb-bf16-bs200k-accgrad1-wd0.0333-lrlinEpCont-lr3e_4-optLion-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(
@@ -189,7 +179,7 @@ def py():
     # lossSeqNorm.
     # Baseline: {"dev-clean": 2.4, "dev-other": 5.22, "test-clean": 2.5, "test-other": 5.55}
     aed_train_exp(
-        f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07-lossSeqNorm",
+        "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07-lossSeqNorm",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
