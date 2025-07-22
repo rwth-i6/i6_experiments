@@ -462,23 +462,26 @@ def recog_exp(
     best_lm_tune = None
     best_prior_tune = None
 
-    def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, target_param_key, update_config: dict = {}, first_pass_name: str = None):
-        if target_param_key is None:
-            target_param_key = param_key
+    def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, update_config: dict = {}, first_pass_name: str = None):
         from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
         original_params = decoding_config
         params = copy.copy(original_params)
 
         # This is necessary for reducing to minimal hash:
-        params.pop("lm_weight_tune", None)
-        params.pop("prior_weight_tune", None)
-        params.pop("prior_weight", None)
         params.pop("cheat", None)
         params.pop("check_search_error_rescore", None)
         params.pop("tune_range_2", None)
         params.pop("tune_range", None)
-        params.pop("recog_language_model",None)
-        params.update(update_config)
+        search_config_copy = None
+        #first_pass_wo_lm = not decoding_config.get("use_lm", False)
+        if update_config:# or first_pass_wo_lm: # First pass with Greedy(No lm)
+            params.pop("recog_language_model",None)
+            params.pop("prior_weight", None)
+            params.pop("lm_weight_tune", None)
+            params.pop("prior_weight_tune", None)
+            params.update(update_config)
+        else:
+            search_config_copy = search_config.copy()
         print(params)
         default_value = original_params.get(param_key)
         scores = []
@@ -494,7 +497,7 @@ def recog_exp(
                 epoch=recog_epoch,
                 recog_def=decoder_def,
                 decoding_config=params,
-                #search_config=search_config,
+                search_config=search_config_copy,
                 recog_post_proc_funcs=recog_post_proc_funcs,
                 exclude_epochs=exclude_epochs,
                 search_mem_rqmt=search_mem_rqmt,
@@ -506,10 +509,9 @@ def recog_exp(
             scores.append(score)
 
         if len(scores):
-            best_tune = GetBestTuneValue(scores, tune_range).out_best_tune_var
-            tk.register_output(prefix + f"/tune/{param_key}_best", best_tune)
-            original_params[target_param_key] = best_tune
-            return best_tune
+            best_tune_job = GetBestTuneValue(scores, tune_range, default_scale=default_value)
+            #original_params[target_param_key] = best_tune
+            return best_tune_job.out_best_tune, best_tune_job.out_best_tune_var
 
     # Block of code for tuning scale with first pass search
     if tune_hyperparameters and decoding_config["use_lm"] and not tune_with_rescoring:
@@ -636,22 +638,41 @@ def recog_exp(
             }
         lm_tune_ls = [scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range") \
             else tune_config_updates["tune_range"]
-        alias_tune_name = "_".join(first_pass_lmname.split("_")[:4]) + "NoLM"
-        tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", "lm_weight", update_config, first_pass_name=alias_tune_name)
-    #print(f"\n{name}: tune?{tune_rescore_scale}, lm_rescore:{decoding_config.get('lm_rescore', 'Nothing')}!")
-    if tune_rescore_scale and decoding_config["lm_rescore"]:
-        #print("tune 2rd pass scales!")
+        alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + "NoLM"
+        best_lm_tune, best_tune_LM_var = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", update_config, first_pass_name=alias_tune_name)
+        tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best", best_lm_tune)
+        decoding_config["lm_weight_tune"] = best_lm_tune
 
+        ori_rescore_lmscale = decoding_config["rescore_lmscale"]
+        decoding_config["rescore_lmscale"] = best_tune_LM_var # This is for tuning the prior, will be overwritten by following tuning of real 2rd pass LM scale
+
+        prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1] if not tune_config_updates.get("prior_tune_range") \
+        else tune_config_updates["prior_tune_range"]
+        best_prior_tune, _ = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",
+                                                           update_config, first_pass_name=alias_tune_name)
+        tk.register_output(alias_tune_name + "/tune/priot_weight_tune_best", best_prior_tune)
+        decoding_config["prior_weight_tune"] = best_prior_tune
+
+        # Reset to original scale
+        decoding_config["rescore_lmscale"] = ori_rescore_lmscale
+    '''Tune 2rd pass scales'''
+    if tune_rescore_scale and decoding_config["lm_rescore"]:
+        print("tune 2rd pass scales!")
+        tune_name = first_pass_name# + "/2rd_" + decoding_config["rescore_lm_name"]
         lm_tune_ls = [scale/100 for scale in range(-50,51,5)] if not tune_config_updates.get("tune_range_2") \
             else tune_config_updates["tune_range_2"]
 
         prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1] if not tune_config_updates.get("prior_tune_range_2") \
             else tune_config_updates["prior_tune_range_2"]
-        tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", target_param_key=None, first_pass_name=first_pass_name)
-
+        _, best_lm_tune = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name)
+        tk.register_output(tune_name + "/tune/resor_lm_weight_best", best_lm_tune)
+        decoding_config["rescore_lmscale"] = best_lm_tune
+        print(f"tuned res_lmscale{decoding_config['rescore_lmscale'].get_path()}")
         if with_prior:
-            tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale", target_param_key=None, first_pass_name=first_pass_name)
-
+            _, best_prior_tune = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",  first_pass_name=tune_name)
+            decoding_config["rescore_priorscale"] = best_prior_tune
+            tk.register_output(tune_name + "/tune/resor_prior_best", best_prior_tune)
+            print(f"tuned rescore_priorscale{decoding_config['rescore_priorscale'].get_path()}")
 
     # recog_result = recog_training_exp(
     #     prefix, task, model_with_checkpoint, recog_def=decoder_def,
@@ -665,11 +686,13 @@ def recog_exp(
     #     search_rqmt=search_rqmt,
     # )
     if recog_config_updates:
+        print(f"recog_config_updates{recog_config_updates}")
         decoding_config.update(recog_config_updates)
     search_error_check = True if decoding_config.get("lm_order", False) else False
+    '''Final recog with tuned scale'''
     recog_result, search_error, search_error_rescore = recog_exp_(
         prefix, task, model_with_checkpoints,
-        first_pass_name=first_pass_name,
+        first_pass_name=first_pass_name + "final_recog",
         epoch=recog_epoch,
         recog_def=decoder_def,
         decoding_config=decoding_config,

@@ -200,18 +200,21 @@ class HuggingFaceLmScorer(LMScorer):
         batch_size = cfg.get("batch_size", 1)
         prompt = cfg.get("prompt", None)
         eos_symbol = cfg.get("eos_symbol", "")
+        lower_case = cfg.get("lower_case", False)
         # dummy init
         instance = cls()
         instance.batch_size = batch_size
         instance.model_dir = model_dir
         delimiter = " " if not eos_symbol else (eos_symbol + " ")  # Not sure
-        if prompt:
-            assert isinstance(prompt, tk.Path)
+        instance.prompt = None
+        if isinstance(prompt, tk.Path):
             with open(prompt.get_path(), "r", encoding="utf-8") as f:
-                prompt = [line.strip() for line in f.readlines()] + [""] # So that for last prompt it also has eos
-        instance.prompt = delimiter.join(prompt) if prompt else None # TODO:
+                prompt = [line.strip() for line in f.readlines()]
+        if prompt:
+            prompt +=  [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
+            instance.prompt = delimiter.join(prompt) # TODO:
 
-        instance.lower_case = False
+        instance.lower_case = lower_case
         instance.eos_symbol = eos_symbol
 
         from transformers import AutoModelForCausalLM, AutoTokenizer

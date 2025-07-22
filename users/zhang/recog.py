@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collecti
 import functools
 
 import sisyphus
+
 #from i6_experiments.users.berger.systems.functors import VocabType
 from sisyphus import tk
 from sisyphus import tools as sis_tools
@@ -34,6 +35,7 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, Score
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
 
 import numpy as np
 
@@ -94,7 +96,7 @@ def recog_exp(
     #summarize_job.add_alias(prefix_name + "/train-summarize")
     #tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     if search_error_check:
-        tk.register_output(prefix_name + "/search_error", summarize_job.out_search_error)
+        tk.register_output(first_pass_name + "/search_error", summarize_job.out_search_error)
         return summarize_job.out_summary_json, summarize_job.out_search_error, summarize_job.out_search_error_rescore
     return summarize_job.out_summary_json, None, summarize_job.out_search_error_rescore
 
@@ -411,6 +413,9 @@ def recog_model(
             if dataset_name not in dev_sets:
                 continue
         # print(f"dataset:{dataset}, type{type(dataset)}, name:{dataset_name}, type:{type(dataset_name)}")
+        # from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
+        # if LLM_PREV_ONE_CTX:
+        #     dataset["seq_ordering"] = "default"
         recog_out, hyps, search_error_rescore = search_dataset( # Hyps here is raw out from first pass
             decoding_config=decoding_params,
             dataset=dataset,
@@ -1277,13 +1282,16 @@ def search_config_v2(
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 
+    forward_data = dataset.get_main_dataset()
+    if LLM_PREV_ONE_CTX:
+        forward_data["seq_ordering"] = "default"
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
-        forward_data=dataset.get_main_dataset(),
+        forward_data=forward_data,
     )
     if config:
         returnn_recog_config_dict.update(config)
@@ -1343,7 +1351,6 @@ def search_config_v2(
             decoder_params.pop("prior_weight", 0)
             decoder_params.pop("lm_weight", 0)
             args.pop("prior_file",0)
-
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
@@ -1405,6 +1412,7 @@ def search_config_v2(
         batch_size_dependent = returnn_recog_config.config.pop("__batch_size_dependent")
     if "__batch_size_dependent" in returnn_recog_config.post_config:
         batch_size_dependent = returnn_recog_config.post_config.pop("__batch_size_dependent")
+
     for k, v in dict(
         batching="sorted",
         batch_size=20000 * model_def.batch_size_factor,

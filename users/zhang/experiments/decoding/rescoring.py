@@ -50,7 +50,7 @@ class SearchCombineScoresJob(Job):
     and combines the scores with some weights.
     """
 
-    def __init__(self, search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]], *, output_gzip: bool = True):
+    def __init__(self, search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]], *, output_gzip: bool = True, version:int = 1):
         """
         :param search_py_output: list of tuple (search output file from RETURNN in python format (n-best list), weight)
         :param output_gzip: gzip the output
@@ -79,7 +79,10 @@ class SearchCombineScoresJob(Job):
         for _, d in data:
             assert set(d.keys()) == seq_tags_set, "inconsistent seq tags"
 
-        with util.uopen(self.out_search_results, "wt") as out:
+        tmp_filename = "tmp.py" + (".gz" if self.out_search_results.get_path().endswith(".gz") else "")
+        import gzip
+        assert tmp_filename.endswith(".gz"), "should have .gz extension"
+        with gzip.open(tmp_filename, "wt") as out:
             out.write("{\n")
             for seq_tag in seq_tags:
                 data_: List[List[Tuple[float, str]]] = [d[seq_tag] for _, d in data]
@@ -106,8 +109,8 @@ class SearchCombineScoresJob(Job):
                     out.write(f"({score!r}, {hyp!r}),\n")
                 out.write("],\n")
             out.write("}\n")
-        import time
-        time.sleep(1)
+        import os
+        os.replace(tmp_filename, self.out_search_results.get_path()) #ensures that no process will see the file until it's fully written
 
 
 class RescoreCheatJob(Job):

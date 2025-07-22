@@ -31,8 +31,8 @@ LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 
 LLM_FXIED_CTX = True and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
-LLM_FXIED_CTX_SIZE = 10
-LLM_PREV_ONE_CTX = False and not LLM_FXIED_CTX
+LLM_FXIED_CTX_SIZE = 1
+LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
 # --- Helpers for ctc_exp ---
 
 def get_encoder_model_config(encoder: str) -> Tuple[dict, Optional[callable]]:
@@ -68,7 +68,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         "beam_size": beam_size,
         #"beam_threshold": 1e6,
         "lm_weight": 1.45,
-        #"use_logsoftmax": True,
+        "use_logsoftmax": True,
         "use_lm": False,
         #"use_lexicon": False,
     }
@@ -236,9 +236,6 @@ def ctc_exp(
     recog_def = select_recog_def(lmname, USE_flashlight_decoder)
     tune_rescore_scale = False
     if rescore_lm or rescore_lm_name:
-        if lm is not None: #First pass with a LM
-            decoding_config["tune_with_rescoring"] = True
-            set_tune_range_by_name(lmname,tune_config_updates,first_pass=True)
         tune_rescore_scale = True
         decoding_config["cheat"] = CHEAT_N_BEST
         decoding_config["check_search_error_rescore"] = True
@@ -249,6 +246,10 @@ def ctc_exp(
         decoding_config["rescore_lm_name"] = rescore_lm_name
         decoding_config["vocab"] = get_vocab_by_str(vocab)
         set_tune_range_by_name(rescore_lm_name,tune_config_updates,first_pass=False)
+        if lm is not None: #First pass with a LM
+            decoding_config["tune_with_rescoring"] = True
+            decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]
+            set_tune_range_by_name(lmname,tune_config_updates,first_pass=True)
 
     if train:
         decoding_config = {
@@ -322,8 +323,8 @@ def ctc_exp(
             eval_dataset_keys=EVAL_DATASET_KEYS,
         )[1:],
         f"{p0}{p3}_{p3_}{p4}{p6}",  # add param string as needed
-        decoding_config.get("lm_weight", 0),
-        decoding_config.get("prior_weight", 0),
+        decoding_config.get("lm_weight", 0) if rescore_lm is None else decoding_config.get("rescore_lmscale", 0),
+        decoding_config.get("prior_weight", 0) if rescore_lm is None else decoding_config.get("rescore_priorscale", 0),
     )
 
 # --- Main py() function ---
@@ -469,7 +470,7 @@ def py():
                     else:
                         if lm:  # First pass with a lm
                             wer_ppl_results_2[name] = (
-                                ppl_results_2.get(name), wer_result_path, search_error, search_error_rescore, lm_tune,
+                                ppl_results.get(name), wer_result_path, search_error, search_error_rescore, lm_tune,
                                 prior_tune, dafault_lm_scale,
                                 dafault_prior_scale)
                         else:  # NoLM at all := Uniform LM.?
@@ -486,6 +487,7 @@ def py():
                 #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
                 #     dafault_prior_scale)
             if wer_ppl_results_2 and not train:
+                print(wer_ppl_results_2)
                 names, res = zip(*wer_ppl_results_2.items())
                 results = [(x[0], x[1]) for x in res]
                 search_errors = [x[2] for x in res]

@@ -27,20 +27,24 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def get_fix_context_file(size: int):
+    if size < 1:
+        return None
     path = f"/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS_{size}.txt"
     if os.path.isfile(path):
         return path
     else:
         raise FileNotFoundError(path)
 
+USE_LOWER_CASE = True
 CTX_10_STR = ["THEY SAID IT TO THE END VERSE ANSWERING VERSE AND THE PRAYER OF THE KING POET STILLED THE THROBBING OF HURTS TOO DEEP TO HEAL\nMARY DID YOU EVER THINK WHAT YOU WOULD DO IF YOU HAD TO LIVE ON JUST A FEW CENTS A DAY\nTRUE COAL HAD TO BE BROUGHT FROM SOME DISTANCE AND THERE WAS A GREAT NEED OF REALLY SKILLED LABOR\nWELL THEN WE'LL TALK ABOUT BEAUTIFUL WOMEN IF YOU PREFER\nWAS IT ON THE STAGE THAT YOU FOUND YOUR MOST INTENSE JOYS YOUR TRUE HAPPINESS\nIT WAS WELL KNOWN OF COURSE TO JEANJEAN THAT HIS PRISONER HAD BEEN GUILTY OF THE OFFENCE FOR WHICH HE HAD ARRESTED HIM AND THE COUP WAS QUITE EASY\nHE SNATCHED THE WHIP AND STRUCK THE CONDEMNED MAN WITH IT AS HIGH UP AS HE COULD REACH MAKING A GREAT WELT ACROSS HIS BARE STOMACH\nWHAT DID THAT CREEP WANT\nWE HAVE COME DOWN HERE TO DO A LITTLE PROSPECTING AND WERE JUST RIDING AROUND A BIT TO TAKE A LOOK AT THE COUNTRY\nBUT BECAUSE MANY OF THE SIMPLE IDEAS THAT MAKE UP OUR SPECIFIC IDEAS OF SUBSTANCES ARE POWERS WHICH LIE NOT OBVIOUS TO OUR SENSES IN THE THINGS AS THEY ORDINARILY APPEAR THEREFORE IN THE SIGNIFICATION OF OUR NAMES OF SUBSTANCES SOME PART OF THE SIGNIFICATION WILL BE BETTER MADE KNOWN BY ENUMERATING THOSE SIMPLE IDEAS THAN BY SHOWING THE SUBSTANCE ITSELF"]
 PROMPT = ["THIS IS A TEXT DATA SOURCED FROM PUBLIC DOMAIN AUDIOBOOKS\nIT REPRESENTS THE DOMAIN OF READ, AND SCRIPTED SPEECH"]
 EXAMPLE = ["I SAY ADVERSARIES FOR ON RECALLING SUCH PROUD MEMORIES WE SHOULD AVOID THE WORD ENEMIES WHOSE HOSTILE SOUND PERPETUATES THE ANTAGONISMS AND STRIFE OF NATIONS SO IRREMEDIABLE PERHAPS SO FATEFUL AND ALSO SO VAIN"]
-LLM_Batch_size = {#"meta-llama/Llama-3.2-1B": 18*3,
+LLM_Batch_size = {"meta-llama/Llama-3.2-1B": 18*3,
                   "meta-llama/Llama-3.1-8B": 4*3,
-                  #"Qwen/Qwen3-0.6B-Base": 51, #"Qwen/Qwen3-1.7B-Base": 27, #"Qwen/Qwen3-4B-Base":24, #"Qwen/Qwen3-8B-Base":4,
+                  "Qwen/Qwen3-0.6B-Base": 51, "Qwen/Qwen3-1.7B-Base": 27, #"Qwen/Qwen3-4B-Base":24,
+                  "Qwen/Qwen3-8B-Base":4*3,
                   #"mistralai/Mistral-7B-v0.3": 4,
-                  }
+                  } # Keys of this determines which LLM will be built by lm_getter
 LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 2, "cpu": 3, "mem": 16, "gpu": 1, "gpu_mem": 11},
             "meta-llama/Llama-3.1-8B": {"time": 4, "cpu": 3, "mem": 40, "gpu": 1, "gpu_mem": 48},
             "Qwen/Qwen3-0.6B-Base": {"time": 2, "cpu": 3, "mem": 12, "gpu": 1, "gpu_mem": 11},
@@ -85,13 +89,14 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             text_file=[get_test_corpus_text(keys=[ds_name])],
             llm_name=model_id,
             batch_size=max(batch_size//2,1),
+            lower_case=USE_LOWER_CASE,
             word_ppl=word_ppl,
             prompt=prompt,
             eos_symbol="\n",
         )
         name = os.path.basename(model_id)
         ppl_job.rqmt.update(LLM_rqmt[model_id])
-        ppl_job_name = f"ppl/{name}" + (f"_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "")
+        ppl_job_name = f"ppl/{name}" + (f"_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + f"{'low' if USE_LOWER_CASE else ''}{'_prev' if LLM_PREV_ONE_CTX else ''}"
         ppl_job.add_alias(ppl_job_name)
         lm_cfg = {"model_dir": model.out_hub_cache_dir, "batch_size": batch_size,
             "name": name, "prompt": prompt, "lm_type" : "HuggingFaceLm"}
@@ -99,13 +104,15 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             lm_cfg.update({"eos_symbol": "\n"})
         if LLM_PREV_ONE_CTX:
             lm_cfg.update({"prev_one_ctx": LLM_PREV_ONE_CTX})
+        if USE_LOWER_CASE:
+            lm_cfg.update({"lower_case": True})
         llms.update({name: lm_cfg})
         ppls.update({name: ppl_job.out_ppl})
-        print(lm_cfg)
+        #print(lm_cfg)
     # ppl_job.add_alias("lm/" + llm_name + "/ppl/librispeech_" + ds_name + ("low" if lower_case else "") + eos_name)
         name_ext = f"{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else ""
         name_ext += f"prev_one_ctx" if LLM_PREV_ONE_CTX else ""
-        name_ext += f"{'prompt' if LLM_WITH_PROMPT else ''}{'_example' if LLM_WITH_PROMPT_EXAMPLE else ''}"
+        name_ext += f"{'prompt' if LLM_WITH_PROMPT else ''}{'_example' if LLM_WITH_PROMPT_EXAMPLE else ''}{'_low' if USE_LOWER_CASE else ''}"
         tk.register_output(
             "ppl/" + name + "/librispeech-" + ds_name + name_ext + "-ppl",
             ppl_job.out_ppl)
@@ -1010,9 +1017,9 @@ def py():
     for llm_name in [
                     # "Qwen/Qwen3-4B-Base",
                     # "Qwen/Qwen3-0.6B-Base",
-                    # "Qwen/wen3-0.6B-Base",
+                    "Qwen/Qwen3-1.7B-Base",
                     "meta-llama/Llama-3.2-1B",
-                     "meta-llama/Llama-3.1-8B",
+                    #"meta-llama/Llama-3.1-8B",
                      ]:
         dl_model = DownloadHuggingFaceRepoJob(model_id=llm_name)
         for ds_name in [  # "dev-clean",
@@ -1021,15 +1028,10 @@ def py():
             #"test-other",
             # "train",
         ]:
-            lower_case = False
-            for ctx_lines, context in [#(100,FIXED_CONTEXT_LBS_100),
-                                       #(50,FIXED_CONTEXT_LBS_50),
-                                       #(30, FIXED_CONTEXT_LBS_30),
-                                       #(10,FIXED_CONTEXT_LBS_10),
-                                       (1, FIXED_CONTEXT_LBS_1),
-                                       #(10,CTX_10_STR), # Default \n
-                                       (0, None)
-                                         ]:
+            lower_case = True
+            for ctx_lines in [#10, 5, 3,
+                              1, 0]:
+                context = get_fix_context_file(size=ctx_lines)
                 for eos_name, eos_symbol in {"newline": "\n",
                                             #"period":".",
                                              #"eos": "eos",
