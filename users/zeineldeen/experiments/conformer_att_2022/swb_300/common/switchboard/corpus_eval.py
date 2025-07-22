@@ -54,6 +54,33 @@ def get_hub5e00() -> SwitchboardEvalDataset:
 
 
 @lru_cache()
+def get_hub5e00_v2() -> SwitchboardEvalDataset:
+    from i6_core.corpus.convert import CorpusToStmJob
+
+    c = tk.Path("/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/dependencies/hub5e_00.corpus.gz")
+
+    return SwitchboardEvalDataset(
+        bliss_corpus=c,
+        stm=get_hub5e00().stm,  # CorpusToStmJob(c).out_stm_path,
+        glm=get_hub5e00().glm,
+    )
+
+
+@lru_cache()
+def get_hub5e00_v2_ogg(output_prefix="datasets", returnn_python_exe=None, returnn_root=None):
+    ogg_zip_job = BlissToOggZipJob(
+        bliss_corpus=tk.Path(
+            "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/dependencies/hub5e_00.corpus.gz"
+        ),
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+    )
+    ogg_zip_job.add_alias(os.path.join(output_prefix, "Switchboard", "hub5e00_v2_ogg_zip_job"))
+
+    return ogg_zip_job.out_ogg_zip
+
+
+@lru_cache()
 def get_hub5e00_corpus_object() -> CorpusObject:
     """
     :return: hub5e00 corpus object
@@ -106,6 +133,21 @@ def get_hub5e00_cv_ogg(output_prefix="datasets", returnn_python_exe=None, return
         returnn_root=returnn_root,
     )
     ogg_zip_job.add_alias(os.path.join(output_prefix, "Switchboard", "hub5e00_cv_ogg_zip_job"))
+
+    return ogg_zip_job.out_ogg_zip
+
+
+def get_hub5e00_v2_cv_bliss_corpus():
+    return tk.Path("/u/zhou/asr-exps/swb1/dependencies/hub5e_00.corpus.cleaned.gz")
+
+
+def get_hub5e00_v2_cv_ogg(output_prefix="datasets", returnn_python_exe=None, returnn_root=None):
+    ogg_zip_job = BlissToOggZipJob(
+        get_hub5e00_v2_cv_bliss_corpus(),
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+    )
+    ogg_zip_job.add_alias(os.path.join(output_prefix, "Switchboard", "hub5e00_v2_cv_ogg_zip_job"))
 
     return ogg_zip_job.out_ogg_zip
 
@@ -189,6 +231,7 @@ def get_rt03s_ogg(output_prefix="datasets", returnn_python_exe=None, returnn_roo
 def get_test_data_dict():
     return {
         "hub5e00": get_hub5e00(),
+        "hub5e00_v2": get_hub5e00_v2(),
         "hub5e01": get_hub5e01(),
         "rt03s": get_rt03s(),
     }
@@ -197,6 +240,7 @@ def get_test_data_dict():
 def get_test_data_ogg_dict():
     return {
         "hub5e00": get_hub5e00_ogg(),
+        "hub5e00_v2": get_hub5e00_v2_ogg(),
         "hub5e01": get_hub5e01_ogg(),
         "rt03s": get_rt03s_ogg(),
     }

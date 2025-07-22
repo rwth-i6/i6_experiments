@@ -47,6 +47,16 @@ BPE_5K = 5000
 BPE_1K = 1000
 BPE_500 = 500
 
+TRAIN_IVEC = tk.Path(
+    "/work/asr3/zhou/hiwis/wu/asr-exps/swb1/2022-04-27_hmm-transducer/adaptation/ivector/IVectorExtractionJob.loBXO1OGhPP3/output/ivec.bundle"
+)
+HUB500_CV_IVEC = tk.Path(
+    "/work/asr3/zhou/hiwis/wu/asr-exps/swb1/2022-04-27_hmm-transducer/adaptation/ivector/IVectorExtractionJob.EEQzDc8h8W9p/output/ivec.bundle"
+)
+HUB500_IVEC = tk.Path(
+    "/work/asr3/zhou/hiwis/wu/asr-exps/swb1/2022-04-27_hmm-transducer/adaptation/ivector/IVectorExtractionJob.wRwdYAi7uGmT/output/ivec.bundle"
+)
+
 # Seq-length 'audio_features' Stats:
 #   249536 seqs
 #   Mean: 35964.915503173834  (4.5 sec)
@@ -100,9 +110,9 @@ def conformer_baseline():
     abs_name = os.path.abspath(__file__)
     prefix_name = os.path.basename(abs_name)[: -len(".py")]
 
-    def get_test_dataset_tuples(bpe_size, selected_datasets=None, preemphasis=None):
+    def get_test_dataset_tuples(bpe_size, selected_datasets=None, preemphasis=None, ivec_hdfs=None):
         test_dataset_tuples = {}
-        for testset in ["hub5e00", "hub5e01", "rt03s"]:
+        for testset in ["hub5e00", "hub5e00_v2", "hub5e01", "rt03s"]:
             if selected_datasets and testset not in selected_datasets:
                 continue
             test_dataset_tuples[testset] = build_test_dataset(
@@ -110,6 +120,7 @@ def conformer_baseline():
                 use_raw_features=True,
                 bpe_size=bpe_size,
                 preemphasis=preemphasis,
+                ivec_hdfs=ivec_hdfs,
             )
         return test_dataset_tuples
 
@@ -360,7 +371,10 @@ def conformer_baseline():
 
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size, preemphasis=search_preemphasis)
         selected_test_dataset_tuples = get_test_dataset_tuples(
-            bpe_size, selected_datasets=selected_test_datasets, preemphasis=search_preemphasis
+            bpe_size,
+            selected_datasets=selected_test_datasets,
+            preemphasis=search_preemphasis,
+            ivec_hdfs=kwargs.get("ivec_hdfs", None),
         )
 
         for ep in default_recog_epochs:
@@ -377,7 +391,7 @@ def conformer_baseline():
             exp_prefix + "/default_last",
             returnn_search_config,
             train_job.out_checkpoints[num_epochs],
-            test_dataset_tuples,
+            selected_test_dataset_tuples,
             RETURNN_CPU_EXE,
             kwargs.get("returnn_root", RETURNN_ROOT),
         )
@@ -386,7 +400,7 @@ def conformer_baseline():
             exp_prefix + "/default_best",
             returnn_search_config,
             best_checkpoint,
-            test_dataset_tuples,
+            selected_test_dataset_tuples,
             RETURNN_CPU_EXE,
             kwargs.get("returnn_root", RETURNN_ROOT),
         )
@@ -395,7 +409,7 @@ def conformer_baseline():
             exp_prefix + f"/average_{num_avg}",
             returnn_search_config,
             averaged_checkpoint,
-            test_dataset_tuples,
+            selected_test_dataset_tuples,
             RETURNN_CPU_EXE,
             kwargs.get("returnn_root", RETURNN_ROOT),
             enable_mail=True,
@@ -427,6 +441,8 @@ def conformer_baseline():
             link_speed_perturbation=train_args.get("speed_pert", False),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
             preemphasis=preemphasis_val,
+            ivec_train_hdf_file=kwargs.get("ivec_train_hdf_file", None),
+            ivec_cv_hdf_file=kwargs.get("ivec_cv_hdf_file", None),
         )
 
         train_job = run_train(
@@ -805,6 +821,7 @@ def conformer_baseline():
         search_args=None,
         **kwargs,
     ):
+        selected_tests = kwargs.pop("selected_test_datasets", dev_datasets)
         return run_exp(
             name,
             train_args=train_args,
@@ -812,7 +829,7 @@ def conformer_baseline():
             bpe_size=bpe_size,
             epoch_wise_filter=epoch_wise_filter,
             seq_ordering=seq_ordering,
-            selected_test_datasets=dev_datasets,
+            selected_test_datasets=selected_tests,  # dev_datasets,
             feature_extraction_net=feature_extraction_net,
             search_args=search_args,
             **kwargs,
@@ -1064,156 +1081,76 @@ def conformer_baseline():
                             preemphasis=premphasis_val,
                         )
 
-                        mini_lstm_j = train_mini_lstm(
-                            exp_name=exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
-                            checkpoint=train_job_avg_ckpt[exp_name + f"_bpeMaxSeq100_premph{premphasis_val}"],
-                            args=args,
-                            num_epochs=12,
-                            w_drop=True,
-                        )
+                        # TODO: speaker adaptation
+                        from i6_experiments.users.zeineldeen.recipe.hdf import ConvertRasrFeatureCacheToHdfJob
 
-                        # TODO: SF
-                        # beam 12, lm-scale 0.18
-                        # 10.7/9.7/11.2
-                        for beam_size in [12]:
-                            for lm_scale in [0.18]:
-                                run_lm_fusion(
-                                    lm_type="trafo",
-                                    exp_name=exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
-                                    epoch="avg",
-                                    test_set_names=test_datasets,
-                                    lm_scales=[lm_scale],
-                                    train_job=train_j,
-                                    train_data=train_data,
-                                    feature_net=log10_net_10ms,
-                                    args=args,
-                                    beam_size=beam_size,
-                                    batch_size=15000 * 80 if beam_size <= 32 else 10_000 * 80,
-                                    bpe_size=BPE_500,
-                                    preemphasis=premphasis_val,
-                                )
+                        ivec_hdfs = {}
+                        for n, ivec_path in {
+                            "train": TRAIN_IVEC,
+                            "hub5e00_cv": HUB500_CV_IVEC,
+                            "hub5e00_v2": HUB500_IVEC,
+                        }.items():
+                            ivec_hdf = ConvertRasrFeatureCacheToHdfJob(
+                                rasr_feature_cache=ivec_path, returnn_root=RETURNN_ROOT, dim=200
+                            ).out_hdf
+                            ivec_hdfs[n] = ivec_hdf
+                            tk.register_output(f"ivec_hdf/{n}.hdf", ivec_hdf)
 
-                        # TODO: ILM
-                        for len_norm_exp in [0.0, 0.2]:
-                            for mini_lstm_ep in [8]:
-                                for beam_size in [12]:
-                                    for lm_scale in [0.19]:
-                                        for ilm_scale in [0.17]:
-                                            run_lm_fusion(
-                                                lm_type="trafo",
-                                                exp_name=exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
-                                                epoch="avg",
-                                                test_set_names=test_datasets,
-                                                lm_scales=[lm_scale],
-                                                prior_scales=[ilm_scale],
-                                                prior_type="mini_lstm",
-                                                prior_type_name=f"mini_lstm_ep{mini_lstm_ep if mini_lstm_ep != -1 else 'best'}_lenNormExp{len_norm_exp}",
-                                                mini_lstm_ckpt=(
-                                                    mini_lstm_j.out_checkpoints[mini_lstm_ep]
-                                                    if mini_lstm_ep != -1
-                                                    else get_best_checkpoint(mini_lstm_j, key="dev_score")
-                                                ),
-                                                train_job=train_j,
-                                                train_data=train_data,
-                                                feature_net=log10_net_10ms,
-                                                args=args,
-                                                beam_size=beam_size,
-                                                batch_size=10_000 * 80,
-                                                bpe_size=BPE_500,
-                                                preemphasis=premphasis_val,
-                                                length_norm_exponent=len_norm_exp,
-                                            )
+                        for spk_adapt_method in ["concat", "wsa_0.4", "wsa_0.2", "wsa_0.6"]:
+                            for ep in [120, 180]:
+                                for lr in [1e-4, 5e-5, 1e-5]:
+                                    if "wsa" in spk_adapt_method:
+                                        if lr == 5e-5:
+                                            continue
+                                        if ep == 180:
+                                            continue
 
-                # # TODO: no ctc
-                # no_ctc_args = copy.deepcopy(args)
-                # no_ctc_args["encoder_args"].with_ctc = False
-                # run_default_exp(
-                #     exp_name + f"_bpeMaxSeq100_noCTC",
-                #     train_args=no_ctc_args,
-                #     num_epochs=ep,
-                #     partition_epoch=6,
-                #     gpu_mem=11,
-                #     bpe_size=BPE_500,
-                #     avg_key="dev_score",
-                # )
-                #
-                # for with_ctc in [True, False]:
-                #     mgpu_args = copy.deepcopy(args)  # TODO: uses wrong LR!
-                #     mgpu_args["encoder_args"].with_ctc = with_ctc
-                #     mgpu_args["horovod_params"] = {
-                #         "horovod_reduce_type": "param",
-                #         "horovod_param_sync_step": 100,
-                #         "horovod_dataset_distribution": "random_seed_offset",
-                #     }
-                #     run_default_exp(
-                #         exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100" + ("_noCTC" if not with_ctc else ""),
-                #         train_args=mgpu_args,
-                #         num_epochs=300,
-                #         partition_epoch=6,
-                #         gpu_mem=11,
-                #         bpe_size=BPE_500,
-                #         horovod_num_processes=4,
-                #         avg_key="dev_score_output/output_prob" if with_ctc else "dev_score",
-                #     )
+                                    spk_adapt_args = copy.deepcopy(args)
+                                    spk_adapt_args["with_pretrain"] = False
+                                    spk_adapt_args["spk_adapt_method"] = spk_adapt_method
+                                    spk_adapt_args["preload_from_files"] = {
+                                        "model": {
+                                            "filename": train_job_avg_ckpt[
+                                                exp_name + f"_bpeMaxSeq100_premph{premphasis_val}"
+                                            ],
+                                            "init_for_train": True,
+                                            "ignore_missing": True,
+                                            "ignore_params": ["conformer_block_01_self_att/QKV"],
+                                        }
+                                    }
 
-    # single gpu 200 epochs:
-    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100
-    # 11.1        9.8     11.4  avg
+                                    spk_adapt_args["learning_rates_list"] = [lr] * ep
+                                    run_default_exp(
+                                        "spk_adapt/"
+                                        + exp_name
+                                        + f"_bpeMaxSeq100_premph{premphasis_val}_spkAdapt_{spk_adapt_method}_constLR{lr}_ep{ep}",
+                                        train_args=spk_adapt_args,
+                                        num_epochs=ep,
+                                        partition_epoch=6,
+                                        gpu_mem=11,
+                                        bpe_size=BPE_500,
+                                        preemphasis=premphasis_val,
+                                        ivec_train_hdf_file=ivec_hdfs["train"],
+                                        ivec_cv_hdf_file=ivec_hdfs["hub5e00_cv"],
+                                        selected_test_datasets=["hub5e00_v2"],
+                                        ivec_hdfs=ivec_hdfs,
+                                    )
 
-    # first try by only changing the num of epochs:
-    #
-    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep300_epochOCLR-0.0001-0.001_bpeMaxSeq100_mgpu4_11g_paramSync_step100
-    # 12.1       10.7     12.3  avg
-
-    # mgpu_args, exp_name = get_base_v2_args(
-    #     num_epochs=300,
-    #     enc_num_blocks=12,
-    #     enc_reduce_factor=1.0,
-    #     lr_type="epoch-oclr",
-    #     lr_opts={"lr": 1e-3},
-    #     dec_weight_drop=0.0,
-    # )
-    # mgpu_args["batch_size"] = 15_000 * 80
-    # mgpu_args["max_seq_length"] = {"bpe_labels": 100}
-    # mgpu_args["horovod_params"] = {
-    #     "horovod_reduce_type": "param",
-    #     "horovod_param_sync_step": 100,
-    #     "horovod_dataset_distribution": "random_seed_offset",
-    # }
-    # mgpu_args["accum_grad"] = 2
-    # run_default_exp(
-    #     exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100",
-    #     train_args=mgpu_args,
-    #     num_epochs=300,
-    #     partition_epoch=6,
-    #     gpu_mem=11,
-    #     bpe_size=BPE_500,
-    #     horovod_num_processes=4,
-    # )
-    #
-    # # TODO: reduce grad accum
-    # mgpu_args_accum1 = copy.deepcopy(mgpu_args)
-    # mgpu_args_accum1["accum_grad"] = 1
-    # run_default_exp(
-    #     exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_accum1",
-    #     train_args=mgpu_args_accum1,
-    #     num_epochs=300,
-    #     partition_epoch=6,
-    #     gpu_mem=11,
-    #     bpe_size=BPE_500,
-    #     horovod_num_processes=4,
-    # )
-    #
-    # # TODO: add grad clip
-    # for grad_clip in [1.0, 5.0, 10.0, 20.0]:
-    #     mgpu_args_clip = copy.deepcopy(mgpu_args)
-    #     mgpu_args_clip["gradient_clip_global_norm"] = grad_clip
-    #     run_default_exp(
-    #         exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_gradClipNorm{grad_clip}",
-    #         train_args=mgpu_args_clip,
-    #         num_epochs=300,
-    #         partition_epoch=6,
-    #         gpu_mem=11,
-    #         bpe_size=BPE_500,
-    #         horovod_num_processes=4,
-    #     )
+                                    spk_adapt_args["learning_rates_list"] = [lr] * int(0.4 * ep) + list(
+                                        numpy.linspace(lr, 1e-6, ep - int(0.4 * ep))
+                                    )
+                                    run_default_exp(
+                                        "spk_adapt/"
+                                        + exp_name
+                                        + f"_bpeMaxSeq100_premph{premphasis_val}_spkAdapt_{spk_adapt_method}_constDecay{lr}_{ep}",
+                                        train_args=spk_adapt_args,
+                                        num_epochs=ep,
+                                        partition_epoch=6,
+                                        gpu_mem=11,
+                                        bpe_size=BPE_500,
+                                        preemphasis=premphasis_val,
+                                        ivec_train_hdf_file=ivec_hdfs["train"],
+                                        ivec_cv_hdf_file=ivec_hdfs["hub5e00_cv"],
+                                        selected_test_datasets=["hub5e00_v2"],
+                                        ivec_hdfs=ivec_hdfs,
+                                    )

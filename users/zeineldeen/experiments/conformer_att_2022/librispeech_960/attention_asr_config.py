@@ -46,7 +46,7 @@ post_config = {
     "debug_print_layer_output_template": True,
     "debug_mode": False,
     "batching": "random",
-    # "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.92}},
+    "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.92}},
 }
 
 # -------------------------- LR Scheduling -------------------------- #
@@ -441,6 +441,7 @@ def create_config(
     enable_mixup_in_pretrain=True,
     seq_train_opts=None,
     horovod_params=None,
+    spk_adapt_method=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -628,6 +629,13 @@ def create_config(
 
     if joint_ctc_att_decode_args:
         add_att_ctc_joint_decoding(exp_config, joint_ctc_att_decode_args, ctc_blank_idx)
+
+    if spk_adapt_method == "concat":
+        add_ivec_concat(exp_config)
+    elif spk_adapt_method and "wsa" in spk_adapt_method:
+        add_ivec_weighted_simple_add(
+            exp_config, enc_dim=encoder_args["enc_key_dim"], threshold=float(spk_adapt_method.split("_")[1])
+        )
 
     # -------------------------- end network -------------------------- #
 
@@ -1011,3 +1019,143 @@ def add_ctc_log_prior(config, ctc_log_prior_file):
         "class": "constant",
         "value": CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", ctc_log_prior_file)),
     }
+
+
+def add_ivec_concat(config):
+    config["extern_data"]["ivec_audio_features"] = {"available_for_inference": True, "shape": (1, 200), "dim": 200}
+
+    config["network"]["ivec"] = {"class": "copy", "from": "data:ivec_audio_features"}
+    config["network"]["ivec_reinterpret"] = {
+        "class": "reinterpret_data",
+        "enforce_batch_major": True,
+        "from": "ivec",
+        "set_axes": {"F": 2, "T": 1},
+        "size_base": "conformer_block_01_self_att_ln",
+    }
+    config["network"]["conformer_block_01_self_att_ln_concat_ivec"] = {
+        "class": "concat",
+        "from": [("conformer_block_01_self_att_ln", "F"), ("ivec_reinterpret", "F")],
+        "allow_broadcast": True,
+    }
+    config["network"]["conformer_block_01_self_att"]["from"] = "conformer_block_01_self_att_ln_concat_ivec"
+
+
+def add_ivec_weighted_simple_add(config, enc_dim, threshold=0.4):
+    config["extern_data"]["ivec_audio_features"] = {"available_for_inference": True, "shape": (1, 200), "dim": 200}
+
+    # v'
+    config["network"]["ivec"] = {"class": "copy", "from": "data:ivec_audio_features"}
+    config["network"]["ivec_reinterpret"] = {
+        "class": "reinterpret_data",
+        "enforce_batch_major": True,
+        "from": "ivec",
+        "set_axes": {"F": 2, "T": 1},
+        "size_base": "conformer_block_01_self_att_ln",
+    }
+
+    # v = L2(v')
+    config["network"]["source_ivec_len_norm"] = {
+        "class": "eval",
+        "eval": "tf.math.l2_normalize(source(0), axis=2)",
+        "from": ["ivec_reinterpret"],
+    }
+
+    # tanh(Wv + b)
+    config["network"]["source_ivec_ff"] = {
+        "activation": "tanh",
+        "class": "linear",
+        "forward_weights_init": {
+            "class": "VarianceScaling",
+            "distribution": "uniform",
+            "mode": "fan_in",
+            "scale": 0.78,
+        },
+        "from": "source_ivec_len_norm",
+        "n_out": enc_dim,
+        "with_bias": True,
+    }
+
+    # z_t . tanh(Wv + b)
+    config["network"]["conformer_block_01_self_att_ln_frame_level_dot"] = {
+        "class": "dot",
+        "from": ["conformer_block_01_self_att_ln", "source_ivec_ff"],
+        "red1": 2,
+        "red2": 2,
+        "var1": 1,
+        "var2": 1,
+    }
+    config["network"]["conformer_block_01_self_att_ln_frame_level_dot_reinterpret"] = {
+        "class": "reinterpret_data",
+        "enforce_batch_major": True,
+        "from": "conformer_block_01_self_att_ln_frame_level_dot",
+        "set_axes": {"F": 2, "T": 1},
+    }
+
+    # sigmoid(z_t . tanh(Wv + b))
+    config["network"]["conformer_block_01_self_att_ln_frame_level_dot_sigmoid"] = {
+        "activation": "sigmoid",
+        "class": "activation",
+        "from": "conformer_block_01_self_att_ln_frame_level_dot_reinterpret",
+    }
+    config["network"]["conformer_block_01_self_att_ln_frame_level_zeros"] = {
+        "class": "eval",
+        "eval": "source(0)-source(0)",
+        "from": ["conformer_block_01_self_att_ln_frame_level_dot_sigmoid"],
+    }
+
+    # w_t
+    config["network"]["conformer_block_01_self_att_ln_frame_level_threshold"] = {
+        "class": "eval",
+        "eval": f"source(0) + {threshold}",
+        "from": ["conformer_block_01_self_att_ln_frame_level_zeros"],
+    }
+    config["network"]["conformer_block_01_self_att_ln_frame_leve_threshold_mask"] = {
+        "class": "eval",
+        "eval": "tf.cast(tf.math.greater_equal(source(0), source(1)), dtype=tf.float32)",
+        "from": [
+            "conformer_block_01_self_att_ln_frame_level_dot_sigmoid",
+            "conformer_block_01_self_att_ln_frame_level_threshold",
+        ],
+    }
+    config["network"]["conformer_block_01_self_att_ln_frame_level_weight"] = {
+        "class": "eval",
+        "eval": "tf.where(tf.cast(source(0), dtype=tf.bool), source(1), source(2))",
+        "from": [
+            "conformer_block_01_self_att_ln_frame_leve_threshold_mask",
+            "conformer_block_01_self_att_ln_frame_level_dot_sigmoid",
+            "conformer_block_01_self_att_ln_frame_level_zeros",
+        ],
+    }
+
+    # Uv + b
+    config["network"]["conformer_block_01_self_att_ln_ivec_ff_bias"] = {
+        "activation": None,
+        "class": "linear",
+        "forward_weights_init": {
+            "class": "VarianceScaling",
+            "distribution": "uniform",
+            "mode": "fan_in",
+            "scale": 0.78,
+        },
+        "from": "source_ivec_len_norm",
+        "n_out": enc_dim,
+        "with_bias": True,
+    }
+    # w_t . (Uv + b)
+    config["network"]["conformer_block_01_self_att_ln_ivec_ff_bias_weighted"] = {
+        "class": "dot",
+        "from": ["conformer_block_01_self_att_ln_frame_level_weight", "conformer_block_01_self_att_ln_ivec_ff_bias"],
+        "red1": 2,
+        "red2": 1,
+        "var1": 1,
+        "var2": 2,
+    }
+
+    # z_t + w_t . (Uv + b)
+    config["network"]["conformer_block_01_self_att_ln_add_ivec_bias"] = {
+        "class": "eval",
+        "eval": "source(0) + source(1)",
+        "from": ["conformer_block_01_self_att_ln", "conformer_block_01_self_att_ln_ivec_ff_bias_weighted"],
+    }
+
+    config["network"]["conformer_block_01_self_att"]["from"] = "conformer_block_01_self_att_ln_add_ivec_bias"

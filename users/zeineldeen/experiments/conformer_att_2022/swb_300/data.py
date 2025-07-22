@@ -11,6 +11,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.comm
     get_test_data_dict,
     get_test_data_ogg_dict,
     get_hub5e00_cv_ogg,
+    get_hub5e00_v2_cv_ogg,
 )
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import (
     AudioRawDatastream,
@@ -18,7 +19,7 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio imp
 )
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import BpeDatastream
 
-from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
+from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset, HDFDataset
 
 
 @lru_cache()
@@ -62,6 +63,8 @@ def build_training_datasets(
     link_speed_perturbation=False,
     use_raw_features=False,
     preemphasis=None,  # TODO: by default is None, but we want to experiment
+    ivec_train_hdf_file=None,
+    ivec_cv_hdf_file=None,
 ):
     """
 
@@ -113,6 +116,15 @@ def build_training_datasets(
         data_map=data_map, datasets={"zip_dataset": train_zip_dataset}, seq_order_control_dataset="zip_dataset"
     )
 
+    if ivec_train_hdf_file:
+        ivec_hdf_dataset = HDFDataset(files=[ivec_train_hdf_file])
+        data_map["ivec_audio_features"] = ("hdf_dataset", "data")
+        train_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": train_zip_dataset, "hdf_dataset": ivec_hdf_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
+
     cv_zip_dataset = OggZipDataset(
         files=get_hub5e00_cv_ogg(),
         audio_options=audio_datastream.as_returnn_audio_opts(),
@@ -122,6 +134,21 @@ def build_training_datasets(
     cv_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": cv_zip_dataset}, seq_order_control_dataset="zip_dataset"
     )
+
+    if ivec_cv_hdf_file:
+        cv_zip_dataset = OggZipDataset(
+            files=get_hub5e00_v2_cv_ogg(),
+            audio_options=audio_datastream.as_returnn_audio_opts(),
+            target_options=train_bpe_datastream.as_returnn_targets_opts(),
+            seq_ordering="sorted_reverse",
+        )
+        ivec_hdf_dataset = HDFDataset(files=[ivec_cv_hdf_file])
+        data_map["ivec_audio_features"] = ("hdf_dataset", "data")
+        cv_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": cv_zip_dataset, "hdf_dataset": ivec_hdf_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -134,12 +161,20 @@ def build_training_datasets(
         data_map=data_map, datasets={"zip_dataset": devtrain_zip_dataset}, seq_order_control_dataset="zip_dataset"
     )
 
+    if ivec_train_hdf_file:
+        ivec_hdf_dataset = HDFDataset(files=[ivec_train_hdf_file])
+        data_map["ivec_audio_features"] = ("hdf_dataset", "data")
+        devtrain_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": devtrain_zip_dataset, "hdf_dataset": ivec_hdf_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
+
     return TrainingDatasets(train=train_dataset, cv=cv_dataset, devtrain=devtrain_dataset, extern_data=extern_data)
 
 
-@lru_cache()
-def build_test_dataset(dataset_key, bpe_size=500, use_raw_features=False, preemphasis=None):
-
+# @lru_cache()
+def build_test_dataset(dataset_key, bpe_size=500, use_raw_features=False, preemphasis=None, ivec_hdfs=None):
     ogg_zip_dict = get_test_data_ogg_dict()
     test_ogg = ogg_zip_dict[dataset_key]
 
@@ -161,5 +196,14 @@ def build_test_dataset(dataset_key, bpe_size=500, use_raw_features=False, preemp
     test_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
     )
+
+    if ivec_hdfs is not None and dataset_key in ivec_hdfs:
+        ivec_hdf_dataset = HDFDataset(files=[ivec_hdfs[dataset_key]])
+        data_map["ivec_audio_features"] = ("hdf_dataset", "data")
+        test_dataset = MetaDataset(
+            data_map=data_map,
+            datasets={"zip_dataset": test_zip_dataset, "hdf_dataset": ivec_hdf_dataset},
+            seq_order_control_dataset="zip_dataset",
+        )
 
     return test_dataset, get_test_data_dict()[dataset_key]

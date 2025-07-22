@@ -1,14 +1,27 @@
 from sisyphus import *
 
+from typing import Optional
+
 from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.lib.rasr_cache import FileArchive
 
 
 class ConvertRasrFeatureCacheToHdfJob(Job):
-    def __init__(self, rasr_feature_cache: tk.Path, returnn_root: tk.Path, dim: int, time_rqmt=4, mem_rqmt=4):
+    __sis_hash_exclude__ = {"corpus_name": None}
+
+    def __init__(
+        self,
+        rasr_feature_cache: tk.Path,
+        returnn_root: tk.Path,
+        dim: int,
+        corpus_name: Optional[str] = None,
+        time_rqmt=4,
+        mem_rqmt=4,
+    ):
         self.rasr_feature_cache = rasr_feature_cache
         self.returnn_root = returnn_root
         self.dim = dim
+        self.corpus_name = corpus_name
 
         self.out_hdf = self.output_path("out.hdf")
 
@@ -29,9 +42,14 @@ class ConvertRasrFeatureCacheToHdfJob(Job):
 
         for file in files:
             feat_cache = FileArchive(file.strip())
-            keys = [str(s) for s in feat_cache.ft if not str(s).endswith(".attribs")]
-            for key in keys:
-                v = feat_cache.read(key, "feat")[1]
+            for s in feat_cache.ft:
+                if str(s).endswith(".attribs"):
+                    continue
+                v = feat_cache.read(str(s), "feat")[1]
+                if self.corpus_name:
+                    key = "/".join([self.corpus_name] + str(s).split("/")[1:])
+                else:
+                    key = str(s)
                 tag_ivec[key] = numpy.asarray(v, dtype=numpy.float32)
 
         SimpleHDFWriter = get_returnn_simple_hdf_writer(self.returnn_root)
