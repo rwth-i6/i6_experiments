@@ -31,7 +31,7 @@ from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.zeyer.datasets.task import Task
 
 
@@ -170,7 +170,7 @@ def py():
         )
 
     train_exp(  # 4.98 (!!), {"dev-clean": 2.35, "dev-other": 4.98, "test-clean": 2.21, "test-other": 5.49}
-        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -386,10 +386,10 @@ def py():
         ),
     ]:
         train_exp(
-            f"v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+            "v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
             f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
             f"-wd1e_2-lrlin1e_5_295k-speedpertV2"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-', '_')}" if sample else ""),
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config=model_cfg,
             config_updates={
