@@ -20,22 +20,23 @@ from i6_experiments.users.raissi.setups.common.helpers.network import (
 )
 from i6_experiments.users.raissi.setups.common.global_normalization.common import Criterion, CRF
 
+
 class FactorizationType(Enum):
-    POST = "posterior"
-    POST_LAB = "posterior_label"
+    EDGE = "edge"
+    HOMO_EDGE = "homogenous_edge"
+    EDGE_NODE = "edge_node"
 
     def __str__(self):
         return self.value
 
-
-def augment_for_local_crf_loss(
+def augment_for_global_crf_loss(
     crp: rasr.CommonRasrParameters,
     denominator_wfst: str,
     log_linear_scales: LogLinearScales,
     returnn_config: returnn.ReturnnConfig,
-    local_crf_params: CRF,
+    global_crf_params: CRF,
     output_layer: str = "output",
-    local_crf_layer_name: str = "local_crf",
+    global_crf_layer_name: str = "global_crf",
     fw_ce_smoothing: float = 0.0,
     fs_ce_smoothing: float = 0.0,
     scale_offset: float = 0.0,
@@ -48,9 +49,9 @@ def augment_for_local_crf_loss(
     :param denominator_wfst: it should be generated offline by WFST composition
     :param log_linear_scales: declare the scales of different elements, label, prior, transition probabilities
     :param returnn_config: of type ReturnnConfig
-    :param local_crf_params: CRF datacalss
+    :param global_crf_params: CRF datacalss
     :param output_layer: the layer fed into the loss layer where the gradient is computed with respect to the logits
-    :param local_crf_layer_name: loss layer
+    :param global_crf_layer_name: loss layer
     :param fw_ce_smoothing: regularization with cross-entropy with an alignment
     :param fs_ce_smoothing: regularization with cross-entropy with fullsum loss
     :param scale_offset: if you want all scales not sum up to 1
@@ -59,9 +60,22 @@ def augment_for_local_crf_loss(
     :return:
     """
 
-    assert local_crf_params.criterion == Criterion.LOCAL_CRF
+    assert global_crf_params.criterion == Criterion.GLOBAL_CRF
     assert 1 - scale_offset - fw_ce_smoothing - fs_ce_smoothing > 0, "Your scaling is causing reveresed loss"
     returnn_config.config.pop("chunking", None)
+
+
+    import copy
+    out_layer = copy.deepcopy(returnn_config.config["network"][output_layer])
+    in_layer_global = f'{output_layer}_nonorm'
+    returnn_config.config["network"][in_layer_global]= {
+        "class": "linear",
+        "activation": None,
+        "with_bias": False,
+        "from": out_layer["from"],
+        "n_out": out_layer["n_out"]
+    }
+
 
     if fw_ce_smoothing > 0:
         loss_info = {"loss": "ce",
@@ -85,22 +99,12 @@ def augment_for_local_crf_loss(
 
     automaton_config = create_rasrconfig_for_alignment_fsa(
         crp=crp,
-        log_file_name="local_crf.log",
+        log_file_name="global_crf.log",
         extra_rasr_config=extra_rasr_config,
         extra_rasr_post_config=extra_rasr_post_config,
 
     )
 
-    prior_layer_name = None
-    if local_crf_params.factorization_type == FactorizationType.POST_LAB:
-        returnn_config.config["network"], prior_layer_name = add_label_prior_layer_to_network(
-            network=returnn_config.config["network"],
-            reference_layer=output_layer,
-            label_prior_type=local_crf_params.label_prior_type,
-            label_prior=local_crf_params.label_prior,
-            label_prior_estimation_axes=local_crf_params.label_prior_estimation_axes,
-
-        )
     crf_loss_opts = {
         "numerator_sprint_opts": {
             "sprintConfigStr": DelayedFormat("--config={}", automaton_config),
@@ -110,21 +114,19 @@ def augment_for_local_crf_loss(
             "numInstances": 1,
         },
         "denominator_wfst_file": denominator_wfst,
-        "factorization_type": local_crf_params.factorization_type.value,
-        "tdp_scale": log_linear_scales.transition_scale,
-        "am_scale": log_linear_scales.label_posterior_scale,
-        "label_prior_scale": log_linear_scales.lm_scale, #note that this is not frame-level priors but label level
+        "factorization_type": global_crf_params.factorization_type.value,
+        "node_potential_scale": log_linear_scales.transition_scale,
+        "edge_potential_scale": log_linear_scales.label_posterior_scale,
     }
-    if prior_layer_name is not None:
-        crf_loss_opts["label_prior_layer"] = prior_layer_name
 
-    returnn_config.config["network"][local_crf_layer_name] = {
+    returnn_config.config["network"][global_crf_layer_name] = {
         "class": "copy",
-        "from": output_layer,
-        "loss": local_crf_params.criterion.value,
+        "from": in_layer_global,
+        "loss": global_crf_params.criterion.value,
         "loss_opts": crf_loss_opts,
-        "loss_scale": 1 - scale_offset - fw_ce_smoothing - fs_ce_smoothing,
+        "loss_scale": 1.0 - scale_offset - fw_ce_smoothing - fs_ce_smoothing,
 
     }
+
 
     return returnn_config
