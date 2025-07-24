@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
 import numpy
 import tree
 
@@ -27,8 +27,13 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
-from .configs import *
-from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
+from .configs import (
+    _get_cfg_lrlin_oclr_by_bs_nep,
+    _batch_size_factor,
+    dict_update_deep,
+    post_config,
+    config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+)
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
