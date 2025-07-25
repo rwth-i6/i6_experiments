@@ -403,7 +403,7 @@ class GnuPlotJob(Job):
             
             #single fit on merged data
             fit {f'[log10(5):log10({self.curve_point})]' if self.curve_point else ''} f(x) "{merged_path}" using (log10($1)):(log10($2)) via a,b
-            {''if self.curve_point else '#'}fit [log10({self.curve_point}):log10(185)] f1(x) "' + merged_path + '" using (log10($1)):(log10($2)) via a1, b1
+            {''if self.curve_point else '#'}fit [log10({self.curve_point}):log10(185)] f1(x) "{merged_path}" using (log10($1)):(log10($2)) via a1, b1
 
             #Save the fit equation
             set print "fit_eq.txt"
