@@ -12,7 +12,7 @@ from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 from sisyphus import tk
 
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob, GnuPlotJob
-from .lm_getter import build_all_lms  # NEW
+from .lm_getter import build_all_lms, build_ffnn_lms  # NEW
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
@@ -24,15 +24,15 @@ DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAUL_RESCOR_LM_SCALE = 0.5
 CHEAT_N_BEST = False
 
-BEAM_SIZE = 300
+BEAM_SIZE = 500
 NBEST = 50
 
 LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 
-LLM_FXIED_CTX = True and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
-LLM_FXIED_CTX_SIZE = 1
-LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
+LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
+LLM_FXIED_CTX_SIZE = 8
+LLM_PREV_ONE_CTX = False and not LLM_FXIED_CTX
 # --- Helpers for ctc_exp ---
 
 def get_encoder_model_config(encoder: str) -> Tuple[dict, Optional[callable]]:
@@ -336,9 +336,9 @@ def py():
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
     available = [("bpe128", "ctc", "blstm"), ("bpe128", "ctc", "conformer"), ("bpe10k", "ctc", "conformer")]
     models = {"ctc": ctc_exp}
-    encoder = "conformer" # blstm conformer
+    encoder = "blstm" # blstm conformer
     train = False
-
+    cuts = {"conformer": 65, "blstm":37}
     for vocab in ["bpe128",
                   #"bpe10k",
                   ]:
@@ -346,27 +346,24 @@ def py():
         word_ppl = False # Default
         # LM that do first pass,
         lm_kinds = ["ffnn",
-                    "trafo", #nn has better result on second pass for cfm
+                    #"trafo", #nn has better result on second pass for cfm
                     ]  if encoder == "blstm" else ["ffnn"] # Don know why, for conformer now the WER of trafo LMs are better by second pass...
-        lm_kinds_2 = [#"ngram", # LM that do second pass
+        lm_kinds_2 = ["ngram", # LM that do second pass
                     #"ffnn",
                     "trafo",
-                    "LLM"
+                    #"LLM"
                     ]
-        lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
+        #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
         if "LLM" in lm_kinds_2:
             word_ppl = True
             lm_kinds = ["ffnn"]
-
-        lms, ppl_results, lm_types_names = build_all_lms(vocab, lm_kinds=lm_kinds)  # NEW
+            lm_kinds_2 = ["trafo", "LLM"]
+        lms, ppl_results, lm_types_names = build_all_lms(vocab, lm_kinds=lm_kinds, only_best=True)  # NEW
         lms.update({"NoLM": None})
         rescor_lms, ppl_results_2, lm_types_names_2 = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl)
-
-
         rescor_lms.update({"NoLM": None})
-        ppl_results_2.update({"uniform": float(get_vocab_by_str(vocab).dim)})
+        ppl_results_2.update({"Uniform": float(get_vocab_by_str(vocab).dim)})
 
-        #TODO also add the ppl of llm
         #print(lms)
         #print(rescor_lms)
 
@@ -429,8 +426,8 @@ def py():
                 summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
                                                        search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
                                                        eval_dataset_keys=EVAL_DATASET_KEYS)
-                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS)
-                llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=73)
+                llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                     f"prev_1ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                 alias_prefix = (
                         f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model + "_" + vocab + encoder
@@ -452,8 +449,11 @@ def py():
                 for name_2, lm_2 in rescor_lms.items():  # Second pass lms
                     # lm_hyperparamters_str seems not needed?
                     # TODO: there is no distinguish between 1/2 pass scales here
-                    if any([lm_kind in name_2 for lm_kind in lm_kinds]):  # Dont do second pass with same first pass LMs
-                        continue
+                    # if any([lm_kind in name_2 for lm_kind in lm_kinds]):  # Dont do second pass with same first pass LMs
+                    #     continue
+                    if lm is None:
+                        if lm_2 is not None:
+                            continue
                     print(name, name_2)
                     wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(
                         name, lm, vocab,
@@ -467,18 +467,22 @@ def py():
                             prior_tune,
                             dafault_lm_scale,
                             dafault_prior_scale)
-                    else:
-                        if lm:  # First pass with a lm
-                            wer_ppl_results_2[name] = (
-                                ppl_results.get(name), wer_result_path, search_error, search_error_rescore, lm_tune,
-                                prior_tune, dafault_lm_scale,
-                                dafault_prior_scale)
-                        else:  # NoLM at all := Uniform LM.?
-                            if not word_ppl:
-                                wer_ppl_results_2["uniform"] = (
-                                    ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
-                                    None,
-                                    None, 0, 0)
+                    else: # Second pass NoLM, assert unique first pass lm
+                        wer_ppl_results_2["Uniform"] = (
+                            ppl_results_2.get("Uniform"), wer_result_path, search_error, search_error_rescore,
+                            None,
+                            None, 0, 0)
+                        # if lm:  # First pass with a lm while second pass no LM, log the data from first pass lm
+                        #     wer_ppl_results_2["uniform"] = (
+                        #         ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore, lm_tune,
+                        #         prior_tune, dafault_lm_scale,
+                        #         dafault_prior_scale)
+                        # else:  # NoLM at all := Uniform LM.?
+                        #     if not word_ppl:
+                        #         wer_ppl_results_2["uniform"] = (
+                        #             ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
+                        #             None,
+                        #             None, 0, 0)
                     if break_flag:  # Ensure for lm do first pass not do second pass multiple times
                         break
                 # print(wer_ppl_results_2)
@@ -487,7 +491,7 @@ def py():
                 #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
                 #     dafault_prior_scale)
             if wer_ppl_results_2 and not train:
-                print(wer_ppl_results_2)
+                #print(wer_ppl_results_2)
                 names, res = zip(*wer_ppl_results_2.items())
                 results = [(x[0], x[1]) for x in res]
                 search_errors = [x[2] for x in res]
@@ -500,7 +504,7 @@ def py():
                 summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
                                                        search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
                                                        eval_dataset_keys=EVAL_DATASET_KEYS)
-                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS)
+                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
                 llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                     f"prev_1ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                 alias_prefix = (
@@ -517,7 +521,6 @@ def py():
         for model, exp in models.items():
             if (vocab, model, encoder) not in available:
                 train = True
-
             #wer_ppl_results = dict()
             #greedy_first_pass_exp(lms, rescor_lms, lm_kinds, lm_kinds_2)
             first_pass_with_lm_exp(lms, rescor_lms, lm_kinds, lm_kinds_2)

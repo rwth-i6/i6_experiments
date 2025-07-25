@@ -76,20 +76,20 @@ class GetBpeRatioJob(Job):
         del parsed_args["mini_task"]
         return super().hash(parsed_args)
 
-def build_ngram_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[Dict, Dict, Set[str]]:
+def build_ngram_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None, only_best: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     print(f"start build ngram!")
     as_ckpt # noqa
     lms = {}
     ppl_results = {}
     lm_types = set()
     prune_threshs = [
-                    #None,
-                     #1e-9, #1.3e-8,
+                     None,
+                     1e-9, 1.3e-8,
                      6.7e-8,
-                     3e-7, #7e-7,
+                     3e-7, 7e-7, 1e-6,
                      1.7e-6, 4.5e-6, 1e-5,
                      3e-5,
-                     7e-4, #1.7e-3, 5e-3,
+                     #7e-4, #1.7e-3, 5e-3,
                      5e-2, #8e-2,1e-1, 3e-1,5e-1, 7e-1, 9e-1,
                      ]
     prune_threshs.reverse()
@@ -101,9 +101,13 @@ def build_ngram_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe
                                None,
                                ]:
             for prune_thresh in prune_threshs:
+                if (n_order, prune_thresh) in [(2,None)]:
+                    continue
                 if n_order in [1,2] and prune_thresh is not None: # Setting for 2gram that need pruning
                     if prune_thresh < 5e-2:
                         continue
+                if train_fraction == 0.15 and n_order == 6:
+                    continue
                 if n_order > 2 and prune_thresh is not None:
                     if prune_thresh > 5e-2:
                         continue
@@ -138,12 +142,12 @@ def build_word_ngram_lms(word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     return lms, ppl_results, lm_types
 
 @lru_cache(maxsize=None)
-def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False,bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[Dict, Dict, Set[str]]:
+def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False,bpe_ratio: Optional[float | tk.Variable]=None, only_best: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}
     ppl_results = {}
     lm_types = {"ffnn"}
     match = re.search(r"bpe(.+)", vocab)
-    epochs = [50]#[5, 10, 20, 40, 50]
+    epochs = [50] if only_best else [5, 10, 20, 40, 50]
     lm_configs = {
         "std": {"context_size": 8, "num_layers": 2, "ff_hidden_dim": 2048, "dropout": 0.1},
         #"low": {"context_size": 5, "num_layers": 2, "ff_hidden_dim": 1024, "dropout": 0.2}
@@ -174,13 +178,13 @@ def get_second_pass_lm_by_name(lm_name:str):
     elif "trafo" in lm_name:
         return build_trafo_lms(vocab="bpe128", as_ckpt=True)[0][lm_name]
 
-def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[Dict, Dict, Set[str]]:
+def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None, only_best: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}
     ppl_results = {}
     lm_types = {"trafo"}
     match = re.search(r"bpe(.+)", vocab)
     config = {"num_layers": 12, "model_dim": 512, "dropout": 0.0, "class": "TransformerLm"}
-    epochs = [50] #20
+    epochs = [50] if only_best else [20, 50] #20
     from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
     bpe_data = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=int(match.group(1)))
@@ -207,7 +211,7 @@ def build_llms(word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     llms, ppl_llms = get_llm(model_ids=model_ids, batch_sizes=[LLM_Batch_size[key] for key in model_ids], word_ppl=word_ppl)
     return llms, ppl_llms, lm_types
 
-def build_all_lms(vocab: str, lm_kinds: List[str] = None, as_ckpt: bool = False, word_ppl: bool = False) -> Tuple[Dict, Dict, Set[str]]:
+def build_all_lms(vocab: str, lm_kinds: List[str] = None, as_ckpt: bool = False, word_ppl: bool = False, only_best: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     lms, ppl, types = {}, {}, set()
     if lm_kinds is None:
         lm_kinds = {"ngram", "word_ngram", "ffnn", "trafo"}
@@ -230,7 +234,7 @@ def build_all_lms(vocab: str, lm_kinds: List[str] = None, as_ckpt: bool = False,
         if kind not in lm_kinds:
             continue
         #try:
-        l, p, t = builder(vocab, as_ckpt, word_ppl, bpe_ratio) if kind not in ["word_ngram", "LLM"] else builder(word_ppl=word_ppl)
+        l, p, t = builder(vocab, as_ckpt, word_ppl, bpe_ratio, only_best) if kind not in ["word_ngram", "LLM"] else builder(word_ppl=word_ppl)
         lms.update(l)
         ppl.update(p)
         types.update(t)

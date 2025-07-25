@@ -29,7 +29,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 def get_fix_context_file(size: int):
     if size < 1:
         return None
-    path = f"/u/haoran.zhang/setups/2024-12-16--lm-ppl/llm_fixed_ctx/fix_ctx_forLLM_LBS_{size}.txt"
+    path = f"llm_fixed_ctx/fix_ctx_forLLM_LBS_{size}.txt" #/u/haoran.zhang/setups/2024-12-16--lm-ppl/
     if os.path.isfile(path):
         return path
     else:
@@ -45,9 +45,9 @@ LLM_Batch_size = {"meta-llama/Llama-3.2-1B": 18*3,
                   "Qwen/Qwen3-8B-Base":4*3,
                   #"mistralai/Mistral-7B-v0.3": 4,
                   } # Keys of this determines which LLM will be built by lm_getter
-LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 2, "cpu": 3, "mem": 16, "gpu": 1, "gpu_mem": 11},
+LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 3, "cpu": 3, "mem": 16, "gpu": 1, "gpu_mem": 11},
             "meta-llama/Llama-3.1-8B": {"time": 4, "cpu": 3, "mem": 40, "gpu": 1, "gpu_mem": 48},
-            "Qwen/Qwen3-0.6B-Base": {"time": 2, "cpu": 3, "mem": 12, "gpu": 1, "gpu_mem": 11},
+            "Qwen/Qwen3-0.6B-Base": {"time": 3, "cpu": 3, "mem": 12, "gpu": 1, "gpu_mem": 11},
             "Qwen/Qwen3-1.7B-Base": {"time": 3, "cpu": 3, "mem": 20, "gpu": 1, "gpu_mem": 11},
             "Qwen/Qwen3-4B-Base":{"time": 3, "cpu": 3, "mem": 25, "gpu": 1, "gpu_mem": 24},
             "Qwen/Qwen3-8B-Base":{"time": 4, "cpu": 3, "mem": 40, "gpu": 1, "gpu_mem": 48},

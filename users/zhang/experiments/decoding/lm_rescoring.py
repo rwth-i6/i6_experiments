@@ -851,11 +851,12 @@ def lm_am_framewise_prior_rescore(
     else:
         lm_scorer = HF_lm_score
     def get_generic_alias_name(alias):
-        parts = alias.strip().split("/")
-        if len(parts) >= 2:
-            return "/".join(parts[:2] + [parts[-1]])
-        else:
-            return alias
+        # parts = alias.strip().split("/")
+        # if len(parts) >= 2:
+        #     return "/".join(parts[:2] + [parts[-1]])
+        # else:
+        #     return alias
+        return alias
 
     alias_name = get_generic_alias_name(alias_name)
     res_labels_lm_scores = lm_scorer(

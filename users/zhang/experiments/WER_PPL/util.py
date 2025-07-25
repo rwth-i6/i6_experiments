@@ -220,9 +220,11 @@ class GnuPlotJob(Job):
         self,
         res_table: tk.Path,
         eval_dataset_keys: List[str] = ["test-other","dev-other"],
+        curve_point: int = 0,
         version: int = 2,
     ):
         self.input_summary = res_table
+        self.curve_point = curve_point
         self.out_plot_dir = self.output_path("plots", directory=True)
         self.out_scripts = dict(zip(eval_dataset_keys,[self.output_path(f"wer_vs_ppl_{key}.gb") for key in eval_dataset_keys]))
         self.out_plots = dict(zip(eval_dataset_keys,[self.output_path(f"plots/{key}.pdf") for key in eval_dataset_keys]))
@@ -244,26 +246,31 @@ class GnuPlotJob(Job):
         # read header and locate columns
 
         with open(self.input_summary.get_path(), 'r') as f:
-            groups = defaultdict(list)
             header = next(f).strip().split(',')
+            all_lines = list(f)  # Read all remaining lines into memory
+
+        for data_setkey in self.eval_dataset_keys:
+            groups = defaultdict(list)  # <-- reset for each dataset
+            idx_wer = header.index(get_idx_name(header, data_setkey))
             idx_name = header.index('Model Name')
             idx_ppl = header.index('Perplexity')
-            for data_setkey in self.eval_dataset_keys:
-                idx_wer = header.index(get_idx_name(header, data_setkey))
-                for line in f:
-                    cols = line.strip().split(',')
-                    lm = cols[idx_name].split('_')[0]
-                    if "gram" in lm:
-                        lm = "Ngram"
-                    ppl = float(cols[idx_ppl])
-                    wer = float(cols[idx_wer])
-                    groups[lm].append((ppl, wer))
 
-                for lm, pts in groups.items():
-                    out_file = self.out_plot_dir.get_path() + f"/{lm}_{data_setkey}.dat"
-                    with open(out_file, 'w') as o:
-                        for ppl, wer in sorted(pts):
-                            o.write(f"{ppl}\t{wer}\n")
+            for line in all_lines:
+                cols = line.strip().split(',')
+                lm = cols[idx_name].split('_')[0]
+                if "gram" in lm:
+                    lm = "Count-based"
+                elif "trafo" in lm:
+                    lm = "Transformer"
+                ppl = float(cols[idx_ppl])
+                wer = float(cols[idx_wer])
+                groups[lm].append((ppl, wer))
+
+            for lm, pts in groups.items():
+                out_file = self.out_plot_dir.get_path() + f"/{lm}_{data_setkey}.dat"
+                with open(out_file, 'w') as o:
+                    for ppl, wer in sorted(pts):
+                        o.write(f"{ppl}\t{wer}\n")
 
     def merge_data(self, datafiles: List[str], data_setkey: str):
         merged_path = os.path.join(self.out_plot_dir.get_path(), f"all_{data_setkey}.dat")
@@ -332,12 +339,18 @@ class GnuPlotJob(Job):
             elif t < 10:
                 label = f"{t:.1f}"
             else:
-                label = f"{t:.0f}"
+                if axis == 1:
+                    label = f"{t:.1f}"
+                else:
+                    label = f"{t:.0f}"
             entries.append(f'"{label}" {t:g}')
         if vals.max()<10:
             entries.append(f'"{vals.max():.1f}" {vals.max():.1f}')
         else:
-            entries.append(f'"{vals.max():.0f}" {vals.max():.0f}')
+            if axis == 1:
+                entries.append(f'"{vals.max():.1f}" {vals.max():.1f}')
+            else:
+                entries.append(f'"{vals.max():.0f}" {vals.max():.0f}')
         range = f"[{lo}:{hi}]"
         return "(" + ", ".join(entries) + ")", range
 
@@ -383,8 +396,20 @@ class GnuPlotJob(Job):
             f_log(x) = a * log10(x) + b
             f_real(x)= 10**(f_log(x))
             
+            #Optional fit on saturated part
+            f1(x) = a1 * x + b1
+            f1_log(x) = a1 * log10(x) + b1
+            f1_real(x) = 10**(f1_log(x))
+            
             #single fit on merged data
-            fit f(x) "{merged_path}" using (log10($1)):(log10($2)) via a,b
+            fit {f'[log10(5):log10({self.curve_point})]' if self.curve_point else ''} f(x) "{merged_path}" using (log10($1)):(log10($2)) via a,b
+            {''if self.curve_point else '#'}fit [log10({self.curve_point}):log10(185)] f1(x) "' + merged_path + '" using (log10($1)):(log10($2)) via a1, b1
+
+            #Save the fit equation
+            set print "fit_eq.txt"
+            print sprintf("eq1: log(WER) = %.2f + %.2f * log(PPL)", b, a)
+            {'print sprintf("eq2: log(WER) = %.2f + %.2f * log(PPL)", b1, a1)' if self.curve_point else ''}
+            set print      # close the print destination back to the console
             
             #Find true WER range from the merged file
             # stats "{merged_path}" using 2 name "Y" nooutput
@@ -416,15 +441,18 @@ class GnuPlotJob(Job):
             # set xtics add ( label_hi X_max )
             
             #Define point-types & colors
-            #    diamond=5, square=7, circle=9, triangle=13
-            set style line 1 lt 1 lc rgb "blue"    pt 5 ps 1.2  # diamond
-            set style line 2 lt 1 lc rgb "black"  pt 7 ps 1.2  # square
-            set style line 3 lt 1 lc rgb "purple"   pt 9 ps 1.2  # circle
-            set style line 4 lt 1 lc rgb "red" pt 13 ps 1.2 # triangle
-            set style line 5 lt 1 lc rgb "green" pt 11 ps 1.2 # cross
+            set style line 1 lt 1 lc rgb "red" pt 1 ps 0.8  # cross
+            set style line 2 lt 1 lc rgb "#006400" pt 8 ps 0.8  # triangle 
+            set style line 3 lt 1 lc rgb "black" pt 4 ps 0.8  # square 
+            set style line 4 lt 1 lc rgb "red" pt 1 ps 0.8 # triangle
+            set style line 5 lt 1 lc rgb "blue" pt 11 ps 0.8 # cross
             
             # regression line style
             set style line 6 lt 2 lc rgb "blue" lw 2 dashtype 3
+            # set style line 7 lt 2 lc rgb "blue" lw 2 dashtype 3
+            set style line 7 lt 2 lc rgb "black" lw 2 dashtype 3
+            {'' if self.curve_point else '#'}set arrow from {self.curve_point}, graph 0 to {self.curve_point}, graph 1 nohead ls 7
+
 
             
             #discover all per-LM .dat files
@@ -433,14 +461,15 @@ class GnuPlotJob(Job):
             labels = "{labels}"
             
             # place at a fixed screen‐coordinate outside the top‐right of the plot
-            set label 1 sprintf("log(WER)=%.2f+%.2f log(PPL)", b,a) \
-            at screen 0.95,0.03 right
+            #set label 1 sprintf("log(WER)=%.2f+%.2f log(PPL)", b,a) \
+            #at screen 0.95,0.03 right
             
-            #finally, the plot command
+            #finally, the plot command #sprintf("Regression: log(W)=%.2f+%.2f log(P)", a,b),
             plot \
               for [i=1:N] word(files,i) using 1:2 \
                   with points ls i title sprintf("%s", word(labels,i)), \
-              f_real(x) with lines ls 6 title "Regression"#sprintf("Regression: log(W)=%.2f+%.2f log(P)", a,b)
+              {f'[5:{self.curve_point}] ' if self.curve_point else ''}f_real(x) with lines ls 6 title "Regression-1",\
+              {f'[{self.curve_point}:185] f1_real(x) with lines ls 6 title "Regression-2"' if self.curve_point else ''}
 
         """)
 
