@@ -51,6 +51,7 @@ def main():
     arg_parser = ArgumentParser()
     arg_parser.add_argument("exps", nargs="*")
     arg_parser.add_argument("--out", default="plot.svg")
+    arg_parser.add_argument("--ylog", action="store_true")
     args = arg_parser.parse_args()
 
     data = {}  # name -> data
@@ -59,10 +60,9 @@ def main():
 
     for exps in args.exps:
         pattern = exps + "*"
-        print(f"looking for experiments matching pattern: {pattern}")
         dirs = glob(pattern)
         if not dirs:
-            print(f"no experiments found matching pattern: {pattern}")
+            print(f"WARN: no experiments found matching pattern: {pattern}")
             sys.exit(1)
         for d in dirs:
             name = os.path.basename(d)
@@ -70,7 +70,6 @@ def main():
                 continue
             if os.path.isdir(d + "/train"):
                 d += "/train"
-            print(f"looking for data in {d}")
             for postfix in ["work/learning_rates", "output/learning_rates"]:
                 if os.path.exists(d + "/" + postfix):
                     print(f"found data for {name}")
@@ -82,13 +81,14 @@ def main():
                     score_keys = [k for k in next(iter(data_.values()))["error"].keys() if k.startswith("dev_")]
                     if score_key is None:
                         score_key = next(iter(score_keys))
+                        print(f"using score key {score_key} for {name}")
                     else:
                         assert score_key in score_keys, f"score key {score_key} not found in {name} data: {score_keys}"
 
                     break
 
     if not data:
-        print(f"no data found in any of the directories: {args.exps}")
+        print(f"ERR: no data found in any of the directories: {args.exps}")
         sys.exit(1)
 
     import matplotlib
@@ -97,6 +97,8 @@ def main():
     import matplotlib.pyplot as plt
 
     fig, ax1 = plt.subplots()
+    if args.ylog:
+        ax1.set_yscale("log")
     for name, data_ in data.items():
         epochs = sorted(data_.keys())
         scores = [data_[epoch]["error"][score_key] for epoch in epochs]
