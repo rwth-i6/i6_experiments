@@ -51,6 +51,7 @@ def main():
     arg_parser = ArgumentParser()
     arg_parser.add_argument("exps", nargs="*")
     arg_parser.add_argument("--out", default="plot.svg")
+    arg_parser.add_argument("--xlog", action="store_true")
     arg_parser.add_argument("--ylog", action="store_true")
     args = arg_parser.parse_args()
 
@@ -97,6 +98,8 @@ def main():
     import matplotlib.pyplot as plt
 
     fig, ax1 = plt.subplots()
+    if args.xlog:
+        ax1.set_xscale("log")
     if args.ylog:
         ax1.set_yscale("log")
     for name, data_ in data.items():
