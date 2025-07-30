@@ -58,6 +58,7 @@ def main():
     data = {}  # name -> data
     max_epoch = -1
     score_key = None
+    covered = set()
 
     for exps in args.exps:
         pattern = exps + "*"
@@ -71,6 +72,10 @@ def main():
                 continue
             if os.path.isdir(d + "/train"):
                 d += "/train"
+            d_ = os.path.realpath(d)
+            if d_ in covered:
+                continue
+            covered.add(d_)
             for postfix in ["work/learning_rates", "output/learning_rates"]:
                 if os.path.exists(d + "/" + postfix):
                     print(f"found data for {name}")
