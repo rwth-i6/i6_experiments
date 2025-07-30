@@ -53,11 +53,12 @@ def main():
     arg_parser.add_argument("--out", default="plot.svg")
     arg_parser.add_argument("--xlog", action="store_true")
     arg_parser.add_argument("--ylog", action="store_true")
+    arg_parser.add_argument("--score-key")
     args = arg_parser.parse_args()
 
     data = {}  # name -> data
     max_epoch = -1
-    score_key = None
+    score_key = args.score_key
     covered = set()
 
     for exps in args.exps:
@@ -85,7 +86,7 @@ def main():
                     data[name] = data_
                     max_epoch = max(max_epoch, max(data_.keys()))
                     score_keys = [k for k in next(iter(data_.values()))["error"].keys() if k.startswith("dev_")]
-                    if score_key is None:
+                    if not score_key:
                         score_key = next(iter(score_keys))
                         print(f"using score key {score_key} for {name}")
                     else:
