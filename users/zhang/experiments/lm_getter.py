@@ -1,5 +1,6 @@
-from typing import Tuple, Dict, Set, List, Optional, Union
+from typing import Tuple, Dict, Set, List, Optional, Union, Type
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
+from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
 from .language_models.n_gram import get_count_based_n_gram
 from .lm.ffnn import get_ffnn_lm
 from .lm.trafo import get_trafo_lm
@@ -7,14 +8,82 @@ import re
 from sisyphus import Job, Task, tk, gs
 import i6_core.util as util
 from functools import lru_cache
+from collections import namedtuple
+from .language_models.n_gram import ApplyBPEToTextJob
+
+class GetSubwordRatioJob(Job):
+    """
+    Apply subword codes on a text file and get ratio
+    """
+    def __init__(
+            self,
+            text_file: tk.Path,
+            vocab: str,
+            subword_nmt_repo: Optional[tk.Path] = None,
+            apply_job: Type[Job] = ApplyBPEToTextJob,
+            mini_task=True,
+    ):
+        """
+        :param text_file: words text file to convert to bpe
+        :param vocab as str
+        :param mini_task: if the Job should run locally, e.g. only a small (<1M lines) text should be processed
+        """
+        self.text_file = text_file
+        self.subword_nmt_repo = util.get_subword_nmt_repo(subword_nmt_repo)
+        vocab = get_vocab_by_str(vocab)
+        if apply_job == ApplyBPEToTextJob:
+            apply_job: Type[ApplyBPEToTextJob]
+            self.subword_text  = apply_job(
+                text_file=self.text_file,
+                bpe_codes=vocab.codes,
+                bpe_vocab=tk.Path(vocab.vocab.get_path() [:-5] + "dummy_count.vocab"), #
+                subword_nmt_repo=self.subword_nmt_repo,
+                gzip_output=True,
+                mini_task=False,
+            ).out_bpe_text
+        elif apply_job == ApplySentencepieceToTextJob:
+            apply_job: Type[ApplySentencepieceToTextJob]
+            self.subword_text  = apply_job(
+                text_file=self.text_file,
+                sentencepiece_model=vocab.model_file,
+            ).out_sentencepiece_text
+        self.out_ratio = self.output_var("subword_to_word_ratio")
+
+        self.mini_task = mini_task
+        self.rqmt = {"cpu": 2, "mem": 4, "time": 2}
+
+    def tasks(self):
+        if self.mini_task:
+            yield Task("run", mini_task=True)
+        else:
+            yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        # Compute BPE-to-original token ratio:
+        total_orig_tokens = 0
+        total_subword_tokens = 0
+        with util.uopen(self.text_file, "rt") as fin, util.uopen(self.subword_text, "rt") as fout:
+            for orig_line, bpe_line in zip(fin, fout):
+                orig_tokens = orig_line.strip().split()
+                bpe_tokens = bpe_line.strip().split()
+                total_orig_tokens += len(orig_tokens)
+                total_subword_tokens += len(bpe_tokens)
+
+        # avoid division by zero
+        if total_orig_tokens > 0:
+            self.out_ratio.set(total_subword_tokens / total_orig_tokens)
+        else:
+            self.out_ratio.set(1.0)  # fallback to 1.0 if no tokens
+
+    @classmethod
+    def hash(cls, parsed_args):
+        del parsed_args["mini_task"]
+        return super().hash(parsed_args)
 
 class GetBpeRatioJob(Job):
     """
     Apply BPE codes on a text file
     """
-
-    __sis_hash_exclude__ = {"gzip_output": False}
-
     def __init__(
             self,
             text_file: tk.Path,
@@ -28,10 +97,9 @@ class GetBpeRatioJob(Job):
         :param bpe_vocab: if provided, then merge operations that produce OOV are reverted,
             use e.g. ReturnnTrainBpeJob.out_bpe_dummy_count_vocab
         :param subword_nmt_repo: subword nmt repository path. see also `CloneGitRepositoryJob`
-        :param gzip_output: use gzip on the output text
         :param mini_task: if the Job should run locally, e.g. only a small (<1M lines) text should be processed
         """
-        from .language_models.n_gram import ApplyBPEToTextJob
+
         self.text_file = text_file
         self.subword_nmt_repo = util.get_subword_nmt_repo(subword_nmt_repo)
         vocab = get_vocab_by_str(vocab)
@@ -177,6 +245,53 @@ def get_second_pass_lm_by_name(lm_name:str):
         return build_ffnn_lms(vocab="bpe128", as_ckpt=True)[0][lm_name]
     elif "trafo" in lm_name:
         return build_trafo_lms(vocab="bpe128", as_ckpt=True)[0][lm_name]
+
+_Lm = namedtuple("Lm", ["name", "train_version", "setup"])
+
+_lms = {
+    "n24-d512": _Lm("trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k", "v3", "lm"),
+    "n96-d512": _Lm("trafo-n96-d512-gelu-drop0-b32_1k", "v3", "lm"),
+    "n32-d1024": _Lm("trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k", "v3", "lm"),
+    "n32-d1024-claix2023": _Lm(
+        "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k", "v4", "lm_claix2023"
+    ),
+    "n32-d1280-claix2023": _Lm(
+        "trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k", "v4", "lm_claix2023"
+    ),
+}
+
+def build_trafo_lm_spm(as_ckpt: bool=True):
+    assert as_ckpt is True, "Only support ckpt return now"
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import _get_lm_model
+    from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_dataset
+    from i6_experiments.users.zhang.experiments.lm_getter import GetSubwordRatioJob
+    from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt
+    from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+    from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
+    from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl_single_epoch
+    vocab = "spm10k"
+    lm_dataset = get_librispeech_lm_dataset(vocab=vocab)
+    ratio = GetSubwordRatioJob(get_librispeech_lm_combined_txt(), vocab, get_returnn_subword_nmt(), apply_job=ApplySentencepieceToTextJob).out_ratio
+    lms = {}
+    ppl_results = {}
+    lm_types = {"trafo"}
+    for lm_name in ["n32-d1024"]:
+        name = "trafo_spm10k" + lm_name
+        lms[name] = _get_lm_model(_lms[lm_name])
+        #ratio = 1
+        # tk.register_output(f"LBS_{vocab}_ratio", ratio)
+        ppls = compute_ppl_single_epoch(
+            prefix_name="n32-d1280-claix2023_trafo_spm10k",
+            model_with_checkpoint=lms[name],
+            epoch="epoch_unk",
+            dataset=lm_dataset,
+            dataset_keys=["transcriptions-test-other", "transcriptions-dev-other"],
+            exponent=ratio,
+            same_seq=True,
+            batch_size=10_000,
+        )
+        ppl_results[name] = ppls["test-other"]
+    return lms, ppl_results, lm_types
 
 def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None, only_best: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}

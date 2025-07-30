@@ -213,7 +213,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 ppls[f"epoch{epoch}"] = ppl_job.out_ppl
     return ppls
 
-def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model_def, dataset, dataset_keys: Union[str, List[str]], exponent: float=1):
+def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], exponent: float=1, same_seq:bool=False, batch_size:int=80_000):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
@@ -221,10 +221,10 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model
         dataset_keys = [dataset_keys]
     ppls = dict()
     for dataset_key in dataset_keys:
-        returnn_config = _returnn_ppl_config(model_def, dataset, dataset_key)
+        returnn_config = _returnn_ppl_config(model_with_checkpoint.definition, dataset, dataset_key, same_seq, batch_size=batch_size)
 
         res = ReturnnForwardJobV2(
-            model_checkpoint=model_with_checkpoint,
+            model_checkpoint=model_with_checkpoint.checkpoint,
             returnn_config=returnn_config,
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -235,10 +235,11 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, model
         dataset_key_ = (
             dataset_key[len("transcriptions-"):] if dataset_key.startswith("transcriptions-") else dataset_key
         )
+        exponent_raw = exponent.get() if isinstance(exponent, tk.Variable) else float(exponent)
         res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
-        tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_bpe_ppl", ppl_job.out_ppl)
+        tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if exponent_raw > 1 else 'subword'}_ppl", ppl_job.out_ppl)
         ppls[dataset_key_] = ppl_job.out_ppl
-    return ppls["test-other"]
+    return ppls
 
 class ComputePerplexityJob(Job):
     def __init__(self, scores_and_lens_file: Optional[Path], exponent:Union[float,tk.Variable] = 1.0, version:int=1):
@@ -272,7 +273,10 @@ class ComputePerplexityJob(Job):
             lens += v[0]
 
         ppl = math.exp(-1.0 * scores / lens)
-        if self.exponent:
-            ppl = math.pow(ppl,self.exponent)
+
         with open(self.out_ppl.get_path(), "w+") as f:
+            if self.exponent > 1:
+                f.write("Original ppl: %f" % ppl)
+                print(f"ori_ppl:{ppl}, exponent:{self.exponent}")
+                ppl = math.pow(ppl, self.exponent)
             f.write("Perplexity: %f" % ppl)

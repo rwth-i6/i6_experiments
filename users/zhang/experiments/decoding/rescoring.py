@@ -86,7 +86,7 @@ class SearchCombineScoresJob(Job):
             out.write("{\n")
             for seq_tag in seq_tags:
                 data_: List[List[Tuple[float, str]]] = [d[seq_tag] for _, d in data]
-                hyps_: List[List[str]] = [[h for _, h in entry] for entry in data_]
+                hyps_: List[List[str]] = [[h.strip().replace("<unk>", "@@") for _, h in entry] for entry in data_]
                 hyps0: List[str] = hyps_[0]
                 assert isinstance(hyps0, list) and all(isinstance(h, str) for h in hyps0)
 

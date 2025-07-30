@@ -10,6 +10,7 @@ import functools
 
 import sisyphus
 
+
 #from i6_experiments.users.berger.systems.functors import VocabType
 from sisyphus import tk
 from sisyphus import tools as sis_tools
@@ -36,6 +37,8 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
+from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 
 import numpy as np
 
@@ -44,6 +47,7 @@ from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
+
 
 USE_24GB = False # Making all forward job to use 24gb gpu
 
@@ -325,7 +329,7 @@ def recog_model(
     decoding_params = decoding_config.copy()
     rescoring = decoding_params.pop("rescoring", False)
 
-    if rescoring:
+    if rescoring: # Prepare rescoring settings
         from .experiments.decoding.lm_rescoring import lm_am_framewise_prior_rescore, ngram_rescore_def, ffnn_rescore_def, trafo_lm_rescore_def
         from .experiments.ctc import ctc_model_rescore
         from .experiments.decoding.prior_rescoring import Prior
@@ -335,14 +339,17 @@ def recog_model(
             ExtendVocabLabelsByNewLabelJob,
         )
         from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+        from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
         rescoringLM = decoding_params.pop("lm_rescore", None)
         rescoringLM_scale = decoding_params.pop("rescore_lmscale", None)
         rescoreLM_name = decoding_params.pop("rescore_lm_name", "")
         rescore_Priorscale = decoding_params.pop("rescore_priorscale", None)
-        vocab_: Bpe
+
+        # Vocab setting for AM
+        vocab_: Bpe | SentencePieceModel
         vocab_ = decoding_params.pop("vocab", None)
         assert vocab_, "Need vocab for current rescoring implementation"
-        assert isinstance(vocab_, Bpe), "For now only support Bpe"
+        assert isinstance(vocab_, Bpe) or isinstance(vocab_, SentencePieceModel), "For now only support Bpe and Spm"
         vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
         #tk.register_output(f"{name}/vocab.txt.gz", vocab_file)
         vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
@@ -350,8 +357,39 @@ def recog_model(
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
             vocab=vocab_file, new_label=recog_def.output_blank_label, new_label_idx=-1
         ).out_vocab
+        from i6_experiments.users.zhang.datasets.librispeech import _bpe_to_words_v2, _spm_to_words
+        if isinstance(vocab_, Bpe):
+            vocab_to_word_func = _bpe_to_words_v2
+        elif isinstance(vocab_, SentencePieceModel):
+            vocab_to_word_func = _spm_to_words
+        else:
+            raise ValueError(f"For now only support Bpe and Spm, given {vocab_}{vocab_.dim}")
         #tk.register_output(f"{name}/vocab_w_blank.txt.gz", vocab_w_blank_file)
 
+        lm_vocab_: Bpe
+        lm_vocab_ = decoding_params.pop("lm_vocab", None)
+        misaligned_lm = False
+        if lm_vocab_ is None or lm_vocab_.dim == vocab_.dim:
+            lm_vocab_file = vocab_file
+            lm_vocab_opts_file = vocab_opts_file
+            lm_vocab_to_word_func = _bpe_to_words_v2
+        else:
+            lm_vocab_file = ExtractVocabLabelsJob(lm_vocab_.get_opts()).out_vocab
+            #tk.register_output(f"{name}/vocab.txt.gz", vocab_file)
+            lm_vocab_opts_file = ExtractVocabSpecialLabelsJob(lm_vocab_.get_opts()).out_vocab_special_labels_dict
+            #tk.register_output(f"{name}/vocab_opts.py", vocab_opts_file)
+            misaligned_lm = True
+            if isinstance(lm_vocab_, Bpe):
+                lm_vocab_to_word_func = _bpe_to_words_v2
+            elif isinstance(lm_vocab_, SentencePieceModel):
+                lm_vocab_to_word_func = _spm_to_words
+            else:
+                raise ValueError(f"For now only support Bpe and Spm, given {lm_vocab_}{lm_vocab_.dim}")
+
+        if misaligned_lm:
+            pre_func_for_lm = functools.partial(convert_recog_out_label, src_vocab=vocab_, tgt_vocab=lm_vocab_)
+        else:
+            pre_func_for_lm = lambda x: x
         def dummy_rescor():
             pass
 
@@ -363,6 +401,8 @@ def recog_model(
         elif rescoreLM_name.startswith("trafo"):
             rescor_def = trafo_lm_rescore_def
             lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2, "gpu_mem": 24}
+            if "spm10k" in rescoreLM_name:
+                lm_rescor_rqmt["gpu_mem"] = 48
         elif rescoreLM_name[0].isdigit() and "gram" in rescoreLM_name:
             rescor_def = ngram_rescore_def
             lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2}
@@ -403,6 +443,11 @@ def recog_model(
                     lm_rescore_rqmt=lm_rescor_rqmt,
                     vocab=vocab_file,
                     vocab_opts_file=vocab_opts_file,
+                    vocab_to_word_func=vocab_to_word_func,
+                    lm_vocab=lm_vocab_file,
+                    lm_vocab_opts_file=lm_vocab_opts_file,
+                    lm_vocab_to_word_func=lm_vocab_to_word_func,
+                    pre_func_for_lm=pre_func_for_lm,
                 )
         ]
 
@@ -442,13 +487,13 @@ def recog_model(
                 search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
                                                   decoding_config=decoding_params, search_error_version=search_error_version,
                                                   prior_path=prior_path,
-                                                  alias_name=f"{name}/search_error/{dataset_name}" if name else None,
+                                                  alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
                                                   )
             else:
                 check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
                                    decoding_config=decoding_params, search_error_version=search_error_version,
                                    prior_path=prior_path,
-                                   alias_name=f"{name}/search_error/{dataset_name}" if name else None,
+                                   alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
                                    )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
@@ -511,14 +556,19 @@ def get_GroundTruth_with_score_on_forced_alignment(
         model: ModelWithCheckpoint,
         prior_path: tk.Path,
         decoding_config: dict,
+        config: dict,
         mem_rqmt: Union[int, float] = 16,
         alias_name: Optional[str] = None,
 ) -> tk.Path:
     from .experiments.ctc import scoring_v2
+    #print(f"{alias_name}: search_config:{config}")
+    decoding_params = decoding_config.copy()
+    for irrelevant_key in ["rescoring", "lm_rescore", "lm_vocab", "rescore_lm_name"]:
+        decoding_params.pop(irrelevant_key, None)
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
-        returnn_config=search_error_config(dataset, model.definition, scoring_v2,
-                                           decoding_config=decoding_config, prior_path=prior_path),
+        returnn_config=search_error_config(dataset, model.definition, scoring_v2, config=config,
+                                           decoding_config=decoding_params, prior_path=prior_path, oov_info=False),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
@@ -533,8 +583,29 @@ def get_GroundTruth_with_score_on_forced_alignment(
     ground_truth_out = pre_SearchError_job.out_files[_v2_forward_out_filename]
     return ground_truth_out
 
+def convert_recog_out_label(data: RecogOutput, src_vocab:[Bpe| SentencePieceModel], tgt_vocab:[Bpe| SentencePieceModel]):
+    from i6_experiments.users.zhang.datasets.librispeech import _bpe_to_words_v2, _spm_to_words
+    from i6_experiments.users.zhang.datasets.vocab import RecogOut_words_to_spm
+    def to_word_func(data, src_vocab):
+        if isinstance(src_vocab, Bpe):
+            return _bpe_to_words_v2(data)
+        elif isinstance(src_vocab, SentencePieceModel):
+            return _spm_to_words(data)
+        else:
+            raise ValueError("src_vocab must be Bpe or SentencePieceModel")
+
+    def from_word_func(data, tgt_vocab):
+        if isinstance(tgt_vocab, Bpe):
+            raise NotImplementedError
+        elif isinstance(tgt_vocab, SentencePieceModel):
+            return RecogOut_words_to_spm(data, tgt_vocab)
+        else:
+            raise ValueError("tgt_vocab must be Bpe or SentencePieceModel")
+
+    return from_word_func(to_word_func(data, src_vocab), tgt_vocab)
+
 def check_search_error(
-        *,
+
         dataset: DatasetConfig,
         model: ModelWithCheckpoint,
         hyps: tk.path,
@@ -697,20 +768,24 @@ def search_dataset(
 
     res_with_score = ctc_alignment_to_label_seq(RecogOutput(output=res_with_score), blank_label=recog_def.output_blank_label)
     res_with_score = SearchTakeBestWithScoreJob(res_with_score.output, output_gzip=True).out_best_search_results
-    # ---Get the GT and scores here---
-    gt_res = get_GroundTruth_with_score_on_forced_alignment(dataset=dataset, model=model, prior_path=prior_path, decoding_config=decoding_config, alias_name=first_pass_name)
+    # ---Get the GT and scores here--
+    # Note: The scores are actually ignored by following rescore pipeline
+    gt_res_search_labels = get_GroundTruth_with_score_on_forced_alignment(dataset=dataset, model=model, prior_path=prior_path, config=config,decoding_config=decoding_config, alias_name=first_pass_name)
     # --- ----------------------------
     for f in recog_pre_post_proc_funcs_ext:
+        gt_res = ctc_alignment_to_label_seq(RecogOutput(output=gt_res_search_labels), blank_label=recog_def.output_blank_label).output
         gt_res = f(
             RecogOutput(output=gt_res),
             dataset=dataset,
-            raw_res_search_labels=raw_res_search_labels,
-            raw_res_labels=raw_res_labels,
+            raw_res_search_labels=RecogOutput(output=gt_res_search_labels),
+            raw_res_labels=raw_res_labels, #Unused
             search_labels_to_labels=functools.partial(
                 ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
             ),
-            alias_name=search_alias_name,
+            alias_name=search_alias_name + "/gt_res",
         ).output
+
+        res = ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
         res = f(
             RecogOutput(output=res),
             dataset=dataset,
@@ -896,6 +971,7 @@ def search_error_config(
         prior_path: tk.Path,
         *,
         config: Optional[Dict[str, Any]] = None,
+        oov_info: bool = True,
 ) -> ReturnnConfig:
     # changing these does not change the hash
     post_config = dict(  # not hashed
@@ -986,7 +1062,7 @@ def search_error_config(
                         ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_search_error_step, import_as="forward_step"),
-                    serialization.Import(_returnn_search_error_forward_callback, import_as="forward_callback"),
+                    serialization.Import(_returnn_search_error_forward_callback if oov_info else _returnn_target_scoring_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash({"version": 7}),  #1: eos added 2: eos not added 5. 1+aux info added 6. added label_prob mask 7. pre-stable
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
@@ -1055,11 +1131,12 @@ def _returnn_search_error_step(*, model, extern_data: TensorDict, **kwargs):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     scoring_def = config.typed_value("_scoring_def")
-    scoring_out, score_dim, n_oovs, oov_dim = scoring_def(model=model, data=data, targets=targets,
+    scoring_out, score_dim, n_oovs, oov_dim, targets_wb, beam_dim, out_spatial_dim = scoring_def(model=model, data=data, targets=targets,
                                                           data_spatial_dim=data_spatial_dim,seq_tags=extern_data["seq_tag"])
     rf.get_run_ctx().mark_as_output(scoring_out, "scores", dims=[batch_dim, score_dim])
     rf.get_run_ctx().mark_as_output(n_oovs, "n_oovs", dims=[batch_dim, oov_dim])
     rf.get_run_ctx().mark_as_output(targets, "targets", dims=[batch_dim, targets_spatial_dim])
+    rf.get_run_ctx().mark_as_output(targets_wb, "targets_wb", dims=[batch_dim, beam_dim, out_spatial_dim])
 
 def _returnn_search_error_forward_callback():
     from typing import TextIO
@@ -1096,6 +1173,40 @@ def _returnn_search_error_forward_callback():
             target_serialized = target.sparse_dim.vocab.get_seq_labels(target_ids)
             target_serialized = target_serialized.replace("@@ ", "")
             self.out_file.write(f"  ({score!r}, {target_serialized!r},{n_oov!r}),\n")
+            self.out_file.write("],\n")
+
+        def finish(self):
+            self.out_file.write("}\n")
+            self.out_file.close()
+
+    return _ReturnnSearchErrorForwardCallbackIface()
+
+def _returnn_target_scoring_forward_callback():
+    from typing import TextIO
+    from returnn.tensor import Tensor, Dim, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+
+    class _ReturnnSearchErrorForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file: Optional[TextIO] = None
+
+        def init(self, *, model):
+            import gzip
+
+            self.out_file = gzip.open(_v2_forward_out_filename, "wt")
+            self.out_file.write("{\n")
+
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            score: Tensor = outputs["scores"] # [1]
+            target: Tensor = outputs["targets"] # [1, out_spatial]
+            target_wb: Tensor = outputs["targets_wb"]
+            assert target_wb.sparse_dim and target_wb.sparse_dim.vocab  # should come from the model
+            self.out_file.write(f"{seq_tag!r}: [\n")
+            score = float(score.raw_tensor[0])
+            target_wb_ids = target_wb.raw_tensor
+            target_wb_serialized = target_wb.sparse_dim.vocab.get_seq_labels(target_wb_ids)
+            self.out_file.write(f"  ({score!r}, {target_wb_serialized!r}),\n")
             self.out_file.write("],\n")
 
         def finish(self):

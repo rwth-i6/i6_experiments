@@ -461,7 +461,7 @@ def recog_exp(
 
     best_lm_tune = None
     best_prior_tune = None
-
+    print(model_config)
     def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, update_config: dict = {}, first_pass_name: str = None):
         from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
         original_params = decoding_config
@@ -635,6 +635,7 @@ def recog_exp(
             "rescoring": True,
             "rescore_lm_name": first_pass_lmname,
             "lm_rescore": get_second_pass_lm_by_name(first_pass_lmname),
+            "lm_vocab": None,
             }
         lm_tune_ls = [scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range") \
             else tune_config_updates["tune_range"]
@@ -2928,7 +2929,7 @@ def scoring_v2(
     #                 raw_tensor=masked_label_log_prob)
 
 
-    seq_targets_wb, scores, _, _ = decode_nn(model=model, label_log_prob=masked_label_log_prob_ret,
+    seq_targets_wb, scores, out_spatial_dim, beam_dim = decode_nn(model=model, label_log_prob=masked_label_log_prob_ret,
                                   enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
                                   prior_file= prior_file, scoring=True) # TODO: use passed param to determine which decoder to use
 
@@ -2997,6 +2998,7 @@ def scoring_v2(
         #     scores.append(viterbi_scores[i] + hyp_params["lm_weight"] * lm_score)
     """-----------------------"""
     #````````````````````````````````````````````
+
     score_dim = Dim(1, name="score_dim")
     scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
                     raw_tensor=scores.raw_tensor.reshape([label_log_prob_raw.shape[0], 1]))
@@ -3007,7 +3009,7 @@ def scoring_v2(
     n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
                     raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob_raw.shape[0], 1]))
 
-    return scores, score_dim, n_oovs, n_oov_dim
+    return scores, score_dim, n_oovs, n_oov_dim, seq_targets_wb, beam_dim, out_spatial_dim
 
 # RecogDef API   #Beam size independent for now
 scoring_v2: RecogDef[Model]
@@ -3510,6 +3512,7 @@ def decode_nn(
 
     for t in range(max_seq_len):
         prev_target_wb = target_wb
+        #seq_log_prob = rf.combine(seq_log_prob, "add", label_log_prob_ta[t])
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 

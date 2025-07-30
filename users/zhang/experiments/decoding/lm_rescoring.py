@@ -808,6 +808,11 @@ def lm_am_framewise_prior_rescore(
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
+    vocab_to_word_func: Optional[Callable] = None,
+    lm_vocab: tk.Path = None,
+    lm_vocab_opts_file: tk.Path = None,
+    lm_vocab_to_word_func: Optional[Callable] = None,
+    pre_func_for_lm: Callable = None,
     prior: Optional[Prior] = None,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
@@ -837,7 +842,11 @@ def lm_am_framewise_prior_rescore(
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
-    res, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
+    raw_res_labels  # noqa  # unused here
+    lm_vocab = lm_vocab or vocab
+    lm_vocab_opts_file = lm_vocab_opts_file or vocab_opts_file
+    lm_vocab_to_word_func = lm_vocab_to_word_func or vocab_to_word_func
+    normalize_seq = lm_vocab_to_word_func != vocab_to_word_func
     if isinstance(lm, ModelWithCheckpoint): # RETURNN LM
         lm_scorer = lm_score
     elif isinstance(lm, tk.Path): # assert use ngram lm here
@@ -860,11 +869,11 @@ def lm_am_framewise_prior_rescore(
 
     alias_name = get_generic_alias_name(alias_name)
     res_labels_lm_scores = lm_scorer(
-        raw_res_labels, lm=lm, lm_rescore_def=lm_rescore_def ,vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
+        pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
         alias_name=alias_name + "/rescoring",
     )
     res_labels_am_scores = rescore(
-        recog_output=raw_res_labels,
+        recog_output=res,
         dataset=dataset,
         model=am,
         vocab=vocab,
@@ -873,11 +882,17 @@ def lm_am_framewise_prior_rescore(
         forward_rqmt=am_rescore_rqmt,
         forward_alias_name=alias_name + "/AMrescoring",
     )
+    if normalize_seq:
+        print(f"Normalize the am lm out text! --> {alias_name}")
+        res_labels_lm_scores = lm_vocab_to_word_func(res_labels_lm_scores)
+        res_labels_am_scores = vocab_to_word_func(res_labels_am_scores)
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         assert search_labels_to_labels
         res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
         res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
+        if normalize_seq:
+            res_labels_prior_scores = vocab_to_word_func(res_labels_prior_scores)
         scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0

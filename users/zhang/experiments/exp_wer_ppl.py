@@ -8,6 +8,7 @@ import re
 from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING
 
 from i6_experiments.users.schmitt.model_interfaces import ModelWithCheckpoint
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 from sisyphus import tk
 
@@ -71,6 +72,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         "use_logsoftmax": True,
         "use_lm": False,
         #"use_lexicon": False,
+        "vocab": get_vocab_by_str(vocab),
     }
     tune_config_updates = {}
     recog_config_updates = {}
@@ -95,7 +97,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
 
     if "ffnn" in lmname:
         tune_hyperparameters = True
-        decoding_config["beam_size"] = 500 if vocab == "bpe128" else 150
+        decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else 150
         decoding_config["lm_weight"] = 0.5
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
 
@@ -166,6 +168,7 @@ def ctc_exp(
     lmname,
     lm,
     vocab,
+    lm_vocab: Optional[Bpe : SentencePieceModel] = None,
     rescore_lm: Optional[ModelWithCheckpoint, dict] = None,
     rescore_lm_name: str = None,
     encoder: str = "conformer",
@@ -178,7 +181,8 @@ def ctc_exp(
         speed_pert_librosa_config,
         _raw_sample_rate,
     )
-
+    if lm_vocab is None:
+        lm_vocab = vocab
     # ---- Set up model and config ----
     model_config, model_def = get_encoder_model_config(encoder)
     (
@@ -244,7 +248,7 @@ def ctc_exp(
         decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE #0.5
         decoding_config["rescore_priorscale"] = 0.10
         decoding_config["rescore_lm_name"] = rescore_lm_name
-        decoding_config["vocab"] = get_vocab_by_str(vocab)
+        decoding_config["lm_vocab"] = get_vocab_by_str(lm_vocab)
         set_tune_range_by_name(rescore_lm_name,tune_config_updates,first_pass=False)
         if lm is not None: #First pass with a LM
             decoding_config["tune_with_rescoring"] = True
@@ -336,8 +340,9 @@ def py():
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
     available = [("bpe128", "ctc", "blstm"), ("bpe128", "ctc", "conformer"), ("bpe10k", "ctc", "conformer")]
     models = {"ctc": ctc_exp}
-    encoder = "blstm" # blstm conformer
+    encoder = "conformer" # blstm conformer
     train = False
+    insert_spm10k_lm = True
     cuts = {"conformer": 65, "blstm":37}
     for vocab in ["bpe128",
                   #"bpe10k",
@@ -348,9 +353,9 @@ def py():
         lm_kinds = ["ffnn",
                     #"trafo", #nn has better result on second pass for cfm
                     ]  if encoder == "blstm" else ["ffnn"] # Don know why, for conformer now the WER of trafo LMs are better by second pass...
-        lm_kinds_2 = ["ngram", # LM that do second pass
+        lm_kinds_2 = [#"ngram", # LM that do second pass
                     #"ffnn",
-                    "trafo",
+                   "trafo",
                     #"LLM"
                     ]
         #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
@@ -358,9 +363,16 @@ def py():
             word_ppl = True
             lm_kinds = ["ffnn"]
             lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, lm_types_names = build_all_lms(vocab, lm_kinds=lm_kinds, only_best=True)  # NEW
+        lms, ppl_results, _ = build_all_lms(vocab, lm_kinds=lm_kinds, only_best=True)  # NEW
         lms.update({"NoLM": None})
-        rescor_lms, ppl_results_2, lm_types_names_2 = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl)
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl)
+
+        if insert_spm10k_lm:
+            from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
+            other_lms, other_lms_ppl, _ =  build_trafo_lm_spm()
+            rescor_lms.update(other_lms)
+            ppl_results_2.update(other_lms_ppl)
+
         rescor_lms.update({"NoLM": None})
         ppl_results_2.update({"Uniform": float(get_vocab_by_str(vocab).dim)})
 
@@ -386,7 +398,7 @@ def py():
                         name, lm, vocab,
                         rescore_lm=lm_2,
                         rescore_lm_name=name_2,
-                        encoder=encoder, train=train
+                        encoder=encoder, train=train,
                     )
                     if lm_2:
                         wer_ppl_results_2[name_2] = (
@@ -459,7 +471,8 @@ def py():
                         name, lm, vocab,
                         rescore_lm=lm_2,
                         rescore_lm_name=name_2,
-                        encoder=encoder, train=train
+                        encoder=encoder, train=train,
+                        lm_vocab="spm10k" if "spm10k" in name_2 else None,
                     )
                     if lm_2:
                         wer_ppl_results_2[name_2] = (
@@ -516,6 +529,7 @@ def py():
                 for i, key in enumerate(EVAL_DATASET_KEYS):
                     tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                     tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
+                    tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
 
 
         for model, exp in models.items():

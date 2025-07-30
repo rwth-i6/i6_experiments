@@ -226,6 +226,8 @@ class GnuPlotJob(Job):
         self.input_summary = res_table
         self.curve_point = curve_point
         self.out_plot_dir = self.output_path("plots", directory=True)
+        self.out_equations_dir = self.output_path("regressions", directory=True)
+        self.out_equations = dict(zip(eval_dataset_keys,[self.output_path(f"regressions/{key}.txt") for key in eval_dataset_keys]))
         self.out_scripts = dict(zip(eval_dataset_keys,[self.output_path(f"wer_vs_ppl_{key}.gb") for key in eval_dataset_keys]))
         self.out_plots = dict(zip(eval_dataset_keys,[self.output_path(f"plots/{key}.pdf") for key in eval_dataset_keys]))
         self.eval_dataset_keys = eval_dataset_keys
@@ -322,7 +324,8 @@ class GnuPlotJob(Job):
 
         # 4) linearly spaced exponents
         exps = np.linspace(log_lo, log_hi, num_ticks)
-
+        if self.curve_point:
+            exps = np.append(exps, math.log10(self.curve_point))
         # 5) back-transform and unique/round
         ticks = sorted(set(10 ** exps))
 
@@ -334,6 +337,10 @@ class GnuPlotJob(Job):
 
         for t in ticks:
             # choose a sensible label formatting:
+            if self.curve_point:
+                dif = abs(math.log10(t) - math.log10(self.curve_point))
+                if dif < 0.08 and dif > 1e-3:
+                    continue
             if t < 1:
                 label = f"{t:.2f}"
             elif t < 10:
@@ -406,7 +413,7 @@ class GnuPlotJob(Job):
             {''if self.curve_point else '#'}fit [log10({self.curve_point}):log10(185)] f1(x) "{merged_path}" using (log10($1)):(log10($2)) via a1, b1
 
             #Save the fit equation
-            set print "fit_eq.txt"
+            set print "{self.out_equations[dataset_key].get_path()}"
             print sprintf("eq1: log(WER) = %.2f + %.2f * log(PPL)", b, a)
             {'print sprintf("eq2: log(WER) = %.2f + %.2f * log(PPL)", b1, a1)' if self.curve_point else ''}
             set print      # close the print destination back to the console
