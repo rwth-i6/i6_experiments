@@ -85,8 +85,9 @@ def main():
                     data_ = eval(text, {"EpochData": EpochData, "nan": float("nan"), "inf": float("inf"), "np": np})
                     data[name] = data_
                     max_epoch = max(max_epoch, max(data_.keys()))
-                    score_keys = [k for k in next(iter(data_.values()))["error"].keys() if k.startswith("dev_")]
+                    score_keys = [k for k in next(iter(data_.values()))["error"].keys()]
                     if not score_key:
+                        score_keys = [k for k in score_keys if k.startswith("dev_")]
                         score_key = next(iter(score_keys))
                         print(f"using score key {score_key} for {name}")
                     else:
