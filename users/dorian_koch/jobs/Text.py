@@ -1,5 +1,6 @@
 import collections
-from typing import Dict, List, Tuple
+import random
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 from sisyphus import Job, Task, tk
 from i6_core.util import uopen
 import re
@@ -616,3 +617,58 @@ class FigureOutHowManyCorrectWordsAreBungedUp(Job):
         with uopen(self.examples_corrected, "wt") as out:
             out.write(out_corrected)
             out.write("\n")
+
+
+if TYPE_CHECKING:
+    from returnn.datasets.util.vocabulary import Vocabulary
+
+
+class SimulateTokenSubstitution(Job):
+    def __init__(self, text_file: tk.Path, vocab_opts: Dict[str, Any], swapout_prob: Tuple[float, float]):
+        self.text_file = text_file
+        self.vocab_opts = vocab_opts
+        self.swapout_prob = swapout_prob  # (min, max) probabilities for swapping out tokens
+        self.text_file_out = self.output_path("text_file_out.txt.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def random_swapout(self, line: str, vocab: Vocabulary) -> str:
+        words = line.strip()
+        word_ids = vocab.get_seq(words)
+        if not word_ids:
+            print(f"No valid words to swap out in line: {line}")
+            return line  # No valid words to swap out
+        prob = random.uniform(*self.swapout_prob)
+        for i in range(len(word_ids)):
+            if random.uniform(0, 1) < prob:  # Randomly decide to swap out
+                word_ids[i] = random.randint(0, vocab.num_labels - 1)  # Swap with a random word ID
+        return vocab.get_seq_labels(word_ids)
+
+    def run(self):
+        import sys
+        import os
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(None)  # self.returnn_root
+        sys.path.insert(1, returnn_root.get_path())
+
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        vocab = self.vocab_opts
+        vocab = util.instanciate_delayed(vocab)
+        print("RETURNN vocab opts:", vocab)
+        vocab = Vocabulary.create_vocab(**vocab)
+        print("Vocab:", vocab)
+        print("num labels:", vocab.num_labels)
+        assert vocab.num_labels == len(vocab.labels)
+
+        with uopen(self.text_file, "rt") as f, uopen(self.text_file_out, "wt") as out_f:
+            for line in f:
+                line: str
+                out_f.write(self.random_swapout(line, vocab) + "\n")
