@@ -270,3 +270,9 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+
+    # TODO go through https://github.com/rwth-i6/returnn/issues/1741, test each
+    #  how?
+    #  hook get_model?
+    #  then go through model submodules, check for LayerNorm etc, hook them?
+    #  also hook SelfAttention or dot_attention or so? or monkey patch them?
