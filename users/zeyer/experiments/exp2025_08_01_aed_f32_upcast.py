@@ -273,6 +273,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # rmsF32: RMSNorm with float32 upcast.
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-rmsF32-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
