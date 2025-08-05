@@ -61,39 +61,36 @@ def main():
     score_key = args.score_key
     covered = set()
 
-    for exps in args.exps:
-        pattern = exps + "*"
-        dirs = glob(pattern)
-        if not dirs:
-            print(f"WARN: no experiments found matching pattern: {pattern}")
+    for d in args.exps:
+        if not os.path.exists(d):
+            print(f"WARN: no experiment found: {d}")
             sys.exit(1)
-        for d in dirs:
-            name = os.path.basename(d)
-            if not os.path.isdir(d):
-                continue
-            if os.path.isdir(d + "/train"):
-                d += "/train"
-            d_ = os.path.realpath(d)
-            if d_ in covered:
-                continue
-            covered.add(d_)
-            for postfix in ["work/learning_rates", "output/learning_rates"]:
-                if os.path.exists(d + "/" + postfix):
-                    print(f"found data for {name}")
-                    with open(d + "/" + postfix, "rt") as f:
-                        text = f.read()
-                    data_ = eval(text, {"EpochData": EpochData, "nan": float("nan"), "inf": float("inf"), "np": np})
-                    data[name] = data_
-                    max_epoch = max(max_epoch, max(data_.keys()))
-                    score_keys = [k for k in next(iter(data_.values()))["error"].keys()]
-                    if not score_key:
-                        score_keys = [k for k in score_keys if k.startswith("dev_")]
-                        score_key = next(iter(score_keys))
-                        print(f"using score key {score_key} for {name}")
-                    else:
-                        assert score_key in score_keys, f"score key {score_key} not found in {name} data: {score_keys}"
+        name = os.path.basename(d)
+        if not os.path.isdir(d):
+            continue
+        if os.path.isdir(d + "/train"):
+            d += "/train"
+        d_ = os.path.realpath(d)
+        if d_ in covered:
+            continue
+        covered.add(d_)
+        for postfix in ["work/learning_rates", "output/learning_rates"]:
+            if os.path.exists(d + "/" + postfix):
+                print(f"found data for {name}")
+                with open(d + "/" + postfix, "rt") as f:
+                    text = f.read()
+                data_ = eval(text, {"EpochData": EpochData, "nan": float("nan"), "inf": float("inf"), "np": np})
+                data[name] = data_
+                max_epoch = max(max_epoch, max(data_.keys()))
+                score_keys = [k for k in next(iter(data_.values()))["error"].keys()]
+                if not score_key:
+                    score_keys = [k for k in score_keys if k.startswith("dev_")]
+                    score_key = next(iter(score_keys))
+                    print(f"using score key {score_key}")
+                else:
+                    assert score_key in score_keys, f"score key {score_key} not found in {name} data: {score_keys}"
 
-                    break
+                break
 
     if not data:
         print(f"ERR: no data found in any of the directories: {args.exps}")
