@@ -1,10 +1,10 @@
 import collections
 import random
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple
 from sisyphus import Job, Task, tk
 from i6_core.util import uopen
 import re
-
+from returnn.datasets.util.vocabulary import Vocabulary
 
 class WordFrequencyJob(Job):
     def __init__(
@@ -619,8 +619,6 @@ class FigureOutHowManyCorrectWordsAreBungedUp(Job):
             out.write("\n")
 
 
-if TYPE_CHECKING:
-    from returnn.datasets.util.vocabulary import Vocabulary
 
 
 class SimulateTokenSubstitution(Job):
