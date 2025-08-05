@@ -274,6 +274,7 @@ def py():
     )
 
     # rmsF32: RMSNorm with float32 upcast.
+    # Basically no difference?
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-rmsF32-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
@@ -343,13 +344,9 @@ def py():
 
 class RMSNormF32(rf.Module):
     """
-    `Root Mean Square Layer Normalization (RMSNorm) <https://arxiv.org/abs/1910.07467>`__.
+    rf.RMSNorm with float32 upcast.
 
-    Alternative to :class:`LayerNorm` that uses the root-mean-square of the input as the normalization factor.
-    I.e. the main difference to layer norm is: *No subtraction of mean.*
-
-    Note, the bias here is optional, *and disabled by default* (in line with most implementations of RMSNorm),
-    unlike our :class:`LayerNorm`, where the bias is enabled by default.
+    No real difference?
     """
 
     def __init__(self, in_dim: Union[rf.Dim, Sequence[rf.Dim]], *, eps: float = 1e-6, with_bias: bool = False):
@@ -365,6 +362,7 @@ class RMSNormF32(rf.Module):
 
     def __call__(self, x: Tensor) -> Tensor:
         variance = rf.reduce_mean(rf.square(rf.cast(x, "float32")), axis=self.in_dim)
+        assert variance.dtype == "float32"
         norm_x = x * rf.rsqrt(variance + self.eps)
         out = norm_x * self.scale
         if self.bias is not None:
