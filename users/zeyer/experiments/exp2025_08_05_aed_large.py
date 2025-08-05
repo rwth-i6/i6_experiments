@@ -7,7 +7,6 @@ from __future__ import annotations
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
-    Model,
     train_exp as aed_train_exp,
     _raw_sample_rate,
 )
