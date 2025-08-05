@@ -64,7 +64,7 @@ def main():
     for d in args.exps:
         if not os.path.exists(d):
             print(f"WARN: no experiment found: {d}")
-            sys.exit(1)
+            continue
         name = os.path.basename(d)
         if not os.path.isdir(d):
             continue
