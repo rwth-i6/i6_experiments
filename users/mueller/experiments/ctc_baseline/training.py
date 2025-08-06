@@ -212,7 +212,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             with torch.no_grad():
                 batch_size = log_probs.raw_tensor.shape[0]
                 batch_dims = data.remaining_dims(data_spatial_dim)
-                hyps, new_scores = recog_ffnn(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file if not prior_am_normed else None, train_lm=True)
+                hyps, new_scores = recog_ffnn(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file if not prior_am_normed else None, train_lm=True, return_as_list=True)
                 assert len(hyps) == batch_size
                 assert len(hyps[0]) == nbest
                 hyps = [[convert_to_output_hyps(model, h, True) for h in hyps_batch] for hyps_batch in hyps]

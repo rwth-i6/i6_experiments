@@ -90,12 +90,14 @@ def subset_scoring(
         config["hyperparameters"]["recomb_with_sum"] = False
         
     
-    config["preload_from_files"] = {
-        "chkpt": {
-            "filename": checkpoint,
-            "ignore_params_prefixes": ["train_language_model."],
-        },
-    }
+    config["preload_from_files"] = {}
+    if checkpoint:
+        config["preload_from_files"] = {
+            "chkpt": {
+                "filename": checkpoint,
+                "ignore_params_prefixes": ["train_language_model."],
+            },
+        }
     if lm_checkpoint_path is not None:
         config["preload_from_files"]["recog_lm"] = {
             "prefix": "recog_language_model.",
@@ -120,7 +122,8 @@ def subset_scoring(
         
     audio_opts_ = _raw_audio_opts.copy()
     dataset_common_opts = dict(audio=audio_opts_, audio_dim=1, vocab=vocab)
-    dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train-other-860")# , forward_subset=18_000)
+    # dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train-other-860")# , forward_subset=18_000)
+    dataset = LibrispeechOggZip(**dataset_common_opts, main_key="dev-other")
     """
     Seq-length 'data' Stats:
         18000 seqs
@@ -148,7 +151,36 @@ def subset_scoring(
         Std dev: [0.11606654]
         Min/max: [-1.] / [1.]
         
-        ==> ca 61h
+        ==> 16_000: ca 61h
+        
+        
+    Seq-length 'data' Stats:
+        36000 seqs
+        Mean: 196029.9418888878
+        Std dev: 61898.81456420404
+        Min/max: 14720 / 400560
+    Seq-length 'classes' Stats:
+        36000 seqs
+        Mean: 86.06625000000001
+        Std dev: 30.52811954837234
+        Min/max: 1 / 195
+    Seq-length 'orth' Stats:
+        36000 seqs
+        Mean: 175.96691666666712
+        Std dev: 62.70739757834533
+        Min/max: 3 / 403
+    Seq-length 'raw' Stats:
+        36000 seqs
+        Mean: 1.0
+        Std dev: 0.0
+        Min/max: 1 / 1
+    Data 'data' Stats:
+        36000 seqs, 7057077908 total frames, 196029.941889 average frames
+        Mean: [0.0001587]
+        Std dev: [0.11555858]
+        Min/max: [-1.] / [1.]
+        
+        ==> 32_000: ca 122h
     """
         
     output_file = "scores.txt"
@@ -165,7 +197,7 @@ def subset_scoring(
         device=forward_device,
         cpu_rqmt=4,
         mem_rqmt=16,
-        time_rqmt=144,
+        time_rqmt=172,
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
@@ -752,7 +784,7 @@ def histogram_scoring(
         
     audio_opts_ = _raw_audio_opts.copy()
     dataset_common_opts = dict(audio=audio_opts_, audio_dim=1, vocab=vocab)
-    dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train-other-860", forward_subset=18_000)
+    dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train-other-860", forward_subset=36_000)
         
     output_files = ["hist_scores.npy", "hist_scores_stats.txt"]
     forward_job = ReturnnForwardJobV2(
@@ -768,7 +800,7 @@ def histogram_scoring(
         device=forward_device,
         cpu_rqmt=4,
         mem_rqmt=16,
-        time_rqmt=16,
+        time_rqmt=64,
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
@@ -980,9 +1012,7 @@ def _returnn_hist_get_forward_callback():
                     n = scores.shape[0]
                     log_sum = logsumexp(scores, axis=0)
                     mean_nbest = log_sum - np.log(n)
-                    mean_dev = np.logaddexp(scores, -mean_nbest) * 2
-                    avg_mean_dev = logsumexp(mean_dev, axis=0) - np.log(n - 1)
-                    std_nbest = avg_mean_dev * 0.5
+                    std_nbest = scores.std(axis=0, ddof=1)
                 
                 self.out_file.write(f"{key}: Mean per nbest: {mean_nbest.tolist()}\n")
                 self.out_file.write(f"{key}: Std per nbest: {std_nbest.tolist()}")
@@ -1072,7 +1102,7 @@ def score_histogram(
     
     combined_score = ctc_loss + lm_score * lm_weight
     if prior_score is not None:
-        combined_score -= prior_score * prior_weight
+        combined_score -= (prior_score * prior_weight)
     
     # Compute WER
     hyps = nbest_hyps.raw_tensor
