@@ -102,7 +102,7 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
         if "decay" in hyperparameters and hyperparameters["decay"] < 1.0:
             assert isinstance(curr_step, int)
             decay = hyperparameters.pop("decay")
-            decay_limit = hyperparameters.pop("decay_limit", 0.0)
+            decay_limit_frac = hyperparameters.pop("decay_limit_frac", 0.0)
             start_weight = hyperparameters["lm_weight"]
             # lm_scale = 0.2 + (0.2 * decay ** curr_step)
             lm_scale = 0.3
@@ -165,7 +165,6 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             
             prior_file = config.typed_value("empirical_prior")
             assert hyperparameters and prior_file
-            hyperparameters["beam_size"] = 128
             if nbest > 1:
                 hyperparameters["ps_nbest"] = nbest
             curr_step = rf.get_run_ctx().step
@@ -173,17 +172,13 @@ def ctc_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: 
             if "decay" in hyperparameters and hyperparameters["decay"] < 1.0:
                 assert isinstance(curr_step, int)
                 decay = hyperparameters.pop("decay")
-                decay_limit = hyperparameters.pop("decay_limit", 0.0)
-                start_weight = hyperparameters["lm_weight"]
-                # hyperparameters["lm_weight"] = 0.2 + (0.4 * decay ** curr_step)
-                hyperparameters["lm_weight"] = 0.2 + (0.4 * 0.95 ** curr_epoch)
-                # hyperparameters["lm_weight"] = 0.8
-                # am_weight = 1.0 - (0.9 * 0.99997 ** curr_step)
-                am_weight = 1.0 - (0.9 * 0.95 ** curr_epoch)
-                # am_weight = 0.1
-                # hyperparameters["prior_weight"] = 0.3 - (0.3 * 0.99999 ** curr_step)
-                hyperparameters["prior_weight"] = 0.3 - (0.3 * 0.95 ** curr_epoch)
-                # hyperparameters["prior_weight"] = 0.0
+                decay_limit_frac = hyperparameters.pop("decay_limit_frac", 0.0)
+                start_weight_lm = hyperparameters["lm_weight"]
+                start_weight_prior = hyperparameters["prior_weight"]
+                decay_limit_lm = start_weight_lm * decay_limit_frac
+                hyperparameters["lm_weight"] = decay_limit_lm + ((start_weight_lm - decay_limit_lm) * decay ** curr_epoch)
+                am_weight = 1.0 - (0.9 * decay ** curr_epoch)
+                hyperparameters["prior_weight"] = start_weight_prior - (start_weight_prior * decay ** curr_epoch)
                 if curr_step % 100 == 0:
                     print("LM weight:", hyperparameters["lm_weight"], "Prior weight:", hyperparameters["prior_weight"], "AM weight:", am_weight)
             

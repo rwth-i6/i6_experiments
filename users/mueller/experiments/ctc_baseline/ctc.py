@@ -126,7 +126,7 @@ def py():
         "train_params": {"lm_weight": 0.7, "prior_weight": 0.3, "beam_size": 80},
     }
     
-    # Unsupervised 10-best approx. (gradient axxumulation 60 steps) on a wav2vec 2.0 encoder with BPE-level 9-gram LM (during training and recognition) and empirical prior
+    # Unsupervised max. approx. (gradient axxumulation 60 steps) on a wav2vec 2.0 encoder with BPE-level 9-gram LM (during training and recognition) and empirical prior
     wav2vec_config = {
         "init": "100h-unsupervised",
         "self_training_rounds": 0,
@@ -138,6 +138,7 @@ def py():
         "train_params": {"lm_weight": 0.7, "prior_weight": 0.3, "beam_size": 80},
         "decoder_lm_config": {"class": "FeedForwardLm", "context_size": 8},
         "decoding_params": {"lm_weight": 0.7, "prior_weight": 0.3, "beam_size": 80},
+        "pseudo_nbest_init": 1,
     }
 
     
@@ -219,6 +220,7 @@ def create_exp(
         "penalty_pow": 2,
         "gradient_penalty_scale": 0.0
     },
+    decay_settings = {"decay": 0.95, "decay_limit_frac": 0.3}, # Decay settings for the scales
     am_lm_prior_full_sum_init = (0.1, 1.5, 0.4), # Weights for the AM, LM and Prior in the full-sum criterion in unsupervised init training
     decode_every_step_init = True,               # Decode every step during unsupervised init training
     accum_grad_multiple_step_init = 60,          # Accumulate gradients over multiple steps during unsupervised init training
@@ -425,14 +427,14 @@ def create_exp(
                 every_step_hyperparameters["lm_order"] = train_lm_config["order"] if train_lm_config["class"] == "ngram" else f"ffnn{train_lm_config['context_size']}"
                 # every_step_hyperparameters["lm_weight"] = 0.7 # 0.4
                 # every_step_hyperparameters["decay"] = 0.9995
-                # every_step_hyperparameters["decay_limit"] = 0.25
+                # every_step_hyperparameters["decay_limit_frac"] = 0.25
                 # every_step_hyperparameters["beam_size"] = 10
                 # if with_prior:
                 #     every_step_hyperparameters["prior_weight"] = 0.3
                 a0 = f"p{str(every_step_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
                 a1 = f"b{every_step_hyperparameters['beam_size']}"
                 a2 = f"w{str(every_step_hyperparameters['lm_weight']).replace('.', '')}"
-                a3 = (f"dec{str(every_step_hyperparameters['decay']).replace('.', '')}" if 'decay' in every_step_hyperparameters else "") + (f"-lim{str(every_step_hyperparameters['decay_limit']).replace('.', '')}" if 'decay_limit' in every_step_hyperparameters else "")
+                a3 = (f"dec{str(every_step_hyperparameters['decay']).replace('.', '')}" if 'decay' in every_step_hyperparameters else "") + (f"-lim{str(every_step_hyperparameters['decay_limit_frac']).replace('.', '')}" if 'decay_limit_frac' in every_step_hyperparameters else "")
                 every_step_str = f"_{a0}_{a1}_{a2}_{a3}"
                 
             if use_sum_criterion:# or decode_every_step:
@@ -468,8 +470,8 @@ def create_exp(
             assert decoder_hyperparameters
             assert train_lm_config
             every_step_hyperparameters_init = decoder_hyperparameters.copy()
-            every_step_hyperparameters_init["decay"] = 0.99995
-            every_step_hyperparameters_init["decay_limit"] = 0.8
+            every_step_hyperparameters_init["decay"] = decay_settings["decay"]
+            every_step_hyperparameters_init["decay_limit_frac"] = decay_settings["decay_limit_frac"]
             every_step_hyperparameters_init["prior_weight"] = train_params["prior_weight"]
             every_step_hyperparameters_init["lm_weight"] = train_params["lm_weight"]
             every_step_hyperparameters_init["lm_order"] = train_lm_config["order"] if train_lm_config["class"] == "ngram" else f"ffnn{train_lm_config['context_size']}"
