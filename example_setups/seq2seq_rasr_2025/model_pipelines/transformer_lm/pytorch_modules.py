@@ -243,7 +243,7 @@ class TransformerLm(torch.nn.Module):
     def forward(self, input: torch.Tensor, seq_mask: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            input: Shape [B, N, F]
+            input: Shape [B, N]
             seq_mask: Shape [B, N]
 
         Returns:
@@ -251,7 +251,7 @@ class TransformerLm(torch.nn.Module):
         """
         max_seq_length = input.size(1)
         causal_mask = self.causal_mask[:max_seq_length, :max_seq_length].to(input.device)
-        x = input.transpose(0, 1)  # [N, B, F]
+        x = input.transpose(0, 1)  # [N, B]
         x = self.embed.forward(x)  # [N, B, E]
         x = self.positional_encoding.forward(x)  # [N, B, E]
         x = self.input_linear.forward(x)  # [N, B, D]

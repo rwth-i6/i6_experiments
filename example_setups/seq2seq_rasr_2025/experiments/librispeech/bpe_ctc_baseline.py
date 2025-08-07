@@ -200,6 +200,9 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
 
         vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
         lm_vocab_file = get_lm_vocab(output_prefix="").vocab
+        zyang_lm_vocab_file = tk.Path(
+            "/work/asr4/zyang/lm/librispeech/dataset/kazuki_word/vocab.word.freq_sorted.200k.txt"
+        )
         lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
         blank_index = bpe_to_vocab_size(bpe_size=BPE_SIZE)
 
@@ -247,7 +250,6 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
                     ),
                     rasr_align_config_file=None,  # No search error computation needed since greedy search can't have search errors
                     sample_rate=16000,
-                    device="cpu",
                 )
             )
 
@@ -278,6 +280,7 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
                         blank_index=blank_index,
                         max_beam_size=1024,
                         score_threshold=14.0,
+                        logfile_suffix="recog",
                     ),
                     rasr_align_config_file=get_tree_timesync_recog_config(
                         lexicon_file=lexicon_file,
@@ -286,6 +289,7 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
                         blank_index=blank_index,
                         max_beam_size=4096,
                         score_threshold=22.0,
+                        logfile_suffix="align",
                     ),
                 )
             )
@@ -319,6 +323,7 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
                         blank_index=blank_index,
                         max_beam_size=1024,
                         score_threshold=14.0,
+                        logfile_suffix="recog",
                     ),
                     rasr_align_config_file=get_tree_timesync_recog_config(
                         lexicon_file=lexicon_file,
@@ -328,6 +333,7 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
                         blank_index=blank_index,
                         max_beam_size=4096,
                         score_threshold=22.0,
+                        logfile_suffix="align",
                     ),
                 )
             )
@@ -336,52 +342,58 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
         # === Tree Search with TraFo LM =======
         # =====================================
 
-        for trafo_layers in [24, 48, 96]:
-            for prior_scale in [0.2, 0.3]:
-                for lm_scale in [0.4, 0.6, 0.8, 1.0, 1.2]:
-                    trafo_lm_config = get_transformer_lm_config(
-                        num_layers=trafo_layers, vocab_file=lm_vocab_file, lm_scale=lm_scale
-                    )
-                    # for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-                    for recog_corpus in ["dev-other"]:
-                        recog_results.append(
-                            recog_rasr(
-                                descriptor=f"bpe-ctc_tree_trafo-{trafo_layers}l-{lm_scale}_prior-{prior_scale}",
-                                checkpoint=checkpoint,
-                                recog_data_config=recog_data[recog_corpus],
-                                recog_corpus=score_corpora[recog_corpus],
-                                model_serializers=get_model_serializers(
-                                    ConformerCTCRecogModel,
-                                    ConformerCTCRecogConfig(
-                                        **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-                                        prior_file=prior_file,
-                                        prior_scale=prior_scale,
-                                        blank_penalty=0.0,
-                                    ),
-                                ),
-                                rasr_config_file=get_tree_timesync_recog_config(
-                                    lexicon_file=lexicon_file,
-                                    collapse_repeated_labels=True,
-                                    label_scorer_config=get_no_op_label_scorer_config(),
-                                    lm_config=trafo_lm_config,
-                                    blank_index=blank_index,
-                                    max_beam_size=1024,
-                                    max_word_end_beam_size=128,
-                                    score_threshold=18.0,
-                                    word_end_score_threshold=18.0,
-                                ),
-                                # rasr_align_config_file=get_tree_timesync_recog_config(
-                                #     lexicon_file=lexicon_file,
-                                #     collapse_repeated_labels=True,
-                                #     label_scorer_config=get_no_op_label_scorer_config(),
-                                #     lm_config=trafo_lm_config,
-                                #     blank_index=blank_index,
-                                #     max_beam_size=4096,
-                                #     score_threshold=22.0,
-                                # ),
-                                rasr_align_config_file=None,
-                            )
-                        )
+        # # for trafo_layers in [24, 48, 96]:
+        # for trafo_layers in [24, 96]:
+        #     # for prior_scale in [0.2, 0.3]:
+        #     #     for lm_scale in [0.4, 0.6, 0.8, 1.0, 1.2]:
+        #     for prior_scale in [0.2]:
+        #         for lm_scale in [1.2]:
+        #             trafo_lm_config = get_transformer_lm_config(
+        #                 num_layers=trafo_layers,
+        #                 vocab_file=zyang_lm_vocab_file if trafo_layers == 96 else lm_vocab_file,
+        #                 lm_scale=lm_scale,
+        #             )
+        #             # for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+        #             for recog_corpus in ["dev-other"]:
+        #                 recog_results.append(
+        #                     recog_rasr(
+        #                         descriptor=f"bpe-ctc_tree_trafo-{trafo_layers}l-{lm_scale}_prior-{prior_scale}",
+        #                         checkpoint=checkpoint,
+        #                         recog_data_config=recog_data[recog_corpus],
+        #                         recog_corpus=score_corpora[recog_corpus],
+        #                         model_serializers=get_model_serializers(
+        #                             ConformerCTCRecogModel,
+        #                             ConformerCTCRecogConfig(
+        #                                 **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+        #                                 prior_file=prior_file,
+        #                                 prior_scale=prior_scale,
+        #                                 blank_penalty=0.0,
+        #                             ),
+        #                         ),
+        #                         rasr_config_file=get_tree_timesync_recog_config(
+        #                             lexicon_file=lexicon_file,
+        #                             collapse_repeated_labels=True,
+        #                             label_scorer_config=get_no_op_label_scorer_config(),
+        #                             lm_config=trafo_lm_config,
+        #                             blank_index=blank_index,
+        #                             max_beam_size=1024,
+        #                             max_word_end_beam_size=256,
+        #                             score_threshold=18.0,
+        #                             word_end_score_threshold=9.0,
+        #                         ),
+        #                         # rasr_align_config_file=get_tree_timesync_recog_config(
+        #                         #     lexicon_file=lexicon_file,
+        #                         #     collapse_repeated_labels=True,
+        #                         #     label_scorer_config=get_no_op_label_scorer_config(),
+        #                         #     lm_config=trafo_lm_config,
+        #                         #     blank_index=blank_index,
+        #                         #     max_beam_size=4096,
+        #                         #     score_threshold=22.0,
+        #                         # ),
+        #                         rasr_align_config_file=None,
+        #                         gpu_mem_rqmt=24,
+        #                     )
+        #                 )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

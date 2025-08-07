@@ -249,7 +249,6 @@ def run_recog(
     lm_scale: float = 0.0,
     max_beam_size: Optional[int] = None,
     score_threshold: Optional[float] = None,
-    device: Literal["cpu", "gpu"] = "cpu",
 ) -> RecogResult:
     recog_options = get_baseline_recog_options(
         blank=(ctc_score_scale != 0 or transducer_score_scale != 0),
@@ -335,7 +334,6 @@ def run_recog(
         model_serializers=get_model_serializers(model_class=CombinationModelEncoder, model_config=model_config),
         rasr_config_file=rasr_config_file,
         sample_rate=16000,
-        device=device,
         checkpoint=checkpoint,
     )
 

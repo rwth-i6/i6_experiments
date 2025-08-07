@@ -29,7 +29,7 @@ def get_ctc_label_scorer_config(
     onnx_model = export_scorer(model_config=recog_model_config, checkpoint=checkpoint)
 
     rasr_config = RasrConfig()
-    rasr_config.type = "no-ctx-onnx"
+    rasr_config.type = "no-context-onnx"
 
     rasr_config.onnx_model = RasrConfig()
 

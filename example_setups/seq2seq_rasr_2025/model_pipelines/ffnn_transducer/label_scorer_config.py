@@ -24,7 +24,7 @@ def get_ffnn_transducer_label_scorer_config(
     scorer_onnx_model = export_scorer(model_config=recog_model_config, checkpoint=checkpoint)
 
     rasr_config = RasrConfig()
-    rasr_config.type = "limited-ctx-onnx"
+    rasr_config.type = "fixed-context-onnx"
     rasr_config.history_length = model_config.context_history_size
     rasr_config.start_label_index = model_config.target_size - 1
 

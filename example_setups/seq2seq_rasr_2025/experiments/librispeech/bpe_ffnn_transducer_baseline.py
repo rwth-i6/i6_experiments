@@ -238,6 +238,7 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                 blank_index=blank_index,
                                 max_beam_size=64,
                                 score_threshold=12.0,
+                                logfile_suffix="recog",
                             ),
                             rasr_align_config_file=get_tree_timesync_recog_config(
                                 lexicon_file=lexicon_file,
@@ -246,9 +247,9 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                 blank_index=blank_index,
                                 max_beam_size=256,
                                 score_threshold=22.0,
+                                logfile_suffix="align",
                             ),
                             sample_rate=16000,
-                            device="cpu",
                         )
                     )
 
@@ -271,6 +272,7 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                 blank_index=blank_index,
                                 max_beam_size=64,
                                 score_threshold=12.0,
+                                logfile_suffix="recog",
                             ),
                             rasr_align_config_file=get_tree_timesync_recog_config(
                                 lexicon_file=lexicon_file,
@@ -279,9 +281,9 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                 blank_index=blank_index,
                                 max_beam_size=256,
                                 score_threshold=22.0,
+                                logfile_suffix="align",
                             ),
                             sample_rate=16000,
-                            device="cpu",
                         )
                     )
 
@@ -306,6 +308,7 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                 blank_index=blank_index,
                                 max_beam_size=64,
                                 score_threshold=12.0,
+                                logfile_suffix="recog",
                             ),
                             rasr_align_config_file=get_tree_timesync_recog_config(
                                 lexicon_file=lexicon_file,
@@ -315,9 +318,9 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                 blank_index=blank_index,
                                 max_beam_size=256,
                                 score_threshold=22.0,
+                                logfile_suffix="align",
                             ),
                             sample_rate=16000,
-                            device="cpu",
                         )
                     )
 
@@ -325,7 +328,7 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                 # === Tree Search with TraFo LM =======
                 # =====================================
 
-                for trafo_layers in [24, 48, 96]:
+                for trafo_layers in []:
                     trafo_lm_config = get_transformer_lm_config(
                         num_layers=trafo_layers, vocab_file=lm_vocab_file, lm_scale=0.6
                     )
@@ -347,6 +350,7 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                     blank_index=blank_index,
                                     max_beam_size=64,
                                     score_threshold=12.0,
+                                    logfile_suffix="recog",
                                 ),
                                 rasr_align_config_file=get_tree_timesync_recog_config(
                                     lexicon_file=lexicon_file,
@@ -356,16 +360,16 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                                     blank_index=blank_index,
                                     max_beam_size=256,
                                     score_threshold=22.0,
+                                    logfile_suffix="align",
                                 ),
                                 sample_rate=16000,
-                                device="cpu",
                             )
                         )
 
-        tk.register_report(
-            f"{prefix}_enc-{enc_loss_scale}_pred-{pred_loss_scale}/report.txt",
-            values=create_report(recog_results),
-            required=True,
-        )
+            tk.register_report(
+                f"{prefix}_enc-{enc_loss_scale}_pred-{pred_loss_scale}/report.txt",
+                values=create_report(recog_results),
+                required=True,
+            )
 
     return recog_results

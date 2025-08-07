@@ -2,7 +2,7 @@ __all__ = ["recog_base", "base_recog_forward_step"]
 
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Iterator, List, Literal, Optional, Protocol, Tuple
+from typing import Iterator, List, Optional, Protocol, Tuple
 
 import numpy as np
 import torch
@@ -252,6 +252,7 @@ def base_recog_forward_step(
         recog_str = recog_str.replace("[BLANK]", "")
         recog_str = recog_str.replace("<silence>", "")
         recog_str = recog_str.replace("[SILENCE]", "")
+        recog_str = recog_str.replace("[SENTENCE-END]", "")
         recog_str = " ".join(recog_str.split())
 
         tokens_array = np.array(recog_str.split(), dtype="U")
@@ -269,6 +270,7 @@ def base_recog_forward_step(
             alignment_str = alignment_str.replace("[BLANK]", "")
             alignment_str = alignment_str.replace("<silence>", "")
             alignment_str = alignment_str.replace("[SILENCE]", "")
+            alignment_str = alignment_str.replace("[SENTENCE-END]", "")
             alignment_str = " ".join(alignment_str.split())
 
             if alignment_str.replace("@@ ", "") != orths[b]:
@@ -402,7 +404,7 @@ def recog_base(
     recog_corpus: ScorableCorpus,
     model_serializers: Collection,
     forward_step_import: Import,
-    device: Literal["cpu", "gpu"] = "cpu",
+    gpu_mem_rqmt: int = 0,
     extra_output_files: Optional[List[str]] = None,
 ) -> RecogResult:
     recog_returnn_config = ReturnnConfig(
@@ -477,11 +479,13 @@ def recog_base(
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
         output_files=output_files,
-        device=device,
+        device="gpu" if gpu_mem_rqmt > 0 else "cpu",
         mem_rqmt=16,
         time_rqmt=168,
     )
     recog_job.add_alias(f"recognition/{recog_corpus.corpus_name}/{descriptor}")
+    if gpu_mem_rqmt > 0:
+        recog_job.rqmt["gpu_mem"] = gpu_mem_rqmt
 
     for output_file in output_files:
         tk.register_output(

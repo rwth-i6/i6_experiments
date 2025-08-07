@@ -8,6 +8,7 @@ def get_lm_config(onnx_model: tk.Path, vocab_file: tk.Path, lm_scale: float) -> 
     rasr_config.scale = lm_scale
     rasr_config.vocab_file = vocab_file
     rasr_config.max_batch_size = 1
+    rasr_config.vocab_unknown_word = "<UNK>"
 
     rasr_config.onnx_model = RasrConfig()
     rasr_config.onnx_model.session = RasrConfig()

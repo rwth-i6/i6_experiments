@@ -184,7 +184,7 @@ def get_baseline_train_options() -> FFNNTransducerTrainOptions:
     )
 
 
-def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transducer") -> List[RecogResult]:
+def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transducer_pruned") -> List[RecogResult]:
     with ExperimentContext(prefix):
         model_config = get_baseline_model_config()
         train_config = get_baseline_train_options()
@@ -248,7 +248,6 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                         score_threshold=22.0,
                     ),
                     sample_rate=16000,
-                    device="cpu",
                 )
             )
 
@@ -281,7 +280,6 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                         score_threshold=22.0,
                     ),
                     sample_rate=16000,
-                    device="cpu",
                 )
             )
 
@@ -317,7 +315,6 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                         score_threshold=22.0,
                     ),
                     sample_rate=16000,
-                    device="cpu",
                 )
             )
 
@@ -325,7 +322,8 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
         # === Tree Search with TraFo LM =======
         # =====================================
 
-        for trafo_layers in [24, 48, 96]:
+        # for trafo_layers in [24, 48, 96]:
+        for trafo_layers in []:
             trafo_lm_config = get_transformer_lm_config(num_layers=trafo_layers, vocab_file=lm_vocab_file, lm_scale=0.6)
             for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
                 recog_results.append(
@@ -354,7 +352,6 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                             score_threshold=22.0,
                         ),
                         sample_rate=16000,
-                        device="cpu",
                     )
                 )
 

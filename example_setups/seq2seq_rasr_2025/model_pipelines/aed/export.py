@@ -7,8 +7,8 @@ from sisyphus import tk
 
 from i6_experiments.common.setups.serialization import Import
 
-from ..common.export import export_model as _export_model
-from ..common.imports import get_model_serializers
+from ..common.onnx_export import export_model as _export_model
+from ..common.serializers import get_model_serializers
 from .pytorch_modules import AEDConfig, AEDEncoder, AEDScorer, AEDStateInitializer, AEDStateUpdater
 
 # -----------------------
@@ -77,11 +77,11 @@ def _state_initializer_forward_step(*, model: AEDStateInitializer, extern_data: 
         extern_data["encoder_states"].dims[1].dyn_size_ext
     )
 
-    run_ctx.mark_as_output(name="token_embedding", tensor=token_embedding)
+    run_ctx.mark_as_output(name="accum_att_weights", tensor=accum_att_weights)
+    run_ctx.mark_as_output(name="att_context", tensor=att_context)
     run_ctx.mark_as_output(name="lstm_state_c", tensor=lstm_state_c)
     run_ctx.mark_as_output(name="lstm_state_h", tensor=lstm_state_h)
-    run_ctx.mark_as_output(name="att_context", tensor=att_context)
-    run_ctx.mark_as_output(name="accum_att_weights", tensor=accum_att_weights)
+    run_ctx.mark_as_output(name="token_embedding", tensor=token_embedding)
 
 
 def _state_updater_forward_step(*, model: AEDStateUpdater, extern_data: TensorDict, **_):
@@ -120,11 +120,11 @@ def _state_updater_forward_step(*, model: AEDStateUpdater, extern_data: TensorDi
         extern_data["accum_att_weights_in"].dims[1].dyn_size_ext
     )
 
-    run_ctx.mark_as_output(name="token_embedding_out", tensor=token_embedding_out)
+    run_ctx.mark_as_output(name="accum_att_weights_out", tensor=accum_att_weights_out)
+    run_ctx.mark_as_output(name="att_context_out", tensor=att_context_out)
     run_ctx.mark_as_output(name="lstm_state_c_out", tensor=lstm_state_c_out)
     run_ctx.mark_as_output(name="lstm_state_h_out", tensor=lstm_state_h_out)
-    run_ctx.mark_as_output(name="att_context_out", tensor=att_context_out)
-    run_ctx.mark_as_output(name="accum_att_weights_out", tensor=accum_att_weights_out)
+    run_ctx.mark_as_output(name="token_embedding_out", tensor=token_embedding_out)
 
 
 # -----------------------
@@ -171,8 +171,8 @@ def export_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
         checkpoint=checkpoint,
         returnn_config_dict={
             "extern_data": {
-                "token_embedding": {
-                    "dim": model_config.decoder_config.target_embed_dim,
+                "att_context": {
+                    "dim": model_config.enc_dim,
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
@@ -181,8 +181,8 @@ def export_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
-                "att_context": {
-                    "dim": model_config.enc_dim,
+                "token_embedding": {
+                    "dim": model_config.decoder_config.target_embed_dim,
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
@@ -195,12 +195,12 @@ def export_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
                 },
             },
         },
-        input_names=["token_embedding", "lstm_state_h", "att_context"],
+        input_names=["att_context", "lstm_state_h", "token_embedding"],
         output_names=["scores"],
         metadata={
-            "token_embedding": "token_embedding",
-            "lstm_state_h": "lstm_state_h",
             "att_context": "att_context",
+            "lstm_state_h": "lstm_state_h",
+            "token_embedding": "token_embedding",
         },
     )
 
@@ -228,8 +228,12 @@ def export_state_initializer(model_config: AEDConfig, checkpoint: PtCheckpoint) 
                 },
             },
             "model_outputs": {
-                "token_embedding": {
-                    "dim": model_config.decoder_config.target_embed_dim,
+                "accum_att_weights": {
+                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, accum_att_weights_dim)"),
+                    "dtype": "float32",
+                },
+                "att_context": {
+                    "dim": model_config.enc_dim,
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
@@ -243,32 +247,28 @@ def export_state_initializer(model_config: AEDConfig, checkpoint: PtCheckpoint) 
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
-                "att_context": {
-                    "dim": model_config.enc_dim,
+                "token_embedding": {
+                    "dim": model_config.decoder_config.target_embed_dim,
                     "time_dim_axis": None,
-                    "dtype": "float32",
-                },
-                "accum_att_weights": {
-                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, accum_att_weights_dim)"),
                     "dtype": "float32",
                 },
             },
         },
         input_names=["encoder_states", "encoder_states:size1"],
         output_names=[
-            "token_embedding",
-            "lstm_state_c",
-            "lstm_state_h",
-            "att_context",
             "accum_att_weights",
             "accum_att_weights:size1",
+            "att_context",
+            "lstm_state_c",
+            "lstm_state_h",
+            "token_embedding",
         ],
         metadata={
-            "token_embedding": "token_embedding",
+            "accum_att_weights": "accum_att_weights",
+            "att_context": "att_context",
             "lstm_state_c": "lstm_state_c",
             "lstm_state_h": "lstm_state_h",
-            "att_context": "att_context",
-            "accum_att_weights": "accum_att_weights",
+            "token_embedding": "token_embedding",
         },
     )
 
@@ -290,15 +290,18 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
             ),
             "accum_att_weights_dim": CodeWrapper('Dim(dimension=1, description="AttWeights")'),
             "extern_data": {
+                "accum_att_weights_in": {
+                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, accum_att_weights_dim)"),
+                    "dtype": "float32",
+                },
+                "att_context_in": {
+                    "dim": model_config.enc_dim,
+                    "time_dim_axis": None,
+                    "dtype": "float32",
+                },
                 "encoder_states": {
                     "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, encoder_feature_dim)"),
                     "dtype": "float32",
-                },
-                "token": {
-                    "dim": model_config.label_target_size,
-                    "time_dim_axis": None,
-                    "sparse": True,
-                    "dtype": "int32",
                 },
                 "lstm_state_c_in": {
                     "dim": model_config.decoder_config.lstm_hidden_size,
@@ -310,19 +313,20 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
-                "att_context_in": {
-                    "dim": model_config.enc_dim,
+                "token": {
+                    "dim": model_config.label_target_size,
                     "time_dim_axis": None,
-                    "dtype": "float32",
-                },
-                "accum_att_weights_in": {
-                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, accum_att_weights_dim)"),
-                    "dtype": "float32",
+                    "sparse": True,
+                    "dtype": "int32",
                 },
             },
             "model_outputs": {
-                "token_embedding_out": {
-                    "dim": model_config.decoder_config.target_embed_dim,
+                "accum_att_weights_out": {
+                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, accum_att_weights_dim)"),
+                    "dtype": "float32",
+                },
+                "att_context_out": {
+                    "dim": model_config.enc_dim,
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
@@ -336,43 +340,39 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
                     "time_dim_axis": None,
                     "dtype": "float32",
                 },
-                "att_context_out": {
-                    "dim": model_config.enc_dim,
+                "token_embedding_out": {
+                    "dim": model_config.decoder_config.target_embed_dim,
                     "time_dim_axis": None,
-                    "dtype": "float32",
-                },
-                "accum_att_weights_out": {
-                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, accum_att_weights_dim)"),
                     "dtype": "float32",
                 },
             },
         },
         input_names=[
-            "encoder_states",
-            "token",
-            "lstm_state_c_in",
-            "lstm_state_h_in",
-            "att_context_in",
             "accum_att_weights_in",
             "accum_att_weights_in:size1",
+            "att_context_in",
+            "encoder_states",
+            "lstm_state_c_in",
+            "lstm_state_h_in",
+            "token",
         ],
         output_names=[
-            "token_embedding_out",
-            "lstm_state_c_out",
-            "lstm_state_h_out",
-            "att_context_out",
             "accum_att_weights_out",
             "accum_att_weights_out:size1",
+            "att_context_out",
+            "lstm_state_c_out",
+            "lstm_state_h_out",
+            "token_embedding_out",
         ],
         metadata={
-            "lstm_state_c_in": "lstm_state_c",
-            "lstm_state_h_in": "lstm_state_h",
-            "att_context_in": "att_context",
             "accum_att_weights_in": "accum_att_weights",
-            "token_embedding_out": "token_embedding",
-            "lstm_state_c_out": "lstm_state_c",
-            "lstm_state_h_out": "lstm_state_h",
-            "att_context_out": "att_context",
             "accum_att_weights_out": "accum_att_weights",
+            "att_context_in": "att_context",
+            "att_context_out": "att_context",
+            "lstm_state_c_in": "lstm_state_c",
+            "lstm_state_c_out": "lstm_state_c",
+            "lstm_state_h_in": "lstm_state_h",
+            "lstm_state_h_out": "lstm_state_h",
+            "token_embedding_out": "token_embedding",
         },
     )

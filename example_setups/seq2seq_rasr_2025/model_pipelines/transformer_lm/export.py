@@ -26,7 +26,7 @@ def _forward_step(*, model: TransformerLm, extern_data: TensorDict, **_):
 
     seq_mask = lengths_to_padding_mask(tokens_size)
 
-    logits = model.forward(input=tokens, seq_mask=seq_mask)
+    logits = model.forward(input=tokens, seq_mask=seq_mask)  # [B, N, V]
 
     # gather last token logits
     batch_size = logits.size(0)

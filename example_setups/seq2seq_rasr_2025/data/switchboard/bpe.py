@@ -3,9 +3,7 @@ from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import BPESettings
 from sisyphus import tk
 
-from i6_experiments.common.datasets.switchboard.corpus_train import (
-    get_spoken_form_train_bliss_corpus_ldc,
-)
+from i6_experiments.common.datasets.switchboard.corpus_train import get_spoken_form_train_bliss_corpus_ldc
 
 from ...tools import subword_nmt_repo
 from ..base import BPEVocabToTextFileConversionJob, RemoveWordsFromTranscriptionsJob
@@ -55,4 +53,5 @@ def get_default_bpe_target_config(bpe_size: int) -> dict:
 def bpe_to_vocab_size(bpe_size: int) -> int:
     return {
         128: 185,
+        5000: 5002,
     }.get(bpe_size, bpe_size)

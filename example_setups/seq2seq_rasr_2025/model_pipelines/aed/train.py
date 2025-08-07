@@ -7,7 +7,7 @@ from minireturnn.torch.context import RunCtx
 
 from i6_experiments.common.setups.serialization import PartialImport
 
-from ..common.imports import get_model_serializers
+from ..common.serializers import get_model_serializers
 from ..common.train import TrainOptions
 from ..common.train import train as train_
 from .pytorch_modules import AEDConfig, AEDModel

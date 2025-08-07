@@ -1,7 +1,9 @@
+from i6_core.corpus import FilterCorpusBySegmentsJob
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob, FilterSegmentsByListJob
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
+from sisyphus import tk
 from .bpe import get_bpe_settings
 from i6_experiments.common.datasets.switchboard.corpus_eval import (
     get_hub5e00,
@@ -9,17 +11,25 @@ from i6_experiments.common.datasets.switchboard.corpus_eval import (
     get_hub5e01,
     get_hub5e01_corpus_object,
 )
-from i6_experiments.common.datasets.switchboard.corpus_train import get_train_corpus_object_i6_legacy
+from i6_experiments.common.datasets.switchboard.corpus_train import get_spoken_form_train_bliss_corpus_ldc
 from i6_experiments.common.datasets.switchboard.lexicon import get_bliss_lexicon
+from .phoneme import get_phoneme_target_hdf_file
 
-from ...model_pipelines.common.corpus import ScorableCorpus
+from ...model_pipelines.common.corpus import ScorableCorpus, ScoreJobType
 from ...tools import subword_nmt_repo
-from ..base import DataConfig, LmDataConfig, MetaOggZipDataConfig, OggZipDataConfig, RemoveWordsFromTranscriptionsJob
+from ..base import (
+    HdfDataConfig,
+    LmDataConfig,
+    MetaOggZipDataConfig,
+    MetaOggZipHdfTargetDataConfig,
+    OggZipDataConfig,
+    RemoveWordsFromTranscriptionsJob,
+)
 from .bpe import get_default_bpe_target_config
 
 
-def get_default_bpe_train_data(bpe_size: int) -> DataConfig:
-    train_corpus_file = get_train_corpus_object_i6_legacy().corpus_file
+def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
+    train_corpus_file = get_spoken_form_train_bliss_corpus_ldc()
     train_corpus_file = RemoveWordsFromTranscriptionsJob(
         train_corpus_file, ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]
     ).out_corpus_file
@@ -43,8 +53,42 @@ def get_default_bpe_train_data(bpe_size: int) -> DataConfig:
     )
 
 
+def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
+    corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    return MetaOggZipHdfTargetDataConfig(
+        oggzip_config=OggZipDataConfig(
+            bliss_corpus_files=[corpus_file],
+            speed_perturbation=True,
+            ogg_segments=50,
+            partition_epoch=6,
+            seq_ordering="laplace:.1000",
+            target_config=None,
+        ),
+        oggzip_target_name=None,
+        hdf_config=HdfDataConfig(files=[get_phoneme_target_hdf_file(corpus_file)]),
+        hdf_target_name="classes",
+    )
+
+
+def get_default_bpe_phoneme_train_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
+    corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    return MetaOggZipHdfTargetDataConfig(
+        oggzip_config=OggZipDataConfig(
+            bliss_corpus_files=[corpus_file],
+            speed_perturbation=True,
+            ogg_segments=50,
+            partition_epoch=6,
+            seq_ordering="laplace:.1000",
+            target_config=get_default_bpe_target_config(bpe_size),
+        ),
+        oggzip_target_name="bpe",
+        hdf_config=HdfDataConfig(files=[get_phoneme_target_hdf_file(corpus_file)]),
+        hdf_target_name="phoneme",
+    )
+
+
 def get_default_bpe_lm_train_data(bpe_size: int) -> LmDataConfig:
-    lm_data = get_train_corpus_object_i6_legacy().corpus_file
+    lm_data = get_spoken_form_train_bliss_corpus_ldc()
     train_text = CorpusToTxtJob(
         bliss_corpus=lm_data,
         gzip=True,
@@ -67,7 +111,7 @@ def get_default_bpe_lm_train_data(bpe_size: int) -> LmDataConfig:
     )
 
 
-def get_default_bpe_cv_data(bpe_size: int) -> DataConfig:
+def _get_hub5e00_cv_file() -> tk.Path:
     corpus_file = get_hub5e00_corpus_object().corpus_file
     corpus_file = RemoveWordsFromTranscriptionsJob(corpus_file, ["(%HESITATION)"]).out_corpus_file
     corpus_file = FilterCorpusRemoveUnknownWordSegmentsJob(
@@ -80,83 +124,163 @@ def get_default_bpe_cv_data(bpe_size: int) -> DataConfig:
     filtered_segments = FilterSegmentsByListJob(
         segment_files=segment_files,
         filter_list=[
-            "hub5e_00/en_4938b/58",
-            "hub5e_00/en_4938b/67",
-            "hub5e_00/en_6267a/25",
-            "hub5e_00/en_4938b/27",
-            "hub5e_00/en_4938a/17",
-            "hub5e_00/en_4938b/69",
-            "hub5e_00/en_6267a/15",
-            "hub5e_00/en_6189b/66",
-            "hub5e_00/en_4938b/39",
-            "hub5e_00/en_6282b/24",
-            "hub5e_00/en_4170b/71",
-            "hub5e_00/en_6267a/11",
-            "hub5e_00/en_6189b/26",
-            "hub5e_00/en_4852b/77",
-            "hub5e_00/en_6189a/36",
-            "hub5e_00/en_6189b/3",
-            "hub5e_00/en_6189a/38",
-            "hub5e_00/en_6489a/54",
-            "hub5e_00/en_6658b/6",
-            "hub5e_00/en_4910b/52",
-            "hub5e_00/en_6489a/44",
-            "hub5e_00/en_4616a/24",
-            "hub5e_00/en_4910b/31",
-            "hub5e_00/en_6489b/7",
-            "hub5e_00/en_4938b/46",
-            "hub5e_00/en_6658b/71",
-            "hub5e_00/en_6189b/69",
-            "hub5e_00/en_6267a/42",
-            "hub5e_00/en_6489b/50",
-            "hub5e_00/en_4966a/67",
-            "hub5e_00/en_6489b/9",
-            "hub5e_00/en_4910b/61",
-            "hub5e_00/en_6189a/84",
-            "hub5e_00/en_4170b/58",
-            "hub5e_00/en_6189b/55",
-            "hub5e_00/en_4574b/24",
-            "hub5e_00/en_4170b/64",
-            "hub5e_00/en_4622b/50",
-            "hub5e_00/en_4966b/21",
-            "hub5e_00/en_6267a/35",
-            "hub5e_00/en_4966a/22",
-            "hub5e_00/en_4852b/63",
-            "hub5e_00/en_6912a/41",
-            "hub5e_00/en_4938b/23",
-            "hub5e_00/en_4170a/4",
-            "hub5e_00/en_6282b/21",
-            "hub5e_00/en_6189b/37",
-            "hub5e_00/en_4938b/77",
-            "hub5e_00/en_4170a/2",
-            "hub5e_00/en_4170a/81",
-            "hub5e_00/en_6267a/4",
-            "hub5e_00/en_6282a/1",
-            "hub5e_00/en_6189b/54",
-            "hub5e_00/en_4910a/40",
-            "hub5e_00/en_4616b/43",
-            "hub5e_00/en_6489a/77",
-            "hub5e_00/en_4170a/5",
-            "hub5e_00/en_4170a/8",
-            "hub5e_00/en_6189b/1",
-            "hub5e_00/en_4938b/47",
-            "hub5e_00/en_6489a/41",
-            "hub5e_00/en_6489b/43",
-            "hub5e_00/en_4938b/2",
-            "hub5e_00/en_6267b/69",
-            "hub5e_00/en_6489b/35",
-            "hub5e_00/en_4852a/39",
-            "hub5e_00/en_6489a/2",
+            "hub5e_00/en_4170a/10",
+            "hub5e_00/en_4170a/12",
+            "hub5e_00/en_4170a/24",
+            "hub5e_00/en_4170a/46",
+            "hub5e_00/en_4170a/66",
+            "hub5e_00/en_4170b/53",
+            "hub5e_00/en_4183b/55",
+            "hub5e_00/en_4404a/21",
+            "hub5e_00/en_4574a/3",
+            "hub5e_00/en_4574a/4",
+            "hub5e_00/en_4574a/12",
+            "hub5e_00/en_4616a/4",
+            "hub5e_00/en_4616a/9",
+            "hub5e_00/en_4616a/21",
+            "hub5e_00/en_4616a/25",
+            "hub5e_00/en_4616b/47",
+            "hub5e_00/en_4622a/2",
+            "hub5e_00/en_4622a/5",
+            "hub5e_00/en_4622a/14",
+            "hub5e_00/en_4622a/17",
+            "hub5e_00/en_4622a/20",
+            "hub5e_00/en_4622b/58",
+            "hub5e_00/en_4910b/50",
+            "hub5e_00/en_4938a/23",
+            "hub5e_00/en_4938a/37",
+            "hub5e_00/en_4938a/50",
+            "hub5e_00/en_4938b/44",
+            "hub5e_00/en_4938b/56",
+            "hub5e_00/en_4938b/66",
+            "hub5e_00/en_4966a/28",
+            "hub5e_00/en_4966a/53",
+            "hub5e_00/en_4966b/59",
+            "hub5e_00/en_5011a/18",
+            "hub5e_00/en_5011a/22",
+            "hub5e_00/en_5011a/23",
+            "hub5e_00/en_5011a/28",
+            "hub5e_00/en_5011a/34",
+            "hub5e_00/en_5011b/13",
+            "hub5e_00/en_5017a/18",
+            "hub5e_00/en_5017a/42",
+            "hub5e_00/en_5017a/53",
+            "hub5e_00/en_5017b/4",
+            "hub5e_00/en_5017b/20",
+            "hub5e_00/en_6189a/34",
+            "hub5e_00/en_6189a/59",
+            "hub5e_00/en_6189a/81",
+            "hub5e_00/en_6267a/7",
+            "hub5e_00/en_6267a/28",
+            "hub5e_00/en_6267a/29",
+            "hub5e_00/en_6267a/55",
+            "hub5e_00/en_6267a/61",
+            "hub5e_00/en_6267a/62",
+            "hub5e_00/en_6489a/62",
+            "hub5e_00/en_6489a/64",
+            "hub5e_00/en_6489b/25",
+            "hub5e_00/en_6489b/61",
+            "hub5e_00/en_6489b/63",
+            "hub5e_00/en_6658a/27",
+            "hub5e_00/en_6658b/62",
+            "hub5e_00/en_6912a/4",
+            "hub5e_00/sw_4390a/4",
+            "hub5e_00/sw_4390a/13",
+            "hub5e_00/sw_4390a/35",
+            "hub5e_00/sw_4390a/39",
+            "hub5e_00/sw_4390b/30",
+            "hub5e_00/sw_4484b/12",
+            "hub5e_00/sw_4507b/20",
+            "hub5e_00/sw_4507b/32",
+            "hub5e_00/sw_4507b/45",
+            "hub5e_00/sw_4507b/53",
+            "hub5e_00/sw_4507b/57",
+            "hub5e_00/sw_4537b/22",
+            "hub5e_00/sw_4537b/42",
+            "hub5e_00/sw_4543a/34",
+            "hub5e_00/sw_4547a/36",
+            "hub5e_00/sw_4547a/41",
+            "hub5e_00/sw_4560a/6",
+            "hub5e_00/sw_4560a/11",
+            "hub5e_00/sw_4560a/24",
+            "hub5e_00/sw_4577a/37",
+            "hub5e_00/sw_4580a/18",
+            "hub5e_00/sw_4580a/24",
+            "hub5e_00/sw_4580a/34",
+            "hub5e_00/sw_4580a/47",
+            "hub5e_00/sw_4580a/53",
+            "hub5e_00/sw_4580b/12",
+            "hub5e_00/sw_4580b/13",
+            "hub5e_00/sw_4580b/20",
+            "hub5e_00/sw_4580b/28",
+            "hub5e_00/sw_4604a/6",
+            "hub5e_00/sw_4604b/33",
+            "hub5e_00/sw_4686b/15",
+            "hub5e_00/sw_4686b/23",
+            "hub5e_00/sw_4686b/31",
+            "hub5e_00/sw_4689a/28",
+            "hub5e_00/sw_4694a/2",
+            "hub5e_00/sw_4694a/38",
+            "hub5e_00/sw_4694b/50",
+            "hub5e_00/sw_4824a/19",
+            "hub5e_00/sw_4824a/26",
+            "hub5e_00/sw_4910a/4",
+            "hub5e_00/sw_4910a/25",
+            "hub5e_00/sw_4910a/32",
+            "hub5e_00/sw_4910a/43",
+            "hub5e_00/sw_4910b/1",
+            "hub5e_00/sw_4910b/56",
         ],
     ).out_single_segment_files[1]
+    corpus_file = FilterCorpusBySegmentsJob(
+        bliss_corpus=corpus_file, segment_file=filtered_segments, compressed=True, delete_empty_recordings=True
+    ).out_corpus
+
+    return corpus_file
+
+
+def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
     return MetaOggZipDataConfig(
-        bliss_corpus_files=[corpus_file],
+        bliss_corpus_files=[_get_hub5e00_cv_file()],
         speed_perturbation=False,
         ogg_segments=1,
         partition_epoch=1,
         seq_ordering="sorted",
         target_config=get_default_bpe_target_config(bpe_size),
-        segment_file=filtered_segments,
+    )
+
+
+def get_default_phoneme_cv_data() -> MetaOggZipHdfTargetDataConfig:
+    corpus_file = _get_hub5e00_cv_file()
+    return MetaOggZipHdfTargetDataConfig(
+        oggzip_config=OggZipDataConfig(
+            bliss_corpus_files=[_get_hub5e00_cv_file()],
+            speed_perturbation=False,
+            ogg_segments=1,
+            partition_epoch=1,
+            seq_ordering="sorted",
+            target_config=None,
+        ),
+        oggzip_target_name=None,
+        hdf_config=HdfDataConfig(files=[get_phoneme_target_hdf_file(corpus_file)]),
+        hdf_target_name="classes",
+    )
+
+
+def get_default_bpe_phoneme_cv_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
+    corpus_file = _get_hub5e00_cv_file()
+    return MetaOggZipHdfTargetDataConfig(
+        oggzip_config=OggZipDataConfig(
+            bliss_corpus_files=[corpus_file],
+            speed_perturbation=False,
+            ogg_segments=1,
+            partition_epoch=1,
+            seq_ordering="sorted",
+            target_config=get_default_bpe_target_config(bpe_size),
+        ),
+        oggzip_target_name="bpe",
+        hdf_config=HdfDataConfig(files=[get_phoneme_target_hdf_file(corpus_file)]),
+        hdf_target_name="phoneme",
     )
 
 
@@ -181,9 +305,9 @@ def get_default_bpe_lm_cv_data(bpe_size: int) -> LmDataConfig:
     )
 
 
-def get_default_prior_data() -> DataConfig:
+def get_default_prior_data() -> MetaOggZipDataConfig:
     # use 33% of the training corpus to estimate the prior
-    train_corpus_file = get_train_corpus_object_i6_legacy().corpus_file
+    train_corpus_file = get_spoken_form_train_bliss_corpus_ldc()
     segment_file = SegmentCorpusJob(train_corpus_file, 3).out_single_segment_files[1]
 
     return MetaOggZipDataConfig(
@@ -196,7 +320,7 @@ def get_default_prior_data() -> DataConfig:
     )
 
 
-def get_default_recog_data(corpus_name: str) -> DataConfig:
+def get_default_recog_data(corpus_name: str) -> OggZipDataConfig:
     if corpus_name == "hub5e00":
         corpus_file = get_hub5e00_corpus_object().corpus_file
     elif corpus_name == "hub5e01":
@@ -218,7 +342,7 @@ def get_default_score_corpus(corpus_name: str) -> ScorableCorpus:
         dataset = get_hub5e00()
         corpus_file = get_hub5e00_corpus_object().corpus_file
     elif corpus_name == "hub5e01":
-        dataset = get_hub5e01
+        dataset = get_hub5e01()
         corpus_file = get_hub5e01_corpus_object().corpus_file
     else:
         raise ValueError(f"Recog corpus name '{corpus_name}' not known.")
@@ -227,5 +351,5 @@ def get_default_score_corpus(corpus_name: str) -> ScorableCorpus:
         bliss_corpus_file=corpus_file,
         stm_file=dataset.stm,
         glm_file=dataset.glm,
-        score_job_type="Hub5",
+        score_job_type=ScoreJobType.Hub5,
     )

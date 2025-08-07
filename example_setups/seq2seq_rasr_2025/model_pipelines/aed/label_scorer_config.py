@@ -16,7 +16,7 @@ def get_aed_label_scorer_config(
     state_updater_onnx_model = export_state_updater(model_config=model_config, checkpoint=checkpoint)
 
     rasr_config = RasrConfig()
-    rasr_config.type = "stateful-onnx"
+    rasr_config.type = "full-input-stateful-onnx"
 
     rasr_config.scorer_model = RasrConfig()
     rasr_config.scorer_model.session = RasrConfig()

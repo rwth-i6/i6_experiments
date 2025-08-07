@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Literal, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
 from i6_core.returnn import PtCheckpoint
@@ -25,7 +25,10 @@ def _get_rasr_search_function(config_file: tk.Path) -> SearchFunction:
         nonlocal search_algorithm
         traceback = search_algorithm.recognize_segment(features)
         recog_str = " ".join([traceback_item.lemma for traceback_item in traceback])
-        recog_score = traceback[-1].am_score + traceback[-1].lm_score
+        if len(traceback) > 0:
+            recog_score = traceback[-1].am_score + traceback[-1].lm_score
+        else:
+            recog_score = float("inf")
         return recog_str, recog_score
 
     return wrapper
@@ -80,7 +83,7 @@ def recog_rasr(
     rasr_config_file: tk.Path,
     rasr_align_config_file: Optional[tk.Path] = None,
     sample_rate: int = 16000,
-    device: Literal["cpu", "gpu"] = "cpu",
+    gpu_mem_rqmt: int = 0,
 ) -> RecogResult:
     rasr_forward_step_import = PartialImport(
         code_object_path=f"{_rasr_recog_forward_step.__module__}.{_rasr_recog_forward_step.__name__}",
@@ -99,7 +102,7 @@ def recog_rasr(
         recog_corpus=recog_corpus,
         model_serializers=model_serializers,
         forward_step_import=rasr_forward_step_import,
-        device=device,
+        gpu_mem_rqmt=gpu_mem_rqmt,
         checkpoint=checkpoint,
-        extra_output_files=["rasr.recog.log", "rasr.align.log"],
+        extra_output_files=["rasr.recog.log", "rasr.align.log"] if rasr_align_config_file else ["rasr.log"],
     )

@@ -1,6 +1,8 @@
-from typing import List, Literal, Optional
+from typing import List
 
 import torch
+from i6_experiments.example_setups.seq2seq_rasr_2025.data.librispeech.lexicon import get_bpe_bliss_lexicon
+from i6_experiments.example_setups.seq2seq_rasr_2025.data.librispeech.lm import get_arpa_lm_config
 from i6_core.returnn import PtCheckpoint
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
@@ -21,29 +23,29 @@ from ...data.librispeech.datasets import (
     get_default_recog_data,
     get_default_score_corpus,
 )
-from ...model_pipelines.bpe_aed.label_scorer_config import get_aed_label_scorer_config
-from ...model_pipelines.bpe_aed.pytorch_modules import (
+from ...model_pipelines.aed.label_scorer_config import get_aed_label_scorer_config
+from ...model_pipelines.aed.pytorch_modules import (
     AdditiveAttentionConfig,
     AEDConfig,
     AEDEncoder,
     AttentionLSTMDecoderV1Config,
 )
-from ...model_pipelines.bpe_aed.train import AEDTrainOptions, train
-from ...model_pipelines.bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
-from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
+from ...model_pipelines.aed.train import AEDTrainOptions, train
 from ...model_pipelines.common.experiment_context import ExperimentContext
-from ...model_pipelines.common.imports import get_model_serializers
 from ...model_pipelines.common.learning_rates import ConstConstDecayLRConfig
 from ...model_pipelines.common.optimizer import RAdamConfig
 from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ...model_pipelines.common.recog import RecogResult, recog_rasr
+from ...model_pipelines.common.recog import RecogResult
+from ...model_pipelines.common.recog_rasr import recog_rasr
 from ...model_pipelines.common.recog_rasr_config import (
-    RasrRecogOptions,
-    get_combine_label_scorer_config,
-    get_rasr_config_file,
+    LabelsyncGlobalPruningStrategy,
+    get_lexiconfree_labelsync_recog_config,
+    get_tree_labelsync_recog_config,
 )
 from ...model_pipelines.common.report import create_report
-from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
+from ...model_pipelines.common.serializers import get_model_serializers
+
+# from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
 
 BPE_SIZE = 5000
 
@@ -191,58 +193,8 @@ def get_baseline_train_options() -> AEDTrainOptions:
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
-    )
-
-
-def get_baseline_recog_options() -> RasrRecogOptions:
-    return RasrRecogOptions(
-        blank_index=None,
-        sentence_end_index=0,
-        vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=False),
-        max_beam_size=8,
-        score_threshold=12.0,
-        collapse_repeated_labels=False,
-        length_norm_scale=1.2,
-    )
-
-
-def run_recog(
-    descriptor: str,
-    corpus_name: str,
-    checkpoint: PtCheckpoint,
-    model_config: AEDConfig,
-    lm_checkpoint: Optional[PtCheckpoint] = None,
-    lm_config: Optional[LstmLmConfig] = None,
-    lm_scale: float = 0.0,
-    recog_options: Optional[RasrRecogOptions] = None,
-    device: Literal["cpu", "gpu"] = "cpu",
-) -> RecogResult:
-    recog_options = recog_options or get_baseline_recog_options()
-
-    label_scorer_config = get_aed_label_scorer_config(model_config=model_config, checkpoint=checkpoint)
-
-    if lm_scale != 0:
-        assert lm_checkpoint is not None
-        assert lm_config is not None
-        lm_label_scorer_config = get_lstm_lm_label_scorer_config(model_config=lm_config, checkpoint=lm_checkpoint)
-        label_scorer_config = get_combine_label_scorer_config(
-            [(label_scorer_config, 1.0), (lm_label_scorer_config, lm_scale)]
-        )
-
-    rasr_config_file = get_rasr_config_file(
-        recog_options=recog_options,
-        label_scorer_config=label_scorer_config,
-    )
-
-    return recog_rasr(
-        descriptor=descriptor,
-        recog_data_config=get_default_recog_data(corpus_name=corpus_name),
-        recog_corpus=get_default_score_corpus(corpus_name=corpus_name),
-        model_serializers=get_model_serializers(model_class=AEDEncoder, model_config=model_config),
-        rasr_config_file=rasr_config_file,
-        sample_rate=16000,
-        device=device,
-        checkpoint=checkpoint,
+        max_seqs=None,
+        max_seq_length=None,
     )
 
 
@@ -254,56 +206,127 @@ def run_bpe_aed_baseline(prefix: str = "librispeech/bpe_aed") -> List[RecogResul
         train_job = train(options=train_config, model_config=model_config)
         checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
-        lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
-        lstm_lm_checkpoint = PtCheckpoint(
-            tk.Path(
-                "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
-            )
-        )
+        vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=False)
+
+        # lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
+        # lstm_lm_checkpoint = PtCheckpoint(
+        #     tk.Path(
+        #         "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
+        #     )
+        # )
+
+        lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=False)
+
+        arpa_lm_config = get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file)
+        arpa_lm_config.scale = 0.6
+
+        recog_data = {
+            corpus_name: get_default_recog_data(corpus_name)
+            for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
+        }
+
+        score_corpora = {
+            corpus_name: get_default_score_corpus(corpus_name)
+            for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]
+        }
 
         recog_results = []
-        for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-aed_recog-rasr",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                )
-            )
 
-        for max_beam_size in [2, 4, 8]:
-            for score_threshold in [0.5, 1.0, 3.0, 5.0]:
-                beam_recog_options = get_baseline_recog_options()
-                beam_recog_options.max_beam_size = max_beam_size
-                beam_recog_options.score_threshold = score_threshold
-                recog_results.append(
-                    run_recog(
-                        descriptor=f"bpe-aed_recog-rasr_beam-{max_beam_size}_score-{score_threshold}",
-                        corpus_name="dev-other",
-                        model_config=model_config,
-                        checkpoint=checkpoint,
-                        recog_options=beam_recog_options,
-                    )
-                )
+        # =====================================
+        # === Lexiconfree Search without LM ===
+        # =====================================
 
-        for max_beam_size in [2, 4, 8]:
-            for score_threshold in [0.5, 1.0, 3.0, 5.0]:
-                beam_recog_options = get_baseline_recog_options()
-                beam_recog_options.max_beam_size = max_beam_size
-                beam_recog_options.score_threshold = score_threshold
-                recog_results.append(
-                    run_recog(
-                        descriptor=f"bpe-aed_recog-rasr_lm_beam-{max_beam_size}_score-{score_threshold}",
-                        corpus_name="dev-other",
-                        model_config=model_config,
-                        lm_scale=0.4,
-                        lm_config=lstm_lm_config,
-                        lm_checkpoint=lstm_lm_checkpoint,
-                        checkpoint=checkpoint,
-                        recog_options=beam_recog_options,
+        # for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+        for recog_corpus in ["dev-other"]:
+            for max_beam_size in [8, 64, 1024]:
+                for score_threshold in [0.01, 0.05]:
+                    recog_results.append(
+                        recog_rasr(
+                            descriptor=f"bpe-aed_beam-{max_beam_size}_score-{score_threshold}",
+                            recog_data_config=recog_data[recog_corpus],
+                            recog_corpus=score_corpora[recog_corpus],
+                            model_serializers=get_model_serializers(model_class=AEDEncoder, model_config=model_config),
+                            rasr_config_file=get_lexiconfree_labelsync_recog_config(
+                                vocab_file=vocab_file,
+                                label_scorer_config=get_aed_label_scorer_config(
+                                    model_config=model_config,
+                                    checkpoint=checkpoint,
+                                ),
+                                sentence_end_index=0,
+                                max_beam_size=max_beam_size,
+                                score_threshold=score_threshold,
+                                length_norm_scale=1.2,
+                            ),
+                            sample_rate=16000,
+                            checkpoint=checkpoint,
+                        )
                     )
-                )
+
+        # =====================================
+        # === Tree Search with 4gram LM =======
+        # =====================================
+
+        # for recog_corpus in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+        for recog_corpus in ["dev-other"]:
+            for max_beam_size in [8, 64, 1024]:
+                for max_word_end_beam_size in [8]:
+                    for global_max_beam_size in [
+                        max_beam_size // 2,
+                        max_beam_size,
+                        max_beam_size + max_word_end_beam_size,
+                    ]:
+                        for score_threshold in [0.01, 0.02, 0.03]:
+                            for word_end_score_threshold in [1.0, 10.0]:
+                                for global_score_threshold in [1.0, 10.0]:
+                                    for domination_score_threshold in [0.5, 1.0, 10.0]:
+                                        for pruning_strategy in [
+                                            LabelsyncGlobalPruningStrategy.ACTIVE_AGAINST_TERMINATED,
+                                            # LabelsyncGlobalPruningStrategy.ALL,
+                                        ]:
+                                            for length_norm_scale in [1.0, 1.2]:
+                                                pruning_str = (
+                                                    "all"
+                                                    if pruning_strategy == LabelsyncGlobalPruningStrategy.ALL
+                                                    else "aat"
+                                                )
+                                                recog_results.append(
+                                                    recog_rasr(
+                                                        descriptor=f"bpe-aed_beam-{max_beam_size}"
+                                                        f"_webeam-{max_word_end_beam_size}"
+                                                        f"_gbeam-{global_max_beam_size}"
+                                                        f"_score-{score_threshold}"
+                                                        f"_wescore-{word_end_score_threshold}"
+                                                        f"_gscore-{global_score_threshold}"
+                                                        f"_domscore-{domination_score_threshold}"
+                                                        f"_ln-{length_norm_scale}"
+                                                        f"_prune-{pruning_str}",
+                                                        recog_data_config=recog_data[recog_corpus],
+                                                        recog_corpus=score_corpora[recog_corpus],
+                                                        model_serializers=get_model_serializers(
+                                                            model_class=AEDEncoder, model_config=model_config
+                                                        ),
+                                                        rasr_config_file=get_tree_labelsync_recog_config(
+                                                            lexicon_file=lexicon_file,
+                                                            label_scorer_config=get_aed_label_scorer_config(
+                                                                model_config=model_config,
+                                                                checkpoint=checkpoint,
+                                                            ),
+                                                            lm_config=arpa_lm_config,
+                                                            max_beam_size=max_beam_size,
+                                                            max_word_end_beam_size=max_word_end_beam_size,
+                                                            global_max_beam_size=global_max_beam_size,
+                                                            score_threshold=score_threshold,
+                                                            word_end_score_threshold=word_end_score_threshold,
+                                                            global_score_threshold=global_score_threshold,
+                                                            global_pruning_strategy=pruning_strategy,
+                                                            domination_score_threshold=domination_score_threshold,
+                                                            length_norm_scale=length_norm_scale,
+                                                            log_stepwise_statistics=False,
+                                                        ),
+                                                        sample_rate=16000,
+                                                        checkpoint=checkpoint,
+                                                    )
+                                                )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

@@ -1,6 +1,7 @@
 """
 Functions related to lexicon creation
 """
+
 __all__ = ["get_special_lemma_lexicon", "get_text_lexicon", "get_bliss_lexicon"]
 from sisyphus import tk
 

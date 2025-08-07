@@ -5,7 +5,8 @@ from sisyphus import tk
 from ...model_pipelines.common.recog import RecogResult
 from ...model_pipelines.common.report import create_report
 
-# from .bpe_aed_baseline import run_bpe_aed_baseline
+from .bpe_aed_baseline import run_bpe_aed_baseline
+
 # from .bpe_combination_baseline import run_bpe_combination_baseline
 from .bpe_ctc_baseline import run_bpe_ctc_baseline
 from .bpe_phoneme_ctc_baseline import run_bpe_phoneme_ctc_baseline
@@ -36,7 +37,7 @@ def run_librispeech_baselines(prefix: str = "librispeech") -> List[RecogResult]:
     recog_results.extend(run_phoneme_ctc_baseline())
     recog_results.extend(run_bpe_ffnn_transducer_baseline())
     # recog_results.extend(run_bpe_full_ctx_transducer_baseline())
-    # recog_results.extend(run_bpe_aed_baseline())
+    recog_results.extend(run_bpe_aed_baseline())
     # recog_results.extend(run_bpe_combination_baseline())
 
     tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)

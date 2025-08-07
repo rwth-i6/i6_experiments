@@ -29,11 +29,8 @@ def get_bpe_bliss_lexicon(bpe_size: int, add_blank: bool) -> tk.Path:
     lexicon_ext.add_lemma(Lemma(orth=["[UNKNOWN]"], phon=["<unk>"], synt=["<UNK>"], special="unknown"))
 
     if add_blank:
-        lexicon_ext.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], synt=[], eval=[], special="silence"))
         lexicon_ext.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], special="blank"))
         lexicon_ext.add_phoneme("<blank>", variation="none")
-    else:
-        lexicon_ext.add_lemma(Lemma(orth=["[SILENCE]"], phon=["<s>"], synt=[], eval=[], special="silence"))
 
     lexicon_ext_file = WriteLexiconJob(lexicon_ext).out_bliss_lexicon
 
