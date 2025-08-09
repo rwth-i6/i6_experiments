@@ -101,7 +101,7 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax1 = plt.subplots()
+    fig, ax1 = plt.subplots(figsize=(12, 7))
     if args.xlog:
         ax1.set_xscale("log")
     if args.ylog:
@@ -114,7 +114,9 @@ def main():
     ax1.set_ylabel("scores")
     ax1.set_title(f"Training scores for {score_key}")
     ax1.legend(fontsize=args.legend_font_size, loc="upper right")
+    # ax1.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
 
+    fig.tight_layout()
     fig.savefig(fname=args.out)
     print(f"saved plot to {args.out}")
 
