@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import sys
 import numpy as np
-from glob import glob
 from argparse import ArgumentParser
 from functools import reduce
 
@@ -53,6 +52,7 @@ def main():
     arg_parser.add_argument("--out", default="plot.svg")
     arg_parser.add_argument("--xlog", action="store_true")
     arg_parser.add_argument("--ylog", action="store_true")
+    arg_parser.add_argument("--legend-font-size", type=int, default=8)
     arg_parser.add_argument("--score-key")
     args = arg_parser.parse_args()
 
@@ -113,7 +113,7 @@ def main():
     ax1.set_xlabel("epoch")
     ax1.set_ylabel("scores")
     ax1.set_title(f"Training scores for {score_key}")
-    ax1.legend(fontsize=8, loc="upper right")
+    ax1.legend(fontsize=args.legend_font_size, loc="upper right")
 
     fig.savefig(fname=args.out)
     print(f"saved plot to {args.out}")
