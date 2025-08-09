@@ -607,6 +607,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     if isinstance(use_normalized_loss, bool):
         use_normalized_loss = "frames" if use_normalized_loss else "none"
     assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
+    label_smoothing = config.float("label_smoothing", 0.1)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -674,7 +675,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
     else:  # eos separated
         log_prob = log_probs_with_eos_separated(logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx)
-    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
+    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, label_smoothing, axis=model.target_dim)
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
