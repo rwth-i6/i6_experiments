@@ -905,6 +905,7 @@ def py():
                     # dropout=0.0,
                     # att_dropout=0.0,
                 ),
+                "__serialization_version": 2,
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
