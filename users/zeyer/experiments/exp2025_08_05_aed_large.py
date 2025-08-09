@@ -905,7 +905,6 @@ def py():
                     # dropout=0.0,
                     # att_dropout=0.0,
                 ),
-                "__serialization_version": 2,
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
@@ -919,6 +918,7 @@ def py():
                 # out of 281241 seqs in train, we removed only 71 seqs.
                 # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
                 "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+                "__serialization_version": 2,
             },
             # config_deletes=["torch_amp"],
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
