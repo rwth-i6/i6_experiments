@@ -101,7 +101,16 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    from cycler import cycler
+
+    colors = plt.cm.tab20(np.linspace(0, 1, len(data)))
+    # linestyles = ["-", "--", ":", "-."]
+    # markers = ["o", "s", "v", "^", "<", ">", "D"]
+    # line_cycler = cycler(color=colors) * cycler(linestyle=linestyles)
+    line_cycler = cycler(color=colors)
+
     fig, ax1 = plt.subplots(figsize=(12, 7))
+    ax1.set_prop_cycle(line_cycler)
     if args.xlog:
         ax1.set_xscale("log")
     if args.ylog:
