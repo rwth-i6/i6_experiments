@@ -52,7 +52,6 @@ def main():
     arg_parser.add_argument("--out", default="plot.svg")
     arg_parser.add_argument("--xlog", action="store_true")
     arg_parser.add_argument("--ylog", action="store_true")
-    arg_parser.add_argument("--legend-font-size", type=int, default=8)
     arg_parser.add_argument("--score-key")
     args = arg_parser.parse_args()
 
@@ -122,7 +121,7 @@ def main():
     ax1.set_xlabel("epoch")
     ax1.set_ylabel("scores")
     ax1.set_title(f"Training scores for {score_key}")
-    ax1.legend(fontsize=args.legend_font_size, loc="upper right")
+    ax1.legend(fontsize=8, loc="upper right")
     # ax1.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
 
     fig.tight_layout()
