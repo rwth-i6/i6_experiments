@@ -34,6 +34,7 @@ from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
@@ -287,10 +288,10 @@ def search_dataset(
         res = search_job.out_search_file
     else:
         out_files = [_v2_forward_out_filename]
-        if _get_from_config((config, model), "__recog_def_ext", False):
+        if get_from_config((config, model), "__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
         get_search_config = {None: search_config_v2, 1: search_config_v2, 2: search_config_v3}[
-            _get_from_config((config, model), "__serialization_version", None)
+            get_from_config((config, model), "__serialization_version", None)
         ]
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
@@ -339,29 +340,6 @@ def search_dataset(
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
     return RecogOutput(output=res)
-
-
-def _get_from_config(
-    config_sources: Sequence[Optional[Union[Dict[str, Any], ModelWithCheckpoint, ModelDefWithCfg, ModelDef]]],
-    attr: str,
-    default: Any = None,
-):
-    for src in config_sources:
-        if src is None:
-            continue
-        if isinstance(src, ModelWithCheckpoint):
-            src = src.definition
-        if isinstance(src, ModelDefWithCfg):
-            src = src.config
-            assert isinstance(src, dict)
-        if not isinstance(src, dict):
-            # Assume ModelDef. Just some sanity checks:
-            assert hasattr(src, "behavior_version") and hasattr(src, "backend")
-            continue
-        assert isinstance(src, dict)
-        if src.get(attr) is not None:
-            return src[attr]
-    return default
 
 
 def ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
