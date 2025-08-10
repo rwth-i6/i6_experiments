@@ -24,6 +24,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
+from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
@@ -482,7 +483,7 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = aed_training
-    serialization_version = config.get("__serialization_version", None)
+    serialization_version = get_from_config((config, model_def), "__serialization_version", None)
     train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
     model_with_checkpoint = train(
         prefix,
