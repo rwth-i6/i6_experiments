@@ -110,6 +110,16 @@ class DownloadHuggingFaceRepoJobV2(Job):
         service.run()
 
 
+def set_hf_offline_mode():
+    """
+    Set the HuggingFace Hub to offline mode.
+    This will prevent any network access to the HuggingFace Hub.
+    """
+    os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+
 def get_content_dir_from_hub_cache_dir(hub_cache_dir: Union[tk.Path, str]):
     """
     Get the content dir for HF functions like :func:`load_dataset` or ``...from_pretrained``.

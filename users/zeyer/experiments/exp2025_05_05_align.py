@@ -9,6 +9,7 @@ from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
     DownloadHuggingFaceRepoJobV2,
+    set_hf_offline_mode,
     get_content_dir_from_hub_cache_dir,
 )
 from i6_experiments.users.zeyer.external_models.phi4multimodal import (
@@ -344,7 +345,7 @@ class GenAya(Job):
         import os
         import time
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         print("Import transformers / other libs...")
         start_time = time.time()
@@ -602,7 +603,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         import time
         import gc
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -909,7 +910,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
         import math
         from dataclasses import dataclass
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1274,7 +1275,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         import sys
         import time
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1578,7 +1579,7 @@ class CalcAlignmentMetricsJob(Job):
         import sys
         import numpy as np
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1705,7 +1706,7 @@ class CalcChunkedAlignmentMetricsJob(Job):
         import sys
         import numpy as np
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1858,7 +1859,7 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         import sys
         import numpy as np
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 

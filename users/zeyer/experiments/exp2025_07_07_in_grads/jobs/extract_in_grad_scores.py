@@ -1,6 +1,9 @@
 from typing import Optional, Any, Dict, List, Tuple
 from sisyphus import Job, Task, tk
-from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
+from i6_experiments.users.zeyer.external_models.huggingface import (
+    set_hf_offline_mode,
+    get_content_dir_from_hub_cache_dir,
+)
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 
 
@@ -58,7 +61,7 @@ class ExtractInGradsFromModelJob(Job):
         import time
         import gc
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
