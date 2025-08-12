@@ -808,7 +808,7 @@ def py():
     )
 
     # Standard Transformer decoder more label smoothing.
-    for label_smoothing in [0.2]:
+    for label_smoothing in [0.0, 0.1, 0.2]:
         aed_train_exp(
             f"EncL16-DecL6-DecStd-D1024-aux4_10_16-ls{label_smoothing}-spm10k-spmSample07-b100k",
             config_96gb_bf16_accgrad1,
@@ -846,7 +846,7 @@ def py():
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
                 "optimizer.weight_decay": 1e-2,
-                "label_smoothing": label_smoothing,
+                **({"label_smoothing": label_smoothing} if label_smoothing != 0.1 else {}),
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_loss_layers": [4, 10, 16],
@@ -867,7 +867,7 @@ def py():
     from i6_experiments.users.zeyer.nn_rf.layerdrop import SequentialLayerDrop
 
     # Try stochastic depth in decoder.
-    for layer_drop in [0.1, 0.2, 0.3, 0.4]:
+    for layer_drop in [0.0, 0.1, 0.2, 0.3, 0.4]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-DecLayerDrop{layer_drop}-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
@@ -900,7 +900,11 @@ def py():
                     norm=rf.build_dict(rf.RMSNorm),
                     ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
                     layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                    sequential=functools.partial(SequentialLayerDrop, layer_drop=layer_drop),
+                    **(
+                        dict(sequential=functools.partial(SequentialLayerDrop, layer_drop=layer_drop))
+                        if layer_drop
+                        else {}
+                    ),
                     # When only trained on LS ASR data, keep the default dropout?
                     # dropout=0.0,
                     # att_dropout=0.0,
