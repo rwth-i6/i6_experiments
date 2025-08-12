@@ -439,7 +439,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   """Function is run within RETURNN."""
   from returnn.config import get_global_config
   from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.sum_criterion import sum_loss_bigram, \
-    sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients
+    sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients, sum_loss_ffnn_v3
 
   # torch.autograd.set_detect_anomaly(True)
   pg = PrintGradients.apply
@@ -696,29 +696,21 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   # log_probs_raw = ng(log_probs_raw) # TODO
 
   if use_ffnn_lm:
-    log_probs.raw_tensor = log_probs_raw
+    # log_probs.raw_tensor = log_probs_raw
     log_prior = rf.convert_to_tensor(log_prior, dims=[model.wb_target_dim], dtype="float32")
 
-    loss = sum_loss_ffnn(
+    loss = sum_loss_ffnn_v3(
       model=model,
-      log_probs=log_probs,
+      label_log_prob=log_probs,
       lm=lm,
       context_size=lm_order,
       log_prior=log_prior,
-      input_lengths=enc_spatial_dim,
-      top_k=top_k,
+      enc_spatial_dim=enc_spatial_dim,
+      beam_size=top_k,
       am_scale=am_scale,
       lm_scale=lm_scale,
       prior_scale=prior_scale,
-      horizontal_prior=horizontal_prior,
-      blank_prior=blank_prior,
-      device=log_probs.device,
-      use_recombination=not alignment_topk,
-      recomb_blank=True,
-      recomb_after_topk=True,
-      recomb_with_sum=True,
-      blank_correction_version=blank_correction_version,
-      print_best_path_for_idx=print_for_idx,
+      scales_stop_grad=config.bool("scales_stop_grad", False),
     )
   else:
     # (B, T, V) -> (T, B, V)
@@ -729,7 +721,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
       log_lm_probs=lm,
       log_prior=log_prior,
       input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
-      top_k=top_k,
+      top_k=toqp_k,
       LM_order=lm_order,
       am_scale=am_scale,
       lm_scale=lm_scale,

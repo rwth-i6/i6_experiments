@@ -1775,6 +1775,239 @@ def sum_loss_ffnn_v2(
 
     # return loss
 
+
+def sum_loss_ffnn_v3(
+        *,
+        model: Model,
+        label_log_prob: rf.Tensor,  # (T, B, V)
+        lm: FeedForwardLm | None,
+        context_size: int,
+        log_prior: rf.Tensor | None,  # (V,)
+        enc_spatial_dim: rf.Dim,  # (B,)
+        beam_size: int = 10,
+        am_scale: float,
+        lm_scale: float,
+        prior_scale: float,
+        scales_stop_grad: bool,
+):
+  from returnn.frontend import Dim, Tensor
+
+  def _update_context(context: Tensor, new_label: Tensor, context_dim: Dim) -> Tensor:
+    new_dim = Dim(1, name="new_label")
+    new_label = rf.expand_dim(new_label, dim=new_dim)
+    old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
+    new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
+    assert new_context_dim == context_dim
+    return new_context
+
+  def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
+    assert target.sparse_dim == wb_target_dim
+    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    return rf.set_sparse_dim(target, target_dim)
+
+  def _target_dense_extend_blank(
+          target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int, value: float
+  ) -> Tensor:
+    assert target_dim in target.dims
+    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    return res
+
+  def _set_lm_eos_neg_inf(lm_log_probs: Tensor, t: int):
+    """
+    Args:
+      lm_log_probs:
+      t: current time step in search
+
+    Returns:
+    """
+    lm_log_probs_ = rf.where(
+      rf.range_over_dim(model.target_dim) == model.eos_idx,
+      rf.full(dims=lm_log_probs.dims, fill_value=float("-inf"), dtype="float32"),
+      lm_log_probs
+    )
+    lm_log_probs__ = rf.where(
+      rf.convert_to_tensor(t == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+      lm_log_probs,
+      lm_log_probs_
+    )
+    return lm_log_probs__
+
+  batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, model.wb_target_dim))
+  beam_dim = Dim(1, name="initial-beam")
+  batch_dims_ = [beam_dim] + batch_dims
+  seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+
+  label_log_prob = rf.where(
+    enc_spatial_dim.get_mask(),
+    label_log_prob,
+    rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+  )
+  if scales_stop_grad:
+    label_log_prob = label_log_prob + rf.stop_gradient(label_log_prob * (am_scale - 1.0))
+  else:
+    label_log_prob = am_scale * label_log_prob
+
+  print("label_log_prob: ", label_log_prob.raw_tensor.requires_grad)
+  exit()
+
+  if log_prior:
+    label_log_prob -= log_prior * prior_scale
+  label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
+
+  if lm is not None:
+    context_dim = Dim(context_size, name="context")
+    lm_out_dim = Dim(context_size + 1, name="context+1")
+    target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+  target_wb = rf.constant(
+    model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+  )  # Batch, InBeam -> VocabWB
+
+  if lm is not None:
+    with torch.no_grad():
+      lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+      lm_logits, lm_state = get_lm_logits(batch_dims, target, lm, context_dim, lm_out_dim, lm_state)
+      lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+      assert lm_logits.dims == (*batch_dims_, model.target_dim)
+      lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+      lm_log_probs *= lm_scale
+
+  max_seq_len = int(enc_spatial_dim.get_dim_value())
+  seq_targets_wb = []
+  seq_backrefs = []
+  backrefs = None
+  # if use_recombination:
+  #   assert len(batch_dims) == 1
+  #   if recomb_after_topk:
+  #     seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
+  #   else:
+  #     seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
+  for t in range(max_seq_len):
+    prev_target_wb = target_wb
+
+    seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+
+    # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+    if lm is not None:
+      with torch.no_grad():
+        lm_log_probs_ = _set_lm_eos_neg_inf(lm_log_probs, t)
+        prev_target = target
+        with warnings.catch_warnings():
+          warnings.simplefilter("ignore")
+          seq_log_prob += rf.where(
+            (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+            _target_dense_extend_blank(
+              lm_log_probs_,
+              target_dim=model.target_dim,
+              wb_target_dim=model.wb_target_dim,
+              blank_idx=model.blank_idx,
+              value=0.0,
+            ),
+            0.0,
+          )  # Batch, InBeam, VocabWB
+
+    # if use_recombination and not recomb_after_topk:
+    #   seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb,
+    #                                            model.blank_idx)
+    #   if t > 0:
+    #     seq_log_prob = recombination.recombine_seqs(
+    #       seq_log_prob,
+    #       seq_hash,
+    #       beam_dim,
+    #       batch_dims[0],
+    #       model.wb_target_dim,
+    #       model.blank_idx,
+    #       recomb_blank=recomb_blank,
+    #       use_sum=recomb_with_sum,
+    #     )
+
+    seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+      seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
+    )
+
+    # seq_log_prob, backrefs, target_wb: Batch, Beam
+    # backrefs -> InBeam.
+    # target_wb -> VocabWB.
+    target_wb = rf.cast(target_wb, "int32")
+    seq_targets_wb.append(target_wb)
+    seq_backrefs.append(backrefs)
+
+    if lm is not None:
+      with torch.no_grad():
+        lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+        lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+    prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+    got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
+    if lm is not None:
+      target = rf.where(
+        got_new_label,
+        _update_context(
+          prev_target,
+          _target_remove_blank(
+            target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+          ),
+          context_dim
+        ),
+        prev_target,
+      )  # Batch, Beam -> Vocab
+
+    # if use_recombination and recomb_after_topk:
+    #   seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx,
+    #                                            gather_old_target=False)
+    #   if t > 0:
+    #     seq_log_prob = recombination.recombine_seqs(
+    #       seq_log_prob,
+    #       seq_hash,
+    #       beam_dim,
+    #       batch_dims[0],
+    #       None,
+    #       model.blank_idx,
+    #       recomb_blank=recomb_blank,
+    #       use_sum=recomb_with_sum,
+    #       is_blank=(target_wb == model.blank_idx),
+    #     )
+
+    if lm is not None:
+      with torch.no_grad():
+        got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+        if got_new_label_cpu.raw_tensor.sum().item() > 0:
+          (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+            (target, lm_state),
+            mask=got_new_label,
+            mask_cpu=got_new_label_cpu,
+            dims=batch_dims + [beam_dim],
+          )
+          # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+          assert packed_new_label_dim.get_dim_value() > 0
+
+          lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
+          lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+          assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+          lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+          lm_log_probs_ *= lm_scale
+
+          lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+            (lm_log_probs_, lm_state_),
+            (lm_log_probs, lm_state),
+            mask=got_new_label,
+            mask_cpu=got_new_label_cpu,
+            dims=batch_dims + [beam_dim],
+            in_dim=packed_new_label_dim,
+            masked_select_dim_map=packed_new_label_dim_map,
+          )  # Batch, Beam, Vocab / ...
+
+  # seq_log_prob, lm_log_probs: Batch, Beam
+  # Add LM EOS score at the end.
+  if lm is not None:
+    lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+    seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+
+  sum_score = rf.reduce_logsumexp(seq_log_prob, axis=beam_dim)
+  loss = -sum_score
+  return loss
+
+
 def sum_loss_ffnn_exact(
     *,
     model: Model,

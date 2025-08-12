@@ -32,9 +32,11 @@ from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.mueller.datasets.task import Task
 from i6_experiments.users.mueller.utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
 from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, \
-  model_recog_lm_albert, model_recog, model_recog_gradients
+  model_recog
 from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.ctc import model_recog as model_recog_schmitt
-from i6_experiments.users.mueller.experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm, \
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.ctc import model_recog_lm_albert, model_recog_lm
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.ctc import model_recog_gradients
+from i6_experiments.users.schmitt.experiments.marten_exps.language_models.n_gram import get_kenlm_n_gram, get_binary_lm, \
   get_count_based_n_gram
 from i6_experiments.users.mueller.datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from i6_experiments.users.mueller.scoring import ComputeWERJob, _score_recog
@@ -243,6 +245,156 @@ def recog_training_exp(
   return None
 
 
+def generate_pseudo_labels(
+        prefix_name: str,
+        task: Task,
+        model: ModelWithCheckpoint,
+        recog_def: RecogDef | tuple[RecogDef, RecogDef],
+        *,
+        decoder_hyperparameters: Optional[dict | tuple[dict, dict]] = None,
+        save_pseudo_labels: Optional[tuple[dict, Optional[LibrispeechOggZip]]] = None,
+        pseudo_label_alignment: bool = False,
+        pseudo_nbest: int = 1,
+        calculate_pseudo_label_scores: bool = True,
+        search_config: Dict[str, Any] = None,
+        search_post_config: Optional[Dict[str, Any]] = None,
+        recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+        search_mem_rqmt: Union[int, float] = 6,
+        num_shards_pseudo: Optional[int] = None,
+        num_shards_prior: Optional[int] = None,
+        is_last: bool = False,
+        get_prev: tuple[bool, bool] = (False, False),
+        empirical_prior: Optional[tk.Path] = None,
+        prior_from_max: bool = False,
+        cache_manager: bool = True,
+        return_beam: bool = False,
+) -> Optional[tk.Path]:
+  if isinstance(recog_def, tuple):
+    recog_def_pl = recog_def[1]
+  else:
+    recog_def_pl = recog_def
+
+  if decoder_hyperparameters is not None:
+    if isinstance(decoder_hyperparameters, tuple):
+      decoder_hyperparameters_pl = decoder_hyperparameters[0].copy()
+      decoder_hyperparameters_pl.update(decoder_hyperparameters[1])
+    else:
+      decoder_hyperparameters_pl = decoder_hyperparameters
+
+  if "preload_from_files" not in search_config:
+    search_config["preload_from_files"] = {}
+  search_config["preload_from_files"]["am"] = {
+    "filename": model.checkpoint,
+    "ignore_missing": True,
+    "init_for_train": True,
+    "checkpoint_key": "model" if "ReturnnTrainingJob" in model.checkpoint.path.get_path() else None,
+  }
+
+  if not isinstance(model.definition, ModelDefWithCfg):
+    model = ModelWithCheckpoint(
+      definition=ModelDefWithCfg(model.definition, config={}),
+      checkpoint=model.checkpoint,
+    )
+  model.definition.config["preload_from_files"] = {"am": search_config["preload_from_files"]["am"]}
+
+
+  model = ModelWithCheckpoint(definition=model.definition, checkpoint=None)
+
+  pseudo_labels_ds = save_pseudo_labels[0]
+  dev_dataset = next(iter(pseudo_labels_ds.values()))
+  task_pseudo_labels = Task(
+    name="librispeech_pseudo_labels",
+    train_dataset=task.train_dataset,
+    train_epoch_split=task.train_epoch_split,
+    dev_dataset=dev_dataset,
+    eval_datasets=pseudo_labels_ds,
+    main_measure_type=task.main_measure_type,
+    main_measure_name=dev_dataset.get_main_name(),
+    score_recog_output_func=task.score_recog_output_func,
+    prior_dataset=task.prior_dataset,
+    recog_post_proc_funcs=task.recog_post_proc_funcs,
+  )
+
+  pseudo_hyperparameters = decoder_hyperparameters_pl.copy()
+  if pseudo_nbest > 1 and not is_last:
+    pseudo_hyperparameters["ps_nbest"] = pseudo_nbest
+
+  pseudo_label_recog_func = _RecogAndScoreFunc(
+    prefix_name + "/pseudo_labels",
+    pseudo_hyperparameters,
+    task_pseudo_labels,
+    model,
+    recog_def_pl,
+    save_pseudo_labels=pseudo_labels_ds,
+    pseudo_label_alignment=pseudo_label_alignment,
+    calculate_scores=calculate_pseudo_label_scores,
+    search_config=search_config,
+    search_post_config=search_post_config,
+    recog_post_proc_funcs=recog_post_proc_funcs,
+    search_mem_rqmt=search_mem_rqmt,
+    num_shards_recog=num_shards_pseudo,
+    num_shards_prior=num_shards_prior,
+    empirical_prior=empirical_prior,
+    prior_from_max=prior_from_max,
+    cache_manager=cache_manager,
+    get_prev=get_prev[1],
+    return_beam=return_beam,
+  )
+
+  extract_pseudo_labels_job = ExtractPseudoLabels(
+    pseudo_recog_func=pseudo_label_recog_func,
+    checkpoint=model.checkpoint,
+    calculate_score=False,
+    pseudo_label_alignment=pseudo_label_alignment,
+    get_prev=get_prev[0],
+  )
+  extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
+  if is_last:
+    tk.register_output(prefix_name + "/pseudo_labels/extract", extract_pseudo_labels_job.out_best_labels_path)
+
+  # Calculate score for 100h
+  if calculate_pseudo_label_scores:
+    train_100_ds = save_pseudo_labels[1]
+    task_score = Task(
+      name="librispeech_score_train100",
+      train_dataset=task.train_dataset,
+      train_epoch_split=task.train_epoch_split,
+      dev_dataset=train_100_ds,
+      eval_datasets={"train-clean-100": train_100_ds},
+      main_measure_type=task.main_measure_type,
+      main_measure_name=train_100_ds.get_main_name(),
+      score_recog_output_func=task.score_recog_output_func,
+      prior_dataset=task.prior_dataset,
+      recog_post_proc_funcs=task.recog_post_proc_funcs,
+    )
+
+    score_func = _RecogAndScoreFunc(
+      prefix_name + "/pseudo_labels",
+      decoder_hyperparameters_pl,
+      task_score,
+      model,
+      recog_def_pl,
+      save_pseudo_labels=None,
+      calculate_scores=True,
+      search_config=search_config,
+      search_post_config=search_post_config,
+      recog_post_proc_funcs=recog_post_proc_funcs,
+      search_mem_rqmt=search_mem_rqmt,
+      num_shards_recog=num_shards_pseudo,
+      num_shards_prior=num_shards_prior,
+      register_output=False,
+      empirical_prior=empirical_prior,
+      prior_from_max=prior_from_max,
+      cache_manager=cache_manager,
+      get_prev=get_prev[1],
+    )
+
+    score_job = GetScoreJob(score_func, model.checkpoint)
+    tk.register_output(prefix_name + "/pseudo_labels/score100", score_job.out_score)
+
+  return extract_pseudo_labels_job.out_best_labels_path
+
+
 class _RecogAndScoreFunc:
   def __init__(
           self,
@@ -296,7 +448,9 @@ class _RecogAndScoreFunc:
     elif isinstance(epoch_or_ckpt, PtCheckpoint):
       model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
     else:
-      raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
+      # this is either a random model or the model is loaded via preload_from_files
+      assert epoch_or_ckpt is None
+      model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=None)
 
     if isinstance(epoch_or_ckpt, int):
       epoch_or_ckpt_str = f"{epoch_or_ckpt:03}"
@@ -493,14 +647,14 @@ def compute_prior(
         prior_alias_name: Optional[str] = None,
         num_shards: Optional[int] = None,
         prior_from_max: bool = False,
-        cache_manager: bool = True
+        cache_manager: bool = True,
 ) -> tk.Path:
   if num_shards is not None:
     prior_frames_res = []
     prior_probs_res = []
     for i in range(num_shards):
       shard_prior_sum_job = ReturnnForwardJobV2(
-        model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
+        model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager and model.checkpoint is not None else model.checkpoint,
         returnn_config=prior_config(dataset, model.definition, shard_index=i, num_shards=num_shards),
         output_files=["output_frames.npy", "output_probs.npy"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -518,7 +672,7 @@ def compute_prior(
     res = prior_job.out_comined_results
   else:
     prior_job = ReturnnForwardJobV2(
-      model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
+      model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager and model.checkpoint is not None else model.checkpoint,
       returnn_config=prior_config(dataset, model.definition),
       output_files=["prior.txt"],
       returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -585,7 +739,11 @@ def search_dataset(
     env_updates = (config and config.pop("__env_updates", None)) or (
             search_post_config and search_post_config.pop("__env_updates", None)
     )
-  device = "cpu"
+  if num_shards is not None:
+    device = "cpu"
+  else:
+    device = "gpu"
+
   if save_pseudo_labels:
     time_rqmt = 16.0
     if search_mem_rqmt < 8:
@@ -627,7 +785,7 @@ def search_dataset(
       shard_search_res = []
       for i in range(num_shards):
         shard_search_job = ReturnnForwardJobV2(
-          model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
+          model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager and model.checkpoint is not None else model.checkpoint,
           returnn_config=search_config_v2(
             dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config,
             post_config=search_post_config, shard_index=i, num_shards=num_shards
@@ -654,7 +812,7 @@ def search_dataset(
       res = search_job.out_comined_results
     else:
       search_job = ReturnnForwardJobV2(
-        model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
+        model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager and model.checkpoint is not None else model.checkpoint,
         returnn_config=search_config_v2(
           dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config,
           post_config=search_post_config
@@ -1013,6 +1171,7 @@ def search_config_v2(
     default_input=dataset.get_default_input(),
     target=dataset.get_default_target(),
     forward_data=forward_data,
+    hyperparameters=decoder_hyperparameters,
   )
   if config:
     returnn_recog_config_dict.update(config)
@@ -1230,8 +1389,8 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
   recog_def = config.typed_value("_recog_def")
   extra = {}
   beam_dim = None
-  if config.typed_value("hyperparameters", None):
-    extra["hyperparameters"] = config.typed_value("hyperparameters")
+  # if config.typed_value("hyperparameters", None):
+  #   extra["hyperparameters"] = config.typed_value("hyperparameters")
   if config.bool("cheating", False):
     default_target_key = config.typed_value("target")
     targets = extern_data[default_target_key]
@@ -1324,6 +1483,7 @@ def _returnn_v2_get_forward_callback():
       hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
       scores: Tensor = outputs["scores"]  # [beam]
       if scores.raw_tensor.shape == () and hyps.raw_tensor.shape[0] > 1:  # hyps hold gradients
+        return
         assert not self.out_ext_file, "not implemented"
         self.out_file.write(f"{seq_tag!r}: [\n")
         score = float(scores.raw_tensor)
@@ -1621,15 +1781,15 @@ class GetBestTuneValue(sisyphus.Job):
 class ExtractPseudoLabels(sisyphus.Job):
   def __init__(
           self,
-          pseudo_recog_func: Optional[Callable[[int], ScoreResultCollection]],
-          recog_input: Union[tk.Path, PtCheckpoint],
+          pseudo_recog_func: Optional[Callable[[PtCheckpoint], ScoreResultCollection]],
+          checkpoint: PtCheckpoint,
           calculate_score: bool,
           pseudo_label_alignment: bool,
           get_prev: bool = False,
   ):
     super(ExtractPseudoLabels, self).__init__()
     self.pseudo_recog_func = pseudo_recog_func
-    self.recog_input = recog_input
+    self.checkpoint = checkpoint
     self.out_best_labels_path = self.output_path("best_labels_path.json")
     self._recog_score = None
     self._recog_label_paths = None
@@ -1643,17 +1803,9 @@ class ExtractPseudoLabels(sisyphus.Job):
     if self._recog_label_paths:
       return
 
-    if isinstance(self.recog_input, tk.Path):
-      d = eval(uopen(self.recog_input, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-      assert isinstance(d, dict), "Has to be a dict containing the best epoch during scoring."
+    self.best_epoch = 0
 
-      ep_or_chckpt = d["best_epoch"]
-      self.best_epoch = d["best_epoch"]
-    else:
-      ep_or_chckpt = self.recog_input
-      self.best_epoch = 0
-
-    res, label_paths, prev_res = self.pseudo_recog_func(ep_or_chckpt)
+    res, label_paths, prev_res = self.pseudo_recog_func(self.checkpoint)
     assert isinstance(label_paths, dict)
     assert isinstance(prev_res, dict)
     for k in label_paths.keys():
@@ -1718,12 +1870,12 @@ class ExtractPseudoLabels(sisyphus.Job):
 class GetScoreJob(sisyphus.Job):
   def __init__(
           self,
-          score_func: Optional[Callable[[int], ScoreResultCollection]],
-          recog_input: tk.Path,
+          score_func: Optional[Callable[[PtCheckpoint], ScoreResultCollection]],
+          checkpoint: PtCheckpoint,
   ):
     super(GetScoreJob, self).__init__()
     self.score_func = score_func
-    self.recog_input = recog_input
+    self.checkpoint = checkpoint
     self._recog_score = None
     self.out_score = self.output_path("score")
 
@@ -1731,12 +1883,9 @@ class GetScoreJob(sisyphus.Job):
     if self._recog_score:
       return
 
-    d = eval(uopen(self.recog_input, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-    assert isinstance(d, dict), "Has to be a dict containing the best epoch during scoring."
+    self.best_epoch = 0
 
-    self.best_epoch = d["best_epoch"]
-
-    res, _, _ = self.score_func(self.best_epoch)
+    res, _, _ = self.score_func(self.checkpoint)
     assert isinstance(res, ScoreResultCollection)
     self.add_input(res.output)
     self._recog_score = res

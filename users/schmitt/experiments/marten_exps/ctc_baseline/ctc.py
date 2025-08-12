@@ -63,11 +63,11 @@ _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to 
 # Some params for the jobs influencing the hash
 num_shards_recog = 4  # None, 4, 16
 num_shards_recog_init = 4
-num_shards_pseudo = 1  # 64  # 32, 64
-num_shards_prior = 64
+num_shards_pseudo = None  # 1  # 64  # 32, 64
+num_shards_prior = None
 num_shards_prior_init = None  # 4
-calculate_pseudo_label_scores = True
-calculate_pseudo_label_scores_init = True
+calculate_pseudo_label_scores = False  # True
+calculate_pseudo_label_scores_init = False  # True
 decode_nbest_epochs = 0
 decode_nbest_epochs_init = 2
 decode_all_fixed_epochs = True
@@ -267,6 +267,34 @@ def py():
     }
   )
 
+  wav2vec_large_lv60_config_9h_v1 = dict_update_deep(
+    wav2vec_large_lv60_config_v1,
+    {
+      "train_ds_str": "_train-clean-100-short",
+      "freeze_encoder_first_n_steps": 1_250,
+    }
+  )
+
+  wav2vec_large_lv60_config_9h_v2 = dict_update_deep(
+    wav2vec_large_lv60_config_v1,
+    {
+      "train_ds_str": "_train-clean-100-short",
+      "num_enc_layers": 10,
+    }
+  )
+
+  wav2vec_large_lv60_config_9h_v3 = dict_update_deep(
+    wav2vec_large_lv60_config_v1,
+    {
+      "train_ds_str": "_train-clean-100-short",
+      "num_enc_layers": 10,
+      "num_gpus": 1,
+      "use_tensorboard": True,
+      "use_spec_augment": False,
+      "speed_pert": False,
+    }
+  )
+
   wav2vec_large_lv60_config_v2 = dict_update_deep(
     wav2vec_base_config_v4,
     {
@@ -312,7 +340,8 @@ def py():
       "w2v_config": "large-lv60",
       "use_spec_augment": False,
       "speed_pert": False,
-      "use_tensorboard": True
+      "use_tensorboard": True,
+      "use_sum_criterion": True,
     }
   )
 
@@ -379,13 +408,13 @@ def py():
   max_config_v1 = dict_update_deep(
     wav2vec_base_config_v3,
     {
-      "epochs": 100,
+      "epochs": 2,
       "num_gpus": 1,
       "label_prior": False,
       "empirical_prior": False,
       "random_init": True,
       "init": "100h-unsupervised",
-      "decode_every_step_init": True,
+      "decode_every_step_init": False,
       "pseudo_nbest_init": 1,
       "num_enc_layers": 10,
       "freeze_encoder_first_n_steps": 1_000_000,
@@ -394,11 +423,48 @@ def py():
       "use_spec_augment": False,
       "speed_pert": False,
       "use_tensorboard": True,
-      "self_training_rounds": 4,
+      "self_training_rounds": 2,
       "decoding_imp": "albert-lm",
       "alt_decoder": True,
-      "train_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      # "train_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       # "tune_hyperparameters": True,
+      "skip_init_train": True,
+      "pseudo_label_ds_str": "train-clean-100-max-10s",
+      "train_ds_str": "train-clean-100-max-10s",
+      "lr_schedule_type": "static",
+      "peak_lr": 1e-4,
+      "decoder_hyperparameters_updates": {
+        "lm_weight": 0.7,
+        "prior_weight": 0.0,
+        "am_weight": 0.1,
+        "norm_am_after_weight": True,
+        "recomb_with_sum": True,
+      },
+      # "scales_stop_grad": True,
+    }
+  )
+
+  sup_max_config_v1 = dict_update_deep(
+    marten_baseline_config_v1,
+    {
+      "epochs": 50,
+      "lr_schedule_type": "relative_oclr",
+      "bs_feat": 15_000,
+      "vocab": "bpe128",
+      "with_prior": True,
+      "from_scratch": True,
+      "label_prior": False,
+      "empirical_prior": True,
+      "init": "100h-supervised",
+      "decode_every_step_init": False,
+      "pseudo_nbest_init": 1,
+      "use_tensorboard": True,
+      "self_training_rounds": 0,
+      "decoding_imp": "flashlight",
+      "decoder_lm_config": {},
+      "alt_decoder": True,
+      "pseudo_label_ds_str": "960h",
+      "train_ds_str": "100h",
     }
   )
 
@@ -426,7 +492,16 @@ def py():
       "train_lm_config": {"class": "FeedForwardLm", "context_size": 8},
       # "tune_hyperparameters": True,
       "skip_init_train": True,
-      "pseudo_label_ds_str": "_train-clean-100-short"
+      "pseudo_label_ds_str": "_train-clean-100-short",
+      "train_ds_str": "_train-clean-100-short",
+      "grad_nbest": 0,
+    }
+  )
+
+  gradients_config_v2 = dict_update_deep(
+    gradients_config_v1,
+    {
+      "train_lm_config": {"class": "ngram", "order": 2},
     }
   )
 
@@ -518,6 +593,87 @@ def py():
     ), (
       f"wav2vec-large-lv60-v1/nep-{n_epochs}_mgpu-{4}"
     )) for n_epochs in (20, 30)],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_v1),
+      {
+        "epochs": 125,
+        "train_epoch_wise_filter": None,
+        "vocab": vocab_,
+        "freeze_encoder_first_n_steps": freeze_n_steps,
+      }
+    ), (
+         f"wav2vec-large-lv60-v1/nep-{125}_mgpu-{4}_no-ep-filter_vocab-{vocab_}_frz-enc-{freeze_n_steps}"
+       )) for vocab_, freeze_n_steps in [
+      ("char", 2_500,),
+      ("bpe128", 2_500,),
+      ("char", 0,),
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_9h_v1),
+      {
+        "epochs": 600,
+        "train_epoch_wise_filter": None,
+        "vocab": vocab_,
+      }
+    ), (
+         f"wav2vec-large-lv60-9h-v1/nep-{600}_mgpu-{4}_no-ep-filter_vocab-{vocab_}"
+       )) for vocab_ in [
+      "char",  # "600": {"dev-clean": 5.01, "dev-other": 9.74, "test-clean": 5.29, "test-other": 10.17}
+      "bpe128"  # "600": {"dev-clean": 5.71, "dev-other": 10.75, "test-clean": 5.88, "test-other": 11.22}
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_9h_v1),
+      {
+        "epochs": 600,
+        "train_epoch_wise_filter": None,
+        "vocab": vocab_,
+        "decoder_lm_config": {},
+        "decoding_imp": "flashlight",
+        "with_prior": True,
+        "decoder_hyperparameters_updates": {
+          "lm_weight": lm_scale,
+          "prior_weight": prior_scale,
+        }
+      }
+    ), (
+         f"wav2vec-large-lv60-9h-v1/nep-{600}_mgpu-{4}_no-ep-filter_vocab-{vocab_}"
+       )) for vocab_, lm_scale, prior_scale in [
+      ("bpe128", 0.8, 0.3),
+      ("bpe128", 1.25, 0.3),
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_9h_v2),
+      {
+        "epochs": 600,
+        "train_epoch_wise_filter": None,
+        "vocab": vocab_,
+        "freeze_encoder_first_n_steps": freeze_encoder_first_n_steps,
+        # "num_enc_layers": 10,
+        "unfrozen_encoder_layers": unfrz_layers,
+      }
+    ), (
+         f"wav2vec-large-lv60-9h-v2/nep-{600}_mgpu-{4}_no-ep-filter_vocab-{vocab_}_frz-enc-{freeze_encoder_first_n_steps}_unfrz-{unfrz_layers}"
+       )) for vocab_, unfrz_layers, freeze_encoder_first_n_steps in [
+      ("bpe128", None, 0,),
+      ("bpe128", [9], 1_000_000,),
+      ("bpe128", [8, 9], 1_000_000,),
+      ("bpe128", [7, 8, 9], 1_000_000,),
+    ]],
+    *[(dict_update_deep(
+      copy.deepcopy(wav2vec_large_lv60_config_9h_v3),
+      {
+        "epochs": n_epochs,
+        "train_epoch_wise_filter": None,
+        "vocab": vocab_,
+        "freeze_encoder_first_n_steps": freeze_encoder_first_n_steps,
+        # "num_enc_layers": 10,
+        "unfrozen_encoder_layers": unfrz_layers,
+      }
+    ), (
+         f"wav2vec-large-lv60-9h-v3/nep-{n_epochs}_sgpu_no-ep-filter_vocab-{vocab_}_frz-enc-{freeze_encoder_first_n_steps}_unfrz-{unfrz_layers}"
+       )) for vocab_, unfrz_layers, freeze_encoder_first_n_steps, n_epochs in [
+      ("bpe128", [9], 1_000_000, 100),
+    ]],
     # test sup. char CTC performance on different number of layers when also training Transformer encoder
     *[(dict_update_deep(
       copy.deepcopy(wav2vec_large_lv60_config_v1),
@@ -983,7 +1139,37 @@ def py():
   ]
 
   train_configs = [
-    (gradients_config_v1, "gradients-v1/base"),
+    # (gradients_config_v1, "gradients-v1/base"),
+    # (gradients_config_v2, "gradients-v2/base"),
+    # (full_sum_config_v2, "full-sum-v2/base"),
+    (max_config_v1, "max-v1/ffnn8-bpe-lm-pseudo-labels"),
+    # (dict_update_deep(
+    #   copy.deepcopy(max_config_v1),
+    #   {
+    #     "decoder_lm_config": {},
+    #     "decoding_imp": "flashlight",
+    #   }
+    # ), "max-v1/4gram-word-lm-pseudo-labels"),
+    (sup_max_config_v1, "sup-max-v1/base"),
+    (dict_update_deep(
+      copy.deepcopy(sup_max_config_v1),
+      {
+        "decoding_imp": "albert-greedy"
+      },
+    ), "sup-max-v1/base"),
+    (dict_update_deep(
+      copy.deepcopy(full_sum_sup_init_config_v1),
+      {
+        "epochs": 1,
+        # "accum_grad_multiple_step_init": accum_grad,
+        "am_lm_prior_full_sum_init": (1.0, 0.8, 0.5),
+        "peak_lr": 1e-4,
+        "scales_stop_grad": True,
+        "train_ds_str": "train-clean-100-max-10s",
+        "train_lm_config": {"class": "FeedForwardLm", "context_size": 8},
+      },
+      ["train_lm_config"]
+    ), "full-sum-sup-init-v1/base"),
   ]
 
   for train_config, alias_name in train_configs:
@@ -1001,18 +1187,29 @@ def py():
     vocab = train_config["vocab"]
     with_prior = train_config["with_prior"]
     num_gpus = train_config.get("num_gpus", 4)
+    use_sum_criterion = train_config.get("use_sum_criterion", False)
     train_epoch_wise_filter = train_config.get("train_epoch_wise_filter", NotSpecified)
     label_prior = train_config.get("label_prior", False)
     random_init = train_config.get("random_init", False)
     am_lm_prior_full_sum_init = train_config.get("am_lm_prior_full_sum_init", (0.1, 1.5, 0.4))
     init = train_config.get("init", "100h-supervised")
     decode_every_step_init = train_config.get("decode_every_step_init", True)
+    tune_hyperparameters = train_config.get("tune_hyperparameters", False)
+    decoder_hyperparameters_updates = train_config.get("decoder_hyperparameters_updates", {})
     alt_decoder = train_config.get("alt_decoder", False)
+    decoder_lm_config = train_config.get("decoder_lm_config", {"class": "FeedForwardLm", "context_size": 8})
     decoding_imp = train_config.get("decoding_imp", "albert-greedy")
     if not init.endswith("unsupervised"):
       decode_every_step_init = False
     skip_init_train = train_config.get("skip_init_train", False)
     pseudo_label_ds_str = train_config.get("pseudo_label_ds_str", "960h")
+    train_ds_str = train_config.get("train_ds_str", None)
+    if train_ds_str is None:
+      if init.startswith("100h"):
+        train_ds_str = "100h"
+      else:
+        train_ds_str = "960h"
+    grad_nbest = train_config.get("grad_nbest", 10)
 
     scales_stop_grad = train_config.get("scales_stop_grad", False)
     if scales_stop_grad:
@@ -1124,7 +1321,7 @@ def py():
           step_const_fraction=0.5
         )
 
-      config_updates["batch_size"] = bs_feat * _batch_size_factor
+      lr_config["batch_size"] = bs_feat * _batch_size_factor
 
     if self_training_rounds > 0:
       if self_train_subset:
@@ -1177,7 +1374,7 @@ def py():
               decoder_hyperparameters["recomb_after_topk"] = True
             if recombine_with_sum:
               decoder_hyperparameters["recomb_with_sum"] = True
-      if decode_every_step or pseudo_nbest > 1 or decode_every_step_init or use_sum_criterion or init == "100h-unsupervised":
+      if decode_every_step or pseudo_nbest > 1 or decode_every_step_init or use_sum_criterion:  # or init == "100h-unsupervised":
         assert train_lm_config
         model_config["train_language_model"] = train_lm_config
       else:
@@ -1273,6 +1470,8 @@ def py():
         # decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     else:
       raise ValueError(f"Unknown decoder selection: {decoding_imp}")
+
+    decoder_hyperparameters.update(decoder_hyperparameters_updates)
 
     config_updates.update({
       **lr_config,
@@ -1372,6 +1571,7 @@ def py():
           # decoding_str += f"_w2v-config-{w2v_config}"
 
         train_gpu_mem = 24
+        config_updates["__gpu_mem"] = 24
         if w2v_model == "large_960h":
           wav2vec2_chkpt = DownloadJob(
             "https://huggingface.co/facebook/wav2vec2-large/resolve/main/pytorch_model.bin?download=true",
@@ -1457,8 +1657,12 @@ def py():
 
       prolog_content = "import sys\n"
       prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/transformers_package')\n"
-      prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/resampy_package')\n"
       prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/fairseq_package')\n"
+      prolog += [serialization.NonhashedCode(prolog_content)]
+
+    if speed_pert:
+      prolog_content = "import sys\n"
+      prolog_content += "sys.path.insert(0, '/work/asr3/zeyer/schmitt/venvs/resampy_package')\n"
       prolog += [serialization.NonhashedCode(prolog_content)]
 
     # decoding_str += f"_lr-sched-{lr_schedule_type}"
@@ -1467,9 +1671,11 @@ def py():
     if self_training_rounds > 0:
       config_deletes_self_training = []
       config_updates_self_training = {
-        **_get_cfg_lrlin_oclr_by_bs_nep(15_000, self_epochs),
+        # **_get_cfg_lrlin_oclr_by_bs_nep(15_000, self_epochs),
+        **lr_config,
         "optimizer.weight_decay": 1e-2,
-        "__train_audio_preprocess": speed_pert_librosa_config,
+        # "__train_audio_preprocess": speed_pert_librosa_config,
+        "__train_audio_preprocess": config_updates["__train_audio_preprocess"],
       }
       if adamw_betas:
         config_updates_self_training["optimizer.betas"] = adamw_betas
@@ -1605,46 +1811,6 @@ def py():
       # sum_str = ""
       self_epochs = None
 
-    # alias_name = get_alias(
-    #   sup_loss=sup_loss,
-    #   use_ce_loss=use_ce_loss,
-    #   use_seq_gamma_loss=use_seq_gamma_loss,
-    #   use_sum_criterion=use_sum_criterion,
-    #   sum_str=sum_str,
-    #   self_training_rounds=self_training_rounds,
-    #   LR_str=LR_str,
-    #   use_norm_st_loss=use_norm_st_loss,
-    #   reset_steps=reset_steps,
-    #   use_sgd=use_sgd,
-    #   adamw_betas=adamw_betas,
-    #   from_scratch=from_scratch,
-    #   self_train_subset=self_train_subset,
-    #   self_epochs=self_epochs,
-    #   speed_pert=speed_pert,
-    #   aux_loss=aux_loss,
-    #   init=init,
-    #   accum_grad_multiple_step_init=accum_grad_multiple_step_init,
-    #   random_init=random_init,
-    #   pseudo_label_small=pseudo_label_small,
-    #   keep_small_labels=keep_small_labels,
-    #   vocab=vocab,
-    #   label_prior=label_prior,
-    #   decoding_str=decoding_str,
-    #   train_version=train_version,
-    #   blank_penalty_opts=blank_penalty_opts,
-    #   prior_penalty_opts=prior_penalty_opts,
-    #   gradient_penalty_opts=gradient_penalty_opts,
-    #   use_subsampled_enc_logits=use_subsampled_enc_logits,
-    #   collapse_logits_segments=collapse_logits_segments,
-    #   empirical_prior=empirical_prior,
-    #   am_lm_prior_full_sum_init=am_lm_prior_full_sum_init,
-    #   train_epoch_wise_filter=train_epoch_wise_filter,
-    #   rescore_lm_config=rescore_lm_config,
-    #   random_seed=random_seed,
-    #   prior_no_grad=prior_no_grad,
-    #   num_gpus=num_gpus,
-    # )
-
     if decoding_imp in ["flashlight", "marten-greedy"]:
       decoder_def = model_recog_lm
     elif decoding_imp == "albert-greedy":
@@ -1674,7 +1840,7 @@ def py():
       config_deletes_self_training=config_deletes_self_training,
       vocab=vocab,
       self_training_rounds=self_training_rounds,
-      init_small = init.startswith("100h"),
+      init_small=init.startswith("100h"),
       pseudo_label_ds_str=pseudo_label_ds_str,
       keep_small_labels=keep_small_labels,
       with_prior=with_prior,
@@ -1696,158 +1862,11 @@ def py():
       decoding_imp=decoding_imp,
       init_checkpoint=init_checkpoint,
       skip_init_train=skip_init_train,
+      train_ds_str=train_ds_str,
     )
 
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
-
-
-def get_alias(
-        sup_loss,
-        use_ce_loss,
-        use_seq_gamma_loss,
-        use_sum_criterion,
-        sum_str,
-        self_training_rounds,
-        LR_str,
-        use_norm_st_loss,
-        reset_steps,
-        use_sgd,
-        adamw_betas,
-        from_scratch,
-        self_train_subset,
-        self_epochs,
-        speed_pert,
-        aux_loss,
-        init,
-        accum_grad_multiple_step_init,
-        random_init,
-        pseudo_label_small,
-        keep_small_labels,
-        vocab,
-        label_prior,
-        decoding_str,
-        train_version,
-        blank_penalty_opts,
-        prior_penalty_opts,
-        gradient_penalty_opts,
-        use_subsampled_enc_logits,
-        collapse_logits_segments,
-        empirical_prior,
-        am_lm_prior_full_sum_init,
-        train_epoch_wise_filter,
-        rescore_lm_config,
-        random_seed,
-        prior_no_grad,
-        num_gpus,
-):
-  # Base loss type
-  loss_type = "ce" if use_ce_loss else ("seq_ce" if use_seq_gamma_loss else sup_loss)
-
-  # Self-training suffix
-  st_suffix = ""
-  if self_training_rounds > 0:
-    st_suffix = f"-st_{self_training_rounds}" + LR_str
-    st_suffix += "_no_norm" if not use_norm_st_loss else ""
-    st_suffix += "_keep_LR" if not reset_steps else ""
-    if use_sgd:
-      st_suffix += "_SGD"
-    elif adamw_betas:
-      b1 = str(adamw_betas[0]).replace('.', '')
-      b2 = str(adamw_betas[1]).replace('.', '')
-      st_suffix += f"_b1-{b1}_b2-{b2}"
-    st_suffix += "_from_scratch" if from_scratch else ""
-    st_suffix += f"_s{self_train_subset}" if self_train_subset is not None else ""
-    st_suffix += f"_e{self_epochs}" if self_epochs != 450 else ""
-
-  # Auxiliary loss
-  aux_suffix = "-wo_aux_loss" if not aux_loss else ""
-
-  # Init type
-  if init == "100h-supervised":
-    init_suffix = "-ds100h"
-  elif init == "100h-unsupervised":
-    init_suffix = "-ds100US"
-    if accum_grad_multiple_step_init > 1:
-      init_suffix += f"_accum{accum_grad_multiple_step_init}"
-    if not random_init:
-      init_suffix += "_emp_init"
-  else:
-    init_suffix = ""
-
-  # Pseudo-labeling
-  pl_suffix = ""
-  if not pseudo_label_small:
-    pl_suffix = "-pl960h"
-    if keep_small_labels:
-      pl_suffix += "_keep100h"
-
-  bp_suffix = ""
-  if blank_penalty_opts:
-    bp_suffix += f"_bp-{blank_penalty_opts['blank_penalty']}"
-
-  lpp_suffix = ""
-  if prior_penalty_opts:
-    lpp_suffix = f"_lpp-{prior_penalty_opts['scale']}"
-
-  gp_suffix = ""
-  if gradient_penalty_opts:
-    gp_suffix = f"_gp-{gradient_penalty_opts['target_gradient_log_l2_norm']}"
-
-  ss_enc_suffix = ""
-  if use_subsampled_enc_logits:
-    ss_enc_suffix = "-ss-enc"
-  collapse_enc_suffix = ""
-  if collapse_logits_segments:
-    collapse_enc_suffix = "_collapse-logits"
-
-  ep_wise_filter_suffix = ""
-  if isinstance(train_epoch_wise_filter, dict):
-    assert len(train_epoch_wise_filter) == 1
-    ep_wise_filter = list(train_epoch_wise_filter.keys())[0]
-    ep_wise_filter_suffix = f"-ep-wise-{ep_wise_filter[1]}"
-
-  rescore_lm_suffix = ""
-  if rescore_lm_config:
-    assert rescore_lm_config["class"] == "FeedForwardLm"
-    rescore_lm_suffix = f"resc-ff-{rescore_lm_config['context_size']}"
-
-  am_lm_prior_suffix = ""
-  if isinstance(am_lm_prior_full_sum_init, dict) and init == "100h-unsupervised":
-    for name, scale in am_lm_prior_full_sum_init.items():
-      if isinstance(scale, float):
-        am_lm_prior_suffix += f"{name[:-len('_scale')]}-{scale}"
-      else:
-        am_lm_prior_suffix += f"{name[:-len('_scale')]}-st-{scale['steps']}-val-{scale['values']}"
-
-  # Final construction
-  alias_name = (
-          loss_type +
-          (sum_str if use_sum_criterion else "") +
-          st_suffix +
-          aux_suffix +
-          init_suffix +
-          f"_{num_gpus}-g" +
-          pl_suffix +
-          f"-{vocab}" +
-          "_" + ("emp" if empirical_prior else "mod") +
-          ("-laPR" if label_prior else "-frPR") +
-          ("-grad" if not prior_no_grad else "") +
-          ("_no-sp" if not speed_pert else "") +
-          decoding_str + "/" +
-          (f"_v{train_version}" if train_version != 1 else "") +
-          bp_suffix +
-          lpp_suffix +
-          gp_suffix +
-          ss_enc_suffix +
-          collapse_enc_suffix +
-          ep_wise_filter_suffix +
-          rescore_lm_suffix +
-          "/" + am_lm_prior_suffix +
-          (f"_sd-{random_seed}" if random_seed is not None else "")
-  )
-
-  return alias_name
 
 
 # noinspection PyShadowingNames
@@ -1872,6 +1891,7 @@ def train_exp(
         epilog: Sequence[serialization.SerializerObject] = (),
         prolog: Sequence[serialization.SerializerObject] = (),
         num_epochs: int = 2000,
+        self_num_epochs: int = 2000,
         gpu_mem: Optional[int] = 24,
         num_processes: Optional[int] = None,
         time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
@@ -1898,14 +1918,16 @@ def train_exp(
         decoding_imp: str = "albert-greedy",
         skip_init_train: bool = False,
         init_checkpoint: Optional[tk.Path],
+        train_ds_str: str,
 ) -> Optional[ModelWithCheckpoints]:
   """
   Train experiment
   """
   from i6_experiments.users.mueller.train import train
   from i6_experiments.users.mueller.recog import recog_training_exp
-  from i6_experiments.users.schmitt.datasets.librispeech import get_librispeech_task_raw_v2_schmitt as get_librispeech_task_raw_v2
-  from i6_experiments.users.mueller.datasets.librispeech import TrainDatasetSel
+  from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.recog import generate_pseudo_labels
+  from i6_experiments.users.schmitt.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
+  # from i6_experiments.users.mueller.datasets.librispeech import TrainDatasetSel
 
   print("Job Name:", name)
   if not enabled:
@@ -1917,19 +1939,28 @@ def train_exp(
   prefix = _sis_prefix + "/" + name
   gradient_pseudo_labels = isinstance(decoder_def, tuple)
 
-  if pseudo_label_ds_str == "860h":
-    save_pseudo_labels = TrainDatasetSel.train_860h
-  elif pseudo_label_ds_str == "_train-clean-100-short":
-    save_pseudo_labels = TrainDatasetSel._train_clean_100_short
-  else:
-    assert pseudo_label_ds_str == "960h"
-    save_pseudo_labels = TrainDatasetSel.train_960h
+  def dataset_str_to_sel(ds_str: str) -> TrainDatasetSel:
+    if ds_str == "860h":
+      return TrainDatasetSel.train_860h
+    elif ds_str == "_train-clean-100-short":
+      return TrainDatasetSel._train_clean_100_short
+    elif ds_str == "train-clean-100-max-10s":
+      return TrainDatasetSel.train_clean_100_max_10s
+    elif ds_str == "100h":
+      return TrainDatasetSel.train_100h
+    elif ds_str == "960h":
+      return TrainDatasetSel.train_960h
+    else:
+      raise ValueError(f"Unknown dataset string: {ds_str}")
+
+  save_pseudo_labels = dataset_str_to_sel(pseudo_label_ds_str)
+  ds_sel = dataset_str_to_sel(train_ds_str)
 
   task, pseudo_labels_ds, train_100_ds = get_librispeech_task_raw_v2(
     vocab=vocab,
     train_vocab_opts=train_vocab_opts,
     save_pseudo_labels=save_pseudo_labels if self_training_rounds > 0 or calc_last_pseudo_labels else None,
-    ds_sel=TrainDatasetSel.train_100h if init_small else TrainDatasetSel.train_960h,
+    ds_sel=ds_sel,
     init_small=init_small,
     with_prior=with_prior,
     empirical_prior=empirical_prior,
@@ -1959,7 +1990,7 @@ def train_exp(
   if model_config:
     mc = model_config.copy()
     if "train_language_model" in mc:
-      if not config.get("decode_every_step", False) or mc["train_language_model"]["class"] == "ngram":
+      if (not config.get("decode_every_step", False) and not use_sum_criterion) or mc["train_language_model"]["class"] == "ngram":
         mc.pop("train_language_model", None)
     if "output_bias_init" in mc and mc["output_bias_init"]:
       mc[
@@ -1981,7 +2012,7 @@ def train_exp(
   train_lm = None
   if (model_config and "train_language_model" in model_config) or gradient_pseudo_labels:
     if gradient_pseudo_labels:
-      train_language_model = decoder_hyperparameters[1].pop("train_language_model")
+      train_language_model = copy.deepcopy(decoder_hyperparameters[1]["train_language_model"])
     else:
       train_language_model = model_config["train_language_model"].copy()
     cls_name = train_language_model.pop("class")
@@ -1989,7 +2020,7 @@ def train_exp(
     is_ffnn = cls_name == "FeedForwardLm"
     if is_ffnn:
       lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **train_language_model)
-      if not gradient_pseudo_labels:
+      if not gradient_pseudo_labels and self_training_rounds > 0:
         config_updates_self_training.update({
           "preload_from_files": {
             "train_lm": {
@@ -1999,15 +2030,16 @@ def train_exp(
             },
           },
         })
-        if config and config.get("decode_every_step", False):
-          preload_from_files = config.get("preload_from_files", {})
-          preload_from_files.update({
-            "train_lm": {
-              "prefix": "train_language_model.",
-              "filename": lm_checkpoint.checkpoint,
-            },
-          })
-          config["preload_from_files"] = preload_from_files
+      if (config and config.get("decode_every_step", False)) or use_sum_criterion:
+        preload_from_files = config.get("preload_from_files", {})
+        preload_from_files.update({
+          "train_lm": {
+            "prefix": "train_language_model.",
+            "filename": lm_checkpoint.checkpoint,
+            "init_for_train": True
+          },
+        })
+        config["preload_from_files"] = preload_from_files
       train_lm = lm_checkpoint
     else:
       train_lm = get_count_based_n_gram(task.train_dataset.vocab, train_language_model["order"])
@@ -2171,14 +2203,23 @@ def train_exp(
 
   pst = hyperparamters_self_training[0] if hyperparamters_self_training is not None and isinstance(
     hyperparamters_self_training, tuple) else hyperparamters_self_training
-  pseudo_label_path_dict = recog_training_exp(
-    f"{prefix}/{decoding_imp}",
+
+  def _get_decoding_alias():
+    lm_scale, prior_scale = decoder_hyperparameters.get("lm_weight", None), decoder_hyperparameters.get("prior_weight", None)
+    decoding_alias = f"{decoding_imp}"
+    if lm_scale is not None:
+      decoding_alias += f"-lm-{lm_scale:.2f}"
+    if prior_scale is not None:
+      decoding_alias += f"-prior-{prior_scale:.2f}"
+    return decoding_alias
+
+  recog_training_exp(
+    f"{prefix}/{_get_decoding_alias()}",
     task,
     model_with_checkpoint[0],
     recog_def=decoder_def,
     decoder_hyperparameters=decoder_hyperparameters,
-    save_pseudo_labels=(pseudo_labels_ds,
-                        train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
+    save_pseudo_labels=None,
     pseudo_label_alignment=use_ce_loss,
     pseudo_nbest=pseudo_nbest,
     calculate_pseudo_label_scores=calculate_pseudo_label_scores_init and not gradient_pseudo_labels,
@@ -2200,6 +2241,32 @@ def train_exp(
     scales=scales,
     # model_avg=True,
   )
+
+  pseudo_label_path_dict = None
+  if calc_last_pseudo_labels or self_training_rounds > 0:
+    pseudo_label_path_dict = generate_pseudo_labels(
+      f"{prefix}/{decoding_imp}",
+      task,
+      model_with_checkpoint[0],
+      recog_def=decoder_def,
+      decoder_hyperparameters=decoder_hyperparameters,
+      save_pseudo_labels=(pseudo_labels_ds, train_100_ds),
+      pseudo_label_alignment=use_ce_loss,
+      pseudo_nbest=pseudo_nbest,
+      calculate_pseudo_label_scores=calculate_pseudo_label_scores_init and not gradient_pseudo_labels,
+      # NOTE: breaks hash
+      search_config=search_config,
+      recog_post_proc_funcs=recog_post_proc_funcs,
+      search_mem_rqmt=32 if gradient_pseudo_labels else 6,
+      num_shards_pseudo=num_shards_pseudo,
+      num_shards_prior=num_shards_prior_init,
+      is_last=self_training_rounds == 0,
+      get_prev=(pst is not None and (pst.get("keep_best_decoding", False)), False),
+      prior_from_max=prior_from_max,
+      empirical_prior=emp_prior if with_prior and empirical_prior else None,
+      cache_manager=cache_manager,
+      return_beam=(self_training_rounds > 0 and config_updates_self_training.get("decode_every_step", False)),
+    )
 
   # Do self training on pseudo labels
   for i in range(self_training_rounds):
@@ -2279,7 +2346,7 @@ def train_exp(
       init_params=init_checkpoint,
       reset_steps=True if reset_steps or i == 0 else False,
       finish_all=config_self.get("decode_every_step", False),
-      num_epochs=num_epochs,
+      num_epochs=self_num_epochs,
       gpu_mem=gpu_mem,
       num_processes=num_processes,
       time_rqmt=time_rqmt if time_rqmt else ((8 if self_train_subset else 156) if use_sum_criterion else 156),
@@ -2344,14 +2411,13 @@ def train_exp(
         hst.pop("keep_best_decoding")
         sc["__prev_hyps"] = pseudo_label_path_dict
 
-    pseudo_label_path_dict = recog_training_exp(
+    recog_training_exp(
       prefix_self_training,
       task,
       model_with_checkpoint[i + 1],
       recog_def=decoder_def,
       decoder_hyperparameters=hst,
-      save_pseudo_labels=None if not calc_last_pseudo_labels and i + 1 == self_training_rounds else (pseudo_labels_ds,
-                                                                                                     train_100_ds),
+      save_pseudo_labels=None,
       pseudo_label_alignment=use_ce_loss,
       pseudo_nbest=pseudo_nbest,
       calculate_pseudo_label_scores=calculate_pseudo_label_scores and not gradient_pseudo_labels,
@@ -2371,6 +2437,31 @@ def train_exp(
                      :-1] if not decode_all_fixed_epochs else (),
       return_beam=config_updates_self_training.get("decode_every_step", False),
       scales=scales,
+    )
+
+    pseudo_label_path_dict = generate_pseudo_labels(
+      prefix_self_training,
+      # f"{prefix}/{decoding_imp}",
+      task,
+      model_with_checkpoint[i + 1].get_epoch(model_with_checkpoint[i + 1].last_fixed_epoch_idx),
+      recog_def=decoder_def,
+      decoder_hyperparameters=hst,
+      save_pseudo_labels=(pseudo_labels_ds, train_100_ds),
+      pseudo_label_alignment=use_ce_loss,
+      pseudo_nbest=pseudo_nbest,
+      calculate_pseudo_label_scores=calculate_pseudo_label_scores_init and not gradient_pseudo_labels,
+      # NOTE: breaks hash
+      search_config=search_config,
+      recog_post_proc_funcs=recog_post_proc_funcs,
+      search_mem_rqmt=32 if gradient_pseudo_labels else 6,
+      num_shards_pseudo=num_shards_pseudo,
+      num_shards_prior=num_shards_prior_init,
+      is_last=i + 1 == self_training_rounds,
+      get_prev=(pst is not None and (pst.get("keep_best_decoding", False)), False),
+      prior_from_max=prior_from_max,
+      empirical_prior=emp_prior if with_prior and empirical_prior else None,
+      cache_manager=cache_manager,
+      return_beam=(self_training_rounds > 0 and config_updates_self_training.get("decode_every_step", False)),
     )
 
   _train_experiments[name] = model_with_checkpoint[-1]
@@ -2485,7 +2576,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     train_language_model = train_language_model.copy()
     cls_name = train_language_model.pop("class")
     assert cls_name == "FeedForwardLm"
-    train_lm = FeedForwardLmV2(vocab_dim=target_dim, **train_language_model)
+    train_lm = FeedForwardLm(vocab_dim=target_dim, **train_language_model)
   recog_language_model = config.typed_value("recog_language_model", None)
   recog_lm = None
   if recog_language_model is not None:
@@ -2493,7 +2584,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     recog_language_model = recog_language_model.copy()
     cls_name = recog_language_model.pop("class")
     assert cls_name == "FeedForwardLm"
-    recog_lm = FeedForwardLmV2(vocab_dim=target_dim, **recog_language_model)
+    recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
 
   rescore_language_model = config.typed_value("rescore_language_model", None)
   rescore_lm = None
@@ -2502,7 +2593,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Union[Model, W
     rescore_language_model = rescore_language_model.copy()
     cls_name = rescore_language_model.pop("class")
     assert cls_name == "FeedForwardLm"
-    rescore_lm = FeedForwardLmV2(vocab_dim=target_dim, **rescore_language_model)
+    rescore_lm = FeedForwardLm(vocab_dim=target_dim, **rescore_language_model)
 
   if config.bool("use_w2v_model", False):
     w2v_opts = config.typed_value("w2v_opts", {})
@@ -2698,53 +2789,55 @@ model_recog_flashlight.output_with_beam = True
 model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
 model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
-from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog_lm_albert
 
-# def model_recog_lm_albert(
-#     *,
-#     model: Model,
-#     data: Tensor,
-#     data_spatial_dim: Dim,
-#     hyperparameters: dict,
-#     prior_file: tk.Path = None,
-#     version: Optional[int] = None,
-#     seq_tags: Optional[Tensor] = None
-# ) -> Tuple[Tensor, Tensor, Dim, Dim]:
-#     """
-#     Function is run within RETURNN.
-#
-#     Note, for debugging, see :func:`model_recog_debug` below.
-#
-#     Note, some potential further improvements:
-#     There are many align label seqs which correspond to the same label seq,
-#     but the LM score is calculated for each of them.
-#     We could make this somehow unique depending on the label seq.
-#     (But unclear how exactly to do this in a GPU friendly, batched way.)
-#
-#     :return:
-#         recog results including beam {batch, beam, out_spatial},
-#         log probs {batch, beam},
-#         out_spatial_dim,
-#         final beam_dim
-#     """
-#     assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
-#     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-#     assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
-#
-#     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-#
-#     # The label log probs include the AM
-#     label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
-#
-#     seq_tags = seq_tags.raw_tensor
-#     print_idx = []
-#     if version == 9:
-#         for seq in ["dev-other/1630-96099-0024/1630-96099-0024"]:
-#             if seq in seq_tags:
-#                 idx = np.where(seq_tags == seq)[0]
-#                 print_idx.append(idx)
-#
-#     return recog_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, version=version, print_idx=print_idx)
+# from i6_experiments.users.mueller.experiments.ctc_baseline.ctc import model_recog_lm_albert
+def model_recog_lm_albert(
+        *,
+        model: Model,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        hyperparameters: dict,
+        prior_file: tk.Path = None,
+        version: Optional[int] = None,
+        seq_tags: Optional[Tensor] = None
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+  """
+  Function is run within RETURNN.
+
+  Note, for debugging, see :func:`model_recog_debug` below.
+
+  Note, some potential further improvements:
+  There are many align label seqs which correspond to the same label seq,
+  but the LM score is calculated for each of them.
+  We could make this somehow unique depending on the label seq.
+  (But unclear how exactly to do this in a GPU friendly, batched way.)
+
+  :return:
+      recog results including beam {batch, beam, out_spatial},
+      log probs {batch, beam},
+      out_spatial_dim,
+      final beam_dim
+  """
+  assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+  logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+  assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+
+  batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+
+  # The label log probs include the AM
+  label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+
+  seq_tags = seq_tags.raw_tensor
+  print_idx = []
+  if version == 9:
+    for seq in ["dev-other/1630-96099-0024/1630-96099-0024"]:
+      if seq in seq_tags:
+        idx = np.where(seq_tags == seq)[0]
+        print_idx.append(idx)
+
+  return recog_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim,
+                    hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, version=version,
+                    print_idx=print_idx)
 
 # RecogDef API
 model_recog_lm_albert: RecogDef[Model]
