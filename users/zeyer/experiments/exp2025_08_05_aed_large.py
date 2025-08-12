@@ -867,7 +867,7 @@ def py():
     from i6_experiments.users.zeyer.nn_rf.layerdrop import SequentialLayerDrop
 
     # Try stochastic depth in decoder.
-    for layer_drop in [0.1, 0.2]:
+    for layer_drop in [0.1, 0.2, 0.3, 0.4]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-DecLayerDrop{layer_drop}-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
