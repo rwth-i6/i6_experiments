@@ -1729,6 +1729,10 @@ def py():
 
     # TODO ctc without aux
 
+    from ._claix2023_utils import setup_job_symlinks
+
+    setup_job_symlinks()
+
 
 def recog_ext_with_lm(*, ctc_model_name: str, ctc_model: Optional[ModelWithCheckpoint] = None, lm_name: str):
     from .ctc_recog_ext import (
