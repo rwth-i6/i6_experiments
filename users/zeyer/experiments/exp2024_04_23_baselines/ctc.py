@@ -2203,6 +2203,7 @@ class Model(rf.Module):
         self.ctc_label_smoothing_exclude_blank = config.bool(
             "ctc_label_smoothing_exclude_blank", self.out_blank_separated
         )
+        self.aux_ctc_label_smoothing = config.float("aux_ctc_label_smoothing", self.ctc_label_smoothing)
 
         self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
         self.log_prob_normed_grad_exclude_blank = config.bool(
@@ -2469,25 +2470,26 @@ class Model(rf.Module):
 
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs, aux_layer=aux_layer)
 
-        if self.ctc_label_smoothing:
+        ctc_label_smoothing = self.ctc_label_smoothing if aux_layer is None else self.aux_ctc_label_smoothing
+        if ctc_label_smoothing:
             if self.ctc_label_smoothing_exclude_blank:
                 if self.out_blank_separated:
                     if log_probs.feature_dim == self.target_dim:
                         log_probs = rf.label_smoothed_log_prob_gradient(
-                            log_probs, smoothing=self.ctc_label_smoothing, axis=self.target_dim
+                            log_probs, smoothing=ctc_label_smoothing, axis=self.target_dim
                         )
                 else:
                     assert log_probs.feature_dim == self.wb_target_dim
                     log_probs = rf.label_smoothed_log_prob_gradient(
                         log_probs,
-                        smoothing=self.ctc_label_smoothing,
+                        smoothing=ctc_label_smoothing,
                         axis=self.wb_target_dim,
                         exclude_labels=[self.blank_idx],
                     )
             else:
                 if log_probs.feature_dim == self.wb_target_dim:
                     log_probs = rf.label_smoothed_log_prob_gradient(
-                        log_probs, smoothing=self.ctc_label_smoothing, axis=self.wb_target_dim
+                        log_probs, smoothing=ctc_label_smoothing, axis=self.wb_target_dim
                     )
 
         return log_probs
