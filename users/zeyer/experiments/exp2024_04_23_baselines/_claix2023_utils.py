@@ -1,5 +1,8 @@
 """
 Common helpers for the RWTH ITC (CLAIX 2023) cluster.
+
+Also see feature request on Sisyphus hook for a maybe better way to do this:
+https://github.com/rwth-i6/sisyphus/issues/269
 """
 
 import os
