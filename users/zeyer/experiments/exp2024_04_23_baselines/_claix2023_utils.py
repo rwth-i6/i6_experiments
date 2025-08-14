@@ -12,8 +12,8 @@ if not _user_name:
         _user_name = os.path.basename(os.environ["HOME"])
 assert _user_name, f"cannot obtain user name from environment: {os.environ}"
 
-target_dir = f"/hpcwork/p0023999/{_user_name}/setups/exp2024_4_23_baselines/work"
-alias_pattern = re.compile(".*/{aed,ctc,lm}/.*")
+target_dir = f"/hpcwork/p0023999/{_user_name}/setups/exp2024_04_23_baselines"
+alias_pattern = re.compile("(.*/|^)(aed|ctc|lm)/.*")
 
 
 def _is_matching_job(job: tk.Job, *, depth: int = 5) -> bool:
