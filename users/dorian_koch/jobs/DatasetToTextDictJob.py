@@ -81,6 +81,6 @@ class DatasetToTextDictJob(Job):
                 orth = vocab.get_seq_labels(dataset.get_data(seq_idx, self.data_key))
                 if self.vocab_to_words:
                     orth = self.vocab_to_words(orth)
-                out.write("%r: %r,\n" % (key, orth))
+                out.write(f"{key!r}: {orth!r},\n")
                 seq_idx += 1
             out.write("}\n")

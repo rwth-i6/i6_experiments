@@ -6,6 +6,52 @@ from i6_core.util import uopen
 import re
 
 
+class TextDictToScoresTextDictJob(Job):
+    def __init__(self, *, text_dict: RecogOutput):
+        self.text_dict = text_dict
+
+        self.out_scores = self.output_path("scores.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        with uopen(self.text_dict.output) as f:
+            txt = f.read()
+
+        from returnn.util.literal_py_to_pickle import literal_eval
+
+        # Note: literal_py_to_pickle.literal_eval is quite efficient.
+        # However, currently, it does not support inf/nan literals,
+        # so it might break for some input.
+        # We might want to put a simple fallback to eval here if needed.
+        # Or maybe extend literal_py_to_pickle.literal_eval to support inf/nan literals.
+        try:
+            data: Dict[str, Any] = literal_eval(txt)
+        except Exception as exc:
+            print(f"{self}: Warning: literal_py_to_pickle.literal_eval failed:")
+            print(f"  {type(exc).__name__}: {exc}")
+            print("  Fallback to eval...")
+            data: Dict[str, Any] = eval(txt)
+
+        assert data is not None
+        assert isinstance(data, dict)
+        assert len(data) > 0
+        # Check some data.
+        key, value = next(iter(data.items()))
+        assert isinstance(key, str), f"{self}: expected seq tag as keys, got {key!r} ({type(key)})"  # seq tag
+
+        assert isinstance(value, str), f"{self}: expected str ({self.item_format}), got {value!r} ({type(value)})"
+
+        with uopen(self.out_scores, "w") as f:
+            f.write("{\n")
+            for key, value in data.items():
+                assert isinstance(value, str), f"{self}: expected str text, got {value!r} ({type(value)})"
+                f.write(f"{key!r}: [(0.0, {value!r})],\n")
+            f.write("}\n")
+
+
 class AverageScores(Job):
     def __init__(self, *, scores: RecogOutput):
         self.scores = scores
