@@ -2199,20 +2199,11 @@ class Model(rf.Module):
                 vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
             )
 
-        ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
-        ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", self.out_blank_separated)
-        self.ctc_label_smoothing_exclude_blank = ctc_label_smoothing_exclude_blank
-        if not self.out_blank_separated:
-            self.ctc_label_smoothing_opts = {
-                "smoothing": ctc_label_smoothing,
-                "axis": self.wb_target_dim,
-                "exclude_labels": [self.blank_idx] if ctc_label_smoothing_exclude_blank else None,
-            }
-        else:  # separate blank
-            self.ctc_label_smoothing_opts = {
-                "smoothing": ctc_label_smoothing,
-                "axis": self.target_dim if ctc_label_smoothing_exclude_blank else self.wb_target_dim,
-            }
+        self.ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
+        self.ctc_label_smoothing_exclude_blank = config.bool(
+            "ctc_label_smoothing_exclude_blank", self.out_blank_separated
+        )
+
         self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
         self.log_prob_normed_grad_exclude_blank = config.bool(
             "log_prob_normed_grad_exclude_blank", self.out_blank_separated
@@ -2478,17 +2469,26 @@ class Model(rf.Module):
 
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs, aux_layer=aux_layer)
 
-        if self.ctc_label_smoothing_exclude_blank:
-            if self.out_blank_separated:
-                if log_probs.feature_dim == self.target_dim:
-                    log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+        if self.ctc_label_smoothing:
+            if self.ctc_label_smoothing_exclude_blank:
+                if self.out_blank_separated:
+                    if log_probs.feature_dim == self.target_dim:
+                        log_probs = rf.label_smoothed_log_prob_gradient(
+                            log_probs, smoothing=self.ctc_label_smoothing, axis=self.target_dim
+                        )
+                else:
+                    assert log_probs.feature_dim == self.wb_target_dim
+                    log_probs = rf.label_smoothed_log_prob_gradient(
+                        log_probs,
+                        smoothing=self.ctc_label_smoothing,
+                        axis=self.wb_target_dim,
+                        exclude_labels=[self.blank_idx],
+                    )
             else:
-                assert log_probs.feature_dim == self.wb_target_dim
-                assert self.ctc_label_smoothing_opts["exclude_labels"] == [self.blank_idx]
-                log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
-        else:
-            if log_probs.feature_dim == self.wb_target_dim:
-                log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+                if log_probs.feature_dim == self.wb_target_dim:
+                    log_probs = rf.label_smoothed_log_prob_gradient(
+                        log_probs, smoothing=self.ctc_label_smoothing, axis=self.wb_target_dim
+                    )
 
         return log_probs
 
