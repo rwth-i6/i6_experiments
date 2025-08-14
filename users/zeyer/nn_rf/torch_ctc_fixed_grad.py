@@ -6,7 +6,6 @@ This here is PyTorch specific.
 We provide a pure PyTorch function and also a RF function.
 """
 
-
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from returnn.tensor import Tensor, Dim
