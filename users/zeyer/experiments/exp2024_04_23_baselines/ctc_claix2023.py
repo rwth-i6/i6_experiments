@@ -4,17 +4,14 @@ Config for RWTH IPC CLAIX-2023 cluster experiments for CTC
 
 from __future__ import annotations
 
-from typing import Optional, Any, Dict
+from typing import Optional
 from sisyphus import tk
 
-from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
-from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 from .configs import (
     config_96gb_bf16_accgrad1,
     _get_cfg_lrlin_oclr_by_bs_nep_v3,
-    _get_cfg_lrlin_oclr_by_bs_nep_v4,
     _batch_size_factor,
 )
 from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
@@ -654,7 +651,7 @@ def py():
 
     # Time downsampling 6 (standard), spm512. Just a standard baseline with spm512.
     ctc_train_exp(
-        f"n12-spm512-auxAED-b150k",
+        "n12-spm512-auxAED-b150k",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_conformer_layer": rf.build_dict(
@@ -692,7 +689,7 @@ def py():
     # Time downsampling 6 (standard), spm10k.
     # Separate FF net.
     ctc_train_exp(
-        f"n12-spm10k-sepFf_alpha05-auxAED-b150k",
+        "n12-spm10k-sepFf_alpha05-auxAED-b150k",
         config_96gb_bf16_accgrad1,
         train_def=ctc_training_with_sep_net,
         model_config={
@@ -1329,7 +1326,7 @@ def py():
     ]:
         ctc_train_exp(
             f"n12-auxAED-b200k"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-', '_')}" if sample else ""),
             config_96gb_bf16_accgrad1,
             model_config={
                 "enc_conformer_layer": rf.build_dict(
@@ -1375,7 +1372,7 @@ def py():
 
     # Another baseline. Time downsampling 6, spm512.
     ctc_train_exp(  # {"dev-clean": 2.36, "dev-other": 6.14, "test-clean": 2.56, "test-other": 6.15}
-        f"n12-auxAED-b200k-spm512-bpeSample0005",
+        "n12-auxAED-b200k-spm512-bpeSample0005",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_conformer_layer": rf.build_dict(
@@ -1415,7 +1412,7 @@ def py():
     # TODO what now? (see also below the LM exp) maybe also impl weight decay?
     # Try higher lr.
     ctc_train_exp(
-        f"n12-auxAED-b200k-optScaledAdam-lr1e_2-spm512-bpeSample0005",
+        "n12-auxAED-b200k-optScaledAdam-lr1e_2-spm512-bpeSample0005",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_conformer_layer": rf.build_dict(
