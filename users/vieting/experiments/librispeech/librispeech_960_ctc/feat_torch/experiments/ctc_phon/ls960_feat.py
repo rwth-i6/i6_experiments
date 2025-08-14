@@ -710,6 +710,66 @@ def eow_phon_ls960_relposencoder_0924_base():
             num_mels=80,
             mel_triangle_percentage=1e-10,
         ),
+        "stft_v71": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=18,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v72": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=22,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v73": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=24,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v74": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=28,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v75": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=32,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
     }
     model_config = FeatureModelConfigV2(
         specaug_config=specaug_configs["stft_v1"],
@@ -726,6 +786,10 @@ def eow_phon_ls960_relposencoder_0924_base():
         (".stftsa.scf", []),
         (".stftsav47.scf", []),
         (".stftsav65.scf", []),
+        (".stftsav66.scf", []),
+        (".stftsav67.scf", []),
+        (".stftsav71.scf", []),
+        (".stftsav72.scf", []),
         (".defaultsav11.scf", []),
     ]:
         model_config_exp = copy.deepcopy(model_config)
@@ -752,7 +816,8 @@ def eow_phon_ls960_relposencoder_0924_base():
     # rerun log mel with STFT-domain SpecAugment
     logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
     for specaug_version in [
-        "none", "stft_v47", "stft_v61", "stft_v62", "stft_v63", "stft_v64", "stft_v65", "stft_v66",
+        "none", "stft_v47", "stft_v61", "stft_v62", "stft_v63", "stft_v64", "stft_v65", "stft_v66", "stft_v67",
+        "stft_v71", "stft_v72",
     ]:
         model_config_exp = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
@@ -1278,6 +1343,11 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx6v1", "stft_v68", 128, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v69", 128, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v70", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v71", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v72", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v73", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v74", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v75", 128, 256, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
@@ -1452,6 +1522,10 @@ def eow_phon_ls960_relposencoder_0924_base():
     for name, specaug_version, conv_layers in [
         ("w2v_fe", "stft_v47", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
         ("w2v_fe", "stft_v65", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v66", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v67", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v71", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v72", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
         ("w2v_fe_lrgfiltv1", "stft_v47", [(512, 64, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
         ("w2v_fe_lrgfiltv2", "stft_v47", [(512, 64, 5)] + [(512, 32, 2)] * 4 + [(512, 16, 2)] * 3),
     ]:
@@ -1474,7 +1548,7 @@ def eow_phon_ls960_relposencoder_0924_base():
         )
 
     # wav2vec feature extractor with subsequent VGG like in ITG 2023 paper
-    for specaug_version in ["stft_v47", "stft_v65"]:
+    for specaug_version in ["stft_v47", "stft_v65", "stft_v66", "stft_v67", "stft_v71", "stft_v72"]:
         w2v_config = Wav2vecFeatureExtractionV1Config(
             conv_layers=[(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)],
             module_class="Wav2vecFeatureExtractionV1",
