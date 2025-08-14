@@ -609,6 +609,13 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         use_normalized_loss = "frames" if use_normalized_loss else "none"
     assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
     label_smoothing = config.float("label_smoothing", 0.1)
+    aux_ctc_label_smoothing = config.float("aux_ctc_label_smoothing", 0.0)
+
+    ctc_loss = rf.ctc_loss
+    if aux_ctc_label_smoothing:
+        from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
+
+        ctc_loss = ctc_loss_fixed_grad
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -622,8 +629,14 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_loss = rf.ctc_loss(
-                logits=aux_logits,
+            aux_ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+            if aux_ctc_label_smoothing:
+                aux_ctc_log_probs = rf.label_smoothed_log_prob_gradient(
+                    aux_ctc_log_probs, smoothing=aux_ctc_label_smoothing, axis=model.wb_target_dim
+                )
+            aux_loss = ctc_loss(
+                logits=aux_ctc_log_probs,
+                logits_normalized=True,
                 targets=targets,
                 input_spatial_dim=enc_spatial_dim,
                 targets_spatial_dim=targets_spatial_dim,
@@ -931,6 +944,7 @@ class Model(rf.Module):
                 wb_target_dim = target_dim + 1
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+        self.wb_target_dim = wb_target_dim
 
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
