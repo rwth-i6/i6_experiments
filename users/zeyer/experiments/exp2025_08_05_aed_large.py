@@ -873,9 +873,9 @@ def py():
     )
 
     # Aux CTC loss with label smoothing (auxCtcLs)
-    for aux_ctc_ls in [0.0, 0.1, 0.5]:
+    for aux_loss_layers, aux_ctc_ls in [([4, 8], 0.0), ([4, 8], 0.1), ([4, 8], 0.5), ([4, 10, 16], 0.5), ([16], 0.5)]:
         aed_train_exp(
-            f"EncL16-DecL6-D1024-DecPosEncAbs-auxCtcLs{aux_ctc_ls}-spm10k-bpeSample001-baseLr0.5-b100k",
+            f"EncL16-DecL6-D1024-DecPosEncAbs-aux{'_'.join(map(str, aux_loss_layers))}-auxCtcLs{aux_ctc_ls}-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -917,6 +917,7 @@ def py():
                 "accum_grad_multiple_step": 1,
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_loss_layers": aux_loss_layers,
                 "max_seq_length_default_target": None,
                 # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
                 # out of 281241 seqs in train, we removed only 71 seqs.
