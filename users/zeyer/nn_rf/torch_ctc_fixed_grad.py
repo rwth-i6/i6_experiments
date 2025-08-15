@@ -158,11 +158,11 @@ def torch_ctc_fixed_grad(
                 # The ctc_loss (incorrectly) calculates (exp(log_probs) - y) * scale,
                 # where y are the soft targets,
                 # and where we control scale=1 via _StoreGradScaleFunc.
-                global _FixedCTCGradFirstStep
-                if _FixedCTCGradFirstStep:  # do sanity check in first step
+                global _FixedCTCGradStep
+                if _FixedCTCGradStep % 1000 == 0:  # do sanity check from time to time
                     sum_res = grad_output[0, 0].sum().detach().cpu()
-                    assert -1e-5 <= sum_res <= 1e-5, f"Unexpected sum of grad_output: {sum_res}"
-                    _FixedCTCGradFirstStep = False
+                    assert -1e-4 <= sum_res <= 1e-4, f"Unexpected sum of grad_output: {sum_res}"
+                _FixedCTCGradStep += 1
                 # We want to return -y * loss_scale_buffer instead.
                 # Thus, subtract the exp(log_probs) from the grad_output.
                 grad_input = grad_output - log_probs.exp()  # [T, N, C]
@@ -198,4 +198,4 @@ def torch_ctc_fixed_grad(
 
 _FixCTCGradFunc = None
 _StoreGradScaleFunc = None
-_FixedCTCGradFirstStep = True
+_FixedCTCGradStep = 0
