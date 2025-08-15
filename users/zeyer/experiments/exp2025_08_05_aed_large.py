@@ -690,7 +690,7 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    for label_smoothing in [0.2]:
+    for label_smoothing in [0.1, 0.2]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-ls{label_smoothing}-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
@@ -732,7 +732,7 @@ def py():
                 **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
                 "batch_size": 100_000 * _batch_size_factor,
                 "optimizer.weight_decay": 1e-2,
-                "label_smoothing": label_smoothing,
+                **({"label_smoothing": label_smoothing} if label_smoothing != 0.1 else {}),
                 "accum_grad_multiple_step": 1,
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
