@@ -16,6 +16,7 @@ Assuming you already have this:
 
 from typing import Optional, Collection, Sequence, Tuple
 import functools
+from returnn.util.basic import BehaviorVersion
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
@@ -46,6 +47,7 @@ def text_augment(
     :param keep_del_sub_probs: A sequence of probabilities for each augmentation operation [keep, delete, substitute].
     :return: tuple (new input_labels, new targets_w_eos, new spatial_dim).
     """
+    assert BehaviorVersion.get() >= 23  # for correct masking, e.g. rf.pad, rf.scatter
     batch_dims = [d for d in input_labels.dims if d != spatial_dim]
 
     # Handle insertions first because for choosing the optimal target of inserted labels,
@@ -58,11 +60,12 @@ def text_augment(
         )  # e.g. [Batch,Spatial] -> ins_dim (how much to insert, 0, 1, 2, ...), each _after_ frame i in spatial
         new_seq_lens = rf.reduce_sum(ins_choices, axis=spatial_dim) + spatial_dim.dyn_size_ext
         new_spatial_dim = Dim(new_seq_lens, name="after_insert_spatial")
-        # TODO correct...?
-        new_indices = rf.cumsum(ins_choices + 1, spatial_dim=spatial_dim) - 1  # [Batch,Spatial] -> NewSpatial
+        new_indices = (
+            rf.cumsum(ins_choices + 1, spatial_dim=spatial_dim) - 1 - ins_choices
+        )  # [Batch,Spatial] -> NewSpatial
         new_mask = rf.scatter(
             rf.sequence_mask(spatial_dim, device=input_labels.device),
-            indices=new_indices,
+            indices=new_indices.copy_masked(0),
             indices_dim=spatial_dim,
             out_dim=new_spatial_dim,
         )
@@ -75,11 +78,11 @@ def text_augment(
         input_labels = rf.masked_scatter(
             input_labels, backup=new_rnd_input_labels, mask=new_mask, dims=[new_spatial_dim], in_dim=spatial_dim
         )
-        # TODO correct...?
-        back_indices = rf.cumsum(
-            rf.cast(new_mask, "int32"), spatial_dim=new_spatial_dim
+        new_mask_i32 = rf.cast(new_mask, "int32")
+        back_indices = (
+            rf.cumsum(new_mask_i32, spatial_dim=new_spatial_dim) - new_mask_i32
         )  # [Batch,NewSpatial] -> Spatial
-        targets_w_eos = rf.gather(targets_w_eos, indices=back_indices, axis=new_spatial_dim, clip_to_valid=True)
+        targets_w_eos = rf.gather(targets_w_eos, indices=back_indices, axis=spatial_dim, clip_to_valid=True)
         spatial_dim = new_spatial_dim
 
     # Now handle the keep/delete/substitute operations.
@@ -137,9 +140,8 @@ def _random_uniform_exclude(
 
 
 def test_text_augment():
-    from returnn.util.basic import BehaviorVersion
-
     rf.select_backend_torch()
+    rf.set_random_seed(42)
     # Behavior version is important for rf.pad to handle dyn dims correctly.
     BehaviorVersion.set_min_behavior_version(24)
 
@@ -156,8 +158,11 @@ def test_text_augment():
     batch_dim = Dim(len(examples), name="batch")
     seq_lens = rf.convert_to_tensor([len(ex) for ex in examples_bytes], dims=[batch_dim])
     spatial_dim = Dim(seq_lens, name="spatial")
+    vocab_dim = Dim(125, name="vocab")  # ASCII chars, first some specials, then all printable
     labels = rf.convert_to_tensor(
-        [ex + [pad_idx] * (max_len - len(ex)) for ex in examples_bytes], dims=[batch_dim, spatial_dim]
+        [ex + [pad_idx] * (max_len - len(ex)) for ex in examples_bytes],
+        dims=[batch_dim, spatial_dim],
+        sparse_dim=vocab_dim,
     )
     _dump_seq = functools.partial(_dump_seq_w_batch, batch_dim=batch_dim)
 
@@ -167,6 +172,18 @@ def test_text_augment():
     targets_w_eos, _ = rf.pad(labels, axes=[spatial_dim], padding=[(0, 1)], value=eos_idx, out_dims=[w_eos_spatial_dim])
     _dump_seq("input_labels", input_labels)
     _dump_seq("targets_w_eos", targets_w_eos)
+
+    input_labels, targets_w_eos, spatial_dim = text_augment(
+        input_labels=input_labels,
+        targets_w_eos=targets_w_eos,
+        spatial_dim=w_eos_spatial_dim,
+        eos_idx=eos_idx,
+        exclude_labels=list(range(0, 32)),  # exclude special chars and non-printable ASCII
+        ins_probs=[0.8, 0.1, 0.1],
+        keep_del_sub_probs=[0.6, 0.2, 0.2],
+    )
+    _dump_seq("augmented input_labels", input_labels)
+    _dump_seq("augmented targets_w_eos", targets_w_eos)
 
 
 def _dump_seq_w_batch(prefix: str, tensor: Tensor, *, batch_dim: Dim):
