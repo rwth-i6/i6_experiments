@@ -28,6 +28,7 @@ def text_augment(
     spatial_dim: Dim,
     exclude_labels: Collection[int] = (),
     ins_probs: Sequence[float],
+    ins_probs_last_frame: Optional[Sequence[float]] = None,
     keep_del_sub_probs: Sequence[float],
     keep_first_frame: bool = True,
     no_del_last_frame: bool = True,
@@ -44,6 +45,7 @@ def text_augment(
     :param ins_probs: A sequence of probabilities for each augmentation operation [insert0, insert1, insert2, ...].
         If no entries or only one entry, no insertions will be done.
         Insertions are anyway only done after the first frame, so the first frame is always kept.
+    :param ins_probs_last_frame: If given, uses these probabilities for the last frame.
     :param keep_del_sub_probs: A sequence of probabilities for each augmentation operation [keep, delete, substitute].
     :param keep_first_frame: Always keep (no substitute, no delete) first frame (e.g. BOS).
     :param no_del_last_frame: Do not delete (i.e. either keep or substitute) last frame.
@@ -63,6 +65,23 @@ def text_augment(
         ins_choices = rf.random_choice_with_replacement(
             batch_dims + [spatial_dim], probs=ins_probs, axis=ins_dim
         )  # e.g. [Batch,Spatial] -> ins_dim (how much to insert, 0, 1, 2, ...), each _after_ frame i in spatial
+        if ins_probs_last_frame is not None:
+            ins_last_frame_dim = (
+                ins_dim
+                if len(ins_probs_last_frame) == ins_dim.dimension
+                else Dim(len(ins_probs_last_frame), name="ins_last_frame")
+            )
+            ins_probs_last_frame = rf.convert_to_tensor(
+                ins_probs_last_frame, dims=[ins_last_frame_dim], dtype="float32", device=device
+            )
+            ins_choices_last_frame = rf.random_choice_with_replacement(
+                batch_dims, probs=ins_probs_last_frame, axis=ins_last_frame_dim
+            )
+            ins_choices = rf.where(
+                rf.range_over_dim(spatial_dim, device=device) == spatial_dim.get_dyn_size_ext_for_device(device) - 1,
+                ins_choices_last_frame,
+                ins_choices,
+            )
         new_seq_lens = rf.reduce_sum(ins_choices, axis=spatial_dim) + spatial_dim.dyn_size_ext
         new_spatial_dim = Dim(rf.copy_to_device(new_seq_lens, "cpu"), name="after_insert_spatial")
         new_indices = (
@@ -103,7 +122,7 @@ def text_augment(
         keep_del_sub_choices = rf.where(rf.range_over_dim(spatial_dim) < 1, 0, keep_del_sub_choices)
     if no_del_last_frame:
         keep_del_sub_choices = rf.where(
-            rf.range_over_dim(spatial_dim, device=device) >= spatial_dim.get_dyn_size_ext_for_device(device) - 1,
+            rf.range_over_dim(spatial_dim, device=device) == spatial_dim.get_dyn_size_ext_for_device(device) - 1,
             rf.where(rf.random_uniform(batch_dims, device=device) < keep_del_sub_probs[0], 0, 2),
             keep_del_sub_choices,
         )
@@ -203,6 +222,7 @@ def test_text_augment():
             spatial_dim=w_eos_spatial_dim,
             exclude_labels=list(range(0, 32)),  # exclude special chars and non-printable ASCII
             ins_probs=[0.7, 0.2, 0.1],
+            ins_probs_last_frame=[0.1, 0.3, 0.3, 0.3],
             keep_del_sub_probs=[0.8, 0.1, 0.1],
         )
         _dump_seq("augmented input_labels", input_labels_)
