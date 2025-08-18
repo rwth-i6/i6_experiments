@@ -26,10 +26,11 @@ def text_augment(
     input_labels: Tensor,
     targets_w_eos: Tensor,
     spatial_dim: Dim,
-    eos_idx: int,
     exclude_labels: Collection[int] = (),
     ins_probs: Sequence[float],
     keep_del_sub_probs: Sequence[float],
+    keep_first_frame: bool = True,
+    no_del_last_frame: bool = True,
 ) -> Tuple[Tensor, Tensor, Dim]:
     """
 
@@ -37,43 +38,47 @@ def text_augment(
     :param targets_w_eos: [Batch...,spatial_dim]. We assume this has EOS in the end,
         i.e. it is like input_labels but BOS removed and EOS added.
     :param spatial_dim: The spatial dimension of the labels.
-    :param eos_idx: The index of the EOS token. Newly added frames after the end will use this for the targets.
-        (For all other added frames, the targets will be the right target label.)
     :param exclude_labels: Labels to exclude from substitution on the input labels.
         E.g. you might want to exclude the BOS and EOS labels.
         (But this is maybe not necessary and still would have a good regularization effect.)
     :param ins_probs: A sequence of probabilities for each augmentation operation [insert0, insert1, insert2, ...].
         If no entries or only one entry, no insertions will be done.
+        Insertions are anyway only done after the first frame, so the first frame is always kept.
     :param keep_del_sub_probs: A sequence of probabilities for each augmentation operation [keep, delete, substitute].
+    :param keep_first_frame: Always keep (no substitute, no delete) first frame (e.g. BOS).
+    :param no_del_last_frame: Do not delete (i.e. either keep or substitute) last frame.
+        (This is done after insertions.)
     :return: tuple (new input_labels, new targets_w_eos, new spatial_dim).
     """
     assert BehaviorVersion.get() >= 23  # for correct masking, e.g. rf.pad, rf.scatter
     batch_dims = [d for d in input_labels.dims if d != spatial_dim]
+    device = input_labels.device
+    vocab_dim = input_labels.sparse_dim
 
     # Handle insertions first because for choosing the optimal target of inserted labels,
     # we still must know all the original targets.
     if len(ins_probs) >= 2:
         ins_dim = Dim(len(ins_probs), name="ins")
-        ins_probs = rf.convert_to_tensor(ins_probs, dims=[ins_dim], dtype="float32", device=input_labels.device)
+        ins_probs = rf.convert_to_tensor(ins_probs, dims=[ins_dim], dtype="float32", device=device)
         ins_choices = rf.random_choice_with_replacement(
             batch_dims + [spatial_dim], probs=ins_probs, axis=ins_dim
         )  # e.g. [Batch,Spatial] -> ins_dim (how much to insert, 0, 1, 2, ...), each _after_ frame i in spatial
         new_seq_lens = rf.reduce_sum(ins_choices, axis=spatial_dim) + spatial_dim.dyn_size_ext
-        new_spatial_dim = Dim(new_seq_lens, name="after_insert_spatial")
+        new_spatial_dim = Dim(rf.copy_to_device(new_seq_lens, "cpu"), name="after_insert_spatial")
         new_indices = (
             rf.cumsum(ins_choices + 1, spatial_dim=spatial_dim) - 1 - ins_choices
         )  # [Batch,Spatial] -> NewSpatial
         new_mask = rf.scatter(
-            rf.sequence_mask(spatial_dim, device=input_labels.device),
+            rf.sequence_mask(spatial_dim, device=device),
             indices=new_indices.copy_masked(0),
             indices_dim=spatial_dim,
             out_dim=new_spatial_dim,
         )
         new_rnd_input_labels = _random_uniform_exclude(
             batch_dims + [new_spatial_dim],
-            sparse_dim=input_labels.sparse_dim,
+            sparse_dim=vocab_dim,
             exclude_labels=exclude_labels,
-            device=input_labels.device,
+            device=device,
         )
         input_labels = rf.masked_scatter(
             input_labels, backup=new_rnd_input_labels, mask=new_mask, dims=[new_spatial_dim], in_dim=spatial_dim
@@ -87,12 +92,21 @@ def text_augment(
 
     # Now handle the keep/delete/substitute operations.
     keep_del_sub_dim = Dim(len(keep_del_sub_probs), name="keep_del_sub")
-    keep_del_sub_probs = rf.convert_to_tensor(
-        keep_del_sub_probs, dims=[keep_del_sub_dim], dtype="float32", device=input_labels.device
+    keep_del_sub_probs_ = rf.convert_to_tensor(
+        keep_del_sub_probs, dims=[keep_del_sub_dim], dtype="float32", device=device
     )
     keep_del_sub_choices = rf.random_choice_with_replacement(
-        batch_dims + [spatial_dim], probs=keep_del_sub_probs, axis=keep_del_sub_dim
+        batch_dims + [spatial_dim], probs=keep_del_sub_probs_, axis=keep_del_sub_dim
     )  # e.g. [Batch,Time] -> keep_del_sub_dim
+    keep_del_sub_choices = rf.cast(keep_del_sub_choices, "int32")
+    if keep_first_frame:
+        keep_del_sub_choices = rf.where(rf.range_over_dim(spatial_dim) < 1, 0, keep_del_sub_choices)
+    if no_del_last_frame:
+        keep_del_sub_choices = rf.where(
+            rf.range_over_dim(spatial_dim, device=device) >= spatial_dim.get_dyn_size_ext_for_device(device) - 1,
+            rf.where(rf.random_uniform(batch_dims, device=device) < keep_del_sub_probs[0], 0, 2),
+            keep_del_sub_choices,
+        )
 
     # Now first handle the deletions.
     non_del_mask = keep_del_sub_choices != 1  # 1 is delete, so we keep everything else
@@ -105,13 +119,10 @@ def text_augment(
 
     # Handle the substitutions.
     rand_labels = _random_uniform_exclude(
-        batch_dims + [spatial_dim],
-        sparse_dim=input_labels.sparse_dim,
-        exclude_labels=exclude_labels,
-        device=input_labels.device,
+        batch_dims + [spatial_dim], sparse_dim=vocab_dim, exclude_labels=exclude_labels, device=device
     )
     input_labels = rf.where(keep_del_sub_choices == 0, input_labels, rand_labels)
-    # TODO handle targets
+    # keep targets_w_eos unchanged for substitutions in the inputs.
 
     return input_labels, targets_w_eos, spatial_dim
 
@@ -173,17 +184,29 @@ def test_text_augment():
     _dump_seq("input_labels", input_labels)
     _dump_seq("targets_w_eos", targets_w_eos)
 
-    input_labels, targets_w_eos, spatial_dim = text_augment(
-        input_labels=input_labels,
-        targets_w_eos=targets_w_eos,
-        spatial_dim=w_eos_spatial_dim,
-        eos_idx=eos_idx,
-        exclude_labels=list(range(0, 32)),  # exclude special chars and non-printable ASCII
-        ins_probs=[0.8, 0.1, 0.1],
-        keep_del_sub_probs=[0.6, 0.2, 0.2],
-    )
-    _dump_seq("augmented input_labels", input_labels)
-    _dump_seq("augmented targets_w_eos", targets_w_eos)
+    for _ in range(3):
+        input_labels_, targets_w_eos_, spatial_dim_ = text_augment(
+            input_labels=input_labels,
+            targets_w_eos=targets_w_eos,
+            spatial_dim=w_eos_spatial_dim,
+            exclude_labels=list(range(0, 32)),  # exclude special chars and non-printable ASCII
+            ins_probs=[0.9, 0.08, 0.02],
+            keep_del_sub_probs=[0.8, 0.1, 0.1],
+        )
+        _dump_seq("augmented input_labels", input_labels_)
+        _dump_seq("augmented targets_w_eos", targets_w_eos_)
+
+    for _ in range(3):
+        input_labels_, targets_w_eos_, spatial_dim_ = text_augment(
+            input_labels=input_labels,
+            targets_w_eos=targets_w_eos,
+            spatial_dim=w_eos_spatial_dim,
+            exclude_labels=list(range(0, 32)),  # exclude special chars and non-printable ASCII
+            ins_probs=[0.7, 0.2, 0.1],
+            keep_del_sub_probs=[0.8, 0.1, 0.1],
+        )
+        _dump_seq("augmented input_labels", input_labels_)
+        _dump_seq("augmented targets_w_eos", targets_w_eos_)
 
 
 def _dump_seq_w_batch(prefix: str, tensor: Tensor, *, batch_dim: Dim):
