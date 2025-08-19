@@ -674,7 +674,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     if text_augment:
         input_labels, targets_w_eos, targets_w_eos_spatial_dim = text_augment(
             input_labels=input_labels,
-            targets=targets_w_eos,
+            targets_w_eos=targets_w_eos,
             spatial_dim=targets_w_eos_spatial_dim,
             exclude_labels={model.bos_idx, model.eos_idx},
         )
