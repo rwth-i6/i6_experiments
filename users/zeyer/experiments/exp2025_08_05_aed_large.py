@@ -1231,15 +1231,16 @@ def py():
     # Try with text augment.
     from i6_experiments.users.zeyer.nn_rf.text_augment import text_augment
 
-    def _ta_vA_err_prob(p):
+    def _ta_vA_err_prob(q):
+        # q=(1-p)^2 will be the approx error rate.
+        p = round(1 - (1 - q) ** 0.5, 5)
         return {
             "ins_probs": [1 - p, p * 0.8, p * 0.2],
             "keep_del_sub_probs": [1 - p, p * 0.6, p * 0.4],
         }
 
     for name, opts in [
-        ("A0.1", _ta_vA_err_prob(0.1)),
-        ("A0.2", _ta_vA_err_prob(0.2)),
+        ("A0.19", _ta_vA_err_prob(0.19)),
     ]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-textAug{name}-spm10k-bpeSample001-baseLr0.5-b100k",
