@@ -34,11 +34,24 @@ def _is_matching_job(job: tk.Job, *, depth: int = 5) -> bool:
     return False
 
 
+def should_symlink_jobs() -> bool:
+    """currently only for my specific user"""
+    if "az668407" in os.environ.get("USER", ""):
+        return True
+    if "az668407" in os.environ.get("WORK", ""):
+        return True  # work folder, this should be set even when not in interactive session
+    return False
+
+
 def setup_job_symlinks():
     """
     Create symlinks for all jobs with aliases matching the alias_pattern.
     Run this at the very end of your Sisyphus config.
     """
+
+    if not should_symlink_jobs():
+        print("Not symlinking jobs.")
+        return
 
     # Collect all jobs.
     jobs = tk.sis_graph.jobs()
