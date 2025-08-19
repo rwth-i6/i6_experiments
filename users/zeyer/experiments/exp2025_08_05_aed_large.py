@@ -873,6 +873,7 @@ def py():
     )
 
     # featBN with better baseline (DecPosEncAbs and aux4_10_16 etc).
+    # {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
@@ -932,6 +933,11 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+
+    # TODO rmsnorm with 1+scale (better for weight decay). call it V2?
+    # TODO mult EOS
+    # TODO augment: ins/del/sub text...
+    # TODO Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att
 
     # Aux CTC loss with label smoothing (auxCtcLs)
     for aux_loss_layers, aux_ctc_ls in [([4, 8], 0.0), ([4, 8], 0.1), ([4, 8], 0.5), ([4, 10, 16], 0.5), ([16], 0.5)]:
