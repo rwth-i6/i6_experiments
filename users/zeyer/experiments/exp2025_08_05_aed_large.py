@@ -1491,6 +1491,8 @@ def py():
     # TODO prior/ILM?
     # TODO recog, also with LM, maybe ILM
 
+    # TODO recog by default with joint CTC+AED. but do timesync with CTC. also recomb with CTC. maybe collapse CTC.
+
 
 class RMSNormGemma(rf.Module):
     """
