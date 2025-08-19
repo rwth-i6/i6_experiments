@@ -610,6 +610,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
     label_smoothing = config.float("label_smoothing", 0.1)
     aux_ctc_label_smoothing = config.float("aux_ctc_label_smoothing", 0.0)
+    text_augment = config.typed_value("text_augment", None)
 
     ctc_loss = rf.ctc_loss
     if aux_ctc_label_smoothing:
@@ -670,6 +671,13 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     targets_w_eos, _ = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx, out_dims=[targets_w_eos_spatial_dim]
     )
+    if text_augment:
+        input_labels, targets_w_eos, targets_w_eos_spatial_dim = text_augment(
+            input_labels=input_labels,
+            targets=targets_w_eos,
+            spatial_dim=targets_w_eos_spatial_dim,
+            exclude_labels={model.bos_idx, model.eos_idx},
+        )
 
     logits, _ = model.decoder(
         input_labels,
