@@ -229,6 +229,58 @@ def test_text_augment():
         _dump_seq("augmented targets_w_eos", targets_w_eos_)
 
 
+def test_text_augment_err_stats():
+    rf.select_backend_torch()
+    rf.set_random_seed(42)
+    # Behavior version is important for rf.pad to handle dyn dims correctly.
+    BehaviorVersion.set_min_behavior_version(24)
+
+    examples = [
+        "This is a test. A long test to see how it works. And maybe some more text.",
+        "Another example: What happens if we have a longer text?",
+        "Text augmentation is fun! Let's see how it works. And it can be very useful.",
+        "Let there be some robot. And a cloud. And some rain. And some sunshine. And a rainbow.",
+    ]
+    examples_bytes = [[int(b) for b in ex.encode("ascii")] for ex in examples]
+    pad_idx, bos_idx, eos_idx = 0, 2, 3
+    max_len = max(len(ex) for ex in examples_bytes)
+    batch_dim = Dim(len(examples), name="batch")
+    seq_lens = rf.convert_to_tensor([len(ex) for ex in examples_bytes], dims=[batch_dim])
+    spatial_dim = Dim(seq_lens, name="spatial")
+    vocab_dim = Dim(125, name="vocab")  # ASCII chars, first some specials, then all printable
+    labels = rf.convert_to_tensor(
+        [ex + [pad_idx] * (max_len - len(ex)) for ex in examples_bytes],
+        dims=[batch_dim, spatial_dim],
+        sparse_dim=vocab_dim,
+    )
+    _dump_seq = functools.partial(_dump_seq_w_batch, batch_dim=batch_dim)
+    _dump_seq("labels", labels)
+
+    input_labels, (w_eos_spatial_dim,) = rf.pad(labels, axes=[spatial_dim], padding=[(1, 0)], value=bos_idx)
+    targets_w_eos, _ = rf.pad(labels, axes=[spatial_dim], padding=[(0, 1)], value=eos_idx, out_dims=[w_eos_spatial_dim])
+
+    num_errors = 0
+    ref_len = 0
+    ref_len_step = sum(len(ex) for ex in examples_bytes)
+    for step in range(100):
+        input_labels_, targets_w_eos_, w_eos_spatial_dim_ = text_augment(
+            input_labels=input_labels,
+            targets_w_eos=targets_w_eos,
+            spatial_dim=w_eos_spatial_dim,
+            exclude_labels=list(range(0, 32)),  # exclude special chars and non-printable ASCII
+            ins_probs=[0.95, 0.04, 0.01],
+            keep_del_sub_probs=[0.95, 0.03, 0.02],
+        )
+        labels_, spatial_dim_ = rf.slice(input_labels_, axis=w_eos_spatial_dim_, start=1)  # remove BOS
+        _dump_seq("augmented input labels", labels_)
+        errs = rf.edit_distance(labels, spatial_dim, labels_, spatial_dim_)  # [Batch]
+        num_errors_step = rf.reduce_sum(errs, axis=errs.dims).raw_tensor.item()
+        print(f"{step}: Errors: {num_errors_step} / {ref_len_step}, rate: {num_errors_step / ref_len_step:.1%}")
+        num_errors += rf.reduce_sum(errs, axis=errs.dims).raw_tensor.item()
+        ref_len += ref_len_step
+    print(f"Total errors: {num_errors}, reference length: {ref_len}, error rate: {num_errors / ref_len:.1%}")
+
+
 def _dump_seq_w_batch(prefix: str, tensor: Tensor, *, batch_dim: Dim):
     (dim_,) = tensor.remaining_dims(batch_dim)
     raw = tensor.copy_transpose([batch_dim, dim_]).raw_tensor
