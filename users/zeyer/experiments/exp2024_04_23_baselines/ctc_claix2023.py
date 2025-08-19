@@ -149,7 +149,7 @@ def py():
         recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # Try label smoothing. Potential different values for aux losses and for main loss.
-    for ls, aux_ls in [(0.0, 0.0), (0.1, 0.1), (0.0, 0.1), (0.0, 0.2), (0.0, 0.5)]:
+    for ls, aux_ls in [(0.0, 0.0), (0.1, 0.1), (0.2, 0.2), (0.3, 0.3), (0.0, 0.1), (0.0, 0.2), (0.0, 0.5)]:
         num_layers = 16
         num_dims = 1024
         batch_size = 100_000
