@@ -4,6 +4,7 @@ New AED baseline tuning for larger AED model.
 
 from __future__ import annotations
 
+from typing import Union, Sequence
 import functools
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 
@@ -21,6 +22,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
 import returnn.frontend as rf
+from returnn.tensor import Tensor
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import (
     ConformerEncoder,
@@ -750,6 +752,9 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
+    # wdblackNorm: add LayerNorm/RMSNorm to weight decay blacklist
+    # no wdblackNorm: {"dev-clean": 2.38, "dev-other": 4.87, "test-clean": 2.89, "test-other": 5.35}
+    #    wdblackNorm: {"dev-clean": 2.54, "dev-other": 4.97, "test-clean": 3.14, "test-other": 5.51}
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-wdblackNorm-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
@@ -796,6 +801,66 @@ def py():
                 "rf.LayerNorm",
                 "rf.RMSNorm",
             ],
+            "accum_grad_multiple_step": 1,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+    # RMSNormGemma: ..*(1+scale) instead of ..*scale as normally done in RMSNorm
+    # no RMSNormGemma: {"dev-clean": 2.38, "dev-other": 4.87, "test-clean": 2.89, "test-other": 5.35}
+    # ...
+    aed_train_exp(
+        "EncL16-DecL6-D1024-DecPosEncAbs-RMSNormGemma-spm10k-bpeSample001-baseLr0.5-b100k",
+        config_96gb_bf16_accgrad1,
+        prefix=prefix + "/aed/",
+        model_config={
+            "enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=16,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+            ),
+            # Default AED decoder size: 6 layers, 512 dim
+            "dec_build_dict": rf.build_dict(
+                TransformerDecoder,
+                num_layers=6,
+                model_dim=dec_model_dim,
+                norm=rf.build_dict(RMSNormGemma),
+                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                dropout=0.1,
+                att_dropout=0.1,
+            ),
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            "batch_size": 100_000 * _batch_size_factor,
+            "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 1,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -873,7 +938,9 @@ def py():
     )
 
     # featBN with better baseline (DecPosEncAbs and aux4_10_16 etc).
-    # {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # (baseline without featBN:
+    #         {"dev-clean": 2.84, "dev-other": 4.85, "test-clean": 3.02, "test-other": 5.20})
+    # featBN: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
@@ -937,7 +1004,7 @@ def py():
     # TODO rmsnorm with 1+scale (better for weight decay). call it V2?
     # TODO mult EOS
     # TODO augment: ins/del/sub text...
-    # TODO Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att
+    # TODO Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att, RMSNormGemma
 
     # Aux CTC loss with label smoothing (auxCtcLs)
     for aux_loss_layers, aux_ctc_ls in [([4, 8], 0.0), ([4, 8], 0.1), ([4, 8], 0.5), ([4, 10, 16], 0.5), ([16], 0.5)]:
@@ -1243,3 +1310,28 @@ def py():
 
     # TODO prior/ILM?
     # TODO recog, also with LM, maybe ILM
+
+
+class RMSNormGemma(rf.Module):
+    """
+    RMSNorm with ...*(1+scale) as in Gemma
+    """
+
+    def __init__(self, in_dim: Union[rf.Dim, Sequence[rf.Dim]], *, eps: float = 1e-6, with_bias: bool = False):
+        super().__init__()
+        self.in_dim = in_dim
+        self.eps = eps
+        self.scale = rf.Parameter([self.in_dim] if isinstance(self.in_dim, rf.Dim) else self.in_dim)
+        self.scale.initial = 0.0
+        self.bias = None
+        if with_bias:
+            self.bias = rf.Parameter(self.scale.dims)
+            self.bias.initial = 0.0
+
+    def __call__(self, x: Tensor) -> Tensor:
+        variance = rf.reduce_mean(rf.square(x), axis=self.in_dim)
+        norm_x = x * rf.rsqrt(variance + self.eps)
+        out = norm_x * (self.scale + 1.0)
+        if self.bias is not None:
+            out += self.bias
+        return out
