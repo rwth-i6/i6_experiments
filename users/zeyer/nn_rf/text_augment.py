@@ -59,7 +59,7 @@ def text_augment(
 
     # Handle insertions first because for choosing the optimal target of inserted labels,
     # we still must know all the original targets.
-    if len(ins_probs) >= 2:
+    if len(ins_probs) >= 2 or ins_probs_last_frame is not None:
         ins_dim = Dim(len(ins_probs), name="ins")
         ins_probs = rf.convert_to_tensor(ins_probs, dims=[ins_dim], dtype="float32", device=device)
         ins_choices = rf.random_choice_with_replacement(
