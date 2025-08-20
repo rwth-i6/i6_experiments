@@ -1240,6 +1240,7 @@ def py():
         }
 
     for name, opts in [
+        ("0", None),
         ("A0.1", _ta_vA_err_prob(0.1)),
     ]:
         aed_train_exp(
@@ -1292,7 +1293,7 @@ def py():
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_loss_layers": [4, 10, 16],
                 "aux_ctc_label_smoothing": 0.1,
-                "text_augment": functools.partial(text_augment, **opts),
+                **({"text_augment": functools.partial(text_augment, **opts)} if opts else {}),
                 "max_seq_length_default_target": None,
                 # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
                 # out of 281241 seqs in train, we removed only 71 seqs.
