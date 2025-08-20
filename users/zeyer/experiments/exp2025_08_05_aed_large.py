@@ -1381,7 +1381,7 @@ def py():
     # Try custom LR multipliers.
     from i6_experiments.users.zeyer.returnn.updater.lr_multiplier import optimizer_param_groups_custom_lr_multiplier
 
-    for name, lr_mult_by_patterns in {"Dec0.5": {"decoder.*": 0.5}}.items():
+    for name, lr_mult_by_patterns in {"None": None, "Dec0.5": {"decoder.*": 0.5}}.items():
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-b100k",
             config_96gb_bf16_accgrad1,
@@ -1427,8 +1427,14 @@ def py():
                 **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
                 "batch_size": 100_000 * _batch_size_factor,
                 "optimizer.weight_decay": 1e-2,
-                "optimizer.param_groups_custom": optimizer_param_groups_custom_lr_multiplier,
-                "optimizer.learning_rate_multipliers_by_patterns": lr_mult_by_patterns,
+                **(
+                    {
+                        "optimizer.param_groups_custom": optimizer_param_groups_custom_lr_multiplier,
+                        "optimizer.learning_rate_multipliers_by_patterns": lr_mult_by_patterns,
+                    }
+                    if lr_mult_by_patterns
+                    else {}
+                ),
                 "accum_grad_multiple_step": 1,
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
