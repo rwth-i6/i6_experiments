@@ -6,6 +6,7 @@ from i6_core.util import uopen
 import re
 from returnn.datasets.util.vocabulary import Vocabulary
 
+
 class WordFrequencyJob(Job):
     def __init__(
         self,
@@ -619,8 +620,6 @@ class FigureOutHowManyCorrectWordsAreBungedUp(Job):
             out.write("\n")
 
 
-
-
 class SimulateTokenSubstitution(Job):
     def __init__(self, text_file: tk.Path, vocab_opts: Dict[str, Any], swapout_prob: Tuple[float, float]):
         self.text_file = text_file
@@ -631,12 +630,18 @@ class SimulateTokenSubstitution(Job):
     def tasks(self):
         yield Task("run", mini_task=True)
 
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 2
+        return super().hash(d)
+
     def random_swapout(self, line: str, vocab: Vocabulary) -> str:
         words = line.strip()
         word_ids = vocab.get_seq(words)
         if not word_ids:
             print(f"No valid words to swap out in line: {line}")
-            return line  # No valid words to swap out
+            return words  # No valid words to swap out
         prob = random.uniform(*self.swapout_prob)
         for i in range(len(word_ids)):
             if random.uniform(0, 1) < prob:  # Randomly decide to swap out

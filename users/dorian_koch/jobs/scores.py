@@ -66,6 +66,9 @@ class TextDictToScoresTextDictJob(Job):
         d["__version"] = 2
         return super().hash(d)
 
+    def get_recog_output(self) -> RecogOutput:
+        return RecogOutput(output=self.out_scores)
+
     def run(self):
         """run"""
         data = read_scores(self.text_dict.output, item_format="single")
@@ -124,7 +127,7 @@ class CalcSearchErrors(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        # d["__version"] = 2
+        d["__version"] = 3
         return super().hash(d)
 
     def get_score(self, corpus_name: str):
@@ -148,17 +151,18 @@ class CalcSearchErrors(Job):
             ref_value = ref_scores[key]
             hyp_value = hyp_scores[key]
 
-            assert len(ref_value) == len(hyp_value) == 1, (
-                f"{self}: expected single score per seq, got {ref_value!r} and {hyp_value!r}"
-            )
+            assert len(ref_value) == 1
+            assert len(hyp_value) > 0, f"{self}: expected non-empty hyp value list, got {hyp_value!r}"
             ref_score, ref_text = ref_value[0]
-            hyp_score, hyp_text = hyp_value[0]
+            hyp_score, hyp_text = max(hyp_value)
 
-            has_error = ref_score < hyp_score and ref_text.trim() != hyp_text.trim()
+            has_error = ref_score > hyp_score and ref_text.strip() != hyp_text.strip()
             if has_error:
                 num_errors += 1
 
-            print(f"{has_error}: ref={ref_score}, hyp={hyp_score}, ref={ref_text!r}, hyp={hyp_text!r}")
+            print(f"{has_error}: ref={ref_score}, hyp={hyp_score}")
+            print(f" ref={ref_text!r}")
+            print(f" hyp={hyp_text!r}")
 
         search_error_rate = num_errors / num_total if num_total > 0 else 0.0
 
