@@ -1240,7 +1240,7 @@ def py():
         }
 
     for name, opts in [
-        ("A0.19", _ta_vA_err_prob(0.19)),
+        ("A0.1", _ta_vA_err_prob(0.1)),
     ]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-textAug{name}-spm10k-bpeSample001-baseLr0.5-b100k",
