@@ -127,7 +127,7 @@ class CalcSearchErrors(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 3
+        d["__version"] = 4
         return super().hash(d)
 
     def get_score(self, corpus_name: str):
@@ -164,7 +164,7 @@ class CalcSearchErrors(Job):
             print(f" ref={ref_text!r}")
             print(f" hyp={hyp_text!r}")
 
-        search_error_rate = num_errors / num_total if num_total > 0 else 0.0
+        search_error_rate = 100 * num_errors / num_total if num_total > 0 else 0.0
 
         self.out_search_errors.set(search_error_rate)
 
