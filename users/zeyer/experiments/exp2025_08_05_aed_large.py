@@ -1387,6 +1387,7 @@ def py():
 
     for name, (lrs, lr_mult_by_patterns) in {
         "None": ([0.5], None),
+        "Dec0.1": ([0.5], {"decoder.*": 0.1}),
         "Dec0.5": ([0.5, 1.0], {"decoder.*": 0.5}),
         "Enc2IncrDec0.5": (
             [0.5],
