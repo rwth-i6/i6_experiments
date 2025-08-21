@@ -1395,6 +1395,31 @@ def py():
                 "decoder.*": 0.5,
             },
         ),
+        "Enc2IncrDec1": (
+            [0.5],
+            {
+                "feature_batch_norm.*": 2.0,
+                "encoder.input_layer.*": 2.0,
+                "encoder.input_projection.*": 2.0,
+                **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
+                "enc_aux_logits_*": 1.0,
+                "decoder.*": 1.0,
+            },
+        ),
+        "Enc2IncrDec1Incr": (
+            [0.5],
+            {
+                "feature_batch_norm.*": 2.0,
+                "encoder.input_layer.*": 2.0,
+                "encoder.input_projection.*": 2.0,
+                **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
+                "enc_aux_logits_*": 1.0,
+                "decoder.input_embedding.*": 1.0,
+                **{f"decoder.layers.{i}.*": 1.0 - 0.5 * i / 5 for i in range(6)},
+                "decoder.final_layer_norm.*": 0.5,
+                "decoder.logits.*": 0.5,
+            },
+        ),
     }.items():
         for lr in lrs:
             aed_train_exp(
