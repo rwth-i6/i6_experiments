@@ -1655,7 +1655,11 @@ def py():
 
 class RMSNormGemma(rf.Module):
     """
-    RMSNorm with ...*(1+scale) as in Gemma
+    RMSNorm with ...*(1+scale) as in Gemma.
+    Should behave better with weight decay.
+    (Note that LayerNorm/RMSNorm is usually excluded from weight decay.
+     However, RMSNormGemma could be used with weight decay.
+     RMSNormGemma without weight decay should behave just exactly the same as RMSNorm.)
     """
 
     def __init__(self, in_dim: Union[rf.Dim, Sequence[rf.Dim]], *, eps: float = 1e-6, with_bias: bool = False):
