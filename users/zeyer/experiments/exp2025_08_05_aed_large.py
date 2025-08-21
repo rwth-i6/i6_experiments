@@ -1398,7 +1398,7 @@ def py():
     }.items():
         for lr in lrs:
             aed_train_exp(
-                f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-base_lr{lr}-b100k",
+                f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-baseLr{lr}-b100k",
                 config_96gb_bf16_accgrad1,
                 prefix=prefix + "/aed/",
                 model_config={
