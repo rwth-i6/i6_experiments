@@ -1237,10 +1237,14 @@ def py():
             "keep_del_sub_probs": [1 - p, p * 0.6, p * 0.4],
         }
 
+    def _ta_sub_err_prob(p):
+        return {"keep_del_sub_probs": [1 - p, 0.0, p]}
+
     for name, opts in [
         ("0", None),
         ("A0.1", _ta_vA_err_prob(0.1)),
         ("A0.2", _ta_vA_err_prob(0.2)),
+        ("Sub0.1", _ta_sub_err_prob(0.1)),
     ]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-textAug{name}-spm10k-bpeSample001-baseLr0.5-b100k",

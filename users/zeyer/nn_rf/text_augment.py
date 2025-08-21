@@ -27,7 +27,7 @@ def text_augment(
     targets_w_eos: Tensor,
     spatial_dim: Dim,
     exclude_labels: Collection[int] = (),
-    ins_probs: Sequence[float],
+    ins_probs: Sequence[float] = (1.0,),
     ins_probs_last_frame: Optional[Sequence[float]] = None,
     keep_del_sub_probs: Sequence[float],
     keep_first_frame: bool = True,
