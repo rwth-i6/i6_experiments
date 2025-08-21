@@ -1381,20 +1381,23 @@ def py():
     # Try custom LR multipliers.
     from i6_experiments.users.zeyer.returnn.updater.lr_multiplier import optimizer_param_groups_custom_lr_multiplier
 
-    for name, lr_mult_by_patterns in {
-        "None": None,
-        "Dec0.5": {"decoder.*": 0.5},
-        "Enc2IncrDec0.5": {
-            "feature_batch_norm.*": 2.0,
-            "encoder.input_layer.*": 2.0,
-            "encoder.input_projection.*": 2.0,
-            **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
-            "enc_aux_logits_*": 1.0,
-            "decoder.*": 0.5,
-        },
+    for name, (lr, lr_mult_by_patterns) in {
+        "None": (0.5, None),
+        "Dec0.5": (0.5, {"decoder.*": 0.5}),
+        "Enc2IncrDec0.5": (
+            0.5,
+            {
+                "feature_batch_norm.*": 2.0,
+                "encoder.input_layer.*": 2.0,
+                "encoder.input_projection.*": 2.0,
+                **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
+                "enc_aux_logits_*": 1.0,
+                "decoder.*": 0.5,
+            },
+        ),
     }.items():
         aed_train_exp(
-            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-b100k",
+            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-base_lr{lr}-b100k",
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -1435,7 +1438,7 @@ def py():
                 "feature_batch_norm": True,
             },
             config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=lr),
                 "batch_size": 100_000 * _batch_size_factor,
                 "optimizer.weight_decay": 1e-2,
                 **(
