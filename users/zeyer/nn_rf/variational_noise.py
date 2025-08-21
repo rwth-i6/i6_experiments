@@ -24,15 +24,17 @@ def maybe_apply_variational_noise_from_config(model: rf.Module, config: Optional
         # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
         blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
         blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
-        for mod in model.modules():
-            if isinstance(mod, blacklist):
+        for module_name, module in model.named_modules():
+            if isinstance(module, blacklist):
                 continue
-            for param_name, param in mod.named_parameters(recurse=False):
+            for param_name, param in module.named_parameters(recurse=False):
                 if param_name.endswith("bias"):  # no bias
                     continue
                 if param.auxiliary:
                     continue
-                rf.weight_noise(mod, param_name, std=vn)
+                full_param_name = "%s.%s" % (module_name, param_name) if module_name else param_name
+                print(f"{full_param_name}: applying variational noise with std={vn}")
+                rf.weight_noise(module, param_name, std=vn)
 
     # See also i6_experiments.users.zeyer.returnn.updater.lr_multiplier.optimizer_param_groups_custom_lr_multiplier
     # as another example of how to use such patterns.
@@ -83,6 +85,7 @@ def maybe_apply_variational_noise_from_config(model: rf.Module, config: Optional
                     opts.pop("exclude_patterns", None)
                     std = opts.pop("std")
                     assert not opts, f"unexpected opts: {opts}"
+                    print(f"{full_param_name}: applying variational noise with std={vn}")
                     rf.weight_noise(module, param_name, std=std)
 
 
