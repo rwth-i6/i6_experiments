@@ -1761,12 +1761,9 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
-    enc_aux_logits = config.typed_value("aux_loss_layers")
-    num_enc_layers = config.int("num_enc_layers", 12)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
-    enc_input_layer = config.typed_value("enc_input_layer", None)
     conv_norm = config.typed_value("conv_norm", None)
     enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
     if enc_conformer_layer:
@@ -1788,7 +1785,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             ff_activation=rf.build_dict(rf.relu_square),
             num_heads=8,
         )
-    enc_other_opts = config.typed_value("enc_other_opts", None)
 
     cls = Model
     cls_name = config.typed_value("ctc_model_cls", None)
@@ -1805,16 +1801,18 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     return cls(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
-        num_enc_layers=num_enc_layers,
+        num_enc_layers=config.int("num_enc_layers", 12),
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_input_layer=enc_input_layer,
+        enc_input_layer=config.typed_value("enc_input_layer", None),
         enc_conformer_layer=enc_conformer_layer,
-        enc_other_opts=enc_other_opts,
+        enc_other_opts=config.typed_value("enc_other_opts", None),
         target_dim=target_dim,
         blank_idx=blank_idx,
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
-        enc_aux_logits=enc_aux_logits or (),
+        enc_aux_logits=config.typed_value("aux_loss_layers") or (),
+        enc_logits_with_bias=config.bool("enc_logits_with_bias", True),
+        enc_aux_logits_share_weights=config.bool("enc_aux_logits_share_weights", False),
     )
 
 
@@ -2071,6 +2069,8 @@ class Model(rf.Module):
         bos_idx: int,
         enc_build_dict: Optional[Dict[str, Any]] = None,
         enc_aux_logits: Sequence[int] = (),  # layers, 1-indexed
+        enc_aux_logits_share_weights: bool = False,
+        enc_logits_with_bias: bool = True,
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_input_layer: Optional[Dict[str, Any]] = None,
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
@@ -2100,7 +2100,7 @@ class Model(rf.Module):
                     strides=[(1, 1), (3, 1), (2, 1)],
                 )
 
-            enc_opts = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
+            enc_opts: Dict[str, Any] = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
 
             if enc_conformer_layer:
                 enc_opts["encoder_layer"] = enc_conformer_layer
@@ -2143,11 +2143,17 @@ class Model(rf.Module):
 
         if not wb_target_dim:
             wb_target_dim = target_dim + 1
+        self.wb_target_dim = wb_target_dim
+        self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim, with_bias=enc_logits_with_bias)
         self.enc_aux_selected_layers = enc_aux_logits
         for i in enc_aux_logits:
-            setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
-        self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
-        self.wb_target_dim = wb_target_dim
+            setattr(
+                self,
+                f"enc_aux_logits_{i}",
+                rf.Linear(self.encoder.out_dim, wb_target_dim, with_bias=enc_logits_with_bias)
+                if not enc_aux_logits_share_weights
+                else self.enc_logits,
+            )
         self.out_blank_separated = config.bool("out_blank_separated", False)
         self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
 
