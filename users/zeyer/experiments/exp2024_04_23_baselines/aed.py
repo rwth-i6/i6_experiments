@@ -973,10 +973,10 @@ class Model(rf.Module):
         if enc_aux_logits:
             if not wb_target_dim:
                 wb_target_dim = target_dim + 1
-        for i in enc_aux_logits:
+        for i, layer_idx in enumerate(enc_aux_logits):
             setattr(
                 self,
-                f"enc_aux_logits_{i}",
+                f"enc_aux_logits_{layer_idx}",
                 rf.Linear(self.encoder.out_dim, wb_target_dim, with_bias=enc_aux_logits_with_bias)
                 if i == 0 or not enc_aux_logits_share_weights
                 else getattr(self, f"enc_aux_logits_{enc_aux_logits[0]}"),
@@ -984,17 +984,17 @@ class Model(rf.Module):
         self.enc_aux_logits = enc_aux_logits
         self.wb_target_dim = wb_target_dim
 
-        for i in dec_aux_logits:
+        for layer_idx in dec_aux_logits:
             setattr(
                 self,
-                f"dec_aux_final_layer_norm_{i}",
+                f"dec_aux_final_layer_norm_{layer_idx}",
                 copy.deepcopy(self.decoder.final_layer_norm)
                 if not dec_aux_logits_share_weights
                 else self.decoder.final_layer_norm,
             )
             setattr(
                 self,
-                f"dec_aux_logits_{i}",
+                f"dec_aux_logits_{layer_idx}",
                 copy.deepcopy(self.decoder.logits) if not dec_aux_logits_share_weights else self.decoder.logits,
             )
         self.dec_aux_logits = dec_aux_logits

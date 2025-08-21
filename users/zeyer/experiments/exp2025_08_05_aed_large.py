@@ -1566,7 +1566,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    # CTC aux logits shared (auxShared).
+    # CTC aux logits shared (auxShared) (enc_aux_logits_share_weights=True).
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-auxShared-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
