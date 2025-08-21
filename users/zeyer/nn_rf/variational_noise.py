@@ -85,7 +85,7 @@ def maybe_apply_variational_noise_from_config(model: rf.Module, config: Optional
                     opts.pop("exclude_patterns", None)
                     std = opts.pop("std")
                     assert not opts, f"unexpected opts: {opts}"
-                    print(f"{full_param_name}: applying variational noise with std={vn}")
+                    print(f"{full_param_name}: applying variational noise with std={std}")
                     rf.weight_noise(module, param_name, std=std)
 
 
