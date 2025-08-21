@@ -2283,22 +2283,12 @@ class Model(rf.Module):
                 aux_attention_decoder, encoder_dim=self.encoder.out_dim, vocab_dim=target_dim
             )
 
-        vn = config.typed_value("variational_noise", None)
-        if vn:
-            # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
-            # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
-            blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
-            blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
-            for mod in self.modules():
-                if isinstance(mod, blacklist):
-                    continue
-                for param_name, param in mod.named_parameters(recurse=False):
-                    if param_name.endswith("bias"):  # no bias
-                        continue
-                    if param.auxiliary:
-                        continue
-                    rf.weight_noise(mod, param_name, std=vn)
+        from i6_experiments.users.zeyer.nn_rf.variational_noise import maybe_apply_variational_noise_from_config
 
+        maybe_apply_variational_noise_from_config(self, config)
+
+        # TODO also move weight_dropout into a separate common function
+        #   (very similar to maybe_apply_variational_noise_from_config)
         weight_dropout = config.typed_value("weight_dropout", None)
         if weight_dropout:
             # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
@@ -2313,6 +2303,7 @@ class Model(rf.Module):
                         continue
                     if param.auxiliary:
                         continue
+                    # TODO only for ndim>=2 (but backwards compatible...)
                     rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)
 
     def __call__(

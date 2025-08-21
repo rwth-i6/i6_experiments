@@ -1031,6 +1031,10 @@ class Model(rf.Module):
 
             self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
 
+        from i6_experiments.users.zeyer.nn_rf.variational_noise import maybe_apply_variational_noise_from_config
+
+        maybe_apply_variational_noise_from_config(self, config)
+
     def encode(
         self,
         source: Tensor,
