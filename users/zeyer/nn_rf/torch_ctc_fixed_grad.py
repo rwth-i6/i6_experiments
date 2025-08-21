@@ -162,7 +162,8 @@ def torch_ctc_fixed_grad(
                 if _FixedCTCGradStep % 1000 == 0:  # do sanity check from time to time
                     sum_res = grad_output[0, 0].sum().detach().cpu()
                     assert -1e-2 <= sum_res <= 1e-2, (
-                        f"Unexpected sum of grad_output {sum_res} at step {_FixedCTCGradStep}."
+                        f"Unexpected sum of grad_output {sum_res} at step {_FixedCTCGradStep},"
+                        f" grad_output {grad_output}, grad_output[0,0] {grad_output[0, 0]}."
                     )
                 _FixedCTCGradStep += 1
                 # We want to return -y * loss_scale_buffer instead.
