@@ -1700,7 +1700,7 @@ def py():
     )
 
     # variational noise (variational_noise_by_pattern)
-    for name, opts in {"0": None, "Dec0.0005": {"decoder.*": 0.0005}}.items():
+    for name, opts in {"0": None, "Dec0.0005": {"decoder.*": 0.0005}, "Dec0.0025": {"decoder.*": 0.0025}}.items():
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-vn{name}-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
