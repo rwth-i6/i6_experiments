@@ -36,13 +36,12 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, Score
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
-from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 
 import numpy as np
 
-from .experiments.ctc import model_recog, model_recog_lm, model_recog_flashlight, recog_nn
+from .experiments.ctc import model_recog, model_recog_lm, recog_nn #model_recog_flashlight,
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 
 if TYPE_CHECKING:
@@ -50,6 +49,7 @@ if TYPE_CHECKING:
 
 
 USE_24GB = False # Making all forward job to use 24gb gpu
+USE_48gb = True #Making all big LM rescore job to use 48gb gpu
 
 def recog_exp(
     prefix_name: str,
@@ -400,7 +400,7 @@ def recog_model(
             lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2, "gpu_mem": 10}
         elif rescoreLM_name.startswith("trafo"):
             rescor_def = trafo_lm_rescore_def
-            lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2, "gpu_mem": 24}
+            lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2, "gpu_mem": 48 if USE_48gb else 24}
             if "spm10k" in rescoreLM_name:
                 lm_rescor_rqmt["gpu_mem"] = 48
         elif rescoreLM_name[0].isdigit() and "gram" in rescoreLM_name:
@@ -415,13 +415,13 @@ def recog_model(
                 prev_one_ctx = rescoringLM.get("prev_one_ctx", False)
                 prompt = rescoringLM.get("prompt", None)
             time_factor = 2 if prev_one_ctx or prompt else 1
-            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 3*time_factor, "gpu_mem": 24},
+            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 3*time_factor, "gpu_mem": 48 if USE_48gb else 24},
                               "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
-                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 24},
-                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 24},
-                              "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 24},
+                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 48 if USE_48gb else 24},
+                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 48 if USE_48gb else 24},
+                              "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 48 if USE_48gb else 24},
                               "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
-                              "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 24},}.get(rescoreLM_name)
+                              "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 48 if USE_48gb else 24},}.get(rescoreLM_name)
             assert lm_rescor_rqmt is not None, f"LM type{rescoreLM_name} not found"
             #print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
 
@@ -452,10 +452,11 @@ def recog_model(
         ]
 
     search_error_rescore_dict = {}
-
+    dev_sets = dev_sets or task.eval_datasets.keys()
+    dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys()))
+    search_error_key = "test-other" if "test-other" in dataset_names else list(dataset_names)[0]
     for dataset_name, dataset in task.eval_datasets.items():
-        if dev_sets is not None:
-            if dataset_name not in dev_sets:
+        if dev_sets and dataset_name not in dev_sets:
                 continue
         # print(f"dataset:{dataset}, type{type(dataset)}, name:{dataset_name}, type:{type(dataset_name)}")
         # from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
@@ -483,7 +484,7 @@ def recog_model(
             #config_ = config.copy()
             # if config.get("batch_size"):
             #     config_.pop("batch_size")
-            if dataset_name == "test-other":
+            if dataset_name == search_error_key:
                 search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
                                                   decoding_config=decoding_params, search_error_version=search_error_version,
                                                   prior_path=prior_path,
@@ -497,8 +498,7 @@ def recog_model(
                                    )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
-    dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys()))
-    search_error_key = "test-other" if "test-other" in dataset_names else list(dataset_names)[0]
+
     return task.collect_score_results_func(outputs), search_error, search_error_rescore_dict[search_error_key]
 
 
@@ -996,6 +996,8 @@ def search_error_config(
     if isinstance(model_def, ModelDefWithCfg):
         returnn_config_dict.update(model_def.config)
 
+
+
     extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
@@ -1015,6 +1017,7 @@ def search_error_config(
         print("No vocab found in dataset!!!")
         lexicon = None
     decoder_params = decoding_config.copy()  # Since decoding_config is shared across runs for different lm
+    extern_imports = decoder_params.pop("extern_imports", [])
 
     if decoder_params.get("lm_order",None) is not None:
         lm_name = decoder_params["lm_order"]
@@ -1042,12 +1045,7 @@ def search_error_config(
     if prior_path:
         args["prior_file"] = prior_path
 
-    returnn_config = ReturnnConfig(
-        config=returnn_config_dict,
-        post_config=post_config,
-        python_epilog=[
-            serialization.Collection(
-                [
+    serializations = [
                     serialization.NonhashedCode(get_import_py_code()),
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
@@ -1067,7 +1065,22 @@ def search_error_config(
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
-                ]
+                   ]
+    if extern_imports:
+        serializations = serializations[:1] + extern_imports + serializations[1:]
+    import textwrap
+    python_prolog = textwrap.dedent(
+            """
+            from returnn.util.file_cache import CachedFile
+            """
+        )
+    returnn_config = ReturnnConfig(
+        config=returnn_config_dict,
+        post_config=post_config,
+        python_prolog=python_prolog,
+        python_epilog=[
+            serialization.Collection(
+                serializations
             )
         ],
         sort_config=False
@@ -1204,7 +1217,7 @@ def _returnn_target_scoring_forward_callback():
             assert target_wb.sparse_dim and target_wb.sparse_dim.vocab  # should come from the model
             self.out_file.write(f"{seq_tag!r}: [\n")
             score = float(score.raw_tensor[0])
-            target_wb_ids = target_wb.raw_tensor
+            target_wb_ids = target_wb.raw_tensor[0] #Note: because This is only for get GT
             target_wb_serialized = target_wb.sparse_dim.vocab.get_seq_labels(target_wb_ids)
             self.out_file.write(f"  ({score!r}, {target_wb_serialized!r}),\n")
             self.out_file.write("],\n")
@@ -1394,8 +1407,6 @@ def search_config_v2(
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 
     forward_data = dataset.get_main_dataset()
-    if LLM_PREV_ONE_CTX:
-        forward_data["seq_ordering"] = "default"
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
@@ -1409,6 +1420,8 @@ def search_config_v2(
     if isinstance(model_def, ModelDefWithCfg):
         returnn_recog_config_dict.update(model_def.config)
 
+
+
     extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
@@ -1416,6 +1429,8 @@ def search_config_v2(
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     decoder_params = decoding_config.copy()  # Since decoding_config is shared across runs for different lm
+
+    extern_imports = decoder_params.pop("extern_imports", [])
     if recog_def is model_recog_lm:
         from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 
@@ -1450,7 +1465,7 @@ def search_config_v2(
         if prior_path:
             args["prior_file"] = prior_path
 
-    elif recog_def in (model_recog_flashlight, recog_nn, model_recog):
+    elif recog_def in (recog_nn, model_recog): #model_recog_flashlight,
         if recog_def == recog_nn and decoder_params.get("nbest",1) > 1:
             decoder_params["use_recombination"] = True
             decoder_params["recomb_after_topk"] = True
@@ -1463,11 +1478,7 @@ def search_config_v2(
             decoder_params.pop("lm_weight", 0)
             args.pop("prior_file",0)
 
-    returnn_recog_config = ReturnnConfig(
-        config=returnn_recog_config_dict,
-        python_epilog=[
-            serialization.Collection(
-                [
+    serializations = [
                     serialization.NonhashedCode(get_import_py_code()),
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
@@ -1494,6 +1505,20 @@ def search_config_v2(
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
                 ]
+    if extern_imports:
+        serializations = serializations[:1] + extern_imports + serializations[1:]
+    import textwrap
+    python_prolog = textwrap.dedent(
+            """
+            from returnn.util.file_cache import CachedFile
+            """
+        )
+    returnn_recog_config = ReturnnConfig(
+        config=returnn_recog_config_dict,
+        python_prolog=python_prolog,
+        python_epilog=[
+            serialization.Collection(
+                serializations
             )
         ],
         post_config=dict(  # not hashed
@@ -1655,6 +1680,7 @@ def _returnn_v2_get_forward_callback():
         def __init__(self):
             self.out_file: Optional[TextIO] = None
             self.out_ext_file: Optional[TextIO] = None
+            self.warned_flag = False
 
         def init(self, *, model):
             import gzip
@@ -1672,7 +1698,7 @@ def _returnn_v2_get_forward_callback():
             scores: Tensor = outputs["scores"]  # [beam]
             if hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
                 assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
-                assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+                assert hyps.dims[1].dyn_size_ext is not None, f"hyps {hyps} do not define seq lengths"
                 # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
                 hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
                 assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
@@ -1686,8 +1712,19 @@ def _returnn_v2_get_forward_callback():
                     hyp_ids = hyps.raw_tensor[
                         i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
                     ]
+                    if hyps.sparse_dim.vocab.num_labels > hyps.sparse_dim.size:
+                        if not self.warned_flag:
+                            self.warned_flag = True
+                            print(f"Warning: vocab does not match, assume extra symbols are at the beginning")
+                        hyp_ids += (hyps.sparse_dim.vocab.num_labels - hyps.sparse_dim.size)
+                    elif hyps.sparse_dim.vocab.num_labels < hyps.sparse_dim.size:
+                        raise ValueError("Vocab does not match")
+
                     hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                     self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+                    if i == 0:
+                        print(f"Best_hyp of {seq_tag}: {hyp_serialized}")
+                        import pdb; pdb.set_trace()
                 self.out_file.write("],\n")
 
                 if self.out_ext_file:

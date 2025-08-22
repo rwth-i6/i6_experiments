@@ -54,21 +54,26 @@ class WER_ppl_PlotAndSummaryJob(Job):
     def get_points(self):
         ppls = list()
         wers = list()
-        for ppl_log, wer_path in self.results:
+        for i, (ppl_log, wer_path) in enumerate(self.results):
             """extracts ppl score from the ppl.log file"""
             if isinstance(ppl_log, float):
                 ppls.append(ppl_log)
+                print(f"Got ppl for {self.names[i]}")
             else:
+                assert isinstance(ppl_log, tk.Path)
                 with open(ppl_log.get_path(), "rt") as f:
-                    lines = f.readlines()[-2:]
+                    lines = f.readlines()
                     for line in lines:
                         line = line.split(" ")
                         for idx, ln in enumerate(line):
                             if ln == "ppl=" or ln == "Perplexity:":
                                 ppls.append(float(line[idx + 1]))
+                                print(f"Got ppl for {self.names[i]}")
+                                break
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
         ppls = ppls
+        assert len(ppls) == len(wers)
         #wers = {"dev-other":[all_res["best_scores"]["dev-other"] for all_res in wers], "test-other":[all_res["best_scores"]["test-other"] for all_res in wers]}
         wers = {key: [all_res["best_scores"][key] for all_res in wers] for key in self.eval_dataset_keys}
 
@@ -205,9 +210,9 @@ class WER_ppl_PlotAndSummaryJob(Job):
                     import re
                     search_error_rescore = f.readline()
                     search_error_rescore = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error_rescore).group(0)
-            row = [key, f"{ppl:.2f}", f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error, search_error_rescore]
+            row = [key, f"{ppl:.3g}", f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error, search_error_rescore]
             for dataset_key in self.eval_dataset_keys:
-                row.append(scores.get(dataset_key,"-"))
+                row.append(f"{scores.get(dataset_key, '-'):.1f}")
             table_data.append(row)
 
         # Save to a CSV file manually

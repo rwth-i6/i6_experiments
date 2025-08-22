@@ -1,5 +1,5 @@
 """
-CTC experiments (refactored).
+CTC experiments on Apptek datasets(refactored).
 """
 
 from __future__ import annotations
@@ -10,16 +10,19 @@ from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING
 from i6_experiments.users.schmitt.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
+from returnn_common.datasets_old_2022_10.interface import VocabConfig
 from sisyphus import tk
 
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob, GnuPlotJob
-from .lm_getter import build_all_lms, build_ffnn_lms  # NEW
+#from .lm_getter import build_all_lms, build_ffnn_lms  # NEW
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+
+RETURNN_ROOT = "/home/mgunz/setups/2024-07-08--zeyer-setup-apptek/recipe/returnn" #"/nas/models/asr/hzhang/setups/2025-07-20--combined/returnn"
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-EVAL_DATASET_KEYS = ["test-other","dev-other"]#,"test-clean","dev-clean"]
+EVAL_DATASET_KEYS = []#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
 DEFAULT_PRIOR_WEIGHT = 0.15
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAUL_RESCOR_LM_SCALE = 0.5
@@ -36,31 +39,7 @@ LLM_FXIED_CTX_SIZE = 8
 LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
 # --- Helpers for ctc_exp ---
 
-def get_encoder_model_config(encoder: str) -> Tuple[dict, Optional[callable]]:
-    import returnn.frontend as rf
-    from returnn.frontend.encoder.conformer import ConformerEncoderLayer
-
-    model_def = None
-
-    if encoder == "conformer":
-        enc_conformer_layer_default = rf.build_dict(
-            ConformerEncoderLayer,
-            ff_activation=rf.build_dict(rf.relu_square),
-            num_heads=8,
-        )
-        model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
-
-    elif encoder == "blstm":
-        from i6_experiments.users.zhang.experiments.encoder.blstm import ctc_model_def as blstm_model_def
-        model_def = blstm_model_def
-        model_config = {"enc_dim": 1024}
-
-    else:
-        raise ValueError(f"Unknown encoder: {encoder}")
-
-    return model_config, model_def
-
-def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =50, beam_size: int=80) -> Tuple[dict, dict, dict, dict, bool, Optional[int]]:
+def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =50, beam_size: int=80, real_vocab: VocabConfig = None) -> Tuple[dict, dict, dict, dict, bool, Optional[int]]:
     if nbest:
         assert beam_size > nbest
     decoding_config = {
@@ -72,7 +51,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         "use_logsoftmax": True,
         "use_lm": False,
         #"use_lexicon": False,
-        "vocab": get_vocab_by_str(vocab),
+        "vocab": real_vocab or get_vocab_by_str(vocab),
     }
     tune_config_updates = {}
     recog_config_updates = {}
@@ -145,7 +124,7 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
 
 
 def select_recog_def(lmname: str, USE_flashlight_decoder: bool) -> callable:
-    from .ctc import recog_nn, model_recog, model_recog_lm, model_recog_flashlight
+    from .ctc import recog_nn, model_recog, model_recog_lm#, model_recog_flashlight
 
     if USE_flashlight_decoder:
         if "NoLM" in lmname:
@@ -184,7 +163,17 @@ def ctc_exp(
     if lm_vocab is None:
         lm_vocab = vocab
     # ---- Set up model and config ----
-    model_config, model_def = get_encoder_model_config(encoder)
+    from i6_experiments.users.zhang.experiments.apptek.ctc import get_model_and_vocab, NETWORK_CONFIG_KWARGS as model_config
+    model_config = {"network_config_kwargs": model_config}
+    model, spm, i6_models = get_model_and_vocab()
+    for k,v in spm["vocabulary"].items():
+        print(f"{k}: {v}")
+    #print(f"vocab setting: {spm}")
+    spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+        #       --- get Task ---
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.task import get_asr_task_given_spm
+    task = get_asr_task_given_spm(spm=spm_config, returnn_root=tk.Path(RETURNN_ROOT))
+    print(f"datasetkeys: {task.eval_datasets.keys()}")
     (
         decoding_config,
         tune_config_updates,
@@ -192,8 +181,9 @@ def ctc_exp(
         search_rqmt,
         tune_hyperparameters,
         batch_size,
-    ) = get_decoding_config(lmname, lm, vocab, encoder, beam_size=BEAM_SIZE, nbest=NBEST)
+    ) = get_decoding_config(lmname, lm, vocab, encoder, beam_size=BEAM_SIZE, nbest=NBEST, real_vocab=spm_config)
 
+    decoding_config["extern_imports"] = [i6_models]
     if decoding_config.get("recog_language_model", False):
         model_config["recog_language_model"] = decoding_config["recog_language_model"]
     # ---- Additional parameters from original ----
@@ -205,11 +195,11 @@ def ctc_exp(
     exclude_epochs = None
     recog_epoch = None
     if vocab == "bpe128":
-        exclude_epochs = set(range(0, 501)) - set([477])
         recog_epoch = 500 if encoder == "blstm" else 477
-    if vocab == "bpe10k":
-        exclude_epochs = set(range(0, 500))
+    elif vocab == "bpe10k":
         recog_epoch = 500
+    elif vocab == "spm10k":
+        recog_epoch = 625
 
     # For not-training, recog should be True
     recog = not train
@@ -298,7 +288,8 @@ def ctc_exp(
             first_pass_name=first_pass_name,
             config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             decoder_def=recog_def,
-            model_def=model_def,
+            task=task,
+            model_with_checkpoints=model,
             model_config=model_config,
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -311,7 +302,7 @@ def ctc_exp(
             vocab=vocab,
             train_vocab_opts=None,
             decoding_config=decoding_config,
-            exclude_epochs=exclude_epochs,
+            #exclude_epochs=exclude_epochs,
             with_prior=with_prior,
             empirical_prior=empirical_prior,
             prior_from_max=prior_from_max,
@@ -338,35 +329,39 @@ def ctc_exp(
 def py():
     # ! Note: for now when use rescoring, in first pass prior will not be considered, especially by greedy case
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
-    available = [("bpe128", "ctc", "blstm"), ("bpe128", "ctc", "conformer"), ("bpe10k", "ctc", "conformer")]
+    available = [("spm10k", "ctc", "conformer")]
     models = {"ctc": ctc_exp}
-    encoder = "conformer" # blstm conformer
+    encoder = "conformer"
     train = False
-    insert_spm10k_lm = True
+    insert_spm10k_lm = False
     cuts = {"conformer": 65, "blstm":37}
-    for vocab in ["bpe128",
+    for vocab in [#"bpe128",
                   #"bpe10k",
+                  "spm10k",
                   ]:
-
         word_ppl = False # Default
         # LM that do first pass,
-        lm_kinds = ["ffnn",
+        lm_kinds = [#"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
-                    ]  if encoder == "blstm" else ["ffnn"] # Don know why, for conformer now the WER of trafo LMs are better by second pass...
+                    ]
         lm_kinds_2 = [#"ngram", # LM that do second pass
                     #"ffnn",
-                   "trafo",
-                    "LLM"
+                   #"trafo",
+                    #"LLM"
                     ]
         #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
         if "LLM" in lm_kinds_2:
             word_ppl = True
-            lm_kinds = ["ffnn"]
-            lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, _ = build_all_lms(vocab, lm_kinds=lm_kinds, only_best=True)  # NEW
+            #lm_kinds = ["ffnn"]
+            #lm_kinds_2 = ["trafo", "LLM"]
+        #lms, ppl_results, _ = build_all_lms(vocab, lm_kinds=lm_kinds, only_best=True)  # NEW
+        lms = {}
+        ppl_results = {}
         lms.update({"NoLM": None})
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl)
-
+        #rescor_lms, ppl_results_2, _ = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl)
+        rescor_lms = {}
+        ppl_results_2 = {}
+        rescor_lms.update({"NoLM": None})
         if insert_spm10k_lm:
             from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
             other_lms, other_lms_ppl, _ =  build_trafo_lm_spm()
@@ -379,7 +374,7 @@ def py():
         #print(lms)
         #print(rescor_lms)
 
-        def greedy_first_pass_exp(lms, rescor_lms, lm_kinds, lm_kinds_2):
+        def greedy_first_pass_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2):
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl
             wer_ppl_results_2 = dict()
             for name, lm in lms.items():  # First pass lms
@@ -451,7 +446,7 @@ def py():
                     tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                     tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
 
-        def first_pass_with_lm_exp(lms, rescor_lms, lm_kinds, lm_kinds_2):
+        def first_pass_with_lm_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2):
             lms.pop("NoLM",None)
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl
             wer_ppl_results_2 = dict()
@@ -536,8 +531,8 @@ def py():
             if (vocab, model, encoder) not in available:
                 train = True
             #wer_ppl_results = dict()
-            #greedy_first_pass_exp(lms, rescor_lms, lm_kinds, lm_kinds_2)
-            first_pass_with_lm_exp(lms, rescor_lms, lm_kinds, lm_kinds_2)
+            greedy_first_pass_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2)
+            #first_pass_with_lm_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2)
 
             # if wer_ppl_results and not train:
             #     names, res = zip(*wer_ppl_results.items())

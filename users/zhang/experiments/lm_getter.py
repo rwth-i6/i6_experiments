@@ -275,13 +275,14 @@ def build_trafo_lm_spm(as_ckpt: bool=True):
     lms = {}
     ppl_results = {}
     lm_types = {"trafo"}
-    for lm_name in ["n32-d1024"]:
+    rqmts = {"n32-d1024": {}, "n32-d1280-claix2023": {"gpu_mem": 24}}
+    for lm_name in ["n32-d1024", "n32-d1280-claix2023"]:
         name = "trafo_spm10k" + lm_name
         lms[name] = _get_lm_model(_lms[lm_name])
         #ratio = 1
         # tk.register_output(f"LBS_{vocab}_ratio", ratio)
         ppls = compute_ppl_single_epoch(
-            prefix_name="n32-d1280-claix2023_trafo_spm10k",
+            prefix_name=_lms[lm_name].name,
             model_with_checkpoint=lms[name],
             epoch="epoch_unk",
             dataset=lm_dataset,
@@ -289,8 +290,10 @@ def build_trafo_lm_spm(as_ckpt: bool=True):
             exponent=ratio,
             same_seq=True,
             batch_size=10_000,
+            rqmt=rqmts[lm_name],
         )
         ppl_results[name] = ppls["test-other"]
+    print(ppl_results)
     return lms, ppl_results, lm_types
 
 def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None, only_best: bool = False) -> Tuple[Dict, Dict, Set[str]]:

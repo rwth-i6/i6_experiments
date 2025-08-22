@@ -16,8 +16,11 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 from i6_experiments.users.zhang.datasets.librispeech import (
     get_train_corpus_text,
     _get_test_corpus_text,
+    _get_corpus_text_dict,
     get_test_corpus_text,
 )
+
+import torch
 
 if TYPE_CHECKING:
     pass
@@ -41,7 +44,8 @@ PROMPT = ["THIS IS A TEXT DATA SOURCED FROM PUBLIC DOMAIN AUDIOBOOKS\nIT REPRESE
 EXAMPLE = ["I SAY ADVERSARIES FOR ON RECALLING SUCH PROUD MEMORIES WE SHOULD AVOID THE WORD ENEMIES WHOSE HOSTILE SOUND PERPETUATES THE ANTAGONISMS AND STRIFE OF NATIONS SO IRREMEDIABLE PERHAPS SO FATEFUL AND ALSO SO VAIN"]
 LLM_Batch_size = {"meta-llama/Llama-3.2-1B": 18*3,
                   "meta-llama/Llama-3.1-8B": 4*3,
-                  "Qwen/Qwen3-0.6B-Base": 51, "Qwen/Qwen3-1.7B-Base": 27, #"Qwen/Qwen3-4B-Base":24,
+                  #"Qwen/Qwen3-0.6B-Base": 51,
+                  "Qwen/Qwen3-1.7B-Base": 27, #"Qwen/Qwen3-4B-Base":24,
                   "Qwen/Qwen3-8B-Base":4*3,
                   #"mistralai/Mistral-7B-v0.3": 4,
                   } # Keys of this determines which LLM will be built by lm_getter
@@ -82,17 +86,20 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             batch_size = LLM_Batch_size[model_id] // 3
         if LLM_FXIED_CTX_SIZE > 10:
             batch_size = 1
+        if LLM_PREV_ONE_CTX:
+            batch_size = LLM_Batch_size[model_id] // 6
         model = DownloadHuggingFaceRepoJob(model_id=model_id)
         tk.register_output(model_id, model.out_hub_cache_dir)
         ppl_job = HuggingFaceLmPerplexityJobV2(
             model_dir=model.out_hub_cache_dir,
-            text_file=[get_test_corpus_text(keys=[ds_name])],
+            text_file=[_get_corpus_text_dict(key=ds_name)], # get_test_corpus_text(keys=[ds_name])
             llm_name=model_id,
             batch_size=max(batch_size//2,1),
             lower_case=USE_LOWER_CASE,
             word_ppl=word_ppl,
             prompt=prompt,
             eos_symbol="\n",
+            use_prev_context=LLM_PREV_ONE_CTX,
         )
         name = os.path.basename(model_id)
         ppl_job.rqmt.update(LLM_rqmt[model_id])
@@ -103,6 +110,7 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
         if LLM_FXIED_CTX:
             lm_cfg.update({"eos_symbol": "\n"})
         if LLM_PREV_ONE_CTX:
+            lm_cfg.update({"eos_symbol": "\n"})
             lm_cfg.update({"prev_one_ctx": LLM_PREV_ONE_CTX})
         if USE_LOWER_CASE:
             lm_cfg.update({"lower_case": True})
@@ -141,7 +149,6 @@ class HuggingFaceLmPerplexityJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import torch
         import math
         import time
         import returnn.util.basic as util # noqa
@@ -329,7 +336,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
     """
     __sis_hash_exclude__ = {"batch_size" : None}
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
-                 llm_name: str, lower_case:bool = False, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, version:int = 5):
+                 llm_name: str, lower_case:bool = False, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, use_prev_context: bool = False, version:int = 5):
         super().__init__()
         #self.name = f"HFLM-PPL-{llm_name}-{self.text_file[0].basename()}"
         self.model_dir = model_dir
@@ -338,8 +345,10 @@ class HuggingFaceLmPerplexityJobV2(Job):
         self.lower_case = lower_case
         self.add_eos_to_completion = add_eos_to_completion
         self.eos_symbol = eos_symbol
-        delimiter = " " if not self.eos_symbol else (self.eos_symbol)# + " ") # Not sure
+        delimiter = " " if not self.eos_symbol else (self.eos_symbol + " ") # Not sure
+        self.use_prev_context = use_prev_context
         self.prompt = None
+        self.prompt_buffer = []
         if isinstance(prompt, tk.Path):
             with open(prompt.get_path(), "r", encoding="utf-8") as f:
                 prompt = [line.strip() for line in f.readlines()]
@@ -352,11 +361,21 @@ class HuggingFaceLmPerplexityJobV2(Job):
         self.rqmt.update({"mem": {"Llama-3.2-1B": 15, "Llama-3.1-8B": 40}.get(llm_name,25),
                         "time": {"Llama-3.2-1B": 4, "Llama-3.1-8B": 6}.get(llm_name,4)})
 
+    def update_prompt(self, new_prompt: str):
+        self.prompt_buffer += [new_prompt]
+        self.prompt = self.prompt_buffer.copy()
+        self.prompt += [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
+        self.prompt = self.eos_symbol.join(self.prompt)
+
+    def clear_prompt(self):
+        torch.cuda.empty_cache()
+        self.prompt_buffer = []
+        self.prompt = ""
+
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import torch
         import math
         import time
         import returnn.util.basic as util # noqa
@@ -390,6 +409,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
                 start = enc_prompt["input_ids"].shape[1]  # M
                 end = start + hyp_input_ids.shape[1]  # M + H
                 input_ids = torch.cat([enc_prompt["input_ids"], encoding["input_ids"]], dim=1).to(device)
+                input_ids = input_ids.long()
                 attention_mask = torch.cat([enc_prompt["attention_mask"], encoding["attention_mask"]], dim=1).to(device)
                 if debug_flag:
                     debug_flag = False
@@ -472,67 +492,65 @@ class HuggingFaceLmPerplexityJobV2(Job):
         total_lines = 0
         batch_count = 0
         log_every = 1000  # print a message every 1k lines
-
+        d_rec = dict()
+        import i6_core.util as cutil
         for text_file in self.text_file:
-            if text_file.get_path().endswith(".gz"):
-                import gzip
+            d_rec.update(eval(cutil.uopen(text_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")}))
+            # Iterate records
+            lines_seen = 0
+        total_lines = sum(len(n_best) for _, n_best in d_rec.items())
+        from i6_experiments.users.zhang.datasets.utils import sort_dict_by_record, extract_record_id
+        if self.use_prev_context:
+            d_rec = sort_dict_by_record(d_rec)
 
-                open_func = gzip.open
-            else:
-                open_func = open
+        batch_lines, batch_prompt = [], []
+        eos_symbol = (
+                " " + tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol  # (" "+tokenizer.eos_token) makes ppl worse
+        eos_symbol = eos_symbol if self.add_eos_to_completion else ""
+        last_record = None
+        for seq_tag, raw_line in d_rec.items():
+            line = raw_line.strip().lower() if self.lower_case else raw_line.strip()
+            if not line:
+                continue
+            total_lines += 1
+            total_word_tokens += len(line.split()) + (1 if self.eos_symbol else 0)
+            batch_lines.append(line + eos_symbol)
+            if self.use_prev_context:
+                current_record = extract_record_id(seq_tag)
+                if current_record != last_record:
+                    self.clear_prompt()
+                    print(f"Clear context for record {last_record}")
+            if self.prompt or self.use_prev_context:
+                batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
+            lines_seen += 1
 
-            with open_func(text_file.get_path(), "rt") as f:
-                for line in f:
-                    total_lines += 1
-                    total_word_tokens += len(line.strip().split()) + (1 if self.eos_symbol else 0)
-
-        for text_file in self.text_file:
-        # Open the file and iterate line by line
-            if text_file.get_path().endswith(".gz"):
-                import gzip
-
-                open_func = gzip.open
-            else:
-                open_func = open
-            with open_func(text_file.get_path(), "rt") as f:
-                batch_lines, batch_prompt = [], []
-                eos_symbol = (
-                            " " + tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol  # (" "+tokenizer.eos_token) makes ppl worse
-                eos_symbol = eos_symbol if self.add_eos_to_completion else ""
-                for raw_line in f:
-                    if self.prompt:
-                        batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
-                    line = raw_line.strip().lower() if self.lower_case else raw_line.strip()
-                    if not line:
-                        continue
-                    batch_lines.append(line + eos_symbol)
-
-                    lines_seen += 1
-
-                    # Log after every `log_every` lines
-                    if lines_seen % log_every == 0:
-                        print(f"[Line {lines_seen:,}/{total_lines}] {100*lines_seen/total_lines:.2f}% processed…")
-                        print(f"current lines:{batch_lines}")
-                        _report_dev_memory_stats()
-                    # Once we have `batch_size` lines, tokenize & process them
-                    if len(batch_lines) == self.batch_size:
-                        batch_count += 1
-                        nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
-                        total_logprob += nll
-                        total_tokens += tok_count
-
-                        if batch_count % 1000 == 0:
-                            print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
-
-                        batch_lines, batch_prompt = [], []  # clear for next batch
-
-
-
-            # Process any leftover lines (if total lines % batch_size != 0)
-            if batch_lines:
+            # Log after every `log_every` lines
+            if lines_seen % log_every == 0:
+                print(f"[Line {lines_seen:,}/{total_lines}] {100 * lines_seen / total_lines:.2f}% processed…")
+                print(f"current lines:{batch_lines}")
+                _report_dev_memory_stats()
+            # Once we have `batch_size` lines, tokenize & process them
+            if len(batch_lines) == self.batch_size:
+                batch_count += 1
                 nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
                 total_logprob += nll
                 total_tokens += tok_count
+
+                if batch_count % 1000 == 0:
+                    print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
+
+                batch_lines, batch_prompt = [], []  # clear for next batch
+
+            if self.use_prev_context:
+                print(f"Transcription for {seq_tag}: {line}")
+                self.update_prompt(line)
+                last_record = current_record
+
+        # Process any leftover lines (if total lines % batch_size != 0)
+        if batch_lines:
+            nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
+            total_logprob += nll
+            total_tokens += tok_count
 
         #print(f"(Assumed batch size 1)Average bpe seq length:{bpe_length/total_lines:.2f}")
         print(f"Average bpe/word length ratio:{total_tokens}/{total_word_tokens}->{total_tokens / total_word_tokens:.2f}")
@@ -583,7 +601,6 @@ class HuggingFaceLmPerplexityJobV3(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import torch
         import math
         import time
         import returnn.util.basic as util # noqa
@@ -799,7 +816,6 @@ class HuggingFaceLmRescoringJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import torch
         import math
         import time
         import returnn.util.basic as util

@@ -81,6 +81,55 @@ def get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dic
 
     return ogg_zip_dict
 
+def extract_record_id(key: str) -> int:
+    """
+    Extracts the record ID (middle number) from a Librispeech-style key.
+    Example key: 'test-clean/672-122797-0033/672-122797-0033'
+    Returns: 122797 as integer.
+    """
+    # Split on '/' and then on '-' to isolate the IDs
+    try:
+        parts = key.split('/')
+        identifier = parts[1]  # e.g. '672-122797-0033'
+        _, record_str, _ = identifier.split('-')
+        return int(record_str)
+    except (IndexError, ValueError):
+        raise ValueError(f"Invalid key format for record extraction: {key}")
+
+
+def extract_sequence_num(key: str) -> int:
+    """
+    Extracts the sequence number (last part) from a Librispeech-style key.
+    Example key: 'test-clean/672-122797-0033/672-122797-0033'
+    Returns: 33 as integer.
+    """
+    try:
+        parts = key.split('/')
+        identifier = parts[1]
+        *_, seq_str = identifier.split('-')
+        return int(seq_str)
+    except (IndexError, ValueError):
+        raise ValueError(f"Invalid key format for sequence extraction: {key}")
+
+
+def sort_dict_by_record(data: dict) -> dict:
+    """
+    Sorts a dict of Librispeech keys so that entries with the same record ID are grouped
+    and ordered by their sequence number.
+
+    Args:
+        data: dict with keys in the form '.../record-seq/...'
+    Returns:
+        A new dict with keys sorted by (record_id, sequence_num).
+    """
+    # Generate sorted list of keys
+    sorted_keys = sorted(
+        data.keys(),
+        key=lambda k: (extract_record_id(k), extract_sequence_num(k))
+    )
+    # Rebuild the dict in sorted order
+    return {k: data[k] for k in sorted_keys}
+
 class MetaDataset():
     """
     Represents :class:`MetaDataset` in RETURNN

@@ -140,11 +140,21 @@ class LmRescoringJob(Job):
         total_lines = sum(len(n_best) for _, n_best in d_rec.items())
         log_every = 1000  # print a message every 1k lines
 
+        from i6_experiments.users.zhang.datasets.utils import sort_dict_by_record, extract_record_id
+        if prev_one_ctx:
+            d_rec = sort_dict_by_record(d_rec)
+        last_record = None
         for seq_tag, n_best in d_rec.items():
+            print(f"Processing {seq_tag}...")
             out_file.write(f"{seq_tag!r}: [\n")
             hyps = [x[1] for x in n_best]
             lines_seen += len(hyps)
             #am_scores = [x[0] for x in n_best]
+            if prev_one_ctx:
+                current_record = extract_record_id(seq_tag)
+                if current_record != last_record:
+                    self.scorer.clear_prompt()
+                    print(f"Clear context for record {last_record}")
             lm_scores = self.scorer.batch_score(hyps)
             # reorder and select top
             if lines_seen % log_every == 0:
@@ -154,9 +164,13 @@ class LmRescoringJob(Job):
             # Should not do reordering here, there is an existing takeBestJob in downstream part
             # This is for add context
             if prev_one_ctx:
+                self.scorer: HuggingFaceLmScorer
                 reorder = list(zip(lm_scores, hyps))
                 reorder.sort(key=lambda x: x[0], reverse=True)
-                self.scorer.prompt = raw_text_from_bpe_seq(reorder[0][1].split())
+                recog_seq = raw_text_from_bpe_seq(reorder[0][1].split())
+                print(f"Recog for {seq_tag}: {recog_seq}")
+                self.scorer.update_prompt(recog_seq)
+                last_record = current_record
             # out_file.write(f"  ({reorder[0][1]!r}, {reorder[0][2]!r}),\n")
             out_file.write("],\n")
 
@@ -205,6 +219,8 @@ class HuggingFaceLmScorer(LMScorer):
         instance = cls()
         instance.batch_size = batch_size
         instance.model_dir = model_dir
+
+        instance.prompt_buffer = []
         delimiter = " " if not eos_symbol else (eos_symbol + " ")  # Not sure
         instance.prompt = None
         if isinstance(prompt, tk.Path):
@@ -239,6 +255,17 @@ class HuggingFaceLmScorer(LMScorer):
         #instance.lower_case = lower_case
         #instance.eos_symbol = eos_symbol
         return instance
+
+    def update_prompt(self, new_prompt: str):
+        self.prompt_buffer += [new_prompt]
+        self.prompt = self.prompt_buffer.copy()
+        self.prompt += [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
+        self.prompt = self.eos_symbol.join(self.prompt)
+
+    def clear_prompt(self):
+        torch.cuda.empty_cache()
+        self.prompt_buffer = []
+        self.prompt = None
 
     def score(self, sequence: str) -> float:
         pass
@@ -883,7 +910,7 @@ def lm_am_framewise_prior_rescore(
         forward_alias_name=alias_name + "/AMrescoring",
     )
     if normalize_seq:
-        print(f"Normalize the am lm out text! --> {alias_name}")
+        #print(f"Normalize the am lm out text! --> {alias_name}")
         res_labels_lm_scores = lm_vocab_to_word_func(res_labels_lm_scores)
         res_labels_am_scores = vocab_to_word_func(res_labels_am_scores)
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]

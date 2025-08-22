@@ -25,7 +25,8 @@ _lms = {
 
 def py():
     #recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1280-claix2023")  # 3.88 (!!)
-    lm = _get_lm_model(_lms["n32-d1024"])
+    lm_id = "n32-d1280-claix2023"
+    lm = _get_lm_model(_lms[lm_id])
     vocab = "spm10k"
     from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_dataset
     from i6_experiments.users.zhang.experiments.lm_getter import GetSubwordRatioJob
@@ -38,7 +39,7 @@ def py():
     # tk.register_output(f"LBS_{vocab}_ratio", ratio)
     from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl_single_epoch
     ppls = compute_ppl_single_epoch(
-        prefix_name="n32-d1280-claix2023_trafo_spm10k",
+        prefix_name=_lms[lm_id].name,
         model_with_checkpoint=lm,
         epoch="epoch_unk",
         dataset=lm_dataset,

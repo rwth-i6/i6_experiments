@@ -213,7 +213,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 ppls[f"epoch{epoch}"] = ppl_job.out_ppl
     return ppls
 
-def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], exponent: float=1, same_seq:bool=False, batch_size:int=80_000):
+def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], exponent: float=1, same_seq:bool=False, batch_size:int=80_000, rqmt: dict={}):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
@@ -230,6 +230,8 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
         )
+        if rqmt:
+            res.rqmt.update(rqmt)
         ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename], exponent=exponent)
 
         dataset_key_ = (
@@ -276,7 +278,7 @@ class ComputePerplexityJob(Job):
 
         with open(self.out_ppl.get_path(), "w+") as f:
             if self.exponent > 1:
-                f.write("Original ppl: %f" % ppl)
+                f.write("Original level: %f ratio: %f \n" % (ppl, self.exponent))
                 print(f"ori_ppl:{ppl}, exponent:{self.exponent}")
                 ppl = math.pow(ppl, self.exponent)
             f.write("Perplexity: %f" % ppl)

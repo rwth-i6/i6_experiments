@@ -22,10 +22,9 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import _g
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl
-from i6_experiments.users.zhang.datasets.librispeech import get_subword_ratio
 
 import torch
-from torchaudio.models.decoder import CTCDecoderLM, CTCDecoderLMState
+#from torchaudio.models.decoder import CTCDecoderLM, CTCDecoderLMState
 
 if TYPE_CHECKING:
     from sisyphus import *
@@ -159,7 +158,7 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     #     ),
     #     train_def=lm_train_def,
     # )
-    exponent = get_subword_ratio(["test-other"], vocab)
+    #exponent = get_subword_ratio(["test-other"], vocab)
     exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1.0, 10_025: 1.0}#184-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
@@ -183,94 +182,94 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     else:
         return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
 
-class FFNN_LM_State(CTCDecoderLMState):
-    def __init__(self, tokens: Sequence[int], context_size: int, labels: Sequence[int]):
-        super().__init__()
-        assert len(tokens) == context_size
-        self.context_size = context_size
-        self.tokens = tokens
-        self.labels = labels
-
-    def __add__(self, token: int):
-        new_tokens = self.tokens[1:] + [token]
-        return FFNN_LM_State(new_tokens, context_size=self.context_size, labels=self.labels)
-
-    def child(self, token: int) -> FFNN_LM_State:
-        return self + token
-
-    def __repr__(self):
-        return f"FFNN_LM_State({self.tokens})"
-
-    def __eq__(self, other):
-        return isinstance(other, FFNN_LM_State) and self.tokens == other.tokens
-
-    def __hash__(self):
-        return hash(tuple(self.tokens))
-
-    # @property
-    # def children(self) -> Dict[int, FFNN_LM_State]:
-    #     """Map of indices to LM states"""
-    #     return {i: self.child(i) for i in self.labels}
-
-
-class FFNN_LM_flashlight(CTCDecoderLM):
-    """Create a Python wrapper around `language_model` to feed to the decoder."""
-
-    def __init__(self, language_model: FeedForwardLm, vocab_dim: Dim, context_size: int):
-        super().__init__()
-        self.language_model = language_model
-        self.vocab_dim = vocab_dim
-        self.vocab = vocab_dim.vocab
-        self.context_size = context_size
-        self.states = {}
-        # self.cache = {} # NOTE: necessary as the garbage collector will delete states otherwise which leads to errors, so we have to keep track of them
-        self.cache = []
-
-    def _get_logprobs(self, tokens: list) -> torch.Tensor:
-        tokens = torch.tensor(tokens, dtype=torch.int64).unsqueeze(0)
-        #-------------------------------------------------------------------------
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        tokens = tokens.to(device)
-        #-------------------------------------------------------------------------
-        spatial_dim = Dim(int(tokens.size(1)), name="frames", kind=Dim.Types.Spatial)
-        out_spatial_dim = Dim(int(tokens.size(1)) + 1, name="frames_out", kind=Dim.Types.Spatial)
-        tokens = rtf.TorchBackend.convert_to_tensor(tokens, dims=[batch_dim, spatial_dim], sparse_dim=self.vocab_dim,
-                                                    dtype="int64", name="tokens")
-        logits, _ = self.language_model(tokens, spatial_dim=spatial_dim, out_spatial_dim=out_spatial_dim)
-        log_prob = rf.log_softmax(logits, axis=self.vocab_dim)
-        log_prob = log_prob.raw_tensor
-        log_prob = log_prob[0][-1]
-        assert log_prob.exp().sum().allclose(torch.tensor(1.0)), str(log_prob.exp().sum())
-        return log_prob
-
-    def start(self, start_with_nothing: bool = False):
-        state = FFNN_LM_State(tokens=[self.vocab.bos_label_id] * self.context_size, context_size=self.context_size,
-                              labels=range(self.vocab.num_labels))
-        score = self._get_logprobs(state.tokens)
-
-        self.states[state] = score
-        # self.cache[state] = state
-        self.cache.append(state)
-        return state
-
-    def score(self, state: FFNN_LM_State, token_index: int):
-        outstate = state.child(token_index)
-        self.cache.append(outstate)
-        # if outstate in self.cache:
-        #     outstate = self.cache[outstate]
-        # else:
-        #     self.cache[outstate] = outstate
-        if outstate not in self.states:
-            score = self._get_logprobs(outstate.tokens)
-            self.states[outstate] = score
-        score = self.states[state][token_index].item()
-
-        return outstate, score
-
-    def finish(self, state: FFNN_LM_State):
-        outstate = state.child(self.vocab.eos_label_id)
-        assert state in self.states
-        return outstate, self.states[state][self.vocab.eos_label_id].item()
+# class FFNN_LM_State(CTCDecoderLMState):
+#     def __init__(self, tokens: Sequence[int], context_size: int, labels: Sequence[int]):
+#         super().__init__()
+#         assert len(tokens) == context_size
+#         self.context_size = context_size
+#         self.tokens = tokens
+#         self.labels = labels
+#
+#     def __add__(self, token: int):
+#         new_tokens = self.tokens[1:] + [token]
+#         return FFNN_LM_State(new_tokens, context_size=self.context_size, labels=self.labels)
+#
+#     def child(self, token: int) -> FFNN_LM_State:
+#         return self + token
+#
+#     def __repr__(self):
+#         return f"FFNN_LM_State({self.tokens})"
+#
+#     def __eq__(self, other):
+#         return isinstance(other, FFNN_LM_State) and self.tokens == other.tokens
+#
+#     def __hash__(self):
+#         return hash(tuple(self.tokens))
+#
+#     # @property
+#     # def children(self) -> Dict[int, FFNN_LM_State]:
+#     #     """Map of indices to LM states"""
+#     #     return {i: self.child(i) for i in self.labels}
+#
+#
+# class FFNN_LM_flashlight(CTCDecoderLM):
+#     """Create a Python wrapper around `language_model` to feed to the decoder."""
+#
+#     def __init__(self, language_model: FeedForwardLm, vocab_dim: Dim, context_size: int):
+#         super().__init__()
+#         self.language_model = language_model
+#         self.vocab_dim = vocab_dim
+#         self.vocab = vocab_dim.vocab
+#         self.context_size = context_size
+#         self.states = {}
+#         # self.cache = {} # NOTE: necessary as the garbage collector will delete states otherwise which leads to errors, so we have to keep track of them
+#         self.cache = []
+#
+#     def _get_logprobs(self, tokens: list) -> torch.Tensor:
+#         tokens = torch.tensor(tokens, dtype=torch.int64).unsqueeze(0)
+#         #-------------------------------------------------------------------------
+#         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#         tokens = tokens.to(device)
+#         #-------------------------------------------------------------------------
+#         spatial_dim = Dim(int(tokens.size(1)), name="frames", kind=Dim.Types.Spatial)
+#         out_spatial_dim = Dim(int(tokens.size(1)) + 1, name="frames_out", kind=Dim.Types.Spatial)
+#         tokens = rtf.TorchBackend.convert_to_tensor(tokens, dims=[batch_dim, spatial_dim], sparse_dim=self.vocab_dim,
+#                                                     dtype="int64", name="tokens")
+#         logits, _ = self.language_model(tokens, spatial_dim=spatial_dim, out_spatial_dim=out_spatial_dim)
+#         log_prob = rf.log_softmax(logits, axis=self.vocab_dim)
+#         log_prob = log_prob.raw_tensor
+#         log_prob = log_prob[0][-1]
+#         assert log_prob.exp().sum().allclose(torch.tensor(1.0)), str(log_prob.exp().sum())
+#         return log_prob
+#
+#     def start(self, start_with_nothing: bool = False):
+#         state = FFNN_LM_State(tokens=[self.vocab.bos_label_id] * self.context_size, context_size=self.context_size,
+#                               labels=range(self.vocab.num_labels))
+#         score = self._get_logprobs(state.tokens)
+#
+#         self.states[state] = score
+#         # self.cache[state] = state
+#         self.cache.append(state)
+#         return state
+#
+#     def score(self, state: FFNN_LM_State, token_index: int):
+#         outstate = state.child(token_index)
+#         self.cache.append(outstate)
+#         # if outstate in self.cache:
+#         #     outstate = self.cache[outstate]
+#         # else:
+#         #     self.cache[outstate] = outstate
+#         if outstate not in self.states:
+#             score = self._get_logprobs(outstate.tokens)
+#             self.states[outstate] = score
+#         score = self.states[state][token_index].item()
+#
+#         return outstate, score
+#
+#     def finish(self, state: FFNN_LM_State):
+#         outstate = state.child(self.vocab.eos_label_id)
+#         assert state in self.states
+#         return outstate, self.states[state][self.vocab.eos_label_id].item()
 
 
 # ---------------------------------------------------

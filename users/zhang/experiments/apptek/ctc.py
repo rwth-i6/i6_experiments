@@ -1,3 +1,4 @@
+from __future__ import annotations
 import copy
 from sisyphus import gs, tk
 import i6_core.rasr as rasr
@@ -604,4 +605,394 @@ def py():
     )
     nn_system.run()
     nn_system.training_job.rqmt.update({"gpu_mem": 48})
-    return nn_system.training_job.out_checkpoints[625]
+    return nn_system.training_job, spm_spec.build(aar) #.out_checkpoints[625]
+
+
+import returnn.frontend as rf
+import returnn.torch.frontend as rtf
+from typing import Dict, Any, Optional
+from returnn.tensor import Tensor, Dim, single_step_dim, batch_dim
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
+import torch
+
+NETWORK_CONFIG_KWARGS = {
+    # Required by RETURNN torch engine, could be used to build epoch/step dependent model, not used yet, see networks.conformer class
+    "epoch": 625, # Dummy
+    "step": 0, # Dummy
+    #
+    "num_layers": 20,
+    "num_heads": 14,
+    "enc_input_dim": 896,
+    "dropout": 0.1,
+    "sampling_rate": 16000,
+    "conv1_channels": 32,
+    "conv2_channels": 64,
+    "conv3_channels": 64,
+    "conv4_channels": 32,
+    "num_channels": 80,
+    "enc_hidden_dim": 3584,
+    "conv_filter_size": 33,
+    "num_outputs": 10237,
+    "extract_logmel_features": True,
+    "use_specaugment": True,
+    "auxloss_layers": [10, 20],
+    "internal_subsampling_rate": 4,
+    "output_upsampling": False,
+    "with_bias": True,
+    "learnable_pos_emb": True,
+    "rel_pos_clip": 16,
+    "with_linear_pos": False,
+    "with_pos_bias": False,
+    "separate_pos_emb_per_head": False,
+    "pos_emb_dropout": 0.0,
+    "encoder_output_dropout": 0.1,
+    "upsampler_output_dropout": 0.0,
+    "dropout_broadcast_axes": "T",
+}
+
+BLANK_IDX = 0
+
+def get_model_and_vocab():
+    from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoints
+    training_job, vocab = py()
+    i6_models_repo = CloneGitRepositoryJob(
+        url="https://github.com/rwth-i6/i6_models",
+        commit=network_config_kwargs["i6_models_commit"],
+        checkout_folder_name="i6_models",
+    ).out_repository
+    from i6_core.serialization.base import ExternalImport
+    i6_models = ExternalImport(import_path=i6_models_repo)
+    return ModelWithCheckpoints.from_training_job(definition=ctc_model_def, training_job=training_job), vocab, i6_models
+
+def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+    """Function is run within RETURNN."""
+    in_dim, epoch  # noqa
+    return Model(**_get_ctc_model_kwargs_from_global_config(target_dim=target_dim))
+
+
+ctc_model_def: ModelDef[Model]
+ctc_model_def.behavior_version = 22
+ctc_model_def.backend = "torch"
+ctc_model_def.batch_size_factor = 160
+
+
+def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, Any]:
+    from returnn.config import get_global_config
+    from i6_experiments.users.zhang.experiments.lm.ffnn import FeedForwardLm
+    from returnn.frontend.decoder.transformer import TransformerDecoder
+
+    config = get_global_config()  # noqa
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=NETWORK_CONFIG_KWARGS["enc_input_dim"], kind=Dim.Types.Feature)
+
+    recog_language_model = config.typed_value("recog_language_model", None)
+    network_config = config.typed_value("network_config_kwargs", None)
+    recog_lm = None
+
+    if recog_language_model:
+        assert isinstance(recog_language_model, dict)
+        recog_language_model = recog_language_model.copy()
+        cls_name = recog_language_model.pop("class")
+        #raise NotImplementedError
+        if cls_name == "FeedForwardLm":
+            recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+        elif cls_name == "TransformerLm":
+            recog_lm = TransformerDecoder(encoder_dim=None,vocab_dim=target_dim, **recog_language_model)
+
+    kwargs = dict(
+        in_dim=in_dim,
+        target_dim=target_dim,
+        blank_idx=BLANK_IDX,
+        bos_idx=_get_bos_idx(target_dim),
+        eos_idx=_get_eos_idx(target_dim),
+        recog_language_model=recog_lm,
+    )
+    kwargs.update(network_config)
+    return kwargs
+
+
+def _get_bos_idx(target_dim: Dim) -> int:
+    """for non-blank labels"""
+    assert target_dim.vocab
+    if target_dim.vocab.bos_label_id is not None:
+        bos_idx = target_dim.vocab.bos_label_id
+    elif target_dim.vocab.eos_label_id is not None:
+        bos_idx = target_dim.vocab.eos_label_id
+    elif "<sil>" in target_dim.vocab.user_defined_symbol_ids:
+        bos_idx = target_dim.vocab.user_defined_symbol_ids["<sil>"]
+    else:
+        raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
+    return bos_idx
+
+
+def _get_eos_idx(target_dim: Dim) -> int:
+    """for non-blank labels"""
+    assert target_dim.vocab
+    if target_dim.vocab.eos_label_id is not None:
+        eos_idx = target_dim.vocab.eos_label_id
+    else:
+        raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
+    return eos_idx
+
+from torch import nn
+def promote_buffers_to_params(root: nn.Module):
+    """
+    Replace every buffer on every submodule with a nn.Parameter(requires_grad=False).
+    This unblocks RETURNN's PTModuleAsRFModule bridge that expects Parameters.
+    Only for inference use.
+    """
+    for _, submod in root.named_modules():  # includes root
+        # iterate only direct buffers of this submodule
+        for buf_name, buf in list(submod.named_buffers(recurse=False)):
+            # remove buffer first (otherwise setattr/register may keep it as buffer)
+            if buf_name in submod._buffers:
+                submod._buffers.pop(buf_name)
+            # register parameter with same local name (no dots here)
+            # ensure it does not require grad (ok for any dtype; grads won’t be created)
+            param = nn.Parameter(buf, requires_grad=False)
+            submod.register_parameter(buf_name, param)
+
+from returnn.torch.frontend.bridge import PTModuleAsRFModule
+class Model(PTModuleAsRFModule):
+    """
+    RF Module wrapper around the PyTorch ConformerRelPosModel for RETURNN compatibility.
+    """
+    def __init__(
+        self,
+        epoch: int,
+        step: int,
+        *,
+        sampling_rate: int,
+        num_channels: int,
+        conv1_channels: int,
+        conv2_channels: int,
+        conv3_channels: int,
+        conv4_channels: int,
+        enc_input_dim: int,
+        enc_hidden_dim: int,
+        dropout: float,
+        num_heads: int,
+        conv_filter_size: int,
+        num_layers: int,
+        num_outputs: int,
+        use_specaugment: bool = True,
+        specaugment_kwargs: dict = None,
+        extract_logmel_features: bool = True,
+        auxloss_layers: list = None,
+        internal_subsampling_rate: int = 3,
+        output_upsampling: bool = True,
+        with_bias: bool = True,
+        learnable_pos_emb: bool = True,
+        rel_pos_clip: int = 16,
+        with_linear_pos: bool = False,
+        with_pos_bias: bool = False,
+        separate_pos_emb_per_head: bool = False,
+        pos_emb_dropout: float = 0.0,
+        encoder_output_dropout: float = 0.1,
+        upsampler_output_dropout: float = 0.1,
+        dropout_broadcast_axes: str = "T",
+        #--------args for wrapper------------
+        target_dim: Dim = None,
+        blank_idx: int,
+        eos_idx: int,
+        bos_idx: int,
+        recog_language_model: Optional[Any] = None,
+        **kwargs
+    ):
+        from returnn.config import get_global_config
+        from apptek_asr.lib.pytorch.networks.conformer_rel_pos import ConformerRelPosModel
+
+        config = get_global_config(return_empty_if_none=True)
+        self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
+        self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
+        self.blank_logit_shift = None
+        self.out_blank_separated = False # Assume standard case
+        self.target_dim = target_dim
+        self.wb_target_dim = target_dim - 3
+        self.wb_target_dim.vocab = self.target_dim.vocab
+
+        self.blank_idx = blank_idx
+        self.eos_idx = eos_idx
+        self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
+        self.recog_language_model = recog_language_model
+
+        print(f"eos_idx: {eos_idx}, bos_idx: {bos_idx}, blank_idx: {blank_idx}, wb_target_dim.vocab: {self.wb_target_dim.vocab}")
+        # Instantiate the underlying PyTorch Conformer model
+        assert target_dim.dimension == num_outputs + 3, f"target_dim {target_dim.dimension} != num_outputs {num_outputs}"
+        pt = ConformerRelPosModel(
+            epoch=epoch,
+            step=step,
+            sampling_rate=sampling_rate,
+            num_channels=num_channels,
+            conv1_channels=conv1_channels,
+            conv2_channels=conv2_channels,
+            conv3_channels=conv3_channels,
+            conv4_channels=conv4_channels,
+            enc_input_dim=enc_input_dim,
+            enc_hidden_dim=enc_hidden_dim,
+            dropout=dropout,
+            num_heads=num_heads,
+            conv_filter_size=conv_filter_size,
+            num_layers=num_layers,
+            num_outputs=num_outputs,
+            use_specaugment=use_specaugment,
+            specaugment_kwargs=specaugment_kwargs,
+            extract_logmel_features=extract_logmel_features,
+            auxloss_layers=auxloss_layers,
+            internal_subsampling_rate=internal_subsampling_rate,
+            output_upsampling=output_upsampling,
+            with_bias=with_bias,
+            learnable_pos_emb=learnable_pos_emb,
+            rel_pos_clip=rel_pos_clip,
+            with_linear_pos=with_linear_pos,
+            with_pos_bias=with_pos_bias,
+            separate_pos_emb_per_head=separate_pos_emb_per_head,
+            pos_emb_dropout=pos_emb_dropout,
+            encoder_output_dropout=encoder_output_dropout,
+            upsampler_output_dropout=upsampler_output_dropout,
+            dropout_broadcast_axes=dropout_broadcast_axes,
+            **kwargs
+        )
+
+        promote_buffers_to_params(pt)
+        super().__init__(pt_module=pt)
+
+
+    def __call__(
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        features_len: Tensor = None,
+        collected_outputs: dict = None
+    ):
+        """
+        Forward pass: accepts RETURNN frontend Tensor inputs, converts to torch, runs the PyTorch model, and converts back to rf.Tensor.
+        """
+        # Convert rf.Tensor to torch.Tensor
+        import pdb;pdb.set_trace()
+        src_torch = source.raw_tensor
+
+        # get mask via in_spatial_dim API (try both variants, some APIs accept the source)
+        try:
+            # some implementations require the source tensor; others don't
+            mask_rf = in_spatial_dim.get_mask(source)
+        except TypeError:
+            mask_rf = in_spatial_dim.get_mask()
+
+        # Defensive: if mask_rf is None, fall back to full-length later
+        if mask_rf is None:
+            # fallback: infer length from full time dimension of `source`
+            features_len_t = torch.full((src_torch.size(0),), src_torch.size(1), dtype=torch.long, device=src_torch.device)
+        else:
+            # mask_rf might be boolean or 0/1 float. Sum over in_spatial_dim to get lengths.
+            # cast to float if needed then reduce sum:
+            mask_float = rf.cast(mask_rf, dtype=rf.get_default_float_dtype()) #if not getattr(mask_rf, "dtype",None) else mask_rf
+            features_len_rf = rf.reduce_sum(mask_float, axis=in_spatial_dim)  # shape [B]
+            # convert to torch long
+            features_len_t = features_len_rf.raw_tensor.long()
+
+        # Run PyTorch model
+        outputs, out_len = self._pt_module.forward(src_torch, features_len_t)  # _pt_module is the original PT model
+
+        # Convert back to rf.Tensor
+        if isinstance(outputs, (list, tuple)):
+            if len(outputs) == 0:
+                raise ValueError("Model returned empty output list")
+            # Take the final head
+            logits_torch = outputs[-1]  # shape [B, T, F]
+        else:
+            assert isinstance(outputs, torch.Tensor)
+            logits_torch = outputs
+
+        out_len_rf = rtf.TorchBackend.convert_to_tensor(out_len, dims=[batch_dim], name="output_length", dtype="int64")
+        enc_spatial_dim = Dim(None, name="enc_spatial", dyn_size_ext=out_len_rf)
+
+        logits = rtf.TorchBackend.convert_to_tensor(logits_torch, dims=[batch_dim, enc_spatial_dim, self.wb_target_dim], name=f"output", dtype=rf.get_default_float_dtype())
+
+        enc = None # For now Will not be used anyway
+        return logits, enc, enc_spatial_dim
+
+    def log_probs_wb_from_logits(self, logits: rf.Tensor) -> rf.Tensor:
+        """
+        Minimal inference-oriented version:
+          - supports joint (blank in vector) and out_blank_separated modes,
+          - applies blank_logit_shift (non-inplace),
+          - computes stable log-probs,
+          - applies ctc_am_scale and ctc_prior_scale (batch/static).
+        Returns an rf.Tensor with feature_dim == self.wb_target_dim.
+        """
+        # Always avoid in-place ops: use `+` not `+=`
+        if not self.out_blank_separated:
+            if self.blank_logit_shift:
+                logits = logits + rf.sparse_to_dense(
+                    self.blank_idx, label_value=self.blank_logit_shift, other_value=0, axis=self.wb_target_dim
+                )
+            log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
+
+        else:
+            # separate blank handling
+            assert self.blank_idx == self.target_dim.dimension
+            dummy_blank_feat_dim = rf.Dim(1, name="blank_feat")
+            logits_wo_blank, logits_blank = rf.split(
+                logits, axis=self.wb_target_dim, out_dims=[self.target_dim, dummy_blank_feat_dim]
+            )
+            # emission normalized conditionally over target_dim
+            log_probs_wo_blank = rf.log_softmax(logits_wo_blank, axis=self.target_dim)
+            # we could call self._maybe_apply_on_log_probs on emissions, but it's identity for inference
+            log_probs_wo_blank = self._maybe_apply_on_log_probs(log_probs_wo_blank)
+            if self.blank_logit_shift:
+                logits_blank = logits_blank + self.blank_logit_shift
+            log_probs_blank = rf.log_sigmoid(logits_blank)  # log P(blank)
+            log_probs_emit = rf.squeeze(rf.log_sigmoid(-logits_blank), axis=dummy_blank_feat_dim)  # log P(not-blank)
+            # joint log-prob for emissions = log P(emission|not-blank) + log P(not-blank)
+            log_probs, _ = rf.concat(
+                (log_probs_wo_blank + log_probs_emit, self.target_dim),
+                (log_probs_blank, dummy_blank_feat_dim),
+                out_dim=self.wb_target_dim,
+            )
+        log_probs.feature_dim = self.wb_target_dim
+
+        # no gradient-side ops in inference (kept as identity)
+        log_probs = self._maybe_apply_on_log_probs(log_probs)
+
+        # apply scaling/prior adjustments (these matter for scoring in inference)
+        if self.ctc_am_scale == 1 and self.ctc_prior_scale == 0:
+            return log_probs
+
+        log_probs_am = log_probs
+        log_probs = log_probs_am * self.ctc_am_scale
+
+        if self.ctc_prior_scale:
+            if self.ctc_prior_type == "batch":
+                axis = [dim for dim in log_probs_am.dims if dim != self.wb_target_dim]
+                log_prob_prior = rf.reduce_logsumexp(log_probs_am, axis=axis)
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            elif self.ctc_prior_type == "static":
+                log_prob_prior = self.static_prior
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            else:
+                raise ValueError(f"invalid ctc_prior_type {self.ctc_prior_type!r}")
+            log_probs = log_probs - (log_prob_prior * self.ctc_prior_scale)
+
+        return log_probs
+
+    def _maybe_apply_log_probs_normed_grad(self, log_probs: rf.Tensor) -> rf.Tensor:
+        """
+        No-op for inference. Real implementation modifies gradients and is only needed for training.
+        """
+        return log_probs
+
+    def _maybe_apply_on_log_probs(self, log_probs: rf.Tensor) -> rf.Tensor:
+        """
+        Identity wrapper for inference; keeps method interface compatible with rf_conformer.Model.
+        """
+        # We keep the same checks to be defensive, but do not change values.
+        assert log_probs.feature_dim in (self.wb_target_dim, self.target_dim)
+        if not self.out_blank_separated:
+            assert log_probs.feature_dim == self.wb_target_dim
+        # skip gradient-only transforms
+        return log_probs
+
+    def get_default_name(self):
+        return "conformer_relpos_rf"
