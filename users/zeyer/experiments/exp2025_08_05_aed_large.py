@@ -1027,8 +1027,9 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    # TODO rmsnorm with 1+scale (better for weight decay). call it V2?
-    # TODO Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att, RMSNormGemma
+    # Note: Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att, RMSNormGemma
+    # RMSNormGemma: rmsnorm with 1+scale (better for weight decay)
+    # TODO try Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att
 
     # Aux CTC loss with label smoothing (auxCtcLs)
     for aux_loss_layers, aux_ctc_ls in [
