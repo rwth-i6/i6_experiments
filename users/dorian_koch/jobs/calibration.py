@@ -87,6 +87,7 @@ class CalculateECE(Job):
         self.returnn_root = returnn_root
         self.confidence_key = confidence_key
         self.accuracy_key = accuracy_key
+        self.entropy_key = "entropy"
         self.confidence_logspace = confidence_logspace
         self.num_bins = num_bins
         self.strategy = strategy
@@ -95,6 +96,7 @@ class CalculateECE(Job):
         self.out_stats_equalsize = self.output_path("ece_stats_equalsize.json")
         self.out_ece = self.output_var("ece")
         self.out_signed_ece = self.output_var("signed_ece")
+        self.out_mean_entropy = self.output_var("mean_entropy")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -102,7 +104,7 @@ class CalculateECE(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 6
+        d["__version"] = 8
         return super().hash(d)
 
     def run(self):
@@ -132,9 +134,11 @@ class CalculateECE(Job):
 
         assert self.confidence_key in dataset.get_data_keys()
         assert self.accuracy_key in dataset.get_data_keys()
+        assert self.entropy_key in dataset.get_data_keys()
 
         confidences = []
         accuracies = []
+        entropies = []
 
         seq_idx = 0
         while dataset.is_less_than_num_seqs(seq_idx):
@@ -154,6 +158,10 @@ class CalculateECE(Job):
             assert isinstance(accuracy, np.ndarray), "Accuracy should be a numpy array."
             assert np.all(np.isin(accuracy, [0, 1])), "Accuracy should be binary (0 or 1)."
 
+            entropy = dataset.get_data(seq_idx, self.entropy_key)
+            assert isinstance(entropy, np.ndarray), "Entropy should be a numpy array."
+            entropies.append(entropy)
+
             confidences.append(confidence)
             accuracies.append(accuracy)
 
@@ -165,6 +173,9 @@ class CalculateECE(Job):
             n_bins=self.num_bins,
             strategy=self.strategy,
         )
+
+        entropy_avg = float(np.concatenate(entropies).mean())
+        logging.info(f"Mean entropy: {entropy_avg:.4f}")
 
         with uopen(self.out_stats, "wt") as out:
             json.dump({"ece": ece, "signed_ece": signed_ece, "bins": bins}, out, indent=2, sort_keys=True)
@@ -183,3 +194,4 @@ class CalculateECE(Job):
             )
         self.out_ece.set(ece)
         self.out_signed_ece.set(signed_ece)
+        self.out_mean_entropy.set(entropy_avg)

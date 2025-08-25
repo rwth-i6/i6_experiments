@@ -82,8 +82,9 @@ class TextDictToScoresTextDictJob(Job):
 
 
 class AverageScores(Job):
-    def __init__(self, *, scores: RecogOutput):
+    def __init__(self, *, scores: RecogOutput, length_normalize_with_vocab: Dict[str, Any] | None = None):
         self.scores = scores
+        self.length_normalize_with_vocab = length_normalize_with_vocab
 
         self.out_avg = self.output_var("avg")
         self.out_median = self.output_var("median")
@@ -109,7 +110,25 @@ class AverageScores(Job):
             assert isinstance(text, str), f"{self}: expected str text, got {text!r} ({type(text)})"
 
         # Calculate average and median.
-        scores = [value[0][0] for value in data.values()]
+        if self.length_normalize_with_vocab is not None:
+            from returnn.datasets.util.vocabulary import Vocabulary
+            import i6_core.util as util
+
+            vocab = self.length_normalize_with_vocab
+            vocab = util.instanciate_delayed(vocab)
+            print("RETURNN vocab opts:", vocab)
+            vocab = Vocabulary.create_vocab(**vocab)
+            print("Vocab:", vocab)
+            print("num labels:", vocab.num_labels)
+            assert vocab.num_labels == len(vocab.labels)
+            scores = []
+            for _, value in data.items():
+                score, text = value[0]
+                splitted_text = vocab.get_seq(text.strip())
+                # +1 because end of sentence
+                scores.append(score / (1 + len(splitted_text)))
+        else:
+            scores = [value[0][0] for value in data.values()]
         avg_score = sum(scores) / len(scores)
         median_score = sorted(scores)[len(scores) // 2]
 
