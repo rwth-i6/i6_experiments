@@ -8,7 +8,7 @@ import math
 import numpy as np
 
 
-def compute_ece(confidences, accuracies, n_bins=10):
+def compute_ece(confidences, accuracies, n_bins=10, strategy="equal_width"):
     """
     Computes Expected Calibration Error (ECE).
 
@@ -20,9 +20,18 @@ def compute_ece(confidences, accuracies, n_bins=10):
     Returns:
         float: Expected Calibration Error (ECE)
     """
-    bin_edges = np.linspace(0, 1, n_bins + 1)
     ece = 0.0
+    signed_ece = 0.0
     N = len(confidences)
+
+    if strategy == "equal_width":
+        bin_edges = np.linspace(0, 1, n_bins + 1)
+    elif strategy == "equal_size":
+        # Compute quantile-based edges
+        quantiles = np.linspace(0, 1, n_bins + 1)
+        bin_edges = np.quantile(confidences, quantiles)
+    else:
+        raise ValueError("strategy must be 'equal_width' or 'equal_size'")
 
     bins = []
 
@@ -48,12 +57,14 @@ def compute_ece(confidences, accuracies, n_bins=10):
             avg_accuracy = np.mean(accuracies[in_bin])
             print(f"  Avg Confidence: {avg_confidence:.2f}, Avg Accuracy: {avg_accuracy:.2f}")
             ece += (bin_size / N) * np.abs(avg_confidence - avg_accuracy)
+            signed_ece += (bin_size / N) * (avg_confidence - avg_accuracy)
             cur_bin["avg_confidence"] = float(avg_confidence)
             cur_bin["avg_accuracy"] = float(avg_accuracy)
         bins.append(cur_bin)
     print(f"Total ECE: {ece:.4f}")
+    print(f"Total Signed ECE: {signed_ece:.4f}")
 
-    return bins, float(ece)
+    return bins, float(ece), float(signed_ece)
 
 
 class CalculateECE(Job):
@@ -70,6 +81,7 @@ class CalculateECE(Job):
         accuracy_key: str,
         confidence_logspace: bool = True,
         num_bins: int = 10,
+        strategy: str = "equal_width",
     ):
         self.returnn_dataset = returnn_dataset
         self.returnn_root = returnn_root
@@ -77,9 +89,12 @@ class CalculateECE(Job):
         self.accuracy_key = accuracy_key
         self.confidence_logspace = confidence_logspace
         self.num_bins = num_bins
+        self.strategy = strategy
 
         self.out_stats = self.output_path("ece_stats.json")
+        self.out_stats_equalsize = self.output_path("ece_stats_equalsize.json")
         self.out_ece = self.output_var("ece")
+        self.out_signed_ece = self.output_var("signed_ece")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -87,7 +102,7 @@ class CalculateECE(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 3
+        d["__version"] = 6
         return super().hash(d)
 
     def run(self):
@@ -144,13 +159,27 @@ class CalculateECE(Job):
 
             seq_idx += 1
 
-        bins, ece = compute_ece(
+        bins, ece, signed_ece = compute_ece(
             confidences=np.concatenate(confidences),
             accuracies=np.concatenate(accuracies),
             n_bins=self.num_bins,
+            strategy=self.strategy,
         )
 
         with uopen(self.out_stats, "wt") as out:
-            json.dump({"ece": ece, "bins": bins}, out, indent=2, sort_keys=True)
-        with uopen(self.out_ece, "wt") as out:
-            out.write(f"{ece:.8f}\n")
+            json.dump({"ece": ece, "signed_ece": signed_ece, "bins": bins}, out, indent=2, sort_keys=True)
+        bins_equalsize, ece_equalsize, signed_ece_equalsize = compute_ece(
+            confidences=np.concatenate(confidences),
+            accuracies=np.concatenate(accuracies),
+            n_bins=self.num_bins,
+            strategy="equal_size",
+        )
+        with uopen(self.out_stats_equalsize, "wt") as out:
+            json.dump(
+                {"ece": ece_equalsize, "signed_ece": signed_ece_equalsize, "bins": bins_equalsize},
+                out,
+                indent=2,
+                sort_keys=True,
+            )
+        self.out_ece.set(ece)
+        self.out_signed_ece.set(signed_ece)
