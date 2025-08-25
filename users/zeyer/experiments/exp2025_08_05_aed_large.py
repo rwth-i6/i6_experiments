@@ -1540,9 +1540,13 @@ def py():
     from i6_experiments.users.zeyer.returnn.updater.lr_multiplier import optimizer_param_groups_custom_lr_multiplier
 
     for name, (lrs, lr_mult_by_patterns) in {
+        # Baseline (None) lr 0.5: {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
         "None": ([0.5], None),
         "Dec0.1": ([0.5], {"decoder.*": 0.1}),
+        #          Dec0.5 lr 0.5: {"dev-clean": 4.30, "dev-other": 6.08, "test-clean": 4.96, "test-other": 5.87}
+        #          Dec0.5 lr 1.0: {"dev-clean": 4.67, "dev-other": 6.32, "test-clean": 5.23, "test-other": 6.41}
         "Dec0.5": ([0.5, 1.0], {"decoder.*": 0.5}),
+        #  Enc2IncrDec0.5 lr 0.5: {"dev-clean": 4.17, "dev-other": 5.82, "test-clean": 4.70, "test-other": 6.13}
         "Enc2IncrDec0.5": (
             [0.5],
             {
@@ -1554,6 +1558,7 @@ def py():
                 "decoder.*": 0.5,
             },
         ),
+        # Enc2IncrDec1 lr 0.5: {"dev-clean": 4.03, "dev-other": 5.86, "test-clean": 4.52, "test-other": 6.24}
         "Enc2IncrDec1": (
             [0.5],
             {
@@ -1565,6 +1570,7 @@ def py():
                 "decoder.*": 1.0,
             },
         ),
+        # Enc2IncrDec1Incr lr 0.5: {"dev-clean": 4.06, "dev-other": 5.78, "test-clean": 4.49, "test-other": 6.18}
         "Enc2IncrDec1Incr": (
             [0.5],
             {
