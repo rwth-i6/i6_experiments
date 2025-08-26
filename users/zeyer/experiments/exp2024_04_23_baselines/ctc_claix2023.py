@@ -270,6 +270,8 @@ def py():
     # recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # without logits bias (logitsNoBias)
+    #     baseline: {"dev-clean": 2.07, "dev-other": 4.76, "test-clean": 2.30, "test-other": 5.13}
+    # logitsNoBias: {"dev-clean": 2.07, "dev-other": 4.75, "test-clean": 2.29, "test-other": 5.07}
     name = "L16-D1024-spm10k-auxAED-logitsNoBias-ls0.1-auxLs0.1-b100k"
     ctc_train_exp(
         name,
@@ -324,6 +326,8 @@ def py():
     # recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # blank separated (blankSep) (without label smoothing)
+    # baseline: {"dev-clean": 2.27, "dev-other": 5.04, "test-clean": 2.43, "test-other": 5.34}
+    # blankSep: {"dev-clean": 2.21, "dev-other": 4.91, "test-clean": 2.40, "test-other": 5.22}
     name = "L16-D1024-spm10k-auxAED-blankSep-b100k"
     ctc_train_exp(
         name,
@@ -381,11 +385,7 @@ def py():
     # RMSNorm (rmsNorm)
     # baseline: {"dev-clean": 2.07, "dev-other": 4.76, "test-clean": 2.30, "test-other": 5.13}
     # RMSNorm:  {"dev-clean": 2.09, "dev-other": 4.81, "test-clean": 2.26, "test-other": 5.10}
-    num_layers = 16
-    num_dims = 1024
-    batch_size = 100_000
-    ls = 0.1
-    name = f"L{num_layers}-D{num_dims}-rmsNorm-spm10k-auxAED-ls{ls}-auxLs{ls}-b{batch_size // 1000}k"
+    name = "L16-D1024-rmsNorm-spm10k-auxAED-ls0.1-auxLs0.1-b100k"
     ctc_train_exp(
         name,
         config_96gb_bf16_accgrad1,
@@ -400,8 +400,8 @@ def py():
                     pool_sizes=[(1, 2)],
                     strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
                 ),
-                num_layers=num_layers,
-                out_dim=num_dims,
+                num_layers=16,
+                out_dim=1024,
                 encoder_layer=rf.build_dict(
                     ConformerEncoderLayer,
                     ff=rf.build_dict(
@@ -414,14 +414,14 @@ def py():
             "feature_batch_norm": True,
         },
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 100, batch_size_factor=_batch_size_factor),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             # purely used for training
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
-            "ctc_label_smoothing": ls,
-            "aux_ctc_label_smoothing": ls,
+            "ctc_label_smoothing": 0.1,
+            "aux_ctc_label_smoothing": 0.1,
             "use_fixed_ctc_grad": "v2",
             "max_seq_length_default_target": None,
             # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
