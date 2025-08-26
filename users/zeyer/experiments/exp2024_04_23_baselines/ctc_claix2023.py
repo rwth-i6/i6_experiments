@@ -394,6 +394,8 @@ def py():
     # TODO lpNormedGrad
 
     # RMSNorm (rmsNorm)
+    # baseline: {"dev-clean": 2.07, "dev-other": 4.76, "test-clean": 2.30, "test-other": 5.13}
+    # RMSNorm:  {"dev-clean": 2.09, "dev-other": 4.81, "test-clean": 2.26, "test-other": 5.10}
     num_layers = 16
     num_dims = 1024
     batch_size = 100_000
