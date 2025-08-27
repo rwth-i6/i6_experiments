@@ -2640,13 +2640,13 @@ class ConformerInputLayerExt(rf.Module):
             x, spatial_dim = rf.concat(
                 *(
                     (
-                        [(self.prefix_frames_embeds, self.num_prefix_frames)]
+                        [(rf.cast(self.prefix_frames_embeds, x.dtype), self.num_prefix_frames)]
                         if self.prefix_frames_embeds is not None
                         else []
                     )
                     + [(x, spatial_dim)]
                     + (
-                        [(self.postfix_frames_embeds, self.num_postfix_frames)]
+                        [(rf.cast(self.postfix_frames_embeds, x.dtype), self.num_postfix_frames)]
                         if self.postfix_frames_embeds is not None
                         else []
                     )
