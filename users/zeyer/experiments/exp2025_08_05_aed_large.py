@@ -4,7 +4,7 @@ New AED baseline tuning for larger AED model.
 
 from __future__ import annotations
 
-from typing import Union, Sequence
+from typing import Union, Any, Sequence, Dict, Tuple
 import functools
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 
@@ -22,7 +22,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
 import returnn.frontend as rf
-from returnn.tensor import Tensor
+from returnn.tensor import Tensor, Dim
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import (
     ConformerEncoder,
@@ -1131,6 +1131,76 @@ def py():
                 pos_enc=rf.build_dict(rf.sinusoidal_positional_encoding),
                 num_layers=16,
                 out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+            ),
+            # Default AED decoder size: 6 layers, 512 dim
+            "dec_build_dict": rf.build_dict(
+                TransformerDecoder,
+                num_layers=6,
+                model_dim=1024,
+                norm=rf.build_dict(rf.RMSNorm),
+                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                # When only trained on LS ASR data, keep the default dropout?
+                # dropout=0.0,
+                # att_dropout=0.0,
+            ),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            "batch_size": 100_000 * _batch_size_factor,
+            "optimizer.weight_decay": 1e-2,
+            "accum_grad_multiple_step": 1,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_loss_layers": [4, 10, 16],
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+    # EncAddEos
+    enc_dim = Dim(1024, name="enc_feat")
+    aed_train_exp(
+        "EncL16-DecL6-D1024-EncAddEos-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        config_96gb_bf16_accgrad1,
+        prefix=prefix + "/aed/",
+        model_config={
+            # More futureproof, but also required for some funcs / setups.
+            "behavior_version": 24,
+            "__serialization_version": 2,
+            "enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerInputLayerExt,
+                    out_dim=enc_dim,
+                    input_layer=rf.build_dict(
+                        ConformerConvSubsample,
+                        out_dims=[32, 64, 64],
+                        filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                        pool_sizes=[(1, 2)],
+                        strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                    ),
+                    num_postfix_frames=1,
+                ),
+                num_layers=16,
+                out_dim=enc_dim,
                 encoder_layer=rf.build_dict(
                     ConformerEncoderLayer,
                     ff=rf.build_dict(
@@ -2522,3 +2592,66 @@ class RMSNormGemma(rf.Module):
         if self.bias is not None:
             out += self.bias
         return out
+
+
+class ConformerInputLayerExt(rf.Module):
+    """
+    Has the input_projection in here.
+    Also does further processing.
+    """
+
+    def __init__(
+        self,
+        in_dim: Dim,
+        out_dim: Dim,
+        *,
+        input_layer: Dict[str, Any],
+        num_prefix_frames: int = 0,
+        num_postfix_frames: int = 0,
+    ):
+        super().__init__()
+
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+
+        # Follow ConformerEncoder code.
+        if isinstance(input_layer, dict):
+            input_layer = rf.build_from_dict(input_layer, in_dim)
+            input_layer: ConformerConvSubsample  # maybe not true, but assume for some attribs
+        else:
+            raise TypeError(f"unexpected input_layer {input_layer!r}")
+        self.input_layer = input_layer
+        self.input_projection = rf.Linear(self.input_layer.out_dim, self.out_dim, with_bias=False)
+
+        self.num_prefix_frames = Dim(num_prefix_frames, name="prefix_frames")
+        self.num_postfix_frames = Dim(num_postfix_frames, name="postfix_frames")
+        self.prefix_frames_embeds = None
+        self.postfix_frames_embeds = None
+        if num_prefix_frames > 0:
+            self.prefix_frames_embeds = rf.Parameter([self.num_prefix_frames, self.out_dim])
+        if num_postfix_frames > 0:
+            self.postfix_frames_embeds = rf.Parameter([self.num_postfix_frames, self.out_dim])
+
+    def __call__(self, x: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+        """forward"""
+        x, spatial_dim = self.input_layer(x, in_spatial_dim=in_spatial_dim)
+        x = self.input_projection(x)
+        if self.num_prefix_frames.dimension > 0 or self.num_postfix_frames.dimension > 0:
+            x, spatial_dim = rf.concat(
+                *(
+                    (
+                        [(self.prefix_frames_embeds, self.num_prefix_frames)]
+                        if self.prefix_frames_embeds is not None
+                        else []
+                    )
+                    + [(x, spatial_dim)]
+                    + (
+                        [(self.postfix_frames_embeds, self.num_postfix_frames)]
+                        if self.postfix_frames_embeds is not None
+                        else []
+                    )
+                ),
+                allow_broadcast=True,
+                handle_dynamic_dims=True,
+            )
+        return x, spatial_dim
