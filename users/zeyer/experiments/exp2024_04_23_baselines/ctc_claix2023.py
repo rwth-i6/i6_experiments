@@ -214,6 +214,59 @@ def py():
         )
         # recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
     del ls, aux_ls
+    recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-ls0.1-auxLs0.1-b100k", lm_name="n32-d1024-claix2023")
+
+    # Ablation: do without auxAED
+    name = "L16-D1024-spm10k-ls0.1-auxLs0.1-b100k"
+    ctc_train_exp(
+        name,
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_build_dict": rf.build_dict(
+                # ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=16,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+            ),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            # purely used for training
+            "ctc_label_smoothing": 0.1,
+            "aux_ctc_label_smoothing": 0.1,
+            "use_fixed_ctc_grad": "v2",
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # Share logit weights (auxShared) (enc_aux_logits_share_weights=True)
     # baseline: {"dev-clean": 2.07, "dev-other": 4.76, "test-clean": 2.3, "test-other": 5.13}
