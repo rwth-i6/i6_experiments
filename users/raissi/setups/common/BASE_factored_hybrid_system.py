@@ -1024,6 +1024,9 @@ class BASEFactoredHybridSystem(NnSystem):
             returnn_config = nn_train_args.pop("returnn_config")
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
+        gpu_mem_rqmt = nn_train_args.pop("gpu_mem_rqmt", None)
+
+
         train_job = self.trainers["rasr-returnn-costum-bw"](
             train_crp=train_crp,
             dev_crp=dev_crp,
@@ -1033,6 +1036,9 @@ class BASEFactoredHybridSystem(NnSystem):
             returnn_python_exe=self.returnn_python_exe,
             **nn_train_args,
         )
+        if gpu_mem_rqmt is not None:
+            train_job.rqmt["gpu_mem"] = gpu_mem_rqmt
+
 
         self._add_output_alias_for_train_job(
             train_job=train_job,

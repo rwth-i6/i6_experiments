@@ -18,14 +18,9 @@ from i6_experiments.users.raissi.setups.common.helpers.network import (
     add_fast_bw_layer_to_returnn_config,
     LogLinearScales,
 )
-from i6_experiments.users.raissi.setups.common.global_normalization.common import Criterion, CRF
+from i6_experiments.users.raissi.setups.common.global_normalization.common import Criterion, CRF, FactorizationType
 
-class FactorizationType(Enum):
-    POST = "posterior"
-    POST_LAB = "posterior_label"
 
-    def __str__(self):
-        return self.value
 
 
 def augment_for_local_crf_loss(
