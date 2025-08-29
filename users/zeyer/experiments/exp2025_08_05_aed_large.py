@@ -1413,7 +1413,7 @@ def py():
                         strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
                     ),
                     num_layers=16,
-                    out_dim=enc_dim,
+                    out_dim=1024,
                     encoder_layer=rf.build_dict(
                         ConformerEncoderLayer,
                         ff=rf.build_dict(
