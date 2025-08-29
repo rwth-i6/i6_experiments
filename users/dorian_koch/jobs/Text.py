@@ -181,7 +181,8 @@ class CategorizeWordsByPOS(Job):
         import spacy
 
         # pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-        print("Loading spaCy model for POS tagging...")
+        # or similar for other models
+        print(f"Loading spaCy model '{self.model_name}' for POS tagging...")
         self.nlp = spacy.load(self.model_name)
         print("Loaded spaCy model for POS tagging", flush=True)
 
