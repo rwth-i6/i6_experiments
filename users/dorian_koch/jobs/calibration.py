@@ -20,6 +20,7 @@ def compute_ece(confidences, accuracies, n_bins=10, strategy="equal_width"):
     Returns:
         float: Expected Calibration Error (ECE)
     """
+    real_ece = 0.0
     ece = 0.0
     signed_ece = 0.0
     N = len(confidences)
@@ -61,10 +62,12 @@ def compute_ece(confidences, accuracies, n_bins=10, strategy="equal_width"):
             cur_bin["avg_confidence"] = float(avg_confidence)
             cur_bin["avg_accuracy"] = float(avg_accuracy)
         bins.append(cur_bin)
+    real_ece = np.mean(confidences - accuracies)
     print(f"Total ECE: {ece:.4f}")
+    print(f"Total Real ECE: {real_ece:.4f}")
     print(f"Total Signed ECE: {signed_ece:.4f}")
 
-    return bins, float(ece), float(signed_ece)
+    return bins, float(ece), float(signed_ece), float(real_ece)
 
 
 class CalculateECE(Job):
@@ -81,7 +84,6 @@ class CalculateECE(Job):
         accuracy_key: str,
         confidence_logspace: bool = True,
         num_bins: int = 10,
-        strategy: str = "equal_width",
     ):
         self.returnn_dataset = returnn_dataset
         self.returnn_root = returnn_root
@@ -90,13 +92,13 @@ class CalculateECE(Job):
         self.entropy_key = "entropy"
         self.confidence_logspace = confidence_logspace
         self.num_bins = num_bins
-        self.strategy = strategy
 
         self.out_stats = self.output_path("ece_stats.json")
         self.out_stats_equalsize = self.output_path("ece_stats_equalsize.json")
         self.out_ece = self.output_var("ece")
         self.out_signed_ece = self.output_var("signed_ece")
         self.out_mean_entropy = self.output_var("mean_entropy")
+        self.out_real_ece = self.output_var("real_ece")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -104,7 +106,7 @@ class CalculateECE(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 8
+        d["__version"] = 10
         return super().hash(d)
 
     def run(self):
@@ -167,11 +169,11 @@ class CalculateECE(Job):
 
             seq_idx += 1
 
-        bins, ece, signed_ece = compute_ece(
+        bins, ece, signed_ece, real_ece = compute_ece(
             confidences=np.concatenate(confidences),
             accuracies=np.concatenate(accuracies),
             n_bins=self.num_bins,
-            strategy=self.strategy,
+            strategy="equal_width",
         )
 
         entropy_avg = float(np.concatenate(entropies).mean())
@@ -179,7 +181,7 @@ class CalculateECE(Job):
 
         with uopen(self.out_stats, "wt") as out:
             json.dump({"ece": ece, "signed_ece": signed_ece, "bins": bins}, out, indent=2, sort_keys=True)
-        bins_equalsize, ece_equalsize, signed_ece_equalsize = compute_ece(
+        bins_equalsize, ece_equalsize, signed_ece_equalsize, realece_equalsize = compute_ece(
             confidences=np.concatenate(confidences),
             accuracies=np.concatenate(accuracies),
             n_bins=self.num_bins,
@@ -193,5 +195,6 @@ class CalculateECE(Job):
                 sort_keys=True,
             )
         self.out_ece.set(ece)
+        self.out_real_ece.set(real_ece)
         self.out_signed_ece.set(signed_ece)
         self.out_mean_entropy.set(entropy_avg)

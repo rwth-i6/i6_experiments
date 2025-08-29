@@ -162,11 +162,12 @@ def fix_sclite_pra(f):
 
 
 class CategorizeWordsByPOS(Job):
-    def __init__(self, word_freq: tk.Path):
+    def __init__(self, word_freq: tk.Path, model_name: str = "en_core_web_sm"):
         self.word_freq = word_freq
         self.out_category_to_word = self.output_path("category_to_words.py.gz")
         self.out_word_to_category = self.output_path("word_to_category.py.gz")
         self.out_category_counts = self.output_var("category_counts")
+        self.model_name = model_name
         self.num_cpu = 16
         self.nlp = None
 
@@ -181,7 +182,7 @@ class CategorizeWordsByPOS(Job):
 
         # pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
         print("Loading spaCy model for POS tagging...")
-        self.nlp = spacy.load("en_core_web_sm")
+        self.nlp = spacy.load(self.model_name)
         print("Loaded spaCy model for POS tagging", flush=True)
 
         with uopen(self.word_freq, "rt") as f:
