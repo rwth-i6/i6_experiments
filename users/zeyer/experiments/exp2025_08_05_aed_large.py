@@ -1225,9 +1225,9 @@ def py():
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_loss_layers": [4, 10, 16],
-            "rf_use_mask_conv": True,
-            "rf_use_mask_pool": True,
-            "rf_use_mask_stft": True,
+            "rf_use_mask_conv": False,
+            "rf_use_mask_pool": False,
+            "rf_use_mask_stft": False,
             "max_seq_length_default_target": None,
             # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
             # out of 281241 seqs in train, we removed only 71 seqs.
@@ -1249,6 +1249,8 @@ def py():
     #     ...
     #   but in a way that would keep the out_spatial_dims. similar to _consistent_same_padding.
     #   could also cover randomness in striding offsets, like _consistent_same_padding but random instead of consistent.
+    #   or: just pad some random noise left/right to the audio raw samples. or silence.
+    #   that might have a similar effect (but then also do in recog? or do this in training only sometimes?)
 
     # Also try abs pos enc in encoder (EncPosEncAbs) (compare this to the ...-s2 above)
     # baseline (s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
