@@ -999,6 +999,17 @@ class Model(rf.Module):
             )
         self.dec_aux_logits = dec_aux_logits
 
+        self.pad_audio = None
+        pad_audio = config.typed_value("pad_audio", None)
+        if pad_audio:
+            if isinstance(pad_audio, int):
+                pad_audio = {"padding": (pad_audio, pad_audio)}
+            if isinstance(pad_audio, tuple) and len(pad_audio) == 2 and isinstance(pad_audio[0], int):
+                pad_audio = {"padding": pad_audio}
+            assert isinstance(pad_audio, dict)
+            self.pad_audio = pad_audio
+            assert "padding" in self.pad_audio
+
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
             self.feature_batch_norm = rf.BatchNorm(self.in_dim, affine=False, use_mask=True)
@@ -1043,6 +1054,12 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[rf.State, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
+        if self.pad_audio:
+            pad_audio = self.pad_audio.copy()
+            padding = pad_audio.pop("padding")
+            source, (in_spatial_dim,) = rf.pad(
+                source, axes=[in_spatial_dim], padding=[padding], handle_dynamic_dims=True, **pad_audio
+            )
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
