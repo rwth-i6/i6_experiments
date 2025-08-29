@@ -1,6 +1,9 @@
 import copy
 from typing import Union, Optional, List
 
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
+from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+from returnn_common.datasets_old_2022_10.interface import VocabConfig
 from sisyphus import *
 
 from i6_core.returnn.config import ReturnnConfig
@@ -14,6 +17,11 @@ from i6_experiments.users.zeyer.train_v3 import _returnn_v2_get_model
 from i6_experiments.users.zeyer.recog import _v2_forward_out_filename
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
+from i6_experiments.users.zhang.datasets.vocab import GetSubwordRatioJob, ApplyBPEToTextJob
+from i6_experiments.users.zhang.datasets.librispeech import get_test_corpus_text
+from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
 
 from returnn_common import nn
 
@@ -182,19 +190,35 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
     return returnn_config
 
 
-def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], exponent: Union[float, tk.Variable]=1, epochs:List[int]=[], same_seq:bool=False, batch_size:int=80_000, **kwargs_unused):
+def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], epochs:List[int]=[], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab:[str | VocabConfig] = "bpe128", task_name:str = "LBS",**kwargs_unused):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
-
     if isinstance(dataset_keys, str):
         dataset_keys = [dataset_keys]
     ppls = dict()
     for dataset_key in dataset_keys:
+        if task_name == "LBS":
+            text_data = get_test_corpus_text(keys=[dataset_key])
+        elif task_name == "ES":
+            text_data = get_lm_eval_text(key = dataset_key)
+        else:
+            raise ValueError("task_name must be 'LBS' or 'ES'")
+        if isinstance(vocab, SentencePieceModel) or "spm" in vocab:
+            apply_job = ApplySentencepieceToTextJob
+        elif isinstance(vocab, Bpe) or "bpe" in vocab:
+            apply_job = ApplyBPEToTextJob
+        else:
+            raise ValueError("vocab must be SentencePieceModel or SentencePieceModel")
+        ratio = GetSubwordRatioJob(text_data, vocab, get_returnn_subword_nmt(),apply_job=apply_job).out_ratio
+        tk.register_output(f"{task_name}_{dataset_key}_{vocab}_ratio", ratio)
+        ratio = 1.0 if not word_ppl else ratio
+
         returnn_config = _returnn_ppl_config(model_with_checkpoints.definition, dataset, dataset_key, same_seq, batch_size=batch_size)
 
         for epoch in model_with_checkpoints.fixed_epochs:
-            if epoch not in epochs:
-                continue
+            if len(epochs) > 0:
+                if epoch not in epochs:
+                    continue
             res = ReturnnForwardJobV2(
                 model_checkpoint=model_with_checkpoints.get_epoch(epoch).checkpoint,
                 returnn_config=returnn_config,
@@ -202,18 +226,21 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
                 returnn_root=tools_paths.get_returnn_root(),
             )
+            if kwargs_unused.get("rqmt",None):
+                res.rqmt.update(kwargs_unused["rqmt"])
             # print(f"Exponent:{exponent.get()}")
-            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename],exponent=exponent)
+            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename],exponent=ratio)
             dataset_key_ = (
                 dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key
-            )
+            ) if task_name == "LBS" else dataset_key
+            print(f"Will compute ppl:ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
-            tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_bpe_ppl", ppl_job.out_ppl)
+            tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl", ppl_job.out_ppl)
             if dataset_key_ == "test-other":
                 ppls[f"epoch{epoch}"] = ppl_job.out_ppl
     return ppls
 
-def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], exponent: float=1, same_seq:bool=False, batch_size:int=80_000, rqmt: dict={}):
+def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab: [str | VocabConfig] = "bpe128", task_name: str = "LBS", **kwargs_unused):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
@@ -221,6 +248,22 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
         dataset_keys = [dataset_keys]
     ppls = dict()
     for dataset_key in dataset_keys:
+        if task_name == "LBS":
+            text_data = get_test_corpus_text(keys=[dataset_key])
+        elif task_name == "ES":
+            text_data = get_lm_eval_text(key = dataset_key)
+        else:
+            raise ValueError("task_name must be 'LBS' or 'ES'")
+        if isinstance(vocab, SentencePieceModel) or "spm" in vocab:
+            apply_job = ApplySentencepieceToTextJob
+        elif isinstance(vocab, Bpe) or "bpe" in vocab:
+            apply_job = ApplyBPEToTextJob
+        else:
+            raise ValueError("vocab must be SentencePieceModel or SentencePieceModel")
+        ratio = GetSubwordRatioJob(text_data, vocab, get_returnn_subword_nmt(),apply_job=apply_job).out_ratio
+        tk.register_output(f"{task_name}_{dataset_key}_{vocab}_ratio", ratio)
+        ratio = 1.0 if not word_ppl else ratio
+
         returnn_config = _returnn_ppl_config(model_with_checkpoint.definition, dataset, dataset_key, same_seq, batch_size=batch_size)
 
         res = ReturnnForwardJobV2(
@@ -230,9 +273,9 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
         )
-        if rqmt:
-            res.rqmt.update(rqmt)
-        ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename], exponent=exponent)
+        if kwargs_unused.get("rqmt", None):
+            res.rqmt.update(kwargs_unused["rqmt"])
+        ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename], exponent=ratio)
 
         dataset_key_ = (
             dataset_key[len("transcriptions-"):] if dataset_key.startswith("transcriptions-") else dataset_key
@@ -249,6 +292,7 @@ class ComputePerplexityJob(Job):
 
         self.out_ppl = self.output_path("ppl")
         self.exponent = exponent.get() if isinstance(exponent, tk.Variable) else exponent
+        print(self.exponent)
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)

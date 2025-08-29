@@ -7,9 +7,11 @@ from __future__ import annotations
 import re
 from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING
 
+from i6_experiments.users.zhang.experiments.lm_getter import build_all_lms
 from i6_experiments.users.schmitt.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
 from returnn_common.datasets_old_2022_10.interface import VocabConfig
 from sisyphus import tk
 
@@ -22,11 +24,12 @@ if TYPE_CHECKING:
 RETURNN_ROOT = "/home/mgunz/setups/2024-07-08--zeyer-setup-apptek/recipe/returnn" #"/nas/models/asr/hzhang/setups/2025-07-20--combined/returnn"
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-EVAL_DATASET_KEYS = []#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
+EVAL_DATASET_KEYS = [f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
+DEV_DATASET_KEYS = [f"{key}.ref.ff_wer" for key in DEV_KEYS] #Evaluate on concatenated DEV_KEYS-> not implemented
 DEFAULT_PRIOR_WEIGHT = 0.15
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAUL_RESCOR_LM_SCALE = 0.5
-CHEAT_N_BEST = True
+CHEAT_N_BEST = False
 
 BEAM_SIZE = 500
 NBEST = 50
@@ -118,8 +121,8 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
     p7 = f"_tune" if tune_config_updates.get("tune_range_2") or tune_config_updates.get("prior_tune_range_2") else ""
     lm_hyperparamters_str = vocab + p0 + "_" + p3 + p4 + ("flash_light" if USE_flashlight_decoder else "")
     lm2_hyperparamters_str = "_" + p5 + "_" + p6 + p7
-    alias_name = f"ctc-baseline_{encoder}_decodingWith_1st-{lmname}_{lm_hyperparamters_str}_2rd{lm2_hyperparamters_str}"
-    first_pass_name = f"ctc-baseline_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}"
+    alias_name = f"apptek-ctc-baseline_{encoder}_decodingWith_1st-{lmname}_{lm_hyperparamters_str}_2rd{lm2_hyperparamters_str}"
+    first_pass_name = f"apptek-ctc-baseline_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}"
     return alias_name, first_pass_name
 
 
@@ -129,8 +132,8 @@ def select_recog_def(lmname: str, USE_flashlight_decoder: bool) -> callable:
     if USE_flashlight_decoder:
         if "NoLM" in lmname:
             return model_recog_lm
-        elif "ffnn" in lmname or "trafo" in lmname:
-            return model_recog_flashlight
+        #elif "ffnn" in lmname or "trafo" in lmname:
+            #return model_recog_flashlight
         else:
             return model_recog_lm
     else:
@@ -147,6 +150,12 @@ def ctc_exp(
     lmname,
     lm,
     vocab,
+    *,
+    model,
+    prior_file,
+    vocab_config,
+    model_config,
+    i6_models,
     lm_vocab: Optional[Bpe : SentencePieceModel] = None,
     rescore_lm: Optional[ModelWithCheckpoint, dict] = None,
     rescore_lm_name: str = None,
@@ -162,18 +171,10 @@ def ctc_exp(
     )
     if lm_vocab is None:
         lm_vocab = vocab
-    # ---- Set up model and config ----
-    from i6_experiments.users.zhang.experiments.apptek.ctc import get_model_and_vocab, NETWORK_CONFIG_KWARGS as model_config
-    model_config = {"network_config_kwargs": model_config}
-    model, spm, i6_models = get_model_and_vocab()
-    for k,v in spm["vocabulary"].items():
-        print(f"{k}: {v}")
-    #print(f"vocab setting: {spm}")
-    spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
-        #       --- get Task ---
+    #       --- get Task ---
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.task import get_asr_task_given_spm
-    task = get_asr_task_given_spm(spm=spm_config, returnn_root=tk.Path(RETURNN_ROOT))
-    print(f"datasetkeys: {task.eval_datasets.keys()}")
+    task = get_asr_task_given_spm(spm=vocab_config, returnn_root=tk.Path(RETURNN_ROOT))
+    #print(f"datasetkeys: {task.eval_datasets.keys()}")
     (
         decoding_config,
         tune_config_updates,
@@ -181,7 +182,7 @@ def ctc_exp(
         search_rqmt,
         tune_hyperparameters,
         batch_size,
-    ) = get_decoding_config(lmname, lm, vocab, encoder, beam_size=BEAM_SIZE, nbest=NBEST, real_vocab=spm_config)
+    ) = get_decoding_config(lmname, lm, vocab, encoder, beam_size=BEAM_SIZE, nbest=NBEST, real_vocab=vocab_config)
 
     decoding_config["extern_imports"] = [i6_models]
     if decoding_config.get("recog_language_model", False):
@@ -304,6 +305,7 @@ def ctc_exp(
             decoding_config=decoding_config,
             #exclude_epochs=exclude_epochs,
             with_prior=with_prior,
+            prior_file=prior_file,
             empirical_prior=empirical_prior,
             prior_from_max=prior_from_max,
             tune_hyperparameters=tune_hyperparameters,
@@ -315,6 +317,7 @@ def ctc_exp(
             recog_epoch=recog_epoch,
             recog=recog,
             batch_size=batch_size,
+            dev_dataset_keys=DEV_DATASET_KEYS,
             eval_dataset_keys=EVAL_DATASET_KEYS,
         )[1:],
         f"{p0}{p3}_{p3_}{p4}{p6}",  # add param string as needed
@@ -323,8 +326,9 @@ def ctc_exp(
     )
 
 # --- Main py() function ---
-
-
+#This have 0 prior for disabled idx, cautious about bias
+PRIOR_PATH = {("spm10k", "ctc", "conformer"): tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/data/ES/prior/ctc_mbw_16kHz_spm10k.txt"),
+              }
 
 def py():
     # ! Note: for now when use rescoring, in first pass prior will not be considered, especially by greedy case
@@ -335,6 +339,16 @@ def py():
     train = False
     insert_spm10k_lm = False
     cuts = {"conformer": 65, "blstm":37}
+    # ---- Set up model and config ----
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, \
+        NETWORK_CONFIG_KWARGS as model_config
+    model_config = {"network_config_kwargs": model_config}
+    model, spm, i6_models = get_model_and_vocab()
+    for k, v in spm["vocabulary"].items():
+        print(f"{k}: {v}")
+    # print(f"vocab setting: {spm}")
+    vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+
     for vocab in [#"bpe128",
                   #"bpe10k",
                   "spm10k",
@@ -344,7 +358,7 @@ def py():
         lm_kinds = [#"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
                     ]
-        lm_kinds_2 = [#"ngram", # LM that do second pass
+        lm_kinds_2 = ["ngram", # LM that do second pass
                     #"ffnn",
                    #"trafo",
                     #"LLM"
@@ -358,9 +372,7 @@ def py():
         lms = {}
         ppl_results = {}
         lms.update({"NoLM": None})
-        #rescor_lms, ppl_results_2, _ = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl)
-        rescor_lms = {}
-        ppl_results_2 = {}
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES")
         rescor_lms.update({"NoLM": None})
         if insert_spm10k_lm:
             from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
@@ -374,7 +386,7 @@ def py():
         #print(lms)
         #print(rescor_lms)
 
-        def greedy_first_pass_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2):
+        def greedy_first_pass_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2):
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl
             wer_ppl_results_2 = dict()
             for name, lm in lms.items():  # First pass lms
@@ -394,6 +406,11 @@ def py():
                         rescore_lm=lm_2,
                         rescore_lm_name=name_2,
                         encoder=encoder, train=train,
+                        model=model,
+                        model_config=model_config,
+                        vocab_config=vocab_config,
+                        prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
+                        i6_models=i6_models,
                     )
                     if lm_2:
                         wer_ppl_results_2[name_2] = (
@@ -437,7 +454,7 @@ def py():
                 llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                     f"prev_1ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                 alias_prefix = (
-                        f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model + "_" + vocab + encoder
+                        f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
                         + ("n_best_cheat" if CHEAT_N_BEST else "")
                         + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
 
@@ -446,7 +463,7 @@ def py():
                     tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                     tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
 
-        def first_pass_with_lm_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2):
+        def first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2):
             lms.pop("NoLM",None)
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl
             wer_ppl_results_2 = dict()
@@ -468,6 +485,11 @@ def py():
                         rescore_lm_name=name_2,
                         encoder=encoder, train=train,
                         lm_vocab="spm10k" if "spm10k" in name_2 else None,
+                        model=model,
+                        model_config=model_config,
+                        vocab_config=vocab_config,
+                        prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
+                        i6_models=i6_models,
                     )
                     if lm_2:
                         wer_ppl_results_2[name_2] = (
@@ -516,7 +538,7 @@ def py():
                 llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                     f"prev_1ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                 alias_prefix = (
-                        f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model + "_" + vocab + encoder
+                        f"wer_ppl/{f'1st_pass_{lm_kinds[0]}' if lm_kinds else ''}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
                         + ("n_best_cheat" if CHEAT_N_BEST else "")
                         + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
 
@@ -527,12 +549,12 @@ def py():
                     tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
 
 
-        for model, exp in models.items():
-            if (vocab, model, encoder) not in available:
+        for model_name, exp in models.items():
+            if (vocab, model_name, encoder) not in available:
                 train = True
             #wer_ppl_results = dict()
-            greedy_first_pass_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2)
-            #first_pass_with_lm_exp(exp, lms, rescor_lms, lm_kinds, lm_kinds_2)
+            greedy_first_pass_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
+            #first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
 
             # if wer_ppl_results and not train:
             #     names, res = zip(*wer_ppl_results.items())

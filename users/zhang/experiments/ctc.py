@@ -270,6 +270,7 @@ def train_exp(
     exclude_epochs: Collection[int] = (),
     recog_epoch: int = None,
     with_prior: bool = False,
+    prior_file: Optional[tk.Path] = None,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
@@ -278,6 +279,7 @@ def train_exp(
     search_rqmt: dict = None,
     recog: bool = False,
     batch_size: int = None,
+    dev_dataset_keys: Sequence[str] = ["dev-other"],
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
 
@@ -368,6 +370,7 @@ def train_exp(
         recog_config_updates=recog_config_updates,
         exclude_epochs=exclude_epochs,
         with_prior=with_prior,
+        prior_file=prior_file,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
         tune_hyperparameters=tune_hyperparameters,
@@ -376,6 +379,7 @@ def train_exp(
         search_rqmt=search_rqmt,
         recog_epoch=recog_epoch,
         batch_size=batch_size,
+        dev_dataset_keys=dev_dataset_keys,
         eval_dataset_keys=eval_dataset_keys,
     )
 
@@ -423,6 +427,7 @@ def recog_exp(
     exclude_epochs: Collection[int] = (),
     recog_epoch: int = None,
     with_prior: bool = False,
+    prior_file: Optional[tk.Path] = None,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
@@ -430,6 +435,7 @@ def recog_exp(
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
     batch_size: int = None,
+    dev_dataset_keys: Sequence[str] = ["dev-other"],
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path]]:
     """
@@ -466,8 +472,8 @@ def recog_exp(
 
     best_lm_tune = None
     best_prior_tune = None
-    print(f"model_config{model_config}")
-    print(f"search_config{search_config}")
+    #print(f"model_config{model_config}")
+    #print(f"search_config{search_config}")
     def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, update_config: dict = {}, first_pass_name: str = None):
         from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
         original_params = decoding_config
@@ -509,7 +515,8 @@ def recog_exp(
                 search_mem_rqmt=search_mem_rqmt,
                 prior_from_max=prior_from_max,
                 empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                dev_sets=["dev-other"],
+                prior_file=prior_file,
+                dev_sets=dev_dataset_keys,
                 #search_rqmt=search_rqmt,
             )
             scores.append(score)
@@ -574,7 +581,8 @@ def recog_exp(
                 search_mem_rqmt=search_mem_rqmt,
                 prior_from_max=prior_from_max,
                 empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                dev_sets=["dev-other"],
+                dev_sets=dev_dataset_keys,
+                prior_file=prior_file,
                 search_rqmt=search_rqmt,
             )
             lm_scores.append(score)
@@ -617,7 +625,8 @@ def recog_exp(
                     search_mem_rqmt=search_mem_rqmt,
                     prior_from_max=prior_from_max,
                     empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                    dev_sets=["dev-other"],
+                    dev_sets=dev_dataset_keys,
+                    prior_file=prior_file,
                     search_rqmt=search_rqmt,
                 )
                 prior_scores.append(score)
@@ -707,6 +716,7 @@ def recog_exp(
         recog_post_proc_funcs=recog_post_proc_funcs,
         exclude_epochs=exclude_epochs,
         search_mem_rqmt=search_mem_rqmt,
+        prior_file=prior_file,
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
         dev_sets=eval_dataset_keys,
@@ -2706,6 +2716,7 @@ def scoring_v2(
         final beam_dim
     """
     # Get the logits from the model
+
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
@@ -2787,16 +2798,84 @@ def scoring_v2(
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.to(torch.int64)
     target_spatial_dim_torch = targets.remaining_dims(batch_dim)[0].dyn_size_ext.raw_tensor.to(torch.int64)
 
+    def _ctc_preflight_check(i, logp, labels, seq_tag, blank_idx):
+        # logp: [T,C] on CUDA; labels: [L] on same device
+        T, C = logp.shape[-2], logp.shape[-1]
+
+        # 1) Finite logits?
+        if not torch.isfinite(logp).all():
+            print(f"[BAD LOGITS] {seq_tag} i={i} has NaN/Inf in logp. T={T}, C={C}")
+            return "[BAD LOGITS]"
+
+        # 2) dtype / range
+        if labels.dtype not in (torch.int32, torch.int64):
+            print(f"[BAD DTYPE] {seq_tag} i={i} labels dtype={labels.dtype}")
+            return "[BAD DTYPE]"
+        bad_low = (labels < 0).any().item()
+        bad_high = (labels >= C).any().item()
+        if bad_low or bad_high:
+            lmin = int(labels.min().item())
+            lmax = int(labels.max().item())
+            print(f"[OOB LABEL] {seq_tag} i={i} labels min/max={lmin}/{lmax} vs C={C}")
+            return "[OOB LABEL]"
+
+        # 3) blank inside targets?
+        if (labels == blank_idx).any().item():
+            print(f"[BLANK IN TARGETS] {seq_tag} i={i} blank_idx={blank_idx}")
+            return "[BLANK IN TARGETS]"
+
+        if (labels == 0).any().item() or (labels == 1).any().item() or (labels == 2).any().item():
+            print(f"[Disabled idx IN TARGETS] {seq_tag} i={i} blank_idx={blank_idx}")
+            return "[Disabled idx IN TARGETS]"
+
+        # 4) length feasibility
+        if labels.numel() == 0:
+            print(f"[EMPTY TARGET] {seq_tag} i={i}")
+            return "[EMPTY TARGET]"
+        L_collapse = 1 + (labels[1:] != labels[:-1]).sum().item()
+        if T < L_collapse:
+            print(f"[LEN FAIL] {seq_tag} i={i} T={T} < L_collapse={L_collapse} "
+                  f"(raw L={labels.numel()})")
+            return "[LEN FAIL]"
+
+        return "[OK]"
+
+    def remove_disabled_idx(labels):
+        out = []
+        DISABLED = {0, 1, 2}
+        for t in labels.squeeze(0):
+            if t in DISABLED:  # token AM cannot emit
+                continue
+            else:
+                out.append(t)
+        return torch.tensor(out, dtype=torch.long, device=labels.device).unsqueeze(0)
+
     '''Test torchaudio.functional.forced_align'''
     from torchaudio.functional import forced_align as forced_align
     alignments = []
     viterbi_scores = []
-    #import pdb; pdb.set_trace()
     for i in range(label_log_prob_raw.shape[0]):
+        logp = label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0)  # [1,T,C]
+        labels = trim_padded_sequence(targets.raw_tensor[i]).to(logp.device).unsqueeze(0)  # [1,L]
+        seq_tag = i + 1
+        check_info = _ctc_preflight_check(
+                            i,
+                            logp.squeeze(0),
+                            labels.squeeze(0),
+                            seq_tag,
+                            model.blank_idx)
+        if check_info != "[OK]":
+            # Skip or handle specially:
+            # e.g., write seq_tag to a "bad_samples.txt" and continue
+            if check_info == "[Disabled idx IN TARGETS]":
+                labels = remove_disabled_idx(labels)
+            else:
+                raise ValueError(f"Unhandled Case: {check_info}")
+
         alignments_, viterbi_scores_ = forced_align(
-            label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0),
+            logp,
             #targets.raw_tensor[i].unsqueeze(0),
-            trim_padded_sequence(targets.raw_tensor[i]).unsqueeze(0),
+            labels,
             #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
             #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
             blank=model.blank_idx
@@ -2809,7 +2888,6 @@ def scoring_v2(
     '''Mask the label_log_prob using the forced alignment'''
     # TODO: add a branch-If there is no LM involved we can just use viterbi_scores
     masked_label_log_prob = torch.full_like(label_log_prob_raw, fill_value=-1e30)
-
     for i in range(label_log_prob_raw.shape[0]):
         alignment = alignments[i].to(label_log_prob_raw.device).long().squeeze()
         T = enc_spatial_dim_torch[i].item()

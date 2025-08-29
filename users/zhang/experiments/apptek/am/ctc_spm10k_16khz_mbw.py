@@ -650,7 +650,7 @@ NETWORK_CONFIG_KWARGS = {
     "dropout_broadcast_axes": "T",
 }
 
-BLANK_IDX = 0
+BLANK_IDX = 3
 
 def get_model_and_vocab():
     from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoints
@@ -687,6 +687,7 @@ def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, An
 
     recog_language_model = config.typed_value("recog_language_model", None)
     network_config = config.typed_value("network_config_kwargs", None)
+    assert network_config, "Must provide network_config_kwargs for this model loading"
     recog_lm = None
 
     if recog_language_model:
@@ -753,6 +754,7 @@ def promote_buffers_to_params(root: nn.Module):
             submod.register_parameter(buf_name, param)
 
 from returnn.torch.frontend.bridge import PTModuleAsRFModule
+from i6_experiments.users.zhang.experiments.apptek.am.hot_fix import permute_logits_16khz_spm10k
 class Model(PTModuleAsRFModule):
     """
     RF Module wrapper around the PyTorch ConformerRelPosModel for RETURNN compatibility.
@@ -808,7 +810,7 @@ class Model(PTModuleAsRFModule):
         self.blank_logit_shift = None
         self.out_blank_separated = False # Assume standard case
         self.target_dim = target_dim
-        self.wb_target_dim = target_dim - 3
+        self.wb_target_dim = target_dim # The vocab contains <blank>
         self.wb_target_dim.vocab = self.target_dim.vocab
 
         self.blank_idx = blank_idx
@@ -853,7 +855,6 @@ class Model(PTModuleAsRFModule):
             dropout_broadcast_axes=dropout_broadcast_axes,
             **kwargs
         )
-
         promote_buffers_to_params(pt)
         super().__init__(pt_module=pt)
 
@@ -870,8 +871,9 @@ class Model(PTModuleAsRFModule):
         Forward pass: accepts RETURNN frontend Tensor inputs, converts to torch, runs the PyTorch model, and converts back to rf.Tensor.
         """
         # Convert rf.Tensor to torch.Tensor
-        import pdb;pdb.set_trace()
-        src_torch = source.raw_tensor
+
+        src_torch = source.raw_tensor * 32768.0 # We need PCM int16,
+        # -> RETURNN dataloader uses soundfile to load audio, which normalize to [-1,1] by default
 
         # get mask via in_spatial_dim API (try both variants, some APIs accept the source)
         try:
@@ -892,6 +894,29 @@ class Model(PTModuleAsRFModule):
             # convert to torch long
             features_len_t = features_len_rf.raw_tensor.long()
 
+        # Test
+        def test_lp(scales = [1.0, 4.0, 16.0, 128.0, 32768.0]):
+            x = source.raw_tensor  # [B, T, 1]
+            for gain in scales:
+                x2 = x * gain
+                outputs, out_len = self._pt_module(x2, features_len_t)  # (or path you use)
+                logits_t = outputs[-1]
+                lp = torch.log_softmax(logits_t, dim=-1)
+                top = lp.argmax(-1)
+                ratio = (top != self.blank_idx).float().mean().item()
+                print(f"gain={gain} non_blank_ratio={ratio:.4f}")
+
+        # with torch.no_grad():
+        #     x = source.raw_tensor  # [B, T, 1]
+        #     for gain in [1.0, 4.0, 16.0, 128.0, 32768.0]:
+        #         x2 = x * gain
+        #         outputs, out_len = self._pt_module(x2, features_len_t)  # (or path you use)
+        #         logits_t = outputs[-1]
+        #         lp = torch.log_softmax(logits_t, dim=-1)
+        #         top = lp.argmax(-1)
+        #         ratio = (top != self.blank_idx).float().mean().item()
+        #         print(f"gain={gain} non_blank_ratio={ratio:.4f}")
+
         # Run PyTorch model
         outputs, out_len = self._pt_module.forward(src_torch, features_len_t)  # _pt_module is the original PT model
 
@@ -905,11 +930,13 @@ class Model(PTModuleAsRFModule):
             assert isinstance(outputs, torch.Tensor)
             logits_torch = outputs
 
+        logits_torch = permute_logits_16khz_spm10k(logits_torch)
+        #import pdb;pdb.set_trace()
         out_len_rf = rtf.TorchBackend.convert_to_tensor(out_len, dims=[batch_dim], name="output_length", dtype="int64")
         enc_spatial_dim = Dim(None, name="enc_spatial", dyn_size_ext=out_len_rf)
 
         logits = rtf.TorchBackend.convert_to_tensor(logits_torch, dims=[batch_dim, enc_spatial_dim, self.wb_target_dim], name=f"output", dtype=rf.get_default_float_dtype())
-
+        logits.feature_dim = self.wb_target_dim
         enc = None # For now Will not be used anyway
         return logits, enc, enc_spatial_dim
 

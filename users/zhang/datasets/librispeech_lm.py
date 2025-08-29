@@ -13,7 +13,7 @@ from i6_core.lm.kenlm import CompileKenLMJob
 
 from i6_experiments.common.datasets.librispeech.language_model import get_arpa_lm_dict
 from i6_core.lm.srilm import ComputeNgramLmPerplexityJob
-from i6_experiments.users.zhang.experiments.language_models.n_gram import ApplyBPEToTextJob
+from i6_experiments.users.zhang.datasets.vocab import ApplyBPEToTextJob
 from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_lm_combined_txt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 

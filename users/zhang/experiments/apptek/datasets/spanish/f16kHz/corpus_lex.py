@@ -70,26 +70,39 @@ cv_corpora_def = {
 }
 #####################
 dev_corpora_def = {
-    "test_set.ES.f16kHz": [
+    "test_set.ES.f8kHz": [
         "mtp_dev_heldout-v2",
     ],
+    "test_set.ES_US.f8kHz": [
+        "dev_callhome-v4", # ok
+    ],
     "test_set.ES_US.f16kHz": [
-        "dev-v2",
+        "dev_conversations_202411-v2",
+        #"dev-v2",
     ],
 }
 test_corpora_def = {
-    "test_set.ES.f16kHz": [
-        "mtp_eval_heldout-v2",
+    "test_set.ES_ES.f8kHz": [
+        "mtp_eval-v2", #present but bug in data loader
     ],
+    # "test_set.ES.f16kHz": [
+    #     "mtp_eval_heldout-v2",
+    # ],
     "test_set.ES_ES.f16kHz": [
-        "eval_voice_call-v2",
-        "eval_voice_call-v3",
+        "eval_voice_call-v2", #present but bug in data loader
     ],
-    "test_set.ES_US.f16kHz": [
-        "mtp_eval-v2",
-        "mtp_eval_p1_news_podcast-v2",
-        "mtp_eval_p2_entertainment_others-v2",
+    "test_set.ES_US.f8kHz": [ #ok
+        "eval_callcenter_lt-v5",
+        "mtp_eval_p1_travel_entertainment-v3",
+        "mtp_eval_p2_finance_sales-v3",
+        "mtp_eval_p3_retail_realestate-v3",
+        "mtp_eval_p4_family_holiday_other-v3",
     ],
+    # "test_set.ES_US.f16kHz": [
+    #     "mtp_eval-v2",
+    #     "mtp_eval_p1_news_podcast-v2",
+    #     "mtp_eval_p2_entertainment_others-v2",
+    # ],
 }
 
 segmenter_artefact = (
@@ -145,9 +158,9 @@ class SegmenterType(Enum):
 
 
 ALL_SEGMENTER_TYPES = [
-    SegmenterType.AppTekLegacy,
+#    SegmenterType.AppTekLegacy,
     SegmenterType.Reference,
-    SegmenterType.PylasrE2E,
+#    SegmenterType.PylasrE2E,
 ]
 
 
@@ -228,21 +241,20 @@ def _get_eval_corpus(
     artefact = aar.get_artefact_factory(namespace, corpus_key).build()
     assert "stm" in artefact
 
-    #khz = namespace.split(".")[-1]
-    # if khz == "f8kHz":
-    #     audio_files = artefact["audio_files"]
-    # elif khz == "f16kHz":
-    #     resample_job = ChangeEncodingJob(
-    #         file_list=artefact["audio_files"],
-    #         output_filenames=[os.path.basename(p) for p in artefact["audio_files"]],
-    #         output_format="wav",
-    #         sample_rate=8000,
-    #         recover_duration=False,
-    #     )
-    #     audio_files = list(resample_job.out_files.values())
-    # else:
-    #     raise ValueError(f"unknown sample rate {khz}")
-    audio_files = artefact["audio_files"]
+    khz = namespace.split(".")[-1]
+    if khz == "f16kHz":
+        audio_files = artefact["audio_files"]
+    elif khz == "f8kHz":
+        resample_job = ChangeEncodingJob(
+            file_list=artefact["audio_files"],
+            output_filenames=[os.path.basename(p) for p in artefact["audio_files"]],
+            output_format="wav",
+            sample_rate=16000,
+            recover_duration=False,
+        )
+        audio_files = list(resample_job.out_files.values())
+    else:
+        raise ValueError(f"unknown sample rate {khz}")
     full_corpus = StmToBlissCorpusJob(artefact["stm"], audio_files, skip_non_speech=True).out_bliss
     out_corpus_file = full_corpus
 
@@ -292,7 +304,7 @@ def _get_eval_corpus(
         rename_job = RenameSegmentScpCorpus(segment_audio_job.out_merged_corpus)
         out_corpus_file = rename_job.out_merged_corpus
 
-    out_corpus_file = AddFakeTranscriptionJob(out_corpus_file).out_corpus
+    #out_corpus_file = AddFakeTranscriptionJob(out_corpus_file).out_corpus
     eval_info = EvalInfo(
         corpus=full_corpus,
         glm=artefact["glm"],

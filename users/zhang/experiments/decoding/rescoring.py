@@ -61,7 +61,7 @@ class SearchCombineScoresJob(Job):
         self.rqmt = {"time": 1, "cpu": 1, "mem": 3}
     def tasks(self):
         """task"""
-        yield Task("run", rqmt=self.rqmt) #mini_task=True)
+        yield Task("run",  mini_task=True) #rqmt=self.rqmt)
 
     def run(self):
         """run"""
@@ -356,7 +356,7 @@ def _returnn_rescore_config(
     Create config for rescoring.
     """
     from returnn.tensor import Tensor, Dim, batch_dim
-    from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
+    from i6_experiments.users.zhang.serialization_v2 import ReturnnConfigWithNewSerialization
     from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
     config_ = config
@@ -393,9 +393,25 @@ def _returnn_rescore_config(
                 continue  # skip (mostly also to keep hashes consistent)
             assert key not in extern_data
             extern_data[key] = value
+
+        # New way for serialization seems does not handle Delayed format correctly?
+        orig_data = dataset.get_main_dataset()
+        data_path = orig_data.get("path")
+        if not isinstance(data_path,str):
+            if isinstance(data_path, list):
+                if isinstance(data_path[0],str):
+                    pass
+            else:
+                from i6_core.returnn.config import CodeWrapper
+                assert isinstance(data_path,CodeWrapper)
+                delayed = data_path.code
+                from sisyphus.delayed_ops import DelayedFormat
+                assert isinstance(delayed,DelayedFormat)
+                orig_data["path"] = delayed.kwargs["file"]
+
         forward_data = {
             "class": "MetaDataset",
-            "datasets": {"orig_data": dataset.get_main_dataset(), "hyps": forward_data},
+            "datasets": {"orig_data": orig_data, "hyps": forward_data},
             "data_map": {
                 **{key: ("orig_data", key) for key in ds_extern_data if key != ds_target},
                 "data_flat": ("hyps", "data_flat"),
@@ -465,8 +481,9 @@ def _returnn_rescore_config(
         if k in config or k in post_config:
             continue
         post_config[k] = v
-
-    return ReturnnConfigWithNewSerialization(config, post_config)
+    #Hot fix for f16kHz model
+    path = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/tools/git/CloneGitRepositoryJob.maXwYTjr7NZe/output/i6_models"
+    return ReturnnConfigWithNewSerialization(config, post_config, extra_sys_paths=[path])
 
 
 def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):

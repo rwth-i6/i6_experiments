@@ -12,20 +12,27 @@ import re
 
 from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
 
+from i6_experiments.users.zhang.datasets.vocab import GetSubwordRatioJob
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
 from i6_core.lm.kenlm import CompileKenLMJob#, CreateBinaryLMJob
+from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.util import uopen, create_executable, relink
 from i6_core.lib.lm import Lm
 from i6_core.lm.srilm import ComputeNgramLmPerplexityJob
 import i6_core.util as util
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 
 from sisyphus import Job, Task, tk, gs
 
-from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text, _extract_audio_seq_len_file, _extract_text_seq_len_file
+from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text, \
+    _extract_audio_seq_len_file, _extract_text_seq_len_file, get_test_corpus_text
+from i6_experiments.users.zhang.datasets.vocab import ApplyBPEToTextJob
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
-from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
-from returnn_common.datasets_old_2022_10.interface import DatasetConfig
+from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH as LBS_SRILM_PATH
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import LM_DATA_PATH as ES_LM_DATA_PATH, DEV_KEYS, TEST_KEYS
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 
 rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
                                              7: [("mem", 25),("time", 2)],
@@ -34,30 +41,42 @@ rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compa
             10: [("mem", 40),("time", 2)]} # rqmt_map for n_gram KenLMplz job. Smaller as 4 use default setting
 default_rqmt = [("mem", 4),("time", 1)]
 
+SRILM_PATH_APPTEK = tk.Path("/nas/models/asr/hzhang/tools/srilm-1.7.3/bin/i686-m64/")
+SRILM_PATH_APPTEK.hash_overwrite = "APPTEK_SPAINISH_DEFAULT_SRILM_PATH"
 
-
-def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Optional[float], train_fraction: float = None, word_ppl: bool =False, bpe_ratio: Optional[float | tk.Variable]=None) -> Tuple[tk.Path, tk.Path]:
+def get_count_based_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float], task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False) -> Tuple[tk.Path, tk.Path]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
-    KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
-
+    hash_name = "LBS" if task_name == "LIBRISPEECH" else task_name
+    KENLM_BINARY_PATH.hash_overwrite = f"{hash_name}_DEFAULT_KENLM_BINARY_PATH"
+    vocab_str = vocab if isinstance(vocab, str) else "ES_spm10k" # For LBS vocab_config can be get with str
     if N_order > 4 and vocab != "bpe128":
         rqmt = dict(rqmt_map[N_order])
     else:
         rqmt = dict(default_rqmt)
     subword_nmt = get_returnn_subword_nmt()
+    eval_lm_data_dict = dict()
+    if task_name == "LBS":
+        lm_data = get_librispeech_lm_combined_txt()
+        for key in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+            eval_lm_data_dict[key] = get_test_corpus_text([key])
+    elif task_name == "ES":
+        lm_data = tk.Path(ES_LM_DATA_PATH)
+        for key in DEV_KEYS + TEST_KEYS:
+            eval_lm_data_dict[key] = get_lm_eval_text(key=key)
+    else:
+        raise ValueError("Unknown task name {}".format(task_name))
 
-    lm_data = get_librispeech_lm_combined_txt()
     if train_fraction:
         lm_data = ReduceCorpusByTokenFractionJob(lm_data, target_fraction=train_fraction).out
-    eval_lm_data = _get_test_corpus_text()
-    if re.match("^bpe[0-9]+.*$", vocab):
-        from ..language_models.librispeech import _get_bpe_vocab, bpe10k
-        if vocab == "bpe10k":
-            vocab = bpe10k
-            rqmt = dict([(key, value*4) for key, value in rqmt.items()])
-        else:
-            vocab = _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
+    if re.match("^bpe[0-9]+.*$", vocab_str):
+        if task_name == "LBS":
+            from ..language_models.librispeech import _get_bpe_vocab, bpe10k
+            if vocab_str == "bpe10k":
+                vocab = bpe10k
+                rqmt = dict([(key, value*4) for key, value in rqmt.items()])
+            else:
+                vocab = _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
         text = ApplyBPEToTextJob(
             text_file=lm_data,
             bpe_codes=vocab.codes,
@@ -66,17 +85,30 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
             gzip_output=True,
             mini_task=False,
         ).out_bpe_text
-        eval_text = ApplyBPEToTextJob(
-            text_file=eval_lm_data,
-            bpe_codes=vocab.codes,
-            bpe_vocab=tk.Path(vocab.vocab.get_path() [:-5] + "dummy_count.vocab"), #
-            subword_nmt_repo=subword_nmt,
+        for k, orig_text in eval_lm_data_dict.items():
+            eval_lm_data_dict[k] = ApplyBPEToTextJob(
+                text_file=orig_text,
+                bpe_codes=vocab.codes,
+                bpe_vocab=tk.Path(vocab.vocab.get_path() [:-5] + "dummy_count.vocab"), #
+                subword_nmt_repo=subword_nmt,
+                gzip_output=True,
+                mini_task=False,
+            ).out_bpe_text
+    elif "spm10k" in vocab_str and task_name == "ES":
+        assert isinstance(vocab, SentencePieceModel)
+        text = ApplySentencepieceToTextJob(
+            text_file=lm_data,
+            sentencepiece_model=vocab.model_file,
             gzip_output=True,
-            mini_task=False,
-        ).out_bpe_text
+        ).out_sentencepiece_text
+        for k, orig_text in eval_lm_data_dict.items():
+            eval_lm_data_dict[k] = ApplySentencepieceToTextJob(
+                text_file=orig_text,
+                sentencepiece_model=vocab.model_file,
+                gzip_output=True,
+            ).out_sentencepiece_text
     else: # Train on whole word
         text = lm_data
-        eval_text = eval_lm_data
         rqmt = dict([(key, value * 5) for key, value in rqmt.items()])
     lm_arpa = KenLMplzJob(
         text=[text],
@@ -88,6 +120,7 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         vocabulary=None,
         **rqmt
     ).out_lm
+    SRILM_PATH = LBS_SRILM_PATH if task_name == "LIBRISPEECH" else SRILM_PATH_APPTEK
     if prune_thresh:
         lm_arpa = PruneLMJob(N_order, lm_arpa, prune_thresh, SRILM_PATH.join_right("ngram")).out_lm
         arpa_binary_lm = CreateBinaryLMJob(
@@ -97,21 +130,29 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         arpa_binary_lm = CreateBinaryLMJob(
             arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH, **rqmt
         ).out_lm
+    for k, lm_eval_data in eval_lm_data_dict.items():
+        ppl_job = ComputeNgramLmPerplexityJob(
+            ngram_order=N_order,
+            lm = lm_arpa, # Seems only accept arpa LM
+            eval_data=lm_eval_data, # This is train data for the LM.
+            ngram_exe=SRILM_PATH.join_right("ngram"),
+            mem_rqmt=rqmt["mem"],
+            time_rqmt=1,
+            extra_ppl_args= '-debug 2'
+        )
+        if isinstance(vocab, SentencePieceModel) or "spm" in vocab_str:
+            apply_job = ApplySentencepieceToTextJob
+        elif isinstance(vocab, Bpe) or "bpe" in vocab_str:
+            apply_job = ApplyBPEToTextJob
+        else:
+            raise ValueError("vocab must be SentencePieceModel or SentencePieceModel")
+        ratio = GetSubwordRatioJob(lm_eval_data, vocab, get_returnn_subword_nmt(),apply_job=apply_job).out_ratio
+        tk.register_output(f"{task_name}_{k}_{vocab_str}_ratio", ratio)
 
-    ppl_job = ComputeNgramLmPerplexityJob(
-        ngram_order=N_order,
-        lm = lm_arpa, # Seems only accept arpa LM
-        eval_data=eval_text, # This is train data for the LM.
-        ngram_exe=SRILM_PATH.join_right("ngram"),
-        mem_rqmt=rqmt["mem"],
-        time_rqmt=1,
-        extra_ppl_args= '-debug 2'
-    )
-    exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1.0, 10_025: 1.0}  # 184-bpe128 10_025-bpe10k
-    if word_ppl:
-        ppl_job = PPLConvertJob(ppl_job.out_ppl_log, bpe_ratio)
-    alias_name = f"ppl/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + ("word_ppl" if word_ppl else "")
-    tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
+        if word_ppl:
+            ppl_job = PPLConvertJob(ppl_job.out_ppl_log, ratio)
+        alias_name = f"ppl/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + ("word_ppl" if word_ppl else "")
+        tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
     # conversion_job = ConvertARPAtoTensor(
     #     lm=lm_arpa,
     #     bpe_vocab=vocab.vocab,
@@ -444,83 +485,7 @@ class ConvertARPAtoTensor(Job):
         with uopen(self.out_lm_tensor, "wb") as f:
             torch.save(ret_tensor, f)
             
-            
-class ApplyBPEToTextJob(Job):
-    """
-    Apply BPE codes on a text file
-    """
 
-    __sis_hash_exclude__ = {"gzip_output": False}
-
-    def __init__(
-        self,
-        text_file: tk.Path,
-        bpe_codes: tk.Path,
-        bpe_vocab: Optional[tk.Path] = None,
-        subword_nmt_repo: Optional[tk.Path] = None,
-        gzip_output: bool = False,
-        mini_task=True,
-    ):
-        """
-        :param text_file: words text file to convert to bpe
-        :param bpe_codes: bpe codes file, e.g. ReturnnTrainBpeJob.out_bpe_codes
-        :param bpe_vocab: if provided, then merge operations that produce OOV are reverted,
-            use e.g. ReturnnTrainBpeJob.out_bpe_dummy_count_vocab
-        :param subword_nmt_repo: subword nmt repository path. see also `CloneGitRepositoryJob`
-        :param gzip_output: use gzip on the output text
-        :param mini_task: if the Job should run locally, e.g. only a small (<1M lines) text should be processed
-        """
-        self.text_file = text_file
-        self.bpe_codes = bpe_codes
-        self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = util.get_subword_nmt_repo(subword_nmt_repo)
-        self.gzip_output = gzip_output
-
-        self.out_bpe_text = self.output_path("words_to_bpe.txt.gz" if gzip_output else "words_to_bpe.txt")
-
-        self.mini_task = mini_task
-        self.rqmt = {"cpu": 2, "mem": 4, "time": 12}
-
-    def tasks(self):
-        if self.mini_task:
-            yield Task("run", mini_task=True)
-        else:
-            yield Task("run", rqmt=self.rqmt)
-
-    def run(self):
-        with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
-            input_file = self.text_file.get_path()
-            tmp_infile = os.path.join(tmp, "in_text.txt")
-            tmp_outfile = os.path.join(tmp, "out_text.txt")
-            with util.uopen(tmp_infile, "wt") as out:
-                sp.call(["zcat", "-f", input_file], stdout=out)
-            cmd = [
-                sys.executable,
-                os.path.join(self.subword_nmt_repo.get_path(), "apply_bpe.py"),
-                "--input",
-                tmp_infile,
-                "--codes",
-                self.bpe_codes.get_path(),
-                "--output",
-                tmp_outfile,
-            ]
-
-            if self.bpe_vocab:
-                cmd += ["--vocabulary", self.bpe_vocab.get_path()]
-                
-            util.create_executable("apply_bpe.sh", cmd)
-            sp.run(cmd, check=True)
-
-            if self.gzip_output:
-                with util.uopen(tmp_outfile, "rt") as fin, util.uopen(self.out_bpe_text, "wb") as fout:
-                    sp.call(["gzip"], stdin=fin, stdout=fout)
-            else:
-                shutil.copy(tmp_outfile, self.out_bpe_text.get_path())
-
-    @classmethod
-    def hash(cls, parsed_args):
-        del parsed_args["mini_task"]
-        return super().hash(parsed_args)
     
 class KenLMplzJob(Job):
     """

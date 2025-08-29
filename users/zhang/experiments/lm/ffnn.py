@@ -17,13 +17,18 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDe
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    config_96gb_bf16_accgrad1,
+    _get_cfg_lrlin_oclr_by_bs_nep_v3,
+    _get_cfg_lrlin_oclr_by_bs_nep_v4,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import _get_cfg_lrlin_oclr_by_bs_nep
+
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl
 
 import torch
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 #from torchaudio.models.decoder import CTCDecoderLM, CTCDecoderLMState
 
 if TYPE_CHECKING:
@@ -32,54 +37,78 @@ if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 
 def py():
-    from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
-    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+    _, spm, _ = get_model_and_vocab()
+    for k, v in spm["vocabulary"].items():
+        print(f"{k}: {v}")
+    # print(f"vocab setting: {spm}")
+    spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
 
-    lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
+    from i6_experiments.users.zeyer.train_v3 import train
+    # from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
+    # from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+    #
+    # lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
+    lm_dataset = SpainishLmDataset(vocab=spm_config, train_epoch_split=20)
     num_layers = 2
     context_size = 4
     ff_hidden_dim = 1024
-    drop_out = 0
-    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-bpe128-drop{drop_out}-relu"
-    conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
-    conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
-    model_with_checkpoints = train(
-        f"lm/{train_prefix_name}",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **conf,
-                "max_seq_length": {},
-                "torch_distributed": None,
-                "use_horovod": False,
-                "version": 3,#2: with get_librispeech_lm_dataset
-            },
-        ),
-        train_dataset=lm_dataset,
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    FeedForwardLm,
-                    num_layers=num_layers,
-                    context_size=context_size,
-                    embed_dropout=0,
-                    dropout=drop_out,
-                    ff_hidden_dim=ff_hidden_dim,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-    # TODO: a simple look up for approx exponent for convert ppl of bpe to word level.
-    #  For now, hard coded 2.6 in lm.lm_ppl.ComputePerplexityJob for bpe128
-    compute_ppl(
-        prefix_name=train_prefix_name,
-        model_with_checkpoints=model_with_checkpoints,
-        dataset=lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-    )
+    for embeding_size, batch_size, max_seq, drop_out in [#(128, 30_000, 200, 0), Overfit
+                                               (256, 80_000, None, 0.1),
+                                                   #(128, 10_000, 200)# More than this does not have corresponding step entry in _get_cfg_lrlin_oclr_by_bs_nep
+                                                   ]:
+        train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu"
+        conf = _get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 50, batch_size_factor=1)
+        #conf = _get_cfg_lrlin_oclr_by_bs_nep(max_seq, batch_size, 50) #ms_200, b10_000
+        #conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+        config_gb = config_11gb_lm_v1.copy()
+        if batch_size >= 50_000 and max_seq is None:
+            config_gb.update({"__gpu_mem": 48})
+        else:
+            config_gb.update({"__gpu_mem": 24})
+        config_gb.update({"max_seqs":max_seq})
+        model_with_checkpoints = train(
+            f"lm/{train_prefix_name}",
+            config=dict_update_deep(
+                config_gb,
+                {
+                    **conf,
+                    "max_seq_length": {},
+                    "torch_distributed": None,
+                    "use_horovod": False,
+                    "version": 3,#2: with get_librispeech_lm_dataset
+                },
+            ),
+            train_dataset=lm_dataset,
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        FeedForwardLm,
+                        embed_dim=embeding_size,
+                        num_layers=num_layers,
+                        context_size=context_size,
+                        embed_dropout=0,
+                        dropout=drop_out,
+                        ff_hidden_dim=ff_hidden_dim,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+        # TODO: a simple look up for approx exponent for convert ppl of bpe to word level.
+        #  For now, hard coded 2.6 in lm.lm_ppl.ComputePerplexityJob for bpe128
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+        compute_ppl(
+            prefix_name=train_prefix_name,
+            model_with_checkpoints=model_with_checkpoints,
+            dataset=lm_dataset,
+            vocab=spm_config,
+            word_ppl=True,
+            task_name="ES",
+            dataset_keys=DEV_KEYS+TEST_KEYS,
+        )
 
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
                 embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None,bpe_ratio: Optional[float | tk.Variable]=None)-> Tuple[ModelWithCheckpoint, tk.path, int]:

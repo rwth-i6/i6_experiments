@@ -215,8 +215,10 @@ class HuggingFaceLmScorer(LMScorer):
         prompt = cfg.get("prompt", None)
         eos_symbol = cfg.get("eos_symbol", "")
         lower_case = cfg.get("lower_case", False)
+        get_raw_text_func = cfg.get("get_raw_text_func", raw_text_from_bpe_seq)
         # dummy init
         instance = cls()
+        instance.get_raw_text = get_raw_text_func
         instance.batch_size = batch_size
         instance.model_dir = model_dir
 
@@ -321,7 +323,7 @@ class HuggingFaceLmScorer(LMScorer):
         batch_lines, batch_prompt, scores_buffer = [], [], []
         # Iterate records
         for hyp in sequence:
-            hyp = raw_text_from_bpe_seq(hyp.split())
+            hyp = self.get_raw_text(hyp.split())
             line = hyp.strip().lower() if self.lower_case else hyp.strip()
             if not line: # Encounter an empty hyp
                 if len(batch_lines)>0: # Process accumulated batch and append -1e30 as score for empty
@@ -822,6 +824,7 @@ def HF_lm_score(
 def lm_am_framewise_prior_rescore(
     res: RecogOutput,
     *,
+    config: Optional[Dict[str, Any]] = None, # additional config for RETURNN
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
@@ -900,6 +903,7 @@ def lm_am_framewise_prior_rescore(
         alias_name=alias_name + "/rescoring",
     )
     res_labels_am_scores = rescore(
+        config=config,
         recog_output=res,
         dataset=dataset,
         model=am,

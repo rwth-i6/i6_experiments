@@ -2,7 +2,9 @@ from __future__ import annotations
 import functools
 from typing import Optional, Any, Dict, List, Sequence, TYPE_CHECKING
 
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
 from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_WITH_PROMPT, LLM_WITH_PROMPT_EXAMPLE
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
 from sisyphus import Job, Task, tk
 
 from i6_experiments.common.datasets.librispeech.language_model import (
@@ -60,6 +62,10 @@ LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 3, "cpu": 3, "mem": 16, "gpu": 1
 
 from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX
 
+
+def get_raw_text_func_ES_spm(seq:list):
+    return " ".join(seq).replace("<sep>", "▁[noise]").replace(" ", "").replace("▁", " ")
+
 def get_prompt():
     prompt = None
     if LLM_FXIED_CTX:
@@ -71,9 +77,10 @@ def get_prompt():
         prompt = prompt
     return prompt
 #@functools.cache
-def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool = False) -> tuple[
+def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool = False, task_name: str = "LBS") -> tuple[
     dict[Any, dict[str, int | str | Any]], dict[Any, Any]]:
-    ds_name = "test-other"
+    ds_names = ["test-other"] if task_name=="LBS" else (DEV_KEYS + TEST_KEYS)
+    main_ppl_mesure_name = ["test-other"] if task_name=="LBS" else (DEV_KEYS + TEST_KEYS)[0]
     prompt = get_prompt()
     llms = dict()
     ppls = dict()
@@ -81,6 +88,10 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
         batch_sizes = [2 for _ in model_ids]
     prompt = [prompt for _ in model_ids]
     assert len(model_ids) == len(batch_sizes)
+    name_ext = f"{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else ""
+    name_ext += f"prev_one_ctx" if LLM_PREV_ONE_CTX else ""
+    name_ext += f"{'prompt' if LLM_WITH_PROMPT else ''}{'_example' if LLM_WITH_PROMPT_EXAMPLE else ''}{'_low' if USE_LOWER_CASE else ''}"
+
     for model_id, prompt, batch_size in zip(model_ids, prompt, batch_sizes):
         if LLM_FXIED_CTX:
             batch_size = LLM_Batch_size[model_id] // 3
@@ -88,25 +99,11 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             batch_size = 1
         if LLM_PREV_ONE_CTX:
             batch_size = LLM_Batch_size[model_id] // 6
+        name = os.path.basename(model_id)
         model = DownloadHuggingFaceRepoJob(model_id=model_id)
         tk.register_output(model_id, model.out_hub_cache_dir)
-        ppl_job = HuggingFaceLmPerplexityJobV2(
-            model_dir=model.out_hub_cache_dir,
-            text_file=[_get_corpus_text_dict(key=ds_name)], # get_test_corpus_text(keys=[ds_name])
-            llm_name=model_id,
-            batch_size=max(batch_size//2,1),
-            lower_case=USE_LOWER_CASE,
-            word_ppl=word_ppl,
-            prompt=prompt,
-            eos_symbol="\n",
-            use_prev_context=LLM_PREV_ONE_CTX,
-        )
-        name = os.path.basename(model_id)
-        ppl_job.rqmt.update(LLM_rqmt[model_id])
-        ppl_job_name = f"ppl/{name}" + (f"_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + f"{'low' if USE_LOWER_CASE else ''}{'_prev' if LLM_PREV_ONE_CTX else ''}"
-        ppl_job.add_alias(ppl_job_name)
         lm_cfg = {"model_dir": model.out_hub_cache_dir, "batch_size": batch_size,
-            "name": name, "prompt": prompt, "lm_type" : "HuggingFaceLm"}
+                  "name": name, "prompt": prompt, "lm_type": "HuggingFaceLm"}
         if LLM_FXIED_CTX:
             lm_cfg.update({"eos_symbol": "\n"})
         if LLM_PREV_ONE_CTX:
@@ -114,16 +111,37 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             lm_cfg.update({"prev_one_ctx": LLM_PREV_ONE_CTX})
         if USE_LOWER_CASE:
             lm_cfg.update({"lower_case": True})
+        if task_name=="ES":
+            lm_cfg.update({"get_raw_text_func": get_raw_text_func_ES_spm})
         llms.update({name: lm_cfg})
-        ppls.update({name: ppl_job.out_ppl})
-        #print(lm_cfg)
-    # ppl_job.add_alias("lm/" + llm_name + "/ppl/librispeech_" + ds_name + ("low" if lower_case else "") + eos_name)
-        name_ext = f"{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else ""
-        name_ext += f"prev_one_ctx" if LLM_PREV_ONE_CTX else ""
-        name_ext += f"{'prompt' if LLM_WITH_PROMPT else ''}{'_example' if LLM_WITH_PROMPT_EXAMPLE else ''}{'_low' if USE_LOWER_CASE else ''}"
-        tk.register_output(
-            "ppl/" + name + "/librispeech-" + ds_name + name_ext + "-ppl",
-            ppl_job.out_ppl)
+        for ds_name in ds_names:
+            if task_name=="LBS":
+                text_file = _get_corpus_text_dict(key=ds_name)
+            elif task_name=="ES":
+                text_file = get_lm_eval_text(key=ds_name)
+            else:
+                raise ValueError(f"Unknown task name: {task_name}")
+            ppl_job = HuggingFaceLmPerplexityJobV2(
+                model_dir=model.out_hub_cache_dir,
+                text_file=text_file, # get_test_corpus_text(keys=[ds_name])
+                llm_name=model_id,
+                batch_size=max(batch_size//2,1),
+                lower_case=USE_LOWER_CASE,
+                word_ppl=word_ppl,
+                prompt=prompt,
+                eos_symbol="\n",
+                use_prev_context=LLM_PREV_ONE_CTX,
+            )
+            ppl_job.rqmt.update(LLM_rqmt[model_id])
+            ppl_job_name = f"ppl/{name}/{ds_name}" + (f"_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + f"{'low' if USE_LOWER_CASE else ''}{'_prev' if LLM_PREV_ONE_CTX else ''}"
+            ppl_job.add_alias(ppl_job_name)
+            if main_ppl_mesure_name == ds_name:
+                ppls.update({name: ppl_job.out_ppl})
+            #print(lm_cfg)
+        # ppl_job.add_alias("lm/" + llm_name + "/ppl/librispeech_" + ds_name + ("low" if lower_case else "") + eos_name)
+            tk.register_output(
+                "ppl/" + name + "/librispeech-" + ds_name + name_ext + "-ppl",
+                ppl_job.out_ppl)
     return llms, ppls
 
 """Compute perplexity for a HuggingFace Transformer LLM model on LibriSpeech."""

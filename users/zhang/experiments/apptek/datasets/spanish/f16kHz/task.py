@@ -20,12 +20,12 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from sisyphus import Path, tk
 
 from apptek_asr.artefacts import AbstractArtefactRepository
-# from apptek_asr.meta.evaluations.aggregated_scoring import (
-#     ES_TEL_TEST_SET_SPECS_V1,
-#     ES_TEL_TEST_SET_SPECS_V2,
-#     spanish_8k_metrics_v1,
-#     spanish_8k_metrics_v2,
-# )
+from apptek_asr.meta.evaluations.aggregated_scoring import (
+    ES_TEL_TEST_SET_SPECS_V1,
+    ES_TEL_TEST_SET_SPECS_V2,
+    spanish_8k_metrics_v1,
+    spanish_8k_metrics_v2,
+)
 from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_task_data
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.text.label.sentencepiece.train import SentencePieceType
@@ -90,7 +90,7 @@ def get_asr_task(
         dev_dataset=task_data.cv,
         eval_datasets={**task_data.dev, **task_data.test},
         main_measure_type=MeasureType(short_name="WER%"),
-        main_measure_name="test_set.ES_US.f16kHz.mtp_eval-v2.ref.ff_wer",
+        main_measure_name="test_set.ES_ES.f8kHz.mtp_eval-v2.ref.ff_wer", #"test_set.ES_US.f8kHz.mtp_eval_p4_family_holiday_other-v3.ref.ff_wer"
         train_dataset=task_data.train,
         train_epoch_split=train_partition_epoch,
         score_recog_output_func=partial(_score_recog_out_v2, corpora=corpora, remove_labels=spm_extra_symbols),
@@ -130,7 +130,7 @@ def get_asr_task_given_spm(
         dev_dataset=task_data.cv,
         eval_datasets={**task_data.dev, **task_data.test},
         main_measure_type=MeasureType(short_name="WER%"),
-        main_measure_name="test_set.ES_US.f16kHz.mtp_eval-v2.ref.ff_wer",
+        main_measure_name="test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer",
         train_dataset=task_data.train,
         train_epoch_split=train_partition_epoch,
         score_recog_output_func=partial(_score_recog_out_v2, corpora=corpora, remove_labels=spm_extra_symbols),
@@ -140,38 +140,38 @@ def get_asr_task_given_spm(
     )
     return task
 
-# def _score_aggregate_es(results: Dict[str, ScoreResult]) -> ScoreResultCollection:
-#     results_by_seg = {}
-#     for seg, (version, score_callback, spec) in itertools.product(
-#         ALL_SEGMENTER_TYPES,
-#         [
-#             ("v1", spanish_8k_metrics_v1, ES_TEL_TEST_SET_SPECS_V1),
-#             ("v2", spanish_8k_metrics_v2, ES_TEL_TEST_SET_SPECS_V2),
-#         ],
-#     ):
-#         suffix = f".{seg}.ff_wer"
-#         weighed_results, reflen_results = score_callback(
-#             AbstractArtefactRepository(),
-#             ctms={
-#                 stripped_key: result.ctm
-#                 for k, result in results.items()
-#                 if k.endswith(suffix)
-#                 for stripped_key in [k.replace(suffix, "")]
-#                 if stripped_key in spec
-#             },
-#         )
-#         results_by_seg[f"{version}.{seg}"] = {
-#             "by_custom_weight": weighed_results,
-#             "by_reflen": reflen_results,
-#         }
-#     return ScoreResultCollection(
-#         main_measure_value=ToVariableJob(
-#             results_by_seg[f"v2.{SegmenterType.AppTekLegacy}"]["by_custom_weight"]["full_file_wer"]
-#         ).out,
-#         output=DumpAsJsonJob(
-#             {"all": {k: v.main_measure_value for k, v in results.items()}, "pooled": results_by_seg}
-#         ).out,
-#     )
+def _score_aggregate_es(results: Dict[str, ScoreResult]) -> ScoreResultCollection:
+    results_by_seg = {}
+    for seg, (version, score_callback, spec) in itertools.product(
+        ALL_SEGMENTER_TYPES,
+        [
+            ("v1", spanish_8k_metrics_v1, ES_TEL_TEST_SET_SPECS_V1),
+            ("v2", spanish_8k_metrics_v2, ES_TEL_TEST_SET_SPECS_V2),
+        ],
+    ):
+        suffix = f".{seg}.ff_wer"
+        weighed_results, reflen_results = score_callback(
+            AbstractArtefactRepository(),
+            ctms={
+                stripped_key: result.ctm
+                for k, result in results.items()
+                if k.endswith(suffix)
+                for stripped_key in [k.replace(suffix, "")]
+                if stripped_key in spec
+            },
+        )
+        results_by_seg[f"{version}.{seg}"] = {
+            "by_custom_weight": weighed_results,
+            "by_reflen": reflen_results,
+        }
+    return ScoreResultCollection(
+        main_measure_value=ToVariableJob(
+            results_by_seg[f"v2.{SegmenterType.AppTekLegacy}"]["by_custom_weight"]["full_file_wer"]
+        ).out,
+        output=DumpAsJsonJob(
+            {"all": {k: v.main_measure_value for k, v in results.items()}, "pooled": results_by_seg}
+        ).out,
+    )
 
 
 def _score_recog_out_v2(

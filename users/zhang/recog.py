@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 
 USE_24GB = False # Making all forward job to use 24gb gpu
 USE_48gb = True #Making all big LM rescore job to use 48gb gpu
+TASK = "ES"
 
 def recog_exp(
     prefix_name: str,
@@ -65,9 +66,10 @@ def recog_exp(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
+    prior_file: Optional[tk.Path] = None,
     empirical_prior: Optional[tk.Path] = None,
     prior_from_max: bool = False,
-    dev_sets: Optional[List[str]] = None,
+    dev_sets: Optional[Sequence[str]] = None, # The naming is a bit confusing, dev or not is transparent to this method
     search_error_check: bool = False,
     search_rqmt: dict = None,
 )-> Tuple[tk.Path, tk.Path, tk.Path]:
@@ -83,6 +85,7 @@ def recog_exp(
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
+        prior_file=prior_file,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
         dev_sets=dev_sets,
@@ -93,7 +96,6 @@ def recog_exp(
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
     summarize_job = GetRecogExp(
-        model=model,
         epoch=epoch,
         recog_and_score_func=recog_and_score_func,
     )
@@ -171,6 +173,7 @@ class _RecogAndScoreFunc:
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
         search_mem_rqmt: Union[int, float] = 6,
+        prior_file: Optional[tk.Path] = None, # Option for directly give a prior file
         empirical_prior: Optional[tk.Path] = None,
         prior_from_max: bool = False,
         dev_sets: Optional[List[str]] = None,
@@ -190,6 +193,7 @@ class _RecogAndScoreFunc:
         self.recog_post_proc_funcs = recog_post_proc_funcs
         self.search_mem_rqmt = search_mem_rqmt
         self.empirical_prior = empirical_prior
+        self.prior_file = prior_file
         self.prior_from_max = prior_from_max
         self.dev_sets = dev_sets
         self.search_rqmt = search_rqmt
@@ -203,8 +207,11 @@ class _RecogAndScoreFunc:
             model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
         else:
             raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
+
+        if self.prior_file:
+            prior_path = self.prior_file
         # Calculate prior of labels if needed
-        if self.task.prior_dataset:
+        elif self.task.prior_dataset:
             if self.empirical_prior:
                 prior_path = self.empirical_prior
             else:
@@ -321,7 +328,7 @@ def recog_model(
         then collected via ``task.collect_score_results_func``.
     """
     if dev_sets is not None:
-        assert all(k in task.eval_datasets for k in dev_sets)
+        assert all(k in task.eval_datasets for k in dev_sets), f"{dev_sets} not in {task.eval_datasets}"
         # task.main_measure_name = dev_sets[0]
     outputs = {}
     search_error = None
@@ -354,9 +361,12 @@ def recog_model(
         #tk.register_output(f"{name}/vocab.txt.gz", vocab_file)
         vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
         #tk.register_output(f"{name}/vocab_opts.py", vocab_opts_file)
-        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
-            vocab=vocab_file, new_label=recog_def.output_blank_label, new_label_idx=-1
-        ).out_vocab
+        if isinstance(vocab_, SentencePieceModel) and vocab_.dim == 10240: # TODO: this is not a generic decision
+            vocab_w_blank_file = vocab_file
+        else:
+            vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+                vocab=vocab_file, new_label=recog_def.output_blank_label, new_label_idx=-1
+            ).out_vocab
         from i6_experiments.users.zhang.datasets.librispeech import _bpe_to_words_v2, _spm_to_words
         if isinstance(vocab_, Bpe):
             vocab_to_word_func = _bpe_to_words_v2
@@ -366,13 +376,13 @@ def recog_model(
             raise ValueError(f"For now only support Bpe and Spm, given {vocab_}{vocab_.dim}")
         #tk.register_output(f"{name}/vocab_w_blank.txt.gz", vocab_w_blank_file)
 
-        lm_vocab_: Bpe
+        lm_vocab_: Bpe | SentencePieceModel
         lm_vocab_ = decoding_params.pop("lm_vocab", None)
         misaligned_lm = False
-        if lm_vocab_ is None or lm_vocab_.dim == vocab_.dim:
+        if lm_vocab_ is None or lm_vocab_.dim == vocab_.dim: # Same vocab as AM
             lm_vocab_file = vocab_file
             lm_vocab_opts_file = vocab_opts_file
-            lm_vocab_to_word_func = _bpe_to_words_v2
+            lm_vocab_to_word_func = vocab_to_word_func
         else:
             lm_vocab_file = ExtractVocabLabelsJob(lm_vocab_.get_opts()).out_vocab
             #tk.register_output(f"{name}/vocab.txt.gz", vocab_file)
@@ -431,6 +441,7 @@ def recog_model(
                 functools.partial(
                     lm_am_framewise_prior_rescore,
                     # framewise standard prior
+                    config=config,
                     prior=Prior(file=prior_path, type="log_prob", vocab=vocab_w_blank_file),
                     prior_scale=rescore_Priorscale,
                     am=model,
@@ -453,7 +464,7 @@ def recog_model(
 
     search_error_rescore_dict = {}
     dev_sets = dev_sets or task.eval_datasets.keys()
-    dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys()))
+    dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys())) or set(dev_sets)
     search_error_key = "test-other" if "test-other" in dataset_names else list(dataset_names)[0]
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets and dataset_name not in dev_sets:
@@ -811,6 +822,8 @@ def search_dataset(
 
     if len(recog_pre_post_proc_funcs_ext) < 1:
         res = raw_res_labels.output
+    if TASK in ["ES"]:
+        res = clean_RecogOut(RecogOutput(output=res)).output
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
@@ -819,6 +832,7 @@ def search_dataset(
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
     return RecogOutput(output=res), res_with_score, search_error_rescore#search_job.out_files[_v2_forward_out_filename]
+
 
 class SearchTakeBestWithScoreJob(sisyphus.Job):
     """
@@ -853,6 +867,12 @@ class SearchTakeBestWithScoreJob(sisyphus.Job):
                 best_score, best_entry = max(entry)
                 out.write("%r: [(%r, %r)],\n" % (seq_tag, best_score, best_entry))
             out.write("}\n")
+
+def clean_RecogOut(recog_output: RecogOutput):
+    # Due to a vocab mismatch of ctc_mbw_16kHz_spm10k for spainish, the idx of <noise> is <sep>(Also <music> -> _mes)
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+    res = SearchOutputRawReplaceJob(recog_output.output, [("<sep>", "▁[noise]"), (" ▁mes ", " ▁<music> "), ("▁mes ", "▁<music> ")], output_gzip=True).out_search_results
+    return RecogOutput(output=res)
 
 def ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
     """
@@ -1014,7 +1034,7 @@ def search_error_config(
             print(f"Getting lexicon for vocab {vocab} is not implemented!!!")
             lexicon = None
     else:
-        print("No vocab found in dataset!!!")
+        #print("No vocab found in dataset!!!")
         lexicon = None
     decoder_params = decoding_config.copy()  # Since decoding_config is shared across runs for different lm
     extern_imports = decoder_params.pop("extern_imports", [])
@@ -1662,10 +1682,20 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         assert v.dims[:2] == (batch_dim, beam_dim)
         rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
 
+    default_target_key = config.typed_value("target")
+    targets = extern_data[default_target_key]
+    targets_spatial_dim = targets.get_time_dim_tag()
+    rf.get_run_ctx().mark_as_output(targets, "targets", dims=[batch_dim, targets_spatial_dim])
+
 
 _v2_forward_out_filename = "output.py.gz"
 _v2_forward_ext_out_filename = "output_ext.py.gz"
 
+def remove_blank_and_replace(text, replace_list: List = [(" ", ""), ("▁", " ")]):
+    text = " ".join([x for x in text.split(" ") if x not in ["<blank>"]])
+    for replace in replace_list:
+        text = text.replace(replace[0], replace[1])
+    return text
 
 def _returnn_v2_get_forward_callback():
     from typing import TextIO
@@ -1696,6 +1726,7 @@ def _returnn_v2_get_forward_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
+            targets: Tensor = outputs["targets"]
             if hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
                 assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
                 assert hyps.dims[1].dyn_size_ext is not None, f"hyps {hyps} do not define seq lengths"
@@ -1723,8 +1754,9 @@ def _returnn_v2_get_forward_callback():
                     hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                     self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
                     if i == 0:
-                        print(f"Best_hyp of {seq_tag}: {hyp_serialized}")
-                        import pdb; pdb.set_trace()
+                        print(f"Best_hyp of {seq_tag}: {remove_blank_and_replace(hyp_serialized)}")
+                        print(f"Target is:\n {hyps.sparse_dim.vocab.get_seq_labels(targets.raw_tensor)}")
+                        #import pdb; pdb.set_trace()
                 self.out_file.write("],\n")
 
                 if self.out_ext_file:
@@ -1757,6 +1789,7 @@ def _returnn_v2_get_forward_callback():
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
+PRINTED = False
 class GetRecogExp(sisyphus.Job):
     """
     Collect all info from recogs.
@@ -1774,7 +1807,6 @@ class GetRecogExp(sisyphus.Job):
 
     def __init__(
         self,
-        model: ModelWithCheckpoints,
         epoch: int,
         *,
         recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]]],
@@ -1785,7 +1817,7 @@ class GetRecogExp(sisyphus.Job):
         :param recog_and_score_func: epoch -> scores. called in graph proc
         """
         super(GetRecogExp, self).__init__()
-        self.model = model
+        global PRINTED
         self.epoch = epoch
         self.recog_and_score_func = recog_and_score_func
         self.out_summary_json = self.output_path("summary.json")
@@ -1793,7 +1825,9 @@ class GetRecogExp(sisyphus.Job):
         self.out_search_error_rescore = self.output_path("search_error_rescore")
         self._scores_outputs = {}  # type: Dict[int, Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]]]  # epoch -> scores out
         self._add_recog(self.epoch)
-
+        if not PRINTED:
+            print(self._scores_outputs)
+            PRINTED = True
     # @classmethod
     # def hash(cls, parsed_args: Dict[str, Any]) -> str:
     #     """
