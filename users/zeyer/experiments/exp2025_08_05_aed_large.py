@@ -1111,7 +1111,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    # For comparison, behavior version 21 again, also 23.
+    # For comparison, behavior version 21 again, also 23. Does that make the difference?
     for bhv in [21, 23, 24]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k-s2-bhv{bhv}",
@@ -1176,8 +1176,8 @@ def py():
         )
 
     # Also try abs pos enc in encoder (EncPosEncAbs) (compare this to the ...-s2 above)
-    # baseline (s1): ...
-    # baseline (s2): ...
+    # baseline (s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     # EncPosEncAbs: ...
     aed_train_exp(
         "EncL16-DecL6-D1024-EncPosEncAbs-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
@@ -1243,6 +1243,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     # EncAddEos
     enc_dim = Dim(1024, name="enc_feat")
     aed_train_exp(
@@ -1608,10 +1609,15 @@ def py():
     #     )
 
     # Again but without aux CTC loss LS (which seems to be suboptimal).
+    # Unclear... Too much?
     for name, opts in [
+        # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
         ("0", None),
+        # {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
         ("A0.1", _ta_vA_err_prob(0.1)),
+        # {"dev-clean": 3.67, "dev-other": 5.25, "test-clean": 4.07, "test-other": 5.66}
         ("A0.2", _ta_vA_err_prob(0.2)),
+        # {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
         ("Sub0.1", _ta_sub_err_prob(0.1)),
     ]:
         aed_train_exp(
@@ -1753,205 +1759,215 @@ def py():
     # )
 
     # Again mult EOS labels (multEOS), but only 1 extra EOS, and better setting (no aux CTC loss LS).
-    aed_train_exp(
-        "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-multEOS2-spm10k-bpeSample001-baseLr0.5-b100k",
-        config_96gb_bf16_accgrad1,
-        prefix=prefix + "/aed/",
-        model_config={
-            # More futureproof, but also required for some funcs / setups.
-            "behavior_version": 24,
-            "__serialization_version": 2,
-            "enc_build_dict": rf.build_dict(
-                ConformerEncoder,
-                input_layer=rf.build_dict(
-                    ConformerConvSubsample,
-                    out_dims=[32, 64, 64],
-                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                    pool_sizes=[(1, 2)],
-                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                ),
-                num_layers=16,
-                out_dim=1024,
-                encoder_layer=rf.build_dict(
-                    ConformerEncoderLayer,
-                    ff=rf.build_dict(
-                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                    ),
-                    num_heads=8,
-                ),
-            ),
-            # Default AED decoder size: 6 layers, 512 dim
-            "dec_build_dict": rf.build_dict(
-                TransformerDecoder,
-                num_layers=6,
-                model_dim=1024,
-                norm=rf.build_dict(rf.RMSNorm),
-                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                # When only trained on LS ASR data, keep the default dropout?
-                # dropout=0.0,
-                # att_dropout=0.0,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-            "batch_size": 100_000 * _batch_size_factor,
-            "optimizer.weight_decay": 1e-2,
-            "accum_grad_multiple_step": 1,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_loss_layers": [4, 10, 16],
-            "text_augment": functools.partial(
-                text_augment,
-                ins_probs=[1.0],  # no insertions
-                ins_probs_last_frame=[0.0, 1.0],  # always insert 1 label at end, i.e. we have 2 EOS target labels
-                keep_del_sub_probs=[1.0, 0.0, 0.0],  # always keep, no deletions, no substitutions
-            ),
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    #      multEOS2: {"dev-clean": 3.53, "dev-other": 5.18, "test-clean": 4.19, "test-other": 5.72}
+    # aed_train_exp(
+    #     "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-multEOS2-spm10k-bpeSample001-baseLr0.5-b100k",
+    #     config_96gb_bf16_accgrad1,
+    #     prefix=prefix + "/aed/",
+    #     model_config={
+    #         # More futureproof, but also required for some funcs / setups.
+    #         "behavior_version": 24,
+    #         "__serialization_version": 2,
+    #         "enc_build_dict": rf.build_dict(
+    #             ConformerEncoder,
+    #             input_layer=rf.build_dict(
+    #                 ConformerConvSubsample,
+    #                 out_dims=[32, 64, 64],
+    #                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                 pool_sizes=[(1, 2)],
+    #                 strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #             ),
+    #             num_layers=16,
+    #             out_dim=1024,
+    #             encoder_layer=rf.build_dict(
+    #                 ConformerEncoderLayer,
+    #                 ff=rf.build_dict(
+    #                     ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #                 ),
+    #                 num_heads=8,
+    #             ),
+    #         ),
+    #         # Default AED decoder size: 6 layers, 512 dim
+    #         "dec_build_dict": rf.build_dict(
+    #             TransformerDecoder,
+    #             num_layers=6,
+    #             model_dim=1024,
+    #             norm=rf.build_dict(rf.RMSNorm),
+    #             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #             layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #             # When only trained on LS ASR data, keep the default dropout?
+    #             # dropout=0.0,
+    #             # att_dropout=0.0,
+    #         ),
+    #         "feature_batch_norm": True,
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+    #         "batch_size": 100_000 * _batch_size_factor,
+    #         "optimizer.weight_decay": 1e-2,
+    #         "accum_grad_multiple_step": 1,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_loss_layers": [4, 10, 16],
+    #         "text_augment": functools.partial(
+    #             text_augment,
+    #             ins_probs=[1.0],  # no insertions
+    #             ins_probs_last_frame=[0.0, 1.0],  # always insert 1 label at end, i.e. we have 2 EOS target labels
+    #             keep_del_sub_probs=[1.0, 0.0, 0.0],  # always keep, no deletions, no substitutions
+    #         ),
+    #         "max_seq_length_default_target": None,
+    #         # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #         # out of 281241 seqs in train, we removed only 71 seqs.
+    #         # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #     },
+    #     post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #     vocab="spm10k",
+    #     # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Try custom LR multipliers.
     from i6_experiments.users.zeyer.returnn.updater.lr_multiplier import optimizer_param_groups_custom_lr_multiplier
 
-    for name, (lrs, lr_mult_by_patterns) in {
-        # Baseline (None) lr 0.5: {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
-        "None": ([0.5], None),
-        "Dec0.1": ([0.5], {"decoder.*": 0.1}),
-        #          Dec0.5 lr 0.5: {"dev-clean": 4.30, "dev-other": 6.08, "test-clean": 4.96, "test-other": 5.87}
-        #          Dec0.5 lr 1.0: {"dev-clean": 4.67, "dev-other": 6.32, "test-clean": 5.23, "test-other": 6.41}
-        "Dec0.5": ([0.5, 1.0], {"decoder.*": 0.5}),
-        #  Enc2IncrDec0.5 lr 0.5: {"dev-clean": 4.17, "dev-other": 5.82, "test-clean": 4.70, "test-other": 6.13}
-        "Enc2IncrDec0.5": (
-            [0.5],
-            {
-                "feature_batch_norm.*": 2.0,
-                "encoder.input_layer.*": 2.0,
-                "encoder.input_projection.*": 2.0,
-                **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
-                "enc_aux_logits_*": 1.0,
-                "decoder.*": 0.5,
-            },
-        ),
-        # Enc2IncrDec1 lr 0.5: {"dev-clean": 4.03, "dev-other": 5.86, "test-clean": 4.52, "test-other": 6.24}
-        "Enc2IncrDec1": (
-            [0.5],
-            {
-                "feature_batch_norm.*": 2.0,
-                "encoder.input_layer.*": 2.0,
-                "encoder.input_projection.*": 2.0,
-                **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
-                "enc_aux_logits_*": 1.0,
-                "decoder.*": 1.0,
-            },
-        ),
-        # Enc2IncrDec1Incr lr 0.5: {"dev-clean": 4.06, "dev-other": 5.78, "test-clean": 4.49, "test-other": 6.18}
-        "Enc2IncrDec1Incr": (
-            [0.5],
-            {
-                "feature_batch_norm.*": 2.0,
-                "encoder.input_layer.*": 2.0,
-                "encoder.input_projection.*": 2.0,
-                **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
-                "enc_aux_logits_*": 1.0,
-                "decoder.input_embedding.*": 1.0,
-                **{f"decoder.layers.{i}.*": 1.0 - 0.5 * i / 5 for i in range(6)},
-                "decoder.final_layer_norm.*": 0.5,
-                "decoder.logits.*": 0.5,
-            },
-        ),
-    }.items():
-        for lr in lrs:
-            aed_train_exp(
-                f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-baseLr{lr}-b100k",
-                config_96gb_bf16_accgrad1,
-                prefix=prefix + "/aed/",
-                model_config={
-                    # More futureproof, but also required for some funcs / setups.
-                    "behavior_version": 24,
-                    "__serialization_version": 2,
-                    "enc_build_dict": rf.build_dict(
-                        ConformerEncoder,
-                        input_layer=rf.build_dict(
-                            ConformerConvSubsample,
-                            out_dims=[32, 64, 64],
-                            filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                            pool_sizes=[(1, 2)],
-                            strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                        ),
-                        num_layers=16,
-                        out_dim=1024,
-                        encoder_layer=rf.build_dict(
-                            ConformerEncoderLayer,
-                            ff=rf.build_dict(
-                                ConformerPositionwiseFeedForward,
-                                activation=rf.build_dict(rf.relu_square),
-                                with_bias=False,
-                            ),
-                            num_heads=8,
-                        ),
-                    ),
-                    # Default AED decoder size: 6 layers, 512 dim
-                    "dec_build_dict": rf.build_dict(
-                        TransformerDecoder,
-                        num_layers=6,
-                        model_dim=1024,
-                        norm=rf.build_dict(rf.RMSNorm),
-                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                        layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                        # When only trained on LS ASR data, keep the default dropout?
-                        # dropout=0.0,
-                        # att_dropout=0.0,
-                    ),
-                    "feature_batch_norm": True,
-                },
-                config_updates={
-                    **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=lr),
-                    "batch_size": 100_000 * _batch_size_factor,
-                    "optimizer.weight_decay": 1e-2,
-                    **(
-                        {
-                            "optimizer.param_groups_custom": optimizer_param_groups_custom_lr_multiplier,
-                            "optimizer.learning_rate_multipliers_by_patterns": lr_mult_by_patterns,
-                        }
-                        if lr_mult_by_patterns
-                        else {}
-                    ),
-                    "accum_grad_multiple_step": 1,
-                    "__train_audio_preprocess": speed_pert_librosa_config,
-                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                    "aux_loss_layers": [4, 10, 16],
-                    "aux_ctc_label_smoothing": 0.1,
-                    "max_seq_length_default_target": None,
-                    # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-                    # out of 281241 seqs in train, we removed only 71 seqs.
-                    # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-                    "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-                },
-                post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-                vocab="spm10k",
-                # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-                train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-                dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-                env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-            )
+    # Note, baseline here is a bit suboptimal (auxCtcLs0.1, also based on s2).
+    # for name, (lrs, lr_mult_by_patterns) in {
+    #     # Baseline (None) lr 0.5: {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
+    #     "None": ([0.5], None),
+    #     #          Dec0.1 lr 0.5: {"dev-clean": 5.39, "dev-other": 7.18, "test-clean": 7.51, "test-other": 7.63}
+    #     "Dec0.1": ([0.5], {"decoder.*": 0.1}),
+    #     #          Dec0.5 lr 0.5: {"dev-clean": 4.30, "dev-other": 6.08, "test-clean": 4.96, "test-other": 5.87}
+    #     #          Dec0.5 lr 1.0: {"dev-clean": 4.67, "dev-other": 6.32, "test-clean": 5.23, "test-other": 6.41}
+    #     "Dec0.5": ([0.5, 1.0], {"decoder.*": 0.5}),
+    #     #  Enc2IncrDec0.5 lr 0.5: {"dev-clean": 4.17, "dev-other": 5.82, "test-clean": 4.70, "test-other": 6.13}
+    #     "Enc2IncrDec0.5": (
+    #         [0.5],
+    #         {
+    #             "feature_batch_norm.*": 2.0,
+    #             "encoder.input_layer.*": 2.0,
+    #             "encoder.input_projection.*": 2.0,
+    #             **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
+    #             "enc_aux_logits_*": 1.0,
+    #             "decoder.*": 0.5,
+    #         },
+    #     ),
+    #     # Enc2IncrDec1 lr 0.5: {"dev-clean": 4.03, "dev-other": 5.86, "test-clean": 4.52, "test-other": 6.24}
+    #     "Enc2IncrDec1": (
+    #         [0.5],
+    #         {
+    #             "feature_batch_norm.*": 2.0,
+    #             "encoder.input_layer.*": 2.0,
+    #             "encoder.input_projection.*": 2.0,
+    #             **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
+    #             "enc_aux_logits_*": 1.0,
+    #             "decoder.*": 1.0,
+    #         },
+    #     ),
+    #     # Enc2IncrDec1Incr lr 0.5: {"dev-clean": 4.06, "dev-other": 5.78, "test-clean": 4.49, "test-other": 6.18}
+    #     "Enc2IncrDec1Incr": (
+    #         [0.5],
+    #         {
+    #             "feature_batch_norm.*": 2.0,
+    #             "encoder.input_layer.*": 2.0,
+    #             "encoder.input_projection.*": 2.0,
+    #             **{f"encoder.layers.{i}.*": 2.0 - i / 15 for i in range(16)},
+    #             "enc_aux_logits_*": 1.0,
+    #             "decoder.input_embedding.*": 1.0,
+    #             **{f"decoder.layers.{i}.*": 1.0 - 0.5 * i / 5 for i in range(6)},
+    #             "decoder.final_layer_norm.*": 0.5,
+    #             "decoder.logits.*": 0.5,
+    #         },
+    #     ),
+    # }.items():
+    #     for lr in lrs:
+    #         aed_train_exp(
+    #             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-customLr{name}-spm10k-bpeSample001-baseLr{lr}-b100k",
+    #             config_96gb_bf16_accgrad1,
+    #             prefix=prefix + "/aed/",
+    #             model_config={
+    #                 # More futureproof, but also required for some funcs / setups.
+    #                 "behavior_version": 24,
+    #                 "__serialization_version": 2,
+    #                 "enc_build_dict": rf.build_dict(
+    #                     ConformerEncoder,
+    #                     input_layer=rf.build_dict(
+    #                         ConformerConvSubsample,
+    #                         out_dims=[32, 64, 64],
+    #                         filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                         pool_sizes=[(1, 2)],
+    #                         strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #                     ),
+    #                     num_layers=16,
+    #                     out_dim=1024,
+    #                     encoder_layer=rf.build_dict(
+    #                         ConformerEncoderLayer,
+    #                         ff=rf.build_dict(
+    #                             ConformerPositionwiseFeedForward,
+    #                             activation=rf.build_dict(rf.relu_square),
+    #                             with_bias=False,
+    #                         ),
+    #                         num_heads=8,
+    #                     ),
+    #                 ),
+    #                 # Default AED decoder size: 6 layers, 512 dim
+    #                 "dec_build_dict": rf.build_dict(
+    #                     TransformerDecoder,
+    #                     num_layers=6,
+    #                     model_dim=1024,
+    #                     norm=rf.build_dict(rf.RMSNorm),
+    #                     ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #                     layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #                     # When only trained on LS ASR data, keep the default dropout?
+    #                     # dropout=0.0,
+    #                     # att_dropout=0.0,
+    #                 ),
+    #                 "feature_batch_norm": True,
+    #             },
+    #             config_updates={
+    #                 **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=lr),
+    #                 "batch_size": 100_000 * _batch_size_factor,
+    #                 "optimizer.weight_decay": 1e-2,
+    #                 **(
+    #                     {
+    #                         "optimizer.param_groups_custom": optimizer_param_groups_custom_lr_multiplier,
+    #                         "optimizer.learning_rate_multipliers_by_patterns": lr_mult_by_patterns,
+    #                     }
+    #                     if lr_mult_by_patterns
+    #                     else {}
+    #                 ),
+    #                 "accum_grad_multiple_step": 1,
+    #                 "__train_audio_preprocess": speed_pert_librosa_config,
+    #                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #                 "aux_loss_layers": [4, 10, 16],
+    #                 "aux_ctc_label_smoothing": 0.1,
+    #                 "max_seq_length_default_target": None,
+    #                 # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #                 # out of 281241 seqs in train, we removed only 71 seqs.
+    #                 # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #                 "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #             },
+    #             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #             vocab="spm10k",
+    #             # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    #         )
 
+    # Again without aux CTC LS (but still based on s2). All using baseLr0.5.
     for name, lr_mult_by_patterns in {
+        # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.4}
         "None": None,
+        # {"dev-clean": 3.02, "dev-other": 5.01, "test-clean": 3.38, "test-other": 5.36}
         "Dec0.5": {"decoder.*": 0.5},
+        # {"dev-clean": 3.39, "dev-other": 5.2, "test-clean": 3.98, "test-other": 5.75}
         "Dec2.0": {"decoder.*": 2.0},
+        # {"dev-clean": 3.24, "dev-other": 5.09, "test-clean": 4.37, "test-other": 5.71}
         "Enc1IncrA": {f"encoder.layers.{i}.*": 1.0 - 0.5 * i / 15 for i in range(16)},
+        # {"dev-clean": 3.67, "dev-other": 5.37, "test-clean": 3.92, "test-other": 5.89}
         "Enc2IncrA": {
             "feature_batch_norm.*": 2.0,
             "encoder.input_layer.*": 2.0,
@@ -2171,7 +2187,9 @@ def py():
     # )
 
     # Again auxShared but without aux CTC loss label smoothing.
-    # Baseline: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # Baseline (s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # Baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    #     auxShared: {"dev-clean": 3.00, "dev-other": 5.14, "test-clean": 3.25, "test-other": 5.29}
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxShared-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
