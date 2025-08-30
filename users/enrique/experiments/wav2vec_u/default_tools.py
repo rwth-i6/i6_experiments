@@ -3,13 +3,13 @@ Defines the external software to be used for the Experiments
 """
 from sisyphus import tk
 
-from i6_core.tools.git import CloneGitRepositoryJob
-from i6_core.lm.kenlm import CompileKenLMJob
-from i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
+from recipe.i6_core.tools.git import CloneGitRepositoryJob
+from recipe.i6_core.lm.kenlm import CompileKenLMJob
+from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
     import SetupFairseqJob
 
-from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
-from i6_experiments.common.tools.sctk import compile_sctk
+from recipe.i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+from recipe.i6_experiments.common.tools.sctk import compile_sctk
 
 # python from apptainer/singularity/docker
 RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
