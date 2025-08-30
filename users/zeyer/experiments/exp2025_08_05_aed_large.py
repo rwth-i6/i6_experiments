@@ -1675,6 +1675,9 @@ def py():
             "keep_del_sub_probs": [1 - p, p * 0.6, p * 0.4],
         }
 
+    def _ta_del_sub_err_prob(del_prob, sub_prob):
+        return {"keep_del_sub_probs": [1 - del_prob - sub_prob, del_prob, sub_prob]}
+
     def _ta_sub_err_prob(p):
         return {"keep_del_sub_probs": [1 - p, 0.0, p]}
 
@@ -1760,12 +1763,14 @@ def py():
     for name, opts in [
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
         ("0", None),
+        ("A0.05", _ta_vA_err_prob(0.05)),
         # {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
         ("A0.1", _ta_vA_err_prob(0.1)),
         # {"dev-clean": 3.67, "dev-other": 5.25, "test-clean": 4.07, "test-other": 5.66}
         ("A0.2", _ta_vA_err_prob(0.2)),
         # {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
         ("Sub0.1", _ta_sub_err_prob(0.1)),
+        ("Del0.05Sub0.05", _ta_del_sub_err_prob(0.05, 0.05)),
     ]:
         aed_train_exp(
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-textAug{name}-spm10k-bpeSample001-baseLr0.5-b100k",
