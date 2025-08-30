@@ -2110,6 +2110,7 @@ def py():
     #         )
 
     # Again without aux CTC LS (but still based on s2). All using baseLr0.5.
+    # TODO what now?
     for name, lr_mult_by_patterns in {
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.4}
         "None": None,
@@ -2608,6 +2609,7 @@ def py():
     )
 
     # variational noise (variational_noise_by_pattern)
+    # TODO ?
     for name, opts in {
         # baseline (0): {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
         "0": None,
@@ -2679,6 +2681,9 @@ def py():
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
+
+    # TODO new baseline:
+    #   auxShared + auxDec3 + bhv21 / AudioPad* / noConvMask (?) + EncPosEncAbs (?) + EncAddEos (?) + ...?
 
     # Try with standard Transformer decoder.
     aed_train_exp(
@@ -2916,6 +2921,8 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+
+    # TODO blstm frontend
 
     # TODO joint trafo+lstm decoder
 
