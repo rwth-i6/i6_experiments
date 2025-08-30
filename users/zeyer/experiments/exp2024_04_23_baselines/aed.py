@@ -1055,10 +1055,13 @@ class Model(rf.Module):
     ) -> Tuple[rf.State, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
-            pad_audio = self.pad_audio.copy()
+            pad_audio: Dict[str, Any] = self.pad_audio.copy()
             padding = pad_audio.pop("padding")
+            mode = pad_audio.pop("mode", "constant")
+            if mode == "constant" and "value" not in pad_audio:
+                pad_audio["value"] = 0.0
             source, (in_spatial_dim,) = rf.pad(
-                source, axes=[in_spatial_dim], padding=[padding], handle_dynamic_dims=True, **pad_audio
+                source, axes=[in_spatial_dim], padding=[padding], handle_dynamic_dims=True, mode=mode, **pad_audio
             )
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
