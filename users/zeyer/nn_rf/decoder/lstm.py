@@ -119,7 +119,7 @@ class LstmDecoder(rf.Module):
         else:  # operating on whole sequence
             (s, att), state_, _ = rf.scan(
                 spatial_dim=spatial_dim,
-                xs=source,
+                xs=input_embed,
                 ys=self._loop_step_output_templates(batch_dims=source.remaining_dims(spatial_dim)),
                 initial=state,
                 body=functools.partial(self._loop_step, encoder=encoder),
