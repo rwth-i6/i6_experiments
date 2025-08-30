@@ -4,7 +4,7 @@ see :class:`i6_experiments.users.zeyer.experiments.exp2023_04_25_rf.conformer_im
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Sequence, Tuple, Dict, List
+from typing import Optional, Union, Any, Sequence, Tuple, Dict, List
 import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -19,50 +19,39 @@ class LstmDecoder(rf.Module):
 
     def __init__(
         self,
-        in_dim: Dim,
+        encoder_dim: Dim,
+        vocab_dim: Dim,
         *,
-        target_dim: Dim,
-        blank_idx: int,
-        eos_idx: int,
-        bos_idx: int,
-        enc_out_dim: Dim,
-        enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-        att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
-        att_dropout: float = 0.1,
+        enc_key_total_dim: Union[Dim, int] = Dim(name="enc_key_total_dim", dimension=1024),
+        att_num_heads: Union[Dim, int] = Dim(name="att_num_heads", dimension=1),
+        lstm_dim: Union[Dim, int] = Dim(name="lstm", dimension=1024),
+        readout_dim: Union[Dim, int] = Dim(name="readout", dimension=1024),
     ):
         super().__init__()
 
-        from returnn.config import get_global_config
+        assert isinstance(encoder_dim, Dim)
+        assert isinstance(vocab_dim, Dim)
+        if isinstance(enc_key_total_dim, int):
+            enc_key_total_dim = Dim(name="enc_key_total_dim", dimension=enc_key_total_dim)
+        if isinstance(att_num_heads, int):
+            att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
+        if isinstance(readout_dim, int):
+            readout_dim = Dim(name="readout", dimension=readout_dim)
 
-        config = get_global_config(return_empty_if_none=True)
-
-        self.in_dim = in_dim
-        self.target_dim = target_dim
-        self.blank_idx = blank_idx
-        self.eos_idx = eos_idx
-        self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
-
-        self.enc_out_dim = enc_out_dim
+        self.encoder_dim = encoder_dim
+        self.vocab_dim = vocab_dim
         self.enc_key_total_dim = enc_key_total_dim
         self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
         self.att_num_heads = att_num_heads
-        self.att_dropout = att_dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
 
-        # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
-
-        self.enc_ctx = rf.Linear(self.enc_out_dim, enc_key_total_dim)
-        self.enc_ctx_dropout = 0.2  # TODO use... # TODO make configurable
-
-        self.inv_fertility = rf.Linear(self.enc_out_dim, att_num_heads, with_bias=False)
-
-        self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
-        if config.float("embed_init_stddev", None):
-            self.target_embed.weight.initial = rf.init.Normal(stddev=config.float("embed_init_stddev", 0.0))
+        self.enc_ctx = rf.Linear(self.encoder_dim, enc_key_total_dim)
+        self.inv_fertility = rf.Linear(self.encoder_dim, att_num_heads, with_bias=False)
+        self.target_embed = rf.Embedding(vocab_dim, Dim(name="target_embed", dimension=640))
 
         self.s = rf.ZoneoutLSTM(
-            self.target_embed.out_dim + att_num_heads * self.enc_out_dim,
-            Dim(name="lstm", dimension=1024),
+            self.target_embed.out_dim + att_num_heads * self.encoder_dim,
+            lstm_dim,
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
             use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
@@ -76,12 +65,10 @@ class LstmDecoder(rf.Module):
         self.s_transformed = rf.Linear(self.s.out_dim, enc_key_total_dim, with_bias=False)
         self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
 
-        # TODO make this optional?
         self.readout_in = rf.Linear(
-            self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.enc_out_dim,
-            Dim(name="readout", dimension=1024),
+            self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.encoder_dim, readout_dim
         )
-        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
+        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, vocab_dim)
 
     def transform_encoder(self, encoder: Tensor, *, axis: Dim) -> rf.State:
         """encode, and extend the encoder output for things we need in the decoder"""
@@ -93,7 +80,7 @@ class LstmDecoder(rf.Module):
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
+            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder_dim]),
             # Note: enc_spatial_dim missing! (Unfortunately the API of default_initial_state does not provide it.)
             accum_att_weights=rf.zeros(list(batch_dims) + [self.att_num_heads], feature_dim=self.att_num_heads),
         )
@@ -167,8 +154,8 @@ class LstmDecoder(rf.Module):
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
         state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
         att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
-        att0.feature_dim = self.enc_out_dim
-        att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+        att0.feature_dim = self.encoder_dim
+        att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder_dim))
         state_.att = att
 
         return (s, att), state_
@@ -179,7 +166,7 @@ class LstmDecoder(rf.Module):
             Tensor("s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1),
             Tensor(
                 "att",
-                dims=batch_dims + [self.att_num_heads * self.enc_out_dim],
+                dims=batch_dims + [self.att_num_heads * self.encoder_dim],
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
