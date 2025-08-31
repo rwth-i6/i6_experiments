@@ -59,7 +59,7 @@ def _pad_audio(
         [in_spatial_dim] + (list(feature_dim) if isinstance(feature_dim, (list, tuple)) else [feature_dim])
     )
     pad_amount_dims_lr = [
-        Dim(_pad_amount(amount, batch_dims=batch_dims, device=audio.device), name=f"pad_{name}")
+        Dim(_pad_amount(amount, batch_dims=batch_dims), name=f"pad_{name}")
         for amount, name in zip(padding, ["left", "right"])
     ]
     lr = [
@@ -97,11 +97,11 @@ def _pad_static(
     return audio, in_spatial_dim
 
 
-def _pad_amount(n: Union[int, Tuple[int, int]], *, batch_dims: List[Dim], device: Optional[str]) -> Union[int, Tensor]:
+def _pad_amount(n: Union[int, Tuple[int, int]], *, batch_dims: List[Dim]) -> Union[int, Tensor]:
     if isinstance(n, int):
         return n
     if isinstance(n, tuple) and len(n) == 2 and all(isinstance(i, int) for i in n):
-        return rf.random_uniform(batch_dims, minval=n[0], maxval=n[1] + 1, dtype="int32", device=device)
+        return rf.random_uniform(batch_dims, minval=n[0], maxval=n[1] + 1, dtype="int32", device="cpu")
     raise TypeError(f"invalid pad amount {n} of type {type(n)}")
 
 
