@@ -27,7 +27,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
-from i6_experiments.users.zeyer.nn_rf.pad_audio import pad_audio
+from i6_experiments.users.zeyer.nn_rf.pad_ext import pad_ext
 
 from .configs import (
     _get_cfg_lrlin_oclr_by_bs_nep,
@@ -1047,7 +1047,7 @@ class Model(rf.Module):
     ) -> Tuple[rf.State, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
-            source, in_spatial_dim = pad_audio(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
+            source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
