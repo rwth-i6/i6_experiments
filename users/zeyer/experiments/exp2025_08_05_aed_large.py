@@ -1394,9 +1394,10 @@ def py():
 
     # Pad audio (AudioPad) to somehow have it similar as wrong conv
     # (as in behavior version 21, but here using behavior version 24).
+    # Note: the number (eg 1k) is on sample level. 1k means 1000 samples, i.e. ~0.06 sec.
     # Baseline (bhv21):
     # Baseline (bhv24) (directly comparable): ...
-    for name, opts in {"0": None, "1k": 1000}.items():
+    for name, opts in {"0": None, "1k": 1000, "Rnd2k": {"train": ((0, 2000), (0, 2000))}}.items():
         aed_train_exp(
             f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
