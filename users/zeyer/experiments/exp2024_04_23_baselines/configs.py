@@ -42,6 +42,10 @@ config_24gb_v6 = dict(
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
     torch_dataloader_opts=dict(num_workers=1),
+    use_lovely_tensors=True,
+    torch_log_memory_usage=True,
+    watch_memory=True,
+    use_train_proc_manager=True,
 )
 
 
