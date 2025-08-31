@@ -18,6 +18,10 @@ def pad_audio(
     feature_dim: Union[None, Dim, Sequence[Dim]] = None,
     opts: Union[None, int, Tuple[PadSideT, PadSideT], Dict[str, Any]],
 ) -> Tuple[Tensor, Dim]:
+    """
+    Pad audio (raw samples, maybe also features) left/right, for augmentation or modeling,
+    by random lengths or fixed lengths, with zeros or random noise.
+    """
     if isinstance(opts, dict) and "train" in opts:
         assert set(opts.keys()).issubset({"train", "eval"})
         return rf.cond(
@@ -44,38 +48,53 @@ def _pad_audio(
     in_spatial_dim: Dim,
     feature_dim: Dim,
     padding: Tuple[PadSideT, PadSideT],
+    **pad_values_kwargs,
+) -> Tuple[Tensor, Dim]:
+    assert isinstance(padding, tuple) and len(padding) == 2
+    if all(isinstance(p, int) for p in padding):
+        return _pad_static(audio, in_spatial_dim=in_spatial_dim, padding=padding, **pad_values_kwargs)
+    if feature_dim is None:
+        feature_dim = audio.feature_dim or ()
+    batch_dims = audio.remaining_dims(
+        [in_spatial_dim] + (list(feature_dim) if isinstance(feature_dim, (list, tuple)) else [feature_dim])
+    )
+    pad_amount_dims_lr = [
+        Dim(_pad_amount(amount, batch_dims=batch_dims, device=audio.device), name=f"pad_{name}")
+        for amount, name in zip(padding, ["left", "right"])
+    ]
+    lr = [
+        _pad_values(
+            dims=[pad_amount_dim] + [d for d in audio.dims if d != in_spatial_dim],
+            dtype=audio.dtype,
+            device=audio.device,
+            **pad_values_kwargs,
+        )
+        for pad_amount_dim in pad_amount_dims_lr
+    ]
+    return rf.concat(
+        (lr[0], pad_amount_dims_lr[0]),
+        (audio, in_spatial_dim),
+        (lr[1], pad_amount_dims_lr[1]),
+        allow_broadcast=True,
+        handle_dynamic_dims=True,
+    )
+
+
+def _pad_static(
+    audio: Tensor,
+    *,
+    in_spatial_dim: Dim,
+    padding: Tuple[int, int],
     mode: str = "constant",
     value: Optional[float] = None,
 ) -> Tuple[Tensor, Dim]:
     assert isinstance(padding, tuple) and len(padding) == 2
     if mode == "constant" and value is None:
         value = 0.0
-    if all(isinstance(p, int) for p in padding):
-        audio, (in_spatial_dim,) = rf.pad(
-            audio, axes=[in_spatial_dim], padding=[padding], handle_dynamic_dims=True, mode=mode, value=value
-        )
-        return audio, in_spatial_dim
-    if feature_dim is None:
-        feature_dim = audio.feature_dim or ()
-    batch_dims = audio.remaining_dims(
-        [in_spatial_dim] + (list(feature_dim) if isinstance(feature_dim, (list, tuple)) else [feature_dim])
+    audio, (in_spatial_dim,) = rf.pad(
+        audio, axes=[in_spatial_dim], padding=[padding], handle_dynamic_dims=True, mode=mode, value=value
     )
-    pad_amount_lr = [
-        Dim(_pad_amount(amount, batch_dims=batch_dims, device=audio.device), name=f"pad_{name}")
-        for amount, name in zip(padding, ["left", "right"])
-    ]
-    assert mode == "constant"  # not really implemented otherwise yet
-    lr = [
-        rf.full(dims=batch_dims + [pad_amount], fill_value=value, dtype=audio.dtype, device=audio.device)
-        for pad_amount in pad_amount_lr
-    ]
-    return rf.concat(
-        (lr[0], pad_amount_lr[0]),
-        (audio, in_spatial_dim),
-        (lr[1], pad_amount_lr[1]),
-        allow_broadcast=True,
-        handle_dynamic_dims=True,
-    )
+    return audio, in_spatial_dim
 
 
 def _pad_amount(n: Union[int, Tuple[int, int]], *, batch_dims: List[Dim], device: Optional[str]) -> Union[int, Tensor]:
@@ -84,3 +103,20 @@ def _pad_amount(n: Union[int, Tuple[int, int]], *, batch_dims: List[Dim], device
     if isinstance(n, tuple) and len(n) == 2 and all(isinstance(i, int) for i in n):
         return rf.random_uniform(batch_dims, minval=n[0], maxval=n[1] + 1, dtype="int32", device=device)
     raise TypeError(f"invalid pad amount {n} of type {type(n)}")
+
+
+def _pad_values(dims: Sequence[Dim], *, dtype: str, device: Optional[str], mode: str = "constant", **kwargs) -> Tensor:
+    if mode == "constant":
+        return _pad_values_const(dims, dtype=dtype, device=device, **kwargs)
+    elif mode == "random":
+        return rf.random(dims, dtype=dtype, device=device, **kwargs)
+    else:
+        raise ValueError(f"invalid pad mode {mode!r}")
+
+
+def _pad_values_const(
+    dims: Sequence[Dim], *, dtype: str, device: Optional[str], value: Optional[float] = None
+) -> Tensor:
+    if value is None:
+        value = 0.0
+    return rf.full(dims=dims, fill_value=value, dtype=dtype, device=device)
