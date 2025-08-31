@@ -27,6 +27,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.zeyer.nn_rf.pad_audio import pad_audio
 
 from .configs import (
     _get_cfg_lrlin_oclr_by_bs_nep,
@@ -999,16 +1000,7 @@ class Model(rf.Module):
             )
         self.dec_aux_logits = dec_aux_logits
 
-        self.pad_audio = None
-        pad_audio = config.typed_value("pad_audio", None)
-        if pad_audio:
-            if isinstance(pad_audio, int):
-                pad_audio = {"padding": (pad_audio, pad_audio)}
-            if isinstance(pad_audio, tuple) and len(pad_audio) == 2 and isinstance(pad_audio[0], int):
-                pad_audio = {"padding": pad_audio}
-            assert isinstance(pad_audio, dict)
-            self.pad_audio = pad_audio
-            assert "padding" in self.pad_audio
+        self.pad_audio = config.typed_value("pad_audio", None)
 
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
@@ -1055,14 +1047,7 @@ class Model(rf.Module):
     ) -> Tuple[rf.State, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
-            pad_audio: Dict[str, Any] = self.pad_audio.copy()
-            padding = pad_audio.pop("padding")
-            mode = pad_audio.pop("mode", "constant")
-            if mode == "constant" and "value" not in pad_audio:
-                pad_audio["value"] = 0.0
-            source, (in_spatial_dim,) = rf.pad(
-                source, axes=[in_spatial_dim], padding=[padding], handle_dynamic_dims=True, mode=mode, **pad_audio
-            )
+            source, in_spatial_dim = pad_audio(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
