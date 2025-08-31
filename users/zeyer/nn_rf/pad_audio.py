@@ -29,7 +29,7 @@ def pad_audio(
         return audio, in_spatial_dim
     elif isinstance(opts, int):
         opts = {"padding": (opts, opts)}
-    elif isinstance(opts, tuple) and len(opts) == 2 and isinstance(opts[0], int):
+    elif isinstance(opts, tuple):
         opts = {"padding": opts}
     elif isinstance(opts, dict):
         assert "padding" in opts
