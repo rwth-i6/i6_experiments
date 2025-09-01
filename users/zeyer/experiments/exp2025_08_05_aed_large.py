@@ -2685,7 +2685,7 @@ def py():
         )
 
     # TODO new baseline:
-    #   auxShared + auxDec3 + bhv21 / AudioPad* / noConvMask (?) + EncAddEos (?) + ...?
+    #   auxShared + auxDec3 + bhv21 / AudioPad* / noConvMask (?) + ...?
 
     # Try with standard Transformer decoder.
     aed_train_exp(
