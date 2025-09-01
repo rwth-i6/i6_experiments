@@ -11,7 +11,7 @@ from sisyphus.delayed_ops import DelayedFormat
 from i6_experiments.common.setups.rasr.config.lm_config import ArpaLmRasrConfig
 from i6_experiments.users.raissi.setups.common.decoder.config import SearchParameters
 from i6_experiments.users.raissi.setups.common.discrimininative_training.common import Criterion
-from i6_experiments.users.raissi.setups.common.discrimininative_training.config import BIGRAM_LM
+from i6_experiments.users.raissi.setups.common.discrimininative_training.config import BIGRAM_LM_LBS
 
 from i6_experiments.users.raissi.setups.common.helpers.network import (
     add_fast_bw_layer_to_returnn_config,
@@ -259,8 +259,8 @@ def augment_for_smbr(
     smbr_params: SMBRparameters,
     lattice_search_parameters: SearchParameters,
     training_search_parameters: SearchParameters,
-    lattice_generation_lm: Union[Path, str] = BIGRAM_LM,
-    training_lm: Union[Path, str] = BIGRAM_LM,
+    lattice_generation_lm: Union[Path, str] = BIGRAM_LM_LBS,
+    training_lm: Union[Path, str] = BIGRAM_LM_LBS,
     output_layer: str = "output",
     smbr_layer_name: str = "smbr-accuracy",
     fw_ce_smoothing: float = 0.0,

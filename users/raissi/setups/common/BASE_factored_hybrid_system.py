@@ -381,10 +381,10 @@ class BASEFactoredHybridSystem(NnSystem):
         tdp_pattern = self.tdp_values["pattern"]
         if tdp_type is None:
             tdp_type = "default"
-        if tdp_type == "default":  # additional later, maybe enum or so
-            tdp_values = self.tdp_values[tdp_type]
-        elif isinstance(tdp_type, tuple):
+        if isinstance(tdp_type, tuple):
             tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
+        else:  # additional later, maybe enum or so
+            tdp_values = self.tdp_values[tdp_type]
 
         crp = self.crp[crp_key]
         for ind, ele in enumerate(tdp_pattern):

@@ -147,6 +147,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             "hub501": tk.Path(f"{self.dependencies_path}/stm-files/hub5e_01.2.stm"),
         }
         self.glm_files = dict(zip(["hub500", "hub501"], [tk.Path("/u/corpora/speech/hub5e_00/xml/glm")] * 2))
+        self.num_segments = {"train": 249614}
 
         self.segments_to_exclude = [
             "switchboard-1/sw02986A/sw2986A-ms98-a-0013",
