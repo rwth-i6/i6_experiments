@@ -142,15 +142,21 @@ class CalcSearchErrors(Job):
         self.hyp_scores = hyp_scores
 
         self.out_search_errors = self.output_var("search_errors")
+        self.out_model_error = self.output_var(
+            "model_error"
+        )  # number of times the model didnt get the right answer, and was scored lower
 
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 4
+        d["__version"] = 5
         return super().hash(d)
 
     def get_score(self, corpus_name: str):
         return ScoreResult(dataset_name=corpus_name, main_measure_value=self.out_search_errors)
+
+    def get_model_error(self, corpus_name: str):
+        return ScoreResult(dataset_name=corpus_name, main_measure_value=self.out_model_error)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -164,6 +170,7 @@ class CalcSearchErrors(Job):
         assert set(ref_scores.keys()) == set(hyp_scores.keys())
 
         num_errors = 0
+        num_model_error = 0
         num_total = len(ref_scores)
 
         for key in ref_scores:
@@ -178,13 +185,18 @@ class CalcSearchErrors(Job):
             has_error = ref_score > hyp_score and ref_text.strip() != hyp_text.strip()
             if has_error:
                 num_errors += 1
+            if ref_text.strip() != hyp_text.strip() and ref_score < hyp_score:
+                num_model_error += 1
 
             print(f"{has_error}: ref={ref_score}, hyp={hyp_score}")
             print(f" ref={ref_text!r}")
             print(f" hyp={hyp_text!r}")
 
         search_error_rate = 100 * num_errors / num_total if num_total > 0 else 0.0
+        model_error_rate = 100 * num_model_error / num_total if num_total > 0 else 0.0
 
         self.out_search_errors.set(search_error_rate)
+        self.out_model_error.set(model_error_rate)
 
         print(f"{self}: Search error rate: {search_error_rate:.4f} ({num_errors}/{num_total})")
+        print(f"{self}: Model error rate: {model_error_rate:.4f} ({num_model_error}/{num_total})")

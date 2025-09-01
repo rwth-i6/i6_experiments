@@ -5,6 +5,7 @@ from sisyphus import Job, Task, tk
 from i6_core.util import uopen
 import re
 from returnn.datasets.util.vocabulary import Vocabulary
+import functools
 
 
 class WordFrequencyJob(Job):
@@ -125,13 +126,13 @@ class CategorizeWordsByFreq(Job):
 categorize_words_by_pos_nlp = None
 
 
-def init_spacy():
+def init_spacy(model_name):
     import spacy
 
     """Ensure each process loads its own copy of the model."""
     global categorize_words_by_pos_nlp
     print("Loading spaCy model in worker...")
-    categorize_words_by_pos_nlp = spacy.load("en_core_web_sm")
+    categorize_words_by_pos_nlp = spacy.load(model_name)
 
 
 def process_word(word: str) -> Tuple[str, str]:
@@ -169,7 +170,12 @@ class CategorizeWordsByPOS(Job):
         self.out_category_counts = self.output_var("category_counts")
         self.model_name = model_name
         self.num_cpu = 16
-        self.nlp = None
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 2
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": self.num_cpu, "mem": self.num_cpu + 4, "time": 2})
@@ -183,7 +189,7 @@ class CategorizeWordsByPOS(Job):
         # pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
         # or similar for other models
         print(f"Loading spaCy model '{self.model_name}' for POS tagging...")
-        self.nlp = spacy.load(self.model_name)
+        spacy.load(self.model_name)  # this is just to check if the model is installed
         print("Loaded spaCy model for POS tagging", flush=True)
 
         with uopen(self.word_freq, "rt") as f:
@@ -196,7 +202,9 @@ class CategorizeWordsByPOS(Job):
         # Multiprocessing
         print("Processing words in parallel...")
         results = []
-        with Pool(processes=self.num_cpu, initializer=init_spacy) as pool:
+        with Pool(
+            processes=self.num_cpu, initializer=functools.partial(init_spacy, model_name=self.model_name)
+        ) as pool:
             # results = pool.map(process_word, words)
             for result in pool.imap_unordered(process_word, words):
                 results.append(result)
