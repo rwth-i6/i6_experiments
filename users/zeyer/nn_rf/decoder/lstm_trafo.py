@@ -78,7 +78,7 @@ class LstmTransformerDecoder(rf.Module):
         )
         self.readout_dropout = readout_dropout
 
-        self.transformer: TransformerDecoder = rf.build_from_dict(transformer, None, vocab_dim)
+        self.transformer: TransformerDecoder = rf.build_from_dict(transformer, None, vocab_dim, input_embedding=None)
         self.input_proj = rf.Linear(self.readout_in.out_dim // 2, self.transformer.model_dim)
 
     def transform_encoder(self, encoder: Tensor, *, axis: Dim) -> rf.State:
