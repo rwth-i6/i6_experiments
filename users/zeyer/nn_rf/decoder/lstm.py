@@ -26,6 +26,7 @@ class LstmDecoder(rf.Module):
         att_num_heads: Union[Dim, int] = Dim(name="att_num_heads", dimension=1),
         lstm_dim: Union[Dim, int] = Dim(name="lstm", dimension=1024),
         readout_dim: Union[Dim, int] = Dim(name="readout", dimension=1024),
+        target_embed_dim: Union[Dim, int] = Dim(name="target_embed", dimension=640),
     ):
         super().__init__()
 
@@ -37,6 +38,8 @@ class LstmDecoder(rf.Module):
             att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
         if isinstance(readout_dim, int):
             readout_dim = Dim(name="readout", dimension=readout_dim)
+        if isinstance(target_embed_dim, int):
+            target_embed_dim = Dim(name="target_embed", dimension=target_embed_dim)
 
         self.encoder_dim = encoder_dim
         self.vocab_dim = vocab_dim
@@ -47,7 +50,7 @@ class LstmDecoder(rf.Module):
 
         self.enc_ctx = rf.Linear(self.encoder_dim, enc_key_total_dim)
         self.inv_fertility = rf.Linear(self.encoder_dim, att_num_heads, with_bias=False)
-        self.target_embed = rf.Embedding(vocab_dim, Dim(name="target_embed", dimension=640))
+        self.target_embed = rf.Embedding(vocab_dim, target_embed_dim)
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * self.encoder_dim,
