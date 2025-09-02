@@ -26,6 +26,7 @@ class LstmDecoder(rf.Module):
         att_num_heads: Union[Dim, int] = Dim(name="att_num_heads", dimension=1),
         lstm_dim: Union[Dim, int] = Dim(name="lstm", dimension=1024),
         readout_dim: Union[Dim, int] = Dim(name="readout", dimension=1024),
+        readout_dropout: float = 0.3,
         target_embed_dim: Union[Dim, int] = Dim(name="target_embed", dimension=640),
     ):
         super().__init__()
@@ -71,6 +72,7 @@ class LstmDecoder(rf.Module):
         self.readout_in = rf.Linear(
             self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.encoder_dim, readout_dim
         )
+        self.readout_dropout = readout_dropout
         self.output_prob = rf.Linear(self.readout_in.out_dim // 2, vocab_dim)
 
     def transform_encoder(self, encoder: Tensor, *, axis: Dim) -> rf.State:
@@ -131,7 +133,9 @@ class LstmDecoder(rf.Module):
         # decode logits
         readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
         readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-        readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+        readout = rf.dropout(
+            readout, drop_prob=self.readout_dropout, axis=self.dropout_broadcast and readout.feature_dim
+        )
         logits = self.output_prob(readout)
 
         return logits, state_
