@@ -1180,13 +1180,13 @@ def py():
         )
 
     # Try again old serialization. But there doesn't seem to be any difference...?
-    # TODO...? (same hash as before, thus does not start...)
     aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k-s1-bhv21",
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
             "behavior_version": 21,
+            "__trigger_new_hash": 1,
             "enc_build_dict": rf.build_dict(
                 ConformerEncoder,
                 input_layer=rf.build_dict(
