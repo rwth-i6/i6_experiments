@@ -16,7 +16,7 @@ class BlstmEncoder(ISeqDownsamplingEncoder):
     def __init__(
         self,
         in_dim: Dim,
-        dim: Dim = Dim(1024, name="lstm"),
+        dim: Union[int, Dim] = Dim(1024, name="lstm"),
         *,
         num_layers: int = 6,
         time_reduction: Union[int, Tuple[int, ...]] = 6,
@@ -24,6 +24,10 @@ class BlstmEncoder(ISeqDownsamplingEncoder):
         dropout: float = 0.3,
     ):
         super().__init__()
+
+        if isinstance(dim, int):
+            dim = Dim(dim, name="lstm")
+
         self.in_dim = in_dim
         self.dim = dim
         self.num_layers = num_layers

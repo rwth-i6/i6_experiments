@@ -16,7 +16,7 @@ class BlstmCnnEncoder(BlstmEncoder):
     def __init__(
         self,
         in_dim: Dim,
-        lstm_dim: Dim = Dim(1024, name="lstm"),
+        lstm_dim: Union[int, Dim] = Dim(1024, name="lstm"),
         *,
         num_layers: int = 6,
         time_reduction: Union[int, Tuple[int, ...]] = 6,
