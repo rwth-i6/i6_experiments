@@ -3062,9 +3062,11 @@ def py():
 
     from i6_experiments.users.zeyer.nn_rf.encoder.blstm_cnn import BlstmCnnEncoder
 
-    # BLSTM frontend (cnnblstmf2 - this name is taken from some earlier experiments)
+    # BLSTM frontend.
+    # This is based on "cnnblstmf2" (taken from some earlier experiments),
+    # which used 512 LSTM dim, but here we reduced it even much more (due to memory/efficiency).
     aed_train_exp(
-        "EncL16-DecL6-D1024-cnnblstmf2-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        "EncL16-DecL6-D1024-ConvBlstm-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -3072,10 +3074,10 @@ def py():
                 ConformerEncoder,
                 input_layer=rf.build_dict(
                     BlstmCnnEncoder,
-                    lstm_dim=512,
+                    lstm_dim=128,
                     num_layers=2,
                     time_reduction=6,
-                    dropout=0.1,
+                    dropout=0.0,
                     allow_pool_last=True,
                 ),
                 num_layers=16,
