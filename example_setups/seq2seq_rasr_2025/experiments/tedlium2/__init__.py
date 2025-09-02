@@ -1,19 +1,21 @@
 from typing import List
 
-from sisyphus import tk
+from sisyphus import gs, tk
 
+from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.recog import RecogResult
-from ...model_pipelines.common.report import create_report
-from .bpe_combination_baseline import run_bpe_combination_baseline
-from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
+from ...model_pipelines.common.report import create_base_recog_report
+from . import bpe_ctc
 
 
-def run_tedlium2_baselines(prefix: str = "tedlium2") -> List[RecogResult]:
-    run_bpe_lstm_lm_baseline()
-
+def run_all() -> List[RecogResult]:
     recog_results = []
-    recog_results.extend(run_bpe_combination_baseline())
 
-    tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+    with ExperimentContext("baselines"):
+        recog_results.extend(bpe_ctc.run_all())
+
+        tk.register_report(
+            f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report.txt", values=create_base_recog_report(recog_results), required=True
+        )
 
     return recog_results

@@ -1,7 +1,7 @@
 __all__ = ["ConformerCTCConfig", "ConformerCTCRecogConfig", "ConformerCTCModel", "ConformerCTCRecogModel"]
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -29,9 +29,13 @@ class ConformerCTCConfig(ModelConfiguration):
 
 @dataclass
 class ConformerCTCRecogConfig(ConformerCTCConfig):
-    prior_file: tk.Path
-    prior_scale: float
     blank_penalty: float
+    prior_scale: float
+    prior_file: Optional[tk.Path]
+
+
+def __post_init__(self) -> None:
+    assert self.prior_scale == 0 or self.prior_file is not None, "Must specify prior file if prior scale is not 0"
 
 
 class ConformerCTCModel(torch.nn.Module):
@@ -87,7 +91,11 @@ class ConformerCTCRecogModel(ConformerCTCModel):
             cfg=cfg,
             epoch=epoch,
         )
-        self.scaled_priors = cfg.prior_scale * torch.tensor(np.loadtxt(cfg.prior_file), dtype=torch.float32)
+        if cfg.prior_scale != 0:
+            assert cfg.prior_file is not None
+            self.scaled_priors = cfg.prior_scale * torch.tensor(np.loadtxt(cfg.prior_file), dtype=torch.float32)
+        else:
+            self.scaled_priors = torch.zeros((cfg.target_size,), dtype=torch.float32)
         self.blank_penalty = cfg.blank_penalty
 
     def forward(
@@ -107,7 +115,11 @@ class ConformerCTCRecogExportModel(ConformerCTCModel):
             cfg=cfg,
             epoch=epoch,
         )
-        self.scaled_priors = cfg.prior_scale * torch.tensor(np.loadtxt(cfg.prior_file), dtype=torch.float32)
+        if cfg.prior_scale != 0:
+            assert cfg.prior_file is not None
+            self.scaled_priors = cfg.prior_scale * torch.tensor(np.loadtxt(cfg.prior_file), dtype=torch.float32)
+        else:
+            self.scaled_priors = torch.zeros((cfg.target_size,), dtype=torch.float32)
         self.blank_penalty = cfg.blank_penalty
 
     def forward(

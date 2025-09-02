@@ -202,7 +202,6 @@ class FFNNTransducerScorer(FFNNTransducerModel):
             embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
         )  # [B, H*A]
         pred_state = self.prediction_net.forward(embedding)  # [B, P]
-        pred_logits = self.prediction_output.forward(pred_state)  # [B, V]
 
         joint_input = torch.concat([encoder_state.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
         joint_output = self.joint_net.forward(joint_input)  # [B, V]
@@ -210,19 +209,25 @@ class FFNNTransducerScorer(FFNNTransducerModel):
 
         scores[:, -1] += self.blank_penalty
 
-        ilm_log_probs = torch.nn.functional.log_softmax(pred_logits, dim=1)  # [B, V]
+        if self.ilm_scale != 0:
+            zero_enc = torch.zeros_like(encoder_state)  # [B, E]
+            ilm_joint_input = torch.concat([zero_enc.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
+            ilm_joint_output = self.joint_net.forward(ilm_joint_input)  # [B, V]
+            ilm_log_probs = torch.nn.functional.log_softmax(ilm_joint_output, dim=1)  # [B, V]
 
-        # Set blank scores to zero and re-normalize the other scores
-        blank_log_probs = ilm_log_probs[:, -1:]  # [B, 1]
-        non_blank_log_probs = ilm_log_probs[:, :-1]  # [B, V-1]
-        ilm_log_probs = torch.concat(
-            [
-                non_blank_log_probs + torch.log(1.0 - torch.exp(blank_log_probs)),
-                torch.zeros_like(blank_log_probs),
-            ],
-            dim=-1,
-        )  # [B, V]
+            # Set blank scores to zero and re-normalize the other scores
+            blank_log_probs = ilm_log_probs[:, -1:]  # [B, 1]
+            non_blank_log_probs = ilm_log_probs[:, :-1]  # [B, V-1]
+            ilm_log_probs = torch.concat(
+                [
+                    non_blank_log_probs + torch.log(1.0 - torch.exp(blank_log_probs)),
+                    torch.zeros_like(blank_log_probs),
+                ],
+                dim=-1,
+            )  # [B, V]
 
-        ilm_scores = -ilm_log_probs
+            ilm_scores = -ilm_log_probs
 
-        return scores - self.ilm_scale * ilm_scores
+            scores -= self.ilm_scale * ilm_scores
+
+        return scores

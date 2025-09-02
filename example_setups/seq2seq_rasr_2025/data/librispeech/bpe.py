@@ -28,3 +28,12 @@ def bpe_to_vocab_size(bpe_size: int) -> int:
         5000: 5048,
         10000: 10025,
     }.get(bpe_size, bpe_size)
+
+
+def vocab_to_bpe_size(vocab_size: int) -> int:
+    return {
+        184: 128,
+        1056: 1000,
+        5048: 5000,
+        10025: 10000,
+    }.get(vocab_size, vocab_size)

@@ -10,7 +10,9 @@ class ExperimentContext:
 
     def __enter__(self) -> None:
         self.orig_dir = gs.ALIAS_AND_OUTPUT_SUBDIR
-        gs.ALIAS_AND_OUTPUT_SUBDIR = self.dir_name
+        if gs.ALIAS_AND_OUTPUT_SUBDIR != "":
+            gs.ALIAS_AND_OUTPUT_SUBDIR += "/"
+        gs.ALIAS_AND_OUTPUT_SUBDIR += self.dir_name
 
     def __exit__(self, exc_type, exc_value, exc_tb) -> None:
         gs.ALIAS_AND_OUTPUT_SUBDIR = self.orig_dir

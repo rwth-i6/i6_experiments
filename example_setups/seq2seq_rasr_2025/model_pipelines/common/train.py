@@ -17,7 +17,6 @@ from ..common.serializers import recipe_imports
 
 @dataclass
 class TrainOptions:
-    descriptor: str
     train_data_config: DataConfig
     cv_data_config: DataConfig
     save_epochs: List[int]
@@ -86,10 +85,10 @@ def train(options: TrainOptions, model_serializers: Collection, train_step_impor
         returnn_python_exe=returnn_python_exe,
         returnn_root=minireturnn_root,
     )
-    train_job.add_alias(f"training/{options.descriptor}")
+    train_job.add_alias("training")
     train_job.rqmt["gpu_mem"] = options.gpu_mem_rqmt
 
-    tk.register_output(f"train_{options.descriptor}/learning_rates", train_job.out_learning_rates)
-    tk.register_output(f"train_{options.descriptor}/checkpoint", train_job.out_checkpoints[num_epochs].path)  # type: ignore
+    tk.register_output("training/learning_rates", train_job.out_learning_rates)
+    tk.register_output("training/final_checkpoint", train_job.out_checkpoints[num_epochs].path)  # type: ignore
 
     return train_job

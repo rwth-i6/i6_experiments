@@ -1,11 +1,9 @@
-from sisyphus import tk
-from typing import Tuple
+from typing import Optional, Tuple
 
-from i6_core.returnn import PtCheckpoint
+from i6_core.returnn import ReturnnTrainingJob
 from i6_experiments.common.datasets.librispeech.vocab import get_lm_vocab
 
 from ...data.librispeech.datasets import get_default_word_lm_cv_data, get_default_word_lm_train_data
-from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.learning_rates import NewbobRelConfig
 from ...model_pipelines.common.optimizer import SGDConfig
 from ...model_pipelines.common.train import TrainOptions
@@ -19,7 +17,7 @@ from ...model_pipelines.transformer_lm.pytorch_modules import (
 from ...model_pipelines.transformer_lm.train import train
 
 
-def get_baseline_model_config() -> TransformerLmConfig:
+def get_model_config() -> TransformerLmConfig:
     return TransformerLmConfig(
         vocab_dim=get_lm_vocab(output_prefix="").vocab_size,
         embed_dim=128,
@@ -42,9 +40,8 @@ def get_baseline_model_config() -> TransformerLmConfig:
     )
 
 
-def get_baseline_train_options() -> TrainOptions:
+def get_train_options() -> TrainOptions:
     return TrainOptions(
-        descriptor="baseline",
         train_data_config=get_default_word_lm_train_data(),
         cv_data_config=get_default_word_lm_cv_data(),
         save_epochs=[10, 20, 25, 26, 27, 28, 29, 30],
@@ -69,18 +66,15 @@ def get_baseline_train_options() -> TrainOptions:
     )
 
 
-def run_word_transformer_lm_baseline(
-    num_layers: int = 96,
-    prefix: str = "librispeech/word_transformer-lm",
-) -> Tuple[TransformerLmConfig, PtCheckpoint]:
-    with ExperimentContext(f"{prefix}_{num_layers}l"):
-        model_config = get_baseline_model_config()
-        model_config.num_layers = num_layers
-        train_config = get_baseline_train_options()
+def run_training(
+    model_config: Optional[TransformerLmConfig] = None,
+    train_options: Optional[TrainOptions] = None,
+) -> Tuple[ReturnnTrainingJob, TransformerLmConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
 
-        train_job = train(train_config, model_config)
-    if num_layers == 96:
-        return model_config, tk.Path(
-            "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.WuilWP7i1fS2/output/models/epoch.030.pt"
-        )
-    return model_config, train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
+    train_job = train(options=train_options, model_config=model_config)
+
+    return train_job, model_config

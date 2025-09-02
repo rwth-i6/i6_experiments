@@ -39,8 +39,8 @@ class LstmLm(torch.nn.Module):
 
     def _param_init(self):
         for m in self.modules():
-            for name, param in m.named_parameters():
-                torch.nn.init.normal_(param, mean=0, std=0.1)
+            for _, param in m.named_parameters():
+                torch.nn.init.normal_(param, mean=0, std=0.1)  # type: ignore
 
     def forward(
         self,

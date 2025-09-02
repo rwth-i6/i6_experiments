@@ -32,7 +32,7 @@ from ...model_pipelines.common.recog_rasr_config import (
     get_lexiconfree_timesync_recog_config,
     get_tree_timesync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
 from ...model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerEncoder
@@ -88,20 +88,20 @@ def get_baseline_model_config() -> FFNNTransducerConfig:
                     pool_strides=None,
                     pool_paddings=None,
                     activations=[torch.nn.ReLU(), torch.nn.ReLU()],
-                    out_features=512,
+                    out_features=384,
                 ),
             ),
             block_cfg=ConformerRelPosBlockV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV2Config(
-                    input_dim=512,
-                    hidden_dim=2048,
+                    input_dim=384,
+                    hidden_dim=1536,
                     dropout=0.1,
                     activation=torch.nn.SiLU(),
                     dropout_broadcast_axes=None,
                 ),
                 mhsa_cfg=ConformerMHSARelPosV1Config(
-                    input_dim=512,
-                    num_att_heads=8,
+                    input_dim=384,
+                    num_att_heads=6,
                     att_weights_dropout=0.1,
                     dropout=0.1,
                     with_bias=True,
@@ -114,11 +114,11 @@ def get_baseline_model_config() -> FFNNTransducerConfig:
                     dropout_broadcast_axes=None,
                 ),
                 conv_cfg=ConformerConvolutionV2Config(
-                    channels=512,
+                    channels=384,
                     kernel_size=31,
                     dropout=0.1,
                     activation=torch.nn.SiLU(),
-                    norm=LayerNormNC(512),
+                    norm=LayerNormNC(384),
                     dropout_broadcast_axes=None,
                 ),
                 modules=["ff", "conv", "mhsa", "ff"],
@@ -126,13 +126,13 @@ def get_baseline_model_config() -> FFNNTransducerConfig:
             ),
         ),
         dropout=0.1,
-        enc_dim=512,
+        enc_dim=384,
         pred_num_layers=2,
-        pred_dim=640,
+        pred_dim=512,
         pred_activation=torch.nn.Tanh(),
         context_history_size=1,
         context_embedding_dim=256,
-        joiner_dim=1024,
+        joiner_dim=640,
         joiner_activation=torch.nn.Tanh(),
         target_size=vocab_size + 1,
     )
@@ -177,14 +177,6 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "switchboard/bpe_ffnn_transdu
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
-
-        label_scorer_config = get_ffnn_transducer_label_scorer_config(
-            model_config=model_config,
-            checkpoint=checkpoint,
-            ilm_scale=0.0,
-            blank_penalty=0.0,
-        )
 
         vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
         lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
@@ -198,111 +190,133 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "switchboard/bpe_ffnn_transdu
 
         recog_results = []
 
-        # =====================================
-        # === Lexiconfree Search without LM ===
-        # =====================================
+        # for epoch in train_config.save_epochs:
+        for epoch in [582]:
+            checkpoint: PtCheckpoint = train_job.out_checkpoints[epoch]  # type: ignore
+            for ilm_scale in [0.0, 0.2, 0.4]:
+                for blank_penalty in [0.0, 1.0, 2.0]:
+                    label_scorer_config = get_ffnn_transducer_label_scorer_config(
+                        model_config=model_config,
+                        checkpoint=checkpoint,
+                        ilm_scale=ilm_scale,
+                        blank_penalty=blank_penalty,
+                    )
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_lexiconfree",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_lexiconfree_timesync_recog_config(
-                        vocab_file=vocab_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                        logfile_suffix="recog",
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                        logfile_suffix="align",
-                    ),
-                    sample_rate=8000,
-                )
-            )
+                    # =====================================
+                    # === Lexiconfree Search without LM ===
+                    # =====================================
 
-        # =====================================
-        # === Tree Search without LM ==========
-        # =====================================
+                    # for recog_corpus in ["hub5e00", "hub5e01"]:
+                    for recog_corpus in ["hub5e00"]:
+                        recog_results.append(
+                            recog_rasr(
+                                descriptor=f"bpe-transducer_lexiconfree_e-{epoch}_ilm-{ilm_scale}_bp-{blank_penalty}",
+                                checkpoint=checkpoint,
+                                recog_data_config=recog_data[recog_corpus],
+                                recog_corpus=score_corpora[recog_corpus],
+                                model_serializers=get_model_serializers(
+                                    FFNNTransducerEncoder, model_config=model_config
+                                ),
+                                rasr_config_file=get_lexiconfree_timesync_recog_config(
+                                    vocab_file=vocab_file,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=512,
+                                    score_threshold=16.0,
+                                    logfile_suffix="recog",
+                                ),
+                                rasr_align_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon_file,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=256,
+                                    score_threshold=22.0,
+                                    logfile_suffix="align",
+                                ),
+                                sample_rate=8000,
+                            )
+                        )
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_tree",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                        logfile_suffix="recog",
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                        logfile_suffix="align",
-                    ),
-                    sample_rate=8000,
-                )
-            )
+                    # =====================================
+                    # === Tree Search without LM ==========
+                    # =====================================
 
-        # =====================================
-        # === Tree Search with 4gram LM =======
-        # =====================================
+                    # for recog_corpus in ["hub5e00", "hub5e01"]:
+                    for recog_corpus in ["hub5e00"]:
+                        recog_results.append(
+                            recog_rasr(
+                                descriptor=f"bpe-transducer_tree_e-{epoch}_ilm-{ilm_scale}_bp-{blank_penalty}",
+                                checkpoint=checkpoint,
+                                recog_data_config=recog_data[recog_corpus],
+                                recog_corpus=score_corpora[recog_corpus],
+                                model_serializers=get_model_serializers(
+                                    FFNNTransducerEncoder, model_config=model_config
+                                ),
+                                rasr_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon_file,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=512,
+                                    score_threshold=16.0,
+                                    logfile_suffix="recog",
+                                ),
+                                rasr_align_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon_file,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=256,
+                                    score_threshold=22.0,
+                                    logfile_suffix="align",
+                                ),
+                                sample_rate=8000,
+                            )
+                        )
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            arpa_lm_config.scale = 0.6
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-transducer_tree_4gram",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(FFNNTransducerEncoder, model_config=model_config),
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                        logfile_suffix="recog",
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=False,
-                        label_scorer_config=label_scorer_config,
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                        logfile_suffix="align",
-                    ),
-                    sample_rate=8000,
-                )
-            )
+                    # =====================================
+                    # === Tree Search with 4gram LM =======
+                    # =====================================
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+                    # for recog_corpus in ["hub5e00", "hub5e01"]:
+                    for recog_corpus in ["hub5e00"]:
+                        for lm_scale in [0.4, 0.6, 0.9, 1.2]:
+                            arpa_lm_config.scale = lm_scale
+                            recog_results.append(
+                                recog_rasr(
+                                    descriptor=f"bpe-transducer_tree_4gram_e-{epoch}_lm-{lm_scale}_ilm-{ilm_scale}_bp-{blank_penalty}",
+                                    checkpoint=checkpoint,
+                                    recog_data_config=recog_data[recog_corpus],
+                                    recog_corpus=score_corpora[recog_corpus],
+                                    model_serializers=get_model_serializers(
+                                        FFNNTransducerEncoder, model_config=model_config
+                                    ),
+                                    rasr_config_file=get_tree_timesync_recog_config(
+                                        lexicon_file=lexicon_file,
+                                        collapse_repeated_labels=False,
+                                        label_scorer_config=label_scorer_config,
+                                        lm_config=arpa_lm_config,
+                                        blank_index=blank_index,
+                                        max_beam_size=512,
+                                        score_threshold=18.0,
+                                        logfile_suffix="recog",
+                                    ),
+                                    rasr_align_config_file=get_tree_timesync_recog_config(
+                                        lexicon_file=lexicon_file,
+                                        collapse_repeated_labels=False,
+                                        label_scorer_config=label_scorer_config,
+                                        lm_config=arpa_lm_config,
+                                        blank_index=blank_index,
+                                        max_beam_size=256,
+                                        score_threshold=22.0,
+                                        logfile_suffix="align",
+                                    ),
+                                    sample_rate=8000,
+                                )
+                            )
+
+        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
 
     return recog_results

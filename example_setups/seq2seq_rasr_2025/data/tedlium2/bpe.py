@@ -25,3 +25,9 @@ def bpe_to_vocab_size(bpe_size: int) -> int:
     return {
         128: 187,
     }.get(bpe_size, bpe_size)
+
+
+def vocab_to_bpe_size(vocab_size: int) -> int:
+    return {
+        187: 128,
+    }.get(vocab_size, vocab_size)

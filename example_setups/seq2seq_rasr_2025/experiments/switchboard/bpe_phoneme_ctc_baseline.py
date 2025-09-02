@@ -33,7 +33,7 @@ from ...model_pipelines.common.recog_rasr_config import (
     get_lexiconfree_timesync_recog_config,
     get_tree_timesync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.ctc_multi_output.label_scorer_config import get_ctc_label_scorer_config
 from ...model_pipelines.ctc_multi_output.prior import compute_priors
@@ -175,7 +175,6 @@ def run_bpe_phoneme_ctc_baseline(prefix: str = "switchboard/bpe_phoneme_ctc") ->
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
         recog_data = {corpus_name: get_default_recog_data(corpus_name) for corpus_name in ["hub5e00", "hub5e01"]}
         score_corpora = {corpus_name: get_default_score_corpus(corpus_name) for corpus_name in ["hub5e00", "hub5e01"]}
@@ -199,69 +198,112 @@ def run_bpe_phoneme_ctc_baseline(prefix: str = "switchboard/bpe_phoneme_ctc") ->
 
         recog_results = []
 
-        for output_idx, name in enumerate(["phoneme", "bpe"]):
-            prior_file = compute_priors(
-                prior_data_config=get_default_prior_data(),
-                checkpoint=checkpoint,
-                model_config=model_config,
-                output_idx=output_idx,
-            )
+        for epoch in train_config.save_epochs:
+            checkpoint: PtCheckpoint = train_job.out_checkpoints[epoch]  # type: ignore
 
-            label_scorer_config = get_ctc_label_scorer_config(
-                model_config=model_config,
-                checkpoint=checkpoint,
-                output_idx=output_idx,
-                prior_file=prior_file,
-                prior_scale=0.2,
-                blank_penalty=0.0,
-            )
+            for output_idx, name in enumerate(["phoneme", "bpe"]):
+                prior_file = compute_priors(
+                    prior_data_config=get_default_prior_data(),
+                    checkpoint=checkpoint,
+                    model_config=model_config,
+                    output_idx=output_idx,
+                )
 
-            lexicon = lexica[name]
-            blank_index = blank_indices[name]
+                label_scorer_config = get_ctc_label_scorer_config(
+                    model_config=model_config,
+                    checkpoint=checkpoint,
+                    output_idx=output_idx,
+                    prior_file=prior_file,
+                    prior_scale=0.2,
+                    blank_penalty=0.0,
+                )
 
-            encoder_serializers = get_model_serializers(ConformerCTCMultiOutputEncoderModel, model_config=model_config)
+                lexicon = lexica[name]
+                blank_index = blank_indices[name]
 
-            if name == "bpe":
+                encoder_serializers = get_model_serializers(
+                    ConformerCTCMultiOutputEncoderModel, model_config=model_config
+                )
 
-                # =====================================
-                # === Lexiconfree Search without LM ===
-                # =====================================
+                if name == "bpe":
 
-                for recog_corpus in ["hub5e00", "hub5e01"]:
-                    recog_results.append(
-                        recog_rasr(
-                            descriptor=f"bpe-phoneme-ctc_{name}-output_lexiconfree",
-                            checkpoint=checkpoint,
-                            recog_data_config=recog_data[recog_corpus],
-                            recog_corpus=score_corpora[recog_corpus],
-                            model_serializers=encoder_serializers,
-                            rasr_config_file=get_lexiconfree_timesync_recog_config(
-                                vocab_file=bpe_vocab_file,
-                                collapse_repeated_labels=True,
-                                label_scorer_config=get_ctc_label_scorer_config(
-                                    model_config=model_config,
-                                    checkpoint=checkpoint,
-                                    output_idx=output_idx,
-                                    prior_file=prior_file,
-                                    prior_scale=0.0,
-                                    blank_penalty=0.0,
+                    # =====================================
+                    # === Lexiconfree Search without LM ===
+                    # =====================================
+
+                    # for recog_corpus in ["hub5e00", "hub5e01"]:
+                    for recog_corpus in ["hub5e00"]:
+                        recog_results.append(
+                            recog_rasr(
+                                descriptor=f"bpe-phoneme-ctc_{name}-output_lexiconfree_e-{epoch}",
+                                checkpoint=checkpoint,
+                                recog_data_config=recog_data[recog_corpus],
+                                recog_corpus=score_corpora[recog_corpus],
+                                model_serializers=encoder_serializers,
+                                rasr_config_file=get_lexiconfree_timesync_recog_config(
+                                    vocab_file=bpe_vocab_file,
+                                    collapse_repeated_labels=True,
+                                    label_scorer_config=get_ctc_label_scorer_config(
+                                        model_config=model_config,
+                                        checkpoint=checkpoint,
+                                        output_idx=output_idx,
+                                        prior_file=prior_file,
+                                        prior_scale=0.0,
+                                        blank_penalty=0.0,
+                                    ),
+                                    blank_index=blank_index,
+                                    max_beam_size=1,  # Lexiconfree search without LM is greedy so only one hyp is needed
                                 ),
-                                blank_index=blank_index,
-                                max_beam_size=1,  # Lexiconfree search without LM is greedy so only one hyp is needed
-                            ),
-                            rasr_align_config_file=None,  # Greedy search doesn't have search errors
-                            sample_rate=8000,
+                                rasr_align_config_file=None,  # Greedy search doesn't have search errors
+                                sample_rate=8000,
+                            )
                         )
-                    )
+
+                    # =====================================
+                    # === Tree Search without LM ==========
+                    # =====================================
+
+                    # for recog_corpus in ["hub5e00", "hub5e01"]:
+                    for recog_corpus in ["hub5e00"]:
+                        recog_results.append(
+                            recog_rasr(
+                                descriptor=f"bpe-phoneme-ctc_{name}-output_tree_e-{epoch}",
+                                checkpoint=checkpoint,
+                                recog_data_config=recog_data[recog_corpus],
+                                recog_corpus=score_corpora[recog_corpus],
+                                model_serializers=encoder_serializers,
+                                rasr_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon,
+                                    collapse_repeated_labels=True,
+                                    label_scorer_config=label_scorer_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=64,
+                                    score_threshold=12.0,
+                                    logfile_suffix="recog",
+                                ),
+                                rasr_align_config_file=get_tree_timesync_recog_config(
+                                    lexicon_file=lexicon,
+                                    collapse_repeated_labels=False,
+                                    label_scorer_config=label_scorer_config,
+                                    blank_index=blank_index,
+                                    max_beam_size=256,
+                                    score_threshold=22.0,
+                                    logfile_suffix="align",
+                                ),
+                                sample_rate=8000,
+                            )
+                        )
 
                 # =====================================
-                # === Tree Search without LM ==========
+                # === Tree Search with 4gram LM =======
                 # =====================================
 
-                for recog_corpus in ["hub5e00", "hub5e01"]:
+                # for recog_corpus in ["hub5e00", "hub5e01"]:
+                for recog_corpus in ["hub5e00"]:
+                    arpa_lm_config.scale = 0.6
                     recog_results.append(
                         recog_rasr(
-                            descriptor=f"bpe-phoneme-ctc_{name}-output_tree",
+                            descriptor=f"bpe-phoneme-ctc_{name}-output_tree_4gram_e-{epoch}",
                             checkpoint=checkpoint,
                             recog_data_config=recog_data[recog_corpus],
                             recog_corpus=score_corpora[recog_corpus],
@@ -270,6 +312,7 @@ def run_bpe_phoneme_ctc_baseline(prefix: str = "switchboard/bpe_phoneme_ctc") ->
                                 lexicon_file=lexicon,
                                 collapse_repeated_labels=True,
                                 label_scorer_config=label_scorer_config,
+                                lm_config=arpa_lm_config,
                                 blank_index=blank_index,
                                 max_beam_size=64,
                                 score_threshold=12.0,
@@ -277,8 +320,9 @@ def run_bpe_phoneme_ctc_baseline(prefix: str = "switchboard/bpe_phoneme_ctc") ->
                             ),
                             rasr_align_config_file=get_tree_timesync_recog_config(
                                 lexicon_file=lexicon,
-                                collapse_repeated_labels=False,
+                                collapse_repeated_labels=True,
                                 label_scorer_config=label_scorer_config,
+                                lm_config=arpa_lm_config,
                                 blank_index=blank_index,
                                 max_beam_size=256,
                                 score_threshold=22.0,
@@ -288,43 +332,6 @@ def run_bpe_phoneme_ctc_baseline(prefix: str = "switchboard/bpe_phoneme_ctc") ->
                         )
                     )
 
-            # =====================================
-            # === Tree Search with 4gram LM =======
-            # =====================================
-
-            for recog_corpus in ["hub5e00", "hub5e01"]:
-                arpa_lm_config.scale = 0.6
-                recog_results.append(
-                    recog_rasr(
-                        descriptor=f"bpe-phoneme-ctc_{name}-output_tree_4gram",
-                        checkpoint=checkpoint,
-                        recog_data_config=recog_data[recog_corpus],
-                        recog_corpus=score_corpora[recog_corpus],
-                        model_serializers=encoder_serializers,
-                        rasr_config_file=get_tree_timesync_recog_config(
-                            lexicon_file=lexicon,
-                            collapse_repeated_labels=True,
-                            label_scorer_config=label_scorer_config,
-                            lm_config=arpa_lm_config,
-                            blank_index=blank_index,
-                            max_beam_size=64,
-                            score_threshold=12.0,
-                            logfile_suffix="recog",
-                        ),
-                        rasr_align_config_file=get_tree_timesync_recog_config(
-                            lexicon_file=lexicon,
-                            collapse_repeated_labels=True,
-                            label_scorer_config=label_scorer_config,
-                            lm_config=arpa_lm_config,
-                            blank_index=blank_index,
-                            max_beam_size=256,
-                            score_threshold=22.0,
-                            logfile_suffix="align",
-                        ),
-                        sample_rate=8000,
-                    )
-                )
-
-    tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+    tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
 
     return recog_results

@@ -6,8 +6,8 @@ from minireturnn.torch.context import RunCtx
 
 from i6_experiments.common.setups.serialization import Import
 
-from ..common.imports import get_model_serializers
 from ..common.pytorch_modules import lengths_to_padding_mask
+from ..common.serializers import get_model_serializers
 from ..common.train import TrainOptions
 from ..common.train import train as train_
 from .pytorch_modules import LstmLm, LstmLmConfig

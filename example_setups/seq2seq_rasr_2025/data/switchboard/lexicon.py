@@ -13,7 +13,7 @@ from ...tools import subword_nmt_repo
 from .bpe import get_bpe_settings
 
 
-def _get_raw_bliss_lexicon() -> tk.Path:
+def get_raw_bliss_lexicon() -> tk.Path:
     mapped_raw_lexicon_file = get_text_lexicon(subdir_prefix=SUBDIR_PREFIX)
 
     bliss_lexicon = LexiconFromTextFileJob(mapped_raw_lexicon_file, compressed=True)
@@ -24,7 +24,7 @@ def _get_raw_bliss_lexicon() -> tk.Path:
 
 def get_bpe_bliss_lexicon(bpe_size: int, add_blank: bool) -> tk.Path:
     bpe_settings = get_bpe_settings(bpe_size)
-    lexicon = _get_raw_bliss_lexicon()
+    lexicon = get_raw_bliss_lexicon()
     bpe_lexicon_file = CreateBPELexiconJob(
         base_lexicon_path=lexicon,
         bpe_codes=bpe_settings.bpe_codes,
@@ -54,7 +54,7 @@ def get_bpe_bliss_lexicon(bpe_size: int, add_blank: bool) -> tk.Path:
 
 
 def get_bliss_phoneme_lexicon() -> tk.Path:
-    lexicon_file = _get_raw_bliss_lexicon()
+    lexicon_file = get_raw_bliss_lexicon()
     eow_lexicon_file = AddEowPhonemesToLexiconJob(bliss_lexicon=lexicon_file).out_lexicon
 
     lexicon_ext = Lexicon()

@@ -33,7 +33,7 @@ from ...model_pipelines.common.recog_rasr_config import (
     get_lexiconfree_timesync_recog_config,
     get_tree_timesync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
 from ...model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerEncoder
@@ -355,6 +355,6 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                     )
                 )
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
 
     return recog_results

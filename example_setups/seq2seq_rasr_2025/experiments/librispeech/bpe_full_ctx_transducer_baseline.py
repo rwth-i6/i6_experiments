@@ -31,7 +31,7 @@ from ...model_pipelines.common.optimizer import RAdamConfig
 from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ...model_pipelines.common.recog import RecogResult, recog_rasr
 from ...model_pipelines.common.recog_rasr_config import RasrRecogOptions, get_rasr_config_file
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 
 BPE_SIZE = 128
 
@@ -235,5 +235,5 @@ def run_bpe_full_ctx_transducer_baseline(prefix: str = "librispeech/bpe_full_ctx
                 )
             )
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
     return recog_results

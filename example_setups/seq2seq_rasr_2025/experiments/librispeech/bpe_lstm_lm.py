@@ -1,24 +1,21 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
-from i6_core.returnn import PtCheckpoint
+from i6_core.returnn import ReturnnTrainingJob
 
 from ...data.librispeech.bpe import bpe_to_vocab_size
 from ...data.librispeech.datasets import (
     get_default_bpe_lm_cv_data,
     get_default_bpe_lm_train_data,
 )
-from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
-from ...model_pipelines.bpe_lstm_lm.train import train
-from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.learning_rates import ConstDecayLRConfig
 from ...model_pipelines.common.optimizer import RAdamConfig
 from ...model_pipelines.common.train import TrainOptions
+from ...model_pipelines.lstm_lm.pytorch_modules import LstmLmConfig
+from ...model_pipelines.lstm_lm.train import train
 
-BPE_SIZE = 128
 
-
-def get_baseline_model_config() -> LstmLmConfig:
-    vocab_size = bpe_to_vocab_size(BPE_SIZE)
+def get_model_config(bpe_size: int = 128) -> LstmLmConfig:
+    vocab_size = bpe_to_vocab_size(bpe_size)
     return LstmLmConfig(
         vocab_size=vocab_size,
         embed_dim=512,
@@ -28,11 +25,10 @@ def get_baseline_model_config() -> LstmLmConfig:
     )
 
 
-def get_baseline_train_options() -> TrainOptions:
+def get_train_options(bpe_size: int = 128) -> TrainOptions:
     return TrainOptions(
-        descriptor="baseline",
-        train_data_config=get_default_bpe_lm_train_data(BPE_SIZE),
-        cv_data_config=get_default_bpe_lm_cv_data(BPE_SIZE),
+        train_data_config=get_default_bpe_lm_train_data(bpe_size),
+        cv_data_config=get_default_bpe_lm_cv_data(bpe_size),
         save_epochs=[100, 200, 240, 260, 280, 300],
         batch_size=1280,
         accum_grad_multiple_step=1,
@@ -42,13 +38,20 @@ def get_baseline_train_options() -> TrainOptions:
         num_workers_per_gpu=1,
         automatic_mixed_precision=False,
         gpu_mem_rqmt=11,
+        max_seqs=None,
+        max_seq_length=None,
     )
 
 
-def run_bpe_lstm_lm_baseline(prefix: str = "librispeech/bpe_lstm-lm") -> Tuple[LstmLmConfig, PtCheckpoint]:
-    with ExperimentContext(prefix):
-        model_config = get_baseline_model_config()
-        train_config = get_baseline_train_options()
+def run_training(
+    model_config: Optional[LstmLmConfig] = None,
+    train_options: Optional[TrainOptions] = None,
+) -> Tuple[ReturnnTrainingJob, LstmLmConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
 
-        train_job = train(train_config, model_config)
-    return (model_config, train_job.out_checkpoints[train_config.save_epochs[-1]])  # type: ignore
+    train_job = train(options=train_options, model_config=model_config)
+
+    return train_job, model_config

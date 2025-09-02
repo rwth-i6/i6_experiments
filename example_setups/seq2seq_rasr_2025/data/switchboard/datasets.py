@@ -11,8 +11,8 @@ from i6_experiments.common.datasets.switchboard.corpus_eval import (
     get_hub5e01,
     get_hub5e01_corpus_object,
 )
-from i6_experiments.common.datasets.switchboard.corpus_train import get_spoken_form_train_bliss_corpus_ldc
-from i6_experiments.common.datasets.switchboard.lexicon import get_bliss_lexicon
+from i6_experiments.common.datasets.switchboard.corpus_train import get_train_bliss_corpus_i6_legacy
+from .lexicon import get_raw_bliss_lexicon
 from .phoneme import get_phoneme_target_hdf_file
 
 from ...model_pipelines.common.corpus import ScorableCorpus, ScoreJobType
@@ -29,7 +29,7 @@ from .bpe import get_default_bpe_target_config
 
 
 def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
-    train_corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    train_corpus_file = get_train_bliss_corpus_i6_legacy()
     train_corpus_file = RemoveWordsFromTranscriptionsJob(
         train_corpus_file, ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]
     ).out_corpus_file
@@ -54,7 +54,7 @@ def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
 
 
 def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
-    corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    corpus_file = get_train_bliss_corpus_i6_legacy()
     return MetaOggZipHdfTargetDataConfig(
         oggzip_config=OggZipDataConfig(
             bliss_corpus_files=[corpus_file],
@@ -71,7 +71,7 @@ def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
 
 
 def get_default_bpe_phoneme_train_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
-    corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    corpus_file = get_train_bliss_corpus_i6_legacy()
     return MetaOggZipHdfTargetDataConfig(
         oggzip_config=OggZipDataConfig(
             bliss_corpus_files=[corpus_file],
@@ -88,7 +88,7 @@ def get_default_bpe_phoneme_train_data(bpe_size: int) -> MetaOggZipHdfTargetData
 
 
 def get_default_bpe_lm_train_data(bpe_size: int) -> LmDataConfig:
-    lm_data = get_spoken_form_train_bliss_corpus_ldc()
+    lm_data = get_train_bliss_corpus_i6_legacy()
     train_text = CorpusToTxtJob(
         bliss_corpus=lm_data,
         gzip=True,
@@ -116,7 +116,7 @@ def _get_hub5e00_cv_file() -> tk.Path:
     corpus_file = RemoveWordsFromTranscriptionsJob(corpus_file, ["(%HESITATION)"]).out_corpus_file
     corpus_file = FilterCorpusRemoveUnknownWordSegmentsJob(
         bliss_corpus=corpus_file,
-        bliss_lexicon=get_bliss_lexicon(),
+        bliss_lexicon=get_raw_bliss_lexicon(),
         all_unknown=False,
     ).out_corpus
 
@@ -307,7 +307,7 @@ def get_default_bpe_lm_cv_data(bpe_size: int) -> LmDataConfig:
 
 def get_default_prior_data() -> MetaOggZipDataConfig:
     # use 33% of the training corpus to estimate the prior
-    train_corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    train_corpus_file = get_train_bliss_corpus_i6_legacy()
     segment_file = SegmentCorpusJob(train_corpus_file, 3).out_single_segment_files[1]
 
     return MetaOggZipDataConfig(

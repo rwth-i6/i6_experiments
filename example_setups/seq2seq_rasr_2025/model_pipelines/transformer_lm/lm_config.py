@@ -1,8 +1,11 @@
+from typing import Optional
 from i6_core.rasr.config import RasrConfig
 from sisyphus import tk
 
 
-def get_lm_config(onnx_model: tk.Path, vocab_file: tk.Path, lm_scale: float) -> RasrConfig:
+def get_lm_config(
+    onnx_model: tk.Path, vocab_file: tk.Path, lm_scale: float, execution_provider_type: Optional[str] = None
+) -> RasrConfig:
     rasr_config = RasrConfig()
     rasr_config.type = "onnx-stateless"
     rasr_config.scale = lm_scale
@@ -15,6 +18,8 @@ def get_lm_config(onnx_model: tk.Path, vocab_file: tk.Path, lm_scale: float) -> 
     rasr_config.onnx_model.session.file = onnx_model
     rasr_config.onnx_model.session.inter_op_num_threads = 2
     rasr_config.onnx_model.session.intra_op_num_threads = 2
+    if execution_provider_type:
+        rasr_config.onnx_model.session.execution_provider_type = "cuda"
 
     rasr_config.onnx_model.io_map = RasrConfig()
     rasr_config.onnx_model.io_map.tokens = "tokens"

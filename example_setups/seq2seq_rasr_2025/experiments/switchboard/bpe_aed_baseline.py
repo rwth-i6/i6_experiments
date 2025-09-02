@@ -36,16 +36,22 @@ from ...model_pipelines.common.learning_rates import ConstConstDecayLRConfig
 from ...model_pipelines.common.optimizer import RAdamConfig
 from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ...model_pipelines.common.recog import RecogResult
-from ...model_pipelines.common.recog_rasr import recog_rasr
+from ...model_pipelines.common.recog import (
+    OfflineRecogResult,
+    OfflineRecogResultWithSearchErrors,
+    RecogResult,
+    recog_rasr_offline,
+    recog_rasr_offline_with_search_errors,
+)
 from ...model_pipelines.common.recog_rasr_config import (
     LabelsyncGlobalPruningStrategy,
     get_lexiconfree_labelsync_recog_config,
     get_tree_labelsync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 
-BPE_SIZE = 5000
+BPE_SIZE = 128
 
 
 def get_baseline_model_config() -> AEDConfig:
@@ -137,15 +143,15 @@ def get_baseline_model_config() -> AEDConfig:
         decoder_config=AttentionLSTMDecoderV1Config(
             encoder_dim=512,
             vocab_size=vocab_size,
-            target_embed_dim=640,
+            target_embed_dim=256,
             target_embed_dropout=0.1,
-            lstm_hidden_size=1024,
+            lstm_hidden_size=640,
             zoneout_drop_h=0.05,
-            zoneout_drop_c=0.15,
-            output_proj_dim=1024,
-            output_dropout=0.3,
+            zoneout_drop_c=0.10,
+            output_proj_dim=640,
+            output_dropout=0.1,
             attention_cfg=AdditiveAttentionConfig(
-                attention_dim=1024,
+                attention_dim=640,
                 att_weights_dropout=0.1,
             ),
         ),
@@ -171,13 +177,13 @@ def get_baseline_train_options() -> AEDTrainOptions:
         accum_grad_multiple_step=1,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
-            weight_decay=0.01,
+            weight_decay=0.001,
             decoupled_weight_decay=True,
         ),
         lr_config=ConstConstDecayLRConfig(
-            const_lr_1=5e-05,
-            const_lr_2=5e-04,
-            decayed_lr=5e-05,
+            const_lr_1=1e-05,
+            const_lr_2=1e-04,
+            decayed_lr=1e-05,
             final_lr=1e-07,
             const_epochs_1=12,
             const_epochs_2=276,
@@ -202,7 +208,6 @@ def run_bpe_aed_baseline(prefix: str = "switchboard/bpe_aed") -> List[RecogResul
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
         vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=False)
         lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=False)
@@ -215,66 +220,71 @@ def run_bpe_aed_baseline(prefix: str = "switchboard/bpe_aed") -> List[RecogResul
 
         recog_results = []
 
-        # =====================================
-        # === Lexiconfree Search without LM ===
-        # =====================================
+        for epoch in train_config.save_epochs:
+            checkpoint: PtCheckpoint = train_job.out_checkpoints[epoch]  # type: ignore
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-aed_lexiconfree",
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(model_class=AEDEncoder, model_config=model_config),
-                    rasr_config_file=get_lexiconfree_labelsync_recog_config(
-                        vocab_file=vocab_file,
-                        label_scorer_config=get_aed_label_scorer_config(
-                            model_config=model_config,
-                            checkpoint=checkpoint,
+            # =====================================
+            # === Lexiconfree Search without LM ===
+            # =====================================
+
+            # for recog_corpus in ["hub5e00", "hub5e01"]:
+            for recog_corpus in ["hub5e00"]:
+                recog_results.append(
+                    recog_rasr(
+                        descriptor=f"bpe-aed_lexiconfree_e-{epoch}",
+                        recog_data_config=recog_data[recog_corpus],
+                        recog_corpus=score_corpora[recog_corpus],
+                        model_serializers=get_model_serializers(model_class=AEDEncoder, model_config=model_config),
+                        rasr_config_file=get_lexiconfree_labelsync_recog_config(
+                            vocab_file=vocab_file,
+                            label_scorer_config=get_aed_label_scorer_config(
+                                model_config=model_config,
+                                checkpoint=checkpoint,
+                            ),
+                            sentence_end_index=0,
+                            max_beam_size=64,
+                            score_threshold=0.05,
+                            length_norm_scale=1.2,
                         ),
-                        sentence_end_index=0,
-                        max_beam_size=64,
-                        score_threshold=0.05,
-                        length_norm_scale=1.2,
-                    ),
-                    sample_rate=8000,
-                    checkpoint=checkpoint,
+                        sample_rate=8000,
+                        checkpoint=checkpoint,
+                    )
                 )
-            )
 
-        # =====================================
-        # === Tree Search with 4gram LM =======
-        # =====================================
+            # =====================================
+            # === Tree Search with 4gram LM =======
+            # =====================================
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-aed_tree_4gram",
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(model_class=AEDEncoder, model_config=model_config),
-                    rasr_config_file=get_tree_labelsync_recog_config(
-                        lexicon_file=lexicon_file,
-                        label_scorer_config=get_aed_label_scorer_config(
-                            model_config=model_config,
-                            checkpoint=checkpoint,
+            # for recog_corpus in ["hub5e00", "hub5e01"]:
+            for recog_corpus in ["hub5e00"]:
+                recog_results.append(
+                    recog_rasr(
+                        descriptor=f"bpe-aed_tree_4gram_e-{epoch}",
+                        recog_data_config=recog_data[recog_corpus],
+                        recog_corpus=score_corpora[recog_corpus],
+                        model_serializers=get_model_serializers(model_class=AEDEncoder, model_config=model_config),
+                        rasr_config_file=get_tree_labelsync_recog_config(
+                            lexicon_file=lexicon_file,
+                            label_scorer_config=get_aed_label_scorer_config(
+                                model_config=model_config,
+                                checkpoint=checkpoint,
+                            ),
+                            lm_config=arpa_lm_config,
+                            max_beam_size=64,
+                            max_word_end_beam_size=8,
+                            global_max_beam_size=64,
+                            score_threshold=0.05,
+                            word_end_score_threshold=10.0,
+                            global_score_threshold=10.0,
+                            global_pruning_strategy=LabelsyncGlobalPruningStrategy.ACTIVE_AGAINST_TERMINATED,
+                            domination_score_threshold=1.0,
+                            length_norm_scale=1.2,
+                            log_stepwise_statistics=False,
                         ),
-                        lm_config=arpa_lm_config,
-                        max_beam_size=64,
-                        max_word_end_beam_size=8,
-                        global_max_beam_size=64,
-                        score_threshold=0.05,
-                        word_end_score_threshold=10.0,
-                        global_score_threshold=10.0,
-                        global_pruning_strategy=LabelsyncGlobalPruningStrategy.ACTIVE_AGAINST_TERMINATED,
-                        domination_score_threshold=1.0,
-                        length_norm_scale=1.2,
-                        log_stepwise_statistics=False,
-                    ),
-                    sample_rate=8000,
-                    checkpoint=checkpoint,
+                        sample_rate=8000,
+                        checkpoint=checkpoint,
+                    )
                 )
-            )
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
     return recog_results

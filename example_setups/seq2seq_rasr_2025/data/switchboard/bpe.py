@@ -3,14 +3,14 @@ from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import BPESettings
 from sisyphus import tk
 
-from i6_experiments.common.datasets.switchboard.corpus_train import get_spoken_form_train_bliss_corpus_ldc
+from i6_experiments.common.datasets.switchboard.corpus_train import get_train_bliss_corpus_i6_legacy
 
 from ...tools import subword_nmt_repo
 from ..base import BPEVocabToTextFileConversionJob, RemoveWordsFromTranscriptionsJob
 
 
 def get_bpe_settings(bpe_size: int) -> BPESettings:
-    train_corpus_file = get_spoken_form_train_bliss_corpus_ldc()
+    train_corpus_file = get_train_bliss_corpus_i6_legacy()
     train_corpus_file = RemoveWordsFromTranscriptionsJob(
         train_corpus_file, ["[NOISE]", "[LAUGHTER]", "[VOCALIZED-NOISE]"]
     ).out_corpus_file
@@ -52,6 +52,11 @@ def get_default_bpe_target_config(bpe_size: int) -> dict:
 
 def bpe_to_vocab_size(bpe_size: int) -> int:
     return {
-        128: 185,
-        5000: 5002,
+        128: 206,
     }.get(bpe_size, bpe_size)
+
+
+def vocab_to_bpe_size(vocab_size: int) -> int:
+    return {
+        206: 128,
+    }.get(vocab_size, vocab_size)

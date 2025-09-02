@@ -34,7 +34,7 @@ from ...model_pipelines.common.recog_rasr_config import (
     get_no_op_label_scorer_config,
     get_tree_timesync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.common.train import TrainOptions
 from ...model_pipelines.ctc.prior import compute_priors
@@ -175,13 +175,6 @@ def run_bpe_ctc_baseline(prefix: str = "switchboard/bpe_ctc") -> List[RecogResul
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
-
-        prior_file = compute_priors(
-            prior_data_config=get_default_prior_data(),
-            model_config=model_config,
-            checkpoint=checkpoint,
-        )
 
         vocab_file = get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True)
         lexicon_file = get_bpe_bliss_lexicon(bpe_size=BPE_SIZE, add_blank=True)
@@ -195,124 +188,143 @@ def run_bpe_ctc_baseline(prefix: str = "switchboard/bpe_ctc") -> List[RecogResul
 
         recog_results = []
 
-        # =====================================
-        # === Lexiconfree Search without LM ===
-        # =====================================
+        # for epoch in train_config.save_epochs:
+        for epoch in [540]:
+            # checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
+            checkpoint: PtCheckpoint = train_job.out_checkpoints[epoch]  # type: ignore
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-ctc_lexiconfree",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(
-                        ConformerCTCRecogModel,
-                        ConformerCTCRecogConfig(
-                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-                            prior_file=prior_file,
-                            prior_scale=0.0,
-                            blank_penalty=0.0,
-                        ),
-                    ),
-                    rasr_config_file=get_lexiconfree_timesync_recog_config(
-                        vocab_file=vocab_file,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        blank_index=blank_index,
-                        max_beam_size=1,  # Lexiconfree search without LM is greedy so only one hyp is needed
-                    ),
-                    rasr_align_config_file=None,  # No search error computation needed since greedy search can't have search errors
-                    sample_rate=8000,
-                )
+            prior_file = compute_priors(
+                prior_data_config=get_default_prior_data(),
+                model_config=model_config,
+                checkpoint=checkpoint,
             )
 
-        # =====================================
-        # === Tree Search without LM ==========
-        # =====================================
+            # =====================================
+            # === Lexiconfree Search without LM ===
+            # =====================================
 
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-ctc_tree",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(
-                        ConformerCTCRecogModel,
-                        ConformerCTCRecogConfig(
-                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-                            prior_file=prior_file,
-                            prior_scale=0.0,
-                            blank_penalty=0.0,
+            # for recog_corpus in ["hub5e00", "hub5e01"]:
+            for recog_corpus in ["hub5e00"]:
+                recog_results.append(
+                    recog_rasr(
+                        descriptor=f"bpe-ctc_lexiconfree_e-{epoch}",
+                        checkpoint=checkpoint,
+                        recog_data_config=recog_data[recog_corpus],
+                        recog_corpus=score_corpora[recog_corpus],
+                        model_serializers=get_model_serializers(
+                            ConformerCTCRecogModel,
+                            ConformerCTCRecogConfig(
+                                **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                                prior_file=prior_file,
+                                prior_scale=0.0,
+                                blank_penalty=0.0,
+                            ),
                         ),
-                    ),
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        blank_index=blank_index,
-                        max_beam_size=1024,
-                        score_threshold=14.0,
-                        logfile_suffix="recog",
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        blank_index=blank_index,
-                        max_beam_size=4096,
-                        score_threshold=22.0,
-                        logfile_suffix="align",
-                    ),
-                    sample_rate=8000,
-                )
-            )
-
-        # =====================================
-        # === Tree Search with 4gram LM =======
-        # =====================================
-
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            arpa_lm_config.scale = 0.6
-            recog_results.append(
-                recog_rasr(
-                    descriptor="bpe-ctc_tree_4gram",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=get_model_serializers(
-                        ConformerCTCRecogModel,
-                        ConformerCTCRecogConfig(
-                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-                            prior_file=prior_file,
-                            prior_scale=0.2,
-                            blank_penalty=0.0,
+                        rasr_config_file=get_lexiconfree_timesync_recog_config(
+                            vocab_file=vocab_file,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
+                            blank_index=blank_index,
+                            max_beam_size=1,  # Lexiconfree search without LM is greedy so only one hyp is needed
                         ),
-                    ),
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=1024,
-                        score_threshold=14.0,
-                        logfile_suffix="recog",
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon_file,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=4096,
-                        score_threshold=22.0,
-                        logfile_suffix="align",
-                    ),
-                    sample_rate=8000,
+                        rasr_align_config_file=None,  # No search error computation needed since greedy search can't have search errors
+                        sample_rate=8000,
+                    )
                 )
-            )
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+            # =====================================
+            # === Tree Search without LM ==========
+            # =====================================
+
+            # for recog_corpus in ["hub5e00", "hub5e01"]:
+            for recog_corpus in ["hub5e00"]:
+                recog_results.append(
+                    recog_rasr(
+                        descriptor=f"bpe-ctc_tree_e-{epoch}",
+                        checkpoint=checkpoint,
+                        recog_data_config=recog_data[recog_corpus],
+                        recog_corpus=score_corpora[recog_corpus],
+                        model_serializers=get_model_serializers(
+                            ConformerCTCRecogModel,
+                            ConformerCTCRecogConfig(
+                                **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                                prior_file=prior_file,
+                                prior_scale=0.0,
+                                blank_penalty=0.0,
+                            ),
+                        ),
+                        rasr_config_file=get_tree_timesync_recog_config(
+                            lexicon_file=lexicon_file,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
+                            blank_index=blank_index,
+                            max_beam_size=1024,
+                            score_threshold=14.0,
+                            # logfile_suffix="recog",
+                        ),
+                        # rasr_align_config_file=get_tree_timesync_recog_config(
+                        #     lexicon_file=lexicon_file,
+                        #     collapse_repeated_labels=True,
+                        #     label_scorer_config=get_no_op_label_scorer_config(),
+                        #     blank_index=blank_index,
+                        #     max_beam_size=4096,
+                        #     score_threshold=22.0,
+                        #     logfile_suffix="align",
+                        # ),
+                        rasr_align_config_file=None,
+                        sample_rate=8000,
+                    )
+                )
+
+            # =====================================
+            # === Tree Search with 4gram LM =======
+            # =====================================
+
+            # for recog_corpus in ["hub5e00", "hub5e01"]:
+            for recog_corpus in ["hub5e00"]:
+                for lm_scale in [0.4, 0.6, 0.8, 1.2]:
+                    for prior_scale in [0.0, 0.2, 0.4]:
+                        for blank_penalty in [0.0, 1.0, 2.0]:
+                            arpa_lm_config.scale = lm_scale
+                            recog_results.append(
+                                recog_rasr(
+                                    descriptor=f"bpe-ctc_tree_4gram_e-{epoch}_lm-{lm_scale}_prior-{prior_scale}_bp-{blank_penalty}",
+                                    checkpoint=checkpoint,
+                                    recog_data_config=recog_data[recog_corpus],
+                                    recog_corpus=score_corpora[recog_corpus],
+                                    model_serializers=get_model_serializers(
+                                        ConformerCTCRecogModel,
+                                        ConformerCTCRecogConfig(
+                                            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                                            prior_file=prior_file,
+                                            prior_scale=prior_scale,
+                                            blank_penalty=blank_penalty,
+                                        ),
+                                    ),
+                                    rasr_config_file=get_tree_timesync_recog_config(
+                                        lexicon_file=lexicon_file,
+                                        collapse_repeated_labels=True,
+                                        label_scorer_config=get_no_op_label_scorer_config(),
+                                        lm_config=arpa_lm_config,
+                                        blank_index=blank_index,
+                                        max_beam_size=2048,
+                                        score_threshold=18.0,
+                                        # logfile_suffix="recog",
+                                    ),
+                                    # rasr_align_config_file=get_tree_timesync_recog_config(
+                                    #     lexicon_file=lexicon_file,
+                                    #     collapse_repeated_labels=True,
+                                    #     label_scorer_config=get_no_op_label_scorer_config(),
+                                    #     lm_config=arpa_lm_config,
+                                    #     blank_index=blank_index,
+                                    #     max_beam_size=4096,
+                                    #     score_threshold=22.0,
+                                    #     logfile_suffix="align",
+                                    # ),
+                                    rasr_align_config_file=None,
+                                    sample_rate=8000,
+                                )
+                            )
+
+        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
     return recog_results

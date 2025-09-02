@@ -1,5 +1,6 @@
 __all__ = ["get_aed_label_scorer_config"]
 
+from typing import Optional
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
 
@@ -10,6 +11,7 @@ from .pytorch_modules import AEDConfig
 def get_aed_label_scorer_config(
     model_config: AEDConfig,
     checkpoint: PtCheckpoint,
+    execution_provider_type: Optional[str] = None,
 ) -> RasrConfig:
     scorer_onnx_model = export_scorer(model_config=model_config, checkpoint=checkpoint)
     state_initializer_onnx_model = export_state_initializer(model_config=model_config, checkpoint=checkpoint)
@@ -47,5 +49,10 @@ def get_aed_label_scorer_config(
     rasr_config.state_updater_model.io_map.encoder_states = "encoder_states"
     rasr_config.state_updater_model.io_map.encoder_states_size = "accum_att_weights_in:size1"
     rasr_config.state_updater_model.io_map.token = "token"
+
+    if execution_provider_type:
+        rasr_config.scorer_model.session.execution_provider_type = execution_provider_type
+        rasr_config.state_initializer_model.session.execution_provider_type = execution_provider_type
+        rasr_config.state_updater_model.session.execution_provider_type = execution_provider_type
 
     return rasr_config

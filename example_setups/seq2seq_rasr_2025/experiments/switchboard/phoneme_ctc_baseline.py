@@ -33,7 +33,7 @@ from ...model_pipelines.common.recog_rasr_config import (
     get_no_op_label_scorer_config,
     get_tree_timesync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.common.train import TrainOptions
 from ...model_pipelines.ctc.prior import compute_priors
@@ -171,7 +171,6 @@ def run_phoneme_ctc_baseline(prefix: str = "switchboard/phoneme_ctc") -> List[Re
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
         recog_data = {corpus_name: get_default_recog_data(corpus_name) for corpus_name in ["hub5e00", "hub5e01"]}
         score_corpora = {corpus_name: get_default_score_corpus(corpus_name) for corpus_name in ["hub5e00", "hub5e01"]}
@@ -185,59 +184,63 @@ def run_phoneme_ctc_baseline(prefix: str = "switchboard/phoneme_ctc") -> List[Re
 
         recog_results = []
 
-        prior_file = compute_priors(
-            prior_data_config=get_default_prior_data(),
-            checkpoint=checkpoint,
-            model_config=model_config,
-        )
+        for epoch in train_config.save_epochs:
+            checkpoint: PtCheckpoint = train_job.out_checkpoints[epoch]  # type: ignore
 
-        model_serializers = get_model_serializers(
-            ConformerCTCRecogModel,
-            ConformerCTCRecogConfig(
-                **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-                prior_file=prior_file,
-                prior_scale=0.2,
-                blank_penalty=0.0,
-            ),
-        )
-
-        # =====================================
-        # === Tree Search with 4gram LM =======
-        # =====================================
-
-        for recog_corpus in ["hub5e00", "hub5e01"]:
-            arpa_lm_config.scale = 0.6
-            recog_results.append(
-                recog_rasr(
-                    descriptor="phon-ctc_tree_4gram",
-                    checkpoint=checkpoint,
-                    recog_data_config=recog_data[recog_corpus],
-                    recog_corpus=score_corpora[recog_corpus],
-                    model_serializers=model_serializers,
-                    rasr_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=64,
-                        score_threshold=12.0,
-                        logfile_suffix="recog",
-                    ),
-                    rasr_align_config_file=get_tree_timesync_recog_config(
-                        lexicon_file=lexicon,
-                        collapse_repeated_labels=True,
-                        label_scorer_config=get_no_op_label_scorer_config(),
-                        lm_config=arpa_lm_config,
-                        blank_index=blank_index,
-                        max_beam_size=256,
-                        score_threshold=22.0,
-                        logfile_suffix="align",
-                    ),
-                    sample_rate=8000,
-                )
+            prior_file = compute_priors(
+                prior_data_config=get_default_prior_data(),
+                checkpoint=checkpoint,
+                model_config=model_config,
             )
 
-        tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
+            model_serializers = get_model_serializers(
+                ConformerCTCRecogModel,
+                ConformerCTCRecogConfig(
+                    **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+                    prior_file=prior_file,
+                    prior_scale=0.2,
+                    blank_penalty=0.0,
+                ),
+            )
+
+            # =====================================
+            # === Tree Search with 4gram LM =======
+            # =====================================
+
+            # for recog_corpus in ["hub5e00", "hub5e01"]:
+            for recog_corpus in ["hub5e00"]:
+                arpa_lm_config.scale = 0.6
+                recog_results.append(
+                    recog_rasr(
+                        descriptor=f"phon-ctc_tree_4gram_e-{epoch}",
+                        checkpoint=checkpoint,
+                        recog_data_config=recog_data[recog_corpus],
+                        recog_corpus=score_corpora[recog_corpus],
+                        model_serializers=model_serializers,
+                        rasr_config_file=get_tree_timesync_recog_config(
+                            lexicon_file=lexicon,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
+                            lm_config=arpa_lm_config,
+                            blank_index=blank_index,
+                            max_beam_size=64,
+                            score_threshold=12.0,
+                            logfile_suffix="recog",
+                        ),
+                        rasr_align_config_file=get_tree_timesync_recog_config(
+                            lexicon_file=lexicon,
+                            collapse_repeated_labels=True,
+                            label_scorer_config=get_no_op_label_scorer_config(),
+                            lm_config=arpa_lm_config,
+                            blank_index=blank_index,
+                            max_beam_size=256,
+                            score_threshold=22.0,
+                            logfile_suffix="align",
+                        ),
+                        sample_rate=8000,
+                    )
+                )
+
+        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
 
     return recog_results

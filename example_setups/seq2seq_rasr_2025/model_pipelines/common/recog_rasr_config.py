@@ -46,17 +46,14 @@ def get_lexiconfree_timesync_recog_config(
     intermediate_max_beam_size: Optional[int] = 1024,
     score_threshold: Optional[float] = 18.0,
     intermediate_score_threshold: Optional[float] = 18.0,
-    log_stepwise_statistics: bool = False,
-    logfile_suffix: Optional[str] = None,
+    log_stepwise_statistics: bool = True,
+    logfile_suffix: str = "recog",
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
     log_config = RasrConfig()
-    if logfile_suffix is not None:
-        logfile_name = f"rasr.{logfile_suffix}.log"
-    else:
-        logfile_name = "rasr.log"
+    logfile_name = f"rasr.{logfile_suffix}.log"
     log_config["*.log.channel"] = logfile_name
     log_config["*.log.channel"] = logfile_name
     log_config["*.error.channel"] = logfile_name
@@ -114,16 +111,14 @@ def get_lexiconfree_labelsync_recog_config(
     intermediate_score_threshold: Optional[float] = 18.0,
     max_labels_per_time_step: int = 1,
     length_norm_scale: Optional[float] = 1.0,
-    log_stepwise_statistics: bool = False,
-    logfile_suffix: Optional[str] = None,
+    log_stepwise_statistics: bool = True,
+    maximum_stable_delay: Optional[int] = None,
+    logfile_suffix: str = "recog",
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
-    if logfile_suffix is not None:
-        logfile_name = f"rasr.{logfile_suffix}.log"
-    else:
-        logfile_name = "rasr.log"
+    logfile_name = f"rasr.{logfile_suffix}.log"
     log_config = RasrConfig()
     log_config["*.log.channel"] = logfile_name
     log_config["*.warning.channel"] = logfile_name
@@ -163,6 +158,8 @@ def get_lexiconfree_labelsync_recog_config(
         rasr_config.lib_rasr.search_algorithm.length_norm_scale = length_norm_scale
     rasr_config.lib_rasr.search_algorithm.max_labels_per_time_step = max_labels_per_time_step
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
+    if maximum_stable_delay is not None:
+        rasr_config.lib_rasr.search_algorithm.maximum_stable_delay = maximum_stable_delay
 
     if label_scorer_config is not None:
         rasr_config.lib_rasr.label_scorer = label_scorer_config
@@ -188,16 +185,15 @@ def get_tree_timesync_recog_config(
     word_end_score_threshold: Optional[float] = None,
     intermediate_score_threshold: Optional[float] = 18.0,
     sentence_end_fallback: bool = True,
-    log_stepwise_statistics: bool = False,
-    logfile_suffix: Optional[str] = None,
+    maximum_stable_delay: Optional[int] = None,
+    log_stepwise_statistics: bool = True,
+    logfile_suffix: str = "recog",
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
-    if logfile_suffix is not None:
-        logfile_name = f"rasr.{logfile_suffix}.log"
-    else:
-        logfile_name = "rasr.log"
+    logfile_name = f"rasr.{logfile_suffix}.log"
+
     log_config = RasrConfig()
     log_config["*.log.channel"] = logfile_name
     log_config["*.warning.channel"] = logfile_name
@@ -262,6 +258,8 @@ def get_tree_timesync_recog_config(
     rasr_config.lib_rasr.search_algorithm.force_blank_between_repeated_labels = collapse_repeated_labels
     rasr_config.lib_rasr.search_algorithm.sentence_end_fall_back = sentence_end_fallback
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
+    if maximum_stable_delay is not None:
+        rasr_config.lib_rasr.search_algorithm.maximum_stable_delay = maximum_stable_delay
 
     if label_scorer_config is not None:
         rasr_config.lib_rasr.label_scorer = label_scorer_config
@@ -294,16 +292,13 @@ def get_tree_labelsync_recog_config(
     length_norm_scale: Optional[float] = None,
     max_labels_per_time_step: int = 1,
     sentence_end_fallback: bool = True,
-    log_stepwise_statistics: bool = False,
-    logfile_suffix: Optional[str] = None,
+    log_stepwise_statistics: bool = True,
+    logfile_suffix: str = "recog",
 ) -> tk.Path:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
-    if logfile_suffix is not None:
-        logfile_name = f"rasr.{logfile_suffix}.log"
-    else:
-        logfile_name = "rasr.log"
+    logfile_name = f"rasr.{logfile_suffix}.log"
     log_config = RasrConfig()
     log_config["*.log.channel"] = logfile_name
     log_config["*.warning.channel"] = logfile_name

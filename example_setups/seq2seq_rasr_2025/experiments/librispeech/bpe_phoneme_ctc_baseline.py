@@ -34,7 +34,7 @@ from ...model_pipelines.common.recog_rasr_config import (
     get_lexiconfree_timesync_recog_config,
     get_tree_timesync_recog_config,
 )
-from ...model_pipelines.common.report import create_report
+from ...model_pipelines.common.report import create_base_recog_report
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.ctc_multi_output.label_scorer_config import get_ctc_label_scorer_config
 from ...model_pipelines.ctc_multi_output.prior import compute_priors
@@ -380,7 +380,9 @@ def run_bpe_phoneme_ctc_baseline(prefix: str = "librispeech/bpe_phoneme_ctc") ->
                         )
 
         tk.register_report(
-            f"{prefix}_phon-layer-{phoneme_layer}/report.txt", values=create_report(recog_results), required=True
+            f"{prefix}_phon-layer-{phoneme_layer}/report.txt",
+            values=create_base_recog_report(recog_results),
+            required=True,
         )
 
     return recog_results
