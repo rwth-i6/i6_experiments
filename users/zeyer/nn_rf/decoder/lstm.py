@@ -37,6 +37,8 @@ class LstmDecoder(rf.Module):
             enc_key_total_dim = Dim(name="enc_key_total_dim", dimension=enc_key_total_dim)
         if isinstance(att_num_heads, int):
             att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
+        if isinstance(lstm_dim, int):
+            lstm_dim = Dim(name="lstm", dimension=lstm_dim)
         if isinstance(readout_dim, int):
             readout_dim = Dim(name="readout", dimension=readout_dim)
         if isinstance(target_embed_dim, int):
