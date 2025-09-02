@@ -98,7 +98,7 @@ class LstmTransformerDecoder(rf.Module):
             ),
             transformer=self.transformer.default_initial_state(batch_dims=batch_dims),
         )
-        state.att.feature_dim_axis = len(state.att.dims) - 1
+        state.rec.att.feature_dim_axis = len(state.rec.att.dims) - 1
         return state
 
     def __call__(
