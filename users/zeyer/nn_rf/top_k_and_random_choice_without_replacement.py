@@ -46,7 +46,7 @@ def top_k_and_random_choice_without_replacement(
         log_probs_, axis_ = rf.merge_dims(log_probs, dims=axis)
     sorted_log_probs, sorted_indices, sorted_dim = rf.sort(log_probs_, axis=axis_, descending=True)
     # sorted_indices: {probs_dims..., sorted_dim} -> axis_
-    out_dim = k if isinstance(k, Dim) else Dim(k, name=f"top_k_and_random_samples")
+    out_dim = k if isinstance(k, Dim) else Dim(k, name="top_k_and_random_samples")
     if top_p is not None:
         cum_probs = rf.cumsum(rf.exp(sorted_log_probs), spatial_dim=sorted_dim)
         mask = cum_probs <= top_p  # {probs_dims..., sorted_dim}
