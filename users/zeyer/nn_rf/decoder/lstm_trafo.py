@@ -10,12 +10,15 @@ import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
 
-class LstmTransformerDecoder(rf.Module):
+class LstmTransformerDecoderV2(rf.Module):
     """
     LSTM Transformer hybrid decoder with cross attention to some encoder output.
     Only the LSTM has cross attention (MLP attention), the Transformer is decoder-only.
 
     The API should be compatible to :class:`TransformerDecoder`.
+
+    V2: Simplify readout -> only one input projection before the Transformer.
+    (V1 was unstable.)
     """
 
     def __init__(
@@ -26,8 +29,6 @@ class LstmTransformerDecoder(rf.Module):
         enc_key_total_dim: Union[Dim, int] = Dim(name="enc_key_total_dim", dimension=1024),
         att_num_heads: Union[Dim, int] = Dim(name="att_num_heads", dimension=1),
         lstm_dim: Union[Dim, int],  # can be small
-        readout_dim: Union[Dim, int] = Dim(name="readout", dimension=1024),
-        readout_dropout: float = 0.3,
         target_embed_dim: Union[Dim, int] = Dim(name="target_embed", dimension=640),
         transformer: Dict[str, Any],
     ):
@@ -41,8 +42,6 @@ class LstmTransformerDecoder(rf.Module):
             att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
         if isinstance(lstm_dim, int):
             lstm_dim = Dim(name="lstm", dimension=lstm_dim)
-        if isinstance(readout_dim, int):
-            readout_dim = Dim(name="readout", dimension=readout_dim)
         if isinstance(target_embed_dim, int):
             target_embed_dim = Dim(name="target_embed", dimension=target_embed_dim)
 
@@ -73,13 +72,10 @@ class LstmTransformerDecoder(rf.Module):
         self.s_transformed = rf.Linear(self.s.out_dim, enc_key_total_dim, with_bias=False)
         self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
 
-        self.readout_in = rf.Linear(
-            self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.encoder_dim, readout_dim
-        )
-        self.readout_dropout = readout_dropout
-
         self.transformer: TransformerDecoder = rf.build_from_dict(transformer, None, vocab_dim, input_embedding=None)
-        self.input_proj = rf.Linear(self.readout_in.out_dim // 2, self.transformer.model_dim)
+        self.input_proj = rf.Linear(
+            self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.encoder_dim, self.transformer.model_dim
+        )
 
     def transform_encoder(self, encoder: Tensor, *, axis: Dim) -> rf.State:
         """encode, and extend the encoder output for things we need in the decoder (only for the LSTM part)"""
@@ -141,12 +137,7 @@ class LstmTransformerDecoder(rf.Module):
                 body=functools.partial(self._loop_rec_step, encoder=encoder),
             )
 
-        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
-        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.input_proj.in_dim)
-        readout = rf.dropout(
-            readout, drop_prob=self.readout_dropout, axis=self.dropout_broadcast and readout.feature_dim
-        )
-        readout = self.input_proj(readout)
+        readout = self.input_proj(rf.concat_features(s, input_embed, att))
 
         # Transformer. No cross-attention, only self-attention.
         logits, state_.transformer = self.transformer(source=readout, spatial_dim=spatial_dim, state=state.transformer)

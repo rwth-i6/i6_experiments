@@ -2993,11 +2993,11 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    from i6_experiments.users.zeyer.nn_rf.decoder.lstm_trafo import LstmTransformerDecoder
+    from i6_experiments.users.zeyer.nn_rf.decoder.lstm_trafo import LstmTransformerDecoderV2
 
-    # Using LSTM Transformer decoder.
+    # Using LSTM Transformer decoder (DecLstmTrafoV2).
     aed_train_exp(
-        "EncL16-DecLstmTrafo-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        "EncL16-DecLstmTrafoV2-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -3021,7 +3021,7 @@ def py():
                 ),
             ),
             "dec_build_dict": rf.build_dict(
-                LstmTransformerDecoder,
+                LstmTransformerDecoderV2,
                 lstm_dim=128,
                 transformer=rf.build_dict(
                     TransformerDecoder,
