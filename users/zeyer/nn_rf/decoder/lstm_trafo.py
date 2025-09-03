@@ -187,3 +187,13 @@ class LstmTransformerDecoderV2(rf.Module):
                 feature_dim_axis=-1,
             ),
         )
+
+    @property
+    def final_layer_norm(self):
+        """compat"""
+        return self.transformer.final_layer_norm
+
+    @property
+    def logits(self):
+        """compat"""
+        return self.transformer.logits
