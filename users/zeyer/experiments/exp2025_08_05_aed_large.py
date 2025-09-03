@@ -3069,7 +3069,7 @@ def py():
 
     # Using LSTM Transformer decoder (DecLstmTrafoV2).
     aed_train_exp(
-        "EncL16-DecLstmTrafoV2-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        "EncL16-DecLstmTrafoV2-featBN-aux4_10_16-auxDec0-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -3118,6 +3118,7 @@ def py():
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_loss_layers": [4, 10, 16],
+            "dec_aux_loss_layers": [0],
             "max_seq_length_default_target": None,
             # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
             # out of 281241 seqs in train, we removed only 71 seqs.

@@ -139,8 +139,13 @@ class LstmTransformerDecoderV2(rf.Module):
 
         readout = self.input_proj(rf.concat_features(s, input_embed, att))
 
+        if collected_outputs is not None:
+            collected_outputs["-1"] = readout
+
         # Transformer. No cross-attention, only self-attention.
-        logits, state_.transformer = self.transformer(source=readout, spatial_dim=spatial_dim, state=state.transformer)
+        logits, state_.transformer = self.transformer(
+            source=readout, spatial_dim=spatial_dim, state=state.transformer, collected_outputs=collected_outputs
+        )
 
         return logits, state_
 
