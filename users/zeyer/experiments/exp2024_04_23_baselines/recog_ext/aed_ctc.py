@@ -276,7 +276,6 @@ def aed_rescore_def(
 
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    batch_dims = data.remaining_dims(data_spatial_dim)
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
     )
@@ -288,7 +287,7 @@ def aed_rescore_def(
         input_labels,
         spatial_dim=targets_w_eos_spatial_dim,
         encoder=enc,
-        state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        state=model.decoder.default_initial_state(batch_dims=targets.remaining_dims(targets_spatial_dim)),
     )
 
     assert not model.out_eos_separated  # joint distrib, std case
@@ -297,7 +296,7 @@ def aed_rescore_def(
         log_prob, indices=targets_w_eos, axis=model.target_dim
     )  # [batch,beam,targets_spatial_w_eos]
     log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
-    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    assert log_prob_targets_seq.dims_set == set(targets.remaining_dims(targets_spatial_dim))
     return log_prob_targets_seq
 
 
