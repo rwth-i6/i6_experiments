@@ -39,7 +39,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
-from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx
+from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx, _aed_model_def_blank_label
 
 
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -89,14 +89,14 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         prior.creator.add_alias(f"{prefix}/prior")
         tk.register_output(f"{prefix}/prior.txt", prior)
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
-            vocab=vocab_file, new_label=_output_blank_label, new_label_idx=_aed_model_def_blank_idx
+            vocab=vocab_file, new_label=_aed_model_def_blank_label, new_label_idx=_aed_model_def_blank_idx
         ).out_vocab
         # tk.register_output(f"{prefix}/vocab/{vocab}/vocab_w_blank.txt.gz", vocab_w_blank_file)
         log_prior_wo_blank = PriorRemoveLabelRenormJob(
             prior_file=prior,
             prior_type="prob",
             vocab=vocab_w_blank_file,
-            remove_label=_output_blank_label,
+            remove_label=_aed_model_def_blank_label,
             out_prior_type="log_prob",
         ).out_prior
         tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
@@ -213,9 +213,6 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
     return res
-
-
-_output_blank_label = "<blank>"
 
 
 def _get_vocab_opts_from_task(task: Task) -> Dict[str, Any]:
@@ -726,7 +723,7 @@ def model_recog_with_recomb(
 # RecogDef API
 model_recog_with_recomb: RecogDef[Model]
 model_recog_with_recomb.output_with_beam = True
-model_recog_with_recomb.output_blank_label = "<blank>"
+model_recog_with_recomb.output_blank_label = _aed_model_def_blank_label
 model_recog_with_recomb.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 

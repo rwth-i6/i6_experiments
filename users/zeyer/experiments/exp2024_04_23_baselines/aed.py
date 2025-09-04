@@ -577,6 +577,7 @@ aed_model_def.backend = "torch"
 aed_model_def.batch_size_factor = _batch_size_factor
 
 _aed_model_def_blank_idx: int = -1  # for aux CTC
+_aed_model_def_blank_label: str = "<blank>"
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -979,6 +980,15 @@ class Model(rf.Module):
         if enc_aux_logits:
             if not wb_target_dim:
                 wb_target_dim = target_dim + 1
+            if target_dim.vocab and not wb_target_dim.vocab:
+                from returnn.datasets.util.vocabulary import Vocabulary
+
+                # Just assumption for code now, might extend this later.
+                assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
+                vocab_labels = list(target_dim.vocab.labels) + [_aed_model_def_blank_label]
+                wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+                    vocab_labels, user_defined_symbols={_aed_model_def_blank_label: blank_idx}
+                )
         for i, layer_idx in enumerate(enc_aux_logits):
             setattr(
                 self,
