@@ -382,7 +382,7 @@ def _aed_ctc_model_ctc_softmax_prior_returnn_forward(
 ) -> Tuple[Tensor, Dim]:
     """ForwardDef API"""
     enc_collected_outputs = {}
-    enc, enc_spatial_dim = model(source, in_spatial_dim=in_spatial_dim, collected_outputs=enc_collected_outputs)
+    enc, enc_spatial_dim = model.encode(source, in_spatial_dim=in_spatial_dim, collected_outputs=enc_collected_outputs)
 
     ctc_layer_idx = model.enc_aux_logits[-1]
     linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
