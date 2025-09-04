@@ -33,9 +33,10 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
-from ..aed import Model
+from ..aed import Model, _batch_size_factor
 
 
+# like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale
 def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     *,
     prefix: str,
@@ -66,17 +67,18 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
 
-    # Only use CTC for first search.
+    # Only use CTC for first search, no AED, no prior.
+    ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
     dataset = task.dev_dataset
-    asr_scores = search_dataset(
+    ctc_scores = search_dataset(
         dataset=dataset,
-        model=aed_ctc_model,
+        model=ctc_model_only,
         recog_def=model_recog_with_recomb,
-        config={**base_config, "beam_size": n_best_list_size, "aed_scale": 0.0},
+        config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
-    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
-    lm_scores = aed_score(asr_scores, lm=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    prior_scores = prior_score(ctc_scores, prior=labelwise_prior)
+    aed_scores = aed_score(ctc_scores, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
@@ -88,15 +90,15 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     )
 
     for f in task.recog_post_proc_funcs:  # BPE to words or so
-        asr_scores = f(asr_scores)
+        ctc_scores = f(ctc_scores)
         prior_scores = f(prior_scores)
-        lm_scores = f(lm_scores)
+        aed_scores = f(aed_scores)
         ref = f(ref)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
     opt_scales_job = ScaleTuningJob(
-        scores={"ctc": asr_scores.output, "prior": prior_scores.output, "aed": lm_scores.output},
+        scores={"ctc": ctc_scores.output, "prior": prior_scores.output, "aed": aed_scores.output},
         ref=ref.output,
         fixed_scales={"ctc": 1.0},
         negative_scales={"prior"},
@@ -111,19 +113,19 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
     aed_scale = opt_scales_job.out_real_scale_per_name["aed"]
 
-    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    # Rescore CTC results with optimal scales. Like recog_model with lm_framewise_prior_rescore.
     res = recog_model(
         task=task,
-        model=aed_ctc_model,
+        model=ctc_model_only,
         recog_def=model_recog_with_recomb,
-        config={**base_config, "beam_size": n_best_list_size, "aed_scale": 0.0},
+        config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 aed_labelwise_prior_rescore,
                 # framewise standard prior
                 prior=labelwise_prior,
                 prior_scale=prior_scale,
-                aed=aed_ctc_model,
+                aed_model=aed_ctc_model,
                 aed_scale=aed_scale,
                 aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
@@ -133,12 +135,13 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/rescore-res.txt", res.output)
 
+    # Now do 1st-pass recog with optimal scales.
     model = get_aed_ctc_and_labelwise_prior(
         aed_ctc_model=aed_ctc_model,
+        aed_scale=aed_scale,
         prior=labelwise_prior.file,
         prior_type=labelwise_prior.type,
         prior_scale=prior_scale,
-        lm_scale=aed_scale,
     )
     first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
     first_pass_search_rqmt.setdefault("time", 24)
@@ -168,7 +171,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
 def aed_score(
     recog_output: RecogOutput,
     *,
-    lm: ModelWithCheckpoint,
+    aed_model: ModelWithCheckpoint,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
@@ -180,14 +183,14 @@ def aed_score(
         The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
         i.e. the standard RETURNN search output with beam.
         We ignore the scores here and just use the text of the hyps.
-    :param lm: language model
+    :param aed_model: AED model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param rescore_rqmt:
     """
     return rescore(
         recog_output=recog_output,
-        model=lm,
+        model=aed_model,
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_def=aed_rescore_def,
@@ -196,38 +199,48 @@ def aed_score(
 
 
 # like lm_rescore_def
-def aed_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
+# somewhat like aed_training...
+def aed_rescore_def(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+    **_other,
+):
     import returnn.frontend as rf
 
     targets_beam_dim  # noqa  # unused here
 
-    # noinspection PyTypeChecker
-    model: TransformerDecoder
-    vocab = model.vocab_dim.vocab
-    assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
+    config = get_global_config()  # noqa
 
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+
+    batch_dims = data.remaining_dims(data_spatial_dim)
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
     )
     targets_w_eos, _ = rf.pad(
-        targets,
-        axes=[targets_spatial_dim],
-        padding=[(0, 1)],
-        value=vocab.eos_label_id,
-        out_dims=[targets_w_eos_spatial_dim],
+        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx, out_dims=[targets_w_eos_spatial_dim]
     )
 
-    batch_dims = targets.remaining_dims(targets_spatial_dim)
-    logits, _ = model(
+    logits, _ = model.decoder(
         input_labels,
         spatial_dim=targets_w_eos_spatial_dim,
-        encoder=None,
-        state=model.default_initial_state(batch_dims=batch_dims),
+        encoder=enc,
+        state=model.decoder.default_initial_state(batch_dims=batch_dims),
     )
 
-    log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
+    assert not model.out_eos_separated  # joint distrib, std case
+    log_prob = rf.log_softmax(logits, axis=model.target_dim)
     log_prob_targets = rf.gather(
-        log_prob, indices=targets_w_eos, axis=model.vocab_dim
+        log_prob, indices=targets_w_eos, axis=model.target_dim
     )  # [batch,beam,targets_spatial_w_eos]
     log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
     assert log_prob_targets_seq.dims_set == set(batch_dims)
@@ -245,9 +258,9 @@ def aed_labelwise_prior_rescore(
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
     orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
-    lm: ModelWithCheckpoint,
-    lm_scale: Union[float, tk.Variable, DelayedBase],
-    lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    aed_model: ModelWithCheckpoint,
+    aed_scale: Union[float, tk.Variable, DelayedBase],
+    aed_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
@@ -266,9 +279,9 @@ def aed_labelwise_prior_rescore(
     :param raw_res_search_labels:
     :param raw_res_labels:
     :param orig_scale: scale for the original scores
-    :param lm: language model
-    :param lm_scale: scale for the LM scores
-    :param lm_rescore_rqmt:
+    :param aed_model: AED model
+    :param aed_scale: scale for the LM scores
+    :param aed_rescore_rqmt:
     :param vocab: for LM labels in res / raw_res_labels
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param prior:
@@ -276,10 +289,10 @@ def aed_labelwise_prior_rescore(
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     dataset, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
-    res_labels_lm_scores = aed_score(
-        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+    res_labels_aed_scores = aed_score(
+        raw_res_labels, aed_model=aed_model, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=aed_rescore_rqmt
     )
-    scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
+    scores = [(orig_scale, res), (aed_scale, res_labels_aed_scores)]
     if prior and prior_scale:
         res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
         scores.append((prior_scale * (-1), res_labels_prior_scores))
@@ -316,9 +329,9 @@ def get_aed_ctc_and_labelwise_prior(
 
     # Also see: denoising_lm_2024.sis_recipe.tts_model.get_asr_with_tts_model_def
     # noinspection PyTypeChecker
-    combined_model_def: ModelDef = functools.partial(ctc_model_ext_def, orig_ctc_model_def=orig_model_def_)
+    combined_model_def: ModelDef = functools.partial(aed_model_ext_def, orig_ctc_model_def=orig_model_def_)
     # Make it a proper ModelDef
-    combined_model_def.behavior_version = max(ctc_model_ext_def.behavior_version, orig_model_def_.behavior_version)
+    combined_model_def.behavior_version = max(aed_model_ext_def.behavior_version, orig_model_def_.behavior_version)
     combined_model_def.backend = orig_model_def_.backend
     combined_model_def.batch_size_factor = orig_model_def_.batch_size_factor
     # Need new recog serialization for the partial.
@@ -328,6 +341,49 @@ def get_aed_ctc_and_labelwise_prior(
         definition=ModelDefWithCfg(model_def=combined_model_def, config=config),
         checkpoint=aed_ctc_model.checkpoint,
     )
+
+
+def aed_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim, orig_ctc_model_def: ModelDef) -> Model:
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+    import numpy
+
+    in_dim, epoch  # noqa
+    config = get_global_config()  # noqa
+
+    model = orig_ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+
+    labelwise_prior = config.typed_value("labelwise_prior", None)
+    if labelwise_prior:
+        assert isinstance(labelwise_prior, dict) and set(labelwise_prior.keys()) == {"type", "file", "scale"}
+        v = numpy.loadtxt(labelwise_prior["file"])
+        assert v.shape == (target_dim.dimension,), (
+            f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r}, expected dim {target_dim}"
+        )
+        # The `type` is about what is stored in the file.
+        # We always store it in log prob here, so we potentially need to convert it.
+        if labelwise_prior["type"] == "log_prob":
+            pass  # already log prob
+        elif labelwise_prior["type"] == "prob":
+            v = numpy.log(v)
+        else:
+            raise ValueError(f"invalid static_prior type {labelwise_prior['type']!r}")
+        v *= labelwise_prior["scale"]  # can already apply now
+        model.labelwise_prior = rf.Parameter(
+            rf.convert_to_tensor(v, dims=[target_dim], dtype=rf.get_default_float_dtype()),
+            auxiliary=True,
+            non_critical_for_restore=True,
+        )
+    else:
+        model.labelwise_prior = None
+
+    return model
+
+
+aed_model_ext_def: ModelDef[Model]
+aed_model_ext_def.behavior_version = 24
+aed_model_ext_def.backend = "torch"
+aed_model_ext_def.batch_size_factor = _batch_size_factor
 
 
 def model_recog_with_recomb(
@@ -405,7 +461,6 @@ def model_recog_with_recomb(
 
     seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
 
-    # TODO...
     # noinspection PyUnresolvedReferences
     labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
 
