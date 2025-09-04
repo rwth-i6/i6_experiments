@@ -78,7 +78,9 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         keep_beam=True,
     )
     prior_scores = prior_score(ctc_scores, prior=labelwise_prior)
-    aed_scores = aed_score(ctc_scores, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    aed_scores = aed_score(
+        ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
+    )
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
@@ -171,6 +173,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
 def aed_score(
     recog_output: RecogOutput,
     *,
+    dataset: DatasetConfig,  # for encoder inputs (e.g. audio)
     aed_model: ModelWithCheckpoint,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
@@ -183,6 +186,7 @@ def aed_score(
         The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
         i.e. the standard RETURNN search output with beam.
         We ignore the scores here and just use the text of the hyps.
+    :param dataset: the orig data which was used to generate recog_output
     :param aed_model: AED model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
@@ -190,6 +194,7 @@ def aed_score(
     """
     return rescore(
         recog_output=recog_output,
+        dataset=dataset,
         model=aed_model,
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
@@ -288,9 +293,14 @@ def aed_labelwise_prior_rescore(
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
-    dataset, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
+    raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
     res_labels_aed_scores = aed_score(
-        raw_res_labels, aed_model=aed_model, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=aed_rescore_rqmt
+        raw_res_labels,
+        dataset=dataset,
+        aed_model=aed_model,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_rqmt=aed_rescore_rqmt,
     )
     scores = [(orig_scale, res), (aed_scale, res_labels_aed_scores)]
     if prior and prior_scale:
