@@ -2942,9 +2942,12 @@ def py():
     # See i6_experiments/users/zeyer/experiments/exp2024_04_23_baselines/ctc.py for some earlier usage.
     from returnn.frontend.encoder.e_branchformer import EBranchformerLayer
 
-    # EBranchformer
+    # EBranchformer.
+    # The EBranchformer has more components which makes it bigger for the same num layers and dim,
+    # thus we reduce the dim (896 instead of 1024) to make it comparable in total num params to the Conformer.
+    # (But actually, you should look more at absolute speed, not so much at num params...)
     aed_train_exp(
-        "EncL16-DecL6-D1024-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        "EncL16-DecL6-D896-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -2958,7 +2961,7 @@ def py():
                     strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
                 ),
                 num_layers=16,
-                out_dim=1024,
+                out_dim=896,
                 encoder_layer=rf.build_dict(
                     EBranchformerLayer,
                     ff=rf.build_dict(
