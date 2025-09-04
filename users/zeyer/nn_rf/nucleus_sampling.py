@@ -55,7 +55,9 @@ def nucleus_sampling(
         sorted_indices = None
 
     if gumble_noise_scale == 1:  # default. do normal sampling
-        indices = rf.random_choice_with_replacement(sorted_log_probs.dims, probs=sorted_log_probs, axis=sorted_dim)
+        indices = rf.random_choice_with_replacement(
+            sorted_log_probs.remaining_dims(sorted_dim), probs=sorted_log_probs, axis=sorted_dim
+        )
     elif gumble_noise_scale:
         gumble_noise = -rf.log(-rf.log(rf.random_uniform(sorted_log_probs.dims)))  # {probs_dims..., sorted_dim}
         # Make sure the noise values are in the range [-inf, 0].
