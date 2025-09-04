@@ -40,7 +40,9 @@ def nucleus_sampling(
     if top_p is not None:
         sorted_log_probs, sorted_indices, sorted_dim = rf.sort(log_probs_, axis=axis_, descending=True)
         # sorted_indices: {probs_dims..., sorted_dim} -> axis_
-        cum_probs = rf.cumsum(rf.exp(sorted_log_probs), spatial_dim=sorted_dim)
+        # renorm in case it was not normalized (e.g. during search)
+        probs = rf.softmax(sorted_log_probs, axis=sorted_dim)
+        cum_probs = rf.cumsum(probs, spatial_dim=sorted_dim)
         mask = cum_probs <= top_p  # {probs_dims..., sorted_dim}
         if top_p_one_more:
             # keep also the first token above the threshold
@@ -55,10 +57,14 @@ def nucleus_sampling(
         sorted_indices = None
 
     if gumble_noise_scale == 1:  # default. do normal sampling
+        # renorm (again after masking) to have proper prob distrib, and also such that we have no underflow
+        probs = rf.softmax(sorted_log_probs, axis=sorted_dim)
         indices = rf.random_choice_with_replacement(
-            sorted_log_probs.remaining_dims(sorted_dim), probs=rf.exp(sorted_log_probs), axis=sorted_dim
+            sorted_log_probs.remaining_dims(sorted_dim), probs=probs, axis=sorted_dim
         )
     elif gumble_noise_scale:
+        # renorm (again after masking) to have proper prob distrib and for better combination with gumble noise
+        sorted_log_probs = rf.log_softmax(sorted_log_probs, axis=sorted_dim)
         gumble_noise = -rf.log(-rf.log(rf.random_uniform(sorted_log_probs.dims)))  # {probs_dims..., sorted_dim}
         # Make sure the noise values are in the range [-inf, 0].
         gumble_noise = rf.log_softmax(gumble_noise, axis=sorted_dim)  # {probs_dims..., sorted_dim}
