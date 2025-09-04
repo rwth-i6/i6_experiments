@@ -212,6 +212,7 @@ def _returnn_rescore_config(
     # Beam dim size unknown. Usually static size, but it's ok to leave this unknown here (right?).
     beam_dim = Dim(Tensor("beam_size", dims=[], dtype="int32"), name="beam")
 
+    # for the recog output hyps, all flattened into one single sequence
     data_flat_spatial_dim = Dim(None, name="data_flat_spatial")
 
     default_input = None  # no input
