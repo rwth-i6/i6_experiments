@@ -708,5 +708,7 @@ def run_all() -> List[RecogResult]:
             descriptor="bpe_aed",
             tree_trafo_search=False,
             tree_trafo_kazuki_search=False,
+            tree_search=False,
+            tree_4gram_search=False,
         )
     return recog_results

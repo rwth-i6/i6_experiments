@@ -427,5 +427,7 @@ def run_all() -> List[RecogResult]:
             checkpoint=checkpoint,
             model_config=model_config,
             descriptor="bpe_aed",
+            tree_search=False,
+            tree_4gram_search=False,
         )
     return recog_results

@@ -513,6 +513,57 @@ def run_recognitions_offline_tree_trafo(
     return recog_results
 
 
+def run_recognitions_streaming_lexiconfree(
+    checkpoint: PtCheckpoint,
+    model_config: ConformerCTCConfig,
+    descriptor: str = "recog",
+    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
+    chunk_history_seconds: float = 10.0,
+    chunk_center_seconds: float = 1.0,
+    chunk_future_seconds: float = 1.0,
+    encoder_frame_shift_seconds: float = 0.04,
+) -> List[StreamingRecogResult]:
+    model_serializers = get_model_serializers(
+        ConformerCTCRecogModel,
+        ConformerCTCRecogConfig(
+            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+            prior_file=None,
+            prior_scale=0.0,
+            blank_penalty=0.0,
+        ),
+    )
+
+    rasr_config_file = get_lexiconfree_timesync_recog_config(
+        vocab_file=get_bpe_vocab_file(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True),
+        collapse_repeated_labels=True,
+        label_scorer_config=get_no_op_label_scorer_config(),
+        blank_index=model_config.target_size - 1,
+        max_beam_size=1,
+        score_threshold=0.0,
+    )
+
+    recog_results = []
+
+    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
+        recog_results.append(
+            recog_rasr_streaming(
+                descriptor=f"{descriptor}_lexiconfree_stream",
+                checkpoint=checkpoint,
+                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
+                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
+                encoder_serializers=model_serializers,
+                rasr_config_file=rasr_config_file,
+                encoder_frame_shift_seconds=encoder_frame_shift_seconds,
+                chunk_history_seconds=chunk_history_seconds,
+                chunk_center_seconds=chunk_center_seconds,
+                chunk_future_seconds=chunk_future_seconds,
+                sample_rate=16000,
+            )
+        )
+
+    return recog_results
+
+
 def run_recognitions_streaming_tree_4gram(
     checkpoint: PtCheckpoint,
     model_config: ConformerCTCConfig,
@@ -784,6 +835,7 @@ def run_base_recognition_suite(
     tree_4gram_search: bool = True,
     tree_trafo_search: bool = True,
     tree_trafo_kazuki_search: bool = True,
+    lexiconfree_streaming_search: bool = True,
     tree_streaming_search: bool = True,
     lexiconfree_tedlium_search: bool = True,
     tree_4gram_tedlium_search: bool = True,
@@ -830,6 +882,12 @@ def run_base_recognition_suite(
     if tree_4gram_tedlium_search:
         offline_recog_results.extend(
             run_recognitions_tedlium_offline_tree_4gram(
+                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
+            )
+        )
+    if lexiconfree_streaming_search:
+        streaming_recog_results.extend(
+            run_recognitions_streaming_lexiconfree(
                 checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
             )
         )

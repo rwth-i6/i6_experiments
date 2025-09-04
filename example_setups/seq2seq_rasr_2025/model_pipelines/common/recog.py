@@ -42,6 +42,21 @@ class RecogResult:
     deletion: tk.Variable
     insertion: tk.Variable
     substitution: tk.Variable
+    step_hyps_avg: tk.Variable
+    step_hyps_p50: tk.Variable
+    step_hyps_p90: tk.Variable
+    step_hyps_p99: tk.Variable
+    step_hyps_p100: tk.Variable
+    step_word_end_hyps_avg: tk.Variable
+    step_word_end_hyps_p50: tk.Variable
+    step_word_end_hyps_p90: tk.Variable
+    step_word_end_hyps_p99: tk.Variable
+    step_word_end_hyps_p100: tk.Variable
+    step_trees_avg: tk.Variable
+    step_trees_p50: tk.Variable
+    step_trees_p90: tk.Variable
+    step_trees_p99: tk.Variable
+    step_trees_p100: tk.Variable
 
 
 @dataclass
@@ -211,19 +226,34 @@ class StreamingSearchCallback(SearchCallback):
         with open("latencies.py", "w") as latency_file:
             latency_file.write("{\n")
 
-            unstable_np_array = np.array(self.unstable_latencies)
-            stable_np_array = np.array(self.stable_latencies)
+            if self.unstable_latencies:
+                unstable_np_array = np.array(self.unstable_latencies)
+                latency_file.write(f'    "unstable_latency_avg": {np.average(unstable_np_array)},\n')
+                latency_file.write(f'    "unstable_latency_p50": {np.percentile(unstable_np_array, 50)},\n')
+                latency_file.write(f'    "unstable_latency_p90": {np.percentile(unstable_np_array, 90)},\n')
+                latency_file.write(f'    "unstable_latency_p99": {np.percentile(unstable_np_array, 99)},\n')
+                latency_file.write(f'    "unstable_latency_p100": {np.percentile(unstable_np_array, 100)},\n')
+            else:
+                latency_file.write('    "unstable_latency_avg": 0,\n')
+                latency_file.write('    "unstable_latency_p50": 0,\n')
+                latency_file.write('    "unstable_latency_p90": 0,\n')
+                latency_file.write('    "unstable_latency_p99": 0,\n')
+                latency_file.write('    "unstable_latency_p100": 0,\n')
 
-            latency_file.write(f'    "unstable_latency_avg": {np.average(unstable_np_array)},\n')
-            latency_file.write(f'    "unstable_latency_p50": {np.percentile(unstable_np_array, 50)},\n')
-            latency_file.write(f'    "unstable_latency_p90": {np.percentile(unstable_np_array, 90)},\n')
-            latency_file.write(f'    "unstable_latency_p99": {np.percentile(unstable_np_array, 99)},\n')
-            latency_file.write(f'    "unstable_latency_p100": {np.percentile(unstable_np_array, 100)},\n')
-            latency_file.write(f'    "stable_latency_avg": {np.average(stable_np_array)},\n')
-            latency_file.write(f'    "stable_latency_p50": {np.percentile(stable_np_array, 50)},\n')
-            latency_file.write(f'    "stable_latency_p90": {np.percentile(stable_np_array, 90)},\n')
-            latency_file.write(f'    "stable_latency_p99": {np.percentile(stable_np_array, 99)},\n')
-            latency_file.write(f'    "stable_latency_p100": {np.percentile(stable_np_array, 100)},\n')
+            if self.stable_latencies:
+                stable_np_array = np.array(self.stable_latencies)
+
+                latency_file.write(f'    "stable_latency_avg": {np.average(stable_np_array)},\n')
+                latency_file.write(f'    "stable_latency_p50": {np.percentile(stable_np_array, 50)},\n')
+                latency_file.write(f'    "stable_latency_p90": {np.percentile(stable_np_array, 90)},\n')
+                latency_file.write(f'    "stable_latency_p99": {np.percentile(stable_np_array, 99)},\n')
+                latency_file.write(f'    "stable_latency_p100": {np.percentile(stable_np_array, 100)},\n')
+            else:
+                latency_file.write('    "stable_latency_avg": 0,\n')
+                latency_file.write('    "stable_latency_p50": 0,\n')
+                latency_file.write('    "stable_latency_p90": 0,\n')
+                latency_file.write('    "stable_latency_p99": 0,\n')
+                latency_file.write('    "stable_latency_p100": 0,\n')
 
             latency_file.write("}\n")
 
@@ -325,6 +355,87 @@ class ExtractSearchLatenciesJob(Job):
             self.out_stable_latency_p90.set(result_dict["stable_latency_p90"])
             self.out_stable_latency_p99.set(result_dict["stable_latency_p99"])
             self.out_stable_latency_p100.set(result_dict["stable_latency_p100"])
+
+
+class ExtractSearchSpaceStatisticsJob(Job):
+    def __init__(self, rasr_log_file: tk.Path) -> None:
+        self.rasr_log_file = rasr_log_file
+
+        self.out_step_hyps_avg = self.output_var("step_hyps_avg")
+        self.out_step_hyps_p50 = self.output_var("step_hyps_p50")
+        self.out_step_hyps_p90 = self.output_var("step_hyps_p90")
+        self.out_step_hyps_p99 = self.output_var("step_hyps_p99")
+        self.out_step_hyps_p100 = self.output_var("step_hyps_p100")
+        self.out_step_word_end_hyps_avg = self.output_var("step_word_end_hyps_avg")
+        self.out_step_word_end_hyps_p50 = self.output_var("step_word_end_hyps_p50")
+        self.out_step_word_end_hyps_p90 = self.output_var("step_word_end_hyps_p90")
+        self.out_step_word_end_hyps_p99 = self.output_var("step_word_end_hyps_p99")
+        self.out_step_word_end_hyps_p100 = self.output_var("step_word_end_hyps_p100")
+        self.out_step_trees_avg = self.output_var("step_trees_avg")
+        self.out_step_trees_p50 = self.output_var("step_trees_p50")
+        self.out_step_trees_p90 = self.output_var("step_trees_p90")
+        self.out_step_trees_p99 = self.output_var("step_trees_p99")
+        self.out_step_trees_p100 = self.output_var("step_trees_p100")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        import numpy as np
+        import re
+
+        step_hyps_counts = []
+        step_word_end_hyps_counts = []
+        step_trees_counts = []
+
+        with open(self.rasr_log_file.get(), "r") as f:
+            for line in f:
+                for log_str, counter in [
+                    ("<num-hyps-after-beam-pruning>", step_hyps_counts),
+                    ("<num-word-end-hyps-after-beam-pruning>", step_word_end_hyps_counts),
+                    ("<num-active-trees>", step_trees_counts),
+                ]:
+                    if log_str in line:
+                        value = int(re.split(r"[<>]+", line)[2].strip())
+                        counter.append(value)
+
+        if step_hyps_counts:
+            self.out_step_hyps_avg.set(np.average(step_hyps_counts))
+            self.out_step_hyps_p50.set(np.percentile(step_hyps_counts, 50))
+            self.out_step_hyps_p90.set(np.percentile(step_hyps_counts, 90))
+            self.out_step_hyps_p99.set(np.percentile(step_hyps_counts, 99))
+            self.out_step_hyps_p100.set(np.percentile(step_hyps_counts, 100))
+        else:
+            self.out_step_hyps_avg.set(0)
+            self.out_step_hyps_p50.set(0)
+            self.out_step_hyps_p90.set(0)
+            self.out_step_hyps_p99.set(0)
+            self.out_step_hyps_p100.set(0)
+        if step_word_end_hyps_counts:
+            self.out_step_word_end_hyps_avg.set(np.average(step_word_end_hyps_counts))
+            self.out_step_word_end_hyps_p50.set(np.percentile(step_word_end_hyps_counts, 50))
+            self.out_step_word_end_hyps_p90.set(np.percentile(step_word_end_hyps_counts, 90))
+            self.out_step_word_end_hyps_p99.set(np.percentile(step_word_end_hyps_counts, 99))
+            self.out_step_word_end_hyps_p100.set(np.percentile(step_word_end_hyps_counts, 100))
+        else:
+            self.out_step_word_end_hyps_avg.set(0)
+            self.out_step_word_end_hyps_p50.set(0)
+            self.out_step_word_end_hyps_p90.set(0)
+            self.out_step_word_end_hyps_p99.set(0)
+            self.out_step_word_end_hyps_p100.set(0)
+
+        if step_trees_counts:
+            self.out_step_trees_avg.set(np.average(step_trees_counts))
+            self.out_step_trees_p50.set(np.percentile(step_trees_counts, 50))
+            self.out_step_trees_p90.set(np.percentile(step_trees_counts, 90))
+            self.out_step_trees_p99.set(np.percentile(step_trees_counts, 99))
+            self.out_step_trees_p100.set(np.percentile(step_trees_counts, 100))
+        else:
+            self.out_step_trees_avg.set(0)
+            self.out_step_trees_p50.set(0)
+            self.out_step_trees_p90.set(0)
+            self.out_step_trees_p99.set(0)
+            self.out_step_trees_p100.set(0)
 
 
 class TracebackItem(Protocol):
@@ -1048,6 +1159,69 @@ def recog_rasr_offline(
     score_job = recog_corpus.score_ctm(ctm_file)
     tk.register_output(f"recognition/{recog_corpus.corpus_name}/{descriptor}/scoring_reports", score_job.out_report_dir)
 
+    extract_space_stats_job = ExtractSearchSpaceStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
+
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_avg",
+        extract_space_stats_job.out_step_hyps_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p50",
+        extract_space_stats_job.out_step_hyps_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p90",
+        extract_space_stats_job.out_step_hyps_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p99",
+        extract_space_stats_job.out_step_hyps_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p100",
+        extract_space_stats_job.out_step_hyps_p100,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_avg",
+        extract_space_stats_job.out_step_word_end_hyps_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p50",
+        extract_space_stats_job.out_step_word_end_hyps_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p90",
+        extract_space_stats_job.out_step_word_end_hyps_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p99",
+        extract_space_stats_job.out_step_word_end_hyps_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p100",
+        extract_space_stats_job.out_step_word_end_hyps_p100,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_avg",
+        extract_space_stats_job.out_step_trees_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p50",
+        extract_space_stats_job.out_step_trees_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p90",
+        extract_space_stats_job.out_step_trees_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p99",
+        extract_space_stats_job.out_step_trees_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p100",
+        extract_space_stats_job.out_step_trees_p100,
+    )
+
     return OfflineRecogResult(
         descriptor=descriptor,
         corpus_name=recog_corpus.corpus_name,
@@ -1058,6 +1232,21 @@ def recog_rasr_offline(
         enc_rtf=extract_rtf_job.out_enc_rtf,
         search_rtf=extract_rtf_job.out_search_rtf,
         total_rtf=extract_rtf_job.out_total_rtf,
+        step_hyps_avg=extract_space_stats_job.out_step_hyps_avg,
+        step_hyps_p50=extract_space_stats_job.out_step_hyps_p50,
+        step_hyps_p90=extract_space_stats_job.out_step_hyps_p90,
+        step_hyps_p99=extract_space_stats_job.out_step_hyps_p99,
+        step_hyps_p100=extract_space_stats_job.out_step_hyps_p100,
+        step_word_end_hyps_avg=extract_space_stats_job.out_step_word_end_hyps_avg,
+        step_word_end_hyps_p50=extract_space_stats_job.out_step_word_end_hyps_p50,
+        step_word_end_hyps_p90=extract_space_stats_job.out_step_word_end_hyps_p90,
+        step_word_end_hyps_p99=extract_space_stats_job.out_step_word_end_hyps_p99,
+        step_word_end_hyps_p100=extract_space_stats_job.out_step_word_end_hyps_p100,
+        step_trees_avg=extract_space_stats_job.out_step_trees_avg,
+        step_trees_p50=extract_space_stats_job.out_step_trees_p50,
+        step_trees_p90=extract_space_stats_job.out_step_trees_p90,
+        step_trees_p99=extract_space_stats_job.out_step_trees_p99,
+        step_trees_p100=extract_space_stats_job.out_step_trees_p100,
     )
 
 
@@ -1187,6 +1376,68 @@ def recog_rasr_offline_with_search_errors(
     score_job = recog_corpus.score_ctm(ctm_file)
     tk.register_output(f"recognition/{recog_corpus.corpus_name}/{descriptor}/scoring_reports", score_job.out_report_dir)
 
+    extract_space_stats_job = ExtractSearchSpaceStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_avg",
+        extract_space_stats_job.out_step_hyps_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p50",
+        extract_space_stats_job.out_step_hyps_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p90",
+        extract_space_stats_job.out_step_hyps_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p99",
+        extract_space_stats_job.out_step_hyps_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p100",
+        extract_space_stats_job.out_step_hyps_p100,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_avg",
+        extract_space_stats_job.out_step_word_end_hyps_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p50",
+        extract_space_stats_job.out_step_word_end_hyps_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p90",
+        extract_space_stats_job.out_step_word_end_hyps_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p99",
+        extract_space_stats_job.out_step_word_end_hyps_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p100",
+        extract_space_stats_job.out_step_word_end_hyps_p100,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_avg",
+        extract_space_stats_job.out_step_trees_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p50",
+        extract_space_stats_job.out_step_trees_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p90",
+        extract_space_stats_job.out_step_trees_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p99",
+        extract_space_stats_job.out_step_trees_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p100",
+        extract_space_stats_job.out_step_trees_p100,
+    )
+
     return OfflineRecogResultWithSearchErrors(
         descriptor=descriptor,
         corpus_name=recog_corpus.corpus_name,
@@ -1201,6 +1452,21 @@ def recog_rasr_offline_with_search_errors(
         enc_rtf=extract_rtf_job.out_enc_rtf,
         search_rtf=extract_rtf_job.out_search_rtf,
         total_rtf=extract_rtf_job.out_total_rtf,
+        step_hyps_avg=extract_space_stats_job.out_step_hyps_avg,
+        step_hyps_p50=extract_space_stats_job.out_step_hyps_p50,
+        step_hyps_p90=extract_space_stats_job.out_step_hyps_p90,
+        step_hyps_p99=extract_space_stats_job.out_step_hyps_p99,
+        step_hyps_p100=extract_space_stats_job.out_step_hyps_p100,
+        step_word_end_hyps_avg=extract_space_stats_job.out_step_word_end_hyps_avg,
+        step_word_end_hyps_p50=extract_space_stats_job.out_step_word_end_hyps_p50,
+        step_word_end_hyps_p90=extract_space_stats_job.out_step_word_end_hyps_p90,
+        step_word_end_hyps_p99=extract_space_stats_job.out_step_word_end_hyps_p99,
+        step_word_end_hyps_p100=extract_space_stats_job.out_step_word_end_hyps_p100,
+        step_trees_avg=extract_space_stats_job.out_step_trees_avg,
+        step_trees_p50=extract_space_stats_job.out_step_trees_p50,
+        step_trees_p90=extract_space_stats_job.out_step_trees_p90,
+        step_trees_p99=extract_space_stats_job.out_step_trees_p99,
+        step_trees_p100=extract_space_stats_job.out_step_trees_p100,
     )
 
 
@@ -1342,6 +1608,68 @@ def recog_rasr_streaming(
     score_job = recog_corpus.score_ctm(ctm_file)
     tk.register_output(f"recognition/{recog_corpus.corpus_name}/{descriptor}/scoring_reports", score_job.out_report_dir)
 
+    extract_space_stats_job = ExtractSearchSpaceStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_avg",
+        extract_space_stats_job.out_step_hyps_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p50",
+        extract_space_stats_job.out_step_hyps_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p90",
+        extract_space_stats_job.out_step_hyps_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p99",
+        extract_space_stats_job.out_step_hyps_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps_p100",
+        extract_space_stats_job.out_step_hyps_p100,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_avg",
+        extract_space_stats_job.out_step_word_end_hyps_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p50",
+        extract_space_stats_job.out_step_word_end_hyps_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p90",
+        extract_space_stats_job.out_step_word_end_hyps_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p99",
+        extract_space_stats_job.out_step_word_end_hyps_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps_p100",
+        extract_space_stats_job.out_step_word_end_hyps_p100,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_avg",
+        extract_space_stats_job.out_step_trees_avg,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p50",
+        extract_space_stats_job.out_step_trees_p50,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p90",
+        extract_space_stats_job.out_step_trees_p90,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p99",
+        extract_space_stats_job.out_step_trees_p99,
+    )
+    tk.register_output(
+        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees_p100",
+        extract_space_stats_job.out_step_trees_p100,
+    )
+
     return StreamingRecogResult(
         descriptor=descriptor,
         corpus_name=recog_corpus.corpus_name,
@@ -1359,4 +1687,19 @@ def recog_rasr_streaming(
         stable_latency_p90=extract_latencies_job.out_stable_latency_p90,
         stable_latency_p99=extract_latencies_job.out_stable_latency_p99,
         stable_latency_p100=extract_latencies_job.out_stable_latency_p100,
+        step_hyps_avg=extract_space_stats_job.out_step_hyps_avg,
+        step_hyps_p50=extract_space_stats_job.out_step_hyps_p50,
+        step_hyps_p90=extract_space_stats_job.out_step_hyps_p90,
+        step_hyps_p99=extract_space_stats_job.out_step_hyps_p99,
+        step_hyps_p100=extract_space_stats_job.out_step_hyps_p100,
+        step_word_end_hyps_avg=extract_space_stats_job.out_step_word_end_hyps_avg,
+        step_word_end_hyps_p50=extract_space_stats_job.out_step_word_end_hyps_p50,
+        step_word_end_hyps_p90=extract_space_stats_job.out_step_word_end_hyps_p90,
+        step_word_end_hyps_p99=extract_space_stats_job.out_step_word_end_hyps_p99,
+        step_word_end_hyps_p100=extract_space_stats_job.out_step_word_end_hyps_p100,
+        step_trees_avg=extract_space_stats_job.out_step_trees_avg,
+        step_trees_p50=extract_space_stats_job.out_step_trees_p50,
+        step_trees_p90=extract_space_stats_job.out_step_trees_p90,
+        step_trees_p99=extract_space_stats_job.out_step_trees_p99,
+        step_trees_p100=extract_space_stats_job.out_step_trees_p100,
     )

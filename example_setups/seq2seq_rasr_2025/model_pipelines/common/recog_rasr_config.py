@@ -47,6 +47,7 @@ def get_lexiconfree_timesync_recog_config(
     score_threshold: Optional[float] = 18.0,
     intermediate_score_threshold: Optional[float] = 18.0,
     log_stepwise_statistics: bool = True,
+    maximum_stable_delay: Optional[int] = None,
     logfile_suffix: str = "recog",
 ) -> tk.Path:
     crp = CommonRasrParameters()
@@ -88,6 +89,8 @@ def get_lexiconfree_timesync_recog_config(
         rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = intermediate_score_threshold
     if blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index
+    if maximum_stable_delay is not None:
+        rasr_config.lib_rasr.search_algorithm.maximum_stable_delay = maximum_stable_delay
     rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = collapse_repeated_labels
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
 
