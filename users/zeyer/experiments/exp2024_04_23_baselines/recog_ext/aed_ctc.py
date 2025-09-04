@@ -268,11 +268,7 @@ def aed_rescore_def(
     targets_spatial_dim: Dim,
     **_other,
 ):
-    import returnn.frontend as rf
-
     targets_beam_dim  # noqa  # unused here
-
-    config = get_global_config()  # noqa
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
