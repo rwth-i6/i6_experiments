@@ -49,6 +49,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     prefix: str,
     task: Task,
     aed_ctc_model: ModelWithCheckpoint,
+    aux_ctc_layer: int,
     labelwise_prior: Prior = NotSpecified,
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
@@ -78,7 +79,12 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         prior = get_ctc_prior_probs(
             aed_ctc_model,
             task.train_dataset.copy_train_as_static(),
-            config={"behavior_version": 24, "batch_size": 200_000 * _batch_size_factor, "max_seqs": 2000},
+            config={
+                "behavior_version": 24,
+                "batch_size": 200_000 * _batch_size_factor,
+                "max_seqs": 2000,
+                "aux_loss_layers": [aux_ctc_layer],
+            },
         )
         prior.creator.add_alias(f"{prefix}/prior")
         tk.register_output(f"{prefix}/prior.txt", prior)
@@ -102,6 +108,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
         "recog_recomb": recomb_type,
         "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+        "aux_loss_layers": [aux_ctc_layer],
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
@@ -848,4 +855,6 @@ def py():
     )
     model = exp.get_last_fixed_epoch()
     task = get_librispeech_task_raw_v2(vocab=vocab)
-    aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(prefix="aed+ctc-debug", task=task, aed_ctc_model=model)
+    aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
+        prefix="aed+ctc-debug", task=task, aed_ctc_model=model, aux_ctc_layer=16
+    )
