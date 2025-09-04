@@ -14,12 +14,13 @@ def nucleus_sampling_beam_search(
     log_probs: Tensor,
     *,
     axis: Union[Dim, Sequence[Dim]],
-    k: Union[int, Tensor, Dim],
+    k: Union[None, int, Tensor, Dim] = None,
+    k_dim: Optional[Dim] = None,
     top_p_mask_on_accumulated_log_probs: bool = False,
     top_p_mask_on_combined_axes: bool = False,
     top_p: Union[float, Tensor],
     gumble_noise_scale: float = 1.0,
-) -> Tuple[Tensor, Union[Tensor, Sequence[Tensor]]]:
+) -> Tuple[Tensor, Union[Tensor, Sequence[Tensor]], Dim]:
     """
     Nucleus sampling / top-p sampling implementation for stochastic beam search.
     The sampling is always from the combined prob distrib over the given axes.
@@ -32,6 +33,7 @@ def nucleus_sampling_beam_search(
     :param axis: axis / axes to sort and sample from (over classes). If multiple, e.g. like [InBeam,Vocab].
         CommonAxis... + RemainingAxis.... CommonAxis... could be [InBeam], RemainingAxis... could be [Vocab].
     :param k: number of (total) samples to draw. (Sometimes we call this OutBeam.)
+    :param k_dim: like k, but as Dim. If given, k must be None.
     :param top_p_mask_on_accumulated_log_probs: if True, apply top-p mask on prev_accumulated_log_probs + log_probs,
         otherwise only on log_probs.
     :param top_p_mask_on_combined_axes: if True and if multiple axes given,
@@ -94,12 +96,11 @@ def nucleus_sampling_beam_search(
     # Make sure the noise values are in the range [-inf, 0].
     gumble_noise = rf.log_softmax(gumble_noise, axis=axis_)  # {probs_dims..., sorted_dim}
     noisy_log_probs = log_probs_ + gumble_noise * gumble_noise_scale
-    out_dim = k if isinstance(k, Dim) else Dim(k, name="top_k_and_random_samples")
-    _, indices, _ = rf.top_k(noisy_log_probs, k_dim=out_dim, axis=axis_)
+    _, indices, out_dim = rf.top_k(noisy_log_probs, k=k, k_dim=k_dim, axis=axis_)
 
     if len(axes) == 1:
         log_probs = rf.gather(log_probs, indices=indices)  # {probs_dims...}
-        return log_probs, indices
+        return log_probs, indices, out_dim
     else:
         # Exactly like in top_k.
         indices_out = []
@@ -112,7 +113,7 @@ def nucleus_sampling_beam_search(
             indices_out.insert(0, indices_out_)
         for indices in indices_out:
             log_probs = rf.gather(log_probs, indices=indices)
-        return log_probs, indices_out
+        return log_probs, indices_out, out_dim
 
 
 def nucleus_sampling(
