@@ -20,33 +20,41 @@ from i6_experiments.users.zeyer.model_interfaces import (
 )
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection, RecogOutput
+from i6_experiments.users.zeyer.datasets.utils.vocab import (
+    ExtractVocabLabelsJob,
+    ExtractVocabSpecialLabelsJob,
+    ExtendVocabLabelsByNewLabelJob,
+)
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset
 from i6_experiments.users.zeyer.decoding.rescoring import combine_scores, rescore
-from i6_experiments.users.zeyer.decoding.lm_rescoring import prior_score
+from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior, PriorRemoveLabelRenormJob
+from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
-    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
 
+from returnn.util.basic import NotSpecified
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
-from ..aed import Model, _batch_size_factor
+from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx
 
 
-# like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale
+# like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
+# following further defaults from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023.recog_ext_with_lm
 def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     *,
     prefix: str,
     task: Task,
     aed_ctc_model: ModelWithCheckpoint,
-    labelwise_prior: Prior,
-    vocab_file: tk.Path,
-    vocab_opts_file: tk.Path,
-    n_best_list_size: int,
-    first_pass_recog_beam_size: int,
+    labelwise_prior: Prior = NotSpecified,
+    vocab_file: tk.Path = NotSpecified,
+    vocab_opts_file: tk.Path = NotSpecified,
+    ctc_soft_collapse_threshold: float = 0.8,  # default
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     recomb_type: str = "max",
     extra_config: Optional[Dict[str, Any]] = None,
@@ -58,11 +66,42 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog_with_recomb``) with those scales.
     """
+    if vocab_file is NotSpecified:
+        vocab_file = ExtractVocabLabelsJob(_get_vocab_opts_from_task(task)).out_vocab
+        # tk.register_output(f"{prefix}/vocab/{vocab}/vocab.txt.gz", vocab_file)
 
+    if vocab_opts_file is NotSpecified:
+        vocab_opts_file = ExtractVocabSpecialLabelsJob(_get_vocab_opts_from_task(task)).out_vocab_special_labels_dict
+        # tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
+
+    if labelwise_prior is NotSpecified:
+        prior = get_ctc_prior_probs(
+            aed_ctc_model,
+            task.train_dataset.copy_train_as_static(),
+            config={"behavior_version": 24, "batch_size": 200_000 * _batch_size_factor, "max_seqs": 2000},
+        )
+        prior.creator.add_alias(f"{prefix}/prior")
+        tk.register_output(f"{prefix}/prior.txt", prior)
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=_output_blank_label, new_label_idx=_aed_model_def_blank_idx
+        ).out_vocab
+        # tk.register_output(f"{prefix}/vocab/{vocab}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+        log_prior_wo_blank = PriorRemoveLabelRenormJob(
+            prior_file=prior,
+            prior_type="prob",
+            vocab=vocab_w_blank_file,
+            remove_label=_output_blank_label,
+            out_prior_type="log_prob",
+        ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
+        labelwise_prior = Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file)
+
+    # For CTC-only and then also for joint AED+CTC+prior.
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
         "recog_recomb": recomb_type,
+        "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
@@ -167,6 +206,16 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
     return res
+
+
+_output_blank_label = "<blank>"
+
+
+def _get_vocab_opts_from_task(task: Task) -> Dict[str, Any]:
+    dataset = task.dev_dataset
+    extern_data_dict = dataset.get_extern_data()
+    target_dict = extern_data_dict[dataset.get_default_target()]
+    return target_dict["vocab"]
 
 
 # like lm_score
@@ -309,6 +358,38 @@ def aed_labelwise_prior_rescore(
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
     return combine_scores(scores)
+
+
+def get_ctc_prior_probs(
+    aed_ctc_model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
+    """
+    :return: CTC prior, in prob space (not log prob)
+    """
+    # Note: there is also compute_model_softmax_prior_statistics,
+    # which assumes a slightly different model API though,
+    # and we must call log_probs_wb_from_logits to have it correct in any case.
+    return collect_statistics(
+        model=aed_ctc_model,
+        dataset=dataset,
+        forward_def=_aed_ctc_model_ctc_softmax_prior_returnn_forward,
+        config=config,
+    ).mean
+
+
+def _aed_ctc_model_ctc_softmax_prior_returnn_forward(
+    source: Tensor, /, in_spatial_dim: Dim, model: Model
+) -> Tuple[Tensor, Dim]:
+    """ForwardDef API"""
+    enc_collected_outputs = {}
+    enc, enc_spatial_dim = model(source, in_spatial_dim=in_spatial_dim, collected_outputs=enc_collected_outputs)
+
+    ctc_layer_idx = model.enc_aux_logits[-1]
+    linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
+    ctc_logits = linear(enc_collected_outputs[str(ctc_layer_idx - 1)])
+    # the statistics take the average over this, thus prob space, not log prob
+    ctc_label_prob = rf.softmax(ctc_logits, axis=model.wb_target_dim)  # Batch, Spatial, VocabWB
+    return ctc_label_prob, enc_spatial_dim
 
 
 def get_aed_ctc_and_labelwise_prior(
