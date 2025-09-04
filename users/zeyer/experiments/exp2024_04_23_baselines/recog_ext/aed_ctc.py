@@ -516,7 +516,7 @@ def model_recog_with_recomb(
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_collected_outputs = {}
-    enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
 
     # Eager-mode implementation of beam search.
     # Initial state.
