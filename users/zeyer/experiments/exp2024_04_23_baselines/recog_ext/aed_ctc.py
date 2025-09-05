@@ -1064,6 +1064,8 @@ def py():
 
     # --- now Trafo-dec recogs ---
 
+    # AED only baseline (bs12, bhv21?): {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
+    # 12: {"dev-clean": 2.7, "dev-other": 4.75, "test-clean": 2.72, "test-other": 4.97}
     for bs in [12, 16, 32, 64]:
         res = recog_model(
             task=task,
@@ -1073,6 +1075,7 @@ def py():
                 "behavior_version": 24,  # should make it independent from batch size
                 "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
                 "beam_size": bs,
+                "search_version": 2,  # beam_size ignored otherwise...
             },
         )
         tk.register_output(f"aed+ctc-debug/trafo-dec/aed-only-bs{bs}-res.txt", res.output)
@@ -1128,6 +1131,7 @@ def py():
                 "behavior_version": 24,  # should make it independent from batch size
                 "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
                 "beam_size": bs,
+                "search_version": 2,  # beam_size ignored otherwise...
             },
         )
         tk.register_output(f"aed+ctc-debug/lstm-dec/aed-only-bs{bs}-res.txt", res.output)
