@@ -1481,8 +1481,8 @@ def py():
     #       AudioPadRnd2k: {"dev-clean": 3.95, "dev-other": 5.43, "test-clean": 4.44, "test-other": 5.92}
     for name, opts in {
         "0": None,
-        "1k": 1000,
-        "Rnd2k": {"train": ((0, 2000), (0, 2000))},
+        # "1k": 1000,
+        # "Rnd2k": {"train": ((0, 2000), (0, 2000))},
         "Rnd100": {"train": ((0, 100), (0, 100))},
     }.items():
         aed_train_exp(
