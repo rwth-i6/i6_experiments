@@ -797,6 +797,8 @@ def py():
     )
     from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
+    # best_epoch (96): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # epoch 100:       {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
     vocab = "spm10k"
     exp = aed_train_exp(
         "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
@@ -859,6 +861,10 @@ def py():
     )
     model = exp.get_last_fixed_epoch()
     task = get_librispeech_task_raw_v2(vocab=vocab)
+    # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
+    # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
+    # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.33, "test-clean": 2.06, "test-other": 4.59}
+    # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.30, "test-clean": 2.08, "test-other": 4.50}
     aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         prefix="aed+ctc-debug", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
