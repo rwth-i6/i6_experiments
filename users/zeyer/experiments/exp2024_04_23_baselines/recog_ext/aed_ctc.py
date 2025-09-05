@@ -1005,6 +1005,65 @@ def py():
     model = exp.get_last_fixed_epoch()
     task = get_librispeech_task_raw_v2(vocab=vocab)
 
+    from i6_experiments.users.zeyer.nn_rf.decoder.lstm import LstmDecoder
+
+    # Using LSTM decoder.
+    # (Note: Using some older baseline (s1), behavior version 21:
+    #  EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k)
+    # baseline (trafo dec, s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    #                  DecLstm: {"dev-clean": 2.12, "dev-other": 4.63, "test-clean": 2.31, "test-other": 4.65}
+    exp_lstm = aed_train_exp(
+        "EncL16-DecLstm-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        config_96gb_bf16_accgrad1,
+        prefix="aed/",
+        model_config={
+            "enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=16,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+            ),
+            "dec_build_dict": rf.build_dict(LstmDecoder),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            "batch_size": 100_000 * _batch_size_factor,
+            "optimizer.weight_decay": 1e-2,
+            "accum_grad_multiple_step": 1,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_loss_layers": [4, 10, 16],
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    model_lstm_dec = exp_lstm.get_last_fixed_epoch()
+
+    # --- now Trafo-dec recogs ---
+
     res = recog_model(
         task=task,
         model=model,
@@ -1015,7 +1074,7 @@ def py():
             "beam_size": 64,
         },
     )
-    tk.register_output("aed+ctc-debug/aed-only-res.txt", res.output)
+    tk.register_output("aed+ctc-debug/trafo-dec/aed-only-res.txt", res.output)
 
     # (AED only with beam size 12... joint AED+CTC with beam size 64)
     # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
@@ -1026,26 +1085,44 @@ def py():
     # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.30, "test-clean": 2.08, "test-other": 4.50}
     # joint 1st pass dev-other time: elapsed: 0:13:06.9674
     aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
-        prefix="aed+ctc-debug/with-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
+        prefix="aed+ctc-debug/trafo-dec/with-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
 
     # without prior:
     # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.34, "test-clean": 2.09, "test-other": 4.59}
     # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
     aed_ctc_timesync_recog_recomb_auto_scale(
-        prefix="aed+ctc-debug/no-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
+        prefix="aed+ctc-debug/trafo-dec/no-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
 
     for i in [4, 10, 16]:
         aed_ctc_timesync_recog_recomb_auto_scale(
-            prefix=f"aed+ctc-debug/no-prior-ctc{i}", task=task, aed_ctc_model=model, aux_ctc_layer=i
+            prefix=f"aed+ctc-debug/trafo-dec/no-prior-ctc{i}", task=task, aed_ctc_model=model, aux_ctc_layer=i
         )
 
     for collapse in [None, 0.5, 0.8, 0.9]:
         aed_ctc_timesync_recog_recomb_auto_scale(
-            prefix=f"aed+ctc-debug/no-prior-collapse{collapse}",
+            prefix=f"aed+ctc-debug/trafo-dec/no-prior-collapse{collapse}",
             task=task,
             aed_ctc_model=model,
             aux_ctc_layer=16,
             ctc_soft_collapse_threshold=collapse,
         )
+
+    # --- now LSTM dec recogs ---
+
+    res = recog_model(
+        task=task,
+        model=model_lstm_dec,
+        recog_def=model_recog,
+        config={
+            "behavior_version": 24,  # should make it independent from batch size
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+            "beam_size": 64,
+        },
+    )
+    tk.register_output("aed+ctc-debug/lstm-dec/aed-only-res.txt", res.output)
+
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix="aed+ctc-debug/lstm-dec/no-prior", task=task, aed_ctc_model=model_lstm_dec, aux_ctc_layer=16
+    )
