@@ -1187,6 +1187,14 @@ def py():
     # bhv21-s2-h1: ...
     # bhv24-s1-h0: ...
     # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    # Note: fixMp (fix_mp) will fix MultiProcDataset opts for serialization version 2.
+    # This will only change num_workers from 4 -> 25. And 4 workers gives much worse results?
+    # But what does this change? The only thing that I can see now is the RNG for audio/targets:
+    # self._audio_random.seed(random_seed), self.targets.set_random_seed(random_seed).
+    # The RNG should then be the same across all 4 or 25 workers.
+    # In case of 25 workers, every 25 seqs will have exactly the same kind of speed perturbation.
+    # This was not really intended, but this is helping?
+    # TODO We need to verify this...
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
         (21, 1, 1, False),
