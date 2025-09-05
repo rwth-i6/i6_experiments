@@ -1101,6 +1101,11 @@ def py():
             prefix=f"aed+ctc-debug/trafo-dec/no-prior-ctc{i}", task=task, aed_ctc_model=model, aux_ctc_layer=i
         )
 
+    # Try different ctc_soft_collapse_threshold values.
+    # None: {"dev-clean": 1.87, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.49}, elapsed (d-o): 0:26:26.3153
+    # 0.5:  {"dev-clean": 1.87, "dev-other": 4.28, "test-clean": 2.12, "test-other": 4.50}, elapsed (d-o): 0:13:03.1793
+    # 0.8:  {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}, elapsed (d-o): 0:13:04.2007
+    # 0.9:  {"dev-clean": 1.87, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}, elapsed (d-o): 0:13:15.5267
     for collapse in [None, 0.5, 0.8, 0.9]:
         aed_ctc_timesync_recog_recomb_auto_scale(
             prefix=f"aed+ctc-debug/trafo-dec/no-prior-collapse{collapse}",
