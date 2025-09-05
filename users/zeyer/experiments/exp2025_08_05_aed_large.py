@@ -1180,7 +1180,7 @@ def py():
         )
 
     # Try again old-vs-new serialization, also old-vs-new behavior version.
-    # Try also running it again multiple times (__trigger_new_hash, "vN").
+    # Try also running it again multiple times (__trigger_new_hash, "hN").
     # bhv21-s1-h0: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     # bhv21-s1-h1: {"dev-clean": 2.66, "dev-other": 4.74, "test-clean": 2.85, "test-other": 5.00}
     # bhv21-s2-h0: {"dev-clean": 3.41, "dev-other": 5.56, "test-clean": 3.90, "test-other": 5.77}
