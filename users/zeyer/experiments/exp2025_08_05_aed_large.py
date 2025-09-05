@@ -1474,10 +1474,17 @@ def py():
     # Pad audio (AudioPad) to somehow have it similar as wrong conv
     # (as in behavior version 21, but here using behavior version 24).
     # Note: the number (eg 1k) is on sample level. 1k means 1000 samples, i.e. ~0.06 sec.
-    # Baseline (bhv21):
-    # Baseline (bhv24) (directly comparable): ...
-    # AudioPad1k:
-    for name, opts in {"0": None, "1k": 1000, "Rnd2k": {"train": ((0, 2000), (0, 2000))}}.items():
+    # Baseline (bhv21-s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # Baseline (bhv24-s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    # bhv24-s2 is directly comparable.
+    #          AudioPad1k: {"dev-clean": 3.51, "dev-other": 5.02, "test-clean": 3.49, "test-other": 5.64}
+    #       AudioPadRnd2k: {"dev-clean": 3.95, "dev-other": 5.43, "test-clean": 4.44, "test-other": 5.92}
+    for name, opts in {
+        "0": None,
+        "1k": 1000,
+        "Rnd2k": {"train": ((0, 2000), (0, 2000))},
+        "Rnd100": {"train": ((0, 100), (0, 100))},
+    }.items():
         aed_train_exp(
             f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
             config_96gb_bf16_accgrad1,
