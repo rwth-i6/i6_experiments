@@ -128,6 +128,15 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
     )
 
+    # Also register the CTC-only results. (Will not do search again, should be same hash.)
+    res = recog_model(
+        task=task,
+        model=ctc_model_only,
+        recog_def=model_recog_with_recomb,
+        config={**base_config, "beam_size": n_best_list_size},
+    )
+    tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
+
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
 
