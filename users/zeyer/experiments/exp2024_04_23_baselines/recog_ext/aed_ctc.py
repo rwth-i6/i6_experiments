@@ -39,7 +39,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
-from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx, _aed_model_def_blank_label
+from ..aed import Model, model_recog, _batch_size_factor, _aed_model_def_blank_idx, _aed_model_def_blank_label
 
 
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -1004,6 +1004,18 @@ def py():
     )
     model = exp.get_last_fixed_epoch()
     task = get_librispeech_task_raw_v2(vocab=vocab)
+
+    res = recog_model(
+        task=task,
+        model=model,
+        recog_def=model_recog,
+        config={
+            "behavior_version": 24,  # should make it independent from batch size
+            "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+            "beam_size": 64,
+        },
+    )
+    tk.register_output("aed+ctc-debug/aed-only-res.txt", res.output)
 
     # (AED only with beam size 12... joint AED+CTC with beam size 64)
     # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
