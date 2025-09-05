@@ -1133,6 +1133,7 @@ def py():
         tk.register_output(f"aed+ctc-debug/lstm-dec/aed-only-bs{bs}-res.txt", res.output)
         # AED-only bs64: {"dev-clean": 2.15, "dev-other": 4.64, "test-clean": 2.36, "test-other": 4.71}
 
+    # {"dev-clean": 1.95, "dev-other": 4.39, "test-clean": 2.08, "test-other": 4.59}
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix="aed+ctc-debug/lstm-dec/no-prior", task=task, aed_ctc_model=model_lstm_dec, aux_ctc_layer=16
     )
