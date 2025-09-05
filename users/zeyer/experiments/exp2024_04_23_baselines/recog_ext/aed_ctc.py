@@ -1131,3 +1131,7 @@ def py():
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix="aed+ctc-debug/lstm-dec/no-prior", task=task, aed_ctc_model=model_lstm_dec, aux_ctc_layer=16
     )
+
+    from .._claix2023_utils import setup_job_symlinks
+
+    setup_job_symlinks()
