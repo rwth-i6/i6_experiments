@@ -654,18 +654,20 @@ def model_recog_with_recomb(
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
         if decoder is not None and got_new_label_cpu.raw_tensor.sum().item() > 0:
-            (target_, decoder_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                (target, decoder_state),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
-                dims=batch_dims + [beam_dim],
+            (target_, decoder_state_, enc_), packed_new_label_dim, packed_new_label_dim_map = (
+                rf.nested.masked_select_nested(
+                    (target, decoder_state, enc),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                )
             )
             # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
             assert packed_new_label_dim.get_dim_value() > 0
 
             decoder_logits_, decoder_state_ = decoder(
                 target_,
-                encoder=enc,
+                encoder=enc_,
                 spatial_dim=single_step_dim,
                 state=decoder_state_,
             )  # Flat_Batch_Beam, Vocab / ...
