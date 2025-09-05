@@ -90,7 +90,8 @@ def train(
         assert hasattr(train_dataset, "train_audio_preprocess")
         train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
     mp_ds_opts = {}
-    # WARNING this is inconsistent to how we had it before... this is never used
+    # WARNING this is inconsistent to how we had it before... we have mostly not used this yet.
+    # However, we also cannot change this anymore now, as this would change a lot of existing setups.
     if "__multi_proc_dataset" in config:
         mp_ds = config.pop("__multi_proc_dataset")
         if isinstance(mp_ds, bool):
