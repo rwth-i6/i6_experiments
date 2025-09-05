@@ -1847,10 +1847,10 @@ def py():
 
     # Again but without aux CTC loss LS (which seems to be suboptimal).
     # Unclear... Too much?
-    # TODO more... less errs. maybe no ins?
     for name, opts in [
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
         ("0", None),
+        ("A0.01", _ta_vA_err_prob(0.01)),
         ("A0.05", _ta_vA_err_prob(0.05)),
         # {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
         ("A0.1", _ta_vA_err_prob(0.1)),
@@ -1858,6 +1858,7 @@ def py():
         ("A0.2", _ta_vA_err_prob(0.2)),
         # {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
         ("Sub0.1", _ta_sub_err_prob(0.1)),
+        # {"dev-clean": 4.19, "dev-other": 5.57, "test-clean": 4.59, "test-other": 5.82}
         ("Del0.05Sub0.05", _ta_del_sub_err_prob(0.05, 0.05)),
     ]:
         aed_train_exp(
