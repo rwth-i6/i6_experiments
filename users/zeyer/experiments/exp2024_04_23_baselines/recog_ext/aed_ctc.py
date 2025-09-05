@@ -171,6 +171,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     aed_scale = opt_scales_job.out_real_scale_per_name["aed"]
 
     # Rescore CTC results with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    # (Will not do search again, should be same hash.)
     res = recog_model(
         task=task,
         model=ctc_model_only,
