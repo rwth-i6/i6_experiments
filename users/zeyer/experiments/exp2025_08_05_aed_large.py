@@ -1187,9 +1187,19 @@ def py():
     # bhv21-s2-h1: ...
     # bhv24-s1-h0: ...
     # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
-    for bhv, sv, hv in [(21, 1, 0), (21, 1, 1), (21, 2, 0), (21, 2, 1), (24, 1, 0), (24, 2, 0)]:
+    for bhv, sv, hv, fix_mp in [
+        (21, 1, 0, False),
+        (21, 1, 1, False),
+        (21, 2, 0, False),
+        (21, 2, 1, False),
+        (21, 2, 0, True),
+        (24, 1, 0, False),
+        (24, 2, 0, False),
+        (24, 2, 0, True),
+    ]:
         aed_train_exp(
-            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k-bhv{bhv}-s{sv}-h{hv}",
+            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
+            f"-bhv{bhv}-s{sv}-{'fixMp-' if fix_mp else ''}h{hv}",
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -1243,7 +1253,10 @@ def py():
                 # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
                 "max_seq_length_default_input": 19.5 * _raw_sample_rate,
             },
-            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            post_config_updates={
+                "log_grad_norm": True,
+                "__multi_proc_dataset" if fix_mp else "__multi_proc_dataset_opts": {"num_workers": 25},
+            },
             vocab="spm10k",
             # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
