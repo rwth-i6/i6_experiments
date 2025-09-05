@@ -43,6 +43,149 @@ from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx, _aed_mode
 
 
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
+# following further defaults from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023.recog_ext_with_lm,
+# now without prior
+def aed_ctc_timesync_recog_recomb_auto_scale(
+    *,
+    prefix: str,
+    task: Task,
+    aed_ctc_model: ModelWithCheckpoint,
+    aux_ctc_layer: int,
+    vocab_file: tk.Path = NotSpecified,
+    vocab_opts_file: tk.Path = NotSpecified,
+    ctc_soft_collapse_threshold: float = 0.8,  # default
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
+    first_pass_search_rqmt: Optional[Dict[str, int]] = None,
+    recomb_type: str = "max",
+    extra_config: Optional[Dict[str, Any]] = None,
+) -> ScoreResultCollection:
+    """
+    Like :func:`aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale` but not using a prior.
+
+    Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
+    then calc scores with framewise prior and LM on N-best list,
+    then tune optimal scales on N-best list,
+    then rescore on all ``task.eval_datasets`` using those scales,
+    and also do first-pass recog (``model_recog_with_recomb``) with those scales.
+    """
+    if vocab_file is NotSpecified:
+        vocab_file = ExtractVocabLabelsJob(_get_vocab_opts_from_task(task)).out_vocab
+        # tk.register_output(f"{prefix}/vocab/{vocab}/vocab.txt.gz", vocab_file)
+
+    if vocab_opts_file is NotSpecified:
+        vocab_opts_file = ExtractVocabSpecialLabelsJob(_get_vocab_opts_from_task(task)).out_vocab_special_labels_dict
+        # tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
+
+    # For CTC-only and then also for joint AED+CTC+prior.
+    base_config = {
+        "behavior_version": 24,  # should make it independent from batch size
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+        "recog_recomb": recomb_type,
+        "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+        "aux_loss_layers": [aux_ctc_layer],
+    }
+    if extra_config:
+        base_config = dict_update_deep(base_config, extra_config)
+
+    # Only use CTC for first search, no AED, no prior.
+    ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
+    dataset = task.dev_dataset
+    ctc_scores = search_dataset(
+        dataset=dataset,
+        model=ctc_model_only,
+        recog_def=model_recog_with_recomb,
+        config={**base_config, "beam_size": n_best_list_size},
+        keep_beam=True,
+    )
+    aed_scores = aed_score(
+        ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
+    )
+
+    # Also register the CTC-only results. (Will not do search again, should be same hash.)
+    res = recog_model(
+        task=task,
+        model=ctc_model_only,
+        recog_def=model_recog_with_recomb,
+        config={**base_config, "beam_size": n_best_list_size},
+    )
+    tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
+
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        ctc_scores = f(ctc_scores)
+        aed_scores = f(aed_scores)
+        ref = f(ref)
+
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+    opt_scales_job = ScaleTuningJob(
+        scores={"ctc": ctc_scores.output, "aed": aed_scores.output},
+        ref=ref.output,
+        fixed_scales={"ctc": 1.0},
+        evaluation="edit_distance",
+    )
+    opt_scales_job.rqmt["engine"] = "short"  # should be fine
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
+    # We use the real scales.
+    aed_scale = opt_scales_job.out_real_scale_per_name["aed"]
+
+    # Rescore CTC results with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    # (Will not do search again, should be same hash.)
+    res = recog_model(
+        task=task,
+        model=ctc_model_only,
+        recog_def=model_recog_with_recomb,
+        config={**base_config, "beam_size": n_best_list_size},
+        recog_pre_post_proc_funcs_ext=[
+            functools.partial(
+                aed_labelwise_prior_rescore,
+                aed_model=aed_ctc_model,
+                aed_scale=aed_scale,
+                aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
+                vocab=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+            )
+        ],
+    )
+    tk.register_output(f"{prefix}/rescore-res.txt", res.output)
+
+    # Now do 1st-pass recog with optimal scales.
+    model = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=aed_scale)
+    first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
+    first_pass_search_rqmt.setdefault("time", 24)
+    first_pass_search_rqmt.setdefault("mem", 50)
+    res = recog_model(
+        task=task,
+        model=model,
+        recog_def=model_recog_with_recomb,
+        config={
+            **base_config,
+            "beam_size": first_pass_recog_beam_size,
+            # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
+            # So when the beam size is larger, reduce batch size.
+            # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
+            "batch_size": int(
+                20_000 * aed_ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+            ),
+        },
+        search_rqmt=first_pass_search_rqmt,
+        name=f"{prefix}/recog-opt-1stpass",
+    )
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
+    return res
+
+
+# like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
 # following further defaults from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023.recog_ext_with_lm
 def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     *,
@@ -162,6 +305,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         scale_relative_to={"prior": "aed"},
         evaluation="edit_distance",
     )
+    opt_scales_job.rqmt["engine"] = "short"  # should be fine
     tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
     tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
     # We use the real scales.
@@ -180,7 +324,6 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 aed_labelwise_prior_rescore,
-                # framewise standard prior
                 prior=labelwise_prior,
                 prior_scale=prior_scale,
                 aed_model=aed_ctc_model,
@@ -861,10 +1004,19 @@ def py():
     )
     model = exp.get_last_fixed_epoch()
     task = get_librispeech_task_raw_v2(vocab=vocab)
+
     # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
     # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
     # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.33, "test-clean": 2.06, "test-other": 4.59}
     # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.30, "test-clean": 2.08, "test-other": 4.50}
     aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
-        prefix="aed+ctc-debug", task=task, aed_ctc_model=model, aux_ctc_layer=16
+        prefix="aed+ctc-debug/with-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
+    )
+
+    # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
+    # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
+    # joint AED+CTC (rescore):  ...
+    # joint AED+CTC (1st-pass): ...
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix="aed+ctc-debug/no-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
