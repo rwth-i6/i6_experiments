@@ -1179,18 +1179,21 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    # Try again old-vs-new serialization, always behavior version 21. But there doesn't seem to be any difference...?
+    # Try again old-vs-new serialization, also old-vs-new behavior version.
     # Try also running it again multiple times (__trigger_new_hash, "vN").
-    # s1-bhv21-h0: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
-    # s1-bhv21-h1: {"dev-clean": 2.66, "dev-other": 4.74, "test-clean": 2.85, "test-other": 5.00}
-    # s2-bhv21-h0: {"dev-clean": 3.41, "dev-other": 5.56, "test-clean": 3.90, "test-other": 5.77}
-    for sv, hv in [(1, 0), (1, 1), (2, 0), (2, 1)]:
+    # bhv21-s1-h0: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # bhv21-s1-h1: {"dev-clean": 2.66, "dev-other": 4.74, "test-clean": 2.85, "test-other": 5.00}
+    # bhv21-s2-h0: {"dev-clean": 3.41, "dev-other": 5.56, "test-clean": 3.90, "test-other": 5.77}
+    # bhv21-s2-h1: ...
+    # bhv24-s1-h0: ...
+    # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    for bhv, sv, hv in [(21, 1, 0), (21, 1, 1), (21, 2, 0), (21, 2, 1), (24, 1, 0), (24, 2, 0)]:
         aed_train_exp(
-            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k-s{sv}-bhv21-h{hv}",
+            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k-bhv{bhv}-s{sv}-h{hv}",
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
-                "behavior_version": 21,
+                "behavior_version": bhv,
                 **({"__serialization_version": sv} if sv != 1 else {}),
                 **({"__trigger_new_hash": hv} if hv != 0 else {}),
                 "enc_build_dict": rf.build_dict(
@@ -1473,6 +1476,7 @@ def py():
     # Note: the number (eg 1k) is on sample level. 1k means 1000 samples, i.e. ~0.06 sec.
     # Baseline (bhv21):
     # Baseline (bhv24) (directly comparable): ...
+    # AudioPad1k:
     for name, opts in {"0": None, "1k": 1000, "Rnd2k": {"train": ((0, 2000), (0, 2000))}}.items():
         aed_train_exp(
             f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
