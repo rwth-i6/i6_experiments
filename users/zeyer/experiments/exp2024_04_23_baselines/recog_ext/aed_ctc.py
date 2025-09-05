@@ -53,7 +53,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     aux_ctc_layer: int,
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
-    ctc_soft_collapse_threshold: float = 0.8,  # default
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,  # default
     n_best_list_size: int = 64,
     first_pass_recog_beam_size: int = 64,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
@@ -1005,20 +1005,35 @@ def py():
     model = exp.get_last_fixed_epoch()
     task = get_librispeech_task_raw_v2(vocab=vocab)
 
+    # (AED only with beam size 12... joint AED+CTC with beam size 64)
     # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
+    # AED-only dev-other time: elapsed: 0:01:38.5610
     # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
+    # with prior:
     # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.33, "test-clean": 2.06, "test-other": 4.59}
     # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.30, "test-clean": 2.08, "test-other": 4.50}
     # joint 1st pass dev-other time: elapsed: 0:13:06.9674
-    # AED-only dev-other time: elapsed: 0:01:38.5610
     aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         prefix="aed+ctc-debug/with-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
 
-    # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
-    # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
+    # without prior:
     # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.34, "test-clean": 2.09, "test-other": 4.59}
     # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix="aed+ctc-debug/no-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
+
+    for i in [4, 10, 16]:
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=f"aed+ctc-debug/no-prior-ctc{i}", task=task, aed_ctc_model=model, aux_ctc_layer=i
+        )
+
+    for collapse in [None, 0.5, 0.8, 0.9]:
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=f"aed+ctc-debug/no-prior-collapse{collapse}",
+            task=task,
+            aed_ctc_model=model,
+            aux_ctc_layer=16,
+            ctc_soft_collapse_threshold=collapse,
+        )
