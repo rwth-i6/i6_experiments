@@ -1009,14 +1009,16 @@ def py():
     # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
     # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.33, "test-clean": 2.06, "test-other": 4.59}
     # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.30, "test-clean": 2.08, "test-other": 4.50}
+    # joint 1st pass dev-other time: elapsed: 0:13:06.9674
+    # AED-only dev-other time: elapsed: 0:01:38.5610
     aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         prefix="aed+ctc-debug/with-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
 
     # AED only:                 {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
     # CTC only:                 {"dev-clean": 2.27, "dev-other": 5.07, "test-clean": 2.39, "test-other": 5.34}
-    # joint AED+CTC (rescore):  ...
-    # joint AED+CTC (1st-pass): ...
+    # joint AED+CTC (rescore):  {"dev-clean": 1.90, "dev-other": 4.34, "test-clean": 2.09, "test-other": 4.59}
+    # joint AED+CTC (1st-pass): {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix="aed+ctc-debug/no-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
