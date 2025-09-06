@@ -46,6 +46,8 @@ class ScliteToWerDistributionGraph(Job):
         logscale: bool = True,
         xlim: Optional[Tuple[float, float]] = (0.0, 100.0),
         graph_type: Literal["bar", "line"] = "bar",
+        rename_datasets: Optional[Dict[str, str]] = None,
+        show_offscreen: bool = True,
     ):
         assert isinstance(report_dir, dict)
 
@@ -57,6 +59,8 @@ class ScliteToWerDistributionGraph(Job):
         self.log_scale = logscale
         self.xlim = xlim or (0.0, 100.0)
         self.graph_type = graph_type
+        self.rename_datasets = rename_datasets or {}
+        self.show_offscreen = show_offscreen
 
         assert 100 % num_bins == 0, (
             "num_bins must be a divisor of 100"
@@ -155,12 +159,13 @@ class ScliteToWerDistributionGraph(Job):
             offscreen_vals = []
             for i, name in enumerate(name_with_vals.keys()):
                 binvals = name_with_vals[name]
+                name = self.rename_datasets.get(name, name)
                 bins, avg, total, num_offscreen = make_bins(binvals, self.num_bins, metric_range, bin_align="edge")
                 assert abs(sum([count / total for count in bins]) - 1.0) < 1e-8, (
                     "bins should make a probability distribution"
                 )
                 xs = range(self.num_bins)
-                
+
                 if self.graph_type == "bar":
                     xs = [float(x) + i * BAR_WIDTH for x in xs]
                     ax.bar(
@@ -191,7 +196,7 @@ class ScliteToWerDistributionGraph(Job):
                         label=f"{metric} {name}: {avg / total:.2f}",
                     )
                     offscreen_vals.append(num_offscreen)
-            if any([n_off > 0 for n_off in offscreen_vals]):
+            if any([n_off > 0 for n_off in offscreen_vals]) and self.show_offscreen:
                 ax.text(0.0, 0.8, f"Offscreen: {', '.join([str(x) for x in offscreen_vals])} instances", fontsize=10)
             if self.kl_divergence:
                 # compute kl divergence
@@ -521,17 +526,18 @@ class SclitePrintExamples(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 7
+        d["__version"] = 9
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
-    def read_reportdir(self, report_dir: tk.AbstractPath) -> dict[str, dict[str, str]]:
+    def read_reportdir(self, report_dir: tk.AbstractPath) -> tuple[dict[str, dict[str, str]], int]:
         values = {}
         odir = report_dir.get_path()
         print(f"Reading {odir}/sclite.pra")
         cur_seq_id = None
+        total_num_words = 0
         cur_vals = {}
         with open(f"{odir}/sclite.pra", errors="ignore") as f:
             for line in f:
@@ -548,6 +554,7 @@ class SclitePrintExamples(Job):
                     assert len(parts) == 9
                     c, s, d, i = [int(p) for p in parts[-4:]]
                     cur_vals["errors"] = s + d + i
+                    total_num_words += s + d + c
                 elif line.startswith("REF:") or line.startswith("HYP:") or line.startswith("Eval:"):
                     assert cur_seq_id is not None
                     key = line.split(":")[0]
@@ -562,12 +569,16 @@ class SclitePrintExamples(Job):
                         cur_seq_id = None
                         cur_vals = {}
 
-        return values
+        return values, total_num_words
 
     def run(self):
         reports = {}
+        num_words = -1
+
         for name, report_dir in self.report_dirs:
-            reports[name] = self.read_reportdir(report_dir)
+            reports[name], new_num_words = self.read_reportdir(report_dir)
+            assert num_words in [-1, new_num_words], f"num words do not match {num_words} vs {new_num_words}"
+            num_words = new_num_words
             print(f"Read {len(reports[name])} lines from {name}")
 
         seq_tags = set(reports[self.report_dirs[0][0]].keys())
@@ -584,10 +595,11 @@ class SclitePrintExamples(Job):
             seq_tags.sort()
 
         with uopen(self.out_file, "w") as f:
+            f.write(f"Total number of words (in refs): {num_words}\n\n")
             for seq_tag in seq_tags:
                 f.write(f"seq {seq_tag}\n")
                 for name, _ in self.report_dirs:
-                    f.write(f"{name}:\n")
+                    f.write(f"{name} ({reports[name][seq_tag]['errors']} errors):\n")
                     f.write(f"\t{reports[name][seq_tag]['ref']}\n")
                     f.write(f"\t{reports[name][seq_tag]['hyp']}\n")
                     f.write(f"\t{reports[name][seq_tag]['eval']}\n")
