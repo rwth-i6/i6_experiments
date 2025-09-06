@@ -1066,6 +1066,9 @@ def py():
 
     # AED only baseline (bs12, bhv21?): {"dev-clean": 2.80, "dev-other": 4.73, "test-clean": 2.82, "test-other": 5.08}
     # 12: {"dev-clean": 2.7, "dev-other": 4.75, "test-clean": 2.72, "test-other": 4.97}
+    # 16: {"dev-clean": 2.69, "dev-other": 4.74, "test-clean": 2.72, "test-other": 4.97}
+    # 32: {"dev-clean": 2.7, "dev-other": 4.74, "test-clean": 2.72, "test-other": 4.96}
+    # 64: {"dev-clean": 2.7, "dev-other": 4.74, "test-clean": 2.72, "test-other": 4.96}
     for bs in [12, 16, 32, 64]:
         res = recog_model(
             task=task,
@@ -1099,6 +1102,9 @@ def py():
         prefix="aed+ctc-debug/trafo-dec/no-prior", task=task, aed_ctc_model=model, aux_ctc_layer=16
     )
 
+    #  4: {"dev-clean": 1.98, "dev-other": 4.77, "test-clean": 2.17, "test-other": 4.92}
+    # 10: {"dev-clean": 1.89, "dev-other": 4.26, "test-clean": 2.08, "test-other": 4.57}
+    # 16: {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
     for i in [4, 10, 16]:
         aed_ctc_timesync_recog_recomb_auto_scale(
             prefix=f"aed+ctc-debug/trafo-dec/no-prior-ctc{i}", task=task, aed_ctc_model=model, aux_ctc_layer=i
@@ -1122,6 +1128,10 @@ def py():
 
     # DecLstm AED-only (bs12, bhv21?): {"dev-clean": 2.12, "dev-other": 4.63, "test-clean": 2.31, "test-other": 4.65}
 
+    # 12: {"dev-clean": 2.15, "dev-other": 4.64, "test-clean": 2.36, "test-other": 4.71}
+    # 16: {"dev-clean": 2.15, "dev-other": 4.64, "test-clean": 2.36, "test-other": 4.71}
+    # 32: {"dev-clean": 2.15, "dev-other": 4.64, "test-clean": 2.30, "test-other": 4.71}
+    # 64: {"dev-clean": 2.15, "dev-other": 4.65, "test-clean": 2.30, "test-other": 4.71}
     for bs in [12, 16, 32, 64]:
         res = recog_model(
             task=task,
@@ -1141,6 +1151,8 @@ def py():
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix="aed+ctc-debug/lstm-dec/no-prior", task=task, aed_ctc_model=model_lstm_dec, aux_ctc_layer=16
     )
+
+    # ----------------------
 
     from .._claix2023_utils import setup_job_symlinks
 
