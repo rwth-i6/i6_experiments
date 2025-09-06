@@ -152,9 +152,10 @@ def py():
         (0.0, 0.1),  # {"dev-clean": 2.22, "dev-other": 4.97, "test-clean": 2.28, "test-other": 5.16}
         (0.0, 0.2),  # {"dev-clean": 2.29, "dev-other": 5.03, "test-clean": 2.33, "test-other": 5.36}
         (0.0, 0.5),  # {"dev-clean": 2.37, "dev-other": 5.44, "test-clean": 2.52, "test-other": 5.69}
-        (0.1, 0.1),  # {"dev-clean": 2.07, "dev-other": 4.76, "test-clean": 2.3, "test-other": 5.13}
-        (0.2, 0.2),
-        (0.3, 0.3),
+        (0.1, 0.1),  # {"dev-clean": 2.07, "dev-other": 4.76, "test-clean": 2.30, "test-other": 5.13}
+        # 0.1,0.1 +LM: {"dev-clean": 1.79, "dev-other": 3.89, "test-clean": 2.01, "test-other": 4.38}
+        (0.2, 0.2),  # {"dev-clean": 2.17, "dev-other": 4.82, "test-clean": 2.33, "test-other": 5.00}
+        (0.3, 0.3),  # {"dev-clean": 2.12, "dev-other": 4.88, "test-clean": 2.20, "test-other": 5.05}
     ]:
         name = f"L16-D1024-spm10k-auxAED-ls{ls}-auxLs{aux_ls}-b100k"
         ctc_train_exp(
@@ -212,9 +213,8 @@ def py():
             # avoid OOM
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
-        # recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
+        recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
     del ls, aux_ls
-    recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-ls0.1-auxLs0.1-b100k", lm_name="n32-d1024-claix2023")
 
     # Ablation: do without auxAED
     name = "L16-D1024-spm10k-ls0.1-auxLs0.1-b100k"
@@ -322,6 +322,8 @@ def py():
         # avoid OOM
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+    #  baseline: {"dev-clean": 1.79, "dev-other": 3.89, "test-clean": 2.01, "test-other": 4.38}
+    # auxShared: {"dev-clean": 1.86, "dev-other": 3.80, "test-clean": 1.92, "test-other": 4.12} !!
     recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # without logits bias (logitsNoBias)
@@ -378,6 +380,8 @@ def py():
         # avoid OOM
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+    # baseline: {"dev-clean": 1.79, "dev-other": 3.89, "test-clean": 2.01, "test-other": 4.38}
+    # logitsNoBias: {"dev-clean": 1.89, "dev-other": 3.84, "test-clean": 2.03, "test-other": 4.25}
     recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # blank separated (blankSep) (without label smoothing)
@@ -433,6 +437,8 @@ def py():
         # avoid OOM
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+    # baseline: {"dev-clean": 1.85, "dev-other": 3.93, "test-clean": 2.0, "test-other": 4.27}
+    # blankSep: {"dev-clean": 1.80, "dev-other": 3.89, "test-clean": 2.0, "test-other": 4.15}
     recog_ext_with_lm(ctc_model_name=name, lm_name="n32-d1024-claix2023")
 
     # TODO blank sep with label smoothing variants (incl blank or not)
