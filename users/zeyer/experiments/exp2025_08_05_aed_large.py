@@ -347,6 +347,8 @@ def py():
     # )
 
     # TrafoDec with pos enc: 5.18 (vs 5.72)
+    #     Baseline: {"dev-clean": 3.61, "dev-other": 5.72, "test-clean": 4.18, "test-other": 5.84}
+    # DecPosEncAbs: {"dev-clean": 3.03, "dev-other": 5.18, "test-clean": 3.21, "test-other": 5.64}
     # (Better baselines below.)
     # aed_train_exp(
     #     "EncL16-DecL6-D1024-DecPosEncAbs-aux6_12-spm10k-spmSample07-b100k",
@@ -1341,16 +1343,6 @@ def py():
     #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     # )
 
-    # TODO likely bhv24 is worse, probably due to less regularization that we have with bhv21.
-    #   how can we replicate that more explicitly?
-    #   maybe in RF conv.py, add sth like:
-    #   def setup_hook_on_conv_padding(...):
-    #     ...
-    #   but in a way that would keep the out_spatial_dims. similar to _consistent_same_padding.
-    #   could also cover randomness in striding offsets, like _consistent_same_padding but random instead of consistent.
-    #   or: just pad some random noise left/right to the audio raw samples. or silence.
-    #   that might have a similar effect (but then also do in recog? or do this in training only sometimes?)
-
     # Also try abs pos enc in encoder (EncPosEncAbs) (compare this to the ...-s2 above)
     # baseline (s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     # baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
@@ -1706,8 +1698,8 @@ def py():
     )
 
     # Better baseline (DecPosEncAbs, featBN, bpeSample001, baseLr0.5) with CTC label smoothing (auxCtcLs0.1).
-    # Baseline without aux CTC loss: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
-    #                   auxCtcLs0.1: {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
+    # Baseline without aux CTC loss (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    #                        auxCtcLs0.1: {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
     # -> Aux CTC loss label smoothing unclear...
     # aed_train_exp(
     #     "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-spm10k-bpeSample001-baseLr0.5-b100k",
@@ -1790,7 +1782,7 @@ def py():
     def _ta_sub_err_prob(p):
         return {"keep_del_sub_probs": [1 - p, 0.0, p]}
 
-    # auxCtcLs0.1 was maybe a bad choice here... Redoing this below.
+    # auxCtcLs0.1 was maybe a bad choice here... / also s2. Redoing this below.
     # for name, opts in [
     #     # baseline (0): {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
     #     ("0", None),
@@ -2219,7 +2211,7 @@ def py():
     #             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     #         )
 
-    # Again without aux CTC LS (but still based on s2). All using baseLr0.5.
+    # Again customLr without aux CTC LS (but still based on s2). All using baseLr0.5.
     # TODO what now?
     for name, lr_mult_by_patterns in {
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.4}
@@ -2795,124 +2787,130 @@ def py():
     # TODO new baseline:
     #   auxShared + auxDec3 + bhv21 / AudioPad* / noConvMask (?) + ...?
 
-    # Try with standard Transformer decoder.
-    aed_train_exp(
-        "EncL16-DecL6-DecStd-D1024-aux4_10_16-spm10k-spmSample07-b100k",
-        config_96gb_bf16_accgrad1,
-        prefix=prefix + "/aed/",
-        model_config={
-            "enc_build_dict": rf.build_dict(
-                ConformerEncoder,
-                input_layer=rf.build_dict(
-                    ConformerConvSubsample,
-                    out_dims=[32, 64, 64],
-                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                    pool_sizes=[(1, 2)],
-                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                ),
-                num_layers=16,
-                out_dim=1024,
-                encoder_layer=rf.build_dict(
-                    ConformerEncoderLayer,
-                    ff=rf.build_dict(
-                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                    ),
-                    num_heads=8,
-                ),
-            ),
-            # Default AED decoder size: 6 layers, 512 dim
-            "dec_build_dict": rf.build_dict(
-                TransformerDecoder,
-                num_layers=6,
-                model_dim=1024,
-                # When only trained on LS ASR data, keep the default dropout?
-                # dropout=0.0,
-                # att_dropout=0.0,
-            ),
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_loss_layers": [4, 10, 16],
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-        # train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # Try with standard Transformer decoder (DecStd).
+    # baseline: {"dev-clean": 2.82, "dev-other": 4.8, "test-clean": 3.66, "test-other": 5.22}
+    #   DecStd: {"dev-clean": 3.4, "dev-other": 5.23, "test-clean": 3.58, "test-other": 5.44}
+    # aed_train_exp(
+    #     "EncL16-DecL6-DecStd-D1024-aux4_10_16-spm10k-spmSample07-b100k",
+    #     config_96gb_bf16_accgrad1,
+    #     prefix=prefix + "/aed/",
+    #     model_config={
+    #         "enc_build_dict": rf.build_dict(
+    #             ConformerEncoder,
+    #             input_layer=rf.build_dict(
+    #                 ConformerConvSubsample,
+    #                 out_dims=[32, 64, 64],
+    #                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                 pool_sizes=[(1, 2)],
+    #                 strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #             ),
+    #             num_layers=16,
+    #             out_dim=1024,
+    #             encoder_layer=rf.build_dict(
+    #                 ConformerEncoderLayer,
+    #                 ff=rf.build_dict(
+    #                     ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #                 ),
+    #                 num_heads=8,
+    #             ),
+    #         ),
+    #         # Default AED decoder size: 6 layers, 512 dim
+    #         "dec_build_dict": rf.build_dict(
+    #             TransformerDecoder,
+    #             num_layers=6,
+    #             model_dim=1024,
+    #             # When only trained on LS ASR data, keep the default dropout?
+    #             # dropout=0.0,
+    #             # att_dropout=0.0,
+    #         ),
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_loss_layers": [4, 10, 16],
+    #         "max_seq_length_default_target": None,
+    #         # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #         # out of 281241 seqs in train, we removed only 71 seqs.
+    #         # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #     },
+    #     post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #     vocab="spm10k",
+    #     train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #     # train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     # Standard Transformer decoder more label smoothing.
-    for label_smoothing in [0.0, 0.1, 0.2]:
-        aed_train_exp(
-            f"EncL16-DecL6-DecStd-D1024-aux4_10_16-ls{label_smoothing}-spm10k-spmSample07-b100k",
-            config_96gb_bf16_accgrad1,
-            prefix=prefix + "/aed/",
-            model_config={
-                "enc_build_dict": rf.build_dict(
-                    ConformerEncoder,
-                    input_layer=rf.build_dict(
-                        ConformerConvSubsample,
-                        out_dims=[32, 64, 64],
-                        filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                        pool_sizes=[(1, 2)],
-                        strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                    ),
-                    num_layers=16,
-                    out_dim=1024,
-                    encoder_layer=rf.build_dict(
-                        ConformerEncoderLayer,
-                        ff=rf.build_dict(
-                            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                        ),
-                        num_heads=8,
-                    ),
-                ),
-                # Default AED decoder size: 6 layers, 512 dim
-                "dec_build_dict": rf.build_dict(
-                    TransformerDecoder,
-                    num_layers=6,
-                    model_dim=1024,
-                    # When only trained on LS ASR data, keep the default dropout?
-                    # dropout=0.0,
-                    # att_dropout=0.0,
-                ),
-            },
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
-                "optimizer.weight_decay": 1e-2,
-                **({"label_smoothing": label_smoothing} if label_smoothing != 0.1 else {}),
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "aux_loss_layers": [4, 10, 16],
-                "max_seq_length_default_target": None,
-                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-                # out of 281241 seqs in train, we removed only 71 seqs.
-                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-            },
-            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-            # train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-        )
+    # 0.0: {"dev-clean": 3.40, "dev-other": 5.40, "test-clean": 3.63, "test-other": 5.66}
+    # 0.1: {"dev-clean": 3.40, "dev-other": 5.23, "test-clean": 3.58, "test-other": 5.44}
+    # 0.2: {"dev-clean": 3.39, "dev-other": 5.18, "test-clean": 3.59, "test-other": 5.44}
+    # for label_smoothing in [0.0, 0.1, 0.2]:
+    #     aed_train_exp(
+    #         f"EncL16-DecL6-DecStd-D1024-aux4_10_16-ls{label_smoothing}-spm10k-spmSample07-b100k",
+    #         config_96gb_bf16_accgrad1,
+    #         prefix=prefix + "/aed/",
+    #         model_config={
+    #             "enc_build_dict": rf.build_dict(
+    #                 ConformerEncoder,
+    #                 input_layer=rf.build_dict(
+    #                     ConformerConvSubsample,
+    #                     out_dims=[32, 64, 64],
+    #                     filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                     pool_sizes=[(1, 2)],
+    #                     strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #                 ),
+    #                 num_layers=16,
+    #                 out_dim=1024,
+    #                 encoder_layer=rf.build_dict(
+    #                     ConformerEncoderLayer,
+    #                     ff=rf.build_dict(
+    #                         ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #                     ),
+    #                     num_heads=8,
+    #                 ),
+    #             ),
+    #             # Default AED decoder size: 6 layers, 512 dim
+    #             "dec_build_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 num_layers=6,
+    #                 model_dim=1024,
+    #                 # When only trained on LS ASR data, keep the default dropout?
+    #                 # dropout=0.0,
+    #                 # att_dropout=0.0,
+    #             ),
+    #         },
+    #         config_updates={
+    #             **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
+    #             "optimizer.weight_decay": 1e-2,
+    #             **({"label_smoothing": label_smoothing} if label_smoothing != 0.1 else {}),
+    #             "__train_audio_preprocess": speed_pert_librosa_config,
+    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #             "aux_loss_layers": [4, 10, 16],
+    #             "max_seq_length_default_target": None,
+    #             # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #             # out of 281241 seqs in train, we removed only 71 seqs.
+    #             # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #         },
+    #         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #         vocab="spm10k",
+    #         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #         # train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    #     )
 
-    # Try stochastic depth in decoder.
-    # 0.0: {"dev-clean": 2.38, "dev-other": 4.87, "test-clean": 2.89, "test-other": 5.35}
+    # Try stochastic depth in decoder. (Suboptimal aux_loss_layers here, implicit aux4_8)
+    # (0.0: {"dev-clean": 2.38, "dev-other": 4.87, "test-clean": 2.89, "test-other": 5.35}) -- not comparable, s1
     # 0.1: {"dev-clean": 2.87, "dev-other": 5.25, "test-clean": 2.96, "test-other": 5.53}
     # 0.2: {"dev-clean": 3.19, "dev-other": 5.48, "test-clean": 3.22, "test-other": 5.78}
     # 0.3: {"dev-clean": 2.60, "dev-other": 5.07, "test-clean": 2.80, "test-other": 5.53}
     # 0.4: {"dev-clean": 2.82, "dev-other": 5.30, "test-clean": 3.53, "test-other": 5.49}
+    # TODO redo in consistent setup (fixed s2, better baseline...)
     # for layer_drop in [0.0, 0.1, 0.2, 0.3, 0.4]:
     #     aed_train_exp(
     #         f"EncL16-DecL6-D1024-DecPosEncAbs-DecLayerDrop{layer_drop}-spm10k-bpeSample001-baseLr0.5-b100k",
@@ -3057,7 +3055,7 @@ def py():
     #  EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k)
     # baseline (trafo dec, s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     #                  DecLstm: {"dev-clean": 2.12, "dev-other": 4.63, "test-clean": 2.31, "test-other": 4.65}
-    # TODO compare also using joint CTC
+    # Note: See also joint AED+CTC results (recog_ext/aed_ctc.py).
     aed_train_exp(
         "EncL16-DecLstm-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
@@ -3175,69 +3173,71 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    # Testing custom readout at the top of the Transformer decoder (DecReadoutMax)
-    from i6_experiments.users.zeyer.nn_rf.decoder import trafo_custom_readout
+    # from i6_experiments.users.zeyer.nn_rf.decoder import trafo_custom_readout
 
-    aed_train_exp(
-        "EncL16-DecL6-D1024-DecPosEncAbs-DecReadoutMax-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
-        config_96gb_bf16_accgrad1,
-        prefix=prefix + "/aed/",
-        model_config={
-            "enc_build_dict": rf.build_dict(
-                ConformerEncoder,
-                input_layer=rf.build_dict(
-                    ConformerConvSubsample,
-                    out_dims=[32, 64, 64],
-                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                    pool_sizes=[(1, 2)],
-                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                ),
-                num_layers=16,
-                out_dim=1024,
-                encoder_layer=rf.build_dict(
-                    ConformerEncoderLayer,
-                    ff=rf.build_dict(
-                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                    ),
-                    num_heads=8,
-                ),
-            ),
-            # Default AED decoder size: 6 layers, 512 dim
-            "dec_build_dict": rf.build_dict(
-                trafo_custom_readout.TransformerDecoder,
-                num_layers=6,
-                model_dim=1024,
-                norm=rf.build_dict(rf.RMSNorm),
-                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                readout=rf.build_dict(trafo_custom_readout.ReadoutMaxout),
-                # When only trained on LS ASR data, keep the default dropout?
-                # dropout=0.0,
-                # att_dropout=0.0,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-            "batch_size": 100_000 * _batch_size_factor,
-            "optimizer.weight_decay": 1e-2,
-            "accum_grad_multiple_step": 1,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_loss_layers": [4, 10, 16],
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # Testing custom readout at the top of the Transformer decoder (DecReadoutMax)
+    #      Baseline: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # DecReadoutMax: {"dev-clean": 2.60, "dev-other": 4.96, "test-clean": 2.67, "test-other": 5.27}
+    # aed_train_exp(
+    #     "EncL16-DecL6-D1024-DecPosEncAbs-DecReadoutMax-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+    #     config_96gb_bf16_accgrad1,
+    #     prefix=prefix + "/aed/",
+    #     model_config={
+    #         "enc_build_dict": rf.build_dict(
+    #             ConformerEncoder,
+    #             input_layer=rf.build_dict(
+    #                 ConformerConvSubsample,
+    #                 out_dims=[32, 64, 64],
+    #                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                 pool_sizes=[(1, 2)],
+    #                 strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #             ),
+    #             num_layers=16,
+    #             out_dim=1024,
+    #             encoder_layer=rf.build_dict(
+    #                 ConformerEncoderLayer,
+    #                 ff=rf.build_dict(
+    #                     ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #                 ),
+    #                 num_heads=8,
+    #             ),
+    #         ),
+    #         # Default AED decoder size: 6 layers, 512 dim
+    #         "dec_build_dict": rf.build_dict(
+    #             trafo_custom_readout.TransformerDecoder,
+    #             num_layers=6,
+    #             model_dim=1024,
+    #             norm=rf.build_dict(rf.RMSNorm),
+    #             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #             layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #             readout=rf.build_dict(trafo_custom_readout.ReadoutMaxout),
+    #             # When only trained on LS ASR data, keep the default dropout?
+    #             # dropout=0.0,
+    #             # att_dropout=0.0,
+    #         ),
+    #         "feature_batch_norm": True,
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+    #         "batch_size": 100_000 * _batch_size_factor,
+    #         "optimizer.weight_decay": 1e-2,
+    #         "accum_grad_multiple_step": 1,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_loss_layers": [4, 10, 16],
+    #         "max_seq_length_default_target": None,
+    #         # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #         # out of 281241 seqs in train, we removed only 71 seqs.
+    #         # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #     },
+    #     post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #     vocab="spm10k",
+    #     # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     from i6_experiments.users.zeyer.nn_rf.encoder.blstm_cnn import BlstmCnnEncoder
 
@@ -3304,10 +3304,6 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
-
-    # TODO blstm frontend
-
-    # TODO joint trafo+lstm decoder
 
     # TODO prior/ILM?
     # TODO recog, also with LM, maybe ILM
