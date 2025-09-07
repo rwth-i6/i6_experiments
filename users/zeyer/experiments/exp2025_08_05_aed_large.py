@@ -3108,6 +3108,9 @@ def py():
     from i6_experiments.users.zeyer.nn_rf.decoder.lstm_trafo import LstmTransformerDecoderV2
 
     # Using LSTM Transformer decoder (DecLstmTrafoV2).
+    # But we also need auxDec0 here, otherwise it does not converge.
+    # baseline (trafo dec, s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    #   DecLstmTrafoV2+auxDec0: {"dev-clean": 2.56, "dev-other": 4.61, "test-clean": 2.60, "test-other": 4.90}
     aed_train_exp(
         "EncL16-DecLstmTrafoV2-featBN-aux4_10_16-auxDec0-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
