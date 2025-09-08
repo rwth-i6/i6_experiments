@@ -407,9 +407,8 @@ def run_recognitions_offline_tree_trafo_kazuki(
     corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
     prior_scale: float = 0.2,
     lm_scale: float = 0.8,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
+    max_beam_size: int = 512,
+    score_threshold: float = 16.0,
     word_end_score_threshold: float = 0.5,
 ) -> List[OfflineRecogResultWithSearchErrors]:
     prior_file = compute_priors(
@@ -438,7 +437,6 @@ def run_recognitions_offline_tree_trafo_kazuki(
         lm_config=trafo_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
     )
@@ -467,6 +465,7 @@ def run_recognitions_offline_tree_trafo_kazuki(
                 recog_rasr_config_file=recog_rasr_config_file,
                 align_rasr_config_file=align_rasr_config_file,
                 sample_rate=16000,
+                mem_rqmt=24,
                 gpu_mem_rqmt=24,
             )
         )
@@ -540,6 +539,6 @@ def run_all() -> List[RecogResult]:
             model_config=model_config,
             descriptor="phoneme_ctc",
             tree_trafo_search=False,
-            tree_trafo_kazuki_search=False,
+            # tree_trafo_kazuki_search=False,
         )
     return recog_results

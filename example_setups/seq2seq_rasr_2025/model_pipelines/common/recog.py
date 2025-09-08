@@ -1259,6 +1259,7 @@ def recog_rasr_offline_with_search_errors(
     recog_corpus: ScorableCorpus,
     encoder_serializers: Collection,
     sample_rate: int,
+    mem_rqmt: int = 16,
     gpu_mem_rqmt: int = 0,
 ) -> OfflineRecogResultWithSearchErrors:
     recog_returnn_config = ReturnnConfig(
@@ -1346,7 +1347,7 @@ def recog_rasr_offline_with_search_errors(
         returnn_root=returnn_root,
         output_files=output_files,
         device="gpu" if gpu_mem_rqmt > 0 else "cpu",
-        mem_rqmt=16,
+        mem_rqmt=mem_rqmt,
         time_rqmt=168,
     )
     recog_job.add_alias(f"recognition/{recog_corpus.corpus_name}/{descriptor}")

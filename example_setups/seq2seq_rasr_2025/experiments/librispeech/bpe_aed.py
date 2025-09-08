@@ -263,12 +263,15 @@ def run_recognitions_offline_lexiconfree_lstm(
     corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
     lm_scale: float = 0.6,
     max_beam_size: int = 64,
-    score_threshold: float = 0.03,
-    intermediate_score_threshold: float = 0.03,
+    score_threshold: float = 0.3,
+    intermediate_score_threshold: float = 0.1,
+    intermediate_max_beam_size: int = 64,
 ) -> List[OfflineRecogResult]:
     model_serializers = get_model_serializers(AEDEncoder, model_config)
 
-    aed_label_scorer_config = get_aed_label_scorer_config(model_config=model_config, checkpoint=checkpoint)
+    aed_label_scorer_config = get_aed_label_scorer_config(
+        model_config=model_config, checkpoint=checkpoint, execution_provider_type="cuda"
+    )
 
     lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
         bpe_size=vocab_to_bpe_size(model_config.label_target_size)
@@ -287,6 +290,7 @@ def run_recognitions_offline_lexiconfree_lstm(
         score_threshold=score_threshold,
         length_norm_scale=1.2,
         intermediate_score_threshold=intermediate_score_threshold,
+        intermediate_max_beam_size=intermediate_max_beam_size,
     )
 
     recog_results = []
@@ -301,6 +305,7 @@ def run_recognitions_offline_lexiconfree_lstm(
                 encoder_serializers=model_serializers,
                 rasr_config_file=recog_rasr_config_file,
                 sample_rate=16000,
+                gpu_mem_rqmt=24,
             )
         )
 
@@ -706,9 +711,10 @@ def run_all() -> List[RecogResult]:
             checkpoint=checkpoint,
             model_config=model_config,
             descriptor="bpe_aed",
-            tree_trafo_search=False,
-            tree_trafo_kazuki_search=False,
             tree_search=False,
             tree_4gram_search=False,
+            tree_4gram_tedlium_search=False,
+            tree_trafo_search=False,
+            tree_trafo_kazuki_search=False,
         )
     return recog_results

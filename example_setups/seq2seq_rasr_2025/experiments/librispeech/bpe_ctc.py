@@ -248,9 +248,10 @@ def run_recognitions_offline_lexiconfree_lstm(
     corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
     prior_scale: float = 0.2,
     lm_scale: float = 0.6,
-    max_beam_size: int = 1024,
-    score_threshold: float = 18.0,
-    intermediate_score_threshold: float = 18.0,
+    max_beam_size: int = 256,
+    score_threshold: float = 8.0,
+    intermediate_score_threshold: float = 6.0,
+    intermediate_max_beam_size: int = 256,
 ) -> List[OfflineRecogResult]:
     prior_file = compute_priors(
         prior_data_config=librispeech_datasets.get_default_prior_data(),
@@ -285,6 +286,7 @@ def run_recognitions_offline_lexiconfree_lstm(
         max_beam_size=max_beam_size,
         score_threshold=score_threshold,
         intermediate_score_threshold=intermediate_score_threshold,
+        intermediate_max_beam_size=intermediate_max_beam_size,
     )
 
     recog_results = []
@@ -299,6 +301,7 @@ def run_recognitions_offline_lexiconfree_lstm(
                 encoder_serializers=model_serializers,
                 rasr_config_file=recog_rasr_config_file,
                 sample_rate=16000,
+                gpu_mem_rqmt=24,
             )
         )
 
@@ -372,7 +375,6 @@ def run_recognitions_offline_tree_4gram(
     prior_scale: float = 0.2,
     lm_scale: float = 0.6,
     max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
     score_threshold: float = 14.0,
     word_end_score_threshold: float = 0.5,
 ) -> List[OfflineRecogResultWithSearchErrors]:
@@ -402,7 +404,6 @@ def run_recognitions_offline_tree_4gram(
         lm_config=arpa_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
         logfile_suffix="recog",
@@ -438,6 +439,92 @@ def run_recognitions_offline_tree_4gram(
     return recog_results
 
 
+def run_recognitions_offline_tree_lstm_4gram(
+    checkpoint: PtCheckpoint,
+    model_config: ConformerCTCConfig,
+    descriptor: str = "recog",
+    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
+    prior_scale: float = 0.2,
+    lm_scale: float = 0.6,
+    max_beam_size: int = 256,
+    score_threshold: float = 8.0,
+    intermediate_score_threshold: float = 6.0,
+    intermediate_max_beam_size: int = 256,
+    word_end_score_threshold: float = 0.5,
+) -> List[OfflineRecogResultWithSearchErrors]:
+    prior_file = compute_priors(
+        prior_data_config=librispeech_datasets.get_default_prior_data(),
+        model_config=model_config,
+        checkpoint=checkpoint,
+    )
+
+    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
+    arpa_lm_config = librispeech_lm.get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file, scale=lm_scale)
+
+    model_serializers = get_model_serializers(
+        ConformerCTCRecogModel,
+        ConformerCTCRecogConfig(
+            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+            prior_file=prior_file,
+            prior_scale=prior_scale,
+            blank_penalty=0.0,
+        ),
+    )
+
+    lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
+        bpe_size=vocab_to_bpe_size(model_config.target_size - 1)
+    )
+
+    recog_rasr_config_file = get_tree_timesync_recog_config(
+        lexicon_file=lexicon_file,
+        collapse_repeated_labels=True,
+        label_scorer_config=get_combine_label_scorer_config(
+            sub_scorers=[
+                (get_no_op_label_scorer_config(), 1.0),
+                (lstm_lm_config, lm_scale),
+            ]
+        ),
+        lm_config=arpa_lm_config,
+        blank_index=model_config.target_size - 1,
+        max_beam_size=max_beam_size,
+        score_threshold=score_threshold,
+        intermediate_score_threshold=intermediate_score_threshold,
+        intermediate_max_beam_size=intermediate_max_beam_size,
+        word_end_score_threshold=word_end_score_threshold,
+        logfile_suffix="recog",
+    )
+
+    align_rasr_config_file = get_tree_timesync_recog_config(
+        lexicon_file=lexicon_file,
+        collapse_repeated_labels=True,
+        label_scorer_config=get_no_op_label_scorer_config(),
+        lm_config=arpa_lm_config,
+        blank_index=model_config.target_size - 1,
+        max_beam_size=4096,
+        score_threshold=22.0,
+        logfile_suffix="align",
+    )
+
+    recog_results = []
+
+    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
+        recog_results.append(
+            recog_rasr_offline_with_search_errors(
+                descriptor=f"{descriptor}_tree_word-4gram_bpe-lstmLM",
+                checkpoint=checkpoint,
+                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
+                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
+                encoder_serializers=model_serializers,
+                recog_rasr_config_file=recog_rasr_config_file,
+                align_rasr_config_file=align_rasr_config_file,
+                sample_rate=16000,
+                gpu_mem_rqmt=24,
+            )
+        )
+
+    return recog_results
+
+
 def run_recognitions_offline_tree_trafo(
     checkpoint: PtCheckpoint,
     model_config: ConformerCTCConfig,
@@ -446,7 +533,6 @@ def run_recognitions_offline_tree_trafo(
     prior_scale: float = 0.2,
     lm_scale: float = 0.8,
     max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
     score_threshold: float = 14.0,
     word_end_score_threshold: float = 0.5,
 ) -> List[OfflineRecogResultWithSearchErrors]:
@@ -476,7 +562,6 @@ def run_recognitions_offline_tree_trafo(
         lm_config=trafo_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
         logfile_suffix="recog",
@@ -572,7 +657,6 @@ def run_recognitions_streaming_tree_4gram(
     prior_scale: float = 0.2,
     lm_scale: float = 0.6,
     max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
     score_threshold: float = 14.0,
     word_end_score_threshold: float = 0.5,
     maximum_stable_delay: int = 15,
@@ -607,7 +691,6 @@ def run_recognitions_streaming_tree_4gram(
         lm_config=arpa_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
         maximum_stable_delay=maximum_stable_delay,
@@ -642,9 +725,8 @@ def run_recognitions_offline_tree_trafo_kazuki(
     corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
     prior_scale: float = 0.2,
     lm_scale: float = 0.8,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
+    max_beam_size: int = 512,
+    score_threshold: float = 16.0,
     word_end_score_threshold: float = 0.5,
 ) -> List[OfflineRecogResultWithSearchErrors]:
     prior_file = compute_priors(
@@ -673,7 +755,6 @@ def run_recognitions_offline_tree_trafo_kazuki(
         lm_config=trafo_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
         logfile_suffix="recog",
@@ -703,6 +784,7 @@ def run_recognitions_offline_tree_trafo_kazuki(
                 recog_rasr_config_file=recog_rasr_config_file,
                 align_rasr_config_file=align_rasr_config_file,
                 sample_rate=16000,
+                mem_rqmt=24,
                 gpu_mem_rqmt=24,
             )
         )
@@ -764,7 +846,6 @@ def run_recognitions_tedlium_offline_tree_4gram(
     prior_scale: float = 0.2,
     lm_scale: float = 0.6,
     max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
     score_threshold: float = 14.0,
     word_end_score_threshold: float = 0.5,
 ) -> List[OfflineRecogResultWithSearchErrors]:
@@ -799,7 +880,6 @@ def run_recognitions_tedlium_offline_tree_4gram(
         lm_config=arpa_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
     )
@@ -833,6 +913,7 @@ def run_base_recognition_suite(
     lexiconfree_lstm_search: bool = True,
     tree_search: bool = True,
     tree_4gram_search: bool = True,
+    tree_4gram_lstm_search: bool = False,
     tree_trafo_search: bool = True,
     tree_trafo_kazuki_search: bool = True,
     lexiconfree_streaming_search: bool = True,
@@ -862,6 +943,12 @@ def run_base_recognition_suite(
     if tree_4gram_search:
         offline_recog_results.extend(
             run_recognitions_offline_tree_4gram(checkpoint=checkpoint, model_config=model_config, descriptor=descriptor)
+        )
+    if tree_4gram_lstm_search:
+        offline_recog_results.extend(
+            run_recognitions_offline_tree_lstm_4gram(
+                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
+            )
         )
     if tree_trafo_search:
         offline_recog_results.extend(
@@ -931,6 +1018,6 @@ def run_all() -> List[RecogResult]:
             model_config=model_config,
             descriptor="bpe_ctc",
             tree_trafo_search=False,
-            tree_trafo_kazuki_search=False,
+            # tree_trafo_kazuki_search=True,
         )
     return recog_results

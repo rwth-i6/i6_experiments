@@ -246,8 +246,9 @@ def run_recognitions_offline_lexiconfree_lstm(
     ilm_scale: float = 0.2,
     lm_scale: float = 0.6,
     max_beam_size: int = 256,
-    score_threshold: float = 16.0,
-    intermediate_score_threshold: float = 16.0,
+    score_threshold: float = 8.0,
+    intermediate_score_threshold: float = 6.0,
+    intermediate_max_beam_size: int = 256,
 ) -> List[OfflineRecogResult]:
     model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
 
@@ -275,6 +276,7 @@ def run_recognitions_offline_lexiconfree_lstm(
         max_beam_size=max_beam_size,
         score_threshold=score_threshold,
         intermediate_score_threshold=intermediate_score_threshold,
+        intermediate_max_beam_size=intermediate_max_beam_size,
     )
 
     recog_results = []
@@ -289,6 +291,7 @@ def run_recognitions_offline_lexiconfree_lstm(
                 encoder_serializers=model_serializers,
                 rasr_config_file=recog_rasr_config_file,
                 sample_rate=16000,
+                gpu_mem_rqmt=24,
             )
         )
 
@@ -617,9 +620,8 @@ def run_recognitions_offline_tree_trafo_kazuki(
     corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
     ilm_scale: float = 0.2,
     lm_scale: float = 0.8,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
+    max_beam_size: int = 512,
+    score_threshold: float = 16.0,
     word_end_score_threshold: float = 0.5,
 ) -> List[OfflineRecogResultWithSearchErrors]:
     model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
@@ -629,7 +631,6 @@ def run_recognitions_offline_tree_trafo_kazuki(
         checkpoint=checkpoint,
         ilm_scale=ilm_scale,
         blank_penalty=0.0,
-        execution_provider_type="cuda",
     )
 
     lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
@@ -642,7 +643,6 @@ def run_recognitions_offline_tree_trafo_kazuki(
         lm_config=trafo_lm_config,
         blank_index=model_config.target_size - 1,
         max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
         score_threshold=score_threshold,
         word_end_score_threshold=word_end_score_threshold,
         logfile_suffix="recog",
@@ -672,6 +672,7 @@ def run_recognitions_offline_tree_trafo_kazuki(
                 recog_rasr_config_file=recog_rasr_config_file,
                 align_rasr_config_file=align_rasr_config_file,
                 sample_rate=16000,
+                mem_rqmt=24,
                 gpu_mem_rqmt=24,
             )
         )
@@ -851,6 +852,6 @@ def run_all() -> List[RecogResult]:
             model_config=model_config,
             descriptor="bpe_ffnn_transducer",
             tree_trafo_search=False,
-            tree_trafo_kazuki_search=False,
+            # tree_trafo_kazuki_search=False,
         )
     return recog_results
