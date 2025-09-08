@@ -380,7 +380,7 @@ def main() -> None:
                                 score_threshold=score_threshold,
                                 max_beam_size=64,
                                 intermediate_max_beam_size=64,
-                                intermediate_score_threshold=score_threshold,
+                                intermediate_score_threshold=intermediate_score_threshold,
                             )
                         )
                 for max_beam_size in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]:
@@ -496,7 +496,7 @@ def main() -> None:
                                 corpora=["dev-other"],
                                 descriptor=f"recog_score-{score_threshold}_inter-score-{intermediate_score_threshold}",
                                 score_threshold=score_threshold,
-                                intermediate_score_threshold=score_threshold,
+                                intermediate_score_threshold=intermediate_score_threshold,
                                 max_beam_size=64,
                                 intermediate_max_beam_size=64,
                             )
