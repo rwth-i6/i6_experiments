@@ -90,10 +90,16 @@ def py():
 
     # recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b150k")
     recog_ext_with_lm_exps(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024")
+
+    # {"dev-clean": 1.82, "dev-other": 4.07, "test-clean": 2.08, "test-other": 4.33}
     recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 4.07
+    # {"dev-clean": 1.87, "dev-other": 3.91, "test-clean": 2.01, "test-other": 4.36}
     recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.91
+    # {"dev-clean": 1.85, "dev-other": 3.93, "test-clean": 2.0, "test-other": 4.27}
     recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.93
+    # {"dev-clean": 1.9, "dev-other": 3.88, "test-clean": 1.98, "test-other": 4.26}
     recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.88
+    # {"dev-clean": 1.87, "dev-other": 3.88, "test-clean": 1.93, "test-other": 4.2}
     recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1280-claix2023")  # 3.88 (!!)
 
     for n_ep in [100, 200]:
