@@ -1199,6 +1199,7 @@ def py():
     # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     # bhv24-s2-fixMp-h0: {"dev-clean": 3.69, "dev-other": 5.36, "test-clean": 3.57, "test-other": 5.53}
     # TODO We need to understand this...
+    # TODO joint AED+CTC
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
         (21, 1, 1, False),
@@ -2986,6 +2987,9 @@ def py():
     # The EBranchformer has more components which makes it bigger for the same num layers and dim,
     # thus we reduce the dim (896 instead of 1024) to make it comparable in total num params to the Conformer.
     # (But actually, you should look more at absolute speed, not so much at num params...)
+    # D1024 (Conformer):  {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # D896-EBranchformer: {"dev-clean": 2.74, "dev-other": 4.84, "test-clean": 2.87, "test-other": 5.22}
+    # TODO joint AED+CTC...
     aed_train_exp(
         "EncL16-DecL6-D896-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
         config_96gb_bf16_accgrad1,
