@@ -8,6 +8,7 @@ from typing import Union, Any, Sequence, Dict, Tuple
 import functools
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 
+from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as aed_train_exp,
     _raw_sample_rate,
@@ -18,7 +19,9 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
     _get_cfg_lrlin_oclr_by_bs_nep_v4,
     _batch_size_factor,
 )
-
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+    aed_ctc_timesync_recog_recomb_auto_scale,
+)
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
 import returnn.frontend as rf
@@ -37,6 +40,7 @@ __setup_root_prefix__ = "exp2025_08_05_aed_large"
 
 def py():
     prefix = get_setup_prefix_for_module(__name__)
+    task_spm10k = get_librispeech_task_raw_v2(vocab="spm10k")
 
     # Warning: this keeps aux_loss_layers=[4, 8], not sure if this is optimal...
     # {"dev-clean": 9.78, "dev-other": 11.25, "test-clean": 18.63, "test-other": 13.44}
@@ -980,8 +984,9 @@ def py():
     #         {"dev-clean": 2.84, "dev-other": 4.85, "test-clean": 3.02, "test-other": 5.20})
     # featBN: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08} !!
     # (But see right below for a better setup as starting point, using the same settings.)
-    aed_train_exp(
-        "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
+    exp = aed_train_exp(
+        name,
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -1038,6 +1043,12 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task_spm10k,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
     )
 
     # Same exp as above, but using new serialization. This should not change anything in behavior.
@@ -1210,9 +1221,12 @@ def py():
         (24, 2, 0, False),
         (24, 2, 0, True),
     ]:
-        aed_train_exp(
+        name = (
             f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
-            f"-bhv{bhv}-s{sv}-{'fixMp-' if fix_mp else ''}h{hv}",
+            f"-bhv{bhv}-s{sv}-{'fixMp-' if fix_mp else ''}h{hv}"
+        )
+        exp = aed_train_exp(
+            name,
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -1275,6 +1289,12 @@ def py():
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + name + "/aed+ctc",
+            task=task_spm10k,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=16,
         )
 
     # Disable some of the masking that is done with behavior version 24 (in training) (noConvMasks).
@@ -2990,8 +3010,9 @@ def py():
     # D1024 (Conformer):  {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     # D896-EBranchformer: {"dev-clean": 2.74, "dev-other": 4.84, "test-clean": 2.87, "test-other": 5.22}
     # TODO joint AED+CTC...
-    aed_train_exp(
-        "EncL16-DecL6-D896-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+    name = "EncL16-DecL6-D896-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
+    exp = aed_train_exp(
+        name,
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -3053,6 +3074,12 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task_spm10k,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
     )
 
     from i6_experiments.users.zeyer.nn_rf.decoder.lstm import LstmDecoder
