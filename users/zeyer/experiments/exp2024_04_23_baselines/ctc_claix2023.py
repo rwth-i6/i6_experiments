@@ -102,6 +102,10 @@ def py():
     # {"dev-clean": 1.87, "dev-other": 3.88, "test-clean": 1.93, "test-other": 4.2}
     recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1280-claix2023")  # 3.88 (!!)
 
+    # 100: {"dev-clean": 2.27, "dev-other": 5.04, "test-clean": 2.43, "test-other": 5.34}
+    # +LM: {"dev-clean": 1.85, "dev-other": 3.93, "test-clean": 2.00, "test-other": 4.27}
+    # 200: {"dev-clean": 2.18, "dev-other": 4.77, "test-clean": 2.30, "test-other": 5.10}
+    # +LM: {"dev-clean": 1.86, "dev-other": 3.88, "test-clean": 2.00, "test-other": 4.10}
     for n_ep in [100, 200]:
         name = f"L16-D1024-spm10k-auxAED-b100k-nep{n_ep}"
         ctc_train_exp(
