@@ -1215,9 +1215,9 @@ def py():
     # bhv21-s2-h0: {"dev-clean": 1.90, "dev-other": 4.19, "test-clean": 2.12, "test-other": 4.48}
     # bhv21-s2-h1: {"dev-clean": 1.86, "dev-other": 4.17, "test-clean": 2.06, "test-other": 4.53}
     # bhv21-s2-fixMp-h0: {"dev-clean": 1.89, "dev-other": 4.24, "test-clean": 2.04, "test-other": 4.46}
-    # bhv24-s1-h0: {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
+    # bhv24-s1-h0: {"dev-clean": 1.87, "dev-other": 4.31, "test-clean": 2.13, "test-other": 4.49}
     # bhv24-s2-h0: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
-    # bhv24-s2-fixMp-h0: {"dev-clean": 1.89, "dev-other": 4.24, "test-clean": 2.04, "test-other": 4.46}
+    # bhv24-s2-fixMp-h0: {"dev-clean": 1.92, "dev-other": 4.32, "test-clean": 2.07, "test-other": 4.49}
     # TODO We need to understand this...
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
