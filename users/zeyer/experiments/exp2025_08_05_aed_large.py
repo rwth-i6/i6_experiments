@@ -1183,12 +1183,6 @@ def py():
 
     # Try again old-vs-new serialization, also old-vs-new behavior version.
     # Try also running it again multiple times (__trigger_new_hash, "hN").
-    # bhv21-s1-h0: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
-    # bhv21-s1-h1: {"dev-clean": 2.66, "dev-other": 4.74, "test-clean": 2.85, "test-other": 5.00}
-    # bhv21-s2-h0: {"dev-clean": 3.41, "dev-other": 5.56, "test-clean": 3.90, "test-other": 5.77}
-    # bhv21-s2-h1: ...
-    # bhv24-s1-h0: ...
-    # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     # Note: fixMp (fix_mp) will fix MultiProcDataset opts for serialization version 2.
     # This will only change num_workers from 4 -> 25. And 4 workers gives much worse results?
     # But what does this change? The only thing that I can see now is the RNG for audio/targets:
@@ -1196,7 +1190,15 @@ def py():
     # The RNG should then be the same across all 4 or 25 workers.
     # In case of 25 workers, every 25 seqs will have exactly the same kind of speed perturbation.
     # This was not really intended, but this is helping?
-    # TODO We need to verify this...
+    # bhv21-s1-h0: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
+    # bhv21-s1-h1: {"dev-clean": 2.66, "dev-other": 4.74, "test-clean": 2.85, "test-other": 5.00}
+    # bhv21-s2-h0: {"dev-clean": 3.41, "dev-other": 5.56, "test-clean": 3.90, "test-other": 5.77}
+    # bhv21-s2-h1: {"dev-clean": 3.52, "dev-other": 5.26, "test-clean": 3.73, "test-other": 5.61}
+    # bhv21-s2-fixMp-h0: {"dev-clean": 2.81, "dev-other": 4.89, "test-clean": 3.07, "test-other": 5.04}
+    # bhv24-s1-h0: {"dev-clean": 3.54, "dev-other": 5.65, "test-clean": 4.05, "test-other": 6.28}
+    # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+    # bhv24-s2-fixMp-h0: {"dev-clean": 3.69, "dev-other": 5.36, "test-clean": 3.57, "test-other": 5.53}
+    # TODO We need to understand this...
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
         (21, 1, 1, False),
@@ -1863,6 +1865,7 @@ def py():
     for name, opts in [
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
         ("0", None),
+        # {"dev-clean": 3.74, "dev-other": 5.39, "test-clean": 4.23, "test-other": 5.71} (?)
         ("A0.01", _ta_vA_err_prob(0.01)),
         ("A0.05", _ta_vA_err_prob(0.05)),
         # {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
