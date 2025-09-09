@@ -1209,8 +1209,16 @@ def py():
     # bhv24-s1-h0: {"dev-clean": 3.54, "dev-other": 5.65, "test-clean": 4.05, "test-other": 6.28}
     # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     # bhv24-s2-fixMp-h0: {"dev-clean": 3.69, "dev-other": 5.36, "test-clean": 3.57, "test-other": 5.53}
+    # All with AED+CTC:
+    # bhv21-s1-h0: {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
+    # bhv21-s1-h1: {"dev-clean": 1.87, "dev-other": 4.30, "test-clean": 2.14, "test-other": 4.56}
+    # bhv21-s2-h0: {"dev-clean": 1.90, "dev-other": 4.19, "test-clean": 2.12, "test-other": 4.48}
+    # bhv21-s2-h1: {"dev-clean": 1.86, "dev-other": 4.17, "test-clean": 2.06, "test-other": 4.53}
+    # bhv21-s2-fixMp-h0: {"dev-clean": 1.89, "dev-other": 4.24, "test-clean": 2.04, "test-other": 4.46}
+    # bhv24-s1-h0: {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
+    # bhv24-s2-h0: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
+    # bhv24-s2-fixMp-h0: {"dev-clean": 1.89, "dev-other": 4.24, "test-clean": 2.04, "test-other": 4.46}
     # TODO We need to understand this...
-    # TODO joint AED+CTC
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
         (21, 1, 1, False),
