@@ -1525,14 +1525,16 @@ def py():
     # bhv24-s2 is directly comparable.
     #          AudioPad1k: {"dev-clean": 3.51, "dev-other": 5.02, "test-clean": 3.49, "test-other": 5.64}
     #       AudioPadRnd2k: {"dev-clean": 3.95, "dev-other": 5.43, "test-clean": 4.44, "test-other": 5.92}
+    # TODO fill in CTC res, comment out 1k, Rnd2k
     for name, opts in {
         "0": None,
-        # "1k": 1000,
-        # "Rnd2k": {"train": ((0, 2000), (0, 2000))},
+        "1k": 1000,
+        "Rnd2k": {"train": ((0, 2000), (0, 2000))},
         "Rnd100": {"train": ((0, 100), (0, 100))},
     }.items():
-        aed_train_exp(
-            f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k",
+        name = f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
+        exp = aed_train_exp(
+            name,
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -1592,6 +1594,12 @@ def py():
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + name + "/aed+ctc",
+            task=task_spm10k,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=16,
         )
 
     # Note: Gemma3 changes: pre+post norm, qknorm, groupatt, sliding+full att, RMSNormGemma
@@ -1893,6 +1901,7 @@ def py():
 
     # Again but without aux CTC loss LS (which seems to be suboptimal).
     # Unclear... Too much?
+    # TODO add CTC results
     for name, opts in [
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
         ("0", None),
