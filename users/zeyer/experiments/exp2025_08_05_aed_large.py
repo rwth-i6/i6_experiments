@@ -1032,7 +1032,10 @@ def py():
     # (baseline without featBN:
     #         {"dev-clean": 2.84, "dev-other": 4.85, "test-clean": 3.02, "test-other": 5.20})
     # featBN: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08} !!
-    # (But see right below for a better setup as starting point, using the same settings.)
+    # Joint AED+CTC:
+    # baseline: {"dev-clean": 1.91, "dev-other": 4.20, "test-clean": 2.08, "test-other": 4.61}
+    #   featBN: {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
+    # (But see right below for a better setup (bhv21-s2) as starting point, using the same settings.)
     name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
     exp = aed_train_exp(
         name,
