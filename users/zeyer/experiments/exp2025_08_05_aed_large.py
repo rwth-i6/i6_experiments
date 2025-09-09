@@ -163,7 +163,7 @@ def py():
     # )
 
     # varying learning rate
-    # TODO put results here (incl +CTC), then remove...
+    # TODO put results here (incl +CTC), then comment out...
     for lr in [0.1, 0.5, 1.0]:
         # lr 0.1: 5.39
         # lr 0.5: 5.16
@@ -640,6 +640,7 @@ def py():
     # 0.1,0.2: {"dev-clean": 2.42, "dev-other": 5.02, "test-clean": 2.83, "test-other": 5.20}
     # 0.2,0.1: {"dev-clean": 11.17, "dev-other": 11.08, "test-clean": 16.7, "test-other": 12.04}
     # 0.2,0.2: {"dev-clean": 8.84, "dev-other": 9.53, "test-clean": 12.69, "test-other": 10.47}
+    # TODO joint AED+CTC (then comment out again)
     for dec_drop, dec_att_drop in [(0.2, 0.2), (0.1, 0.2), (0.2, 0.1)]:
         name = f"EncL16-DecL6-D1024-DecPosEncAbs-DecDrop{dec_drop}-DecAttDrop{dec_att_drop}-spm10k-bpeSample001-baseLr0.5-b100k"
         exp = aed_train_exp(
@@ -710,6 +711,7 @@ def py():
     # 640: {"dev-clean": 2.34, "dev-other": 5.04, "test-clean": 2.46, "test-other": 5.49}
     # 768: {"dev-clean": 7.02, "dev-other": 9.33, "test-clean": 10.72, "test-other": 9.85}
     # 1024: {"dev-clean": 2.92, "dev-other": 5.04, "test-clean": 3.12, "test-other": 5.58}
+    # TODO joint AED+CTC (then comment out again)
     for dec_model_dim in [512, 640, 768, 1024]:
         name = f"EncL16-DecL6-D1024-DecD{dec_model_dim}-DecPosEncAbs-spm10k-bpeSample001-baseLr0.5-b100k"
         exp = aed_train_exp(
