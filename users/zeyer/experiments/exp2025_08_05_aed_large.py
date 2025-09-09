@@ -1820,11 +1820,11 @@ def py():
             "keep_del_sub_probs": [1 - p, p * 0.6, p * 0.4],
         }
 
-    def _ta_del_sub_err_prob(del_prob, sub_prob):
-        return {"keep_del_sub_probs": [1 - del_prob - sub_prob, del_prob, sub_prob]}
+    # def _ta_del_sub_err_prob(del_prob, sub_prob):
+    #     return {"keep_del_sub_probs": [1 - del_prob - sub_prob, del_prob, sub_prob]}
 
-    def _ta_sub_err_prob(p):
-        return {"keep_del_sub_probs": [1 - p, 0.0, p]}
+    # def _ta_sub_err_prob(p):
+    #     return {"keep_del_sub_probs": [1 - p, 0.0, p]}
 
     # auxCtcLs0.1 was maybe a bad choice here... / also s2. Redoing this below.
     # for name, opts in [
@@ -1904,22 +1904,29 @@ def py():
 
     # Again but without aux CTC loss LS (which seems to be suboptimal).
     # Unclear... Too much?
-    # TODO add CTC results
+    # TODO what now?
     for name, opts in [
-        # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+        # 0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
+        # +CTC: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
         ("0", None),
-        # {"dev-clean": 3.74, "dev-other": 5.39, "test-clean": 4.23, "test-other": 5.71} (?)
+        # A0.01: {"dev-clean": 3.74, "dev-other": 5.39, "test-clean": 4.23, "test-other": 5.71}
+        # +CTC: {"dev-clean": 1.92, "dev-other": 4.24, "test-clean": 2.05, "test-other": 4.52}
         ("A0.01", _ta_vA_err_prob(0.01)),
-        # {"dev-clean": 3.47, "dev-other": 5.28, "test-clean": 3.73, "test-other": 5.89}
+        # A0.05: {"dev-clean": 3.47, "dev-other": 5.28, "test-clean": 3.73, "test-other": 5.89}
+        # +CTC: {"dev-clean": 1.86, "dev-other": 4.19, "test-clean": 2.09, "test-other": 4.49}
         ("A0.05", _ta_vA_err_prob(0.05)),
-        # {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
+        # A0.1: {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
+        # +CTC: {"dev-clean": 1.93, "dev-other": 4.21, "test-clean": 2.06, "test-other": 4.53}
         ("A0.1", _ta_vA_err_prob(0.1)),
-        # {"dev-clean": 3.67, "dev-other": 5.25, "test-clean": 4.07, "test-other": 5.66}
-        ("A0.2", _ta_vA_err_prob(0.2)),
-        # {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
-        ("Sub0.1", _ta_sub_err_prob(0.1)),
-        # {"dev-clean": 4.19, "dev-other": 5.57, "test-clean": 4.59, "test-other": 5.82}
-        ("Del0.05Sub0.05", _ta_del_sub_err_prob(0.05, 0.05)),
+        # A0.2: {"dev-clean": 3.67, "dev-other": 5.25, "test-clean": 4.07, "test-other": 5.66}
+        # +CTC: {"dev-clean": 1.9, "dev-other": 4.27, "test-clean": 2.15, "test-other": 4.52}
+        # ("A0.2", _ta_vA_err_prob(0.2)),
+        # Sub0.1: {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
+        # +CTC: {"dev-clean": 2.42, "dev-other": 4.28, "test-clean": 2.48, "test-other": 4.83}
+        # ("Sub0.1", _ta_sub_err_prob(0.1)),
+        # Del0.05Sub0.05: {"dev-clean": 4.19, "dev-other": 5.57, "test-clean": 4.59, "test-other": 5.82}
+        # +CTC: {"dev-clean": 1.96, "dev-other": 4.32, "test-clean": 2.23, "test-other": 4.55}
+        # ("Del0.05Sub0.05", _ta_del_sub_err_prob(0.05, 0.05)),
     ]:
         name = f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-textAug{name}-spm10k-bpeSample001-baseLr0.5-b100k"
         exp = aed_train_exp(
