@@ -485,6 +485,7 @@ def py():
 
     # Some other better baseline: DecPosEncAbs + bpeSample001 + baseLr0.5.
     # 4.87, {"dev-clean": 2.38, "dev-other": 4.87, "test-clean": 2.89, "test-other": 5.35}
+    # +CTC: {"dev-clean": 1.97, "dev-other": 4.59, "test-clean": 2.15, "test-other": 4.8}
     # (But better baselines below, with featBN.)
     name = "EncL16-DecL6-D1024-DecPosEncAbs-spm10k-bpeSample001-baseLr0.5-b100k"
     exp = aed_train_exp(
