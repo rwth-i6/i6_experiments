@@ -227,6 +227,8 @@ def py():
     del ls, aux_ls
 
     # Ablation: do without auxAED
+    # {"dev-clean": 2.24, "dev-other": 5.01, "test-clean": 2.31, "test-other": 5.22}
+    # +LM: {"dev-clean": 1.87, "dev-other": 3.95, "test-clean": 2.05, "test-other": 4.24}
     name = "L16-D1024-spm10k-ls0.1-auxLs0.1-b100k"
     ctc_train_exp(
         name,
