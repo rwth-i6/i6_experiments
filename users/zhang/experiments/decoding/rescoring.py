@@ -58,13 +58,17 @@ class SearchCombineScoresJob(Job):
         assert len(search_py_output) > 0
         self.search_py_output = search_py_output
         self.out_search_results = self.output_path("search_results.py" + (".gz" if output_gzip else ""))
-        self.rqmt = {"time": 1, "cpu": 1, "mem": 3}
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 10} # TODO: dynamically determine mem_rqmt
     def tasks(self):
         """task"""
-        yield Task("run",  mini_task=True) #rqmt=self.rqmt)
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         """run"""
+        import tracemalloc
+
+        tracemalloc.start()
+
         data: List[Tuple[float, Dict[str, List[Tuple[float, str]]]]] = []
         for weight, fn in self.search_py_output:
             if isinstance(weight, DelayedBase):
@@ -72,6 +76,11 @@ class SearchCombineScoresJob(Job):
             assert isinstance(weight, (int, float)), f"invalid weight {weight!r} type {type(weight)}"
             out = eval(util.uopen(fn, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
             data.append((weight, out))
+
+        current, peak = tracemalloc.get_traced_memory()
+        print(f"Current: {current / 1024 ** 2:.1f} MB; Peak: {peak / 1024 ** 2:.1f} MB")
+
+        tracemalloc.stop()
         weights: List[float] = [weight for weight, _ in data]
         seq_tags: List[str] = list(data[0][1].keys())
         seq_tags_set: Set[str] = set(seq_tags)
@@ -85,30 +94,54 @@ class SearchCombineScoresJob(Job):
         with gzip.open(tmp_filename, "wt") as out:
             out.write("{\n")
             for seq_tag in seq_tags:
-                data_: List[List[Tuple[float, str]]] = [d[seq_tag] for _, d in data]
-                hyps_: List[List[str]] = [[h.strip().replace("<unk>", "@@") for _, h in entry] for entry in data_]
-                hyps0: List[str] = hyps_[0]
-                assert isinstance(hyps0, list) and all(isinstance(h, str) for h in hyps0)
+                # references only; do not copy
+                entries_per_file = [d[seq_tag] for _, d in data]
 
-                #assert all(hyps0 == hyps for hyps in hyps_)
-                for i, hyps in enumerate(hyps_):
-                    if hyps != hyps0:
-                        for j, (h0, h) in enumerate(zip(hyps0, hyps)):
-                            if h0 != h:
-                                print(f"Difference at outer index {i}, inner index {j}: '{h0}' != '{h}'")
-                        # Also catch differing lengths
-                        if len(hyps0) != len(hyps):
-                            print(f"Length mismatch at index {i}: len(hyps0)={len(hyps0)}, len(hyps)={len(hyps)}")
-                        assert False, f"Mismatch found at index {i}"
-                
-                scores_per_hyp: List[List[float]] = [[score for score, _ in entry] for entry in data_]
-                # n-best list as [(score, text), ...]
+                # sanity: same n-best order across files
+                nb0 = entries_per_file[0]
+                for i, nb in enumerate(entries_per_file[1:], start=1):
+                    if len(nb) != len(nb0) or any(nb[j][1] != nb0[j][1] for j in range(len(nb0))):
+                        raise AssertionError(f"Mismatch found at index {i}")
+
                 out.write(f"{seq_tag!r}: [\n")
-                for hyp_idx, hyp in enumerate(hyps0):
-                    score = sum(scores_per_hyp[file_idx][hyp_idx] * weights[file_idx] for file_idx in range(len(data)))
-                    out.write(f"({score!r}, {hyp!r}),\n")
+                for hyp_idx in range(len(nb0)):
+                    # only read hyp text from the first file to avoid copies
+                    hyp_text = nb0[hyp_idx][1]
+                    # if must normalize text, do it in-place once:
+                    # hyp_text = hyp_text.strip().replace("<unk>", "@@")
+                    acc = 0.0
+                    for file_idx, entries in enumerate(entries_per_file):
+                        acc += entries[hyp_idx][0] * weights[file_idx]
+                    out.write(f"({acc!r}, {hyp_text!r}),\n")
                 out.write("],\n")
             out.write("}\n")
+        # with gzip.open(tmp_filename, "wt") as out:
+        #     out.write("{\n")
+        #     for seq_tag in seq_tags:
+        #         data_: List[List[Tuple[float, str]]] = [d[seq_tag] for _, d in data]
+        #         hyps_: List[List[str]] = [[h.strip().replace("<unk>", "@@") for _, h in entry] for entry in data_]
+        #         hyps0: List[str] = hyps_[0]
+        #         assert isinstance(hyps0, list) and all(isinstance(h, str) for h in hyps0)
+        #
+        #         #assert all(hyps0 == hyps for hyps in hyps_)
+        #         for i, hyps in enumerate(hyps_):
+        #             if hyps != hyps0:
+        #                 for j, (h0, h) in enumerate(zip(hyps0, hyps)):
+        #                     if h0 != h:
+        #                         print(f"Difference at outer index {i}, inner index {j}: '{h0}' != '{h}'")
+        #                 # Also catch differing lengths
+        #                 if len(hyps0) != len(hyps):
+        #                     print(f"Length mismatch at index {i}: len(hyps0)={len(hyps0)}, len(hyps)={len(hyps)}")
+        #                 assert False, f"Mismatch found at index {i}"
+        #
+        #         scores_per_hyp: List[List[float]] = [[score for score, _ in entry] for entry in data_]
+        #         # n-best list as [(score, text), ...]
+        #         out.write(f"{seq_tag!r}: [\n")
+        #         for hyp_idx, hyp in enumerate(hyps0):
+        #             score = sum(scores_per_hyp[file_idx][hyp_idx] * weights[file_idx] for file_idx in range(len(data)))
+        #             out.write(f"({score!r}, {hyp!r}),\n")
+        #         out.write("],\n")
+        #     out.write("}\n")
         import os
         os.replace(tmp_filename, self.out_search_results.get_path()) #ensures that no process will see the file until it's fully written
 
@@ -216,6 +249,7 @@ class RescoreSearchErrorJob(Job):
         assert set(gts.keys()) == seq_tags_set, "inconsistent seq tags"
         search_error = 0
         gt_present_num = 0
+        gt_absent_num = 0
         for seq_tag in seq_tags:
             is_search_error = False
             gt_present = False
@@ -231,8 +265,9 @@ class RescoreSearchErrorJob(Job):
                     gt_present_num += 1
                 else:
                     targets_search_str += f"\n\t {hyp} \n\t"
+                    gt_absent_num += 1
             targets_search_str += " ]"
-            max_hyp_score = max([x[0] for x in n_lists[seq_tag]])
+            max_hyp_score = max([x[0] for x in n_lists[seq_tag] if x[1]])
             if not gt_present and gt_score >= max_hyp_score:
                 search_error += 1
                 is_search_error = True
@@ -258,6 +293,10 @@ class RescoreSearchErrorJob(Job):
                 len(seq_tags),
             )
             f.write(log_txt)
+            num_seqs = gt_absent_num + gt_present_num
+            f.write("Search errors: %.2f%%" % ((search_error / len(seq_tags)) * 100) + "\n" +
+                    "Search errors/total errors: %.2f%%" % ((search_error / gt_absent_num) * 100) + "\n" +
+                    "Sent_ER: %.2f%%" % ((search_error / num_seqs) * 100) + "\n")
         with open(self.out_search_errors.get_path(), "w+") as f:
             f.write("Search errors: %.2f%%" % ((search_error / len(seq_tags)) * 100))  # + "\n" +
             # "Search errors/total errors: %.2f%%" % ((num_search_errors / num_unequal) * 100) + "\n" +
@@ -303,8 +342,12 @@ def rescore(
         env_updates = (config and config.pop("__env_updates", None)) or (
             forward_post_config and forward_post_config.pop("__env_updates", None)
         )
+    model_ckpt = (model.checkpoint.path if model.checkpoint is not None else None)
+    if config:
+        model_ckpt = model_ckpt if not config.get("allow_random_model_init", False) else None
+
     forward_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint.path if model.checkpoint is not None else None,
+        model_checkpoint=model_ckpt,
         returnn_config=_returnn_rescore_config(
             recog_output=recog_output,
             vocab=vocab,
@@ -446,6 +489,12 @@ def _returnn_rescore_config(
     config["forward_callback"] = _returnn_v2_get_forward_callback
 
     if config_:
+        if config_.get("preload_from_files", False):
+            from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint as _TfCheckpoint, \
+                PtCheckpoint as _PtCheckpoint
+            for key, value in config_["preload_from_files"].items():
+                if isinstance(value["filename"], _PtCheckpoint):
+                    config_["preload_from_files"][key]["filename"] = value["filename"].path#str(value["filename"])
         config_dict_update_(config, config_)
 
     # post_config is not hashed

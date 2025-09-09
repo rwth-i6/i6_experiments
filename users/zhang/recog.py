@@ -81,7 +81,7 @@ def recog_exp(
         model,
         recog_def,
         first_pass_name=first_pass_name,
-        search_config=search_config,
+        search_config=search_config, # Additional config for RETURNN
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
@@ -95,10 +95,12 @@ def recog_exp(
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
-    summarize_job = GetRecogExp(
-        epoch=epoch,
-        recog_and_score_func=recog_and_score_func,
-    )
+    res = get_res(epoch, recog_and_score_func)
+    summarize_job = GetRecogSummaryJob(scores_outputs=res)
+    # summarize_job = GetRecogExp(
+    #     epoch=epoch,
+    #     recog_and_score_func=recog_and_score_func,
+    # )
     #summarize_job.add_alias(prefix_name + "/train-summarize")
     #tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     if search_error_check:
@@ -132,7 +134,7 @@ def recog_training_exp(
         task,
         model,
         recog_def,
-        search_config=search_config,
+        search_config=search_config, # Additional config for RETURNN
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
@@ -279,6 +281,21 @@ class _RecogAndScoreFunc:
         return sis_hash_helper(d)
 
 
+def using_spm10k_ctc(config):
+    return "am" in config["preload_from_files"]
+
+def using_trafo_lm(config):
+    if config.get("recog_language_model", False) and config.get("preload_from_files", False):
+        return using_spm10k_ctc(config) and config["recog_language_model"]["class"] == "TransformerLm" and "recog_lm" in \
+            config["preload_from_files"]
+    return False
+
+def using_ffnn_lm(config):
+    if config.get("recog_language_model", False) and config.get("preload_from_files", False):
+        return using_spm10k_ctc(config) and config["recog_language_model"]["class"] == "FeedForwardLm" and "recog_lm" in \
+            config["preload_from_files"]
+    return False
+
 def recog_model(
     task: Task,
     model: ModelWithCheckpoint,
@@ -297,7 +314,7 @@ def recog_model(
     name: Optional[str] = None,
     search_error_check: bool = False,
     search_error_version: int = 2,
-) -> Tuple[ScoreResultCollection, Optional[tk.Path], Optional[tk.Path]]:
+) -> Tuple[ScoreResultCollection, Optional[tk.Path], Optional[Dict[str, tk.Path]]]:
     """
     Recog for some given model (a single given checkpoint / epoch).
     (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
@@ -407,17 +424,17 @@ def recog_model(
 
         if rescoreLM_name.startswith("ffnn"):
             rescor_def = ffnn_rescore_def
-            lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2, "gpu_mem": 10}
+            lm_rescor_rqmt = {"cpu": 2, "mem": 12, "time": 2, "gpu_mem": 10}
         elif rescoreLM_name.startswith("trafo"):
             rescor_def = trafo_lm_rescore_def
-            lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2, "gpu_mem": 48 if USE_48gb else 24}
+            lm_rescor_rqmt = {"cpu": 2, "mem": 12, "time": 2, "gpu_mem": 48 if USE_48gb else 24}
             if "spm10k" in rescoreLM_name:
-                lm_rescor_rqmt["gpu_mem"] = 48
+                lm_rescor_rqmt["gpu_mem"] = 80 if "ES" in rescoreLM_name else 48
         elif rescoreLM_name[0].isdigit() and "gram" in rescoreLM_name:
             rescor_def = ngram_rescore_def
-            lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 2}
+            lm_rescor_rqmt = {"cpu": 2, "mem": 12, "time": 2}
         elif "NoLM" in rescoreLM_name:
-            lm_rescor_rqmt = {"cpu": 2, "mem": 4, "time": 1}
+            lm_rescor_rqmt = {"cpu": 2, "mem": 8, "time": 1}
         else:
             prev_one_ctx = False
             prompt = None
@@ -425,14 +442,15 @@ def recog_model(
                 prev_one_ctx = rescoringLM.get("prev_one_ctx", False)
                 prompt = rescoringLM.get("prompt", None)
             time_factor = 2 if prev_one_ctx or prompt else 1
-            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 3*time_factor, "gpu_mem": 48 if USE_48gb else 24},
+            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 3*time_factor, "gpu_mem": 48 if prev_one_ctx else 24},
                               "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
-                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 48 if USE_48gb else 24},
-                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 48 if USE_48gb else 24},
+                              "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 48 if prev_one_ctx else 24},
+                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 48 if prev_one_ctx else 48},
                               "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 48 if USE_48gb else 24},
                               "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
+                              "phi-4":{ "cpu": 3, "mem": 65, "time": 6*time_factor, "gpu_mem": 80},
                               "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 48 if USE_48gb else 24},}.get(rescoreLM_name)
-            assert lm_rescor_rqmt is not None, f"LM type{rescoreLM_name} not found"
+            assert lm_rescor_rqmt is not None, f"LM type '{rescoreLM_name}' not found"
             #print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
 
 
@@ -446,7 +464,7 @@ def recog_model(
                     prior_scale=rescore_Priorscale,
                     am=model,
                     am_rescore_def=ctc_model_rescore,
-                    am_rescore_rqmt={"cpu": 2, "mem": 8, "time": 4, "gpu_mem": 10},
+                    am_rescore_rqmt={"cpu": 2, "mem": 25, "time": 2, "gpu_mem": 10},
                     am_scale=1.0,
                     lm=rescoringLM,
                     lm_scale=rescoringLM_scale,
@@ -465,7 +483,7 @@ def recog_model(
     search_error_rescore_dict = {}
     dev_sets = dev_sets or task.eval_datasets.keys()
     dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys())) or set(dev_sets)
-    search_error_key = "test-other" if "test-other" in dataset_names else list(dataset_names)[0]
+    search_error_key = "test-other" if "test-other" in dataset_names else "test_set.ES_ES.f8kHz.mtp_eval-v2"#list(dataset_names)[0]
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets and dataset_name not in dev_sets:
                 continue
@@ -473,13 +491,38 @@ def recog_model(
         # from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
         # if LLM_PREV_ONE_CTX:
         #     dataset["seq_ordering"] = "default"
+        import copy
+        config_ = config
+        if using_trafo_lm(config):
+            search_mem_rqmt = max(search_mem_rqmt, 30)
+            trafo_config = copy.deepcopy(config)
+            if trafo_config.get("batch_size", False):
+                trafo_config["batch_size"] = config["batch_size"] if config["batch_size"] < 2_000_000 else config["batch_size"] // 4
+            else:
+                trafo_config["batch_size"] = 1_000_000
+            # watch_list = ["mtp_eval_p4_family_holiday_other", "mtp_dev_heldout-v2", "eval_callcenter_lt-v5"]
+            # for name in watch_list:
+            #     if name in dataset.get_main_name():
+            #         trafo_config["batch_size"] = 2_000_000
+
+            config_ = trafo_config
+        if using_ffnn_lm(config):
+            ffnn_config = copy.deepcopy(config)
+            if ffnn_config.get("batch_size", False):
+                ffnn_config["batch_size"] = config["batch_size"] // 2.2
+            else:
+                ffnn_config["batch_size"] = 20000 * 50
+            special_infixes = ["mtp_dev_heldout-v2", "dev_callhome-v4", "eval_movies_tvshows_talks", "conversation"]
+            if any(infix in dataset.get_main_name() for infix in special_infixes):
+                ffnn_config["batch_size"] = 20000 * 25#(10 if "conversation" in dataset.get_main_name() else 25)
+            config_ = ffnn_config
         recog_out, hyps, search_error_rescore = search_dataset( # Hyps here is raw out from first pass
             decoding_config=decoding_params,
             dataset=dataset,
             model=model,
             recog_def=recog_def,
             prior_path=prior_path,
-            config=config,
+            config=config_,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
@@ -490,27 +533,27 @@ def recog_model(
         )
         search_error_rescore_dict[dataset_name] = search_error_rescore
         score_out = task.score_recog_output_func(dataset, recog_out)
+        # tk.register(score_out.report, f"{name}/search/{dataset_name}/"
         outputs[dataset_name] = score_out
         if search_error_check: #Just report the search error on test-other
             #config_ = config.copy()
             # if config.get("batch_size"):
             #     config_.pop("batch_size")
-            if dataset_name == search_error_key:
-                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
+            if search_error_key in dataset_name:
+                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
                                                   decoding_config=decoding_params, search_error_version=search_error_version,
                                                   prior_path=prior_path,
                                                   alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
                                                   )
             else:
-                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
+                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
                                    decoding_config=decoding_params, search_error_version=search_error_version,
                                    prior_path=prior_path,
                                    alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
                                    )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
-
-    return task.collect_score_results_func(outputs), search_error, search_error_rescore_dict[search_error_key]
+    return task.collect_score_results_func(outputs), search_error, search_error_rescore_dict#[search_error_key]
 
 
 def compute_prior(
@@ -577,17 +620,19 @@ def get_GroundTruth_with_score_on_forced_alignment(
     for irrelevant_key in ["rescoring", "lm_rescore", "lm_vocab", "rescore_lm_name"]:
         decoding_params.pop(irrelevant_key, None)
     pre_SearchError_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint,
+        model_checkpoint=model.checkpoint if not config.get("allow_random_model_init", False) else None,
         returnn_config=search_error_config(dataset, model.definition, scoring_v2, config=config,
-                                           decoding_config=decoding_params, prior_path=prior_path, oov_info=False),
+                                           decoding_config=decoding_params, prior_path=prior_path, oov_info=False, version=8),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         device="gpu",
         time_rqmt=4,
-        mem_rqmt=8,
+        mem_rqmt=30 if using_trafo_lm(config) else 8,
         cpu_rqmt=2,
     )
+    if using_trafo_lm(config):
+        pre_SearchError_job.rqmt.update({"gpu_mem": 48})
     if alias_name:
         alias_name += "_get_GT_with_score"
         pre_SearchError_job.add_alias(alias_name)
@@ -633,8 +678,32 @@ def check_search_error(
     if decoding_config.get("lm_order"):
         if "gram" in decoding_config.get("lm_order"):
             scoring_func = scoring
+    # import copy
+    # config_ = config
+    # if using_trafo_lm():
+    #     search_mem_rqmt = max(mem_rqmt, 30)
+    #     trafo_config = copy.deepcopy(config)
+    #     if trafo_config.get("batch_size", False):
+    #         trafo_config["batch_size"] = config["batch_size"] * 3.2
+    #     else:
+    #         trafo_config["batch_size"] = 3_200_000
+    #     watch_list = ["mtp_eval_p4_family_holiday_other", "mtp_dev_heldout-v2"]
+    #     for name in watch_list:
+    #         if name in dataset.get_main_name():
+    #             trafo_config["batch_size"] = 2_500_000
+    #
+    #     config_ = trafo_config
+    # if using_ffnn_lm():
+    #     ffnn_config = copy.deepcopy(config)
+    #     if ffnn_config.get("batch_size", False):
+    #         ffnn_config["batch_size"] = config["batch_size"] // 2.2
+    #     else:
+    #         ffnn_config["batch_size"] = 20000 * 50
+    #     if "mtp_dev_heldout-v2" in dataset.get_main_name():
+    #         ffnn_config["batch_size"] = 20000 * 25
+    #     config_ = ffnn_config
     pre_SearchError_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint,
+        model_checkpoint=model.checkpoint if not config.get("allow_random_model_init", False) else None,
         returnn_config=search_error_config(dataset, model.definition, scoring_func,
                                            decoding_config=decoding_config, config=config, prior_path=prior_path),
         output_files=[_v2_forward_out_filename],
@@ -706,9 +775,11 @@ def search_dataset(
         over the dataset
 
     """
+
+
     decoding_config = decoding_config.copy()
     cheat = decoding_config.pop("cheat", False)
-    check_rescore_search_error = decoding_config.pop("check_search_error_rescore", False)
+    check_rescore_search_error = decoding_config.pop("check_search_error_rescore", False) and "aptk_leg" not in dataset.get_main_name()
     env_updates = None
     if (config and config.get("__env_updates")) or (search_post_config and search_post_config.get("__env_updates")):
         env_updates = (config and config.pop("__env_updates", None)) or (
@@ -732,8 +803,9 @@ def search_dataset(
         out_files = [_v2_forward_out_filename]
         if config and config.get("__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
+
         search_job = ReturnnForwardJobV2(
-            model_checkpoint=model.checkpoint,
+            model_checkpoint=model.checkpoint if not config.get("allow_random_model_init", False) else None,
             returnn_config=search_config_v2(
                 dataset, model.definition, recog_def, decoding_config, prior_path, config=config, post_config=search_post_config
             ),
@@ -742,12 +814,20 @@ def search_dataset(
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
         )
+
+        # if using_big_lm():
+        #     print(search_job.rqmt)
         res = search_job.out_files[_v2_forward_out_filename]
     res_with_score = res.copy() # With orig scores, no 2. pass, for search error check
-    if search_rqmt:
-        search_job.rqmt.update(search_rqmt)
+
     if USE_24GB:
         search_job.rqmt.update({"gpu_mem":24})
+    if search_rqmt:
+        search_job.rqmt.update(search_rqmt)
+    if using_trafo_lm(config):
+        search_job.rqmt.update({"gpu_mem": 80, "time": 12 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 6})
+    if using_ffnn_lm(config):
+        search_job.rqmt.update({"gpu_mem": 16, "time": 6 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 4})
     if env_updates:
         for k, v in env_updates.items():
             search_job.set_env(k, v)
@@ -992,6 +1072,7 @@ def search_error_config(
         *,
         config: Optional[Dict[str, Any]] = None,
         oov_info: bool = True,
+        version: int = 7,
 ) -> ReturnnConfig:
     # changing these does not change the hash
     post_config = dict(  # not hashed
@@ -1081,7 +1162,7 @@ def search_error_config(
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_search_error_step, import_as="forward_step"),
                     serialization.Import(_returnn_search_error_forward_callback if oov_info else _returnn_target_scoring_forward_callback, import_as="forward_callback"),
-                    serialization.ExplicitHash({"version": 7}),  #1: eos added 2: eos not added 5. 1+aux info added 6. added label_prob mask 7. pre-stable
+                    serialization.ExplicitHash({"version": version}),  #1: eos added 2: eos not added 5. 1+aux info added 6. added label_prob mask 7. pre-stable
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
@@ -1239,6 +1320,7 @@ def _returnn_target_scoring_forward_callback():
             score = float(score.raw_tensor[0])
             target_wb_ids = target_wb.raw_tensor[0] #Note: because This is only for get GT
             target_wb_serialized = target_wb.sparse_dim.vocab.get_seq_labels(target_wb_ids)
+            target_wb_serialized = " ".join([token for token in target_wb_serialized.split() if token != "</s>"])
             self.out_file.write(f"  ({score!r}, {target_wb_serialized!r}),\n")
             self.out_file.write("],\n")
 
@@ -1580,6 +1662,11 @@ def search_config_v2(
             v = returnn_recog_config.post_config.pop(k)
         (returnn_recog_config.config if batch_size_dependent else returnn_recog_config.post_config)[k] = v
 
+    # for dataset_name in ["mtp_eval-v2"]: # This is not a clean way
+    #     if dataset_name in dataset.get_main_name():
+    #         batch_size_new = returnn_recog_config.config["batch_size"] // 1.5
+    #         print(f"Reduce batch size for {dataset_name} form {returnn_recog_config.config['batch_size']} to {batch_size_new}")
+    #         returnn_recog_config.config["batch_size"] = batch_size_new
     if post_config:
         returnn_recog_config.post_config.update(post_config)
 
@@ -1754,7 +1841,7 @@ def _returnn_v2_get_forward_callback():
                     hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
                     self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
                     if i == 0:
-                        print(f"Best_hyp of {seq_tag}: {remove_blank_and_replace(hyp_serialized)}")
+                        print(f"Best_hyp of {seq_tag}: \n {remove_blank_and_replace(hyp_serialized, [])}")
                         print(f"Target is:\n {hyps.sparse_dim.vocab.get_seq_labels(targets.raw_tensor)}")
                         #import pdb; pdb.set_trace()
                 self.out_file.write("],\n")
@@ -1789,7 +1876,76 @@ def _returnn_v2_get_forward_callback():
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
+def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]]]):
+    res, search_error, search_error_rescore = recog_and_score_func(epoch)
+    # assert isinstance(res, Tuple[ScoreResultCollection,Optional[tk.path]])
+    return res, search_error, search_error_rescore
+
 PRINTED = False
+class GetRecogSummaryJob(sisyphus.Job):
+    """
+    Collect all info from recogs.
+    The output is a JSON dict with the format::
+    kept best_... for temporary compatibility
+        {
+            'best_scores': {...}  (ScoreResultCollection)
+            'best_epoch': int,  (sub-epoch by RETURNN)
+            ...  (other meta info)
+        }
+    """
+
+    def __init__(
+        self,
+        *,
+        scores_outputs: Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]],
+    ):
+        """
+        :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_and_score_func: epoch -> scores. called in graph proc
+        """
+        super(GetRecogSummaryJob, self).__init__()
+        global PRINTED
+        self.out_summary_json = self.output_path("summary.json")
+        self.out_search_error = self.output_path("search_error")
+        self._scores_outputs = scores_outputs  # type: Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]]  # epoch -> scores out
+        self.out_search_error_rescore = self._scores_outputs[2]  # self.output_path("search_error_rescore")
+        if not PRINTED:
+            print(self._scores_outputs)
+            PRINTED = True
+
+    def tasks(self) -> Iterator[sisyphus.Task]:
+        """tasks"""
+        yield sisyphus.Task("run", rqmt={"cpu":1, "time":1})#mini_task=True)
+
+    def run(self):
+        """run"""
+        import json
+
+        best_scores = json.load(open(self._scores_outputs[0].output.get_path()))
+
+        res = {"best_scores": best_scores}
+        with open(self.out_summary_json.get_path(), "w") as f:
+            f.write(json.dumps(res))
+            f.write("\n")
+        import shutil
+        def set_output(dst, src):
+            if os.path.exists(dst) or os.path.islink(dst):
+                os.remove(dst)
+            if (src and src.get_path()):
+                os.symlink(src.get_path(), dst)
+                # shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
+        if self._scores_outputs[1]:
+            search_error_dst = self.out_search_error.get_path()
+            search_error_src = self._scores_outputs[1]
+            set_output(search_error_dst, search_error_src)
+        else:
+            with open(self.out_search_error.get_path(), "w") as f:
+                f.write("None\n")
+
+        # search_error_re_dst = self.out_search_error_rescore.get_path()
+        # search_error_re_src = self._scores_outputs[2]
+        # set_output(search_error_re_dst, search_error_re_src)
+
 class GetRecogExp(sisyphus.Job):
     """
     Collect all info from recogs.
@@ -2031,42 +2187,161 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
 class GetBestTuneValue(sisyphus.Job):
     def __init__(
-            self,
-            scores: list[tk.Path],
-            tune_values: list[float],
-            default_scale: float = None,
+        self,
+        scores: list[tk.Path],
+        tune_values: list[float],
+        dev_keys: Sequence[str],
+        default_scale: float = None,
     ):
         self.scores = scores
         self.tune_values = tune_values
         self.default_scale = default_scale
+        self.dev_keys = list(dev_keys)  # ensure a stable order
+
+        # existing
         self.out_best_tune = self.output_path("best_tune.json")
         self.out_best_tune_var = self.output_var("best_tune")
 
+        # NEW: curve data + plots
+        self.out_curve_csv = self.output_path("tune_curve.csv")
+        self.out_plot_avg = self.output_path("tune_curve_avg.png")
+        self.out_plot_all = self.output_path("tune_curve_all.png")
+
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)#rqmt={"cpu": 4, "mem": 8, "time": 4})
+        yield sisyphus.Task("run", rqmt={"cpu": 1, "mem": 2, "time": 1})
+
+    def _read_scores_dict(self, p: tk.Path) -> dict:
+        """
+        Reads a Python/JSON-like dict that may contain NaN/Inf.
+        We stick to eval(...) with safe globals
+        """
+        txt = uopen(p, "rt").read()
+        return eval(txt, {"nan": float("nan"), "inf": float("inf")})
 
     def run(self):
-        """run"""
+        import csv
         import json
+        import math
 
+        # --- Collect scores per tune value ---
+        # rows[i] = {"tune": t, "avg": avg_wer, "<dev_key>": wer, ...}
+        rows = []
         best_score_idx = -1
-        best_score_val = 1000000.0
-        for i in range(len(self.scores)):
-            d = eval(uopen(self.scores[i], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        best_score_val = float("inf")
+
+        for i, (score_path, tune) in enumerate(zip(self.scores, self.tune_values)):
+            d = self._read_scores_dict(score_path)
             assert isinstance(d, dict), "Has to be a dict containing the best score."
+            assert "best_scores" in d and isinstance(d["best_scores"], dict), \
+                "Expected d['best_scores'] to be a dict of {dev_key: WER}."
 
-            if d["best_scores"]["dev-other"]  < best_score_val: #  + d["best_scores"]["test-other"] !  Implicitly first best score when multiple best. Dependent on the ordering!
-                best_score_idx = i
-                best_score_val = d["best_scores"]["dev-other"] #  + d["best_scores"]["test-other"]
+            # extract WERs in stable order; missing keys -> NaN to make issues visible
+            per_key = []
+            row = {"tune": tune}
+            for k in self.dev_keys:
+                v = d["best_scores"].get(k, float("nan"))
+                row[k] = v
+                per_key.append(v)
 
+            # average over available values (ignore NaNs)
+            valid = [x for x in per_key if not (x is None or (isinstance(x, float) and math.isnan(x)))]
+            if len(valid) == 0:
+                avg = float("nan")
+            else:
+                avg = sum(valid) / len(valid)
+            row["avg"] = avg
+            rows.append(row)
+
+            # best by avg (lower is better)
+            # if avg is NaN, skip it from ranking
+            if not (isinstance(avg, float) and math.isnan(avg)):
+                if avg < best_score_val:
+                    best_score_val = avg
+                    best_score_idx = i
+
+        # --- Decide best tune ---
+        assert best_score_idx >= 0, "No valid (non-NaN) averages found across tune values."
         best_tune = self.tune_values[best_score_idx]
-        if self.default_scale:
+
+        # Keep previous behavior (write var with default_scale applied; file with raw best_tune)
+        if self.default_scale is not None:
             self.out_best_tune_var.set(best_tune + self.default_scale)
-        res = {"best_tune": best_tune}
+        else:
+            self.out_best_tune_var.set(best_tune)
+
         with open(self.out_best_tune.get_path(), "w") as f:
-            f.write(json.dumps(res))
-            f.write("\n")
+            f.write(json.dumps({"best_tune": best_tune}) + "\n")
+
+        # --- Write CSV for later analysis ---
+        # cols: tune, (effective_scale), avg, dev_keys...
+        header = ["tune"]
+        if self.default_scale is not None:
+            header.append("effective_scale")  # = tune + default_scale
+        header.append("avg")
+        header.extend(self.dev_keys)
+
+        with open(self.out_curve_csv.get_path(), "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=header)
+            writer.writeheader()
+            for r in rows:
+                out = {"tune": r["tune"], "avg": r["avg"]}
+                if self.default_scale is not None:
+                    out["effective_scale"] = r["tune"] + self.default_scale
+                for k in self.dev_keys:
+                    out[k] = r.get(k, float("nan"))
+                writer.writerow(out)
+
+        # --- Plotting (headless) ---
+        # Use non-interactive backend to be safe on cluster nodes.
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        def _xvals():
+            # Prefer plotting "effective_scale" if default_scale is given
+            if self.default_scale is not None:
+                return [r["tune"] + self.default_scale for r in rows]
+            return [r["tune"] for r in rows]
+
+        x = _xvals()
+        x_label = "scale" if self.default_scale is None else "effective scale (default + tune)"
+
+        # 1) Average curve
+        y_avg = [r["avg"] for r in rows]
+        plt.figure()
+        plt.plot(x, y_avg, marker="o")
+        plt.xlabel(x_label)
+        plt.ylabel("WER (avg over dev_keys)")
+        plt.title("Scale vs Average WER")
+        plt.grid(True, linestyle="--", alpha=0.4)
+        # highlight best
+        plt.scatter([x[best_score_idx]], [y_avg[best_score_idx]], s=60)
+        plt.annotate(
+            f"best={x[best_score_idx]:.4g}, WER={y_avg[best_score_idx]:.3g}",
+            (x[best_score_idx], y_avg[best_score_idx]),
+            xytext=(5, 8), textcoords="offset points"
+        )
+        plt.tight_layout()
+        plt.savefig(self.out_plot_avg.get_path(), dpi=180)
+        plt.close()
+
+        # 2) All dev_keys + avg
+        plt.figure()
+        # plot per-key
+        for k in self.dev_keys:
+            yk = [r.get(k, float("nan")) for r in rows]
+            plt.plot(x, yk, marker="o", label=k)
+        # plot avg last so it’s visible
+        plt.plot(x, y_avg, marker="o", linewidth=2, label="avg")
+        plt.xlabel(x_label)
+        plt.ylabel("WER")
+        plt.title("Scale vs WER (per dev key)")
+        plt.grid(True, linestyle="--", alpha=0.4)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(self.out_plot_all.get_path(), dpi=180)
+        plt.close()
 
 
 

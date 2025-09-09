@@ -166,6 +166,7 @@ class SpainishLmDataset(DatasetConfig):
                 "targets": vocab.get_opts().copy(),
             }
 
+
         if training:
             d["partition_epoch"] = self.train_epoch_split
             if self.train_sort_order == "laplace":
@@ -190,6 +191,105 @@ class SpainishLmDataset(DatasetConfig):
             }
         return d
 
+class SpainishLmEvalDataset(DatasetConfig):
+    """
+    Spainish LM dataset
+    """
+
+    def __init__(
+        self,
+        *,
+        vocab: VocabConfig,
+        main_key: Optional[str] = "test",
+        eval_subset: Optional[int] = 3000,
+    ):
+        super().__init__()
+        self.vocab = vocab
+        self.main_key = main_key
+        self.eval_subset = eval_subset
+
+    def _sis_hash(self) -> bytes:
+        import hashlib
+        from sisyphus.hash import sis_hash_helper
+
+        # Keep consistent once we do any changes.
+        state = self.__dict__.copy()
+        byte_list = [b"SpainishLmEvalDataset", sis_hash_helper(state)]
+
+        # Same as sis_hash_helper.
+        byte_str = b"(" + b", ".join(byte_list) + b")"
+        if len(byte_str) > 4096:
+            return hashlib.sha256(byte_str).digest()
+        else:
+            return byte_str
+
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get extern data
+        """
+        from returnn.tensor import Dim, batch_dim
+
+        out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+        classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+
+        return {
+            "data": {
+                "dim_tags": [batch_dim, out_spatial_dim],
+                "sparse_dim": classes_dim,
+                "vocab": self.vocab.get_opts(),
+            }
+        }
+
+    def get_default_input(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_default_target(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_train_dataset(self) -> Dict[str, Any]:
+        pass
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
+        pass
+
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            "dev": self.get_dataset("dev", subset=self.eval_subset),
+            "test": self.get_dataset("test", subset=self.eval_subset),
+        }
+
+    def get_main_name(self) -> str:
+        return self.main_key
+
+    def get_main_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset(self.main_key)
+
+    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
+        vocab = self.train_vocab if training and self.train_vocab else self.vocab
+        assert key in (DEV_KEYS + TEST_KEYS + ["test", "dev"]), f"invalid eval/dev key {key!r}"
+        d: Dict[str, Any] = {
+            "class": "OggZipDataset",
+            "path": _get_lm_eval_ogg_zip(key=key, alias_prefix=f"Spainish_LM_dataset_{key}"),
+            "use_cache_manager": True,
+            "audio": None,
+            "targets": vocab.get_opts().copy(),
+        }
+
+        if d["class"] == "OggZipDataset":
+            d["fixed_random_seed"] = 1
+        d["seq_ordering"] = "sorted_reverse"
+        if subset:
+            d["fixed_random_subset"] = subset  # faster
+        if d["class"] == "OggZipDataset":
+            d = {
+                "class": "MetaDataset",
+                "datasets": {"ogg_zip": d},
+                "data_map": {"data": ("ogg_zip", "classes")},
+                "seq_order_control_dataset": "ogg_zip",
+            }
+        return d
 
 class SpanishOggZip(DatasetConfig):
     def __init__(
@@ -349,18 +449,25 @@ class EvalOggZip(DatasetConfig):
             "fixed_random_seed": 1,
         }
 
-NEED_FIX_OGG_ZIP_DATASET_NAME = ["seg.ref/test_set.ES_ES.f16kHz.eval_voice_call-v2.ref.ff_wer", "seg.ref/test_set.ES_ES.f8kHz.mtp_eval-v2.ref.ff_wer"]
-from i6_experiments.users.zhang.experiments.apptek.datasets.tools import OggZipFixTxtTextualJob
+NEED_FIX_OGG_ZIP_DATASET_NAME = ["test_set.ES_ES.f16kHz.eval_voice_call-v2",
+                                 "test_set.ES_ES.f16kHz.eval_napoli_202210-v3",
+                                 "test_set.ES_ES.f16kHz.eval_voice_call-v3",
+                                 "test_set.ES_ES.f8kHz.mtp_eval-v2",
+                                 "test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer"]
+from i6_experiments.users.zhang.experiments.apptek.datasets.tools import OggZipFixTxtTextualJob, BlissStripOrthPunctJob
 @cache
 def _get_ogg_zip(
-    corpus: tk.Path, name: str, split: int, returnn_root: Union[str, tk.Path], alias_prefix: str
+    corpus: tk.Path, name: str, split: int, returnn_root: Union[str, tk.Path], alias_prefix: str,
+    keep_training_hash: bool = False,
 ) -> tk.Path:
     segment_job = SegmentCorpusJob(corpus, split)
+    if "dev_conversation" in name and not keep_training_hash:
+        corpus = BlissStripOrthPunctJob(corpus).out_corpus
     oggzip_job = BlissToOggZipJob(corpus, segments=segment_job.out_segment_path, returnn_root=returnn_root)
     oggzip_job.rqmt = {"cpu": 1, "mem": 2}
     oggzip_job.merge_rqmt = None  # merge on local machine, to be more robust against slowness due to slow FS
     #print(name)
-    if name in NEED_FIX_OGG_ZIP_DATASET_NAME:
+    if any(name_prefix in name for name_prefix in NEED_FIX_OGG_ZIP_DATASET_NAME):
         oggzip_job = OggZipFixTxtTextualJob(oggzip_job.out_ogg_zip)
     oggzip_job.add_alias(f"{alias_prefix}/oggzip/{name}")
     tk.register_output(f"{alias_prefix}/oggzip/{name}.ogg.zip", oggzip_job.out_ogg_zip)
@@ -435,41 +542,46 @@ def get_task_data(
     result = SpanishData(cv=cv, train=train, dev=dev_datas, test=test_datas)
     return result
 
-def _get_lm_eval_ogg_zip(
+def _get_lm_eval_ogg_zip( # any data set inside "dev" or "test" will affect the hash for training Job!
     *,
     returnn_root: Union[str, tk.Path] = tk.Path("/home/mgunz/setups/2024-07-08--zeyer-setup-apptek/recipe/returnn"),
     alias_prefix: str,
     key: str,
 ) -> List[Path]:  #
     from .corpus_lex import get_corpora
+    lm_corpora = get_corpora(for_lm=True)
     corpora = get_corpora()
-    if key == "dev":
+    if key == "dev": # During Training
         ogg_zip_files = []
-        for k, eval_info in corpora.dev.items():
-            ogg_zip_files.append(_get_ogg_zip(
-                eval_info.segmented_corpus,
-                name=f"seg.{eval_info.segmenter_type}/{k}",
-                split=10,
-                returnn_root=returnn_root,
-                alias_prefix=alias_prefix,
-            )
-            )
-    elif key == "test":
+        for k, eval_info in lm_corpora.dev.items():
+            if str(eval_info.segmenter_type) == "ref":
+                ogg_zip_files.append(_get_ogg_zip(
+                    eval_info.segmented_corpus,
+                    name=f"seg.{eval_info.segmenter_type}/{k}",
+                    split=10,
+                    returnn_root=returnn_root,
+                    alias_prefix=alias_prefix,
+                    keep_training_hash=True,
+                )
+                )
+    elif key == "test": # During Training
         ogg_zip_files = []
-        for k, eval_info in corpora.test.items():
-            ogg_zip_files.append(_get_ogg_zip(
-                eval_info.segmented_corpus,
-                name=f"seg.{eval_info.segmenter_type}/{k}",
-                split=10,
-                returnn_root=returnn_root,
-                alias_prefix=alias_prefix,
-            )
-        )
+        for k, eval_info in lm_corpora.test.items():
+            if str(eval_info.segmenter_type) == "ref":
+                ogg_zip_files.append(_get_ogg_zip(
+                    eval_info.segmented_corpus,
+                    name=f"seg.{eval_info.segmenter_type}/{k}",
+                    split=10,
+                    returnn_root=returnn_root,
+                    alias_prefix=alias_prefix,
+                    keep_training_hash=True,
+                )
+                )
     else:
         ogg_zip_files = []
         if "dev" in key:
             for k, eval_info in corpora.dev.items():
-                if key in k:
+                if key in k and str(eval_info.segmenter_type) == "ref":
                     ogg_zip_files.append(_get_ogg_zip(
                         eval_info.segmented_corpus,
                         name=f"seg.{eval_info.segmenter_type}/{k}",
@@ -480,7 +592,7 @@ def _get_lm_eval_ogg_zip(
                     )
         elif "eval" in key:
             for k, eval_info in corpora.test.items():
-                if key in k:
+                if key in k and str(eval_info.segmenter_type) == "ref":
                     ogg_zip_files.append(_get_ogg_zip(
                         eval_info.segmented_corpus,
                         name=f"seg.{eval_info.segmenter_type}/{k}",
@@ -511,6 +623,25 @@ def _get_corpus_text(corpus_file: tk.Path, key: str) -> tk.Path:
     tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
     return job.out_text_lines
 
+@cache
+def get_corpus_text_dict(key: str) -> tk.Path:
+    from .corpus_lex import get_corpora
+    corpora = get_corpora()
+    if "dev" in key:
+        for k, eval_info in corpora.dev.items():
+            if key in k and str(eval_info.segmenter_type) == "ref":
+                return _get_corpus_text_dict(eval_info.segmented_corpus, k)
+
+    elif "eval" in key:
+        for k, eval_info in corpora.test.items():
+            if key in k and str(eval_info.segmenter_type) == "ref":
+                return _get_corpus_text_dict(eval_info.segmented_corpus, k)
+    else:
+        raise NotImplementedError(f"Can not determine which part {key} is belonging to (dev/eval)")
+    assert False, f"No data find for {key}"
+
+
+@cache
 def get_lm_eval_text(
     *,
     key: str,
@@ -521,21 +652,23 @@ def get_lm_eval_text(
     if key == "dev":
         text_files = []
         for k, eval_info in corpora.dev.items():
-            text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
+            if str(eval_info.segmenter_type) == "ref":
+                text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
 
     elif key == "test":
         text_files = []
         for k, eval_info in corpora.test.items():
-            text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
+            if str(eval_info.segmenter_type) == "ref":
+                text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
     else:
         text_files = []
         if "dev" in key:
             for k, eval_info in corpora.dev.items():
-                if key in k:
+                if key in k and str(eval_info.segmenter_type) == "ref":
                     text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
         elif "eval" in key:
             for k, eval_info in corpora.test.items():
-                if key in k:
+                if key in k and str(eval_info.segmenter_type) == "ref":
                     text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
         else:
             raise NotImplementedError(f"Can not determine which part {key} is belonging to (dev/eval)")

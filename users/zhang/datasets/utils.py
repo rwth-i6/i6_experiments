@@ -2,6 +2,7 @@ import os
 
 from typing import Dict, Tuple, Union, Any, Optional, Sequence
 
+import re
 from i6_core.lib import corpus
 from sisyphus import Job, Task as SisTask, tk
 from i6_core.util import uopen
@@ -81,53 +82,65 @@ def get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dic
 
     return ogg_zip_dict
 
-def extract_record_id(key: str) -> int:
+def extract_record_id(key: str) -> str:
     """
-    Extracts the record ID (middle number) from a Librispeech-style key.
-    Example key: 'test-clean/672-122797-0033/672-122797-0033'
-    Returns: 122797 as integer.
+    Returns a *string* record ID usable for grouping:
+      - LibriSpeech-style: parent dir '672-122797-0033' -> '122797'
+      - Corpus-style: parent dir 'es_US_cc_AP_Finance_100_20220907_channel1' -> the whole string
     """
-    # Split on '/' and then on '-' to isolate the IDs
-    try:
-        parts = key.split('/')
-        identifier = parts[1]  # e.g. '672-122797-0033'
-        _, record_str, _ = identifier.split('-')
-        return int(record_str)
-    except (IndexError, ValueError):
-        raise ValueError(f"Invalid key format for record extraction: {key}")
+    parts = key.split('/')
+    if len(parts) < 2:
+        raise ValueError(f"Invalid key format: {key}")
+
+    parent = parts[-2]  # the identifier before the final segment/duplicate id
+
+    # LibriSpeech-style pattern like '672-122797-0033'
+    if re.fullmatch(r"\d+-\d+-\d+", parent):
+        _, mid, _ = parent.split('-')
+        return mid  # return as string
+
+    # Corpus-style: record id is the whole parent identifier string
+    return parent
 
 
 def extract_sequence_num(key: str) -> int:
     """
-    Extracts the sequence number (last part) from a Librispeech-style key.
-    Example key: 'test-clean/672-122797-0033/672-122797-0033'
-    Returns: 33 as integer.
+    Returns the numeric sequence index for ordering within a record:
+      - Corpus-style: final path segment (e.g., '/1') -> 1
+      - LibriSpeech-style: last hyphen group in parent (e.g., '...-0033') -> 33
+        (If the final segment is numeric we prefer that; otherwise fall back to parent.)
     """
-    try:
-        parts = key.split('/')
-        identifier = parts[1]
-        *_, seq_str = identifier.split('-')
-        return int(seq_str)
-    except (IndexError, ValueError):
-        raise ValueError(f"Invalid key format for sequence extraction: {key}")
+    parts = key.split('/')
+    if not parts:
+        raise ValueError(f"Invalid key format: {key}")
+
+    last = parts[-1]
+    if re.fullmatch(r"\d+", last):
+        return int(last)
+
+    if len(parts) >= 2:
+        parent = parts[-2]
+        if re.fullmatch(r"\d+-\d+-\d+", parent):
+            seq = parent.split('-')[-1]
+            return int(seq)  # handles leading zeros like '0033' -> 33
+
+        # Generic fallback: take the last number in parent if present
+        nums = re.findall(r"\d+", parent)
+        if nums:
+            return int(nums[-1])
+
+    raise ValueError(f"Cannot extract sequence number from key: {key}")
 
 
 def sort_dict_by_record(data: dict) -> dict:
     """
-    Sorts a dict of Librispeech keys so that entries with the same record ID are grouped
-    and ordered by their sequence number.
-
-    Args:
-        data: dict with keys in the form '.../record-seq/...'
-    Returns:
-        A new dict with keys sorted by (record_id, sequence_num).
+    Groups by record ID (string) and orders by numeric sequence.
+    Works for mixed datasets (LibriSpeech-style and corpus-style).
     """
-    # Generate sorted list of keys
     sorted_keys = sorted(
         data.keys(),
         key=lambda k: (extract_record_id(k), extract_sequence_num(k))
     )
-    # Rebuild the dict in sorted order
     return {k: data[k] for k in sorted_keys}
 
 class MetaDataset():

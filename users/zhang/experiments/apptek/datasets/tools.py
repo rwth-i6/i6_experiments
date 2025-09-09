@@ -1,5 +1,97 @@
-# jobs/oggzip_fix_txt_textual.py
 from sisyphus import Job, Task, tk
+
+class BlissStripOrthPunctJob(Job):
+    """
+    Remove Unicode punctuation from all <orth>...</orth> contents in a Bliss corpus file.
+    - Works with .xml or .xml.gz
+    - Does not change structure or attributes outside <orth>
+    - Inside each <orth>, transforms .text and .tail of all descendants (so nested tags are safe)
+    """
+
+    __sis_hash_exclude__ = set()
+
+    def __init__(
+        self,
+        bliss_in: tk.Path,
+        *,
+        normalize_spaces: bool = True,
+        encoding: str = "utf-8",
+        output_name: str = "corpus.xml.gz",
+        version: int = 1,
+    ):
+        self.bliss_in = bliss_in
+        self.normalize_spaces = normalize_spaces
+        self.encoding = encoding
+        self.out_corpus = self.output_path(output_name)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import os, gzip, io, unicodedata, re
+        import xml.etree.ElementTree as ET
+
+        in_path = self.bliss_in.get_path()
+        out_path = self.out_corpus.get_path()
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+        def read_bytes(p):
+            if p.endswith(".gz"):
+                with gzip.open(p, "rb") as f:
+                    return f.read()
+            with open(p, "rb") as f:
+                return f.read()
+
+        def write_bytes(p, data: bytes):
+            if p.endswith(".gz"):
+                with gzip.open(p, "wb") as f:
+                    f.write(data)
+            else:
+                with open(p, "wb") as f:
+                    f.write(data)
+
+        # --- punctuation predicate (Unicode-aware) ---
+        def is_punct(ch: str) -> bool:
+            # All categories beginning with 'P' are punctuation: Pc, Pd, Pe, Pf, Pi, Po, Ps
+            return unicodedata.category(ch).startswith("P")
+
+        def strip_punct(s: str) -> str:
+            if s is None:
+                return None
+            cleaned = "".join(ch for ch in s if not is_punct(ch))
+            if self.normalize_spaces:
+                cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            return cleaned
+
+        # --- parse XML ---
+        raw = read_bytes(in_path)
+        # Keep the XML declaration; ET.fromstring() + .write() will add one if requested
+        tree = ET.ElementTree(ET.fromstring(raw.decode(self.encoding)))
+        root = tree.getroot()
+
+        # --- transform only <orth> subtrees ---
+        n_changed = 0
+        for orth in root.iter("orth"):
+            # Walk the subtree; update .text and .tail everywhere under <orth>
+            for node in orth.iter():
+                if node.text:
+                    new_text = strip_punct(node.text).lower()
+                    if new_text != node.text:
+                        node.text = new_text
+                        n_changed += 1
+                if node.tail:
+                    new_tail = strip_punct(node.tail).lower()
+                    if new_tail != node.tail:
+                        node.tail = new_tail
+                        n_changed += 1
+
+        # --- serialize back (UTF-8, with XML decl) ---
+        buf = io.BytesIO()
+        tree.write(buf, encoding=self.encoding, xml_declaration=True)
+        out_bytes = buf.getvalue()
+        write_bytes(out_path, out_bytes)
+
+        print(f"[OK] Updated {n_changed} text/tail fields under <orth>. Output -> {out_path}")
 
 class OggZipFixTxtTextualJob(Job):
     """

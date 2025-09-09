@@ -130,7 +130,7 @@ def get_asr_task_given_spm(
         dev_dataset=task_data.cv,
         eval_datasets={**task_data.dev, **task_data.test},
         main_measure_type=MeasureType(short_name="WER%"),
-        main_measure_name="test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer",
+        main_measure_name=f"test_set.ES_ES.f16kHz.eval_voice_call-v3.{ALL_SEGMENTER_TYPES[1]}.ff_wer",
         train_dataset=task_data.train,
         train_epoch_split=train_partition_epoch,
         score_recog_output_func=partial(_score_recog_out_v2, corpora=corpora, remove_labels=spm_extra_symbols),

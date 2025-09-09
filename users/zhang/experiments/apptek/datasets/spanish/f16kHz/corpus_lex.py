@@ -89,7 +89,8 @@ test_corpora_def = {
     #     "mtp_eval_heldout-v2",
     # ],
     "test_set.ES_ES.f16kHz": [
-        "eval_voice_call-v2", #present but bug in data loader
+        "eval_voice_call-v3", #present but bug in data loader
+        "eval_napoli_202210-v3",
     ],
     "test_set.ES_US.f8kHz": [ #ok
         "eval_callcenter_lt-v5",
@@ -98,20 +99,55 @@ test_corpora_def = {
         "mtp_eval_p3_retail_realestate-v3",
         "mtp_eval_p4_family_holiday_other-v3",
     ],
-    # "test_set.ES_US.f16kHz": [
-    #     "mtp_eval-v2",
-    #     "mtp_eval_p1_news_podcast-v2",
-    #     "mtp_eval_p2_entertainment_others-v2",
-    # ],
+    "test_set.ES_US.f16kHz": [
+        "eval_movies_tvshows_talks_202303-v3"
+        # "mtp_eval-v2",
+        # "mtp_eval_p1_news_podcast-v2",
+        # "mtp_eval_p2_entertainment_others-v2",
+    ],
 }
+
+LM_dev_corpora_def = {
+    "test_set.ES.f8kHz": [
+        "mtp_dev_heldout-v2",
+    ],
+    "test_set.ES_US.f8kHz": [
+        "dev_callhome-v4", # ok
+    ],
+    "test_set.ES_US.f16kHz": [
+        "dev_conversations_202411-v2",
+        #"dev-v2",
+    ],
+}
+
+LM_test_corpora_def = {
+    "test_set.ES_ES.f8kHz": [
+        "mtp_eval-v2", #present but bug in data loader
+    ],
+    # "test_set.ES.f16kHz": [
+    #     "mtp_eval_heldout-v2",
+    # ],
+    "test_set.ES_ES.f16kHz": [
+        "eval_voice_call-v2", #present but bug in data loader
+        #"eval_napoli_202210-v3",
+    ],
+    "test_set.ES_US.f8kHz": [ #ok
+        "eval_callcenter_lt-v5",
+        "mtp_eval_p1_travel_entertainment-v3",
+        "mtp_eval_p2_finance_sales-v3",
+        "mtp_eval_p3_retail_realestate-v3",
+        "mtp_eval_p4_family_holiday_other-v3",
+    ]
+}
+
 
 segmenter_artefact = (
     "segmenter.f16kHz",
-    "2022-tf-am-segmenter-apptek-batch",
+    "2017-06-tf-am-segmenter-batch",
 )
 segmenter_flow_artefact = (
     "feature_flow",
-    "torch-logmel-unnormalized-batch-16kHz",
+    "mel-fb-45-legacy-segmenter-16kHz-batch-with-mean-var-norm",
 )
 rasr_artefact = (
     "rasr",
@@ -130,14 +166,14 @@ class SegmenterType(Enum):
             return {}
         elif self == SegmenterType.AppTekLegacy:
             return {
-                "top_n": 20,
+                "top_n": 1, #20
                 "buffer_size": 100,
-                "min_speech_frames": 50,
+                "min_speech_frames": 600, #50
                 "mini_music_frames": 50,
-                "min_silence_gap": 30,
-                "max_speech_frames": 2000,
-                "max_speech_dur": 2000,
-                "hard_stop_max_speech_frames": 3000,
+                "min_silence_gap": 300, #30
+                "max_speech_frames": 1000, #2000
+                "max_speech_dur": 1000, #2000
+                "hard_stop_max_speech_frames": 1500, #3000
             }
         elif self == SegmenterType.PylasrE2E:
             return {
@@ -158,7 +194,7 @@ class SegmenterType(Enum):
 
 
 ALL_SEGMENTER_TYPES = [
-#    SegmenterType.AppTekLegacy,
+    SegmenterType.AppTekLegacy,
     SegmenterType.Reference,
 #    SegmenterType.PylasrE2E,
 ]
@@ -284,6 +320,7 @@ def _get_eval_corpus(
         )
         segment_audio_job.add_alias(f"segmenter/{namespace}.{corpus_key}/{seg_opts_as_str}")
         out_corpus_file = segment_audio_job.out_merged_corpus
+        out_corpus_file = AddFakeTranscriptionJob(out_corpus_file).out_corpus
     elif segmenter_type == SegmenterType.Pylasr:
 
         from apptek_asr.pylasr.segment import CreateScpFromWavs, SegmentScp
@@ -304,7 +341,7 @@ def _get_eval_corpus(
         rename_job = RenameSegmentScpCorpus(segment_audio_job.out_merged_corpus)
         out_corpus_file = rename_job.out_merged_corpus
 
-    #out_corpus_file = AddFakeTranscriptionJob(out_corpus_file).out_corpus
+
     eval_info = EvalInfo(
         corpus=full_corpus,
         glm=artefact["glm"],
@@ -350,7 +387,7 @@ def _compute_merged_costa(name: str, corpus_dict: Dict[str, EvalInfo], alias_pre
 
 @cache
 def get_corpora(
-    alias_prefix: str = "datasets/spanish/f16kHz", include_extra_train_data_beyond_2k: bool = False
+    alias_prefix: str = "datasets/spanish/f16kHz", include_extra_train_data_beyond_2k: bool = False, for_lm: bool = False,
 ) -> Corpora:
     train_corpora = {
         f"{corpus_ns}.{corpus}": _get_train_cv_corpus(corpus_ns, corpus)
@@ -366,7 +403,7 @@ def get_corpora(
         f"{corpus_ns}.{corpus}.{segmenter_type}.{measure_type}": _get_eval_corpus(
             corpus_ns, corpus, segmenter_type, measure_type, alias_prefix
         )
-        for corpus_ns, corpus_list in dev_corpora_def.items()
+        for corpus_ns, corpus_list in (LM_dev_corpora_def.items() if for_lm else dev_corpora_def.items())
         for corpus in corpus_list
         for segmenter_type in ALL_SEGMENTER_TYPES
         for measure_type in ALL_MEASURE_TYPES
@@ -379,7 +416,7 @@ def get_corpora(
         f"{corpus_ns}.{corpus}.{segmenter_type}.{measure_type}": _get_eval_corpus(
             corpus_ns, corpus, segmenter_type, measure_type, alias_prefix
         )
-        for corpus_ns, corpus_list in test_corpora_def.items()
+        for corpus_ns, corpus_list in (LM_test_corpora_def.items() if for_lm else test_corpora_def.items())
         for corpus in corpus_list
         for segmenter_type in ALL_SEGMENTER_TYPES
         for measure_type in ALL_MEASURE_TYPES

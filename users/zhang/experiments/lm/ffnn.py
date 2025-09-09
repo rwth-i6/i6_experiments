@@ -51,11 +51,84 @@ def py():
     #
     # lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
     lm_dataset = SpainishLmDataset(vocab=spm_config, train_epoch_split=20)
+    ff_hidden_dim = 1024
+    for context_size, num_layers, embeding_size, batch_size, max_seq, drop_out in [#(128, 30_000, 200, 0), Overfit
+                                               (4, 2, 256, 80_000, None, 0.1),
+                                                (6, 2, 256, 120_000, None, 0.1),
+                                                (8, 3, 256, 120_000, None, 0.2), (12, 3, 512, 80_000, None, 0.2),
+                                                   #(128, 10_000, 200)# More than this does not have corresponding step entry in _get_cfg_lrlin_oclr_by_bs_nep
+                                               ]:
+        train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu"
+        conf = _get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 50, batch_size_factor=1)
+        #conf = _get_cfg_lrlin_oclr_by_bs_nep(max_seq, batch_size, 50) #ms_200, b10_000
+        #conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+        config_gb = config_11gb_lm_v1.copy()
+        if batch_size >= 120_000 and max_seq is None:
+            config_gb.update({"__gpu_mem": 48})
+        else:
+            config_gb.update({"__gpu_mem": 24})
+        config_gb.update({"max_seqs":max_seq})
+        model_with_checkpoints = train(
+            f"lm/{train_prefix_name}",
+            config=dict_update_deep(
+                config_gb,
+                {
+                    **conf,
+                    "max_seq_length": {},
+                    "torch_distributed": None,
+                    "use_horovod": False,
+                    "version": 3,#2: with get_librispeech_lm_dataset
+                },
+            ),
+            train_dataset=lm_dataset,
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        FeedForwardLm,
+                        embed_dim=embeding_size,
+                        num_layers=num_layers,
+                        context_size=context_size,
+                        embed_dropout=0 if embeding_size <= 256 else 0.1,
+                        dropout=drop_out,
+                        ff_hidden_dim=ff_hidden_dim,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+        compute_ppl(
+            prefix_name=train_prefix_name,
+            model_with_checkpoints=model_with_checkpoints,
+            dataset=lm_dataset,
+            vocab=spm_config,
+            word_ppl=True,
+            task_name="ES",
+            dataset_keys=DEV_KEYS+TEST_KEYS,
+        )
+
+def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False,)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+    _, spm, _ = get_model_and_vocab()
+    for k, v in spm["vocabulary"].items():
+        print(f"{k}: {v}")
+    # print(f"vocab setting: {spm}")
+    spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+
+    from i6_experiments.users.zeyer.train_v3 import train
+    # from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
+    # from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+    #
+    # lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
+    lm_dataset = SpainishLmDataset(vocab=spm_config, train_epoch_split=20)
     num_layers = 2
     context_size = 4
     ff_hidden_dim = 1024
     for embeding_size, batch_size, max_seq, drop_out in [#(128, 30_000, 200, 0), Overfit
-                                               (256, 80_000, None, 0.1),
+                                                    (256, 80_000, None, 0.1),
                                                    #(128, 10_000, 200)# More than this does not have corresponding step entry in _get_cfg_lrlin_oclr_by_bs_nep
                                                    ]:
         train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu"
@@ -100,15 +173,22 @@ def py():
         # TODO: a simple look up for approx exponent for convert ppl of bpe to word level.
         #  For now, hard coded 2.6 in lm.lm_ppl.ComputePerplexityJob for bpe128
         from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
-        compute_ppl(
+        ppls = compute_ppl(
             prefix_name=train_prefix_name,
             model_with_checkpoints=model_with_checkpoints,
             dataset=lm_dataset,
             vocab=spm_config,
-            word_ppl=True,
+            word_ppl=word_ppl,
             task_name="ES",
             dataset_keys=DEV_KEYS+TEST_KEYS,
         )
+    if epochs:
+        for epoch in epochs:
+            assert epoch in model_with_checkpoints.fixed_epochs
+            yield model_with_checkpoints.get_epoch(epoch), ppls[f"epoch{epoch}"], epoch
+    else:
+        return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
+
 
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
                 embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None,bpe_ratio: Optional[float | tk.Variable]=None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
@@ -193,7 +273,7 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+        dataset_keys=["transcriptions-test-other", "transcriptions-dev-other"],
         exponent=bpe_ratio if word_ppl else 1.0,
         epochs=epochs,
     )

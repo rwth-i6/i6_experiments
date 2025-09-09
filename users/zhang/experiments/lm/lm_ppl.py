@@ -196,9 +196,11 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
     if isinstance(dataset_keys, str):
         dataset_keys = [dataset_keys]
     ppls = dict()
+    for epoch in model_with_checkpoints.fixed_epochs:
+        ppls[f"epoch{epoch}"] = dict()
     for dataset_key in dataset_keys:
         if task_name == "LBS":
-            text_data = get_test_corpus_text(keys=[dataset_key])
+            text_data = get_test_corpus_text(keys=[dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key])
         elif task_name == "ES":
             text_data = get_lm_eval_text(key = dataset_key)
         else:
@@ -233,11 +235,15 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             dataset_key_ = (
                 dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key
             ) if task_name == "LBS" else dataset_key
-            print(f"Will compute ppl:ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
+            #print(f"Will compute ppl:ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl", ppl_job.out_ppl)
-            if dataset_key_ == "test-other":
-                ppls[f"epoch{epoch}"] = ppl_job.out_ppl
+            ppls[f"epoch{epoch}"][dataset_key_] = ppl_job.out_ppl
+            # if prefix_name == "ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k":
+            #     print(f"Add PPLs on {dataset_key_} for epoch {epoch}:\n -> {ppls}\n")
+            # if dataset_key_ == "test-other":
+            #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
+
     return ppls
 
 def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab: [str | VocabConfig] = "bpe128", task_name: str = "LBS", **kwargs_unused):
@@ -249,7 +255,7 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
     ppls = dict()
     for dataset_key in dataset_keys:
         if task_name == "LBS":
-            text_data = get_test_corpus_text(keys=[dataset_key])
+            text_data = get_test_corpus_text(keys=[dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key])
         elif task_name == "ES":
             text_data = get_lm_eval_text(key = dataset_key)
         else:
@@ -280,7 +286,7 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
         dataset_key_ = (
             dataset_key[len("transcriptions-"):] if dataset_key.startswith("transcriptions-") else dataset_key
         )
-        exponent_raw = exponent.get() if isinstance(exponent, tk.Variable) else float(exponent)
+        exponent_raw = ratio.get() if isinstance(ratio, tk.Variable) else float(ratio)
         res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
         tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if exponent_raw > 1 else 'subword'}_ppl", ppl_job.out_ppl)
         ppls[dataset_key_] = ppl_job.out_ppl
@@ -292,7 +298,6 @@ class ComputePerplexityJob(Job):
 
         self.out_ppl = self.output_path("ppl")
         self.exponent = exponent.get() if isinstance(exponent, tk.Variable) else exponent
-        print(self.exponent)
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)

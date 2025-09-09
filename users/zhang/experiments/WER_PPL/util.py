@@ -4,7 +4,9 @@ import pickle
 import os
 import os.path as path
 import subprocess as sp
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union, Literal
+import pandas as pd
+import re
 
 from sisyphus import tk, Job, Path, Task
 
@@ -19,26 +21,33 @@ class WER_ppl_PlotAndSummaryJob(Job):
     def __init__(
         self,
         names: List[str],
-        results: List[Tuple[tk.Variable, tk.Path]],
+        results: List[Tuple[Dict[str, Union[tk.Variable, float]], tk.Path]],
+        # PPL: {dataset_name: ppl}
+        # WER: {"best_scores": {dataset name: wer} }
 
         lm_tunes: List[Optional[tk.Path]],
         prior_tunes: List[Optional[tk.Path]],
         search_errors: List[Optional[tk.Path]],
-        search_errors_rescore: List[Optional[tk.Path]],
+        search_errors_rescore: List[Dict[str,Optional[tk.Path]]],
         lm_default_scales: List[Optional[float]],
         prior_default_scales: List[Optional[float]],
         eval_dataset_keys: List[str] = ["test-other","dev-other"],
+        include_search_error: bool = True,
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
         self.out_plot_folder = self.output_path("plots", directory=True)
+        self.out_tabel_folder = self.output_path("tables", directory=True)
         # self.out_plot1 = self.output_path("plots/dev_other.png")
         # self.out_plot2 = self.output_path("plots/test_other.png")
         # self.out_plot3 = self.output_path("plots/dev_clean.png")
         # self.out_plot4 = self.output_path("plots/test_clean.png")
         self.out_plots = [self.output_path(f"plots/{key}.png") for key in eval_dataset_keys]
+        self.out_plot_avg = self.output_path(f"plots/avg.png")
+        self.out_tables = {key: self.output_path(f"tables/{key}.csv") for key in eval_dataset_keys + ["wers", "ppls", "avg"]}
         self.names = names
         self.results = results
+
         self.lm_tunes = lm_tunes
         self.prior_tunes = prior_tunes
         self.lm_default_scales = lm_default_scales
@@ -46,44 +55,70 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.search_errors = search_errors
         self.search_errors_rescore = search_errors_rescore
         self.eval_dataset_keys = eval_dataset_keys
+        self.include_search_error = include_search_error
 
     def tasks(self) -> Iterator[Task]:
         yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
         yield Task("plots", mini_task=True)
+        yield Task("export_dataset_tables", mini_task=True)
+        yield Task("export_metric_matrix", mini_task=True)
+        yield Task("export_metric_averages", mini_task=True)
+
+    @staticmethod
+    def find_relevant_key(dict, key):
+        for k in dict.keys():
+            if key in k or k in key:
+                return k
+        raise ValueError(f"Key {key} not found in {dict}")
 
     def get_points(self):
+        for i, (ppl, wers) in enumerate(self.results):
+            print(f"{self.names[i]}: ({ppl}, {wers})\n")
         ppls = list()
         wers = list()
-        for i, (ppl_log, wer_path) in enumerate(self.results):
-            """extracts ppl score from the ppl.log file"""
-            if isinstance(ppl_log, float):
-                ppls.append(ppl_log)
-                print(f"Got ppl for {self.names[i]}")
-            else:
-                assert isinstance(ppl_log, tk.Path)
-                with open(ppl_log.get_path(), "rt") as f:
-                    lines = f.readlines()
-                    for line in lines:
-                        line = line.split(" ")
-                        for idx, ln in enumerate(line):
-                            if ln == "ppl=" or ln == "Perplexity:":
-                                ppls.append(float(line[idx + 1]))
-                                print(f"Got ppl for {self.names[i]}")
+        for i, (ppl_dict, wer_path) in enumerate(self.results):
+            for k, ppl_log in ppl_dict.items():
+                """extracts ppl score from the ppl.log file"""
+                if k not in self.eval_dataset_keys:
+                    continue
+                if isinstance(ppl_log, float):
+                    ppl_dict[k] = ppl_log
+                    print(f"Float ppl -> Got ppl for {i}th entry on {k}: {self.names[i]}")
+                elif isinstance(ppl_log, tk.Path):
+                    with open(ppl_log.get_path(), "rt") as f:
+                        lines = f.readlines()
+                        found = False
+                        for line in lines:
+                            line = line.split(" ")
+                            for idx, ln in enumerate(line):
+                                if ln == "ppl=" or ln == "Perplexity:":
+                                    ppl_dict[k] = float(line[idx + 1])
+                                    print(f"Log ppl -> Got ppl for {self.names[i]}")
+                                    found = True
+                                    break
+                            if found:
                                 break
+                else:
+                    assert isinstance(ppl_log,  tk.Variable), "PPL must be tk.Path or tk.Variable, or raw float"
+                    ppl_dict[k] = float(ppl_log.get())
+                    print(f"Tk.var ppl -> Got ppl for {self.names[i]}")
+            ppls.append(ppl_dict)
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
-        ppls = ppls
+
         assert len(ppls) == len(wers)
         #wers = {"dev-other":[all_res["best_scores"]["dev-other"] for all_res in wers], "test-other":[all_res["best_scores"]["test-other"] for all_res in wers]}
-        wers = {key: [all_res["best_scores"][key] for all_res in wers] for key in self.eval_dataset_keys}
+        wers_dict = {key: [all_res["best_scores"][key] for all_res in wers] for key in self.eval_dataset_keys}
 
-        return ppls, wers
+        ppls = [{self.find_relevant_key(wers[0]['best_scores'], k): v for k,v in d.items()} for d in ppls]
+        ppls_dict = {key: [all_res[self.find_relevant_key(all_res, key)] for all_res in ppls] for key in self.eval_dataset_keys}
+        return ppls, wers, ppls_dict, wers_dict
 
     def plots(self):
         import matplotlib.pyplot as plt
         import scipy.optimize
         # Apply logarithmic transformation to PPL
-        ppls, wers = self.get_points()
+        *_, ppls, wers= self.get_points()
         # Define the regression function: WER = a + b * ln(PPL)
         def regression_func(x, a, b):
             return a + b * x
@@ -141,16 +176,225 @@ class WER_ppl_PlotAndSummaryJob(Job):
             plt.savefig(savepath)
             plt.close(fig)
 
+        dataset_count = 0
+        ppl_avg = np.array([0 for _ in range(len(self.names))])
+        wer_avg = np.array([0 for _ in range(len(self.names))])
         for i, key in enumerate(self.eval_dataset_keys):
-            plot(ppls, wers[key], self.out_plots[i].get_path(),self.names)
+            plot(ppls[key], wers[key], self.out_plots[i].get_path(),self.names)
+            dataset_count += 1
+            ppl_avg += np.array(ppls[key])
+            wer_avg += np.array(wers[key])
+        plot(list(ppl_avg/dataset_count), list(wer_avg/dataset_count), self.out_plot_avg.get_path(),self.names)
+
         # plot(ppls, wers["dev-other"], self.out_plot1.get_path(),self.names)
         # plot(ppls, wers["test-other"], self.out_plot2.get_path(),self.names)
         # plot(ppls, wers["dev-clean"], self.out_plot3.get_path(), self.names)
         # plot(ppls, wers["test-clean"], self.out_plot4.get_path(), self.names)
 
+    @staticmethod
+    def _parse_dataset_map(columns: List[str]) -> Dict[str, Dict[str, str]]:
+        """
+        Map dataset_id -> {"WER": colname, "PPL": colname}
+        dataset_id = token immediately before '.ref' in the original column name.
+        """
+        by_dataset: Dict[str, Dict[str, str]] = {}
+        for col in columns:
+            m = re.match(r"^(.*)\s+(WER|PPL)$", col)
+            if not m:
+                continue
+            base, metric = m.group(1), m.group(2)
+            parts = base.split(".")
+            try:
+                ref_idx = parts.index("ref")
+                dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
+            except ValueError:
+                dataset_token = parts[-1]
+            by_dataset.setdefault(dataset_token, {})
+            by_dataset[dataset_token][metric] = col
+        return by_dataset
+
+    def export_metric_matrix(self):
+        """
+        Create a wide table with rows= models, columns = datasets (values = chosen metric).
+        Optionally append per-dataset search error columns (best-effort).
+        Returns the written CSV path.
+        """
+        id_cols: Tuple[str, str, str] = ("Model Name", "lm_scale", "prior_scale")
+        for metric in ["WER", "PPL"]:
+            df = pd.read_csv(self.out_summary.get_path())
+
+            by_dataset = self._parse_dataset_map(df.columns.tolist())
+            out = df.loc[:, [c for c in id_cols if c in df.columns]].copy()
+
+            for ds in sorted(by_dataset.keys()):
+                colname = by_dataset[ds].get(metric)
+                if not colname:
+                    continue
+                series = df[colname]
+                if metric == "WER":
+                    series = series.astype(str).str.rstrip("%").replace({"": None}).astype(float)
+                else:
+                    series = pd.to_numeric(series, errors="coerce")
+                out[ds] = series
+
+            if self.include_search_error:
+                se_candidates = {c for c in df.columns if c.endswith(" search_error")}
+                has_per_dataset = len(se_candidates) > 0
+                for ds in sorted(by_dataset.keys()):
+                    se_col = None
+                    if has_per_dataset:
+                        for c in se_candidates:
+                            if f".{ds}.ref." in c or (len(c.split(".")) > 1 and c.split(".")[-2] == ds):
+                                se_col = c
+                                break
+                    if se_col and se_col in df.columns:
+                        out[f"{ds}__search_error"] = df[se_col]
+                    elif "search_error" in df.columns:
+                        out[f"{ds}__search_error"] = df["search_error"]
+
+            id_keep = [c for c in id_cols if c in out.columns]
+            out = out[id_keep + [c for c in out.columns if c not in id_keep]]
+            out_path = self.out_tables[metric.lower() + "s"].get_path()
+            out.to_csv(out_path, index=False)
+
+    def export_metric_averages(self):
+        """
+        Compute per-model averages across dev sets and eval sets separately.
+
+        Output columns:
+        model spec + avg_WER_dev + avg_PPL_dev + avg_WER_eval + avg_PPL_eval
+        [+ optional avg_search_error_dev, avg_search_error_eval].
+
+        Returns: written CSV path.
+        """
+        import pandas as pd
+        id_cols: Tuple[str, str, str] = ("Model Name", "lm_scale", "prior_scale")
+        df = pd.read_csv(self.out_summary.get_path())
+
+        by_dataset = self._parse_dataset_map(df.columns.tolist())
+        dev_datasets = [ds for ds in by_dataset if "dev" in ds.lower()]
+        eval_datasets = [ds for ds in by_dataset if "eval" in ds.lower()]
+
+        def compute_avg(cols, is_wer=False):
+            if not cols:
+                return pd.Series([float("nan")] * len(df))
+            if is_wer:
+                mat = df[cols].astype(str).apply(lambda s: s.str.rstrip("%"))
+                mat = mat.apply(pd.to_numeric, errors="coerce")
+            else:
+                mat = df[cols].apply(pd.to_numeric, errors="coerce")
+            return mat.mean(axis=1, skipna=True)
+
+        out = df.loc[:, [c for c in id_cols if c in df.columns]].copy()
+
+        # WER averages
+        out["avg_WER_dev"] = compute_avg([by_dataset[ds]["WER"] for ds in dev_datasets if "WER" in by_dataset[ds]],
+                                         is_wer=True)
+        out["avg_WER_eval"] = compute_avg([by_dataset[ds]["WER"] for ds in eval_datasets if "WER" in by_dataset[ds]],
+                                          is_wer=True)
+
+        # PPL averages
+        out["avg_PPL_dev"] = compute_avg([by_dataset[ds]["PPL"] for ds in dev_datasets if "PPL" in by_dataset[ds]])
+        out["avg_PPL_eval"] = compute_avg([by_dataset[ds]["PPL"] for ds in eval_datasets if "PPL" in by_dataset[ds]])
+
+        if self.include_search_error:
+            def compute_se_avg(datasets):
+                se_cols = [
+                    c for c in df.columns
+                    if c.endswith(" search_error") and any(f".{ds}.ref." in c for ds in datasets)
+                ]
+                if se_cols:
+                    se_mat = df[se_cols].apply(pd.to_numeric, errors="coerce")
+                    return se_mat.mean(axis=1, skipna=True)
+                elif "search_error" in df.columns:
+                    return pd.to_numeric(df["search_error"], errors="coerce")
+                else:
+                    return pd.Series([float("nan")] * len(df))
+
+            out["avg_search_error_dev"] = compute_se_avg(dev_datasets)
+            out["avg_search_error_eval"] = compute_se_avg(eval_datasets)
+
+        out_path = self.out_tables["avg"].get_path()
+        out.to_csv(out_path, index=False)
+
+    def export_dataset_tables(self):
+        """
+        Create per-dataset CSVs with columns:
+        [Model Name, lm_scale, prior_scale, search_error, WER, PPL]
+
+        Assumes input has columns like:
+          "...ref.ff_wer WER" and "...ref.ff_wer PPL"
+        The minimal dataset name is the token right before ".ref",
+        e.g. "test_set.ES_US.f8kHz.dev_callhome-v4.ref.ff_wer WER"
+        -> "dev_callhome-v4".
+        """
+        df = pd.read_csv(self.out_summary.get_path())
+        keep_cols: Tuple[str, str, str, str] = ("Model Name", "lm_scale", "prior_scale", "search_error")
+        # Find metric columns and group by dataset id
+        metric_cols: List[str] = [c for c in df.columns if c.endswith(" WER") or c.endswith(" PPL")]
+        by_dataset: Dict[str, Dict[str, str]] = {}
+
+        for col in metric_cols:
+            m = re.match(r"^(.*)\s+(WER|PPL)$", col)
+            if not m:
+                continue
+            base, metric = m.group(1), m.group(2)
+            parts = base.split(".")
+            try:
+                ref_idx = parts.index("ref")
+                dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
+            except ValueError:
+                dataset_token = parts[-1]  # fallback
+            dataset_id = dataset_token
+
+            by_dataset.setdefault(dataset_id, {})
+            by_dataset[dataset_id][metric] = col
+
+        results: Dict[str, str] = {}
+        for dataset_id, metric_map in by_dataset.items():
+            cols_to_keep = list(keep_cols)
+            if "WER" in metric_map:
+                cols_to_keep.append(metric_map["WER"])
+            if "PPL" in metric_map:
+                cols_to_keep.append(metric_map["PPL"])
+
+            # Skip if neither WER nor PPL present
+            if len(cols_to_keep) == len(keep_cols):
+                continue
+
+            sub = df.loc[:, [c for c in cols_to_keep if c in df.columns]].copy()
+            # Shorten metric headers
+            rename_map = {}
+            if "WER" in metric_map:
+                rename_map[metric_map["WER"]] = "WER"
+            if "PPL" in metric_map:
+                rename_map[metric_map["PPL"]] = "PPL"
+            sub.rename(columns=rename_map, inplace=True)
+
+            # Make sorting sensible: numeric WER/PPL
+            if "WER" in sub.columns:
+                sub["WER"] = sub["WER"].astype(str).str.rstrip("%").replace({"": None}).astype(float)
+            if "PPL" in sub.columns:
+                sub["PPL"] = pd.to_numeric(sub["PPL"], errors="coerce")
+            sort_cols = [c for c in ["WER", "PPL"] if c in sub.columns]
+            if sort_cols:
+                sub = sub.sort_values(by=sort_cols, ascending=True, kind="mergesort")
+
+            # safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", dataset_id)
+            # out_path = os.path.join()
+            sub.to_csv(self.out_tables[self.find_relevant_key(self.out_tables,dataset_id)].get_path(), index=False)
 
     def create_table(self):
-        ppls, _ = self.get_points()
+        def get_search_error(path):
+            with open(path) as f:
+                import re
+                search_error = f.readline()
+                if search_error == "None":
+                    return "-"
+                search_error = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error).group(0)
+            return search_error
+        ppls, *_ = self.get_points()
+        print(ppls)
         import csv
         wers = list()
         for _, wer_path in self.results:
@@ -166,8 +410,14 @@ class WER_ppl_PlotAndSummaryJob(Job):
             return default_scale + lm_weight_tune
 
         # Prepare the data as a list of lists
-        dataset_header = [dataset_key + " WER" for dataset_key in self.eval_dataset_keys]
-        table_data = [["Model Name", "Perplexity", "lm_scale", "prior_scale", "search_error", "search_error_rescore"] + dataset_header]
+        # dataset_header_ext_WER = [dataset_key + " WER" for dataset_key in self.eval_dataset_keys]
+        # dataset_header_ext_PPL = [dataset_key + " PPL" for dataset_key in self.eval_dataset_keys]
+        dataset_header = []
+        for dataset_key in self.eval_dataset_keys:
+            dataset_header.append(dataset_key + " PPL")
+            dataset_header.append(dataset_key + " WER")
+            dataset_header.append(dataset_key + " Search Error-Re")
+        table_data = [["Model Name", "lm_scale", "prior_scale", "search_error"] + dataset_header]
         for key, values in res.items():
             ppl = values[0]
             scores = values[1]["best_scores"]
@@ -200,19 +450,16 @@ class WER_ppl_PlotAndSummaryJob(Job):
 
             search_error = "-"
             if values[3]:
-                with open(values[3].get_path()) as f:
-                    import re
-                    search_error = f.readline()
-                    search_error = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error).group(0)
-            search_error_rescore = "-"
-            if values[4]:
-                with open(values[4].get_path()) as f:
-                    import re
-                    search_error_rescore = f.readline()
-                    search_error_rescore = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error_rescore).group(0)
-            row = [key, f"{ppl:.3g}", f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error, search_error_rescore]
+                search_error = get_search_error(values[3].get_path())
+
+            search_error_rescore_dict = values[4]
+            row = [key, f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error]#, search_error_rescore]
             for dataset_key in self.eval_dataset_keys:
+                row.append(f"{ppl.get(dataset_key, '-'):.3g}")
                 row.append(f"{scores.get(dataset_key, '-'):.1f}")
+                search_error_log = search_error_rescore_dict.get(dataset_key, None)
+                row.append(f"{get_search_error(search_error_log.get_path())}"
+                               if search_error_log else "-")
             table_data.append(row)
 
         # Save to a CSV file manually
@@ -244,9 +491,9 @@ class GnuPlotJob(Job):
         from collections import defaultdict
         import os
 
-        def get_idx_name(header:List[str], dataset_key: str):
+        def get_idx_name(header:List[str], dataset_key: str, measure: str = "wer"):
             for name in header:
-                if dataset_key.lower() in name.lower():
+                if dataset_key.lower() in name.lower() and measure.lower() in name.lower():
                     return name
             raise Exception(f"dataset key {dataset_key} not found.")
         os.makedirs(self.out_plot_dir.get_path(), exist_ok=True)
@@ -260,7 +507,7 @@ class GnuPlotJob(Job):
             groups = defaultdict(list)  # <-- reset for each dataset
             idx_wer = header.index(get_idx_name(header, data_setkey))
             idx_name = header.index('Model Name')
-            idx_ppl = header.index('Perplexity')
+            idx_ppl = header.index(get_idx_name(header, data_setkey, "ppl"))
 
             for line in all_lines:
                 cols = line.strip().split(',')

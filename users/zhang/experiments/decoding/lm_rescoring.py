@@ -216,21 +216,23 @@ class HuggingFaceLmScorer(LMScorer):
         eos_symbol = cfg.get("eos_symbol", "")
         lower_case = cfg.get("lower_case", False)
         get_raw_text_func = cfg.get("get_raw_text_func", raw_text_from_bpe_seq)
+        context_len_limit = cfg.get("ctx_len_limit", None)
         # dummy init
         instance = cls()
         instance.get_raw_text = get_raw_text_func
         instance.batch_size = batch_size
         instance.model_dir = model_dir
+        instance.context_len_limit = context_len_limit
 
         instance.prompt_buffer = []
-        delimiter = " " if not eos_symbol else (eos_symbol + " ")  # Not sure
+        instance.delimiter = " " if not eos_symbol else (eos_symbol + " ")  # Not sure
         instance.prompt = None
         if isinstance(prompt, tk.Path):
             with open(prompt.get_path(), "r", encoding="utf-8") as f:
                 prompt = [line.strip() for line in f.readlines()]
         if prompt:
             prompt +=  [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
-            instance.prompt = delimiter.join(prompt) # TODO:
+            instance.prompt = instance.delimiter.join(prompt) # TODO:
 
         instance.lower_case = lower_case
         instance.eos_symbol = eos_symbol
@@ -246,10 +248,21 @@ class HuggingFaceLmScorer(LMScorer):
             instance.tokenizer.pad_token = instance.tokenizer.eos_token
         print(f"\nTokenizer_max_length:{instance.tokenizer.model_max_length}\n")
 
-        instance.model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True)
+        # Prefer bfloat16 on Ampere+ (A6000, A40, A100, 4090, etc.); otherwise fall back to fp16.
+        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[
+            0] >= 8 else torch.float16
+
+        instance.model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            local_files_only=True,
+            torch_dtype=dtype,  # load directly in low precision
+            device_map={"": 0},  # put the whole model on cuda:0 (single GPU)
+            low_cpu_mem_usage=True,  # stream weights, smaller CPU peak
+            #attn_implementation="flash_attention_2",  # faster runtime; f
+        )
         instance.model.eval()
         instance.device = torch.device(device_str)
-        instance.model.to(instance.device)
+        #instance.model.to(instance.device)
 
         print(f"({time.time() - start_time} secs)")
         #instance.n_best_file = recog_out_file
@@ -258,11 +271,18 @@ class HuggingFaceLmScorer(LMScorer):
         #instance.eos_symbol = eos_symbol
         return instance
 
+    def ctx_over_limit(self):
+        if self.context_len_limit is None:
+            return False
+        return len(self.delimiter.join(self.prompt_buffer + [""]).split()) >= self.context_len_limit
+
     def update_prompt(self, new_prompt: str):
         self.prompt_buffer += [new_prompt]
+        while self.ctx_over_limit():
+            self.prompt_buffer.pop(0)
         self.prompt = self.prompt_buffer.copy()
         self.prompt += [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
-        self.prompt = self.eos_symbol.join(self.prompt)
+        self.prompt = self.delimiter.join(self.prompt)
 
     def clear_prompt(self):
         torch.cuda.empty_cache()
@@ -900,7 +920,7 @@ def lm_am_framewise_prior_rescore(
     alias_name = get_generic_alias_name(alias_name)
     res_labels_lm_scores = lm_scorer(
         pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
-        alias_name=alias_name + "/rescoring",
+        alias_name=alias_name + "/LMrescoring",
     )
     res_labels_am_scores = rescore(
         config=config,

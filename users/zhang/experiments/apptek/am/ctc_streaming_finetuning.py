@@ -1,25 +1,31 @@
 from __future__ import annotations
 import copy
+
 from sisyphus import gs, tk
-import i6_core.rasr as rasr
-from i6_core.lib.lexicon import Lexicon, Lemma
-import i6_core.lm as lm
+
+from apptek_asr.artefacts import AbstractArtefactRepository, ArtefactSpecification
+from apptek_asr.artefacts.prod.asrmon_v1.repo import create_batch_prod_model_factory_cls
+from apptek_asr.meta.evaluations.aggregated_scoring import ES_MBW_TEST_SET_SPECS_V1
 from apptek_asr.meta.nn import NNSystemV2
 from apptek_asr.meta.rasr import (
     PyrasrVenvBuilder,
     SentencepieceRasrFsaExporterConfigBuilder,
 )
-from apptek_asr.artefacts import ArtefactSpecification
-from apptek_asr.artefacts.factory import AbstractArtefactRepository
+from apptek_asr.onnx.quantize import DynamicQuantizeOnnxModelJob
+from apptek_asr.report import TabularReport
+from apptek_asr.report.script_report import CopyArtefactsReport
+from i6_core.lib.lexicon import Lemma, Lexicon
+import i6_core.rasr as rasr
 
-from i6_core.tools.git import CloneGitRepositoryJob
+from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import py as base_ctc
+
 
 # ********** Settings **********
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 # Atanas BPE setup
 num_outputs = 10237
-num_subepochs = 625  # 50 full ep * 100 partition / 8 gpu
+num_subepochs = 25  # 2 full ep * 100 partition / 8 gpu
 
 ### General ###
 # ISO language code of the system (e.g. "EN_US")
@@ -33,7 +39,7 @@ sampling_rate = "16kHz"
 sampling_rate_int = int(sampling_rate[: -len("kHz")]) * 1000
 
 # Name for the experiment. This will name the output folder
-experiment_name = "CTC-40ms-sentencepiece"
+experiment_name = "CTC-40ms-sentencepiece-streaming-seqConcat-finetuning"
 
 ### Training ###
 # Specify lists of training HDF artefact names from the appropriate namespace here
@@ -275,9 +281,7 @@ spm_ns = "subword_units.sentencepiece.ES"
 spm_name = "2025-04-spm_10240-nmt_nfkc_cf-mbw"
 
 fsa_topology_config = rasr.RasrConfig()
-fsa_topology_config.lib_rasr.alignment_fsa_exporter.allophone_state_graph_builder.topology = (
-    "ctc"
-)
+fsa_topology_config.lib_rasr.alignment_fsa_exporter.allophone_state_graph_builder.topology = "ctc"
 fsa_exporter_kwargs = {
     "extra_fsa_exporter_post_config": fsa_topology_config,
 }
@@ -288,21 +292,36 @@ fsa_exporter_kwargs = {
 dataset_extra_opts = {
     "partition_epoch": 100,  # about 1.5h
     "data_dtype": "int16",
-    "train_set_sorting": "laplace:.1000",
-    "cv_hdf_artefact_specs": {
+    "cv_feature_hdf_artefact_specs": {
         "dev-8k": dev_hdf_8k_artefact_specs,
         "dev-16k-1": dev_hdf_16k_europarl_artefact_specs,
         "dev-16k-2": dev_hdf_16k_voxpopuli_artefact_specs,
         "dev-16k-3": dev_hdf_16k_commonvoice_artefact_specs,
     },
 }
+data_postprocessing_ns = "returnn_config.data_postprocessing"
+data_postprocessing_name = "concat-seqs-uniform-3-laplace-1000"
+data_postprocessing_kwargs = {
+    "max_seq_len": 40 * 16000,
+    "classes_key": None,
+    "num_features_per_class": None,
+}
+dataset_extra_opts.update(
+    {
+        "postprocessing_artefact_spec": ArtefactSpecification(
+            data_postprocessing_ns,
+            data_postprocessing_name,
+            **data_postprocessing_kwargs,
+        )
+    }
+)
 
 
 # Network config artefact.
 # Most conformer nets are too deep an need a special python_prolog:
 # "config_params": {"python_prolog": "import sys\nsys.setrecursionlimit(10000)"},
 network_config_ns = "network_config.pt_conformer_rel_pos"
-network_config_name = "2024-09-conformer_rel_pos-9001_cart-16kHz_logmel"
+network_config_name = "2024-09-streaming-conformer_rel_pos-9001_cart-16kHz_logmel"
 network_config_kwargs = {
     "num_heads": 14,
     "num_layers": 20,
@@ -311,13 +330,16 @@ network_config_kwargs = {
     "internal_subsampling_rate": 4,
     "output_upsampling": False,
     "upsampler_output_dropout": 0.0,
+    # 2025-05-05 commit.
     "i6_models_artefact_spec": ArtefactSpecification(
         "software.i6_models", "i6_models-2025-05-13", commit="8c5460f2398889abb3fe605e9180e9d03ad216ce"
     ),
-    #"i6_models_commit": "8c5460f2398889abb3fe605e9180e9d03ad216ce",
+    "state_carryover": False,
 }
 
 # training returnn config components
+from i6_core.returnn.training import PtCheckpoint
+#base_ctc_ckpt = tk.Path("/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/returnn/training/ReturnnTrainingJob.S5nZBbA0Djdu/output/models/epoch.625.pt")
 training_config_ns = "returnn_config.training"
 training_config_name = "modular-training-pt-600-v1"
 training_config_kwargs = {
@@ -335,26 +357,31 @@ training_config_kwargs = {
             # important for usage of the simple HDFDataset
             "cache_size": "0",
             "torch_log_memory_usage": True,
-            "max_seq_length": {"data": 30 * 16000},  # 30s covers >99.9% seqs
+            "max_seq_length": {"data": 40 * 16000},  # 40s
             "torch_amp": {"dtype": "bfloat16", "grad_scaler": None},
-            "accum_grad_multiple_step": 6,  # effective batch size: 150k frames
+            "accum_grad_multiple_step": 7,  # effective batch size: 147k frames
+            "preload_from_files": {
+                "base": {
+                    "init_for_train": True,
+                    "ignore_missing": False,
+                    "filename": base_ctc()[-1], #PtCheckpoint(base_ctc_ckpt)
+                }
+            },
         },
     },
 }
-
+#print(f"{base_ctc()[-1]} type:{type(base_ctc()[-1])}")
+print(training_config_kwargs)
 returnn_config_batch_size_ns = "returnn_config.batch_size"
 returnn_config_batch_size_name = "raw-wav-16kHz-batch_size-2080"
-returnn_config_batch_size_kwargs = {"batch_size": 25_000}
+returnn_config_batch_size_kwargs = {"batch_size": 21_000}
 
-# Similar to 1b English model: warm-up(8%) + constant(64%) + decay(28%)
-# new paln: warm-up(8%) + 300 constant(48%) + 275 decay(44%)
+# Constant 1e-5
 returnn_config_learning_rates_ns = "returnn_config.learning_rates"
 returnn_config_learning_rates_name = "finetune-1e-5"
 returnn_config_learning_rates_kwargs = {
     "learning_rate": None,
-    "learning_rates": [1e-6 + (5e-4 - 1e-6) / 50 * i for i in range(50)]
-    + [5e-4] * 300
-    + [5e-4 + (1e-6 - 5e-4) / 275 * (i + 1) for i in range(275)],
+    "learning_rates": [2e-5] * 25,
 }
 
 # Training chunking setting (not compatible with fullsum yet)
@@ -368,14 +395,8 @@ returnn_config_optimizer_kwargs = {"class": "adamW", "weight_decay": 0.05}
 
 
 # Torch train step function
-i6_native_ops_repo = CloneGitRepositoryJob(
-    url="https://github.com/rwth-i6/i6_native_ops",
-    commit="0cdaf6038b5b348c242156aae24bf5d8fcde48c5",
-    checkout_folder_name="i6_native_ops",
-).out_repository
-
 train_step_func_ns = "returnn_config.pytorch"
-train_step_func_name = "fullsum-max-likelihood-loss-v2"
+train_step_func_name = "fullsum-max-likelihood-loss-dynamic-context-size"
 train_step_func_kwargs = {
     "label_posterior_scale": 1.0,
     "transition_scale": 1.0,
@@ -383,13 +404,68 @@ train_step_func_kwargs = {
     "label_smoothing_exclude_labels": [0],
     "mainloss_scale": 0.7,
     "zero_infinity": True,
-    "i6_native_ops_repo": i6_native_ops_repo,
+    "internal_subsampling_rate": 4,
+    "max_chunk_size": 1024,
+    "min_chunk_size": 128,
 }
 
 # acoustic_model_config artefact
 training_acoustic_model_config_ns = "am_config"
 training_acoustic_model_config_name = "e2e-monophone-am-config-v1"
 training_acoustic_model_config_kwargs = {}
+
+### Recognition ###
+# Mode of evaluation: either "batch" or "streaming"
+evaluation_mode = "batch"
+
+# Lists of test_set artefact names here as Dict[str, List[str]] (evaluated separately)
+test_ns_es = f"test_set.{lang_code_es}.f{sampling_rate}"
+test_ns_es_us = f"test_set.{lang_code_es_us}.f{sampling_rate}"
+test_ns_es_es = f"test_set.{lang_code_es_es}.f{sampling_rate}"
+
+# Epochs in which to perform recognition.
+recog_epochs = [25]
+
+
+# Name of the recognition lexicon artefact.
+# to be changed
+lexicon_config_ns = f"lex.{lang_code_es}"
+lexicon_config_name = "2025-07-17-tel_spm_recognition_lex-v1"
+#lexicon_config_name = "2025-08-15-bcn_spm_recognition_lex-v1"
+lexicon_config_kwargs = {}
+
+# Name of the language model artefact.
+# LM scale and image are overwritten later.
+language_model_config_ns = f"lm.{lang_code_es}"
+# non-truecased tel lm
+language_model_config_name = "2022-09-tel-arpa-local-or-s3"
+#language_model_config_name = "2022-09-bcn-arpa-local-or-s3"
+language_model_config_kwargs = {}
+
+# Recognizer config artefact.
+# this mostly contains pruning parameters and can be extended below.
+recognizer_config_ns = "recognizer"
+recognizer_config_name = "recognizer-config-v1"
+recognizer_config_kwargs = {}
+
+# Segmenter artefact
+# Name: streaming: "2017-06-rasr-am-segmenter"
+#       batch:     "2017-06-tf-am-segmenter-batch"
+batch_segmenter_config_ns = f"segmenter.f{sampling_rate}"
+batch_segmenter_config_name = "2017-06-tf-am-segmenter-batch"
+batch_segmenter_config_kwargs = {}
+
+##          Batch recognition           ##
+## Modify if evaluation_mode == "batch" ##
+# Feature flow artefact
+# segmentation:
+batch_segmenter_feature_flow_ns = "feature_flow"
+batch_segmenter_feature_flow_name = "mel-fb-45-legacy-segmenter-16kHz-batch-with-mean-var-norm"
+batch_segmenter_feature_flow_kwargs = {}
+# recognition
+recognizer_feature_flow_ns = "feature_flow"
+recognizer_feature_flow_name = "torch-logmel-unnormalized-batch-16kHz-asrmon"
+recognizer_feature_flow_kwargs = {}
 
 # prior computation torch forward step function
 prior_forward_step_func_ns = "returnn_config.pytorch"
@@ -409,6 +485,19 @@ asrmon_name = "asrmon-2024-10-17"
 rasr_name = "streaming-rasr-2025-07-12"
 returnn_name = "returnn-2025-04-22"
 runtime_name = "ApptekCluster-ubuntu2204-tf2.15.1-pt2.3.0-2024-04-24"
+sctk_name = "sctk-2022-09-08"
+
+batch_report = TabularReport()
+batch_report.add_row(
+    "epoch",
+    "eval set",
+    "lm scale",
+    "prior scale",
+    "FFWER",
+    "sub",
+    "ins",
+    "del",
+)
 
 
 def py():
@@ -419,34 +508,16 @@ def py():
     for param in navigation:
         nested_dict.setdefault(param, {})
         nested_dict = nested_dict[param]
-    nested_dict["keep"] = sorted(
-        list(
-            set(
-                nested_dict.get("keep", [])
-                + list(range(50, 351, 10))
-                + [
-                    450,
-                    550,
-                    625,
-                ]  # keep every 10 epoch during constant LR to possibly stop early
-            )
-        )
-    )
+    nested_dict["keep"] = sorted(set(nested_dict.get("keep", []) + [13, 25]))
 
     training_args, training_config = (
-        ArtefactSpecification(
-            training_config_ns, training_config_name, **training_config_kwargs
-        )
+        ArtefactSpecification(training_config_ns, training_config_name, **training_config_kwargs)
         .get_factory(aar)
         .build()
     )
 
     training_config.update(
-        ArtefactSpecification(
-            network_config_ns, network_config_name, **network_config_kwargs
-        )
-        .get_factory(aar)
-        .build()
+        ArtefactSpecification(network_config_ns, network_config_name, **network_config_kwargs).get_factory(aar).build()
     )
     training_config.update(
         ArtefactSpecification(
@@ -485,33 +556,27 @@ def py():
             "dim": num_outputs,
         }
     }
-    prior_config.update(
-        ArtefactSpecification(
-            prior_forward_step_func_ns, prior_forward_step_func_name
-        ).build(aar)
-    )
-    prior_config.update(
-        ArtefactSpecification(prior_callback_ns, prior_callback_name).build(aar)
-    )
+    prior_config.update(ArtefactSpecification(prior_forward_step_func_ns, prior_forward_step_func_name).build(aar))
+    prior_config.update(ArtefactSpecification(prior_callback_ns, prior_callback_name).build(aar))
 
     recog_network_config_kwargs = copy.deepcopy(network_config_kwargs)
     recog_network_config_kwargs.update({"mode": "recognition"})
     recognition_config = ArtefactSpecification(
         network_config_ns, network_config_name, **recog_network_config_kwargs
     ).build(aar)
-    recognition_config.update(
-        ArtefactSpecification(forward_step_func_ns, forward_step_func_name).build(aar)
-    )
+    recognition_config.update(ArtefactSpecification(forward_step_func_ns, forward_step_func_name).build(aar))
 
-    returnn_root = aar.get_artefact_factory("software.returnn", returnn_name).build()[
-        "returnn_root"
-    ]
+    returnn_root = aar.get_artefact_factory("software.returnn", returnn_name).build()["returnn_root"]
 
     artefacts = {
         "runtime_spec": ArtefactSpecification("runtime", runtime_name),
         "rasr_spec": ArtefactSpecification("rasr", rasr_name),
     }
     gs.worker_wrapper = artefacts["runtime_spec"].build(aar).worker_wrapper
+
+    # Prepare specific SCTK version used for scoring
+    sctk = aar.get_artefact_factory("software.sctk", sctk_name).build()
+    scorer_kwargs = {"sctk_binary_path": sctk["sctk_binary_path"]}
 
     feature_hdf_artefact_specs = {
         hdf_ns_ + corpus: ArtefactSpecification(hdf_ns_, corpus)
@@ -521,8 +586,8 @@ def py():
 
     # Prepare training dataset
     dataset_opts = {
-        "dataset_type": "DistributeHDFDataset",
-        "hdf_artefact_specs": feature_hdf_artefact_specs,
+        "dataset_type": "DistributePostprocessingHDFDataset",
+        "feature_hdf_artefact_specs": feature_hdf_artefact_specs,
         **dataset_extra_opts,
     }
 
@@ -541,26 +606,14 @@ def py():
     nonword_lex = Lexicon()
     for phon in ["[SILENCE]", "[NOISE]", "[MUSIC]"]:
         nonword_lex.add_phoneme(phon, variation="none")
-    nonword_lex.add_lemma(
-        Lemma(orth=["<blank>"], phon=["[SILENCE]"], special="blank", synt=[], eval=[[]])
-    )
-    nonword_lex.add_lemma(
-        Lemma(orth=["[silence]"], phon=["[SILENCE]"], special="silence")
-    )
+    nonword_lex.add_lemma(Lemma(orth=["<blank>"], phon=["[SILENCE]"], special="blank", synt=[], eval=[[]]))
+    nonword_lex.add_lemma(Lemma(orth=["[silence]"], phon=["[SILENCE]"], special="silence"))
     nonword_lex.add_lemma(Lemma(orth=["[noise]"], phon=["[NOISE]"]))
     nonword_lex.add_lemma(Lemma(orth=["[vocalized-noise]"], phon=["[NOISE]"]))
     nonword_lex.add_lemma(Lemma(orth=["[vocalized-unknown]"], phon=["[NOISE]"]))
-    nonword_lex.add_lemma(
-        Lemma(orth=["[unknown]"], phon=["[NOISE]", "[MUSIC]"], special="unknown")
-    )
-    nonword_lex.add_lemma(
-        Lemma(
-            orth=["[sentence-begin]"], synt=["<s>"], eval=[[]], special="sentence-begin"
-        )
-    )
-    nonword_lex.add_lemma(
-        Lemma(orth=["[sentence-end]"], synt=["</s>"], eval=[[]], special="sentence-end")
-    )
+    nonword_lex.add_lemma(Lemma(orth=["[unknown]"], phon=["[NOISE]", "[MUSIC]"], special="unknown"))
+    nonword_lex.add_lemma(Lemma(orth=["[sentence-begin]"], synt=["<s>"], eval=[[]], special="sentence-begin"))
+    nonword_lex.add_lemma(Lemma(orth=["[sentence-end]"], synt=["</s>"], eval=[[]], special="sentence-end"))
 
     fsa_exporter_opts = {
         "corpus_specs": corpus_specs,
@@ -569,9 +622,7 @@ def py():
         "meta_lexicon_extra_kwargs": {"nonword_lex": nonword_lex},
         **fsa_exporter_kwargs,
     }
-    fsa_exporter_config_builder = SentencepieceRasrFsaExporterConfigBuilder(
-        aar=aar, **fsa_exporter_opts
-    )
+    fsa_exporter_config_builder = SentencepieceRasrFsaExporterConfigBuilder(aar=aar, **fsa_exporter_opts)
     fsa_exporter_config_path = fsa_exporter_config_builder.build()
     training_lexicon = fsa_exporter_config_builder.corpus_merger.out["lexicon"]
     tk.register_output("training_lexicon", training_lexicon)
@@ -579,10 +630,12 @@ def py():
     dataset_opts["segment_list"] = fsa_exporter_config_builder.out_segments
 
     py_rasr_arg = copy.deepcopy(artefacts)
-    returnn_exe = PyrasrVenvBuilder(aar, **py_rasr_arg).build(
-        tk.Path("/usr/bin/python3")
-    )
+    returnn_exe = PyrasrVenvBuilder(aar, **py_rasr_arg).build(tk.Path("/usr/bin/python3"))
 
+    i6_native_ops_repo = aar.get_artefact_factory("software.i6_native_ops", "i6_native_ops-2025-06-05").build()[
+        "i6_native_ops_root"
+    ]
+    train_step_func_kwargs["i6_native_ops_repo"] = i6_native_ops_repo
     train_step_config = ArtefactSpecification(
         train_step_func_ns,
         train_step_func_name,
@@ -608,8 +661,8 @@ def py():
     )
     nn_system.run()
     nn_system.training_job.rqmt.update({"gpu_mem": 48})
-    return nn_system.training_job, spm_spec.build(aar), nn_system.training_job.out_checkpoints[num_subepochs]#.out_checkpoints[625]
 
+    return nn_system.training_job, spm_spec.build(aar)
 
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
@@ -658,12 +711,10 @@ BLANK_IDX = 3
 def get_model_and_vocab(fine_tuned_model: bool = False):
     from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoints
     if fine_tuned_model:
-        from i6_experiments.users.zhang.experiments.apptek.am.ctc_streaming_finetuning import py as FT_py, ctc_model_def as ctc_FT_model_def
+        from i6_experiments.users.zhang.experiments.apptek.am.ctc_streaming_finetuning import py as FT_py
         training_job, vocab, *_ = FT_py()
-        model_def = ctc_FT_model_def
     else:
         training_job, vocab, *_ = py()
-        model_def = ctc_model_def
     i6_models_repo = CloneGitRepositoryJob(
         url="https://github.com/rwth-i6/i6_models",
         commit='8c5460f2398889abb3fe605e9180e9d03ad216ce',#network_config_kwargs["i6_models_commit"],
@@ -671,7 +722,7 @@ def get_model_and_vocab(fine_tuned_model: bool = False):
     ).out_repository
     from i6_core.serialization.base import ExternalImport
     i6_models = ExternalImport(import_path=i6_models_repo)
-    return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=training_job), vocab, i6_models
+    return ModelWithCheckpoints.from_training_job(definition=ctc_model_def, training_job=training_job), vocab, i6_models
 
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
@@ -817,7 +868,7 @@ class Model(rf.Module):
     ):
         super(Model, self).__init__()
         from returnn.config import get_global_config
-        from apptek_asr.lib.pytorch.networks.conformer_rel_pos import ConformerRelPosModel
+        from apptek_asr.lib.pytorch.networks import StreamingConformerRelPosModel
 
         config = get_global_config(return_empty_if_none=True)
         self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
@@ -836,7 +887,7 @@ class Model(rf.Module):
         print(f"eos_idx: {eos_idx}, bos_idx: {bos_idx}, blank_idx: {blank_idx}, wb_target_dim.vocab: {self.wb_target_dim.vocab}")
         # Instantiate the underlying PyTorch Conformer model
         assert target_dim.dimension == num_outputs + 3, f"target_dim {target_dim.dimension} != num_outputs {num_outputs}"
-        pt = ConformerRelPosModel(
+        pt = StreamingConformerRelPosModel(
             epoch=epoch,
             step=step,
             sampling_rate=sampling_rate,

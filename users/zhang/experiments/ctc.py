@@ -275,7 +275,7 @@ def train_exp(
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
     tune_rescore_scale: bool = False,
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 10,
     search_rqmt: dict = None,
     recog: bool = False,
     batch_size: int = None,
@@ -398,7 +398,55 @@ def train_exp(
     return model_with_checkpoints, recog_res, None, None, None
 
 
+def build_search_config(
+    search_config: Dict[str, Any],
+    model_config: Dict[str, Any] | None
+) -> Dict[str, Any]:
+    """
+    Merge model_config into search_config safely:
+    - Deep-copy everything to avoid shared references.
+    - Promote model_config['recog_language_model'] (its contents) to top-level.
+    - Copy selected top-level keys.
+    - Merge preload_from_files deep (model_config takes precedence).
+    """
+    new_cfg = copy.deepcopy(search_config)  # don't mutate caller's config
 
+    if not model_config:
+        return new_cfg
+
+    mc = copy.deepcopy(model_config)  # isolate from caller
+
+    # 1) Bring recog_language_model (a nested dict of configs) to top-level
+    #    e.g., {'preload_from_files': {...}, 'recog_language_model': {...}}
+    rlm = mc.get("recog_language_model")
+    if isinstance(rlm, dict):
+        new_cfg.update(rlm)
+
+    # 2) Copy selected top-level keys from model_config
+    for k in ["network_config_kwargs", "allow_random_model_init"]:
+        if k in mc:
+            new_cfg[k] = mc[k]
+
+    # 3) Deep-merge preload_from_files (model_config wins on conflicts)
+    def deep_merge_dicts(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+        """Return deep-merged copy; values from b override a on conflict."""
+        out = copy.deepcopy(a)
+        for k, v in b.items():
+            if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                out[k] = deep_merge_dicts(out[k], v)
+            else:
+                out[k] = copy.deepcopy(v)
+        return out
+
+    preloads_existing = new_cfg.get("preload_from_files", {})
+    preloads_model = mc.get("preload_from_files", {})
+    if isinstance(preloads_existing, dict) or isinstance(preloads_model, dict):
+        new_cfg["preload_from_files"] = deep_merge_dicts(
+            preloads_existing if isinstance(preloads_existing, dict) else {},
+            preloads_model if isinstance(preloads_model, dict) else {},
+        )
+
+    return new_cfg
 
 # noinspection PyShadowingNames
 def recog_exp(
@@ -432,7 +480,7 @@ def recog_exp(
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
     tune_rescore_scale: bool = False,
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 10,
     search_rqmt: dict = None,
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
@@ -454,16 +502,25 @@ def recog_exp(
     config = dict_update_deep(config, config_updates, config_deletes)
 
     search_config = dict()
-    if model_config:
-        if "recog_language_model" in model_config:
-            # recog_language_model = model_config["recog_language_model"].copy()
-            # cls_name = recog_language_model.pop("class")
-            # assert cls_name == "FeedForwardLm"
-            # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
-            model_config_ = model_config.copy()
-            search_config = model_config_.pop("recog_language_model")
-        if "network_config_kwargs" in model_config:
-            search_config["network_config_kwargs"] = model_config["network_config_kwargs"]
+    #print(f"{prefix}: \n model_config{model_config}")
+    if model_config: # This need cleaning...
+        search_config = build_search_config(search_config, model_config)
+        # if "recog_language_model" in model_config:
+        #     # recog_language_model = model_config["recog_language_model"].copy()
+        #     # cls_name = recog_language_model.pop("class")
+        #     # assert cls_name == "FeedForwardLm"
+        #     # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
+        #     recog_lm_config = model_config.get("recog_language_model",{}).copy()
+        #     search_config.update(recog_lm_config)
+        # for k in ["network_config_kwargs", "allow_random_model_init"]:
+        #     if k in model_config:
+        #         search_config[k] = model_config[k]
+        # if "preload_from_files" in model_config:
+        #     preloads = search_config.get("preload_from_files",{})
+        #     print(f"preloads{preloads}")
+        #     preloads.update(model_config["preload_from_files"])
+        #     search_config["preload_from_files"] = preloads
+
     if batch_size:
         search_config["batch_size"] = batch_size
     recog_post_proc_funcs = []
@@ -475,7 +532,6 @@ def recog_exp(
     #print(f"model_config{model_config}")
     #print(f"search_config{search_config}")
     def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, update_config: dict = {}, first_pass_name: str = None):
-        from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
         original_params = decoding_config
         params = copy.copy(original_params)
 
@@ -492,6 +548,12 @@ def recog_exp(
             params.pop("lm_weight_tune", None)
             params.pop("prior_weight_tune", None)
             params.update(update_config)
+            if search_config.get("network_config_kwargs", False):
+                search_config_copy = copy.deepcopy(search_config)
+                if search_config_copy["preload_from_files"]:
+                    search_config_copy["preload_from_files"].pop("recog_lm",0)
+                check_lm = search_config_copy.get("preload_from_files", 0) == 0 or search_config_copy["preload_from_files"].get("recog_lm", 0) == 0
+                assert check_lm, f"Got first pass LM, check search_config{search_config_copy}\n -> Do not use this update_config except greedy first pass search"
         else:
             search_config_copy = search_config.copy()
         #print(params)
@@ -522,7 +584,8 @@ def recog_exp(
             scores.append(score)
 
         if len(scores):
-            best_tune_job = GetBestTuneValue(scores, tune_range, default_scale=default_value)
+            best_tune_job = GetBestTuneValue(scores, tune_range,
+                                             default_scale=default_value, dev_keys=dev_dataset_keys)
             #original_params[target_param_key] = best_tune
             return best_tune_job.out_best_tune, best_tune_job.out_best_tune_var
 
@@ -588,7 +651,7 @@ def recog_exp(
             lm_scores.append(score)
 
         if len(lm_scores):
-            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
+            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls, dev_keys=dev_dataset_keys).out_best_tune
             tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
             params["lm_weight"] = default_lm
             params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
@@ -631,7 +694,7 @@ def recog_exp(
                 )
                 prior_scores.append(score)
         if len(prior_scores):
-            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
+            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls, dev_keys=dev_dataset_keys).out_best_tune
             tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
             original_params["prior_weight_tune"] = best_prior_tune
 
@@ -640,8 +703,8 @@ def recog_exp(
         first_pass_lmname = decoding_config.get("lm_order")
         from i6_experiments.users.zhang.experiments.lm_getter import get_second_pass_lm_by_name
         update_config = {
-            "nbest": 200,
-            "beam_size": 300,
+            "nbest": 100,
+            "beam_size": 100,
             "lm_weight": None,
             "use_logsoftmax": True,
             "use_lm": False,
@@ -649,12 +712,12 @@ def recog_exp(
             "lm": None,
             "rescoring": True,
             "rescore_lm_name": first_pass_lmname,
-            "lm_rescore": get_second_pass_lm_by_name(first_pass_lmname),
+            "lm_rescore": get_second_pass_lm_by_name(first_pass_lmname, task_name="ES"),
             "lm_vocab": None,
             }
         lm_tune_ls = [scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range") \
             else tune_config_updates["tune_range"]
-        alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + "NoLM"
+        alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + f"b{update_config['beam_size']}n{update_config['nbest']}" + "NoLM" + f"_tune_scale-{first_pass_lmname}"
         best_lm_tune, best_tune_LM_var = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", update_config, first_pass_name=alias_tune_name)
         tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best", best_lm_tune)
         decoding_config["lm_weight_tune"] = best_lm_tune
@@ -673,13 +736,15 @@ def recog_exp(
         decoding_config["rescore_lmscale"] = ori_rescore_lmscale
     '''Tune 2rd pass scales'''
     if tune_rescore_scale and decoding_config["lm_rescore"]:
-        print("tune 2rd pass scales!")
         tune_name = prefix# + "/2rd_" + decoding_config["rescore_lm_name"]
         lm_tune_ls = [scale/100 for scale in range(-50,51,5)] if not tune_config_updates.get("tune_range_2") \
             else tune_config_updates["tune_range_2"]
 
         prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1] if not tune_config_updates.get("prior_tune_range_2") \
             else tune_config_updates["prior_tune_range_2"]
+        print(f"{prefix} \n -> tune 2rd pass scales! defaults_lm {decoding_config['rescore_lmscale']} prior{decoding_config['rescore_priorscale']} "
+              f"\n lm_range:[{min(lm_tune_ls),max(lm_tune_ls)}]\n "
+              f"prior_range:[{min(prior_tune_ls),max(prior_tune_ls)}]")
         _, best_lm_tune = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name)
         tk.register_output(tune_name + "/tune/resor_lm_weight_best", best_lm_tune)
         decoding_config["rescore_lmscale"] = best_lm_tune
@@ -706,6 +771,8 @@ def recog_exp(
         decoding_config.update(recog_config_updates)
     search_error_check = True if decoding_config.get("lm_order", False) else False
     '''Final recog with tuned scale'''
+    #print(f"{prefix}: \n model_config{model_config}")
+    #print(f"{prefix}: \n search_config{search_config}")
     recog_result, search_error, search_error_rescore = recog_exp_(
         prefix, task, model_with_checkpoints,
         first_pass_name=first_pass_name + "final_recog",
@@ -2832,9 +2899,9 @@ def scoring_v2(
         if labels.numel() == 0:
             print(f"[EMPTY TARGET] {seq_tag} i={i}")
             return "[EMPTY TARGET]"
-        L_collapse = 1 + (labels[1:] != labels[:-1]).sum().item()
-        if T < L_collapse:
-            print(f"[LEN FAIL] {seq_tag} i={i} T={T} < L_collapse={L_collapse} "
+        L = labels.shape[-1]
+        if T < L:
+            print(f"[LEN FAIL] {seq_tag} i={i} T={T} < L_collapse={L} "
                   f"(raw L={labels.numel()})")
             return "[LEN FAIL]"
 
@@ -2854,6 +2921,7 @@ def scoring_v2(
     from torchaudio.functional import forced_align as forced_align
     alignments = []
     viterbi_scores = []
+    skips = []
     for i in range(label_log_prob_raw.shape[0]):
         logp = label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0)  # [1,T,C]
         labels = trim_padded_sequence(targets.raw_tensor[i]).to(logp.device).unsqueeze(0)  # [1,L]
@@ -2870,18 +2938,26 @@ def scoring_v2(
             if check_info == "[Disabled idx IN TARGETS]":
                 labels = remove_disabled_idx(labels)
             else:
-                raise ValueError(f"Unhandled Case: {check_info}")
-
-        alignments_, viterbi_scores_ = forced_align(
-            logp,
-            #targets.raw_tensor[i].unsqueeze(0),
-            labels,
-            #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
-            #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
-            blank=model.blank_idx
-        )
+                error_str = f"target_seq: {model.target_dim.vocab.get_seq_labels(labels.squeeze(0))}" + f"\nenc_spatial_dim{enc_spatial_dim_torch.max().item()}, logp: {logp}"
+                # print(f"target_seq: {model.target_dim.vocab.get_seq_labels(labels)}")
+                # print(f"enc_spatial_dim{enc_spatial_dim_torch.max().item()}, logp: {logp}")
+                print(f"\nWarning: {check_info}\n \t {error_str} \n Will not do mask for this sequence")
+                skips.append(i)
+                #raise ValueError(f"Unhandled Case: {check_info}: \n {error_str}")
+        if i in skips:
+            alignments_, viterbi_scores_ = torch.randn(logp.shape[1]), 0.0 # Will not be used anyway
+        else:
+            alignments_, viterbi_scores_ = forced_align(
+                logp,
+                #targets.raw_tensor[i].unsqueeze(0),
+                labels,
+                #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+                #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+                blank=model.blank_idx
+            )
         alignments.append(alignments_)
-        viterbi_scores.append(viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum()) #Exclude the padding, might be redundant
+        viterbi_score = viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum() if i not in skips else viterbi_scores_
+        viterbi_scores.append(viterbi_score) #Exclude the padding, might be redundant
 
     torch.cuda.empty_cache()
 
@@ -2889,6 +2965,9 @@ def scoring_v2(
     # TODO: add a branch-If there is no LM involved we can just use viterbi_scores
     masked_label_log_prob = torch.full_like(label_log_prob_raw, fill_value=-1e30)
     for i in range(label_log_prob_raw.shape[0]):
+        if i in skips:
+            masked_label_log_prob[i] = label_log_prob_raw[i]
+            continue
         alignment = alignments[i].to(label_log_prob_raw.device).long().squeeze()
         T = enc_spatial_dim_torch[i].item()
         for t in range(T):
@@ -3155,79 +3234,195 @@ scoring_v3.output_blank_label = OUT_BLANK_LABEL
 scoring_v3.batch_size_dependent = False  # not totally correct, but we treat it as such...
 scoring_v3.beam_size_dependent = True
 
-def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: [FeedForwardLm| TransformerDecoder], lm_state, context_dim: Optional[rf.Dim]=None, lm_out_dim: Optional[rf.Dim]=None):
+def get_lm_logits(batch_dims, target, lm, lm_state, context_dim=None, lm_out_dim=None):
     from returnn.torch.util import diagnose_gpu
-    lm_logits = None
-    done = False
+    batch_dim = batch_dims[0]
+    bs_val = batch_dim.get_dim_value()
+    if isinstance(bs_val, torch.Tensor):
+        bs_val = int(bs_val.item())
+
+    def try_forward(x, state):
+        if isinstance(lm, FeedForwardLm):
+            return lm(x, spatial_dim=context_dim, out_spatial_dim=lm_out_dim, state=state)
+        elif isinstance(lm, TransformerDecoder):
+            # next-step only; no need to split
+            return lm(x, spatial_dim=single_step_dim, state=state)
+        else:
+            raise TypeError("Unknown LM type")
+
+    # If TransformerDecoder with cache: do not split at all
+    if isinstance(lm, TransformerDecoder):
+        return try_forward(target, lm_state)
+
+    # Otherwise (FFN), split progressively on OOM
     splits = 1
-    while not done:
+    while True:
         try:
-            if splits > 1:
-                batch_size = batch_dims[0].get_dim_value()
-                n_seqs = int(np.ceil(batch_size / splits))
-                new_dims = []
-                for i in range(splits):
-                    if (i + 1) * n_seqs <= batch_size:
-                        new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
-                    else:
-                        if isinstance(batch_size, torch.Tensor):
-                            batch_size = batch_size.item()
-                        new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
-                target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
-                lm_logits_split = []
-                for i in range(splits):
-                    if isinstance(lm,FeedForwardLm):
-                        lm_logits_i, _ = lm(
-                            target_split[i],
-                            spatial_dim=context_dim,
-                            out_spatial_dim=lm_out_dim,
-                            state=lm_state,
-                        )
-                    elif isinstance(lm,TransformerDecoder):
-                        lm_logits_i, _ = lm(
-                            target_split[i], #TODO: So the target are already started with bos
-                            spatial_dim=single_step_dim,
-                            state=lm_state,
-                        )  # Flat_Batch_Beam, Vocab / ...
-                    lm_logits_split.append((lm_logits_i, new_dims[i]))
-                lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
-            else:
-                if isinstance(lm, FeedForwardLm):
-                    lm_logits, lm_state = lm(
-                        target,
-                        spatial_dim=context_dim,
-                        out_spatial_dim=lm_out_dim,
-                        state=lm_state,
-                    )
-                elif isinstance(lm, TransformerDecoder):
-                    lm_logits, lm_state = lm(
-                        target,
-                        spatial_dim=single_step_dim,
-                        state=lm_state,
-                    )  # Flat_Batch_Beam, Vocab / ...
-            done = True
+            if splits == 1:
+                return try_forward(target, lm_state)
+            # compute safe sizes
+            q, r = divmod(bs_val, splits)
+            sizes = ([q + 1] * r) + ([q] * (splits - r))
+            sizes = [s for s in sizes if s > 0]
+            # slice-run-concat
+            starts = [0]
+            for s in sizes[:-1]:
+                starts.append(starts[-1] + s)
+            parts = []
+            for i, (st, ln) in enumerate(zip(starts, sizes)):
+                sl, _ = rf.slice(target, axis=batch_dim, start=st, size=ln)
+                # rename the slice dim to a stable, named tag
+                old = sl.dims[sl.dims.index(next(d for d in sl.dims if d.dimension == ln))]
+                named = rf.Dim(ln, name=f"split-{i}")
+                sl, _ = rf.replace_dim(sl, in_dim=old, out_dim=named)
+                out_i, _ = try_forward(sl, lm_state)
+                parts.append((out_i, named))
+            lm_logits, _ = rf.concat(*parts, out_dim=batch_dim)
+            return lm_logits, lm_state
         except RuntimeError as exc:
-            if "out of memory" in str(exc):
+            if "out of memory" in str(exc).lower():
                 print(f"OOM with {splits} splits:", exc)
                 diagnose_gpu.garbage_collect()
-                splits *= 2
-                if splits <= batch_dims[0].get_dim_value():
-                    continue
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                next_splits = min(splits * 2, bs_val)
+                if next_splits == splits:
+                    raise
+                splits = next_splits
+                continue
             raise
-    return lm_logits, lm_state
+#
+# def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: [FeedForwardLm| TransformerDecoder], lm_state, context_dim: Optional[rf.Dim]=None, lm_out_dim: Optional[rf.Dim]=None):
+#     from returnn.torch.util import diagnose_gpu
+#     lm_logits = None
+#     done = False
+#     splits = 1
+#     while not done:
+#         try:
+#             if splits > 1:
+#                 batch_size = batch_dims[0].get_dim_value()
+#                 n_seqs = int(np.ceil(batch_size / splits))
+#                 new_dims = []
+#                 for i in range(splits - 1):
+#                     if (i + 1) * n_seqs <= batch_size:
+#                         new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
+#                     else:
+#                         if isinstance(batch_size, torch.Tensor):
+#                             batch_size = batch_size.item()
+#                         new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
+#                 target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
+#                 lm_logits_split = []
+#                 for i in range(splits):
+#                     if isinstance(lm,FeedForwardLm):
+#                         lm_logits_i, _ = lm(
+#                             target_split[i],
+#                             spatial_dim=context_dim,
+#                             out_spatial_dim=lm_out_dim,
+#                             state=lm_state,
+#                         )
+#                     elif isinstance(lm,TransformerDecoder):
+#                         lm_logits_i, _ = lm(
+#                             target_split[i], #TODO: So the target are already started with bos
+#                             spatial_dim=single_step_dim,
+#                             state=lm_state,
+#                         )  # Flat_Batch_Beam, Vocab / ...
+#                     lm_logits_split.append((lm_logits_i, new_dims[i]))
+#                 lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
+#             else:
+#                 if isinstance(lm, FeedForwardLm):
+#                     lm_logits, lm_state = lm(
+#                         target,
+#                         spatial_dim=context_dim,
+#                         out_spatial_dim=lm_out_dim,
+#                         state=lm_state,
+#                     )
+#                 elif isinstance(lm, TransformerDecoder):
+#                     lm_logits, lm_state = lm(
+#                         target,
+#                         spatial_dim=single_step_dim,
+#                         state=lm_state,
+#                     )  # Flat_Batch_Beam, Vocab / ...
+#             done = True
+#         except RuntimeError as exc:
+#             if "out of memory" in str(exc):
+#                 print(f"OOM with {splits} splits:", exc)
+#                 diagnose_gpu.garbage_collect()
+#                 torch.cuda.empty_cache()
+#                 splits *= 2
+#                 if splits <= batch_dims[0].get_dim_value():
+#                     continue
+#             raise
+#     return lm_logits, lm_state
 
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
+    # assert target.sparse_dim == wb_target_dim
+    # assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    # return rf.set_sparse_dim(target, target_dim)
+    """
+    WB (with-blank) sparse index -> label sparse index for LM context.
+    If target_dim == wb_target_dim (blank is already inside the vocab), this is identity.
+    If they differ (label space has no blank), compact indices > blank_idx by -1.
+    """
     assert target.sparse_dim == wb_target_dim
-    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-    return rf.set_sparse_dim(target, target_dim)
+    # Same dim: nothing to do, just set dim tag.
+    if target_dim is wb_target_dim or target_dim == wb_target_dim or blank_idx == target_dim.dimension:
+        return rf.set_sparse_dim(target, target_dim)
+
+    # Different dims: remove the blank slot by shifting indices > blank_idx down by one.
+    offset = rf.where(target > blank_idx, 1, 0)
+    new_idx = target - offset
+    return rf.set_sparse_dim(new_idx, target_dim)
 
 
 def _target_dense_extend_blank(
     target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int, value: float
 ) -> Tensor:
+    # assert target_dim in target.dims
+    # assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    # res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    # return res
+    """
+    Label-dense -> WB-dense.
+    If target_dim == wb_target_dim, just REPLACE the blank column with `value` (usually 0.0),
+    so the LM is silent on blank. If dims differ, insert a column at `blank_idx`.
+    """
     assert target_dim in target.dims
-    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-    res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+
+    # Same dim: replace the blank column by `value` (no LM on blank).
+    if target_dim is wb_target_dim or target_dim == wb_target_dim:
+        # Build a boolean mask that is True only at `blank_idx` along target_dim,
+        # then broadcast it across the other dims and replace.
+        mask_1d = rf.sparse_to_dense(blank_idx, axis=target_dim, label_value=True, other_value=False)
+        mask = mask_1d
+        for d in [d for d in target.dims if d is not target_dim]:
+            mask = rf.expand_dim(mask, dim=d)
+        return rf.where(mask, value, target)
+
+    # Different dims: insert a single column at `blank_idx`.
+    V = target_dim.dimension
+    assert wb_target_dim.dimension == V + 1
+    if blank_idx == V:
+        res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+        return res
+
+    # left | blank | right
+    other_dims = [d for d in target.dims if d is not target_dim]
+    left = None
+    if blank_idx > 0:
+        left_dim = rf.Dim(blank_idx, name=f"{target_dim.description or 'labels'}-left")
+        left = rf.gather(target, axis=target_dim, indices=rf.range_over_dim(left_dim))
+    right, right_dim = rf.slice(target, axis=target_dim, start=blank_idx)
+    one = rf.Dim(1, name=f"{target_dim.description or 'labels'}-blank-slot")
+    blank_col = rf.constant(value, dims=other_dims + [one])
+
+    if left is None:
+        res, _ = rf.concat((blank_col, one), (right, right_dim), out_dim=wb_target_dim)
+    elif right_dim.get_dim_value() == 0:
+        res, _ = rf.concat((left, left_dim), (blank_col, one), out_dim=wb_target_dim)
+    else:
+        res, _ = rf.concat((left, left_dim), (blank_col, one), (right, right_dim), out_dim=wb_target_dim)
     return res
 
 def recog_nn(
