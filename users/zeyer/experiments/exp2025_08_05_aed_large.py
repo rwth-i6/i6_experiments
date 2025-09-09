@@ -1520,16 +1520,19 @@ def py():
     # Pad audio (AudioPad) to somehow have it similar as wrong conv
     # (as in behavior version 21, but here using behavior version 24).
     # Note: the number (eg 1k) is on sample level. 1k means 1000 samples, i.e. ~0.06 sec.
-    # Baseline (bhv21-s1): {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
-    # Baseline (bhv24-s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
-    # bhv24-s2 is directly comparable.
-    #          AudioPad1k: {"dev-clean": 3.51, "dev-other": 5.02, "test-clean": 3.49, "test-other": 5.64}
-    #       AudioPadRnd2k: {"dev-clean": 3.95, "dev-other": 5.43, "test-clean": 4.44, "test-other": 5.92}
-    # TODO fill in CTC res, comment out 1k, Rnd2k
     for name, opts in {
+        # Baseline (bhv24-s2):
+        # 0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.4}
+        # +CTC: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
         "0": None,
-        "1k": 1000,
-        "Rnd2k": {"train": ((0, 2000), (0, 2000))},
+        # 1k: {"dev-clean": 3.51, "dev-other": 5.02, "test-clean": 3.49, "test-other": 5.64}
+        # +CTC: {"dev-clean": 1.85, "dev-other": 4.21, "test-clean": 2.13, "test-other": 4.59}
+        # "1k": 1000,
+        # Rnd2k: {"dev-clean": 3.95, "dev-other": 5.43, "test-clean": 4.44, "test-other": 5.92}
+        # +CTC: {"dev-clean": 1.91, "dev-other": 4.19, "test-clean": 2.12, "test-other": 4.57}
+        # "Rnd2k": {"train": ((0, 2000), (0, 2000))},
+        # Rnd100: {"dev-clean": 3.07, "dev-other": 5.27, "test-clean": 3.83, "test-other": 5.74}
+        # +CTC: {"dev-clean": 1.85, "dev-other": 4.19, "test-clean": 2.07, "test-other": 4.33}
         "Rnd100": {"train": ((0, 100), (0, 100))},
     }.items():
         name = f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
