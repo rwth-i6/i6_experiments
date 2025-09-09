@@ -1205,7 +1205,7 @@ def py():
     # bhv21-s2-h0: {"dev-clean": 3.41, "dev-other": 5.56, "test-clean": 3.90, "test-other": 5.77}
     # bhv21-s2-h1: {"dev-clean": 3.52, "dev-other": 5.26, "test-clean": 3.73, "test-other": 5.61}
     # bhv21-s2-fixMp-h0: {"dev-clean": 2.81, "dev-other": 4.89, "test-clean": 3.07, "test-other": 5.04}
-    # bhv23-s2-h0: ... TODO
+    # bhv23-s2-h0: {"dev-clean": 3.58, "dev-other": 5.09, "test-clean": 3.84, "test-other": 5.66}
     # bhv24-s1-h0: {"dev-clean": 3.54, "dev-other": 5.65, "test-clean": 4.05, "test-other": 6.28}
     # bhv24-s2-h0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     # bhv24-s2-fixMp-h0: {"dev-clean": 3.69, "dev-other": 5.36, "test-clean": 3.57, "test-other": 5.53}
@@ -1215,19 +1215,19 @@ def py():
     # bhv21-s2-h0: {"dev-clean": 1.90, "dev-other": 4.19, "test-clean": 2.12, "test-other": 4.48}
     # bhv21-s2-h1: {"dev-clean": 1.86, "dev-other": 4.17, "test-clean": 2.06, "test-other": 4.53}
     # bhv21-s2-fixMp-h0: {"dev-clean": 1.89, "dev-other": 4.24, "test-clean": 2.04, "test-other": 4.46}
-    # bhv23-s2-h0: ... TODO
+    # bhv23-s2-h0: {"dev-clean": 1.9, "dev-other": 4.24, "test-clean": 2.07, "test-other": 4.47}
     # bhv24-s1-h0: {"dev-clean": 1.87, "dev-other": 4.31, "test-clean": 2.13, "test-other": 4.49}
     # bhv24-s2-h0: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
     # bhv24-s2-fixMp-h0: {"dev-clean": 1.92, "dev-other": 4.32, "test-clean": 2.07, "test-other": 4.49}
-    # TODO We need to understand this...
+    # -> It seems like there is not really much difference with CTC, so maybe it's all noise/variance...
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
-        (21, 1, 1, False),
-        (21, 2, 0, False),
-        (21, 2, 1, False),
-        (21, 2, 0, True),
-        (23, 2, 0, False),
-        (24, 1, 0, False),
+        # (21, 1, 1, False),
+        # (21, 2, 0, False),
+        # (21, 2, 1, False),
+        # (21, 2, 0, True),
+        # (23, 2, 0, False),
+        # (24, 1, 0, False),
         (24, 2, 0, False),
         (24, 2, 0, True),
     ]:
