@@ -2041,6 +2041,7 @@ def py():
     #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     # )
 
+    # TODO redo multEOS, but also having it as CTC targets
     # Again mult EOS labels (multEOS), but only 1 extra EOS, and better setting (no aux CTC loss LS).
     # baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     #      multEOS2: {"dev-clean": 3.53, "dev-other": 5.18, "test-clean": 4.19, "test-other": 5.72}
