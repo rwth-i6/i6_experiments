@@ -1849,6 +1849,7 @@ def py():
         ("0", None),
         # {"dev-clean": 3.74, "dev-other": 5.39, "test-clean": 4.23, "test-other": 5.71} (?)
         ("A0.01", _ta_vA_err_prob(0.01)),
+        # {"dev-clean": 3.47, "dev-other": 5.28, "test-clean": 3.73, "test-other": 5.89}
         ("A0.05", _ta_vA_err_prob(0.05)),
         # {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
         ("A0.1", _ta_vA_err_prob(0.1)),
