@@ -31,16 +31,13 @@ def make_target_to_output_map(collected_results: list):
     from sisyphus import graph
 
     targs = graph.graph.targets
-    target_to_output = {}
-    for r in collected_results:
-        for t in targs:
-            if not isinstance(t, graph.OutputPath):
-                continue
-            t: graph.OutputPath
-            if t._sis_path == r.output:
-                # print(f"Found target {t.name}")
-                target_to_output[t.name] = r.output
-                # break
+    collected_results_ids = {id(r.output) for r in collected_results}
+
+    target_to_output = {
+        t.name: t._sis_path
+        for t in targs
+        if isinstance(t, graph.OutputPath) and id(t._sis_path) in collected_results_ids
+    }
     return target_to_output
 
 
