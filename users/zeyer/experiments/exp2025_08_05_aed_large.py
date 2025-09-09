@@ -639,74 +639,77 @@ def py():
     # Try different decoder dropout. (Default is dropout 0.1, att_dropout 0.1.)
     # dec_drop,dec_att_drop.
     # 0.1,0.1: {"dev-clean": 2.38, "dev-other": 4.87, "test-clean": 2.89, "test-other": 5.35}
+    # +CTC: {"dev-clean": 1.97, "dev-other": 4.59, "test-clean": 2.15, "test-other": 4.8}
     # 0.1,0.2: {"dev-clean": 2.42, "dev-other": 5.02, "test-clean": 2.83, "test-other": 5.20}
+    # +CTC: {"dev-clean": 2.01, "dev-other": 4.66, "test-clean": 2.14, "test-other": 4.78}
     # 0.2,0.1: {"dev-clean": 11.17, "dev-other": 11.08, "test-clean": 16.7, "test-other": 12.04}
+    # +CTC: {"dev-clean": 2.66, "dev-other": 5.12, "test-clean": 3.04, "test-other": 5.36}
     # 0.2,0.2: {"dev-clean": 8.84, "dev-other": 9.53, "test-clean": 12.69, "test-other": 10.47}
-    # TODO joint AED+CTC (then comment out again)
-    for dec_drop, dec_att_drop in [(0.2, 0.2), (0.1, 0.2), (0.2, 0.1)]:
-        name = f"EncL16-DecL6-D1024-DecPosEncAbs-DecDrop{dec_drop}-DecAttDrop{dec_att_drop}-spm10k-bpeSample001-baseLr0.5-b100k"
-        exp = aed_train_exp(
-            name,
-            config_96gb_bf16_accgrad1,
-            prefix=prefix + "/aed/",
-            model_config={
-                "enc_build_dict": rf.build_dict(
-                    ConformerEncoder,
-                    input_layer=rf.build_dict(
-                        ConformerConvSubsample,
-                        out_dims=[32, 64, 64],
-                        filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                        pool_sizes=[(1, 2)],
-                        strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                    ),
-                    num_layers=16,
-                    out_dim=1024,
-                    encoder_layer=rf.build_dict(
-                        ConformerEncoderLayer,
-                        ff=rf.build_dict(
-                            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                        ),
-                        num_heads=8,
-                    ),
-                ),
-                # Default AED decoder size: 6 layers, 512 dim
-                "dec_build_dict": rf.build_dict(
-                    TransformerDecoder,
-                    num_layers=6,
-                    model_dim=1024,
-                    norm=rf.build_dict(rf.RMSNorm),
-                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                    layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                    dropout=dec_drop,
-                    att_dropout=dec_att_drop,
-                ),
-            },
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-                "batch_size": 100_000 * _batch_size_factor,
-                "optimizer.weight_decay": 1e-2,
-                "accum_grad_multiple_step": 1,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "max_seq_length_default_target": None,
-                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-                # out of 281241 seqs in train, we removed only 71 seqs.
-                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-            },
-            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-            vocab="spm10k",
-            # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-        )
-        aed_ctc_timesync_recog_recomb_auto_scale(
-            prefix=prefix + "/aed/" + name + "/aed+ctc",
-            task=task_spm10k,
-            aed_ctc_model=exp.get_last_fixed_epoch(),
-            aux_ctc_layer=8,
-        )
+    # +CTC: {"dev-clean": 2.17, "dev-other": 4.81, "test-clean": 2.43, "test-other": 5.0}
+    # for dec_drop, dec_att_drop in [(0.2, 0.2), (0.1, 0.2), (0.2, 0.1)]:
+    #     name = f"EncL16-DecL6-D1024-DecPosEncAbs-DecDrop{dec_drop}-DecAttDrop{dec_att_drop}-spm10k-bpeSample001-baseLr0.5-b100k"
+    #     exp = aed_train_exp(
+    #         name,
+    #         config_96gb_bf16_accgrad1,
+    #         prefix=prefix + "/aed/",
+    #         model_config={
+    #             "enc_build_dict": rf.build_dict(
+    #                 ConformerEncoder,
+    #                 input_layer=rf.build_dict(
+    #                     ConformerConvSubsample,
+    #                     out_dims=[32, 64, 64],
+    #                     filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                     pool_sizes=[(1, 2)],
+    #                     strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #                 ),
+    #                 num_layers=16,
+    #                 out_dim=1024,
+    #                 encoder_layer=rf.build_dict(
+    #                     ConformerEncoderLayer,
+    #                     ff=rf.build_dict(
+    #                         ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #                     ),
+    #                     num_heads=8,
+    #                 ),
+    #             ),
+    #             # Default AED decoder size: 6 layers, 512 dim
+    #             "dec_build_dict": rf.build_dict(
+    #                 TransformerDecoder,
+    #                 num_layers=6,
+    #                 model_dim=1024,
+    #                 norm=rf.build_dict(rf.RMSNorm),
+    #                 ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #                 layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #                 dropout=dec_drop,
+    #                 att_dropout=dec_att_drop,
+    #             ),
+    #         },
+    #         config_updates={
+    #             **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+    #             "batch_size": 100_000 * _batch_size_factor,
+    #             "optimizer.weight_decay": 1e-2,
+    #             "accum_grad_multiple_step": 1,
+    #             "__train_audio_preprocess": speed_pert_librosa_config,
+    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #             "max_seq_length_default_target": None,
+    #             # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #             # out of 281241 seqs in train, we removed only 71 seqs.
+    #             # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #         },
+    #         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #         vocab="spm10k",
+    #         # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    #     )
+    #     aed_ctc_timesync_recog_recomb_auto_scale(
+    #         prefix=prefix + "/aed/" + name + "/aed+ctc",
+    #         task=task_spm10k,
+    #         aed_ctc_model=exp.get_last_fixed_epoch(),
+    #         aux_ctc_layer=8,
+    #     )
 
     # Try different dec model dim.
     # 512: {"dev-clean": 2.9, "dev-other": 5.2, "test-clean": 3.09, "test-other": 5.54}
