@@ -2923,15 +2923,21 @@ def py():
     )
 
     # variational noise (variational_noise_by_pattern)
-    # TODO put results
-    # TODO what now?
-    # TODO put CTC results
     for name, opts in {
         # baseline (0): {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
+        # +CTC: {"dev-clean": 2.42, "dev-other": 4.43, "test-clean": 2.35, "test-other": 4.69}
         "0": None,
+        # Dec0.0005: {"dev-clean": 3.97, "dev-other": 5.78, "test-clean": 4.83, "test-other": 6.19}
+        # +CTC: {"dev-clean": 2.1, "dev-other": 4.59, "test-clean": 2.63, "test-other": 4.82}
         "Dec0.0005": {"decoder.*": 0.0005},
+        # Dec0.0025: {"dev-clean": 4.15, "dev-other": 5.77, "test-clean": 4.83, "test-other": 6.38}
+        # +CTC: {"dev-clean": 1.88, "dev-other": 4.18, "test-clean": 2.08, "test-other": 4.6}
         "Dec0.0025": {"decoder.*": 0.0025},
+        # Dec0.01: {"dev-clean": 4.24, "dev-other": 5.81, "test-clean": 7.34, "test-other": 6.91}
+        # +CTC: {"dev-clean": 1.9, "dev-other": 4.23, "test-clean": 2.07, "test-other": 4.47}
         "Dec0.01": {"decoder.*": 0.01},
+        # 0.01: TODO... +CTC...
+        "0.01": {"*": 0.01},
     }.items():
         name = f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-vn{name}-spm10k-bpeSample001-baseLr0.5-b100k"
         exp = aed_train_exp(
