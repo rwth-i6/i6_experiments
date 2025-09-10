@@ -2782,7 +2782,9 @@ def py():
     # Again aux decoder layer (auxDec) but without aux CTC loss label smoothing.
     # Baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     #       auxDec3: {"dev-clean": 2.87, "dev-other": 4.71, "test-clean": 2.79, "test-other": 5.03}
-    # TODO add CTC results
+    # +CTC:
+    # Baseline (s2): {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
+    #       auxDec3: {"dev-clean": 1.87, "dev-other": 4.06, "test-clean": 2.06, "test-other": 4.38}
     name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
     exp = aed_train_exp(
         name,
