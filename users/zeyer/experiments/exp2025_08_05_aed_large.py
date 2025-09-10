@@ -2366,6 +2366,7 @@ def py():
 
     # Again customLr without aux CTC LS (but still based on s2). All using baseLr0.5.
     # TODO what now?
+    # TODO put CTC results
     for name, lr_mult_by_patterns in {
         # {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.4}
         "None": None,
@@ -2384,8 +2385,9 @@ def py():
             "enc_aux_logits_*": 2.0,
         },
     }.items():
-        aed_train_exp(
-            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-customLr{name}-spm10k-bpeSample001-baseLr0.5-b100k",
+        name = f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-customLr{name}-spm10k-bpeSample001-baseLr0.5-b100k"
+        exp = aed_train_exp(
+            name,
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -2455,6 +2457,12 @@ def py():
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + name + "/aed+ctc",
+            task=task_spm10k,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=16,
         )
 
     # CTC aux logits without bias (auxNoBias).
@@ -2894,7 +2902,9 @@ def py():
     )
 
     # variational noise (variational_noise_by_pattern)
-    # TODO ?
+    # TODO put results
+    # TODO what now?
+    # TODO put CTC results
     for name, opts in {
         # baseline (0): {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
         "0": None,
@@ -2902,8 +2912,9 @@ def py():
         "Dec0.0025": {"decoder.*": 0.0025},
         "Dec0.01": {"decoder.*": 0.01},
     }.items():
-        aed_train_exp(
-            f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-vn{name}-spm10k-bpeSample001-baseLr0.5-b100k",
+        name = f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-vn{name}-spm10k-bpeSample001-baseLr0.5-b100k"
+        exp = aed_train_exp(
+            name,
             config_96gb_bf16_accgrad1,
             prefix=prefix + "/aed/",
             model_config={
@@ -2965,6 +2976,12 @@ def py():
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + name + "/aed+ctc",
+            task=task_spm10k,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=16,
         )
 
     # TODO new baseline:
