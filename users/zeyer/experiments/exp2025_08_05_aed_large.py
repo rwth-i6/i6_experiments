@@ -2583,6 +2583,7 @@ def py():
         task=task_spm10k,
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
+        extra_config={"enc_aux_logits_with_bias": False},
     )
 
     # CTC aux logits shared (auxShared) (enc_aux_logits_share_weights=True).
