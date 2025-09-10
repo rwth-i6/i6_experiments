@@ -2782,8 +2782,10 @@ def py():
     # Again aux decoder layer (auxDec) but without aux CTC loss label smoothing.
     # Baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     #       auxDec3: {"dev-clean": 2.87, "dev-other": 4.71, "test-clean": 2.79, "test-other": 5.03}
-    aed_train_exp(
-        "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k",
+    # TODO add CTC results
+    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
+    exp = aed_train_exp(
+        name,
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -2844,6 +2846,12 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task_spm10k,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
     )
 
     # variational noise (variational_noise_by_pattern)
