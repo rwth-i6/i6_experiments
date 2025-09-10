@@ -1832,12 +1832,12 @@ def py():
     # Try with text augment.
     from i6_experiments.users.zeyer.nn_rf.text_augment import text_augment
 
-    def _ta_vA_err_prob(q):
+    def _ta_vA_err_prob(q: float, *, rel_sub: float = 0.4):
         # q=(1-p)^2 will be the approx error rate.
         p = round(1 - (1 - q) ** 0.5, 5)
         return {
             "ins_probs": [1 - p, p * 0.8, p * 0.2],
-            "keep_del_sub_probs": [1 - p, p * 0.6, p * 0.4],
+            "keep_del_sub_probs": [1 - p, p * (1 - rel_sub), p * rel_sub],
         }
 
     # def _ta_del_sub_err_prob(del_prob, sub_prob):
@@ -1923,7 +1923,7 @@ def py():
     #     )
 
     # Again but without aux CTC loss LS (which seems to be suboptimal).
-    # Unclear... Too much?
+    # Unclear... Too much? Too little? No effect? Only bad effect?
     # TODO what now?
     for name, opts in [
         # 0: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
@@ -1931,16 +1931,18 @@ def py():
         ("0", None),
         # A0.01: {"dev-clean": 3.74, "dev-other": 5.39, "test-clean": 4.23, "test-other": 5.71}
         # +CTC: {"dev-clean": 1.92, "dev-other": 4.24, "test-clean": 2.05, "test-other": 4.52}
-        ("A0.01", _ta_vA_err_prob(0.01)),
+        # ("A0.01", _ta_vA_err_prob(0.01)),
         # A0.05: {"dev-clean": 3.47, "dev-other": 5.28, "test-clean": 3.73, "test-other": 5.89}
         # +CTC: {"dev-clean": 1.86, "dev-other": 4.19, "test-clean": 2.09, "test-other": 4.49}
-        ("A0.05", _ta_vA_err_prob(0.05)),
+        # ("A0.05", _ta_vA_err_prob(0.05)),
         # A0.1: {"dev-clean": 3.29, "dev-other": 5.14, "test-clean": 3.82, "test-other": 5.62}
         # +CTC: {"dev-clean": 1.93, "dev-other": 4.21, "test-clean": 2.06, "test-other": 4.53}
         ("A0.1", _ta_vA_err_prob(0.1)),
         # A0.2: {"dev-clean": 3.67, "dev-other": 5.25, "test-clean": 4.07, "test-other": 5.66}
         # +CTC: {"dev-clean": 1.9, "dev-other": 4.27, "test-clean": 2.15, "test-other": 4.52}
-        # ("A0.2", _ta_vA_err_prob(0.2)),
+        ("A0.2", _ta_vA_err_prob(0.2)),
+        ("A0.3", _ta_vA_err_prob(0.3)),
+        ("A0.1S0", _ta_vA_err_prob(0.1, rel_sub=0.0)),
         # Sub0.1: {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
         # +CTC: {"dev-clean": 2.42, "dev-other": 4.28, "test-clean": 2.48, "test-other": 4.83}
         # ("Sub0.1", _ta_sub_err_prob(0.1)),
