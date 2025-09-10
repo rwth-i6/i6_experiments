@@ -2941,7 +2941,7 @@ def py():
         )
 
     # TODO new baseline:
-    #   auxShared + auxDec3 + bhv21 / AudioPad* / noConvMask (?) + ...?
+    #   bhv24 + s2 + fixMp + auxShared + auxNoBias (?) + auxDec3 + AudioPadRnd100 + ...?
 
     # Try with standard Transformer decoder (DecStd).
     # baseline: {"dev-clean": 2.82, "dev-other": 4.8, "test-clean": 3.66, "test-other": 5.22}
