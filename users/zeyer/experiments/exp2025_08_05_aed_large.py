@@ -2658,8 +2658,10 @@ def py():
     # Again auxShared but without aux CTC loss label smoothing.
     # Baseline (s2): {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
     #     auxShared: {"dev-clean": 3.00, "dev-other": 5.14, "test-clean": 3.25, "test-other": 5.29}
-    aed_train_exp(
-        "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxShared-spm10k-bpeSample001-baseLr0.5-b100k",
+    # TODO +CTC results
+    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxShared-spm10k-bpeSample001-baseLr0.5-b100k"
+    exp = aed_train_exp(
+        name,
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
         model_config={
@@ -2721,10 +2723,18 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task_spm10k,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
+        extra_config={"aux_loss_layers": [4, 10, 16], "enc_aux_logits_share_weights": True},
+    )
 
     # Aux decoder layer (auxDec).
     # Baseline:  {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
     #   auxDec3: {"dev-clean": 3.90, "dev-other": 5.54, "test-clean": 4.31, "test-other": 5.79}
+    # (Do again below with better baseline.)
     # aed_train_exp(
     #     "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k",
     #     config_96gb_bf16_accgrad1,
