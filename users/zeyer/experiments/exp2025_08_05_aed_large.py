@@ -1220,6 +1220,7 @@ def py():
     # bhv24-s2-h0: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
     # bhv24-s2-fixMp-h0: {"dev-clean": 1.92, "dev-other": 4.32, "test-clean": 2.07, "test-other": 4.49}
     # -> It seems like there is not really much difference with CTC, so maybe it's all noise/variance...
+    # fixMp seems to help a little bit though...
     for bhv, sv, hv, fix_mp in [
         (21, 1, 0, False),
         # (21, 1, 1, False),
