@@ -694,6 +694,10 @@ def model_recog_with_recomb(
         ctc_label_log_prob,
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=neg_inf),
     )
+    if config.bool("use_eos_postfix", False):
+        ctc_label_log_prob = rf.where(
+            rf.range_over_dim(model.wb_target_dim) != model.eos_idx, ctc_label_log_prob, neg_inf
+        )
     # No CTC scale needed.
     ctc_label_log_prob_ta = TensorArray.unstack(ctc_label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
 
