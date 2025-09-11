@@ -138,6 +138,8 @@ class AverageScores(Job):
 
 class CalcSearchErrors(Job):
     def __init__(self, *, ref_scores: RecogOutput, hyp_scores: RecogOutput):
+        import Levenshtein
+
         self.ref_scores = ref_scores
         self.hyp_scores = hyp_scores
 
@@ -145,23 +147,29 @@ class CalcSearchErrors(Job):
         self.out_model_error = self.output_var(
             "model_error"
         )  # number of times the model didnt get the right answer, and was scored lower
+        self.out_oracle_wer = self.output_var("oracle_wer")
 
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 5
+        d["__version"] = 6
         return super().hash(d)
 
-    def get_score(self, corpus_name: str):
+    def get_search_error(self, corpus_name: str):
         return ScoreResult(dataset_name=corpus_name, main_measure_value=self.out_search_errors)
 
     def get_model_error(self, corpus_name: str):
         return ScoreResult(dataset_name=corpus_name, main_measure_value=self.out_model_error)
 
+    def get_oracle_wer(self, corpus_name: str):
+        return ScoreResult(dataset_name=corpus_name, main_measure_value=self.out_oracle_wer)
+
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
+        import Levenshtein
+
         # See TextDictDataset
         ref_scores = read_scores(self.ref_scores.output, item_format="list_with_scores")
         hyp_scores = read_scores(self.hyp_scores.output, item_format="list_with_scores")
@@ -172,6 +180,8 @@ class CalcSearchErrors(Job):
         num_errors = 0
         num_model_error = 0
         num_total = len(ref_scores)
+        total_words = 0
+        total_oracle_edit_distance = 0
 
         for key in ref_scores:
             ref_value = ref_scores[key]
@@ -180,6 +190,20 @@ class CalcSearchErrors(Job):
             assert len(ref_value) == 1
             assert len(hyp_value) > 0, f"{self}: expected non-empty hyp value list, got {hyp_value!r}"
             ref_score, ref_text = ref_value[0]
+            ref_line = ref_text.strip().split()
+
+            lowest_edit_distance = 9999999999
+            for hyp_score, hyp_text in hyp_value:
+                assert isinstance(hyp_score, float), (
+                    f"{self}: expected float score, got {hyp_score!r} ({type(hyp_score)})"
+                )
+                assert isinstance(hyp_text, str), f"{self}: expected str text, got {hyp_text!r} ({type(hyp_text)})"
+
+                hyp_line = hyp_text.strip().split()
+
+                lowest_edit_distance = min(lowest_edit_distance, Levenshtein.distance(ref_line, hyp_line))
+            total_words += len(ref_line)
+            total_oracle_edit_distance += lowest_edit_distance
             hyp_score, hyp_text = max(hyp_value)
 
             has_error = ref_score > hyp_score and ref_text.strip() != hyp_text.strip()
@@ -194,9 +218,12 @@ class CalcSearchErrors(Job):
 
         search_error_rate = 100 * num_errors / num_total if num_total > 0 else 0.0
         model_error_rate = 100 * num_model_error / num_total if num_total > 0 else 0.0
+        oracle_wer = 100 * total_oracle_edit_distance / total_words if total_words > 0 else 0.0
 
         self.out_search_errors.set(search_error_rate)
         self.out_model_error.set(model_error_rate)
+        self.out_oracle_wer.set(oracle_wer)
 
         print(f"{self}: Search error rate: {search_error_rate:.4f} ({num_errors}/{num_total})")
         print(f"{self}: Model error rate: {model_error_rate:.4f} ({num_model_error}/{num_total})")
+        print(f"{self}: Oracle WER: {oracle_wer:.4f} ({total_oracle_edit_distance}/{total_words})")
