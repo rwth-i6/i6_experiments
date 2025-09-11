@@ -1048,7 +1048,7 @@ def py():
     # featBN with better baseline (DecPosEncAbs and aux4_10_16 etc).
     # (baseline without featBN:
     #         {"dev-clean": 2.84, "dev-other": 4.85, "test-clean": 3.02, "test-other": 5.20})
-    # featBN: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08} !!
+    # featBN: {"dev-clean": 2.81, "dev-other": 4.72, "test-clean": 2.86, "test-other": 5.08}
     # Joint AED+CTC:
     # baseline: {"dev-clean": 1.91, "dev-other": 4.20, "test-clean": 2.08, "test-other": 4.61}
     #   featBN: {"dev-clean": 1.86, "dev-other": 4.26, "test-clean": 2.10, "test-other": 4.50}
@@ -1551,7 +1551,7 @@ def py():
         # +CTC: {"dev-clean": 1.91, "dev-other": 4.19, "test-clean": 2.12, "test-other": 4.57}
         # "Rnd2k": {"train": ((0, 2000), (0, 2000))},
         # Rnd100: {"dev-clean": 3.07, "dev-other": 5.27, "test-clean": 3.83, "test-other": 5.74}
-        # +CTC: {"dev-clean": 1.85, "dev-other": 4.19, "test-clean": 2.07, "test-other": 4.33}
+        # +CTC: {"dev-clean": 1.85, "dev-other": 4.19, "test-clean": 2.07, "test-other": 4.33} !!!
         "Rnd100": {"train": ((0, 100), (0, 100))},
     }.items():
         name = f"EncL16-DecL6-D1024-AudioPad{name}-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
@@ -2849,7 +2849,7 @@ def py():
     #       auxDec3: {"dev-clean": 2.87, "dev-other": 4.71, "test-clean": 2.79, "test-other": 5.03}
     # +CTC:
     # Baseline (s2): {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
-    #       auxDec3: {"dev-clean": 1.87, "dev-other": 4.06, "test-clean": 2.06, "test-other": 4.38}
+    #       auxDec3: {"dev-clean": 1.87, "dev-other": 4.06, "test-clean": 2.06, "test-other": 4.38} !!!
     name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
     exp = aed_train_exp(
         name,
