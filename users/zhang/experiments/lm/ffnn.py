@@ -179,6 +179,7 @@ def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False,)-> Tuple[Model
             dataset=lm_dataset,
             vocab=spm_config,
             word_ppl=word_ppl,
+            epochs=epochs,
             task_name="ES",
             dataset_keys=DEV_KEYS+TEST_KEYS,
         )

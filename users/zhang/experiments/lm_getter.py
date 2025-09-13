@@ -4,7 +4,7 @@ from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 from returnn_common.datasets_old_2022_10.interface import VocabConfig
 
-from .language_models.n_gram import get_count_based_n_gram
+from .language_models.n_gram import get_count_based_n_gram, get_apptek_ES_n_gram
 from .lm.ffnn import get_ffnn_lm
 from .lm.trafo import get_trafo_lm
 import re
@@ -28,8 +28,8 @@ def build_ngram_lms(vocab: [str | VocabConfig], as_ckpt: bool=False, word_ppl: b
                      None,
                      1e-9, 1.3e-8,
                      6.7e-8,
-                     3e-7, 7e-7, 1e-6,
-                     1.7e-6, 4.5e-6, 1e-5,
+                     #3e-7, 7e-7, 1e-6, #use it if LBS
+                     #1.7e-6, 4.5e-6, 1e-5, # use it if LBS
                      3e-5,
                      #7e-4, #1.7e-3, 5e-3,
                      5e-2, #8e-2,1e-1, 3e-1,5e-1, 7e-1, 9e-1,
@@ -39,7 +39,8 @@ def build_ngram_lms(vocab: [str | VocabConfig], as_ckpt: bool=False, word_ppl: b
     for n_order in [2,
                     #4, 5,
                     6]:
-        for train_fraction in [0.1, 0.15, 0.2, 0.3,
+        for train_fraction in [0.1, 0.15,
+                               #0.2, 0.3, #Use it if LBS
                                None,
                                ]:
             for prune_thresh in prune_threshs:
@@ -76,6 +77,23 @@ def build_word_ngram_lms(word_ppl: bool = False, task_name: str = "LBS") -> Tupl
         for prune_thresh in prune_threshs:
             lm, ppl_log = get_count_based_n_gram("word", n_order, prune_thresh, task_name=task_name)
             lm_name = f"{n_order}gram_word"
+            if prune_thresh:
+                lm_name += f"_{prune_thresh:.1e}".replace("e-0", "e-").replace("e+0", "e+").replace(".", "_")
+            lms[lm_name] = lm
+            ppl_results[lm_name] = ppl_log
+            lm_types.add(f"{n_order}gram")
+    return lms, ppl_results, lm_types
+
+def build_apptek_ES_word_ngram_lms(word_ppl: bool = False, task_name: str = "LBS") -> Tuple[Dict, Dict, Set[str]]:
+    word_ppl # noqa
+    lms = {}
+    ppl_results = {}
+    lm_types = set()
+    for n_order in [4]:
+        prune_threshs = [None]
+        for prune_thresh in prune_threshs:
+            lm, ppl_log = get_apptek_ES_n_gram("word", n_order, prune_thresh, task_name=task_name)
+            lm_name = f"{n_order}gram_word_2022-09-tel"
             if prune_thresh:
                 lm_name += f"_{prune_thresh:.1e}".replace("e-0", "e-").replace("e+0", "e+").replace(".", "_")
             lms[lm_name] = lm
@@ -147,11 +165,12 @@ def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only
             ppl_results[name] = ppl
     return lms, ppl_results, lm_types
 
-def get_second_pass_lm_by_name(lm_name:str, task_name: str = "LBS") -> Tuple[Dict, Dict, Set[str]]:
+def get_lm_by_name(lm_name:str, task_name: str = "LBS", as_ckpt: bool = True) -> Tuple[Dict, Dict, Set[str]]:
     if 'ffnn' in lm_name:
-        return build_ffnn_lms(vocab="bpe128", as_ckpt=True, task_name=task_name)[0][lm_name] # for now ES LMs getter does not depend on vocab
+        return build_ffnn_lms(vocab="bpe128", as_ckpt=as_ckpt, task_name=task_name)[0][lm_name] # for now ES LMs getter does not depend on vocab
     elif "trafo" in lm_name:
-        return build_trafo_lms(vocab="bpe128", as_ckpt=True, task_name=task_name)[0][lm_name]  # for now ES LMs getter does not depend on vocab
+        return build_trafo_lms(vocab="bpe128", as_ckpt=as_ckpt, task_name=task_name)[0][lm_name]  # for now ES LMs getter does not depend on vocab
+
 
 _Lm = namedtuple("Lm", ["name", "train_version", "setup"])
 
@@ -282,6 +301,7 @@ def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt
     builders = {
         "ngram": build_ngram_lms,
         "word_ngram": build_word_ngram_lms,
+        "word_ngram_apptek": build_apptek_ES_word_ngram_lms,
         "ffnn": build_ffnn_lms,
         "trafo": build_trafo_lms,
         "LLM": build_llms,
@@ -297,7 +317,7 @@ def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt
         if kind not in lm_kinds:
             continue
         #try:
-        l, p, t = builder(vocab, as_ckpt, word_ppl, only_best, task_name) if kind not in ["word_ngram", "LLM"] else builder(word_ppl=word_ppl, task_name=task_name)
+        l, p, t = builder(vocab, as_ckpt, word_ppl, only_best, task_name) if kind not in ["word_ngram", "word_ngram_apptek", "LLM"] else builder(word_ppl=word_ppl, task_name=task_name)
         lms.update(l)
         ppl.update(p)
         types.update(t)

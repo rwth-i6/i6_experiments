@@ -159,7 +159,7 @@ tuple[Path, dict[str | Any, Path | Any]]:
             ppl_job = PPLConvertJob(ppl_job.out_ppl_log, ratio)
         alias_name = f"ppl/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + f"/{k}" + ("word_ppl" if word_ppl else "")
         tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
-        ppls[k] = ppl_job.out_ppl_score
+        ppls[k] = ppl_job.out_ppl_log
     # conversion_job = ConvertARPAtoTensor(
     #     lm=lm_arpa,
     #     bpe_vocab=vocab.vocab,
@@ -170,6 +170,95 @@ tuple[Path, dict[str | Any, Path | Any]]:
         
     #return conversion_job.out_lm_tensor
     return arpa_binary_lm, ppls
+
+def get_apptek_ES_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float], task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False) -> \
+tuple[Path, dict[str | Any, Path | Any]]:
+    lm_file_path = "/nas/models/asr/artefacts/lm/ES/20220905-wwang-srilm-tel/es.tel.20220818.4-gram.lm.arpa.gz"
+    kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
+    KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+    hash_name = "LBS" if task_name == "LIBRISPEECH" else task_name
+    KENLM_BINARY_PATH.hash_overwrite = f"{hash_name}_DEFAULT_KENLM_BINARY_PATH"
+    vocab_str = vocab if isinstance(vocab, str) else "ES_spm10k" # For LBS vocab_config can be get with str
+    if N_order > 4 and vocab != "bpe128":
+        rqmt = dict(rqmt_map[N_order])
+    else:
+        rqmt = dict(default_rqmt)
+    subword_nmt = get_returnn_subword_nmt()
+    eval_lm_data_dict = dict()
+    for key in DEV_KEYS + TEST_KEYS:
+        eval_lm_data_dict[key] = get_lm_eval_text(key=key)
+
+    if re.match("^bpe[0-9]+.*$", vocab_str):
+        for k, orig_text in eval_lm_data_dict.items():
+            eval_lm_data_dict[k] = ApplyBPEToTextJob(
+                text_file=orig_text,
+                bpe_codes=vocab.codes,
+                bpe_vocab=tk.Path(vocab.vocab.get_path() [:-5] + "dummy_count.vocab"), #
+                subword_nmt_repo=subword_nmt,
+                gzip_output=True,
+                mini_task=False,
+            ).out_bpe_text
+    elif "spm10k" in vocab_str and task_name == "ES":
+        assert isinstance(vocab, SentencePieceModel)
+        for k, orig_text in eval_lm_data_dict.items():
+            eval_lm_data_dict[k] = ApplySentencepieceToTextJob(
+                text_file=orig_text,
+                sentencepiece_model=vocab.model_file,
+                gzip_output=True,
+            ).out_sentencepiece_text
+    else: # Train on whole word
+        rqmt = dict([(key, value * 5) for key, value in rqmt.items()])
+    lm_arpa = tk.Path(lm_file_path)
+    SRILM_PATH = LBS_SRILM_PATH if task_name == "LIBRISPEECH" else SRILM_PATH_APPTEK
+    if prune_thresh:
+        lm_arpa = PruneLMJob(N_order, lm_arpa, prune_thresh, SRILM_PATH.join_right("ngram")).out_lm
+        arpa_binary_lm = CreateBinaryLMJob(
+            arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH, probing_multiplier=2.0 if prune_thresh > 4.2e-6 else None,**rqmt
+        ).out_lm
+    else:
+        arpa_binary_lm = CreateBinaryLMJob(
+            arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH, **rqmt
+        ).out_lm
+    ppls = dict()
+    for k, lm_eval_data in eval_lm_data_dict.items():
+        ppl_job = ComputeNgramLmPerplexityJob(
+            ngram_order=N_order,
+            lm = lm_arpa, # Seems only accept arpa LM
+            eval_data=lm_eval_data, # This is train data for the LM.
+            ngram_exe=SRILM_PATH.join_right("ngram"),
+            mem_rqmt=rqmt["mem"],
+            time_rqmt=1,
+            extra_ppl_args= '-debug 2'
+        )
+        if isinstance(vocab, SentencePieceModel) or "spm" in vocab_str:
+            apply_job = ApplySentencepieceToTextJob
+        elif isinstance(vocab, Bpe) or "bpe" in vocab_str:
+            apply_job = ApplyBPEToTextJob
+        else:
+            assert vocab == "word", "vocab must be SentencePieceModel or SentencePieceModel, or word"
+            apply_job = None
+        if apply_job:
+            ratio = GetSubwordRatioJob(lm_eval_data, vocab, get_returnn_subword_nmt(),apply_job=apply_job).out_ratio
+            tk.register_output(f"{task_name}_{k}_{vocab_str}_ratio", ratio)
+        else:
+            ratio = 1
+        if word_ppl and vocab != "word":
+            ppl_job = PPLConvertJob(ppl_job.out_ppl_log, ratio)
+        alias_name = f"ppl/{N_order}gram{vocab}_apptek_tel_{prune_thresh if prune_thresh else ''}" + ('_'+ str(train_fraction) if train_fraction else '') + f"/{k}" + ("word_ppl" if word_ppl else "")
+        tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
+        ppls[k] = ppl_job.out_ppl_log
+    # conversion_job = ConvertARPAtoTensor(
+    #     lm=lm_arpa,
+    #     bpe_vocab=vocab.vocab,
+    #     N_order=N_order,
+    # )
+    #
+    # conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram")
+
+    #return conversion_job.out_lm_tensor
+    return arpa_binary_lm, ppls
+
+
 
 def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], vocab_name: str) -> tk.Path:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()

@@ -5,15 +5,13 @@ CTC experiments on Apptek datasets(refactored).
 from __future__ import annotations
 
 import re
-from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING, Iterator
+from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING
 
 from i6_experiments.users.zhang.experiments.lm_getter import build_all_lms
 from i6_experiments.users.schmitt.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
-from i6_experiments.users.zhang.experiments.ctc import recog_nn, model_recog_lm  # , model_recog_flashlight, model_recog,
-
 from returnn_common.datasets_old_2022_10.interface import VocabConfig
 from sisyphus import tk
 
@@ -26,28 +24,28 @@ if TYPE_CHECKING:
 RETURNN_ROOT = "/home/mgunz/setups/2024-07-08--zeyer-setup-apptek/recipe/returnn" #"/nas/models/asr/hzhang/setups/2025-07-20--combined/returnn"
 FINE_TUNED_MODEL = True # If use the FT model
 CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
-
-
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-seg_key = "aptk_leg" #aptk_leg ref
-DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
+from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import seg_key
+#seg_key = "ref" #aptk_leg ref
+DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key]# or seg_key == "ref"] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
 EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
 DEFAULT_PRIOR_WEIGHT = 0.3
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
-CHEAT_N_BEST = False
-TUNE_WITH_CHEAT = False
-TUNE_TWO_ROUND = True
-DIAGNOSE = True # Check scales vs WER for every dataset
-
-TUNE_ON_GREEDY_N_LIST = False
+CHEAT_N_BEST = True
+TUNE_WITH_CHEAT = True
+TUNE_TWO_ROUND = False
+DIAGNOSE = False
 
 BEAM_SIZE = 500
-NBEST = 100 # Use 100 for plot
+NBEST = 80 # Use 100 for plot
 
+from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST
+#These following do not have affect Set them in apptek_exp_wer_ppl and sync here
+#TUNE_ON_GREEDY_N_LIST = False
 LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 
@@ -86,22 +84,21 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         else:
             decoding_config["recog_language_model"] = lm
 
-
-    if re.match(r".*word.*", lmname):
+    if re.match(r".*word.*", lmname) and USE_flashlight_decoder:
         decoding_config["use_lexicon"] = True
 
     decoding_config["prior_weight"] = DEFAULT_PRIOR_WEIGHT
     tune_config_updates["priro_tune_range"] = DEFAULT_PRIOR_TUNE_RANGE
 
     if "ffnn" in lmname:
-        tune_hyperparameters = True
+        tune_hyperparameters = False #This control one pass tune
         decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else 150
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
 
     elif "trafo" in lmname:
-        tune_hyperparameters = True
-        decoding_config["beam_size"] = 50 if encoder == "conformer" else 300
+        tune_hyperparameters = False
+        decoding_config["beam_size"] = 80 if encoder == "conformer" else 300
         decoding_config["nbest"] = min(decoding_config["nbest"], decoding_config["beam_size"])
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
@@ -143,13 +140,22 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
 
 
 def select_recog_def(lmname: str, USE_flashlight_decoder: bool) -> callable:
-    if "ffnn" in lmname or "trafo" in lmname or "NoLM" in lmname:
-        return recog_nn
-    elif "NoLM" in lmname:
-        return recog_nn
-    else:
-        return model_recog_lm
+    from .ctc import recog_nn, model_recog, model_recog_lm#, model_recog_flashlight
 
+    if USE_flashlight_decoder:
+        if "NoLM" in lmname:
+            return model_recog_lm
+        #elif "ffnn" in lmname or "trafo" in lmname:
+            #return model_recog_flashlight
+        else:
+            return model_recog_lm
+    else:
+        if "ffnn" in lmname or "trafo" in lmname:
+            return recog_nn
+        elif "NoLM" in lmname:
+            return recog_nn
+        else:
+            return model_recog_lm
 
 # --- Main ctc_exp ---
 
@@ -212,6 +218,8 @@ def ctc_exp(
     # For not-training, recog should be True
     recog = not train
 
+
+
     def set_tune_range_by_name(rescore_lm_name, tune_config_updates,
                                first_pass:bool = False,
                                default_lm: float = DEFAULT_LM_WEIGHT, default_prior: float = DEFAULT_PRIOR_WEIGHT):
@@ -236,7 +244,6 @@ def ctc_exp(
             tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
 
     recog_def = select_recog_def(lmname, USE_flashlight_decoder)
-    # if recog_def == flashlight:
     tune_rescore_scale = False
 
     if not TUNE_ON_GREEDY_N_LIST:  # TODO: Warning, very unclean, when use this with given rescore_lm..->
@@ -250,8 +257,8 @@ def ctc_exp(
         decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]
         decoding_config["lm_weight"] = decoding_config["rescore_lmscale"]
         set_tune_range_by_name(lmname, tune_config_updates,
-                               default_lm = decoding_config["lm_weight"],
-                               default_prior = decoding_config["prior_weight"],
+                               default_lm=decoding_config["lm_weight"],
+                               default_prior=decoding_config["prior_weight"],
                                first_pass=True)  # !!This overwrites the setting done in get_decoding_config
 
     if rescore_lm is None and lm is None:
@@ -275,10 +282,11 @@ def ctc_exp(
         decoding_config["lm_vocab"] = get_vocab_by_str(lm_vocab)
         set_tune_range_by_name(rescore_lm_name, tune_config_updates,
                                default_lm=decoding_config["lm_weight"],
-                            default_prior=decoding_config["prior_weight"], first_pass=False)
+                               default_prior=decoding_config["prior_weight"], first_pass=False)
         if lm is not None:  # First pass with a LM
             decoding_config["tune_with_rescoring"] = True  # Set to false if do one pass tuning
-            decoding_config["prior_weight"] = decoding_config["rescore_priorscale"] # Just safe guard, for now need them to be same
+            decoding_config["prior_weight"] = decoding_config[
+                "rescore_priorscale"]  # Just safe guard, for now need them to be same
             set_tune_range_by_name(lmname, tune_config_updates,
                                    default_lm=decoding_config["rescore_lmscale"],
                                    default_prior=decoding_config["rescore_priorscale"],
@@ -369,50 +377,7 @@ def ctc_exp(
 PRIOR_PATH = {("spm10k", "ctc", "conformer"): tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/data/ES/prior/ctc_mbw_16kHz_spm10k.txt"),
               }
 
-from sisyphus import Job, Task
-from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
-PRINTED = False
-class GetOutPutsJob(Job):
-    """
-    Collect all wer reports from recogs.
-    """
-    # This could change the hash of many downstream tuning Job, becareful
-    def __init__(
-        self,
-        *,
-        outputs: Dict[str, Dict[str, ScoreResult]],
-    ):
-        """
-        :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
-        :param recog_and_score_func: epoch -> scores. called in graph proc
-        """
-        super(GetOutPutsJob, self).__init__()
-        global PRINTED
-        self.outputs = outputs  # type: Dict[str, Dict[str, ScoreResult]]
-        self.out_report_dict = self.output_path("wer_report.py")
-        if not PRINTED:
-            for k,v in self.outputs.items():
-                for dataset, report in v.items():
-                    print(f"{k}:\n{dataset}: {report}")
-                    break
-            #print(self.outputs)
-            PRINTED = True
-
-    def tasks(self) -> Iterator[Task]:
-        """tasks"""
-        yield Task("run", rqmt={"cpu":1, "time":1})#mini_task=True)
-
-    def run(self):
-        """run"""
-        with open(self.out_report_dict.get_path(), "wt") as out:
-            out.write("{\n")
-            for lm, wer_dict in self.outputs.items():
-                out.write(f"\t{lm!r}" +":{\n")
-                for dataset, score_res in wer_dict.items():
-                    out.write(f"{dataset!r}: {score_res.report}\n")
-                out.write("\t}\n")
-            out.write("}\n")
-
+from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import GetOutPutsJob
 def py():
     # ! Note: for now when use rescoring, in first pass prior will not be considered, especially by greedy case
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
@@ -447,16 +412,14 @@ def py():
                   ]:
         word_ppl = False # Default
         # LM that do first pass,
-        lm_kinds = {"ffnn",
-                    #"trafo", #nn has better result on second pass for cfm
-                    #"word_ngram_apptek",
+        lm_kinds = {#"ffnn",
+                    "trafo", #nn has better result on second pass for cfm
                     }
         lm_kinds_2 = {#"ngram", # LM that do second pass
-                    "word_ngram",
-                    "word_ngram_apptek",
-                    "ffnn",
-                    #"trafo",
-                    #"LLM"
+                    #"word_ngram",
+                    #"ffnn",
+                    "trafo",
+                    "LLM"
                     }
         #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
         if "LLM" in lm_kinds_2:
@@ -663,7 +626,6 @@ def py():
                 #     wer_ppl_results[name] = (
                 #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
                 #     dafault_prior_scale)
-
                 if wer_ppl_results_2 and not train:
                     #print(wer_ppl_results_2)
                     names, res = zip(*wer_ppl_results_2.items())
@@ -685,14 +647,13 @@ def py():
                             f"wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
                             + ("n_best_cheat" if CHEAT_N_BEST else "")
                             + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
-
+                    tk.register_output(alias_prefix + "/report_summary",
+                                       GetOutPutsJob(outputs=wer_results).out_report_dict)
                     tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
-                    tk.register_output(alias_prefix + "/report_summary", GetOutPutsJob(outputs=wer_results).out_report_dict)
                     for i, key in enumerate(EVAL_DATASET_KEYS):
                         tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                         tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
                         tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
-
 
         for model_name, exp in models.items():
             if (vocab, model_name, encoder) not in available:

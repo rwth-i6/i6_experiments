@@ -30,7 +30,7 @@ CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
 
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-seg_key = "aptk_leg" #aptk_leg ref
+seg_key = "ref" #aptk_leg ref
 DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
 EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
 DEFAULT_PRIOR_WEIGHT = 0.3
@@ -61,20 +61,20 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
     if nbest:
         assert beam_size > nbest
     decoding_config = {
-        #"log_add": False, #Flashlight
-        "nbest": nbest,
-        "beam_size": beam_size,
-        #"beam_threshold": 1e6, #Flashlight
-        "lm_weight": 1.45,
-        "use_logsoftmax": True,
+        "log_add": False, #Flashlight
+        "nbest": 50 if "word" in lmname else nbest,
+        "beam_size": 80 if "word" in lmname else beam_size,
+        "beam_threshold": 1e6, #Flashlight
+        "lm_weight": 0.3,
+        "use_logsoftmax": True, # Actualy also this, but kepp it for old hash
         "use_lm": False,
-        #"use_lexicon": False, #Flashlight
+        "use_lexicon": False, #Flashlight
         "vocab": real_vocab or get_vocab_by_str(vocab),
     }
     tune_config_updates = {}
     recog_config_updates = {}
     search_rqmt = {}
-    tune_hyperparameters = False
+    tune_hyperparameters = "word" not in lmname
     batch_size = None
 
     if lmname != "NoLM":
@@ -90,7 +90,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
     if re.match(r".*word.*", lmname):
         decoding_config["use_lexicon"] = True
 
-    decoding_config["prior_weight"] = DEFAULT_PRIOR_WEIGHT
+    decoding_config["prior_weight"] = 0.4 if "word" in lmname else DEFAULT_PRIOR_WEIGHT
     tune_config_updates["priro_tune_range"] = DEFAULT_PRIOR_TUNE_RANGE
 
     if "ffnn" in lmname:
@@ -143,10 +143,11 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
 
 
 def select_recog_def(lmname: str, USE_flashlight_decoder: bool) -> callable:
+
     if "ffnn" in lmname or "trafo" in lmname or "NoLM" in lmname:
         return recog_nn
-    elif "NoLM" in lmname:
-        return recog_nn
+    elif "word" in lmname:
+        return model_recog_lm
     else:
         return model_recog_lm
 
@@ -236,15 +237,18 @@ def ctc_exp(
             tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
 
     recog_def = select_recog_def(lmname, USE_flashlight_decoder)
-    # if recog_def == flashlight:
+    if recog_def != model_recog_lm:
+        for key in ["log_add", "beam_threshold", "use_lexicon"]:
+            decoding_config.pop(key, None)
+
     tune_rescore_scale = False
 
-    if not TUNE_ON_GREEDY_N_LIST:  # TODO: Warning, very unclean, when use this with given rescore_lm..->
+    if not TUNE_ON_GREEDY_N_LIST and "word" not in lmname:  # TODO: Warning, very unclean, when use this with given rescore_lm..->
         # branch in the below will be exc, and same setting will be repeated
         # Make sure they are the same
         decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
         decoding_config["rescore_priorscale"] = 0.30
-        decoding_config["tune_with_rescoring"] = True
+        decoding_config["tune_with_rescoring"] = "word" not in lmname
 
         ## Just safe guard, for now need them to be same
         decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]

@@ -1,3 +1,4 @@
+import copy
 import glob
 import numpy as np
 import pickle
@@ -27,7 +28,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
 
         lm_tunes: List[Optional[tk.Path]],
         prior_tunes: List[Optional[tk.Path]],
-        search_errors: List[Optional[tk.Path]],
+        search_errors: List[Dict[str,Optional[tk.Path]]],
         search_errors_rescore: List[Dict[str,Optional[tk.Path]]],
         lm_default_scales: List[Optional[float]],
         prior_default_scales: List[Optional[float]],
@@ -59,15 +60,22 @@ class WER_ppl_PlotAndSummaryJob(Job):
 
     def tasks(self) -> Iterator[Task]:
         yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
-        yield Task("plots", mini_task=True)
         yield Task("export_dataset_tables", mini_task=True)
         yield Task("export_metric_matrix", mini_task=True)
         yield Task("export_metric_averages", mini_task=True)
+        yield Task("plots", mini_task=True)
+
 
     @staticmethod
     def find_relevant_key(dict, key):
         for k in dict.keys():
             if key in k or k in key:
+                return k
+            try:
+                minimal_key = key.split(".")[3]
+            except IndexError:
+                minimal_key = key # Fallback
+            if minimal_key in k:
                 return k
         raise ValueError(f"Key {key} not found in {dict}")
 
@@ -77,32 +85,30 @@ class WER_ppl_PlotAndSummaryJob(Job):
         ppls = list()
         wers = list()
         for i, (ppl_dict, wer_path) in enumerate(self.results):
+            ppl_dict_ = dict()
             for k, ppl_log in ppl_dict.items():
                 """extracts ppl score from the ppl.log file"""
-                if k not in self.eval_dataset_keys:
+                if all(k not in key_name for key_name in self.eval_dataset_keys):
+                    print(f"{k} not in {self.eval_dataset_keys}, skip this PPL report")
                     continue
                 if isinstance(ppl_log, float):
-                    ppl_dict[k] = ppl_log
+                    ppl_dict_[k] = ppl_log
                     print(f"Float ppl -> Got ppl for {i}th entry on {k}: {self.names[i]}")
                 elif isinstance(ppl_log, tk.Path):
+                    ppl_name_key = "ppl1=" if "gram" in self.names[i] else "ppl="
                     with open(ppl_log.get_path(), "rt") as f:
                         lines = f.readlines()
-                        found = False
                         for line in lines:
                             line = line.split(" ")
                             for idx, ln in enumerate(line):
-                                if ln == "ppl=" or ln == "Perplexity:":
-                                    ppl_dict[k] = float(line[idx + 1])
-                                    print(f"Log ppl -> Got ppl for {self.names[i]}")
-                                    found = True
-                                    break
-                            if found:
-                                break
+                                if ln == ppl_name_key or ln == "Perplexity:":
+                                    ppl_dict_[k] = float(line[idx + 1])
+                        print(f"Log ppl -> Got ppl for {self.names[i]}")
                 else:
                     assert isinstance(ppl_log,  tk.Variable), "PPL must be tk.Path or tk.Variable, or raw float"
-                    ppl_dict[k] = float(ppl_log.get())
+                    ppl_dict_[k] = float(ppl_log.get())
                     print(f"Tk.var ppl -> Got ppl for {self.names[i]}")
-            ppls.append(ppl_dict)
+            ppls.append(copy.deepcopy(ppl_dict_))
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
 
@@ -177,8 +183,8 @@ class WER_ppl_PlotAndSummaryJob(Job):
             plt.close(fig)
 
         dataset_count = 0
-        ppl_avg = np.array([0 for _ in range(len(self.names))])
-        wer_avg = np.array([0 for _ in range(len(self.names))])
+        ppl_avg = np.array([0.0 for _ in range(len(self.names))])
+        wer_avg = np.array([0.0 for _ in range(len(self.names))])
         for i, key in enumerate(self.eval_dataset_keys):
             plot(ppls[key], wers[key], self.out_plots[i].get_path(),self.names)
             dataset_count += 1
@@ -208,54 +214,150 @@ class WER_ppl_PlotAndSummaryJob(Job):
                 ref_idx = parts.index("ref")
                 dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
             except ValueError:
-                dataset_token = parts[-1]
+                try:
+                    ref_idx = parts.index("aptk_leg")
+                    dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
+                except ValueError:
+                    raise  # do not fallback
             by_dataset.setdefault(dataset_token, {})
             by_dataset[dataset_token][metric] = col
         return by_dataset
 
     def export_metric_matrix(self):
         """
-        Create a wide table with rows= models, columns = datasets (values = chosen metric).
-        Optionally append per-dataset search error columns (best-effort).
-        Returns the written CSV path.
+        Build rotated CSVs:
+          - Rows = datasets
+          - Columns = model names
+          - Values = WER/PPL (min across duplicates if multiple rows per model)
+        Also writes a separate rotated table for search_error if requested.
+        Returns a dict {metric_name: written_csv_path, ...}
         """
-        id_cols: Tuple[str, str, str] = ("Model Name", "lm_scale", "prior_scale")
+        import os
+        import math
+        import pandas as pd
+
+        # Helper to parse/clean a metric series
+        def _metric_series(df, colname, metric):
+            s = df[colname]
+            if metric == "WER":
+                # strip trailing '%' and coerce to float
+                s = s.astype(str).str.rstrip("%").replace({"": None}).astype(float)
+            else:
+                s = pd.to_numeric(s, errors="coerce")
+            return s
+
+        # Collect outputs
+        written = {}
+
+        # Load once (both metrics come from same summary)
+        df = pd.read_csv(self.out_summary.get_path())
+        by_dataset = self._parse_dataset_map(df.columns.tolist())
+
+        # Ensure we have a "Model Name" column to pivot on
+        if "Model Name" not in df.columns:
+            raise AssertionError("Expected a 'Model Name' column to identify LMs/models.")
+
+        # Build rotated tables for WER and PPL
         for metric in ["WER", "PPL"]:
-            df = pd.read_csv(self.out_summary.get_path())
-
-            by_dataset = self._parse_dataset_map(df.columns.tolist())
-            out = df.loc[:, [c for c in id_cols if c in df.columns]].copy()
-
+            # Assemble a tall table with columns: [dataset, model, value]
+            tall_rows = []
             for ds in sorted(by_dataset.keys()):
                 colname = by_dataset[ds].get(metric)
                 if not colname:
                     continue
-                series = df[colname]
-                if metric == "WER":
-                    series = series.astype(str).str.rstrip("%").replace({"": None}).astype(float)
-                else:
-                    series = pd.to_numeric(series, errors="coerce")
-                out[ds] = series
+                s = _metric_series(df, colname, metric)
+                # For each row in df, collect (ds, model_name, metric_value)
+                sub = pd.DataFrame({
+                    "dataset": ds,
+                    "model": df["Model Name"],
+                    "value": s
+                })
+                tall_rows.append(sub)
 
-            if self.include_search_error:
-                se_candidates = {c for c in df.columns if c.endswith(" search_error")}
-                has_per_dataset = len(se_candidates) > 0
-                for ds in sorted(by_dataset.keys()):
-                    se_col = None
-                    if has_per_dataset:
-                        for c in se_candidates:
-                            if f".{ds}.ref." in c or (len(c.split(".")) > 1 and c.split(".")[-2] == ds):
-                                se_col = c
-                                break
-                    if se_col and se_col in df.columns:
-                        out[f"{ds}__search_error"] = df[se_col]
-                    elif "search_error" in df.columns:
-                        out[f"{ds}__search_error"] = df["search_error"]
+            if not tall_rows:
+                # Nothing for this metric; skip
+                continue
 
-            id_keep = [c for c in id_cols if c in out.columns]
-            out = out[id_keep + [c for c in out.columns if c not in id_keep]]
+            tall = pd.concat(tall_rows, ignore_index=True)
+
+            # Drop NaNs so aggregation works cleanly
+            tall = tall.dropna(subset=["value"])
+
+            if tall.empty:
+                # No valid numbers to write
+                out_path = self.out_tables[metric.lower() + "s"].get_path()
+                # still write an empty file with header
+                pd.DataFrame(columns=["dataset"]).to_csv(out_path, index=False)
+                written[metric.lower()] = out_path
+                continue
+
+            # If there are multiple rows per (dataset, model), take the **min** (lower is better for both WER/PPL)
+            agg = (
+                tall
+                .groupby(["dataset", "model"], as_index=False)["value"]
+                .min()
+            )
+
+            # Pivot: rows = dataset, columns = model, values = value
+            wide = agg.pivot(index="dataset", columns="model", values="value").sort_index()
+
+            # Write
             out_path = self.out_tables[metric.lower() + "s"].get_path()
-            out.to_csv(out_path, index=False)
+            # Ensure dataset is a column
+            wide = wide.reset_index()
+            wide.to_csv(out_path, index=False)
+            written[metric.lower()] = out_path
+
+        # Optional: separate rotated Search Error table
+        if self.include_search_error:
+            # Try to find per-dataset search_error columns first; otherwise fallback to a single "search_error"
+            se_candidates = [c for c in df.columns if c.endswith(" search_error")]
+            has_per_dataset = len(se_candidates) > 0
+
+            tall_rows = []
+            for ds in sorted(by_dataset.keys()):
+                se_col = None
+                if has_per_dataset:
+                    # Heuristic matching borrowed from original code
+                    for c in se_candidates:
+                        if ((f".{ds}.ref." in c or (len(c.split(".")) > 1 and c.split(".")[-2] == ds)) or
+                                (f".{ds}.apptek_leg." in c or (len(c.split(".")) > 1 and c.split(".")[-2] == ds))):
+                            se_col = c
+                            break
+                if not se_col and "search_error" in df.columns:
+                    se_col = "search_error"
+
+                if se_col and se_col in df.columns:
+                    s = pd.to_numeric(df[se_col], errors="coerce")
+                    sub = pd.DataFrame({
+                        "dataset": ds,
+                        "model": df["Model Name"],
+                        "value": s
+                    })
+                    tall_rows.append(sub)
+
+            if tall_rows:
+                tall = pd.concat(tall_rows, ignore_index=True)
+                tall = tall.dropna(subset=["value"])
+                if not tall.empty:
+                    agg = (
+                        tall
+                        .groupby(["dataset", "model"], as_index=False)["value"]
+                        .min()
+                    )
+                    wide = agg.pivot(index="dataset", columns="model", values="value").sort_index().reset_index()
+
+                    # Write next to the WER table path (or use dedicated table if available)
+                    base_path = self.out_tables.get("wers", None)
+                    if base_path is not None:
+                        base_path = base_path.get_path()
+                        se_out_path = os.path.splitext(base_path)[0] + "__search_error.csv"
+                    else:
+                        # Fallback generic name
+                        se_out_path = os.path.join(os.path.dirname(self.out_summary.get_path()), "search_errors.csv")
+
+                    wide.to_csv(se_out_path, index=False)
+                    written["search_error"] = se_out_path
 
     def export_metric_averages(self):
         """
@@ -344,7 +446,11 @@ class WER_ppl_PlotAndSummaryJob(Job):
                 ref_idx = parts.index("ref")
                 dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
             except ValueError:
-                dataset_token = parts[-1]  # fallback
+                try:
+                    ref_idx = parts.index("aptk_leg")
+                    dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
+                except ValueError:
+                    raise  # do not fallback
             dataset_id = dataset_token
 
             by_dataset.setdefault(dataset_id, {})
@@ -389,10 +495,10 @@ class WER_ppl_PlotAndSummaryJob(Job):
             with open(path) as f:
                 import re
                 search_error = f.readline()
-                if search_error == "None":
+                search_error = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error)
+                if search_error is None:
                     return "-"
-                search_error = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error).group(0)
-            return search_error
+            return search_error.group(0)
         ppls, *_ = self.get_points()
         print(ppls)
         import csv
@@ -448,18 +554,30 @@ class WER_ppl_PlotAndSummaryJob(Job):
             # if lm_scale == 0:
             #     prior_scale = 0
 
-            search_error = "-"
-            if values[3]:
-                search_error = get_search_error(values[3].get_path())
+            # search_error = "-"
+            # if values[3]:
+            #     search_error = get_search_error(values[3].get_path())
 
+
+            # for dataset_key in self.eval_dataset_keys:
+            #     row.append(f"{ppl.get(dataset_key, '-')}.1f" if dataset_key in ppl else "-")
+            #     row.append(f"{scores.get(dataset_key, '-'):.1f}")
+            #     search_error_log = search_error_rescore_dict.get(dataset_key, None)
+            #     row.append(f"{get_search_error(search_error_log.get_path())}"
+            #                    if search_error_log else "-")
+            # table_data.append(row)
+            search_error_dict = values[3]
             search_error_rescore_dict = values[4]
-            row = [key, f"{lm_scale:.2f}",f"{prior_scale:.2f}", search_error]#, search_error_rescore]
+            row = [key, f"{lm_scale:.2f}",f"{prior_scale:.2f}"]#, search_error_rescore]
             for dataset_key in self.eval_dataset_keys:
-                row.append(f"{ppl.get(dataset_key, '-'):.3g}")
+                row.append(f"{ppl.get(dataset_key, '-')}.1f" if dataset_key in ppl else "-")
                 row.append(f"{scores.get(dataset_key, '-'):.1f}")
-                search_error_log = search_error_rescore_dict.get(dataset_key, None)
+                search_error_log = search_error_dict.get(dataset_key, None)
                 row.append(f"{get_search_error(search_error_log.get_path())}"
                                if search_error_log else "-")
+                search_error_rescore_log = search_error_rescore_dict.get(dataset_key, None)
+                row.append(f"{get_search_error(search_error_rescore_log.get_path())}"
+                               if search_error_rescore_log else "-")
             table_data.append(row)
 
         # Save to a CSV file manually

@@ -124,13 +124,14 @@ def get_asr_task_given_spm(
         train_dataset_kwargs=kwargs,
         alias_prefix=ALIAS_PREFIX,
     )
+    from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import seg_key
     task = SpanishTask(
         name="spanish-16khz",
         corpora=corpora,
         dev_dataset=task_data.cv,
         eval_datasets={**task_data.dev, **task_data.test},
         main_measure_type=MeasureType(short_name="WER%"),
-        main_measure_name=f"test_set.ES_ES.f16kHz.eval_voice_call-v3.{ALL_SEGMENTER_TYPES[1]}.ff_wer",
+        main_measure_name=f"test_set.ES_US.f16kHz.dev_conversations_202411-v2.{seg_key}.ff_wer",
         train_dataset=task_data.train,
         train_epoch_split=train_partition_epoch,
         score_recog_output_func=partial(_score_recog_out_v2, corpora=corpora, remove_labels=spm_extra_symbols),

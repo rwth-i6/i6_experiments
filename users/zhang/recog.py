@@ -4,12 +4,12 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
+import json
 import os
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable, List, Tuple
 import functools
 
 import sisyphus
-
 
 #from i6_experiments.users.berger.systems.functors import VocabType
 from sisyphus import tk
@@ -32,7 +32,7 @@ from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zhang.datasets.task import Task
-from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
+from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResult, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
@@ -72,7 +72,7 @@ def recog_exp(
     dev_sets: Optional[Sequence[str]] = None, # The naming is a bit confusing, dev or not is transparent to this method
     search_error_check: bool = False,
     search_rqmt: dict = None,
-)-> Tuple[tk.Path, tk.Path, tk.Path]:
+)-> tuple[tk.Path, tk.Path, tk.Path | None, Any] | tuple[tk.Path, None, tk.Path | None, Any]:
     """recog on given epoch"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
@@ -95,8 +95,8 @@ def recog_exp(
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
-    res = get_res(epoch, recog_and_score_func)
-    summarize_job = GetRecogSummaryJob(scores_outputs=res)
+    res, search_error, search_error_rescore, output_dict = get_res(epoch, recog_and_score_func)
+    summarize_job = GetRecogSummaryJob(scores_outputs=(res, search_error, search_error_rescore))
     # summarize_job = GetRecogExp(
     #     epoch=epoch,
     #     recog_and_score_func=recog_and_score_func,
@@ -104,9 +104,9 @@ def recog_exp(
     #summarize_job.add_alias(prefix_name + "/train-summarize")
     #tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     if search_error_check:
-        tk.register_output(first_pass_name + "/search_error", summarize_job.out_search_error)
-        return summarize_job.out_summary_json, summarize_job.out_search_error, summarize_job.out_search_error_rescore
-    return summarize_job.out_summary_json, None, summarize_job.out_search_error_rescore
+        #tk.register_output(first_pass_name + "/search_error", summarize_job.out_search_error)
+        return summarize_job.out_summary_json, search_error, search_error_rescore, output_dict
+    return summarize_job.out_summary_json, None, search_error_rescore, output_dict
 
 
 def recog_training_exp(
@@ -202,7 +202,7 @@ class _RecogAndScoreFunc:
         self.search_error_check = search_error_check
         self.search_error_version = search_error_version
 
-    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection, Optional[tk.Path], Optional[tk.Path]]:
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection,  Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResultCollection]]]:
         if isinstance(epoch_or_ckpt, int):
             model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
         elif isinstance(epoch_or_ckpt, PtCheckpoint):
@@ -228,7 +228,7 @@ class _RecogAndScoreFunc:
                 #     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
         else:
             prior_path = None
-        res, search_error, search_error_rescore = recog_model(
+        res, search_error_dict, search_error_rescore_dict, output = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
@@ -247,7 +247,7 @@ class _RecogAndScoreFunc:
         )
         #if isinstance(epoch_or_ckpt, int):
             #tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
-        return res, search_error, search_error_rescore
+        return res, search_error_dict, search_error_rescore_dict, output
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
@@ -314,7 +314,7 @@ def recog_model(
     name: Optional[str] = None,
     search_error_check: bool = False,
     search_error_version: int = 2,
-) -> Tuple[ScoreResultCollection, Optional[tk.Path], Optional[Dict[str, tk.Path]]]:
+) -> Tuple[ScoreResultCollection, Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str,ScoreResult]]]:
     """
     Recog for some given model (a single given checkpoint / epoch).
     (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
@@ -353,6 +353,11 @@ def recog_model(
     decoding_params = decoding_config.copy()
     rescoring = decoding_params.pop("rescoring", False)
 
+    rescoringLM = decoding_params.pop("lm_rescore", None)
+    rescoringLM_scale = decoding_params.pop("rescore_lmscale", None)
+    rescoreLM_name = decoding_params.pop("rescore_lm_name", "")
+    rescore_Priorscale = decoding_params.pop("rescore_priorscale", None)
+
     if rescoring: # Prepare rescoring settings
         from .experiments.decoding.lm_rescoring import lm_am_framewise_prior_rescore, ngram_rescore_def, ffnn_rescore_def, trafo_lm_rescore_def
         from .experiments.ctc import ctc_model_rescore
@@ -364,11 +369,6 @@ def recog_model(
         )
         from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
         from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
-        rescoringLM = decoding_params.pop("lm_rescore", None)
-        rescoringLM_scale = decoding_params.pop("rescore_lmscale", None)
-        rescoreLM_name = decoding_params.pop("rescore_lm_name", "")
-        rescore_Priorscale = decoding_params.pop("rescore_priorscale", None)
-
         # Vocab setting for AM
         vocab_: Bpe | SentencePieceModel
         vocab_ = decoding_params.pop("vocab", None)
@@ -415,6 +415,8 @@ def recog_model(
 
         if misaligned_lm:
             pre_func_for_lm = functools.partial(convert_recog_out_label, src_vocab=vocab_, tgt_vocab=lm_vocab_)
+        # elif "word" in rescoreLM_name:
+        #     pre_func_for_lm = _spm_to_words
         else:
             pre_func_for_lm = lambda x: x
         def dummy_rescor():
@@ -441,14 +443,14 @@ def recog_model(
             if isinstance(rescoringLM, dict):
                 prev_one_ctx = rescoringLM.get("prev_one_ctx", False)
                 prompt = rescoringLM.get("prompt", None)
-            time_factor = 2 if prev_one_ctx or prompt else 1
+            time_factor = 3 if prev_one_ctx or prompt else 1
             lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 3*time_factor, "gpu_mem": 48 if prev_one_ctx else 24},
                               "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
                               "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 48 if prev_one_ctx else 24},
                               "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 4*time_factor, "gpu_mem": 48 if prev_one_ctx else 48},
                               "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 48 if USE_48gb else 24},
                               "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 6*time_factor, "gpu_mem": 48},
-                              "phi-4":{ "cpu": 3, "mem": 65, "time": 6*time_factor, "gpu_mem": 80},
+                              "phi-4":{ "cpu": 3, "mem": 65, "time": 8*time_factor, "gpu_mem": 80},
                               "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 48 if USE_48gb else 24},}.get(rescoreLM_name)
             assert lm_rescor_rqmt is not None, f"LM type '{rescoreLM_name}' not found"
             #print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
@@ -479,8 +481,9 @@ def recog_model(
                     pre_func_for_lm=pre_func_for_lm,
                 )
         ]
-
+    decoding_params.pop("vocab", None)
     search_error_rescore_dict = {}
+    search_error_dict = {}
     dev_sets = dev_sets or task.eval_datasets.keys()
     dataset_names = set.intersection(set(dev_sets), set(task.eval_datasets.keys())) or set(dev_sets)
     search_error_key = "test-other" if "test-other" in dataset_names else "test_set.ES_ES.f8kHz.mtp_eval-v2"#list(dataset_names)[0]
@@ -500,6 +503,8 @@ def recog_model(
                 trafo_config["batch_size"] = config["batch_size"] if config["batch_size"] < 2_000_000 else config["batch_size"] // 4
             else:
                 trafo_config["batch_size"] = 1_000_000
+            if "movies_tvshows_talks_202303-v3" in dataset_name:
+                trafo_config["max_seqs"] = 90
             # watch_list = ["mtp_eval_p4_family_holiday_other", "mtp_dev_heldout-v2", "eval_callcenter_lt-v5"]
             # for name in watch_list:
             #     if name in dataset.get_main_name():
@@ -508,15 +513,12 @@ def recog_model(
             config_ = trafo_config
         if using_ffnn_lm(config):
             ffnn_config = copy.deepcopy(config)
-            if ffnn_config.get("batch_size", False):
-                ffnn_config["batch_size"] = config["batch_size"] // 2.2
-            else:
-                ffnn_config["batch_size"] = 20000 * 50
+            ffnn_config["batch_size"] = 20000 * 50
             special_infixes = ["mtp_dev_heldout-v2", "dev_callhome-v4", "eval_movies_tvshows_talks", "conversation"]
             if any(infix in dataset.get_main_name() for infix in special_infixes):
                 ffnn_config["batch_size"] = 20000 * 25#(10 if "conversation" in dataset.get_main_name() else 25)
             config_ = ffnn_config
-        recog_out, hyps, search_error_rescore = search_dataset( # Hyps here is raw out from first pass
+        recog_out, hyps, search_error_rescore, oracle_res = search_dataset( # Hyps here is raw out from first pass
             decoding_config=decoding_params,
             dataset=dataset,
             model=model,
@@ -531,29 +533,33 @@ def recog_model(
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             recog_pre_post_proc_funcs_ext=recog_pre_post_proc_funcs_ext,
         )
+        if oracle_res:
+            oracle_score_out = task.score_recog_output_func(dataset,oracle_res)
+            tk.register_output(first_pass_name + f"/check/{dataset_name}/Nbest_oracle_report", oracle_score_out.report)
+
         search_error_rescore_dict[dataset_name] = search_error_rescore
         score_out = task.score_recog_output_func(dataset, recog_out)
         # tk.register(score_out.report, f"{name}/search/{dataset_name}/"
         outputs[dataset_name] = score_out
-        if search_error_check: #Just report the search error on test-other
+        if search_error_check and not "aptk_leg" in dataset.get_main_name(): #Just report the search error on test-other
             #config_ = config.copy()
             # if config.get("batch_size"):
             #     config_.pop("batch_size")
-            if search_error_key in dataset_name:
-                search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
-                                                  decoding_config=decoding_params, search_error_version=search_error_version,
-                                                  prior_path=prior_path,
-                                                  alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
-                                                  )
-            else:
-                check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_,
-                                   decoding_config=decoding_params, search_error_version=search_error_version,
-                                   prior_path=prior_path,
-                                   alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
-                                   )
+            # if search_error_key in dataset_name:
+            #     search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_, mem_rqmt=search_mem_rqmt,
+            #                                       decoding_config=decoding_params, search_error_version=search_error_version,
+            #                                       prior_path=prior_path,
+            #                                       alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
+            #                                       )
+            # else:
+            search_error_dict[dataset_name] = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config_, mem_rqmt=search_mem_rqmt,
+                               decoding_config=decoding_params, search_error_version=search_error_version,
+                               prior_path=prior_path,
+                               alias_name=f"{first_pass_name}/search_error/{dataset_name}" if name else None,
+                               )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
-    return task.collect_score_results_func(outputs), search_error, search_error_rescore_dict#[search_error_key]
+    return task.collect_score_results_func(outputs), search_error_dict, search_error_rescore_dict, outputs#[search_error_key]
 
 
 def compute_prior(
@@ -632,7 +638,7 @@ def get_GroundTruth_with_score_on_forced_alignment(
         cpu_rqmt=2,
     )
     if using_trafo_lm(config):
-        pre_SearchError_job.rqmt.update({"gpu_mem": 48})
+        pre_SearchError_job.rqmt.update({"gpu_mem": 80})
     if alias_name:
         alias_name += "_get_GT_with_score"
         pre_SearchError_job.add_alias(alias_name)
@@ -711,13 +717,15 @@ def check_search_error(
         returnn_root=tools_paths.get_returnn_root(),
         device="gpu",
         time_rqmt=4,
-        mem_rqmt=8,
+        mem_rqmt=mem_rqmt,
         cpu_rqmt=2,
     )
     if USE_24GB:
         pre_SearchError_job.rqmt.update({"gpu_mem": 24})
     if config.get("batch_size",None):
         pre_SearchError_job.rqmt.update({"gpu_mem": 24 if config["batch_size"] > 50_000_000 else 10})
+    if using_trafo_lm(config):
+        pre_SearchError_job.rqmt.update({"gpu_mem": 80})
     if alias_name:
         alias_name += "_scor_v2" if scoring_func is scoring_v2 else ("_scor_v3" if scoring_func is scoring_v3 else "")
         pre_SearchError_job.add_alias(alias_name)
@@ -742,7 +750,7 @@ def search_dataset(
     first_pass_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
-) -> Tuple[RecogOutput, tk.path, tk.Path]:
+) -> Tuple[RecogOutput, tk.path, tk.Path, RecogOutput]:
     """
     Recog on the specific dataset using RETURNN.
 
@@ -825,9 +833,9 @@ def search_dataset(
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
     if using_trafo_lm(config):
-        search_job.rqmt.update({"gpu_mem": 80, "time": 12 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 6})
+        search_job.rqmt.update({"gpu_mem": 80, "time": 12 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 8})
     if using_ffnn_lm(config):
-        search_job.rqmt.update({"gpu_mem": 16, "time": 6 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 4})
+        search_job.rqmt.update({"gpu_mem": 48, "time": 6 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 4})
     if env_updates:
         for k, v in env_updates.items():
             search_job.set_env(k, v)
@@ -858,13 +866,28 @@ def search_dataset(
         raw_res_labels = raw_res_search_labels
 
     res_with_score = ctc_alignment_to_label_seq(RecogOutput(output=res_with_score), blank_label=recog_def.output_blank_label)
-    res_with_score = SearchTakeBestWithScoreJob(res_with_score.output, output_gzip=True).out_best_search_results
     # ---Get the GT and scores here--
-    # Note: The scores are actually ignored by following rescore pipeline
-    gt_res_search_labels = get_GroundTruth_with_score_on_forced_alignment(dataset=dataset, model=model, prior_path=prior_path, config=config,decoding_config=decoding_config, alias_name=first_pass_name)
+    # Note: The scores are actually ignored by following rescore pipeline, and only useful for search error check
+    gt_res_search_labels = get_GroundTruth_with_score_on_forced_alignment(dataset=dataset, model=model,
+                                                                          prior_path=prior_path, config=config,
+                                                                          decoding_config=decoding_config,
+                                                                          alias_name=first_pass_name)
+    gt_res = ctc_alignment_to_label_seq(RecogOutput(output=gt_res_search_labels),
+                                        blank_label=recog_def.output_blank_label).output
+
+    oracle_wer_res = None
+    if "final_recog" in first_pass_name and "ref" in dataset.get_main_name():
+        from i6_experiments.users.zhang.utils.oracle_wer import OracleWerJob
+        oracle_wer_job = OracleWerJob(hyp_path=res_with_score.output, ref_path=gt_res)
+        tk.register_output(f"{first_pass_name}/{dataset.get_main_name()}/Oracle_wer_report", oracle_wer_job.out_report)
+        oracle_wer_res = oracle_wer_job.out_best_nbest
+        for f in recog_post_proc_funcs:  # for example BPE to words
+            oracle_wer_res = f(RecogOutput(output=oracle_wer_res)).output
+        oracle_wer_res = RecogOutput(SearchTakeBestJob(oracle_wer_res, output_gzip=True).out_best_search_results)
+
+    res_with_score = SearchTakeBestWithScoreJob(res_with_score.output, output_gzip=True).out_best_search_results # This is the one pass result
     # --- ----------------------------
     for f in recog_pre_post_proc_funcs_ext:
-        gt_res = ctc_alignment_to_label_seq(RecogOutput(output=gt_res_search_labels), blank_label=recog_def.output_blank_label).output
         gt_res = f(
             RecogOutput(output=gt_res),
             dataset=dataset,
@@ -875,7 +898,11 @@ def search_dataset(
             ),
             alias_name=search_alias_name + "/gt_res",
         ).output
-
+        # if cheat: If put it here,the rescoring Job will also depend on gt_res, so only do this without tune_on cheat
+        #     from .experiments.decoding.rescoring import RescoreCheatJob
+        #     cheat_job = RescoreCheatJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
+        #     # cheat_job.add_alias(search_alias_name + "/search_error_job")
+        #     res = cheat_job.out_search_results
         res = ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
         res = f(
             RecogOutput(output=res),
@@ -887,15 +914,16 @@ def search_dataset(
             ),
             alias_name=search_alias_name,
         ).output
-    from .experiments.decoding.rescoring import RescoreSearchErrorJob, RescoreCheatJob
     search_error_rescore = None
-    if check_rescore_search_error:# and os.path.basename(search_alias_name) == "test-clean":#"test-other":
+    if check_rescore_search_error:
+        from .experiments.decoding.rescoring import RescoreSearchErrorJob
         search_error_rescore_job = RescoreSearchErrorJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
         search_error_rescore_job.add_alias(search_alias_name + "/search_error_job")
         search_error_rescore = search_error_rescore_job.out_search_errors
         #tk.register_output(search_alias_name + "/search_error_rescore", search_error_rescore)
 
-    if cheat:
+    if cheat: #keep it here make LLM to scoring GT also in a cheated way(using ref context rather hyp)
+        from .experiments.decoding.rescoring import RescoreCheatJob
         cheat_job = RescoreCheatJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
         #cheat_job.add_alias(search_alias_name + "/search_error_job")
         res = cheat_job.out_search_results
@@ -911,7 +939,7 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res), res_with_score, search_error_rescore#search_job.out_files[_v2_forward_out_filename]
+    return RecogOutput(output=res), res_with_score, search_error_rescore, oracle_wer_res#search_job.out_files[_v2_forward_out_filename]
 
 
 class SearchTakeBestWithScoreJob(sisyphus.Job):
@@ -1543,6 +1571,10 @@ def search_config_v2(
             else:
                 print(f"Getting lexicon for vocab {vocab} is not implemented!!!")
                 lexicon = None
+        elif hasattr(dataset, "spm"):
+            print(f"Use apptek_ES spm lexicon!")
+            from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_spm_lexicon
+            lexicon = get_spm_lexicon()
         else:
             print("No vocab found in dataset!!!")
             lexicon = None
@@ -1809,7 +1841,6 @@ def _returnn_v2_get_forward_callback():
                 self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
                 self.out_ext_file.write("{\n")
 
-        # Copied From Martens, TODO make it clear what makes the hyps output different.
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
@@ -1876,10 +1907,10 @@ def _returnn_v2_get_forward_callback():
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
-def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]]]):
-    res, search_error, search_error_rescore = recog_and_score_func(epoch)
+def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[Dict[str, tk.Path]],Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResult]]]]):
+    res, search_error, search_error_rescore, output = recog_and_score_func(epoch)
     # assert isinstance(res, Tuple[ScoreResultCollection,Optional[tk.path]])
-    return res, search_error, search_error_rescore
+    return res, search_error, search_error_rescore, output
 
 PRINTED = False
 class GetRecogSummaryJob(sisyphus.Job):
@@ -1893,7 +1924,7 @@ class GetRecogSummaryJob(sisyphus.Job):
             ...  (other meta info)
         }
     """
-
+    # This could change the hash of many downstream tuning Job, becareful
     def __init__(
         self,
         *,
@@ -1906,7 +1937,7 @@ class GetRecogSummaryJob(sisyphus.Job):
         super(GetRecogSummaryJob, self).__init__()
         global PRINTED
         self.out_summary_json = self.output_path("summary.json")
-        self.out_search_error = self.output_path("search_error")
+        self.out_search_error = self.output_path("search_error") # Kept for
         self._scores_outputs = scores_outputs  # type: Tuple[ScoreResultCollection,Optional[tk.Path],Optional[tk.Path]]  # epoch -> scores out
         self.out_search_error_rescore = self._scores_outputs[2]  # self.output_path("search_error_rescore")
         if not PRINTED:
@@ -1935,9 +1966,13 @@ class GetRecogSummaryJob(sisyphus.Job):
                 os.symlink(src.get_path(), dst)
                 # shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
         if self._scores_outputs[1]:
-            search_error_dst = self.out_search_error.get_path()
-            search_error_src = self._scores_outputs[1]
-            set_output(search_error_dst, search_error_src)
+            try:
+                search_error_dst = self.out_search_error.get_path()
+                search_error_src = self._scores_outputs[1]
+                set_output(search_error_dst, search_error_src)
+            except Exception:
+                with open(self.out_search_error.get_path(), "w") as f:
+                    f.write("None\n")
         else:
             with open(self.out_search_error.get_path(), "w") as f:
                 f.write("None\n")
@@ -2184,23 +2219,22 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 count += 1
             f.write("\n}\n")
 
-
 class GetBestTuneValue(sisyphus.Job):
     def __init__(
         self,
         scores: list[tk.Path],
-        tune_values: list[float],
+        tune_values: list[float | tk.Variable],
         dev_keys: Sequence[str],
-        default_scale: float = None,
+        #default_scale: float = None,
     ):
         self.scores = scores
         self.tune_values = tune_values
-        self.default_scale = default_scale
+        #self.default_scale = default_scale
         self.dev_keys = list(dev_keys)  # ensure a stable order
 
         # existing
-        self.out_best_tune = self.output_path("best_tune.json")
-        self.out_best_tune_var = self.output_var("best_tune")
+        #self.out_best_tune_var = self.output_var("best_tune")
+        self.out_best_scale_var = self.output_var("best_scale")
 
         # NEW: curve data + plots
         self.out_curve_csv = self.output_path("tune_curve.csv")
@@ -2209,7 +2243,7 @@ class GetBestTuneValue(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", rqmt={"cpu": 1, "mem": 2, "time": 1})
+        yield sisyphus.Task("run", mini_task=True)#rqmt={"cpu": 1, "mem": 2, "time": 1})
 
     def _read_scores_dict(self, p: tk.Path) -> dict:
         """
@@ -2218,6 +2252,11 @@ class GetBestTuneValue(sisyphus.Job):
         """
         txt = uopen(p, "rt").read()
         return eval(txt, {"nan": float("nan"), "inf": float("inf")})
+
+    def _get_tune_values(self):
+        for offset in self.tune_values:
+            assert isinstance(offset, tk.Variable) or isinstance(offset, float)
+        return [offset if isinstance(offset,float) else offset.get() for offset in self.tune_values]
 
     def run(self):
         import csv
@@ -2261,23 +2300,38 @@ class GetBestTuneValue(sisyphus.Job):
                     best_score_idx = i
 
         # --- Decide best tune ---
-        assert best_score_idx >= 0, "No valid (non-NaN) averages found across tune values."
-        best_tune = self.tune_values[best_score_idx]
+        assert any(not (isinstance(r["avg"], float) and math.isnan(r["avg"])) for r in rows), \
+            "No valid (non-NaN) averages found across tune values."
 
-        # Keep previous behavior (write var with default_scale applied; file with raw best_tune)
-        if self.default_scale is not None:
-            self.out_best_tune_var.set(best_tune + self.default_scale)
+        # find minimum avg across all rows
+        min_avg = min(r["avg"] for r in rows if not (isinstance(r["avg"], float) and math.isnan(r["avg"])))
+
+        # collect all tune values with this best avg
+        best_tunes = [r["tune"] for r in rows if r["avg"] == min_avg]
+
+        # use averaged best tune if multiple
+        if len(best_tunes) > 1:
+            best_tune = sum(best_tunes) / len(best_tunes)
+            print(f"Multi_best{best_tunes}, avg best{best_tune}")
         else:
-            self.out_best_tune_var.set(best_tune)
+            best_tune = best_tunes[0]
 
-        with open(self.out_best_tune.get_path(), "w") as f:
-            f.write(json.dumps({"best_tune": best_tune}) + "\n")
+        # # Keep previous behavior (write var with default_scale applied; file with raw best_tune)
+        # if self.default_scale is not None:
+        #     self.out_best_scale_var.set(best_tune + self.default_scale)
+        # else:
+        #
+        self.out_best_scale_var.set(best_tune)
+
+        #self.out_best_tune_var.set(best_tune)
+        # with open(self.out_best_tune_var.get_path(), "w") as f:
+        #     f.write(json.dumps({"best_tune": best_tune}) + "\n")
 
         # --- Write CSV for later analysis ---
         # cols: tune, (effective_scale), avg, dev_keys...
         header = ["tune"]
-        if self.default_scale is not None:
-            header.append("effective_scale")  # = tune + default_scale
+        # if self.default_scale is not None:
+        #     header.append("effective_scale")  # = tune + default_scale
         header.append("avg")
         header.extend(self.dev_keys)
 
@@ -2286,8 +2340,8 @@ class GetBestTuneValue(sisyphus.Job):
             writer.writeheader()
             for r in rows:
                 out = {"tune": r["tune"], "avg": r["avg"]}
-                if self.default_scale is not None:
-                    out["effective_scale"] = r["tune"] + self.default_scale
+                # if self.default_scale is not None:
+                #     out["effective_scale"] = r["tune"] + self.default_scale
                 for k in self.dev_keys:
                     out[k] = r.get(k, float("nan"))
                 writer.writerow(out)
@@ -2300,12 +2354,14 @@ class GetBestTuneValue(sisyphus.Job):
 
         def _xvals():
             # Prefer plotting "effective_scale" if default_scale is given
-            if self.default_scale is not None:
-                return [r["tune"] + self.default_scale for r in rows]
-            return [r["tune"] for r in rows]
+            # if self.default_scale is not None:
+            #     return [r["tune"] + self.default_scale for r in rows]
+            return [r["tune"].get()
+                    if isinstance(r["tune"], tk.Variable) else r["tune"]
+                    for r in rows]
 
         x = _xvals()
-        x_label = "scale" if self.default_scale is None else "effective scale (default + tune)"
+        x_label = "scale" #if self.default_scale is None else "effective scale (default + tune)"
 
         # 1) Average curve
         y_avg = [r["avg"] for r in rows]
@@ -2315,7 +2371,7 @@ class GetBestTuneValue(sisyphus.Job):
         plt.ylabel("WER (avg over dev_keys)")
         plt.title("Scale vs Average WER")
         plt.grid(True, linestyle="--", alpha=0.4)
-        # highlight best
+        # highlight best seems not work
         plt.scatter([x[best_score_idx]], [y_avg[best_score_idx]], s=60)
         plt.annotate(
             f"best={x[best_score_idx]:.4g}, WER={y_avg[best_score_idx]:.3g}",

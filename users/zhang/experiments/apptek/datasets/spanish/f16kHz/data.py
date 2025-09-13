@@ -390,7 +390,6 @@ class SpanishOggZip(DatasetConfig):
 
         return obj
 
-
 class EvalOggZip(DatasetConfig):
     def __init__(self, oggzip_data: tk.Path, main_key: str, spm: SentencePieceModel):
         super().__init__()
@@ -473,6 +472,40 @@ def _get_ogg_zip(
     tk.register_output(f"{alias_prefix}/oggzip/{name}.ogg.zip", oggzip_job.out_ogg_zip)
     return oggzip_job.out_ogg_zip
 
+def get_spm_lexicon() -> tk.Path:
+    """
+    Create SPM lexicon without unknown and silence
+
+    :return: path to a lexicon bliss xml file
+    """
+    #from i6_core.tools.git import CloneGitRepositoryJob
+    #from i6_core.lexicon.bpe import CreateBPELexiconJob
+    from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
+    #from i6_experiments.common.datasets.librispeech import get_bliss_lexicon
+
+    # subword_nmt_job = CloneGitRepositoryJob(
+    #     url="https://github.com/rwth-i6/subword-nmt",
+    #     commit="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
+    #     checkout_folder_name="subword-nmt",
+    # )
+    # subword_nmt_repo = subword_nmt_job.out_repository
+    # subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"  # this is what most other people use as well
+
+    # bpe_lexicon = CreateBPELexiconJob(
+    #     base_lexicon_path=get_bliss_lexicon(add_unknown_phoneme_and_mapping=False, add_silence=False),
+    #     bpe_codes=bpe_vocab.codes,
+    #     bpe_vocab=bpe_vocab.vocab,
+    #     subword_nmt_repo=subword_nmt_repo,
+    #     unk_label="<unk>",
+    # ).out_lexicon
+
+    word_lexicon = BlissLexiconToG2PLexiconJob(
+        tk.Path("/nas/models/asr/artefacts/lex/ES/20250717-tel-spm-recognition_lex-v1/recognition.lex.v1.xml.gz"),
+        include_pronunciation_variants=True,
+        include_orthography_variants=True,
+    ).out_g2p_lexicon
+
+    return word_lexicon
 
 def get_task_data(
     *,

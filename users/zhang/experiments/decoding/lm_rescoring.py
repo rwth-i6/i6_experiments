@@ -667,6 +667,7 @@ def ngram_score(
     vocab_opts_file: tk.Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
     alias_name: Optional[str] = None,
+    to_word_func: Optional[Callable] = None, #For word LM
 ) -> RecogOutput:
     """
     Scores the hyps with the LM.
@@ -692,6 +693,7 @@ def ngram_score(
         forward_rqmt=rescore_rqmt,
         forward_device="cpu",
         forward_alias_name=alias_name,
+        to_word_func=to_word_func,
     )
 
 
@@ -724,6 +726,10 @@ def ngram_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Di
     import returnn.frontend as rf
     from returnn.tensor import batch_dim
 
+    to_word_func = None
+    if _other.get("to_word_func", None) is not None:
+        to_word_func = _other.get("to_word_func")
+
     # noinspection PyUnresolvedReferences
     lm: kenlm.LanguageModel = model.lm
     vocab = targets.sparse_dim.vocab
@@ -734,6 +740,7 @@ def ngram_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Di
     assert targets.dims_set == {batch_dim, targets_beam_dim, targets_spatial_dim}
     targets = targets.copy_transpose((batch_dim, targets_beam_dim, targets_spatial_dim))
 
+    printed = False
     res_raw = torch.zeros((batch_dim.get_dim_value(), targets_beam_dim.get_dim_value()))
     for i in range(batch_dim.get_dim_value()):
         targets_beam_size = targets_beam_dim.dyn_size_ext
@@ -746,6 +753,11 @@ def ngram_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Di
             assert seq_len.dims == ()
             targets_raw = targets.raw_tensor[i, j, : seq_len.raw_tensor]
             targets_str = vocab.get_seq_labels(targets_raw.numpy())
+            if to_word_func is not None:
+                if not printed:
+                    print(f"use to word func:\nbefore {targets_str} \nafter {to_word_func(targets_str)}")
+                targets_str = to_word_func(targets_str)
+
             res_raw[i, j] = lm.score(targets_str)
 
     # KenLM returns score in +log10 space.
@@ -767,6 +779,7 @@ def lm_score(
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
+    to_word_func: Optional[Callable] = None, #For word LM
     alias_name: Optional[str] = None,
 ) -> RecogOutput:
     """
@@ -800,6 +813,7 @@ def HF_lm_score(
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
+    to_word_func: Optional[Callable] = None,  # For word LM
     alias_name: Optional[str] = None,
 ) -> RecogOutput:
     """
@@ -916,11 +930,26 @@ def lm_am_framewise_prior_rescore(
         # else:
         #     return alias
         return alias
-
+    if any(name in alias_name for name in ["conversation", "mtp_dev_heldout"]):
+        orig_time_rqmt = lm_rescore_rqmt.get("time", None)
+        if orig_time_rqmt is not None:
+            lm_rescore_rqmt["time"] = orig_time_rqmt + 4
     alias_name = get_generic_alias_name(alias_name)
+    to_word_func = None
+    if "word" in alias_name:
+        if "bpe" in alias_name:
+            from i6_experiments.users.zhang.datasets.utils import raw_text_bpe_to_word
+            to_word_func = raw_text_bpe_to_word
+            #to_word_func = lambda x: x.replace("@@ ", "") # This need to be serialized
+        elif "spm" in alias_name:
+            from i6_experiments.users.zhang.datasets.utils import raw_text_spm_to_word
+            to_word_func = raw_text_spm_to_word
+            #to_word_func = lambda x: x.replace(" ", "").replace ("▁", " ")
+        else:
+            raise ValueError(f"Could not determine to_word_func from alias:\n -> {alias_name}")
     res_labels_lm_scores = lm_scorer(
         pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
-        alias_name=alias_name + "/LMrescoring",
+        alias_name=alias_name + "/LMrescoring", to_word_func=to_word_func,
     )
     res_labels_am_scores = rescore(
         config=config,

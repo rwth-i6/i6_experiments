@@ -50,15 +50,24 @@ USE_LOWER_CASE = True
 CTX_10_STR = ["THEY SAID IT TO THE END VERSE ANSWERING VERSE AND THE PRAYER OF THE KING POET STILLED THE THROBBING OF HURTS TOO DEEP TO HEAL\nMARY DID YOU EVER THINK WHAT YOU WOULD DO IF YOU HAD TO LIVE ON JUST A FEW CENTS A DAY\nTRUE COAL HAD TO BE BROUGHT FROM SOME DISTANCE AND THERE WAS A GREAT NEED OF REALLY SKILLED LABOR\nWELL THEN WE'LL TALK ABOUT BEAUTIFUL WOMEN IF YOU PREFER\nWAS IT ON THE STAGE THAT YOU FOUND YOUR MOST INTENSE JOYS YOUR TRUE HAPPINESS\nIT WAS WELL KNOWN OF COURSE TO JEANJEAN THAT HIS PRISONER HAD BEEN GUILTY OF THE OFFENCE FOR WHICH HE HAD ARRESTED HIM AND THE COUP WAS QUITE EASY\nHE SNATCHED THE WHIP AND STRUCK THE CONDEMNED MAN WITH IT AS HIGH UP AS HE COULD REACH MAKING A GREAT WELT ACROSS HIS BARE STOMACH\nWHAT DID THAT CREEP WANT\nWE HAVE COME DOWN HERE TO DO A LITTLE PROSPECTING AND WERE JUST RIDING AROUND A BIT TO TAKE A LOOK AT THE COUNTRY\nBUT BECAUSE MANY OF THE SIMPLE IDEAS THAT MAKE UP OUR SPECIFIC IDEAS OF SUBSTANCES ARE POWERS WHICH LIE NOT OBVIOUS TO OUR SENSES IN THE THINGS AS THEY ORDINARILY APPEAR THEREFORE IN THE SIGNIFICATION OF OUR NAMES OF SUBSTANCES SOME PART OF THE SIGNIFICATION WILL BE BETTER MADE KNOWN BY ENUMERATING THOSE SIMPLE IDEAS THAN BY SHOWING THE SUBSTANCE ITSELF"]
 PROMPT = ["THIS IS A TEXT DATA SOURCED FROM PUBLIC DOMAIN AUDIOBOOKS\nIT REPRESENTS THE DOMAIN OF READ, AND SCRIPTED SPEECH"]
 EXAMPLE = ["I SAY ADVERSARIES FOR ON RECALLING SUCH PROUD MEMORIES WE SHOULD AVOID THE WORD ENEMIES WHOSE HOSTILE SOUND PERPETUATES THE ANTAGONISMS AND STRIFE OF NATIONS SO IRREMEDIABLE PERHAPS SO FATEFUL AND ALSO SO VAIN"]
-LLM_Batch_size = {"meta-llama/Llama-3.2-1B": 18*3,
-                  #"meta-llama/Llama-3.1-8B": 4*3,
+LLM_Batch_size = {#"meta-llama/Llama-3.2-1B": 18*3,
+                  "meta-llama/Llama-3.1-8B": 10*3,
                   #"Qwen/Qwen3-0.6B-Base": 51,
-                  "Qwen/Qwen3-1.7B-Base": 36,
+                  "Qwen/Qwen3-1.7B-Base": 42,
                   #"Qwen/Qwen3-4B-Base":24,
-                  #"Qwen/Qwen3-8B-Base":4*3,
-                  "microsoft/phi-4": 4*3,
+                  #"Qwen/Qwen3-8B-Base":5*3,
+                  "microsoft/phi-4": 8*3,
                   #"mistralai/Mistral-7B-v0.3": 4,
                   } # Keys of this determines which LLM will be built by lm_getter
+
+LLM_Batch_size_PPL = {"meta-llama/Llama-3.2-1B": 18*3,
+                  "meta-llama/Llama-3.1-8B": 4*3,
+                  "Qwen/Qwen3-0.6B-Base": 51,
+                  "Qwen/Qwen3-1.7B-Base": 36,
+                  "Qwen/Qwen3-4B-Base":24,
+                  "Qwen/Qwen3-8B-Base":4*3,
+                  "microsoft/phi-4": 4*3,
+                  }
 LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 3, "cpu": 3, "mem": 16, "gpu": 1, "gpu_mem": 48},
             "meta-llama/Llama-3.1-8B": {"time": 4, "cpu": 3, "mem": 40, "gpu": 1, "gpu_mem": 48},
             "Qwen/Qwen3-0.6B-Base": {"time": 3, "cpu": 3, "mem": 12, "gpu": 1, "gpu_mem": 48},
@@ -110,12 +119,15 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
     name_ext += f"{'prompt' if LLM_WITH_PROMPT else ''}{'_example' if LLM_WITH_PROMPT_EXAMPLE else ''}{'_low' if USE_LOWER_CASE else ''}"
 
     for model_id, prompt, batch_size in zip(model_ids, prompt, batch_sizes):
+        ppl_batch_size = LLM_Batch_size_PPL[model_id]
         if LLM_FXIED_CTX:
+            ppl_batch_size = LLM_Batch_size_PPL[model_id] // 3
             batch_size = LLM_Batch_size[model_id] // 3
         if LLM_FXIED_CTX_SIZE > 10:
             batch_size = 1
         if LLM_PREV_ONE_CTX:
             batch_size = LLM_Batch_size[model_id] // 6
+            ppl_batch_size = LLM_Batch_size_PPL[model_id] // 6
         name = os.path.basename(model_id)
         model = DownloadHuggingFaceRepoJob(model_id=model_id)
         tk.register_output(model_id, model.out_hub_cache_dir)
@@ -144,7 +156,7 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
                 model_dir=model.out_hub_cache_dir,
                 text_file=[text_file], # get_test_corpus_text(keys=[ds_name])
                 llm_name=model_id,
-                batch_size=max(batch_size//2,1),
+                batch_size=max(ppl_batch_size//2,1),
                 lower_case=USE_LOWER_CASE,
                 word_ppl=word_ppl,
                 prompt=prompt,

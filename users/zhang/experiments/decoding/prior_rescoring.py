@@ -82,15 +82,15 @@ class SearchPriorRescoreJob(Job):
     def run(self):
         """run"""
         import numpy as np
-        import tracemalloc
+        #import tracemalloc
 
-        tracemalloc.start()
+       # tracemalloc.start()
         d = eval(util.uopen(self.search_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict)  # seq_tag -> bpe string
-        current, peak = tracemalloc.get_traced_memory()
-        print(f"Current: {current / 1024 ** 2:.1f} MB; Peak: {peak / 1024 ** 2:.1f} MB")
+        #current, peak = tracemalloc.get_traced_memory()
+        #print(f"Current: {current / 1024 ** 2:.1f} MB; Peak: {peak / 1024 ** 2:.1f} MB")
 
-        tracemalloc.stop()
+        #tracemalloc.stop()
 
         vocab: List[str] = util.uopen(self.vocab, "rt").read().splitlines()
         vocab_to_idx: Dict[str, int] = {word: i for (i, word) in enumerate(vocab)}

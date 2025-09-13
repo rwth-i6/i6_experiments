@@ -205,7 +205,7 @@ def py():
     #     train_def=lm_train_def,
     # )
 def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False,)-> Tuple[ModelWithCheckpoint, tk.path, int]:
-    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset, SpainishLmEvalDataset
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
     _, spm, _ = get_model_and_vocab()
     for k, v in spm["vocabulary"].items():
@@ -255,6 +255,7 @@ def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False,)-> Tuple[Mode
         task_name="ES",
         word_ppl=word_ppl,
         vocab=spm_config,
+        epochs=epochs,
         dataset_keys=DEV_KEYS+TEST_KEYS,
         batch_size=10_000,
         rqmt={"gpu_mem": 48, "time": 2},

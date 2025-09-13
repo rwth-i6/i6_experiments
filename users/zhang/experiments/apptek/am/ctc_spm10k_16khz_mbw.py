@@ -963,9 +963,9 @@ class Model(rf.Module):
           - applies ctc_am_scale and ctc_prior_scale (batch/static).
         Returns an rf.Tensor with feature_dim == self.wb_target_dim.
         """
-        # Always avoid in-place ops: use `+` not `+=`
         if not self.out_blank_separated:
             if self.blank_logit_shift:
+                # Avoid in-place ops: use `+` not `+=`
                 logits = logits + rf.sparse_to_dense(
                     self.blank_idx, label_value=self.blank_logit_shift, other_value=0, axis=self.wb_target_dim
                 )

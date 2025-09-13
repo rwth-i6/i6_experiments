@@ -26,19 +26,19 @@ FINE_TUNED_MODEL = True # If use the FT model
 CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-EVAL_DATASET_KEYS = (['test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer'] +
-                     [f"{key}.aptk_leg.ff_wer" for key in [#'test_set.ES_US.f16kHz.dev_conversations_202411-v2',
-                                                          'test_set.ES_ES.f16kHz.eval_napoli_202210-v3',
-                                                          'test_set.ES_ES.f16kHz.eval_voice_call-v3',
-                                                          'test_set.ES_US.f16kHz.eval_movies_tvshows_talks_202303-v3']])# for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
-DEV_DATASET_KEYS = EVAL_DATASET_KEYS#[f"{key}.aptk_leg.ff_wer" for key in DEV_KEYS if "callhome" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
+seg_key = "ref" #aptk_leg ref
+DEV_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key or seg_key == "ref"] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
+EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
 DEFAULT_PRIOR_WEIGHT = 0.15
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
-DEFAUL_RESCOR_LM_SCALE = 0.5
+DEFAULT_LM_WEIGHT = 0.5
+DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 CHEAT_N_BEST = False
 
+TUNE_ON_GREEDY_N_LIST = False
+
 BEAM_SIZE = 500
-NBEST = 100
+NBEST = 100 # Use 100 for plot
 
 LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
@@ -46,7 +46,7 @@ LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 8
 LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
-CTX_LEN_LIMIT = 1500
+CTX_LEN_LIMIT = 100
 # --- Helpers for ctc_exp ---
 
 def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =50, beam_size: int=80, real_vocab: VocabConfig = None) -> Tuple[dict, dict, dict, dict, bool, Optional[int]]:
@@ -78,7 +78,8 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         else:
             decoding_config["recog_language_model"] = lm
 
-    if re.match(r".*word.*", lmname):
+
+    if re.match(r".*word.*", lmname) and USE_flashlight_decoder:
         decoding_config["use_lexicon"] = True
 
     decoding_config["prior_weight"] = DEFAULT_PRIOR_WEIGHT
@@ -87,20 +88,20 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
     if "ffnn" in lmname:
         tune_hyperparameters = True
         decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else 150
-        decoding_config["lm_weight"] = 0.5
+        decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
 
     elif "trafo" in lmname:
         tune_hyperparameters = True
         decoding_config["beam_size"] = 50 if encoder == "conformer" else 300
         decoding_config["nbest"] = min(decoding_config["nbest"], decoding_config["beam_size"])
-        decoding_config["lm_weight"] = 0.5
+        decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
 
 
     elif "gram" in lmname and "word" not in lmname:
         decoding_config["beam_size"] = 600
-        decoding_config["lm_weight"] = 0.5
+        decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-30, 31, 15)]
 
     if vocab == "bpe10k" or "trafo" in lmname:
@@ -128,8 +129,8 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
     p7 = f"_tune" if tune_config_updates.get("tune_range_2") or tune_config_updates.get("prior_tune_range_2") else ""
     lm_hyperparamters_str = vocab + p0 + "_" + p3 + p4 + ("flash_light" if USE_flashlight_decoder else "")
     lm2_hyperparamters_str = "_" + p5 + "_" + p6 + p7
-    alias_name = f"apptek-ctc-baseline{'_FT' if FINE_TUNED_MODEL else ''}_{encoder}_decodingWith_1st-{lmname}_{lm_hyperparamters_str}_2rd{lm2_hyperparamters_str}"
-    first_pass_name = f"apptek-ctc-baseline{'_FT' if FINE_TUNED_MODEL else ''}_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}"
+    alias_name = f"{seg_key}_apptek-ctc-baseline{'_FT' if FINE_TUNED_MODEL else ''}_{encoder}_decodingWith_1st-{lmname}_{lm_hyperparamters_str}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}_2rd{lm2_hyperparamters_str}"
+    first_pass_name = f"{seg_key}_apptek-ctc-baseline{'_FT' if FINE_TUNED_MODEL else ''}_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}"
     return alias_name, first_pass_name
 
 
@@ -207,7 +208,7 @@ def ctc_exp(
     elif vocab == "bpe10k":
         recog_epoch = 500
     elif vocab == "spm10k":
-        recog_epoch = CKPT_EPOCH
+        recog_epoch = 625
 
     # For not-training, recog should be True
     recog = not train
@@ -218,7 +219,7 @@ def ctc_exp(
         lm_key = f"tune_range{'_2' if not first_pass else ''}"
         prior_key = f"prior_tune_range{'_2' if not first_pass else ''}"
         if "ffnn" in rescore_lm_name:
-            tune_config_updates[lm_key] = [scale / 100 for scale in range(-50, 51, 2)]
+            tune_config_updates[lm_key] = [scale / 100 for scale in range(-30, 51, 2)]
             tune_config_updates[prior_key] = [scale / 100 for scale in range(-30, 21, 2)]
 
         elif "trafo" in rescore_lm_name:
@@ -237,21 +238,39 @@ def ctc_exp(
 
     recog_def = select_recog_def(lmname, USE_flashlight_decoder)
     tune_rescore_scale = False
+
+    if not TUNE_ON_GREEDY_N_LIST:  # TODO: Warning, very unclean, when use this with given rescore_lm..->
+        # branch in the below will be exc, and same setting will be repeated
+        # Make sure they are the same
+        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
+        decoding_config["rescore_priorscale"] = 0.30
+        decoding_config["tune_with_rescoring"] = True
+        decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]
+        set_tune_range_by_name(lmname, tune_config_updates,
+                               first_pass=True)  # !!This overwrites the setting done in get_decoding_config
+
+    if rescore_lm is None and lm is None:
+        print("Pure greedy!!")
+        decoding_config["beam_size"] = 1
+        decoding_config["nbest"] = 1
+        with_prior = False
+
     if rescore_lm or rescore_lm_name:
         tune_rescore_scale = True
         decoding_config["cheat"] = CHEAT_N_BEST
         decoding_config["check_search_error_rescore"] = True
         decoding_config["rescoring"] = True
         decoding_config["lm_rescore"] = rescore_lm
-        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE #0.5
-        decoding_config["rescore_priorscale"] = 0.10
+        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
+        decoding_config["rescore_priorscale"] = 0.30
         decoding_config["rescore_lm_name"] = rescore_lm_name
         decoding_config["lm_vocab"] = get_vocab_by_str(lm_vocab)
-        set_tune_range_by_name(rescore_lm_name,tune_config_updates,first_pass=False)
-        if lm is not None: #First pass with a LM
-            decoding_config["tune_with_rescoring"] = True
+        set_tune_range_by_name(rescore_lm_name, tune_config_updates, first_pass=False)
+        if lm is not None:  # First pass with a LM
+            decoding_config["tune_with_rescoring"] = True  # Set to false if do one pass tuning
             decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]
-            set_tune_range_by_name(lmname,tune_config_updates,first_pass=True)
+            set_tune_range_by_name(lmname, tune_config_updates,
+                                   first_pass=True)  # !!This overwrites the setting done in get_decoding_config
 
     if train:
         decoding_config = {
@@ -347,7 +366,6 @@ def py():
     train = False
     insert_spm10k_lm = False
     cuts = {"conformer": 65, "blstm":37}
-
     # ---- Set up model and config ----
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, \
         NETWORK_CONFIG_KWARGS
@@ -380,10 +398,10 @@ def py():
                     "word_ngram",
                     "ffnn",
                     #"trafo",
-                    "LLM"
+                    #"LLM"
                     }
         #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
-        if any(name_ in lm_kinds_2 for name_ in ["LLM", "word_ngram"]):
+        if "LLM" in lm_kinds_2:
             word_ppl = True
             #lm_kinds = ["ffnn"]
             #lm_kinds_2 = ["trafo", "LLM"]
@@ -414,12 +432,31 @@ def py():
                 print(f"Why set first pass LM while using this method? lms passed {lms}")
             lms = {"NoLM": None}
             for name, lm in lms.items():  # First pass lms
+                # Do once one pass
+                wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(
+                    name, lm, vocab,
+                    encoder=encoder, train=train,
+                    lm_vocab="spm10k" if "spm10k" in name else None,
+                    model=model,
+                    model_config=model_config,
+                    vocab_config=vocab_config,
+                    prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
+                    i6_models=i6_models,
+                )
                 break_flag = False
                 for name_2, lm_2 in rescor_lms.items():  # Second pass lms
                     # lm_hyperparamters_str seems not needed?
                     # TODO: there is no distinguish between 1/2 pass scales here
                     if any([lm_kind in name_2 for lm_kind in lm_kinds]):  # Dont do second pass with first pass LMs
                         continue
+                    two_pass_same_lm = False
+                    if name_2 == name:
+                        wer_ppl_results_2[name_2] = (
+                            ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
+                            prior_tune,
+                            dafault_lm_scale,
+                            dafault_prior_scale)
+                        two_pass_same_lm = True
                     if lm:  # Do second pass with same LM in first pass, scales tune with rescoring on Greedy
                         name_2 = name
                         lm_2 = rescor_lms[name]
@@ -437,7 +474,7 @@ def py():
                         i6_models=i6_models,
                     )
                     if lm_2:
-                        wer_ppl_results_2[name_2] = (
+                        wer_ppl_results_2[f"{name} + {name_2}" if two_pass_same_lm else name_2] = (
                             ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
                             prior_tune,
                             dafault_lm_scale,
@@ -492,6 +529,17 @@ def py():
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl
 
             for name, lm in lms.items():  # First pass lms
+                # Do once one pass
+                wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale = exp(
+                    name, lm, vocab,
+                    encoder=encoder, train=train,
+                    lm_vocab="spm10k" if "spm10k" in name else None,
+                    model=model,
+                    model_config=model_config,
+                    vocab_config=vocab_config,
+                    prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
+                    i6_models=i6_models,
+                )
                 break_flag = False
                 wer_ppl_results_2 = dict()
                 for name_2, lm_2 in rescor_lms.items():  # Second pass lms
@@ -499,6 +547,14 @@ def py():
                     # TODO: there is no distinguish between 1/2 pass scales here
                     # if any([lm_kind in name_2 for lm_kind in lm_kinds]):  # Dont do second pass with same first pass LMs
                     #     continue
+                    two_pass_same_lm = False
+                    if name_2 == name:
+                        wer_ppl_results_2[name_2] = (
+                            ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
+                            prior_tune,
+                            dafault_lm_scale,
+                            dafault_prior_scale)
+                        two_pass_same_lm = True
                     if lm is None:
                         if lm_2 is not None:
                             continue
@@ -516,7 +572,7 @@ def py():
                         i6_models=i6_models,
                     )
                     if lm_2:
-                        wer_ppl_results_2[name_2] = (
+                        wer_ppl_results_2[f"{name} + {name_2}" if two_pass_same_lm else name_2] = (
                             ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
                             prior_tune,
                             dafault_lm_scale,

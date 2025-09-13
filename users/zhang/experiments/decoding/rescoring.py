@@ -3,7 +3,7 @@ Rescoring multiple text dicts / search outputs.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple, Set
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple, Set, Callable
 from sisyphus import Job, Task, tk
 from sisyphus.delayed_ops import DelayedBase
 
@@ -58,10 +58,276 @@ class SearchCombineScoresJob(Job):
         assert len(search_py_output) > 0
         self.search_py_output = search_py_output
         self.out_search_results = self.output_path("search_results.py" + (".gz" if output_gzip else ""))
-        self.rqmt = {"time": 1, "cpu": 1, "mem": 10} # TODO: dynamically determine mem_rqmt
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 12} # TODO: dynamically determine mem_rqmt
     def tasks(self):
         """task"""
         yield Task("run", rqmt=self.rqmt)
+
+    # def run(self):
+    #     """
+    #     Stream-merge N-best lists without requiring same seq_tag order or same N-best order.
+    #     - Output preserves the first file's seq_tag order and hypothesis order.
+    #     - Other files are scanned lazily; each block is spilled to a temp .jsonl.gz and looked up by seq_tag.
+    #     - Hypotheses inside a block are aligned by text; sets can be enforced equal or unioned.
+    #     """
+    #     import ast
+    #     import gzip
+    #     import io
+    #     import os
+    #     import re
+    #     import json
+    #     import tempfile
+    #     from typing import Iterator, Tuple, List, Dict
+    #
+    #     # ---- knobs ---------------------------------------------------------------
+    #     STRICT_EQUAL_TEXT_SETS = True
+    #     # If True: all files must have identical hypothesis-text sets per seq_tag.
+    #     # If False: we take the union; missing texts in a file contribute 0.0.
+    #
+    #     DETECT_DUPLICATE_TEXTS = True
+    #
+    #     # If True: error out if a file has duplicate hypothesis texts within the same seq_tag.
+    #
+    #     # ---- helpers -------------------------------------------------------------
+    #
+    #     def _to_path(p):
+    #         # Try i6/sisyphus Path.get_path(), fall back to str
+    #         return p.get_path() if hasattr(p, "get_path") else str(p)
+    #
+    #     # Open .gz or plain text transparently, *text* mode with buffering
+    #     def _open_text(path: string):
+    #         if path.endswith(".gz"):
+    #             return io.TextIOWrapper(gzip.open(path, "rb"), encoding="utf-8")
+    #         return open(path, "rt", encoding="utf-8")
+    #
+    #     # Matches a line starting a block like: 'seq_tag': [
+    #     _seq_start_re = re.compile(r"""^\s*(['"])(?P<tag>.*?)\1\s*:\s*\[\s*$""")
+    #
+    #     def _skip_until_open_brace(f):
+    #         """Advance the stream to the first '{' (start of the dict)."""
+    #         for line in f:
+    #             if "{" in line:
+    #                 break
+    #
+    #     def _iter_blocks(stream) -> Iterator[Tuple[str, Iterator[Tuple[float, str]]]]:
+    #         """
+    #         Yield (seq_tag, tuple_iter) for each block:
+    #           'seq_tag': [
+    #             (score, text),
+    #             ...
+    #           ],
+    #         Does not materialize the whole list; tuple_iter streams tuples.
+    #         """
+    #         _skip_until_open_brace(stream)
+    #
+    #         for line in stream:
+    #             line_strip = line.strip()
+    #
+    #             # End of outer dict
+    #             if line_strip.startswith("}"):
+    #                 return
+    #
+    #             # Try to match block start
+    #             m = _seq_start_re.match(line)
+    #             if not m:
+    #                 # Lines like empty, comments, or commas between entries
+    #                 continue
+    #
+    #             seq_tag = m.group("tag")
+    #
+    #             def tuple_iter():
+    #                 # Stream until matching closing "],"
+    #                 for inner in stream:
+    #                     s = inner.strip()
+    #                     if s == "],":
+    #                         return
+    #                     if not s or s == ",":
+    #                         continue
+    #                     # Lines are "(score, text)," – strip trailing comma
+    #                     trailing_comma = s.endswith(",")
+    #                     if trailing_comma:
+    #                         s = s[:-1]
+    #
+    #                     # Fast path: single-line tuple "(..., ...)"
+    #                     if s.startswith("(") and s.endswith(")"):
+    #                         tup = ast.literal_eval(s)
+    #                         yield float(tup[0]), tup[1]
+    #                         continue
+    #
+    #                     # Fallback: accumulate until balanced parentheses
+    #                     buf = [s]
+    #                     balance = s.count("(") - s.count(")")
+    #                     while balance > 0:
+    #                         nxt = next(stream)
+    #                         t = nxt.strip()
+    #                         if t == "],":
+    #                             # Malformed; bail gracefully
+    #                             return
+    #                         if t.endswith(","):
+    #                             t = t[:-1]
+    #                         buf.append(t)
+    #                         balance += t.count("(") - t.count(")")
+    #                     tup = ast.literal_eval(" ".join(buf))
+    #                     yield float(tup[0]), tup[1]
+    #
+    #             yield seq_tag, tuple_iter()
+    #
+    #     # Lazy block fetcher that tolerates different seq_tag *order*
+    #     class BlockFetcher:
+    #         """
+    #         Reads a file forward once. Each encountered block is written to a temp .jsonl.gz.
+    #         fetch(seq_tag) returns the temp path (or None if not present).
+    #         """
+    #
+    #         def __init__(self, path: str):
+    #             self._stream = _open_text(path)
+    #             self._cache: Dict[str, str] = {}  # seq_tag -> temp file path
+    #             self._finished = False
+    #
+    #         def _spill_block(self, seq_tag: str, tuple_iter):
+    #             # Write this block as JSONL: [score, text]
+    #             fd, temp_path = tempfile.mkstemp(suffix=".jsonl.gz")
+    #             os.close(fd)  # we'll reopen with gzip
+    #             with gzip.open(temp_path, "wt", encoding="utf-8") as out:
+    #                 for score, text in tuple_iter:
+    #                     out.write(json.dumps([float(score), text]))
+    #                     out.write("\n")
+    #             self._cache[seq_tag] = temp_path
+    #
+    #         def fetch(self, want_tag: str) -> str | None:
+    #             """Return temp path for want_tag, reading forward and caching as needed."""
+    #             if want_tag in self._cache:
+    #                 return self._cache[want_tag]
+    #             if self._finished:
+    #                 return None
+    #
+    #             for seq_tag, tuple_iter in _iter_blocks(self._stream):
+    #                 self._spill_block(seq_tag, tuple_iter)
+    #                 if seq_tag == want_tag:
+    #                     return self._cache[seq_tag]
+    #
+    #             # EOF
+    #             self._finished = True
+    #             return None
+    #
+    #         def close(self):
+    #             try:
+    #                 self._stream.close()
+    #             except Exception:
+    #                 pass
+    #
+    #         def cached_paths(self):
+    #             return list(self._cache.values())
+    #
+    #     # ---- load weights and file paths ----------------------------------------
+    #
+    #     weights: List[float] = []
+    #     files: List[str] = []
+    #
+    #     DelayedCls = globals().get("DelayedBase", None)  # avoid NameError if not present
+    #
+    #     for weight, fn in self.search_py_output:
+    #         if DelayedCls is not None and isinstance(weight, DelayedCls):
+    #             weight = weight.get()
+    #         if not isinstance(weight, (int, float)):
+    #             raise TypeError(f"invalid weight {weight!r} type {type(weight)}")
+    #         weights.append(float(weight))
+    #         files.append(_to_path(fn))
+    #
+    #     if not files:
+    #         raise AssertionError("No input files")
+    #
+    #     driver_path = files[0]
+    #     other_paths = files[1:]
+    #
+    #     # Build lazy fetchers for non-driver files
+    #     fetchers = [BlockFetcher(p) for p in other_paths]
+    #
+    #     # ---- write output --------------------------------------------------------
+    #
+    #     tmp_filename = "tmp.py" + (".gz" if self.out_search_results.get_path().endswith(".gz") else "")
+    #     if not tmp_filename.endswith(".gz"):
+    #         raise AssertionError("should have .gz extension")
+    #
+    #     try:
+    #         with gzip.open(tmp_filename, "wt", encoding="utf-8") as out:
+    #             out.write("{\n")
+    #
+    #             # Drive seq_tag order from the first file
+    #             with _open_text(driver_path) as driver_stream:
+    #                 for seq_tag, driver_tuples in _iter_blocks(driver_stream):
+    #                     # Materialize driver list to keep order; map for O(1) lookups
+    #                     driver_list: List[Tuple[float, str]] = list(driver_tuples)
+    #                     driver_map = {t: s for (s, t) in driver_list}
+    #                     driver_order = [t for _, t in driver_list]
+    #                     driver_text_set = set(driver_order)
+    #
+    #                     if DETECT_DUPLICATE_TEXTS and len(driver_text_set) != len(driver_order):
+    #                         raise AssertionError(f"Duplicate hypothesis texts in first file for {seq_tag!r}")
+    #
+    #                     # For every other file, fetch this seq_tag block (order-independent)
+    #                     others_dicts: List[Dict[str, float]] = []
+    #                     for fx in fetchers:
+    #                         temp_path = fx.fetch(seq_tag)
+    #                         d: Dict[str, float] = {}
+    #                         if temp_path is not None:
+    #                             with gzip.open(temp_path, "rt", encoding="utf-8") as f:
+    #                                 for line in f:
+    #                                     score_i, text_i = json.loads(line)
+    #                                     if DETECT_DUPLICATE_TEXTS and text_i in d:
+    #                                         raise AssertionError(
+    #                                             f"Duplicate hypothesis text in an input for {seq_tag!r}: {text_i!r}"
+    #                                         )
+    #                                     d[text_i] = float(score_i)
+    #                         # If missing entirely (seq_tag not present), leave as empty dict (treated as 0.0)
+    #                         others_dicts.append(d)
+    #
+    #                     # Reconcile sets
+    #                     if STRICT_EQUAL_TEXT_SETS:
+    #                         for idx, d in enumerate(others_dicts, start=1):
+    #                             if set(d.keys()) != driver_text_set:
+    #                                 missing = driver_text_set - set(d.keys())
+    #                                 extra = set(d.keys()) - driver_text_set
+    #                                 raise AssertionError(
+    #                                     f"Different hypothesis text sets for {seq_tag!r} in file #{idx + 1}. "
+    #                                     f"Missing: {len(missing)}, Extra: {len(extra)}"
+    #                                 )
+    #                         final_order = driver_order
+    #                     else:
+    #                         final_order = list(driver_order)
+    #                         seen = set(final_order)
+    #                         # Append extras in first-appearance order across other files
+    #                         for d in others_dicts:
+    #                             for t in d.keys():
+    #                                 if t not in seen:
+    #                                     final_order.append(t)
+    #                                     seen.add(t)
+    #
+    #                     # Combine and write block
+    #                     out.write(f"{seq_tag!r}: [\n")
+    #                     for text in final_order:
+    #                         acc = weights[0] * driver_map.get(text, 0.0)
+    #                         for w, d in zip(weights[1:], others_dicts):
+    #                             acc += w * d.get(text, 0.0)
+    #                         out.write(f"({acc!r}, {text!r}),\n")
+    #                     out.write("],\n")
+    #
+    #             out.write("}\n")
+    #
+    #         # Atomic move into place
+    #         os.replace(tmp_filename, self.out_search_results.get_path())
+    #     finally:
+    #         # Close fetchers and clean up temp files
+    #         for fx in fetchers:
+    #             try:
+    #                 fx.close()
+    #             except Exception:
+    #                 pass
+    #             for p in fx.cached_paths():
+    #                 try:
+    #                     os.remove(p)
+    #                 except Exception:
+    #                     pass
 
     def run(self):
         """run"""
@@ -115,6 +381,8 @@ class SearchCombineScoresJob(Job):
                     out.write(f"({acc!r}, {hyp_text!r}),\n")
                 out.write("],\n")
             out.write("}\n")
+        import os
+        os.replace(tmp_filename, self.out_search_results.get_path()) #ensures that no process will see the file until it's fully written
         # with gzip.open(tmp_filename, "wt") as out:
         #     out.write("{\n")
         #     for seq_tag in seq_tags:
@@ -142,13 +410,12 @@ class SearchCombineScoresJob(Job):
         #             out.write(f"({score!r}, {hyp!r}),\n")
         #         out.write("],\n")
         #     out.write("}\n")
-        import os
-        os.replace(tmp_filename, self.out_search_results.get_path()) #ensures that no process will see the file until it's fully written
+
 
 
 class RescoreCheatJob(Job):
     """
-    Take the combined score of N-best hyps and combined score of GTs, compute search error
+    Add GT into the recog_out N list
     """
 
     def __init__(self, combined_search_py_output: tk.Path, combined_gt_py_output: tk.Path, *, output_gzip: bool = True, version:int = 2):
@@ -267,7 +534,10 @@ class RescoreSearchErrorJob(Job):
                     targets_search_str += f"\n\t {hyp} \n\t"
                     gt_absent_num += 1
             targets_search_str += " ]"
-            max_hyp_score = max([x[0] for x in n_lists[seq_tag] if x[1]])
+            if len(n_lists[seq_tag]) > 1:
+                max_hyp_score = max([x[0] for x in n_lists[seq_tag] if x[1]])
+            else:
+                max_hyp_score = n_lists[seq_tag][0][0]
             if not gt_present and gt_score >= max_hyp_score:
                 search_error += 1
                 is_search_error = True
@@ -318,6 +588,7 @@ def rescore(
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_device: str = "gpu",
     forward_alias_name: Optional[str] = None,
+    to_word_func: Optional[Callable] = None,
 ) -> RecogOutput:
     """
     Rescore on the specific dataset, given some hypotheses, using the :class:`RescoreDef` interface.
@@ -357,6 +628,7 @@ def rescore(
             rescore_def=rescore_def,
             config=config,
             post_config=forward_post_config,
+            to_word_func=to_word_func,
         ),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -394,6 +666,7 @@ def _returnn_rescore_config(
     rescore_def: RescoreDef,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
+    to_word_func: Optional[Callable] = None,
 ) -> ReturnnConfig:
     """
     Create config for rescoring.
@@ -420,7 +693,10 @@ def _returnn_rescore_config(
     data_flat_spatial_dim = Dim(None, name="data_flat_spatial")
 
     default_input = None  # no input
-    forward_data = {"class": "TextDictDataset", "filename": recog_output.output, "vocab": vocab_opts}
+    forward_data = {"class": "TextDictDataset",
+                    "filename": recog_output.output,
+                    "vocab": vocab_opts#, "seq_ordering": "default"
+                    }
     extern_data = {
         # data_flat dyn dim is the flattened dim, no need to define dim tags now
         "data_flat": {"dims": [batch_dim, data_flat_spatial_dim], "dtype": "int32", "vocab": vocab_opts},
@@ -530,6 +806,9 @@ def _returnn_rescore_config(
         if k in config or k in post_config:
             continue
         post_config[k] = v
+    # When us a word Ngram LM
+    if to_word_func:
+        config["to_word_func"] = to_word_func
     #Hot fix for f16kHz model
     path = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/tools/git/CloneGitRepositoryJob.maXwYTjr7NZe/output/i6_models"
     return ReturnnConfigWithNewSerialization(config, post_config, extra_sys_paths=[path])
@@ -565,6 +844,12 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets = rf.pad_packed(targets_flat, in_dim=targets_flat_time_dim, dims=[targets_beam_dim, targets_spatial_dim])
 
     rescore_def: RescoreDef = config.typed_value("_rescore_def")
+    # # TODO: Skip this static check for now, later should define your own protocol
+    # rescore_def = config.typed_value("_rescore_def")
+    try:
+        to_word_func = config.typed_value("to_word_func")
+    except KeyError:
+        to_word_func = None
     scores = rescore_def(
         model=model,
         data=data,
@@ -572,6 +857,7 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         targets=targets,
         targets_spatial_dim=targets_spatial_dim,
         targets_beam_dim=targets_beam_dim,
+        to_word_func=to_word_func,
     )
     assert isinstance(scores, Tensor)
     rf.get_run_ctx().mark_as_output(targets, "hyps", dims=[batch_dim, targets_beam_dim, targets_spatial_dim])
