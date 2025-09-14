@@ -1940,8 +1940,12 @@ def py():
         # A0.2: {"dev-clean": 3.67, "dev-other": 5.25, "test-clean": 4.07, "test-other": 5.66}
         # +CTC: {"dev-clean": 1.9, "dev-other": 4.27, "test-clean": 2.15, "test-other": 4.52}
         ("A0.2", _ta_vA_err_prob(0.2)),
-        ("A0.3", _ta_vA_err_prob(0.3)),
-        ("A0.1S0", _ta_vA_err_prob(0.1, rel_sub=0.0)),
+        # A0.3: {"dev-clean": 3.47, "dev-other": 5.4, "test-clean": 3.83, "test-other": 5.57}
+        # +CTC: {"dev-clean": 2.0, "dev-other": 4.3, "test-clean": 2.17, "test-other": 4.47}
+        # ("A0.3", _ta_vA_err_prob(0.3)),
+        # A0.1S0: {"dev-clean": 4.12, "dev-other": 5.75, "test-clean": 4.72, "test-other": 5.95}
+        #   +CTC: {"dev-clean": 1.96, "dev-other": 4.24, "test-clean": 2.17, "test-other": 4.47}
+        # ("A0.1S0", _ta_vA_err_prob(0.1, rel_sub=0.0)),
         # Sub0.1: {"dev-clean": 3.95, "dev-other": 5.49, "test-clean": 4.41, "test-other": 6.15}
         # +CTC: {"dev-clean": 2.42, "dev-other": 4.28, "test-clean": 2.48, "test-other": 4.83}
         # ("Sub0.1", _ta_sub_err_prob(0.1)),
@@ -2170,84 +2174,85 @@ def py():
     # Baseline
     # (bhv24-s2-fixMp): {"dev-clean": 3.69, "dev-other": 5.36, "test-clean": 3.57, "test-other": 5.53}
     #             +CTC: {"dev-clean": 1.92, "dev-other": 4.32, "test-clean": 2.07, "test-other": 4.49}
-    # multEOS2: TODO...
-    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-multEOS2-ctcEos-spm10k-bpeSample001-baseLr0.5-b100k"
-    exp = aed_train_exp(
-        name,
-        config_96gb_bf16_accgrad1,
-        prefix=prefix + "/aed/",
-        model_config={
-            # More futureproof, but also required for some funcs / setups.
-            "behavior_version": 24,
-            "__serialization_version": 2,
-            "enc_build_dict": rf.build_dict(
-                ConformerEncoder,
-                input_layer=rf.build_dict(
-                    ConformerConvSubsample,
-                    out_dims=[32, 64, 64],
-                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                    pool_sizes=[(1, 2)],
-                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                ),
-                num_layers=16,
-                out_dim=1024,
-                encoder_layer=rf.build_dict(
-                    ConformerEncoderLayer,
-                    ff=rf.build_dict(
-                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                    ),
-                    num_heads=8,
-                ),
-            ),
-            # Default AED decoder size: 6 layers, 512 dim
-            "dec_build_dict": rf.build_dict(
-                TransformerDecoder,
-                num_layers=6,
-                model_dim=1024,
-                norm=rf.build_dict(rf.RMSNorm),
-                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                # When only trained on LS ASR data, keep the default dropout?
-                # dropout=0.0,
-                # att_dropout=0.0,
-            ),
-            "feature_batch_norm": True,
-            "use_eos_postfix": True,  # in model because we need to know about this in joint AED+CTC recog
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-            "batch_size": 100_000 * _batch_size_factor,
-            "optimizer.weight_decay": 1e-2,
-            "accum_grad_multiple_step": 1,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_loss_layers": [4, 10, 16],
-            "text_augment": functools.partial(
-                text_augment,
-                ins_probs=[1.0],  # no insertions
-                ins_probs_last_frame=[0.0, 1.0],  # always insert 1 label at end, i.e. we have 2 EOS target labels
-                keep_del_sub_probs=[1.0, 0.0, 0.0],  # always keep, no deletions, no substitutions
-            ),
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": {"num_workers": 25}},
-        vocab="spm10k",
-        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
-    # in joint AED+CTC model_recog_with_recomb, we mask ctc log probs for EOS to -inf
-    aed_ctc_timesync_recog_recomb_auto_scale(
-        prefix=prefix + "/aed/" + name + "/aed+ctc",
-        task=task_spm10k,
-        aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=16,
-    )
+    # multEOS2: {"dev-clean": 3.31, "dev-other": 5.21, "test-clean": 3.65, "test-other": 5.36}
+    #     +CTC: {"dev-clean": 1.94, "dev-other": 4.38, "test-clean": 2.14, "test-other": 4.61}
+    # name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-multEOS2-ctcEos-spm10k-bpeSample001-baseLr0.5-b100k"
+    # exp = aed_train_exp(
+    #     name,
+    #     config_96gb_bf16_accgrad1,
+    #     prefix=prefix + "/aed/",
+    #     model_config={
+    #         # More futureproof, but also required for some funcs / setups.
+    #         "behavior_version": 24,
+    #         "__serialization_version": 2,
+    #         "enc_build_dict": rf.build_dict(
+    #             ConformerEncoder,
+    #             input_layer=rf.build_dict(
+    #                 ConformerConvSubsample,
+    #                 out_dims=[32, 64, 64],
+    #                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #                 pool_sizes=[(1, 2)],
+    #                 strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+    #             ),
+    #             num_layers=16,
+    #             out_dim=1024,
+    #             encoder_layer=rf.build_dict(
+    #                 ConformerEncoderLayer,
+    #                 ff=rf.build_dict(
+    #                     ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #                 ),
+    #                 num_heads=8,
+    #             ),
+    #         ),
+    #         # Default AED decoder size: 6 layers, 512 dim
+    #         "dec_build_dict": rf.build_dict(
+    #             TransformerDecoder,
+    #             num_layers=6,
+    #             model_dim=1024,
+    #             norm=rf.build_dict(rf.RMSNorm),
+    #             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #             layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+    #             # When only trained on LS ASR data, keep the default dropout?
+    #             # dropout=0.0,
+    #             # att_dropout=0.0,
+    #         ),
+    #         "feature_batch_norm": True,
+    #         "use_eos_postfix": True,  # in model because we need to know about this in joint AED+CTC recog
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+    #         "batch_size": 100_000 * _batch_size_factor,
+    #         "optimizer.weight_decay": 1e-2,
+    #         "accum_grad_multiple_step": 1,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_loss_layers": [4, 10, 16],
+    #         "text_augment": functools.partial(
+    #             text_augment,
+    #             ins_probs=[1.0],  # no insertions
+    #             ins_probs_last_frame=[0.0, 1.0],  # always insert 1 label at end, i.e. we have 2 EOS target labels
+    #             keep_del_sub_probs=[1.0, 0.0, 0.0],  # always keep, no deletions, no substitutions
+    #         ),
+    #         "max_seq_length_default_target": None,
+    #         # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #         # out of 281241 seqs in train, we removed only 71 seqs.
+    #         # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #     },
+    #     post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": {"num_workers": 25}},
+    #     vocab="spm10k",
+    #     # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
+    # # in joint AED+CTC model_recog_with_recomb, we mask ctc log probs for EOS to -inf
+    # aed_ctc_timesync_recog_recomb_auto_scale(
+    #     prefix=prefix + "/aed/" + name + "/aed+ctc",
+    #     task=task_spm10k,
+    #     aed_ctc_model=exp.get_last_fixed_epoch(),
+    #     aux_ctc_layer=16,
+    # )
 
     # Try custom LR multipliers.
     from i6_experiments.users.zeyer.returnn.updater.lr_multiplier import optimizer_param_groups_custom_lr_multiplier
@@ -2382,9 +2387,9 @@ def py():
         # None: {"dev-clean": 3.09, "dev-other": 4.97, "test-clean": 3.49, "test-other": 5.40}
         # +CTC: {"dev-clean": 1.88, "dev-other": 4.27, "test-clean": 2.12, "test-other": 4.51}
         "None": None,
-        # Dec0.1: TODO...
-        #   +CTC: TODO...
-        "Dec0.1": {"decoder.*": 0.1},
+        # Dec0.1: {"dev-clean": 3.37, "dev-other": 5.22, "test-clean": 3.55, "test-other": 5.61}
+        #   +CTC: {"dev-clean": 1.98, "dev-other": 4.24, "test-clean": 2.05, "test-other": 4.58}
+        # "Dec0.1": {"decoder.*": 0.1},
         # Dec0.5: {"dev-clean": 3.02, "dev-other": 5.01, "test-clean": 3.38, "test-other": 5.36}
         #   +CTC: {"dev-clean": 1.82, "dev-other": 4.21, "test-clean": 2.07, "test-other": 4.43}
         "Dec0.5": {"decoder.*": 0.5},
@@ -2922,6 +2927,7 @@ def py():
     )
 
     # variational noise (variational_noise_by_pattern)
+    # TODO what now?
     for name, opts in {
         # baseline (0): {"dev-clean": 4.27, "dev-other": 5.67, "test-clean": 4.41, "test-other": 5.93}
         # +CTC: {"dev-clean": 2.42, "dev-other": 4.43, "test-clean": 2.35, "test-other": 4.69}
@@ -2935,8 +2941,9 @@ def py():
         # Dec0.01: {"dev-clean": 4.24, "dev-other": 5.81, "test-clean": 7.34, "test-other": 6.91}
         # +CTC: {"dev-clean": 1.9, "dev-other": 4.23, "test-clean": 2.07, "test-other": 4.47}
         "Dec0.01": {"decoder.*": 0.01},
-        # 0.01: TODO... +CTC...
-        "0.01": {"*": 0.01},
+        # 0.01: {"dev-clean": 4.11, "dev-other": 6.91, "test-clean": 4.51, "test-other": 6.82}
+        # +CTC: {"dev-clean": 2.45, "dev-other": 5.26, "test-clean": 2.66, "test-other": 5.61}
+        # "0.01": {"*": 0.01},
     }.items():
         name = f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxCtcLs0.1-vn{name}-spm10k-bpeSample001-baseLr0.5-b100k"
         exp = aed_train_exp(
@@ -3011,6 +3018,11 @@ def py():
         )
 
     # New baseline: bhv24 + s2 + fixMp + auxShared + auxNoBias + auxDec3 + AudioPadRnd100
+    # Prev baseline: EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k-bhv24-s2-fixMp-h0
+    # prev: {"dev-clean": 3.69, "dev-other": 5.36, "test-clean": 3.57, "test-other": 5.53}
+    # +CTC: {"dev-clean": 1.92, "dev-other": 4.32, "test-clean": 2.07, "test-other": 4.49}
+    #  new: {"dev-clean": 2.97, "dev-other": 5.27, "test-clean": 3.33, "test-other": 5.39}
+    # +CTC: {"dev-clean": 1.84, "dev-other": 4.33, "test-clean": 2.06, "test-other": 4.58}
     name = "EncL16-DecL6-D1024-AudioPadRnd100-DecPosEncAbs-featBN-aux4_10_16-auxShared-auxNoBias-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
     exp = aed_train_exp(
         name,
