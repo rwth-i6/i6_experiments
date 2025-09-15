@@ -8,11 +8,13 @@ from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union, Dict, Callable
-from .memristor_v7_cfg import QuantizedMultiheadAttentionV4Config
+from .memristor_v8_cfg import QuantizedConformerMHSARelPosV1Config
 import math
 from torch.ao.quantization.utils import check_min_max_valid
 from returnn.torch.context import get_run_ctx
 import numpy
+from i6_models.util import compat
+from i6_models.parts.dropout import BroadcastDropout
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):
@@ -266,7 +268,7 @@ class Conv1dQuant(nn.Module):
         weight_noise_func: Optional[Union[Callable, str]],
         weight_noise_values: Optional[Dict[str, float]],
         weight_noise_start_epoch: Optional[int],
-        padding_mode: str = "zeros",  # TODO: refine this type
+        padding_mode: str = "zeros",
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -316,21 +318,45 @@ class Conv1dQuant(nn.Module):
 
 
 class QuantizedMultiheadAttention(nn.Module):
-    def __init__(
-        self,
-        cfg: QuantizedMultiheadAttentionV4Config,
-    ):
-        super().__init__()
-        self.quant_in_linear = cfg.quant_in_linear
-        self.cfg = cfg
-        self.num_att_heads = cfg.num_att_heads
-        self.input_dim = cfg.input_dim
-        self.dim_heads = self.input_dim // self.num_att_heads
+    """
+        Conformer multi-headed self-attention module supporting
+            - self-attention with relative positional encoding proposed by Shaw et al. (cf. https://arxiv.org/abs/1803.02155)
+                * learnable_pos_emb = True
+                * with_pos_bias = False
+                * with_linear_pos = False
+                * separate_pos_emb_per_head = False (RETURNN default)
+                * with_bias = False (RETURNN default)
+            - and self-attention with Transformer-XL style relative PE by Dai et al.
+                (cf. https://arxiv.org/abs/1901.02860, https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/mem_transformer.py,
+                     https://github.com/espnet/espnet/blob/master/espnet2/asr_transducer/encoder/modules/attention.py#L9)
+                * learnable_pos_emb = False
+                * with_pos_bias = True
+                * with_linear_pos = False (paper implementation) / with_linear_pos = True (ESPnet default)
+                * separate_pos_emb_per_head = False (paper implementation) / separate_pos_emb_per_head = True (ESPnet default)
+                * with_bias = False (paper implementation) / with_bias = True (ESPnet default)
+        """
 
-        self.bit_prec_dot = cfg.bit_prec_dot
-        self.bit_prec_Av = cfg.bit_prec_A_v
+    def __init__(self, cfg: QuantizedConformerMHSARelPosV1Config):
+
+        super().__init__()
+
+        self.layernorm = nn.LayerNorm(cfg.input_dim)
+
+        self.embed_dim = cfg.input_dim
+        self.num_heads = cfg.num_att_heads
+        self.embed_dim_per_head = self.embed_dim // self.num_heads
+
+        self.learnable_pos_emb = cfg.learnable_pos_emb
+        self.rel_pos_clip = cfg.rel_pos_clip
+        self.separate_pos_emb_per_head = cfg.separate_pos_emb_per_head
+        self.with_pos_bias = cfg.with_pos_bias
+        self.pos_emb_dropout = nn.Dropout(cfg.pos_emb_dropout)
         self.weight_quant_dtype = cfg.weight_quant_dtype
         self.weight_quant_method = cfg.weight_quant_method
+        self.weight_noise_start_epoch = cfg.weight_noise_start_epoch
+        self.weight_noise_values = cfg.weight_noise_values
+        self.weight_noise_func = cfg.weight_noise_func
+        self.bit_prec_dot = cfg.bit_prec_dot
         self.activation_quant_dtype = cfg.activation_quant_dtype
         self.activation_quant_method = cfg.activation_quant_method
         self.dot_quant_dtype = cfg.dot_quant_dtype
@@ -339,8 +365,65 @@ class QuantizedMultiheadAttention(nn.Module):
         self.Av_quant_method = cfg.Av_quant_method
         self.converter_hardware_settings = cfg.converter_hardware_settings
 
-        self.out_proj = self._create_linear_layer(
-            weight_bits=cfg.bit_prec_W_o,
+
+        assert not self.learnable_pos_emb or self.rel_pos_clip
+
+        self.att_weights_dropout = nn.Dropout(cfg.att_weights_dropout)
+
+        assert self.embed_dim % self.num_heads == 0, "embed_dim must be divisible by num_heads"
+
+        # projection matrices
+        self.qkv_proj = LinearQuant(
+            in_features=self.embed_dim,
+            out_features=3 * self.embed_dim,
+            weight_bit_prec=cfg.bit_prec_W_i,
+            weight_quant_dtype=self.weight_quant_dtype,
+            weight_quant_method=self.weight_quant_method,
+            bias=cfg.with_bias,
+            weight_noise_func=self.weight_noise_func,
+            weight_noise_start_epoch=self.weight_noise_start_epoch,
+            weight_noise_values=self.weight_noise_values,
+        )
+        self.in_proj_in_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.in_proj_out_quant = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+        self.q_quantizer = ActivationQuantizer(
+            self.bit_prec_dot,
+            self.dot_quant_dtype,
+            self.dot_quant_method,
+            channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
+            moving_avrg=cfg.moving_average,
+        )
+        self.k_quantizer = ActivationQuantizer(
+            self.bit_prec_dot,
+            self.dot_quant_dtype,
+            self.dot_quant_method,
+            channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.out_proj = LinearQuant(
+            in_features=self.embed_dim,
+            out_features=self.embed_dim,
+            weight_bit_prec=cfg.bit_prec_W_o,
+            weight_quant_dtype=self.weight_quant_dtype,
+            weight_quant_method=self.weight_quant_method,
+            bias=cfg.with_bias,
+            weight_noise_func=self.weight_noise_func,
+            weight_noise_start_epoch=self.weight_noise_start_epoch,
+            weight_noise_values=self.weight_noise_values,
         )
         self.out_proj_in_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
@@ -358,127 +441,196 @@ class QuantizedMultiheadAttention(nn.Module):
             moving_avrg=cfg.moving_average,
         )
 
-        # For some reason pytorch saves the in_proj_weight and bias in this format not with . so we need to adjust
-        self.in_proj = self._create_linear_layer(weight_bits=cfg.bit_prec_W_q, output_dim=3 * self.input_dim)
-        self.in_proj_in_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
+        self.register_parameter("rel_pos_embeddings", None)
+        self.register_parameter("pos_bias_u", None)
+        self.register_parameter("pos_bias_v", None)
 
-        self.in_proj_out_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
+        self.pos_emb_dim = (
+            self.embed_dim if cfg.with_linear_pos or cfg.separate_pos_emb_per_head else self.embed_dim_per_head
         )
-        self.register_parameter("in_proj_weight", self.in_proj.weight)
-        self.register_parameter("in_proj_bias", self.in_proj.bias)
+        if self.learnable_pos_emb:
+            self.rel_pos_embeddings = nn.parameter.Parameter(torch.empty(self.rel_pos_clip * 2 + 1, self.pos_emb_dim))
+        if cfg.with_linear_pos:
+            # TODO: this might be problematic to learn, test this
 
-        if self.bit_prec_dot < 16:
-            self.q_quantizer = ActivationQuantizer(
-                self.bit_prec_dot,
-                self.dot_quant_dtype,
-                self.dot_quant_method,
-                channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
-                moving_avrg=cfg.moving_average,
+            self.linear_pos = LinearQuant(
+                in_features=self.pos_emb_dim,
+                out_features=self.embed_dim if cfg.separate_pos_emb_per_head else self.embed_dim_per_head,
+                weight_bit_prec=cfg.bit_prec_learn_emb,
+                weight_quant_dtype=self.weight_quant_dtype,
+                weight_quant_method=self.weight_quant_method,
+                bias=False,
+                weight_noise_func=self.weight_noise_func,
+                weight_noise_start_epoch=self.weight_noise_start_epoch,
+                weight_noise_values=self.weight_noise_values,
             )
-            self.k_quantizer = ActivationQuantizer(
-                self.bit_prec_dot,
-                self.dot_quant_dtype,
-                self.dot_quant_method,
-                channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
+            self.learn_emb_in_quant = ActivationQuantizer(
+                bit_precision=cfg.activation_bit_prec,
+                dtype=cfg.activation_quant_dtype,
+                method=cfg.activation_quant_method,
+                channel_axis=1,
                 moving_avrg=cfg.moving_average,
             )
 
-        if self.bit_prec_Av < 16:
-            self.a_quantizer = WeightQuantizer(self.bit_prec_Av, self.Av_quant_dtype, self.Av_quant_method)
-            self.v_quantizer = ActivationQuantizer(
-                self.bit_prec_Av,
-                self.Av_quant_dtype,
-                self.Av_quant_method,
+            self.learn_emb_out_quant = ActivationQuantizer(
+                bit_precision=cfg.activation_bit_prec,
+                dtype=cfg.activation_quant_dtype,
+                method=cfg.activation_quant_method,
+                channel_axis=1,
                 moving_avrg=cfg.moving_average,
-                channel_axis=None if self.dot_quant_method == "per_tensor" else NotImplementedError,
             )
-        self.norm = math.sqrt(self.dim_heads)
-        self.softmax = nn.Softmax(-1)
-        self.dropout = nn.Dropout(cfg.att_weights_dropout)
+        else:
+            self.linear_pos = nn.Identity()
 
-    def _create_linear_layer(self, weight_bits, output_dim=None):
-        return LinearQuant(
-            in_features=self.input_dim,
-            out_features=output_dim or self.input_dim,
-            weight_bit_prec=weight_bits,
-            weight_quant_dtype=self.weight_quant_dtype,
-            weight_quant_method=self.weight_quant_method,
-            bias=True,
-            weight_noise_func=self.cfg.weight_noise_func,
-            weight_noise_start_epoch=self.cfg.weight_noise_start_epoch,
-            weight_noise_values=self.cfg.weight_noise_values,
+        if self.with_pos_bias:
+            self.pos_bias_u = nn.parameter.Parameter(torch.empty(self.num_heads, self.embed_dim_per_head))
+            self.pos_bias_v = nn.parameter.Parameter(torch.empty(self.num_heads, self.embed_dim_per_head))
+
+        self.dropout = BroadcastDropout(cfg.dropout, dropout_broadcast_axes=cfg.dropout_broadcast_axes)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        if self.learnable_pos_emb:
+            nn.init.xavier_normal_(self.rel_pos_embeddings)
+        if self.with_pos_bias:
+            # init taken from espnet default
+            nn.init.xavier_uniform_(self.pos_bias_u)
+            nn.init.xavier_uniform_(self.pos_bias_v)
+
+    def forward(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Apply layer norm and multi-head self attention and dropout
+
+        :param input_tensor: Input to the self attention of shape (B, T, F)
+        :param sequence_mask: bool mask of shape (B, T), True signals within sequence, False outside
+        """
+        output_tensor = self.layernorm(input_tensor)  # [B, T, F]
+
+        time_dim_size = output_tensor.shape[1]
+        batch_dim_size = output_tensor.shape[0]
+
+        # attention mask
+        # T: query seq. length, T' key/value seg length; T = T' if same input tensor
+        inv_sequence_mask = compat.logical_not(sequence_mask)  # [B, T']
+        mask = (
+            torch.zeros_like(inv_sequence_mask, dtype=input_tensor.dtype)
+            .masked_fill(inv_sequence_mask, float("-inf"))
+            .reshape(batch_dim_size, 1, 1, time_dim_size)
+        )  # [B, 1, 1, T']
+
+        # query, key and value sequences
+        output_tensor = self.in_proj_in_quant(output_tensor)
+        query_seq, key_seq, value_seq = self.qkv_proj(output_tensor).chunk(3, dim=-1)  # [B, T, #heads * F']
+
+        q = query_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T, #heads, F']
+        k = key_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T', #heads, F']
+        q = self.q_quantizer(q)
+        k = self.k_quantizer(k)
+
+
+        if self.learnable_pos_emb:
+            pos_seq_q = torch.arange(time_dim_size, device=input_tensor.device)
+            pos_seq_k = torch.arange(time_dim_size, device=input_tensor.device)
+
+            distance_mat = pos_seq_k[None, :] - pos_seq_q[:, None]
+            distance_mat_clipped = torch.clamp(distance_mat, -self.rel_pos_clip, self.rel_pos_clip)
+
+            final_mat = distance_mat_clipped + self.rel_pos_clip
+
+            rel_pos_embeddings = self.rel_pos_embeddings[final_mat]  # [T, T', pos_emb_dim]
+        else:
+            rel_pos_embeddings = self._sinusoidal_pe(
+                torch.arange(time_dim_size - 1, -time_dim_size, -1, device=input_tensor.device, dtype=torch.float32),
+                self.pos_emb_dim,
+            ).view(
+                1, 2 * time_dim_size - 1, self.pos_emb_dim
+            )  # [1, T+T'-1, pos_emb_dim]
+
+        # dropout relative positional embeddings
+        rel_pos_embeddings = self.pos_emb_dropout(
+            rel_pos_embeddings
+        )  # [T, T', pos_emb_dim] or [1, T+T'-1, pos_emb_dim]
+        rel_pos_embeddings = rel_pos_embeddings.unsqueeze(2)  # [T, T', 1, pos_emb_dim] or [1, T+T'-1, 1, pos_emb_dim]
+
+        # linear transformation or identity
+        if self.cfg.with_linear_pos:
+            rel_pos_embeddings = self.learn_emb_in_quant(rel_pos_embeddings)
+        rel_pos_embeddings = self.linear_pos(rel_pos_embeddings)  # [T, T', 1, F'|F] or [1, T+T'-1, 1, F'|F]
+
+        if self.cfg.with_linear_pos:
+            rel_pos_embeddings = self.learn_emb_out_quant(rel_pos_embeddings)
+
+        if self.separate_pos_emb_per_head:
+            rel_pos_embeddings = rel_pos_embeddings.squeeze(2).reshape(
+                *rel_pos_embeddings.shape[:2], -1, self.embed_dim_per_head
+            )  # [T, T', #heads, F'] or [1, T+T'-1, #heads, F']
+
+        q_with_bias_u = q + self.pos_bias_u if self.with_pos_bias else q  # [B, T, #heads, F']
+        q_with_bias_v = q + self.pos_bias_v if self.with_pos_bias else q
+
+        # attention matrix a and c
+        attn_ac = torch.einsum("bihf, bjhf -> bhij", q_with_bias_u, k)  # [B, #heads, T, T']
+
+        # attention matrix b and d
+        attn_bd = torch.einsum(
+            "bihf, ijhf -> bhij", q_with_bias_v, rel_pos_embeddings
+        )  # [B, #heads, T, T'] or [B, #heads, T, T+T'+1]
+
+        if not self.learnable_pos_emb:
+            attn_bd = self._rel_shift_bhij(attn_bd, k_len=time_dim_size)  # [B, #heads, T, T']
+
+        attn = attn_ac + attn_bd + mask  # [B, #heads, T, T']
+        attn_scaled = attn * (math.sqrt(1.0 / float(self.embed_dim_per_head)))  # [B, #heads, T, T']
+
+        # softmax and dropout
+        attn_output_weights = self.att_weights_dropout(F.softmax(attn_scaled, dim=-1))  # [B, #heads, T, T']
+
+        # sequence of weighted sums over value sequence
+        v = value_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T, H, F']
+        attn_output = torch.einsum("bhij, bjhf -> bihf", attn_output_weights, v).reshape(
+            batch_dim_size, -1, self.embed_dim
         )
 
-    def forward(
-        self,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-    ):
+        attn_output = self.out_proj_in_quant(attn_output)
+        output_tensor = self.out_proj(attn_output)
+        output_tensor = self.out_proj_out_quant(output_tensor)
 
-        batch_dim = query.shape[0]
+        output_tensor = self.dropout(output_tensor)
 
-        # query = self.W_q(query)
-        # key = self.W_k(key)
-        # value = self.W_v(value)
-        assert query is value is key, "currently only this case is implemented"
+        return output_tensor  # [B,T,F]
 
-        if self.quant_in_linear is True:  # TODO: I guess this is False in forward? Maybe just set to Identity?
-            query = self.in_proj_in_quant(query)
-        x = self.in_proj(query)
-        if self.quant_in_linear is True:
-            x = self.in_proj_out_quant(x)
-        hidden_dim = query.size(-1)
-        query, key, value = x.unflatten(-1, (3, hidden_dim)).unsqueeze(0).transpose(0, -2).squeeze(-2).contiguous()
+    @staticmethod
+    def _rel_shift_bhij(x, k_len=None):
+        """
+        :param x: input tensor of shape (B, H, T, L) to apply left shift
+        :k_len: length of the key squence
+        """
+        x_shape = x.shape
 
-        query = query.view(batch_dim, -1, self.num_att_heads, self.dim_heads)  # [B, T, D//H, D']
-        key = key.view(batch_dim, -1, self.num_att_heads, self.dim_heads)  # [B, T, D//H, D']
-        value = value.view(batch_dim, -1, self.num_att_heads, self.dim_heads)  # [B, T, D//H, D']
+        x = torch.nn.functional.pad(x, (1, 0))  # [B, H, T, L+1]
+        x = x.reshape(x_shape[0], x_shape[1], x_shape[3] + 1, x_shape[2])  # [B, H, L+1, T]
+        x = x[:, :, 1:]  # [B, H, L, T]
+        x = x.reshape(x_shape)  # [B, H, T, L]]
 
-        query = torch.transpose(query, 1, 2)  # [B, D//H, T, D']
-        key = torch.transpose(key, 1, 2)  # [B, D//H, T, D']
-        value = torch.transpose(value, 1, 2)  # [B, D//H, T, D']
+        return x[:, :, :, :k_len] if k_len else x  # [B, H, T, T']
 
-        key = torch.transpose(key, -2, -1)  # [B, D//H, D', T]
+    @staticmethod
+    def _sinusoidal_pe(pos_seq: torch.Tensor, embed_dim: int):
+        """
+        :param pos_seq: 1-D position sequence for which to compute embeddings
+        :param embed_dim: embedding dimension
+        """
+        inv_freq = 1 / (10000 ** (torch.arange(0.0, embed_dim, 2.0, device=pos_seq.device) / embed_dim))
 
-        if self.bit_prec_dot < 16:
-            query = self.q_quantizer(query)
-            key = self.k_quantizer(key)
+        sinusoid_input = torch.outer(pos_seq, inv_freq)
 
-        dot = torch.matmul(query, key)  # [B, D//H, T, T]
-        dot = dot / self.norm
-        if mask is not None:
-            mask = mask.view(batch_dim, 1, 1, mask.size(1))
-            dot = dot.masked_fill(mask, -float("inf"))
-        alpha = self.softmax(dot)
-        # alpha = self.dropout(alpha)
+        pos_emb = torch.zeros(pos_seq.shape[0], embed_dim, device=pos_seq.device)
 
-        if self.bit_prec_Av < 16:
-            alpha = self.a_quantizer(alpha)
-            value = self.v_quantizer(value)
+        pos_emb[:, 0::2] = sinusoid_input.sin()
+        pos_emb[:, 1::2] = sinusoid_input.cos()
 
-        att_out = torch.matmul(alpha, value)  # [B, D//H, T, D']
-        att_out = torch.transpose(att_out, 1, 2)  # [B, D//H, T, D']
-        att_out = att_out.reshape(batch_dim, -1, self.input_dim)  # [B, T, D]
-        if self.quant_in_linear is True:
-            att_out = self.out_proj_in_quant(att_out)
-        att_out = self.out_proj(att_out)
-        if self.quant_in_linear is True:
-            att_out = self.out_proj_out_quant(att_out)
-
-        return att_out, alpha
+        return pos_emb
 
     def prep_quant(self):
         from torch_memristor.memristor_modules import TiledMemristorLinear
@@ -502,21 +654,42 @@ class QuantizedMultiheadAttention(nn.Module):
         self.out_proj = mem_lin
         self.out_proj_in_quant = nn.Identity()
 
-        self.in_proj.weight_quantizer.set_scale_and_zp()
+        self.qkv_proj.weight_quantizer.set_scale_and_zp()
         self.in_proj_in_quant.set_scale_and_zp()
         mem_lin = TiledMemristorLinear(
-            in_features=self.in_proj.in_features,
-            out_features=self.in_proj.out_features,
-            weight_precision=self.in_proj.weight_bit_prec if not self.in_proj.weight_bit_prec == 1.5 else 2,
+            in_features=self.qkv_proj.in_features,
+            out_features=self.qkv_proj.out_features,
+            weight_precision=self.qkv_proj.weight_bit_prec if not self.qkv_proj.weight_bit_prec == 1.5 else 2,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(
-            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj,
+            activation_quant=self.in_proj_in_quant, linear_quant=self.qkv_proj,
             correction_settings=self.cfg.correction_settings,
             num_cycles_init=self.cfg.num_cycles,
         )
         self.in_proj = mem_lin
         self.in_proj_in_quant = nn.Identity()
+
+        if self.cfg.with_linear_pos:
+            self.learn_emb_in_quant.set_scale_and_zp()
+            self.linear_pos.weight_quantizer.set_scale_and_zp()
+            mem_lin = TiledMemristorLinear(
+                in_features=self.in_proj.in_features,
+                out_features=self.in_proj.out_features,
+                weight_precision=self.in_proj.weight_bit_prec if not self.in_proj.weight_bit_prec == 1.5 else 2,
+                converter_hardware_settings=self.converter_hardware_settings,
+                memristor_inputs=128,
+                memristor_outputs=128,
+            )
+            mem_lin.init_from_linear_quant(
+                activation_quant=self.learn_emb_in_quant,
+                linear_quant=self.linear_pos,
+                correction_settings=self.cfg.correction_settings,
+                num_cycles_init=self.cfg.num_cycles,
+            )
+            self.linear_pos = mem_lin
+            self.learn_emb_in_quant = nn.Identity()
+
         print("Finished MHSA")

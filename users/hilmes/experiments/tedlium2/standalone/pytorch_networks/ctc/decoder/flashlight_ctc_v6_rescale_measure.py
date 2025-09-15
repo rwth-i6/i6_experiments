@@ -290,6 +290,10 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     tmp = logprobs_cpu.detach().numpy()
     am_time = time.time() - am_start
     run_ctx.total_am_time += am_time
+    if torch.cuda.is_available():
+        torch.cuda.synchronize(run_ctx.device)
+    else:
+        torch.cpu.synchronize(run_ctx.device)
 
     search_start = time.time()
     hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())

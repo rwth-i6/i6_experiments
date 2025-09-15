@@ -64,11 +64,13 @@ class WeightQuantizer(nn.Module):
             return self.quant_fn, self.observer
         if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_affine
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
         elif method == "per_tensor_symmetric":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_symmetric
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min,
                 quant_max=self.quant_max,
@@ -525,15 +527,22 @@ class QuantizedMultiheadAttention(nn.Module):
             key = self.k_quantizer(key)
 
         query = self.dot_in_quant(query)
+        print(f"{query=}")
         key = self.dot_in_quant(key)
+        print(f"{key=}")
         dot = torch.matmul(query, key)  # [B, D//H, T, T]
         dot = self.norm_in_quant(dot)
+        print(f"{dot=}")
         norm = self.norm_in_quant(self.norm.to(device=dot.device))
+        print(f"{norm=}")
         dot = dot / norm
         dot = self.norm_out_quant(dot)
+        print(f"{dot=}")
         if mask is not None:
             mask = mask.view(batch_dim, 1, 1, mask.size(1))
+            print(f"{mask=}")
             dot = dot.masked_fill(mask, -float("inf"))
+            print(f"{dot=}")
         alpha = self.softmax(dot)
         alpha = self.soft_out_quant(alpha)
         # alpha = self.dropout(alpha)

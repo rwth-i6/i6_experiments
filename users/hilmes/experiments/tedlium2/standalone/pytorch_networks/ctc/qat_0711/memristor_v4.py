@@ -128,7 +128,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.lin_1_in_quant,
             linear_quant=self.linear_ff,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=None,
         )
         self.linear_ff = mem_lin
 
@@ -145,7 +146,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.lin_2_in_quant,
             linear_quant=self.linear_out,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=None,
         )
         self.linear_out = mem_lin
         self.lin_1_in_quant = nn.Identity()
@@ -328,7 +330,8 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.pconv_1_in_quant,
             linear_quant=self.pointwise_conv1,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=None,
         )
         self.pointwise_conv1 = mem_lin
 
@@ -361,7 +364,8 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin.init_from_linear_quant(
             activation_quant=self.pconv_2_in_quant,
             linear_quant=self.pointwise_conv2,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
+            correction_settings=None,
         )
         self.pointwise_conv2 = mem_lin
         self.pconv_1_in_quant = nn.Identity()
@@ -630,7 +634,8 @@ class Model(torch.nn.Module):
             mem_lin.init_from_linear_quant(
                 activation_quant=self.lin_out_in_quant,
                 linear_quant=self.lin_out,
-                num_cycles=self.train_config.num_cycles,
+                num_cycles_init=self.train_config.num_cycles,
+                correction_settings=None,
             )
             self.final_linear = mem_lin
         self.conformer.prep_quant(decompose=decompose)

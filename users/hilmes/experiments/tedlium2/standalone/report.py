@@ -103,7 +103,7 @@ def build_memristor_base_report(report: Dict):
             best_baselines[exp] = ("None", "")
     line = []
     best_dc = {}
-    bits = {1.5, 2, 3, 4, 5, 6, 8}
+    bits = {1.5, 2, 3, 4, 5, 6, 7, 8}
     line.append("Baselines")
     for exp, best in best_baselines.items():
         line.append(f"{exp.split('/')[4]}: {best[0]}   {' '.join(best[1].split('/')[5:])}")
@@ -120,7 +120,7 @@ def build_memristor_base_report(report: Dict):
                     # print(bit, name)
                     tmp[name] = dic[name]
             instanciate_delayed(tmp)
-            if all(tmp.values()):
+            if all(tmp.values()) and len(tmp) > 0:
                 best = min(tmp, key=tmp.get)
                 best_dc["/".join(best.split("/")[:9])] = (tmp[best], best)
             else:

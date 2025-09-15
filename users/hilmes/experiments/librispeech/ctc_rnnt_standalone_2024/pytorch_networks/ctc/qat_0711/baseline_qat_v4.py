@@ -1,6 +1,6 @@
 """
-v4 adds num cycles
-v5 adds Conv
+V3 adds option to quantize bias
+V4 adds option to use observer only in training
 """
 
 import math
@@ -21,18 +21,16 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .memristor_v5_cfg import (
-    QuantModelTrainConfigV5,
+from .baseline_qat_v4_cfg import (
+    QuantModelTrainConfigV4,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
     ConformerConvolutionQuantV4Config,
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .memristor_v5_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
-from torch.nn.quantized._reference.modules import Conv1d
-
-# from lovely_tensors import monkey_patch
+from .baseline_qat_v4_modules import LinearQuant, QuantizedMultiheadAttention, Conv1dQuant, ActivationQuantizer
+from torch.nn.quantized._reference.modules import Linear, Conv1d
 
 
 class ConformerPositionwiseFeedForwardQuant(nn.Module):
@@ -42,9 +40,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
     def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV4Config):
         super().__init__()
-        # monkey_patch()
 
-        self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
         self.linear_ff = LinearQuant(
             in_features=cfg.input_dim,
@@ -53,6 +49,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             weight_quant_dtype=cfg.weight_quant_dtype,
             weight_quant_method=cfg.weight_quant_method,
             bias=True,
+            quantize_bias=cfg.quantize_bias,
+            observer_only_in_train=cfg.observer_only_in_train,
         )
         self.activation = cfg.activation
         self.linear_out = LinearQuant(
@@ -62,6 +60,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             weight_quant_dtype=cfg.weight_quant_dtype,
             weight_quant_method=cfg.weight_quant_method,
             bias=True,
+            quantize_bias=cfg.quantize_bias,
+            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         self.lin_1_in_quant = ActivationQuantizer(
@@ -70,6 +70,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         self.lin_1_out_quant = ActivationQuantizer(
@@ -78,6 +79,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         self.lin_2_in_quant = ActivationQuantizer(
@@ -86,6 +88,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
         )
 
         self.lin_2_out_quant = ActivationQuantizer(
@@ -94,9 +97,9 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             method=cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=cfg.moving_average,
+            observer_only_in_train=cfg.observer_only_in_train,
         )
         self.dropout = cfg.dropout
-        self.converter_hardware_settings = cfg.converter_hardware_settings
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -115,47 +118,54 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
         return tensor
 
-    def prep_quant(self):
-
+    def prep_quant(self, extra_act_quant, decompose):
         self.linear_ff.weight_quantizer.set_scale_and_zp()
-        self.lin_1_in_quant.set_scale_and_zp()
-        from torch_memristor.memristor_modules import TiledMemristorLinear
-
-        mem_lin = TiledMemristorLinear(
-            in_features=self.linear_ff.in_features,
-            out_features=self.linear_ff.out_features,
-            weight_precision=self.linear_ff.weight_bit_prec if not self.linear_ff.weight_bit_prec == 1.5 else 2,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
+        self.linear_ff = Linear.from_float(
+            self.linear_ff,
+            weight_qparams={
+                "qscheme": self.linear_ff.weight_quantizer.method,
+                "dtype": self.linear_ff.weight_quant_dtype,
+                "zero_point": self.linear_ff.weight_quantizer.zero_point,
+                "scale": self.linear_ff.weight_quantizer.scale,
+                "quant_min": self.linear_ff.weight_quantizer.quant_min,
+                "quant_max": self.linear_ff.weight_quantizer.quant_max,
+                "is_decomposed": decompose,
+            },
         )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.lin_1_in_quant,
-            linear_quant=self.linear_ff,
-            num_cycles_init=self.model_cfg.num_cycles,
-            correction_settings=None,
-        )
-        self.linear_ff = mem_lin
-
         self.linear_out.weight_quantizer.set_scale_and_zp()
-        self.lin_2_in_quant.set_scale_and_zp()
-        mem_lin = TiledMemristorLinear(
-            in_features=self.linear_out.in_features,
-            out_features=self.linear_out.out_features,
-            weight_precision=self.linear_out.weight_bit_prec if not self.linear_out.weight_bit_prec == 1.5 else 2,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
+        self.linear_out = Linear.from_float(
+            self.linear_out,
+            weight_qparams={
+                "qscheme": self.linear_out.weight_quantizer.method,
+                "dtype": self.linear_out.weight_quant_dtype,
+                "zero_point": self.linear_out.weight_quantizer.zero_point,
+                "scale": self.linear_out.weight_quantizer.scale,
+                "quant_min": self.linear_out.weight_quantizer.quant_min,
+                "quant_max": self.linear_out.weight_quantizer.quant_max,
+                "is_decomposed": decompose,
+            },
         )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.lin_2_in_quant,
-            linear_quant=self.linear_out,
-            num_cycles_init=self.model_cfg.num_cycles,
-            correction_settings=None,
-        )
-        self.linear_out = mem_lin
+        if extra_act_quant is False:
+            self.lin_1_in_quant = nn.Identity()
+            self.lin_1_out_quant = nn.Identity()
+            self.lin_2_in_quant = nn.Identity()
+            self.lin_2_out_quant = nn.Identity()
+
+    def prep_dequant(self):
+        tmp = nn.Linear(self.linear_ff.in_features, self.linear_ff.out_features)
+        tmp.weight = self.linear_ff.weight
+        tmp.bias = self.linear_ff.bias
+        self.linear_ff = tmp
+        del tmp
+        tmp = nn.Linear(self.linear_out.in_features, self.linear_out.out_features)
+        tmp.weight = self.linear_out.weight
+        tmp.bias = self.linear_out.bias
+        self.linear_out = tmp
+        del tmp
         self.lin_1_in_quant = nn.Identity()
+        self.lin_1_out_quant = nn.Identity()
         self.lin_2_in_quant = nn.Identity()
+        self.lin_2_out_quant = nn.Identity()
 
 
 class ConformerMHSAQuant(torch.nn.Module):
@@ -187,8 +197,11 @@ class ConformerMHSAQuant(torch.nn.Module):
 
         return output_tensor
 
-    def prep_quant(self):
-        self.mhsa.prep_quant()
+    def prep_quant(self, extra_act_quant: bool, decompose: bool):
+        self.mhsa.prep_quant(extra_act_quant, decompose=decompose)
+
+    def prep_dequant(self):
+        self.mhsa.prep_dequant()
 
 
 class ConformerConvolutionQuant(nn.Module):
@@ -214,6 +227,8 @@ class ConformerConvolutionQuant(nn.Module):
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
             bias=True,
+            quantize_bias=model_cfg.quantize_bias,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
         self.depthwise_conv = Conv1dQuant(
             in_channels=model_cfg.channels,
@@ -227,6 +242,8 @@ class ConformerConvolutionQuant(nn.Module):
             weight_bit_prec=model_cfg.weight_bit_prec,
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
+            quantize_bias=model_cfg.quantize_bias,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
         self.dconv_1_in_quant = ActivationQuantizer(
             bit_precision=model_cfg.activation_bit_prec,
@@ -234,6 +251,7 @@ class ConformerConvolutionQuant(nn.Module):
             method=model_cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
 
         self.dconv_1_out_quant = ActivationQuantizer(
@@ -242,6 +260,7 @@ class ConformerConvolutionQuant(nn.Module):
             method=model_cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
 
         self.pointwise_conv2 = LinearQuant(
@@ -251,6 +270,8 @@ class ConformerConvolutionQuant(nn.Module):
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
             bias=True,
+            quantize_bias=model_cfg.quantize_bias,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
         self.pconv_1_in_quant = ActivationQuantizer(
             bit_precision=model_cfg.activation_bit_prec,
@@ -258,6 +279,7 @@ class ConformerConvolutionQuant(nn.Module):
             method=model_cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
 
         self.pconv_1_out_quant = ActivationQuantizer(
@@ -266,6 +288,7 @@ class ConformerConvolutionQuant(nn.Module):
             method=model_cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
 
         self.pconv_2_in_quant = ActivationQuantizer(
@@ -274,6 +297,7 @@ class ConformerConvolutionQuant(nn.Module):
             method=model_cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
 
         self.pconv_2_out_quant = ActivationQuantizer(
@@ -282,12 +306,12 @@ class ConformerConvolutionQuant(nn.Module):
             method=model_cfg.activation_quant_method,
             channel_axis=1,
             moving_avrg=model_cfg.moving_average,
+            observer_only_in_train=model_cfg.observer_only_in_train,
         )
         self.layer_norm = nn.LayerNorm(model_cfg.channels)
         self.norm = copy.deepcopy(model_cfg.norm)
         self.dropout = nn.Dropout(model_cfg.dropout)
         self.activation = model_cfg.activation
-        self.converter_hardware_settings = model_cfg.converter_hardware_settings
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -303,9 +327,7 @@ class ConformerConvolutionQuant(nn.Module):
         # conv layers expect shape [B,F,T] so we have to transpose here
         tensor = tensor.transpose(1, 2)  # [B,F,T]
         tensor = self.dconv_1_in_quant(tensor)
-        # print("Real", self.depth_tmp(tensor))
         tensor = self.depthwise_conv(tensor)
-        # print("Memristor", tensor)
         tensor = self.dconv_1_out_quant(tensor)
 
         tensor = self.norm(tensor)
@@ -318,72 +340,85 @@ class ConformerConvolutionQuant(nn.Module):
 
         return self.dropout(tensor)
 
-    def prep_quant(self, decompose: bool):
+    def prep_quant(self, extra_act_quant: bool, decompose: bool):
         self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
-        self.pconv_1_in_quant.set_scale_and_zp()
-        from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
-
-        mem_lin = TiledMemristorLinear(
-            in_features=self.pointwise_conv1.in_features,
-            out_features=self.pointwise_conv1.out_features,
-            weight_precision=(
-                self.pointwise_conv1.weight_bit_prec if not self.pointwise_conv1.weight_bit_prec == 1.5 else 2
-            ),
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
+        self.pointwise_conv1 = Linear.from_float(
+            self.pointwise_conv1,
+            weight_qparams={
+                "qscheme": self.pointwise_conv1.weight_quantizer.method,
+                "dtype": self.pointwise_conv1.weight_quant_dtype,
+                "zero_point": self.pointwise_conv1.weight_quantizer.zero_point,
+                "scale": self.pointwise_conv1.weight_quantizer.scale,
+                "quant_min": self.pointwise_conv1.weight_quantizer.quant_min,
+                "quant_max": self.pointwise_conv1.weight_quantizer.quant_max,
+                "decompose": decompose,
+            },
         )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.pconv_1_in_quant,
-            linear_quant=self.pointwise_conv1,
-            num_cycles_init=self.model_cfg.num_cycles,
-            correction_settings=None,
-        )
-        self.pointwise_conv1 = mem_lin
-
         self.depthwise_conv.weight_quantizer.set_scale_and_zp()
-        self.dconv_1_in_quant.set_scale_and_zp()
-        mem_conv = MemristorConv1d(
-            in_channels=self.depthwise_conv.in_channels,
-            out_channels=self.depthwise_conv.out_channels,
-            kernel_size=self.depthwise_conv.kernel_size,
-            stride=self.depthwise_conv.stride,
-            groups=self.depthwise_conv.groups,
-            weight_precision=(
-                self.depthwise_conv.weight_bit_prec if not self.depthwise_conv.weight_bit_prec == 1.5 else 2
-            ),
-            converter_hardware_settings=self.converter_hardware_settings,
-            padding=(self.depthwise_conv.kernel_size - 1) // 2,
+        self.depthwise_conv = Conv1d.from_float(
+            self.depthwise_conv,
+            weight_qparams={
+                "qscheme": self.depthwise_conv.weight_quantizer.method,
+                "dtype": self.depthwise_conv.weight_quant_dtype,
+                "zero_point": self.depthwise_conv.weight_quantizer.zero_point,
+                "scale": self.depthwise_conv.weight_quantizer.scale,
+                "quant_min": self.depthwise_conv.weight_quantizer.quant_min,
+                "quant_max": self.depthwise_conv.weight_quantizer.quant_max,
+                "decompose": decompose,
+            },
         )
-        mem_conv.init_from_conv_quant(
-            activation_quant=self.dconv_1_in_quant,
-            conv_quant=self.depthwise_conv,
-            num_cycles=self.model_cfg.num_cycles,
-            correction_settings=None,
-        )
-        # self.depth_tmp = self.depthwise_conv
-        self.depthwise_conv = mem_conv
         self.pointwise_conv2.weight_quantizer.set_scale_and_zp()
-        self.pconv_2_in_quant.set_scale_and_zp()
-        mem_lin = TiledMemristorLinear(
-            in_features=self.pointwise_conv2.in_features,
-            out_features=self.pointwise_conv2.out_features,
-            weight_precision=(
-                self.pointwise_conv2.weight_bit_prec if not self.pointwise_conv2.weight_bit_prec == 1.5 else 2
-            ),
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
+        self.pointwise_conv2 = Linear.from_float(
+            self.pointwise_conv2,
+            weight_qparams={
+                "qscheme": self.pointwise_conv2.weight_quantizer.method,
+                "dtype": self.pointwise_conv2.weight_quant_dtype,
+                "zero_point": self.pointwise_conv2.weight_quantizer.zero_point,
+                "scale": self.pointwise_conv2.weight_quantizer.scale,
+                "quant_min": self.pointwise_conv2.weight_quantizer.quant_min,
+                "quant_max": self.pointwise_conv2.weight_quantizer.quant_max,
+                "decompose": decompose,
+            },
         )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.pconv_2_in_quant,
-            linear_quant=self.pointwise_conv2,
-            num_cycles_init=self.model_cfg.num_cycles,
-            correction_settings=None,
+        if extra_act_quant is False:
+            self.pconv_1_in_quant = nn.Identity()
+            self.pconv_1_out_quant = nn.Identity()
+            self.dconv_1_in_quant = nn.Identity()
+            self.dconv_1_out_quant = nn.Identity()
+            self.pconv_2_in_quant = nn.Identity()
+            self.pconv_2_out_quant = nn.Identity()
+
+    def prep_dequant(self):
+        tmp = nn.Linear(self.pointwise_conv1.in_features, self.pointwise_conv1.out_features)
+        tmp.weight = self.pointwise_conv1.weight
+        tmp.bias = self.pointwise_conv1.bias
+        self.pointwise_conv1 = tmp
+        del tmp
+        tmp = nn.Conv1d(
+            in_channels=self.model_cfg.channels,
+            out_channels=self.model_cfg.channels,
+            kernel_size=self.model_cfg.kernel_size,
+            padding=(self.model_cfg.kernel_size - 1) // 2,
+            groups=self.model_cfg.channels,
+            bias=True,
+            stride=1,
+            dilation=1,
         )
-        self.pointwise_conv2 = mem_lin
+        tmp.weight = self.depthwise_conv.weight
+        tmp.bias = self.depthwise_conv.bias
+        self.depthwise_conv = tmp
+        del tmp
+        tmp = nn.Linear(self.pointwise_conv2.in_features, self.pointwise_conv2.out_features)
+        tmp.weight = self.pointwise_conv2.weight
+        tmp.bias = self.pointwise_conv2.bias
+        self.pointwise_conv2 = tmp
+        del tmp
         self.pconv_1_in_quant = nn.Identity()
+        self.pconv_1_out_quant = nn.Identity()
+        self.dconv_1_in_quant = nn.Identity()
+        self.dconv_1_out_quant = nn.Identity()
         self.pconv_2_in_quant = nn.Identity()
+        self.pconv_2_out_quant = nn.Identity()
 
 
 class ConformerBlockQuant(nn.Module):
@@ -410,17 +445,22 @@ class ConformerBlockQuant(nn.Module):
         """
         x = 0.5 * self.ff1(x) + x  # [B, T, F]
         x = self.mhsa(x, sequence_mask) + x  # [B, T, F]
-        y = self.conv(x)
-        x = y + x  # [B, T, F]
+        x = self.conv(x) + x  # [B, T, F]
         x = 0.5 * self.ff2(x) + x  # [B, T, F]
         x = self.final_layer_norm(x)  # [B, T, F]
         return x
 
-    def prep_quant(self, decompose):
-        self.ff1.prep_quant()
-        self.mhsa.prep_quant()
-        self.conv.prep_quant(decompose)
-        self.ff2.prep_quant()
+    def prep_quant(self, extra_act_quant: bool, decompose: bool):
+        self.ff1.prep_quant(extra_act_quant, decompose=decompose)
+        self.mhsa.prep_quant(extra_act_quant, decompose=decompose)
+        self.conv.prep_quant(extra_act_quant, decompose=decompose)
+        self.ff2.prep_quant(extra_act_quant, decompose=decompose)
+
+    def prep_dequant(self):
+        self.ff1.prep_dequant()
+        self.mhsa.prep_dequant()
+        self.conv.prep_dequant()
+        self.ff2.prep_dequant()
 
 
 class ConformerEncoderQuant(nn.Module):
@@ -456,9 +496,9 @@ class ConformerEncoderQuant(nn.Module):
 
         return x, sequence_mask
 
-    def prep_quant(self, decompose: bool):
+    def prep_quant(self, extra_act_quant: bool, decompose: bool):
         for module in self.module_list:
-            module.prep_quant(decompose=decompose)
+            module.prep_quant(extra_act_quant, decompose=decompose)
 
     def prep_dequant(self):
         for module in self.module_list:
@@ -491,7 +531,7 @@ class Model(torch.nn.Module):
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
 
         super().__init__()
-        self.train_config = QuantModelTrainConfigV5.from_dict(model_config_dict)
+        self.train_config = QuantModelTrainConfigV4.from_dict(model_config_dict)
         fe_config = self.train_config.feature_extraction_config
         frontend_config = self.train_config.frontend_config
         conformer_size = self.train_config.conformer_size
@@ -512,8 +552,8 @@ class Model(torch.nn.Module):
                     moving_average=self.train_config.moving_average,
                     weight_bit_prec=self.train_config.weight_bit_prec,
                     activation_bit_prec=self.train_config.activation_bit_prec,
-                    converter_hardware_settings=self.train_config.converter_hardware_settings,
-                    num_cycles=self.train_config.num_cycles,
+                    quantize_bias=self.train_config.quantize_bias,
+                    observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
                 mhsa_cfg=QuantizedMultiheadAttentionV4Config(
                     input_dim=conformer_size,
@@ -536,9 +576,8 @@ class Model(torch.nn.Module):
                     bit_prec_A_v=self.train_config.weight_bit_prec,
                     bit_prec_W_o=self.train_config.weight_bit_prec,
                     moving_average=self.train_config.moving_average,
-                    quant_in_linear=self.train_config.quant_in_linear,
-                    converter_hardware_settings=self.train_config.converter_hardware_settings,
-                    num_cycles=self.train_config.num_cycles,
+                    quantize_bias=self.train_config.quantize_bias,
+                    observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
                 conv_cfg=ConformerConvolutionQuantV4Config(
                     channels=conformer_size,
@@ -553,8 +592,8 @@ class Model(torch.nn.Module):
                     activation_quant_dtype=self.train_config.activation_quant_dtype,
                     activation_quant_method=self.train_config.activation_quant_method,
                     moving_average=self.train_config.moving_average,
-                    converter_hardware_settings=self.train_config.converter_hardware_settings,
-                    num_cycles=self.train_config.num_cycles,
+                    quantize_bias=self.train_config.quantize_bias,
+                    observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
             ),
         )
@@ -568,6 +607,8 @@ class Model(torch.nn.Module):
                 weight_quant_dtype=self.train_config.weight_quant_dtype,
                 weight_quant_method=self.train_config.weight_quant_method,
                 bias=True,
+                quantize_bias=self.train_config.quantize_bias,
+                observer_only_in_train=self.train_config.observer_only_in_train,
             )
             self.lin_out_in_quant = ActivationQuantizer(
                 bit_precision=self.train_config.activation_bit_prec,
@@ -575,6 +616,7 @@ class Model(torch.nn.Module):
                 method=self.train_config.activation_quant_method,
                 channel_axis=1,
                 moving_avrg=self.train_config.moving_average,
+                observer_only_in_train=self.train_config.observer_only_in_train,
             )
             self.lin_out_out_quant = ActivationQuantizer(
                 bit_precision=self.train_config.activation_bit_prec,
@@ -582,13 +624,14 @@ class Model(torch.nn.Module):
                 method=self.train_config.activation_quant_method,
                 channel_axis=1,
                 moving_avrg=self.train_config.moving_average,
+                observer_only_in_train=self.train_config.observer_only_in_train,
             )
             self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
         else:
             self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.train_config.final_dropout)
         self.specaug_start_epoch = self.train_config.specauc_start_epoch
-        self.converter_hardware_settings = self.train_config.converter_hardware_settings
+        self.extra_act_quant = self.train_config.extra_act_quant
         # No particular weight init!
 
     def forward(
@@ -601,6 +644,7 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
+
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
@@ -633,27 +677,27 @@ class Model(torch.nn.Module):
 
     def prep_quant(self, decompose=False):
         print("Converting Model for efficient inference")
+        print(f"Activation quantization is {self.extra_act_quant}")
         if self.train_config.quantize_output is True:
             self.lin_out.weight_quantizer.set_scale_and_zp()
-            self.lin_out_in_quant.set_scale_and_zp()
-            from torch_memristor.memristor_modules import TiledMemristorLinear
+            self.lin_out = Linear.from_float(
+                self.lin_out,
+                weight_qparams={
+                    "qscheme": self.lin_out.weight_quantizer.method,
+                    "dtype": self.lin_out.weight_quant_dtype,
+                    "zero_point": self.lin_out.weight_quantizer.zero_point,
+                    "scale": self.lin_out.weight_quantizer.scale,
+                    "quant_min": self.lin_out.weight_quantizer.quant_min,
+                    "quant_max": self.lin_out.weight_quantizer.quant_max,
+                    "decompose": decompose,
+                },
+            )
+            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
+        self.conformer.prep_quant(self.extra_act_quant, decompose=decompose)
 
-            mem_lin = TiledMemristorLinear(
-                in_features=self.lin_out.in_features,
-                out_features=self.lin_out.out_features,
-                weight_precision=self.lin_out.weight_bit_prec if not self.lin_out.weight_bit_prec == 1.5 else 2,
-                converter_hardware_settings=self.converter_hardware_settings,
-                memristor_inputs=128,
-                memristor_outputs=128,
-            )
-            mem_lin.init_from_linear_quant(
-                activation_quant=self.lin_out_in_quant,
-                linear_quant=self.lin_out,
-                num_cycles_init=self.train_config.num_cycles,
-                correction_settings=None,
-            )
-            self.final_linear = mem_lin
-        self.conformer.prep_quant(decompose=decompose)
+    def prep_dequant(self):
+        print("Removing Quantized parts from the model")
+        self.conformer.prep_dequant()
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):

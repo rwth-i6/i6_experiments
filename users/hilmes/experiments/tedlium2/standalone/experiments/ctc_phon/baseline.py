@@ -682,6 +682,7 @@ def eow_phon_ted_1023_base(full=False):
     results = {}
     for activation_bit, weight_bit in [
         (8, 8),
+        (8, 7),
         (8, 6),
         (8, 5),
         (8, 4),

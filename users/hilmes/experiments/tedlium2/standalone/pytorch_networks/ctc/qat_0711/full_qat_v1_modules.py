@@ -64,11 +64,13 @@ class WeightQuantizer(nn.Module):
             return self.quant_fn, self.observer
         if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_affine
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
         elif method == "per_tensor_symmetric":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_symmetric
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min,
                 quant_max=self.quant_max,

@@ -2,11 +2,11 @@
 Config for the base CTC models v4, including specaug start time
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from torch import nn
-from typing import Callable, Optional, Union, Dict
+from typing import Callable, Optional, Union, Dict, Literal, List
 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
@@ -61,12 +61,21 @@ class ConformerPositionwiseFeedForwardQuantV4Config(ModelConfiguration):
     correction_settings: Optional[CycleCorrectionSettings]
     activation: Callable[[torch.Tensor], torch.Tensor] = nn.functional.silu
 
+@dataclass
+class ConformerPosEmbConfig(ModelConfiguration):
+    learnable_pos_emb: bool
+    rel_pos_clip: Optional[int]
+    with_linear_pos: bool
+    with_pos_bias: bool
+    separate_pos_emb_per_head: bool
+    pos_emb_dropout: float
 
 @dataclass
-class QuantizedMultiheadAttentionV4Config(ModelConfiguration):
+class QuantizedConformerMHSARelPosV1Config(ModelConfiguration):
 
     input_dim: int
     num_att_heads: int
+    with_bias: bool
     att_weights_dropout: float
     weight_quant_dtype: torch.dtype
     weight_quant_method: str
@@ -76,12 +85,10 @@ class QuantizedMultiheadAttentionV4Config(ModelConfiguration):
     dot_quant_method: str
     Av_quant_dtype: torch.dtype
     Av_quant_method: str
-    bit_prec_W_q: Union[int, float]
-    bit_prec_W_k: Union[int, float]
-    bit_prec_W_v: Union[int, float]
+    bit_prec_W_i: Union[int, float]
     bit_prec_dot: Union[int, float]
-    bit_prec_A_v: Union[int, float]
     bit_prec_W_o: Union[int, float]
+    bit_prec_learn_emb: Union[int, float]
     activation_bit_prec: Union[int, float]
     moving_average: Optional[float]  # Moving average for input quantization
     dropout: float
@@ -92,10 +99,23 @@ class QuantizedMultiheadAttentionV4Config(ModelConfiguration):
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
+    learnable_pos_emb: bool
+    rel_pos_clip: Optional[int]
+    with_linear_pos: bool
+    with_pos_bias: bool
+    separate_pos_emb_per_head: bool
+    pos_emb_dropout: float
+    dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
 
     def __post_init__(self) -> None:
         super().__post_init__()
         assert self.input_dim % self.num_att_heads == 0, "input_dim must be divisible by num_att_heads"
+        assert self.dropout_broadcast_axes in [
+            None,
+            "B",
+            "T",
+            "BT",
+        ], "invalid value, supported are None, 'B', 'T' and 'BT'"
 
 
 @dataclass
@@ -147,8 +167,10 @@ class ConformerBlockQuantV1Config(ModelConfiguration):
 
     # nested configurations
     ff_cfg: ConformerPositionwiseFeedForwardQuantV4Config
-    mhsa_cfg: QuantizedMultiheadAttentionV4Config
+    mhsa_cfg: QuantizedConformerMHSARelPosV1Config
     conv_cfg: ConformerConvolutionQuantV4Config
+    modules: List[str] = field(default_factory=lambda: ["ff", "mhsa", "conv", "ff"])
+    scales: List[float] = field(default_factory=lambda: [0.5, 1.0, 1.0, 0.5])
 
 
 @dataclass
@@ -181,10 +203,11 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
-class QuantModelTrainConfigV7:
+class QuantModelTrainConfigV8:
     feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
+    pos_emb_config: ConformerPosEmbConfig
     specauc_start_epoch: int
     label_target_size: int
     conformer_size: int
@@ -197,6 +220,7 @@ class QuantModelTrainConfigV7:
     mhsa_dropout: float
     conv_kernel_size: int
     final_dropout: float
+    dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
     weight_quant_dtype: Union[torch.dtype, str]
     weight_quant_method: str
     activation_quant_dtype: Union[torch.dtype, str]
@@ -216,6 +240,10 @@ class QuantModelTrainConfigV7:
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
+    module_list: List[str]
+    module_scales: List[float]
+    aux_ctc_loss_layers: Optional[List[int]]
+    aux_ctc_loss_scales: Optional[List[float]]
 
     @classmethod
     def from_dict(cls, d):
@@ -225,6 +253,8 @@ class QuantModelTrainConfigV7:
         d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
         d["converter_hardware_settings"] = DacAdcHardwareSettings(**d["converter_hardware_settings"]) if d["converter_hardware_settings"] is not None else None
         d["correction_settings"] = CycleCorrectionSettings(**d["correction_settings"]) if d["correction_settings"] is not None else None
+        d["pos_emb_config"] = ConformerPosEmbConfig(**d["pos_emb_config"])
+
         for name in ["weight_quant_dtype", "activation_quant_dtype", "dot_quant_dtype", "Av_quant_dtype"]:
             if d[name] == "qint8":
                 weight_dtype = torch.qint8
@@ -239,7 +269,7 @@ class QuantModelTrainConfigV7:
             d["weight_noise_func"] = None
         else:
             raise NotImplementedError
-        return QuantModelTrainConfigV7(**d)
+        return QuantModelTrainConfigV8(**d)
 
     def __post_init__(self):
         for param in [self.weight_quant_dtype, self.activation_quant_dtype, self.dot_quant_dtype, self.Av_quant_dtype]:

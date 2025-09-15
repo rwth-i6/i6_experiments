@@ -223,7 +223,7 @@ class QuantModelTrainConfigV7:
         d["feature_extraction_config"] = LogMelFeatureExtractionV1Config(**d["feature_extraction_config"])
         d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
         d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
-        d["converter_hardware_settings"] = DacAdcHardwareSettings(**d["converter_hardware_settings"]) if d["converter_hardware_settings"] is not None else None
+        d["converter_hardware_settings"] = DacAdcHardwareSettings(**d["converter_hardware_settings"])
         d["correction_settings"] = CycleCorrectionSettings(**d["correction_settings"]) if d["correction_settings"] is not None else None
         for name in ["weight_quant_dtype", "activation_quant_dtype", "dot_quant_dtype", "Av_quant_dtype"]:
             if d[name] == "qint8":
