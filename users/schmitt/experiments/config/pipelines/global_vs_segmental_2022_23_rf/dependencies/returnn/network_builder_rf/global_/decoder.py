@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 class GlobalAttDecoder(BaseLabelDecoder):
   def __init__(self, eos_idx: int, **kwargs):
     from returnn.config import get_global_config
-    config = get_global_config()
+    config = get_global_config(return_empty_if_none=True)
     self.replace_att_by_h_s = config.bool("replace_att_by_h_s", False)
     if not kwargs.get("use_hard_attention") and self.replace_att_by_h_s:
       kwargs["use_hard_attention"] = True

@@ -131,7 +131,7 @@ class BaseLabelDecoder(rf.Module):
     super(BaseLabelDecoder, self).__init__()
 
     from returnn.config import get_global_config
-    config = get_global_config()  # noqa
+    config = get_global_config(return_empty_if_none=True)  # noqa
 
     assert not (use_current_frame_in_readout and use_current_frame_in_readout_w_gate), "only one of them allowed"
 
@@ -602,7 +602,7 @@ def get_common_config_params():
 
 def apply_weight_dropout(model: rf.Module):
   from returnn.config import get_global_config
-  config = get_global_config()  # noqa
+  config = get_global_config(return_empty_if_none=True)  # noqa
 
   weight_dropout = config.float("weight_dropout", None)
   if weight_dropout:

@@ -190,6 +190,7 @@ class MakeModel:
           num_enc_layers: int = 12,
           enc_aux_logits: Sequence[int] = (),
           target_embed_dim: int = 640,
+          encoder_layer_opts: Optional[Dict[str, Any]] = None,
   ):
     self.in_dim = in_dim
     self.target_dim = target_dim
@@ -202,6 +203,9 @@ class MakeModel:
 
     if target_embed_dim != 640:
       self.target_embed_dim = target_embed_dim
+
+    if encoder_layer_opts is not None:
+      self.encoder_layer_opts = encoder_layer_opts
 
   def __call__(self) -> GlobalAttentionModel:
     from returnn.datasets.util.vocabulary import Vocabulary
@@ -219,7 +223,10 @@ class MakeModel:
     if hasattr(self, "target_embed_dim"):
       extra["target_embed_dim"] = self.target_embed_dim
 
-    return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers, **extra)
+    if hasattr(self, "encoder_layer_opts"):
+      extra["encoder_layer_opts"] = self.encoder_layer_opts
+
+    return self.make_model(in_dim, target_dim, enc_num_layers=self.num_enc_layers, **extra)
 
   @classmethod
   def make_model(
