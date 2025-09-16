@@ -61,7 +61,8 @@ class StreamableFeatureExtractorV1(StreamableModule):
         )
 
     def prep_streaming_input(self, features: torch.Tensor, mask: torch.Tensor, chunk_sz: int):
-        bsz = features.size(0)
+        """ Partitions features into equally sized chunks of size `chunk_sz` and pads if necessary """
+        bsz = features.size(0)  # batch size
 
         chunk_size_frames = self.num_samples_to_frames(num_samples=int(chunk_sz))
         # pad conformer time-dim to be able to chunk (by reshaping) below
@@ -70,15 +71,17 @@ class StreamableFeatureExtractorV1(StreamableModule):
         features = nn.functional.pad(features, (0, 0, 0, time_dim_pad), "constant", 0)
         mask = nn.functional.pad(mask, (0, time_dim_pad), "constant", False)
 
-        # separate chunks to signal the conformer that we are chunking input
+        # separate chunks to signal to the conformer that we are chunking input
         features = features.view(bsz, -1, chunk_size_frames,
-                                         features.size(-1))  # [B, (T'/C), C, F] = [B, N, C, F]
+                                 features.size(-1))  # [B, (T'/C), C, F] = [B, N, C, F]
         mask = mask.view(bsz, -1, chunk_size_frames)  # [B, N, C]
 
         return features, mask
 
     def forward_offline(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Does standard logmel feature extraction with specaugment at certain epoch
+
         :param raw_audio: [B, T', <?>] 
         :param raw_audio_len: <= T' (in samples)
 
@@ -109,8 +112,9 @@ class StreamableFeatureExtractorV1(StreamableModule):
     
     def forward_streaming(self, raw_audio: torch.Tensor, length: torch.Tensor, chunk_sz: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Extracts logmel features and chunks resulting features.
         
-        :return: [B, N, C, F], [B, N, C]
+        :return: [B, N, C', F], [B, N, C']
         """
         features, mask = self.forward_offline(raw_audio=raw_audio, raw_audio_len=length)
         out, mask = self.prep_streaming_input(features, mask, chunk_sz)
@@ -118,6 +122,15 @@ class StreamableFeatureExtractorV1(StreamableModule):
         return out, mask
 
     def infer(self, input, lengths, chunk_sz_frames):
+        """
+        Expects one chunk of audio samples as input to extract features and pad to correct size
+
+        :param input: audio samples of shape [1, T', 1], where T' is the total number of samples (including padding)
+        :param lengths: number of non-padding samples (<= T')
+        :param chunk_sz_frames: chunk size in #frames
+        :return: [1, P*chunk_sz_frames, F], [1],
+            where P is the number of future chunks and F is the frame dimension
+        """
         audio_features, audio_features_lengths = self.forward_offline(input, lengths)
 
         time_dim_pad = -audio_features.size(1) % chunk_sz_frames

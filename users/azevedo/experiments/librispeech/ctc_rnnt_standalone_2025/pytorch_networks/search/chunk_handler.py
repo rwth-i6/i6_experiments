@@ -3,6 +3,8 @@ import collections
 import math
 import torch
 
+from ._base_decoder import BaseDecoderModule
+
 
 """
                 raw_audio_len
@@ -121,6 +123,44 @@ class StreamingASRContextManager:
             beam_width=self.beam_sz,
             state=tuple(self.states) if len(self.states) > 0 else None,
             hypothesis=self.hypothesis,
+        )
+
+        self.states.append(state)
+
+        return state, self.hypothesis
+
+
+
+
+class StreamingASRManager:
+    def __init__(self, decoder: BaseDecoderModule):
+        """
+        Manages internal states and hypotheses during streaming (incremental) decoding.
+        """
+        self.decoder = decoder
+        
+        self.states = None
+        self.hypothesis = None
+
+    def __enter__(self):
+        self.states = collections.deque(maxlen=math.ceil(self.decoder.decoder_config.carry_over_size))
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.states = None
+
+    def process_chunk(self, audio_chunk: torch.Tensor, chunk_len: int) -> Tuple[torch.Tensor, List]:
+        """
+        :param ext_chunk: shape [C, 1]
+        :param eff_chunk_sz: L <= C+R
+
+        :return: state and current hypothesis
+        """
+        self.hypothesis, state = self.decoder.step(
+            audio_chunk=audio_chunk,
+            chunk_len=chunk_len,
+            states=tuple(self.states) if len(self.states) > 0 else None,
+            hypotheses=self.hypothesis,
         )
 
         self.states.append(state)

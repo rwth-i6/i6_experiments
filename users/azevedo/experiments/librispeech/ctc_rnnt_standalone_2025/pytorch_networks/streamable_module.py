@@ -24,6 +24,14 @@ class StreamableModule(nn.Module):
         for m in self.modules():
             if isinstance(m, StreamableModule):
                 m.set_mode(mode)
+    
+    def _unset_mode(self) -> None:
+        self._mode = None
+
+    def unset_mode_cascaded(self) -> None:
+        for m in self.modules():
+            if isinstance(m, StreamableModule):
+                m._unset_mode()
 
     def forward(self, *args, **kwargs):
         """

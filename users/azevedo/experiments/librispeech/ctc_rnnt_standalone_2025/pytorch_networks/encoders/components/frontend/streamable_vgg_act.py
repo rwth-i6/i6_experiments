@@ -3,9 +3,10 @@ from typing import Callable, Optional, Tuple, Union
 import torch
 from torch import nn
 
-from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config as VGGLayerActFrontendV1ConfigI6
 from ....streamable_module import StreamableModule
 from ....base_config import BaseConfig
+from ....common import mask_tensor
 
 
 
@@ -79,7 +80,7 @@ class VGG4LayerActFrontendV1Config(BaseConfig):
 
 
 class StreamableVGG4LayerActFrontendV1(StreamableModule):
-    def __init__(self, model_cfg: VGG4LayerActFrontendV1Config):
+    def __init__(self, model_cfg: Union[VGG4LayerActFrontendV1Config, VGGLayerActFrontendV1ConfigI6]):
         """
         :param model_cfg: model configuration for this module
         """
@@ -92,30 +93,46 @@ class StreamableVGG4LayerActFrontendV1(StreamableModule):
         :param data_tensor: tensor with shape [B, T, F]
         :param sequence_mask: tensor with shape [B, T]
 
-        :return: tensor of shape [B, T', E]
+        :return: tensor of shape [B, T', F']
         """
         return self.vgg4_act_frontend(data_tensor, sequence_mask)
     
     def forward_streaming(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor):
         """
-        :param data_tensor: tensor with shape [B, N, C, E]
-        :param sequence_mask: tensor with shape [B, N, C]
+        :param data_tensor: tensor with shape [B, N, C', F]
+        :param sequence_mask: tensor with shape [B, N, C']
 
-        :return: tensor of shape [B, N, C', E] and sequence mask [B, N, C']
+        :return: tensor of shape [B, N, C, F'] and sequence mask [B, N, C]
         """
         batch_sz, num_chunks, _, _ = data_tensor.shape
 
+        # [B, N, C', F] -> [B*N, C', F]
         data_tensor = data_tensor.flatten(0, 1)
         sequence_mask = sequence_mask.flatten(0, 1)
 
-        x, sequence_mask = self.forward_offline(data_tensor, sequence_mask)
+        # do subsampling on chunk-level
+        x, sequence_mask = self.forward_offline(data_tensor, sequence_mask)  # [B*N, C, F']
 
+        # [B*N, C, F'] -> [B, N, C, F']
         x = x.view(batch_sz, num_chunks, -1, x.size(-1))
         sequence_mask = sequence_mask.view(batch_sz, num_chunks, sequence_mask.size(-1))
 
         return x, sequence_mask
     
-    def infer(self, *args, **kwargs):
-        return super().infer(*args, **kwargs)
+    def infer(self, audio_features: torch.Tensor, audio_features_len: torch.Tensor, chunk_size_frames: int):
+        """
+
+        :param audio_features: [1, P*C', F] where the first C' are the first chunk and we have P-1 future chunks (needed for future frames)
+        :param audio_features_len: [1,]
+        :param chunk_size_frames: C'
+        :return: [P, C, F']
+        """
+        sequence_mask = mask_tensor(tensor=audio_features, seq_len=audio_features_len)  # (1, P*C')
+
+        audio_features = audio_features.view(-1, chunk_size_frames, audio_features.size(-1))  # (P, C', F)
+        sequence_mask = sequence_mask.view(-1, chunk_size_frames)  # (P, C')
+
+        return self.forward_offline(audio_features, sequence_mask)  # (P, C, F')
+
 
 

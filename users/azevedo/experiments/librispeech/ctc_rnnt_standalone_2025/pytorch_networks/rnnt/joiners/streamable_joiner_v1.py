@@ -21,7 +21,7 @@ class StreamableJoinerConfig(BaseConfig):
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
-        return StreamableJoinerConfig(**d)
+        return cls(**d)
     
     def module(self):
         return StreamableJoinerV1

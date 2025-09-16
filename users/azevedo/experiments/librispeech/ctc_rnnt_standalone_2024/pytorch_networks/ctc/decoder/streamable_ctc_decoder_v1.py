@@ -169,7 +169,6 @@ def forward_streaming(model: StreamableModule, raw_audio, raw_audio_len, run_ctx
             pad_value=config.pad_value,
         )
 
-        state = None
         states = collections.deque(maxlen=math.ceil(config.carry_over_size))
 
         for chunk, eff_chunk_len in chunk_streamer:      
@@ -217,6 +216,7 @@ def forward_step(*, model: StreamableModule, data, run_ctx, **kwargs):
     else:
         model.set_mode_cascaded(Mode.STREAMING)
         hypothesis, am_time, search_time = forward_streaming(model, raw_audio, raw_audio_len, run_ctx)
+    mode.unset_mode_cascaded()
 
     if run_ctx.print_rtf:
         print("Batch-AM-Time: %.2fs, AM-RTF: %.3f" % (am_time, am_time / audio_len_batch))

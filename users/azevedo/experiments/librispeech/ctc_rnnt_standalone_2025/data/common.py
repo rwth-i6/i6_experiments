@@ -211,3 +211,47 @@ def build_test_dataset(
     )
 
     return test_dataset, bliss_dict[dataset_key]
+
+
+# --------------------------- LibriSpeech-Long functions -----------------------------------
+from ..librispeech_long.corpus import (
+    get_ogg_zip_dict as get_ogg_zip_dict_long,
+    get_bliss_corpus_dict as get_bliss_corpus_dict_long
+)
+
+
+def build_test_long_dataset(
+    dataset_key: str,
+    settings: DatasetSettings,
+    label_datastream: LabelDatastream = None,
+) -> Tuple[Dataset, tk.Path]:
+    """
+    Create ASR test set that only contains the audio stream
+
+    :param dataset_key: e.g. dev-other, which test set to create
+    :param settings: settings object for the RETURNN data pipeline
+    :return: tuple of the test dataset and a path to the corresponding bliss corpus file
+    """
+    ogg_zip_dict = get_ogg_zip_dict_long("corpora", returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+    bliss_dict = get_bliss_corpus_dict_long()
+    test_ogg = ogg_zip_dict[dataset_key]
+
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+
+    if label_datastream is not None:
+        data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+        test_zip_dataset = OggZipDataset(
+            files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse",
+            target_options=label_datastream.as_returnn_targets_opts()
+        )
+    else:
+        data_map = {"raw_audio": ("zip_dataset", "data")}
+        test_zip_dataset = OggZipDataset(
+            files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse",
+        )
+
+    test_dataset = MetaDataset(
+        data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+    )
+
+    return test_dataset, bliss_dict[dataset_key]

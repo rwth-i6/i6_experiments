@@ -7,12 +7,16 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import time
 import torch
 from torch import nn
+import copy
+import math
+import pickle
+import sys
 
 from torchaudio.models import RNNT
-from .beam_search.documented_rnnt_beam_search import RNNTBeamSearch, Hypothesis
+from .search_handler import get_beam_algo
 from .chunk_handler import AudioStreamer, StreamingASRContextManager
 from ..streamable_module import StreamableModule
-from ..common import Mode
+from ..common import Mode, Hypothesis, insert_trie, follow_trie
 
 
 
@@ -23,6 +27,8 @@ class DecoderConfig:
 
     # search related options:
     beam_size: int
+
+    beam_algo: Union[str, nn.Module]
 
     # LM vars e.g. "lm.lstm.some_lstm_variant_file.Model"
     lm_module: Optional[str]
@@ -55,6 +61,13 @@ class DecoderConfig:
     use_torch_compile: bool = False
     torch_compile_options: Optional[Dict[str, Any]] = None
 
+    @classmethod
+    def from_dict(cls, d):
+        d = copy.deepcopy(d)
+        d["mode"] = Mode[d["mode"]]
+        # d["beam_algo"] = <some enum?>
+        return cls(**d)
+
 
 @dataclass
 class ExtraConfig:
@@ -70,11 +83,12 @@ class ExtraConfig:
 
 
 class Transcriber(nn.Module):
-    def __init__(self,
-            encoder: StreamableModule,
-            chunk_size: Optional[int] = None,
-            lookahead_size: Optional[int] = None,
-            carry_over_size: Optional[int] = None
+    def __init__(
+        self,
+        encoder: StreamableModule,
+        chunk_size: Optional[int] = None,
+        lookahead_size: Optional[int] = None,
+        carry_over_size: Optional[int] = None,
     ) -> None:
         super().__init__()
 
@@ -97,10 +111,10 @@ class Transcriber(nn.Module):
             return encoder_out, encoder_out_lengths
 
     def infer(
-            self,
-            input: torch.Tensor,
-            lengths: torch.Tensor,
-            states: Optional[List[List[torch.Tensor]]],
+        self,
+        input: torch.Tensor,
+        lengths: torch.Tensor,
+        states: Optional[List[List[torch.Tensor]]],
     ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
         """
         :param input: audio samples as [B=1, T, 1]
@@ -111,24 +125,22 @@ class Transcriber(nn.Module):
             return output, out_lengths, [[]]
 
         assert input.dim() == 3 and input.size(0) == 1, "Streaming inference expects input with shape [B=1, S, 1]."
-        
+
         with torch.no_grad():
             self.encoder.set_mode_cascaded(Mode.STREAMING)
             encoder_out, encoder_out_lengths, state = self.encoder.infer(
                 input, lengths, states, chunk_size=self.chunk_size, lookahead_size=self.lookahead_size
             )
 
-        return encoder_out[:, :encoder_out_lengths[0]], encoder_out_lengths, [state]
+        return encoder_out[:, : encoder_out_lengths[0]], encoder_out_lengths, [state]
 
 
 def forward_init_hook(run_ctx, **kwargs):
     # we are storing durations, but call it output.hdf to match
     # the default output of the ReturnnForwardJob
-    config = DecoderConfig(**kwargs["config"])
-    config.mode = {str(m): m for m in Mode}[config.mode]
+    config = DecoderConfig.from_dict(kwargs["config"])
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
-
     run_ctx.config = config
 
     run_ctx.recognition_file = open("search_out.py", "wt")
@@ -147,7 +159,7 @@ def forward_init_hook(run_ctx, **kwargs):
 
     rnnt_model = RNNT(
         transcriber=Transcriber(
-            encoder=model.conformer,
+            encoder=model.encoder,
             chunk_size=config.chunk_size,
             lookahead_size=model.lookahead_size,
             carry_over_size=config.carry_over_size,
@@ -181,13 +193,14 @@ def forward_init_hook(run_ctx, **kwargs):
         print("loaded external LM")
         print()
 
-    run_ctx.rnnt_decoder = RNNTBeamSearch(
+    run_ctx.rnnt_decoder = get_beam_algo(
+        config.beam_algo,
         model=rnnt_model,
         blank=model.cfg.label_target_size,
         blank_penalty=run_ctx.blank_log_penalty,
         device=run_ctx.device,
         lm_model=lm_model,
-        lm_scale =config.lm_scale,
+        lm_scale=config.lm_scale,
         zero_ilm_scale=config.zero_ilm_scale,
         lm_sos_token_index=0,
     )
@@ -202,6 +215,8 @@ def forward_init_hook(run_ctx, **kwargs):
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
 
+    run_ctx.hypo_trie = dict()
+
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
@@ -211,6 +226,10 @@ def forward_finish_hook(run_ctx, **kwargs):
         print(
             "Total-time: %.2f, Batch-RTF: %.3f" % (run_ctx.total_time, run_ctx.total_time / run_ctx.running_audio_len_s)
         )
+
+    sys.setrecursionlimit(50000)
+    with open("hypo_trie.pickle", "wb") as handle:
+        pickle.dump(run_ctx.hypo_trie, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def forward_step(*, model, data, run_ctx, **kwargs):
@@ -225,31 +244,61 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     config: DecoderConfig = run_ctx.config
 
-    hyps = []
+    hyps: List[Hypothesis] = []
     for i in range(raw_audio.shape[0]):
+        sequence_start = time.time()
         if config.mode == Mode.OFFLINE:
             hyp = process_offline_sample(raw_audio=raw_audio[i], raw_audio_len=raw_audio_len[i], run_ctx=run_ctx)
         else:
-            hyp = process_streaming_sample(raw_audio=raw_audio[i], raw_audio_len=raw_audio_len[i], config=config, run_ctx=run_ctx)
+            hyp = process_streaming_sample(
+                raw_audio=raw_audio[i], raw_audio_len=raw_audio_len[i],
+                config=config, run_ctx=run_ctx, tag=data["seq_tag"][i]
+            )
 
         hyps.append(hyp)
+
+        if run_ctx.print_rtf:
+            sequence_time = time.time() - sequence_start
+            audio_len = raw_audio_len[i]/16000
+            print("Sequence-length: %.2f, Sequence-time: %.2f, Sequence-RTF: %.3f" % (audio_len, sequence_time, sequence_time/audio_len))
+
 
     if run_ctx.print_rtf:
         total_time = time.time() - start
         run_ctx.total_time += total_time
         print("Batch-time: %.2f, Batch-RTF: %.3f" % (total_time, total_time / audio_len_batch))
 
-    for hyp, tag in zip(hyps, data["seq_tag"]):
-        sequence = [run_ctx.labels[idx] for idx in hyp if idx < len(run_ctx.labels)]
+    for i, (hyp, tag) in enumerate(zip(hyps, data["seq_tag"])):
+        # FIXME: this assumes <S> = 0
+        sequence = [run_ctx.labels[idx] for idx in hyp.tokens if 0 < idx < len(run_ctx.labels)]
         text = " ".join(sequence).replace("@@ ", "")
         if run_ctx.print_hypothesis:
-            print(text)
+            if hyp.alignment and config.mode != Mode.OFFLINE:
+                subhypos, curr = [], []
+                num_blanks = 0
+                for y in hyp.alignment[1:]:
+                    if num_blanks > 0 and num_blanks % run_ctx.subs_chunk_sz == 0:
+                        subhypos.append(curr)
+                        curr = []
+
+                    if y == len(run_ctx.labels):  # <blank>
+                        num_blanks += 1
+                    elif y > 0:  # not <s>, <blank>
+                        curr.append(y)
+
+                if curr:
+                    subhypos.append(curr)
+
+                path_seq = [[run_ctx.labels[idx] for idx in subp if 0 < idx < len(run_ctx.labels)] for subp in subhypos]
+                path_seq = map(lambda x: " ".join(x), path_seq)
+                path_seq = "|".join(list(path_seq)).replace("@@ ", "")  # @@ at boundaries are ignored intentionally
+                print(path_seq)
+            else:
+                print(text)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(text)))
 
 
-def process_offline_sample(
-        raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, run_ctx
-) -> torch.Tensor:
+def process_offline_sample(raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, run_ctx) -> Hypothesis:
     hypothesis: List[Hypothesis] = None
 
     hypothesis, _ = run_ctx.rnnt_decoder.infer(
@@ -257,11 +306,10 @@ def process_offline_sample(
         length=raw_audio_len,
         beam_width=run_ctx.beam_size,
     )
-    return hypothesis[0].tokens[:-1]  # remove <S> token
+    return hypothesis[0]  # NOTE: <S> token removed above
 
-def process_streaming_sample(
-        raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, config, run_ctx
-) -> torch.Tensor:
+
+def process_streaming_sample(raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, config, run_ctx, tag) -> Hypothesis:
     chunk_streamer = AudioStreamer(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
@@ -273,8 +321,27 @@ def process_streaming_sample(
 
     hypothesis: List[Hypothesis] = None
     # context manager for handling states of streaming inference (only need to pass chunk and its effective size)
-    with StreamingASRContextManager(run_ctx.rnnt_decoder, carryover_sz=config.carry_over_size, beam_sz=run_ctx.beam_size) as cm:
-        for chunk, eff_chunk_sz in chunk_streamer:
-            _, hypothesis = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz) 
+    with StreamingASRContextManager(
+        run_ctx.rnnt_decoder, carryover_sz=config.carry_over_size, beam_sz=run_ctx.beam_size
+    ) as cm:
+        for i, (chunk, eff_chunk_sz) in enumerate(chunk_streamer):
+            _, hypothesis = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz)
 
-    return hypothesis[0].tokens[:-1]
+            # sanity check
+            if i == 0:
+                # number of blanks (ie number of frames) in hypo of first chunk
+                if run_ctx.config.beam_algo == "rnnt":
+                    run_ctx.subs_chunk_sz = len([y for y in hypothesis[0].alignment if y == run_ctx.rnnt_decoder.blank]) - 1
+                else:
+                    # for monotonic rnnt we count number of emissions
+                    run_ctx.subs_chunk_sz = len(hypothesis[0].alignment) - 1
+
+                # check whether the number of frames corresponds to our chunk size (for long enough sequences)
+                if eff_chunk_sz >= config.chunk_size + config.lookahead_size:
+                    assert run_ctx.subs_chunk_sz == math.ceil(config.chunk_size / 16e3 * 1000 / 60)
+
+            # extend trie dict
+            for hypo in hypothesis:
+                run_ctx.hypo_trie, _ = insert_trie(run_ctx.hypo_trie, [tag] + hypo.alignment)
+
+    return hypothesis[0]  # NOTE: <S> token removed above
