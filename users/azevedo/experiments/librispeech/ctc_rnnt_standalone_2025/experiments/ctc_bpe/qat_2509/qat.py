@@ -282,14 +282,14 @@ def bpe_lib_qat_comparisons():
 
     train_args = {
         "config": train_config,
-        "network_module": network_module_v4,
+        "network_module": network_module_v4_streamable,
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
         "post_config": {"num_workers_per_gpu": 8},
         "use_speed_perturbation": True,
     }
 
-    training_name = prefix_name + "/" + network_module_v4 + f"_8_8_bpe"
+    training_name = prefix_name + "/" + network_module_v4_streamable + f"_8_8_bpe"
     train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
     results = {}
