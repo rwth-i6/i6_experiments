@@ -146,7 +146,7 @@ def torch_ctc_fixed_grad(
 
         class _FixCTCGradFunc(torch.autograd.Function):
             @staticmethod
-            def forward(ctx, log_probs, input_lengths, sanity_check_zero: bool = True):
+            def forward(ctx, log_probs, input_lengths, sanity_check_zero: bool):
                 loss_scale_buffer = {}
                 ctx.loss_scale_buffer = loss_scale_buffer
                 ctx.save_for_backward(log_probs, input_lengths)
@@ -184,7 +184,7 @@ def torch_ctc_fixed_grad(
                 mask = torch.arange(max_time, device=input_lengths.device)[:, None] < input_lengths[None, :]  # [T, N]
                 grad_input = torch.where(mask[:, :, None], grad_input, torch.zeros_like(grad_input))
 
-                return grad_input, None
+                return grad_input, None, None
 
         class _StoreGradScaleFunc(torch.autograd.Function):
             @staticmethod
