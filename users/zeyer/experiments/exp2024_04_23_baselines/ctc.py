@@ -1865,7 +1865,11 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
         assert use_fixed_ctc_grad == "v2"  # v2 has the fix for scaled/normalized CTC loss
-        ctc_loss = ctc_loss_fixed_grad
+
+        if model.ctc_am_scale == 1 and model.ctc_prior_scale == 0:
+            ctc_loss = ctc_loss_fixed_grad  # including sanity check
+        else:
+            ctc_loss = functools.partial(ctc_loss_fixed_grad, sanity_check_zero=False)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)

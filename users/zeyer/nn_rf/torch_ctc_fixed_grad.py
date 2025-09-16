@@ -23,6 +23,7 @@ def ctc_loss_fixed_grad(
     targets_spatial_dim: Dim,
     blank_index: int,
     max_approx: bool = False,
+    sanity_check_zero: bool = True,
 ) -> Tensor:
     """
     Calculates the CTC loss, using :func:`torch_ctc_fixed_grad`.
@@ -36,6 +37,7 @@ def ctc_loss_fixed_grad(
     :param targets_spatial_dim: spatial dim of targets
     :param blank_index: vocab index of the blank symbol
     :param max_approx: if True, use max instead of sum over alignments (max approx, Viterbi)
+    :param sanity_check_zero: if True, do a sanity check that the sum of grad_output is zero
     :return: loss shape [B...]
     """
     import torch
@@ -86,6 +88,7 @@ def ctc_loss_fixed_grad(
         blank=blank_index,
         zero_infinity=True,
         reduction="none",
+        sanity_check_zero=sanity_check_zero,
     )
     if len(batch_dims) != 1:
         loss_raw = torch.reshape(loss_raw, logits_raw_shape[1:-1])
@@ -101,6 +104,7 @@ def torch_ctc_fixed_grad(
     input_lengths: torch.Tensor,
     target_lengths: torch.Tensor,
     *args,
+    sanity_check_zero: bool = True,
     **kwargs,
 ) -> torch.Tensor:
     """
@@ -129,6 +133,7 @@ def torch_ctc_fixed_grad(
     :param targets: shape [N, S]
     :param input_lengths: shape [N]
     :param target_lengths: shape [N]
+    :param sanity_check_zero: if True, do a sanity check that the sum of grad_output is zero
     :param args: passed to :func:`torch.nn.functional.ctc_loss`
     :param kwargs: passed to :func:`torch.nn.functional.ctc_loss`
     :return: loss (either scalar or [N], depending on reduction)
@@ -141,10 +146,11 @@ def torch_ctc_fixed_grad(
 
         class _FixCTCGradFunc(torch.autograd.Function):
             @staticmethod
-            def forward(ctx, log_probs, input_lengths):
+            def forward(ctx, log_probs, input_lengths, sanity_check_zero: bool = True):
                 loss_scale_buffer = {}
                 ctx.loss_scale_buffer = loss_scale_buffer
                 ctx.save_for_backward(log_probs, input_lengths)
+                ctx.sanity_check_zero = sanity_check_zero
                 return log_probs, loss_scale_buffer
 
             @staticmethod
@@ -159,7 +165,7 @@ def torch_ctc_fixed_grad(
                 # where y are the soft targets,
                 # and where we control scale=1 via _StoreGradScaleFunc.
                 global _FixedCTCGradStep
-                if _FixedCTCGradStep % 1000 == 0:  # do sanity check from time to time
+                if ctx.sanity_check_zero and _FixedCTCGradStep % 1000 == 0:  # do sanity check from time to time
                     sum_res = grad_output[0, 0].sum().detach().cpu()
                     assert -1e-2 <= sum_res <= 1e-2, (
                         f"Unexpected sum of grad_output {sum_res} at step {_FixedCTCGradStep},"
@@ -193,7 +199,7 @@ def torch_ctc_fixed_grad(
                 loss_scale_buffer["scale"] = grad_output
                 return torch.ones_like(grad_output), None
 
-    log_probs, loss_scale_buffer = _FixCTCGradFunc.apply(log_probs, input_lengths)
+    log_probs, loss_scale_buffer = _FixCTCGradFunc.apply(log_probs, input_lengths, sanity_check_zero)
     loss = torch.nn.functional.ctc_loss(log_probs, targets, input_lengths, target_lengths, *args, **kwargs)
     loss = _StoreGradScaleFunc.apply(loss, loss_scale_buffer)
     return loss
