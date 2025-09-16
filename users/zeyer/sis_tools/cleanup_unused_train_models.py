@@ -234,7 +234,10 @@ def main():
         name = job.get_one_alias() or job.job_id()
         try:
             relevant_epochs = get_relevant_epochs_from_training_learning_rate_scores(
-                model_dir=job.out_model_dir, scores_and_learning_rates=job.out_learning_rates, log_stream=None
+                model_dir=job.out_model_dir,
+                scores_and_learning_rates=job.out_learning_rates,
+                allow_all_removed=False,
+                log_stream=None,
             )
         except GetRelevantEpochsFromTrainingLearningRateScoresException as exc:
             print(f"  Job {name}, warning: {exc}, skipping.")
