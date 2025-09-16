@@ -905,6 +905,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 model_name=self.exp.model_name,
                 scores_and_learning_rates=self.exp.scores_and_learning_rates,
                 n_best=self.check_train_scores_n_best,
+                allow_all_removed=True,  # maybe all cleaned up
                 log_stream=log_stream,
             ):
                 if self.exp.get_epoch(epoch).checkpoint.exists():
@@ -932,6 +933,8 @@ class GetBestRecogTrainExp(sisyphus.Job):
         """run"""
         import ast
         import json
+
+        assert self._scores_outputs, "no epochs"
 
         scores = []  # (value,epoch) tuples
         for epoch, score in sorted(self._scores_outputs.items()):

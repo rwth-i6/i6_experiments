@@ -143,6 +143,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     model_name: str = "epoch",
     scores_and_learning_rates: tk.Path,
     n_best: int = 2,
+    allow_all_removed: bool = False,
     log_stream: Optional[TextIO] = sys.stderr,
 ) -> List[int]:
     """
@@ -163,6 +164,8 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     :param model_name: RETURNN config `model` option. this is hardcoded to "epoch" in ReturnnTrainingJob
     :param scores_and_learning_rates: ReturnnTrainingJob.out_learning_rates
     :param n_best: number of best epochs to return
+    :param allow_all_removed: by default, if none of the suggested epochs exist anymore,
+        an exception is raised.
     :param log_stream: prints some verbose info.
         The function should only really be called once when the scores_and_learning_rates becomes available,
         so it should not be a problem to always enable this.
@@ -237,7 +240,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
         if not _chkpt_exists(model_dir=model_dir, model_name=model_name, epoch=ep):
             print("Model does not exist (anymore):", suggested_epochs, file=log_stream)
             suggested_epochs.remove(ep)
-    if not suggested_epochs:
+    if not suggested_epochs and not allow_all_removed:
         raise GetRelevantEpochsFromTrainingLearningRateScoresException(
             f"none of suggested epochs {suggested_epochs_} exists from job {model_dir.creator}"
         )
