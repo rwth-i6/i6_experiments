@@ -1162,7 +1162,8 @@ def py():
         # Baseline (1.0, 0.0, None, {}): 5.85
         # (0.7, 0.0, None, {}),  # 6.2
         # (0.5, 0.2, "batch", {}),  # 13.38
-        # (0.7, 0.2, "batch", {}),  # 8.47 (note: non-fixed variant)
+        (0.7, 0.2, "batch", {}),  # 8.47 (note: non-fixed variant)
+        (1.0, 0.2, "batch", {}),
         # (0.7, 0.2, "running_mean", {"prior_running_mean_momentum": 0.001}),  # 28.87
     ]:
         ctc_train_exp(
