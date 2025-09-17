@@ -454,3 +454,47 @@ class OracleWerJob(Job):
         else:
             with open(self.out_best_nbest, "w") as f_out:
                 write_py_dict(best_nbest_dict, f_out)
+
+from i6_experiments.users.zhang.datasets.score_results import ScoreResult
+
+PRINTED = False
+class GetOracleWerReportJob(Job):
+    """
+    Collect all wer reports from recogs.
+    """
+    def __init__(
+        self,
+        *,
+        outputs: Dict[str, ScoreResult],
+        name: Optional[str] = None,
+    ):
+        """
+        :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_and_score_func: epoch -> scores. called in graph proc
+        """
+        super(GetOracleWerReportJob, self).__init__()
+        global PRINTED
+        self.outputs = outputs  # type: Dict[str, ScoreResult]
+        self.name = name
+        self.out_report_dict = self.output_path("wer_report.py")
+        self.out_name = self.output_path("Nlist_name")
+        if not PRINTED:
+            for k,v in self.outputs.items():
+                print(f"{k}:{v.main_measure_value}")
+            #print(self.outputs)
+            PRINTED = True
+
+    def tasks(self):
+        """tasks"""
+        yield sisyphus.Task("run", rqmt={"cpu":1, "time":1})#mini_task=True)
+
+    def run(self):
+        """run"""
+        with open(self.out_report_dict.get_path(), "wt") as out:
+            out.write("{\n")
+            for dataset, score_res in self.outputs.items():
+                out.write(f"{dataset!r}: {(score_res.main_measure_value, score_res.report)!r}\n")
+            out.write("}\n")
+        if self.name:
+            with open(self.out_name, "wt") as out:
+                out.write(self.name)

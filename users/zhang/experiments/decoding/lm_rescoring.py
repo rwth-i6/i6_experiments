@@ -99,17 +99,32 @@ class LmRescoringJob(Job):
         self.lm_cfg = lm_cfg
         self.n_best_file = recog_out_file
         self.out_file = self.output_path(_v2_forward_out_filename)
-        self.rqmt = {"time": 4, "cpu": 3, "mem": 8, "gpu": 1, "gpu_mem": 23}
+        self.rqmt = {"time": 4, "cpu": 3, "mem": 8, "gpu": 1, "gpu_mem": 24}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import math
+        import returnn.util.basic as util
+        import gzip
+        import i6_core.util as cutil
+
         self.scorer: LMScorer = ScorerFactory.build(self.lm_cfg)
         prev_one_ctx = self.lm_cfg.get("prev_one_ctx",False)
+        gt_res = self.lm_cfg.get("gt_res",None)
+        if gt_res is not None: # No need to reorder, only need it as a look up
+            gt_rec = eval(cutil.uopen(gt_res, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+            print(f"Got gt_rec! {gt_rec.keys()[0]}:{gt_rec[gt_rec.keys()[0]]}")
+        else:
+            gt_rec = None
 
-        import returnn.util.basic as util
+        am_prior_scores = self.lm_cfg.get("AM_prior_scores",None)
+        other_scores_hyps = None
+        if am_prior_scores is not None:
+            other_scores_hyps = list()
+            assert isinstance(am_prior_scores, list) and len(am_prior_scores) > 0, f"Check input scores {am_prior_scores}"
+            for scale, score_res in am_prior_scores:
+                other_scores_hyps.append((scale, eval(cutil.uopen(score_res, "rt").read(), {"nan": float("nan"), "inf": float("inf")})))
 
         device_str = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -130,8 +145,7 @@ class LmRescoringJob(Job):
                 file.write(f"  ({score!r}, {hyp!r}),\n")
 
         _report_dev_memory_stats()
-        import gzip
-        import i6_core.util as cutil
+
         d_rec = eval(cutil.uopen(self.n_best_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         out_file = gzip.open(self.out_file.get_path(), "wt")
         out_file.write("{\n")
@@ -144,6 +158,22 @@ class LmRescoringJob(Job):
         if prev_one_ctx:
             d_rec = sort_dict_by_record(d_rec)
         last_record = None
+        PRINTED = False
+
+        def combine_scores(seq_tag, lm_scores, hyps, other_scores_hyps):
+            combined_scores = list()
+            def get_score_by_hyp(hyp, scores_hyps):
+                for score, hyp_ in scores_hyps[seq_tag]:
+                    if hyp_ == hyp:
+                        return score
+                assert False, f"No matching found \n\t'{hyp}'\n in {scores_hyps[seq_tag]}"
+            for lm_score, hyp in zip(lm_scores, hyps):
+                for scale, scores_hyps in other_scores_hyps:
+                    lm_score += scale*get_score_by_hyp(hyp, scores_hyps)
+                combined_scores.append(lm_score)
+            return combined_scores
+
+
         for seq_tag, n_best in d_rec.items():
             print(f"Processing {seq_tag}...")
             out_file.write(f"{seq_tag!r}: [\n")
@@ -156,6 +186,12 @@ class LmRescoringJob(Job):
                     self.scorer.clear_prompt()
                     print(f"Clear context for record {last_record}")
             lm_scores = self.scorer.batch_score(hyps)
+            if prev_one_ctx:
+                if other_scores_hyps is not None:
+                    lm_scores = combine_scores(seq_tag, lm_scores, hyps, other_scores_hyps)
+                else:
+                    if not PRINTED:
+                        print(f"\n\n[Warning]: Using LLM clue only for determine top1 hyp as context\n\n")
             # reorder and select top
             if lines_seen % log_every == 0:
                 print(f"[Line {lines_seen:,}/{total_lines}] {100 * lines_seen / total_lines:.2f}% processed…")
@@ -166,9 +202,13 @@ class LmRescoringJob(Job):
             if prev_one_ctx:
                 self.scorer: HuggingFaceLmScorer
                 reorder = list(zip(lm_scores, hyps))
-                reorder.sort(key=lambda x: x[0], reverse=True)
-                recog_seq = raw_text_from_bpe_seq(reorder[0][1].split())
-                print(f"Recog for {seq_tag}: {recog_seq}")
+                if gt_rec is not None:
+                    recog_seq = gt_rec[seq_tag]
+                    print(f"Reference for {seq_tag}: {recog_seq}")
+                else:
+                    reorder.sort(key=lambda x: x[0], reverse=True)
+                    recog_seq = reorder[0][1]
+                    print(f"Recog for {seq_tag}: {recog_seq}")
                 self.scorer.update_prompt(recog_seq)
                 last_record = current_record
             # out_file.write(f"  ({reorder[0][1]!r}, {reorder[0][2]!r}),\n")
@@ -277,7 +317,7 @@ class HuggingFaceLmScorer(LMScorer):
         return len(self.delimiter.join(self.prompt_buffer + [""]).split()) >= self.context_len_limit
 
     def update_prompt(self, new_prompt: str):
-        self.prompt_buffer += [new_prompt]
+        self.prompt_buffer += [self.get_raw_text(new_prompt.split())]
         while self.ctx_over_limit():
             self.prompt_buffer.pop(0)
         self.prompt = self.prompt_buffer.copy()
@@ -342,6 +382,7 @@ class HuggingFaceLmScorer(LMScorer):
 
         batch_lines, batch_prompt, scores_buffer = [], [], []
         # Iterate records
+        #print(f"\nUsing context:{self.prompt}")
         for hyp in sequence:
             hyp = self.get_raw_text(hyp.split())
             line = hyp.strip().lower() if self.lower_case else hyp.strip()
@@ -355,14 +396,12 @@ class HuggingFaceLmScorer(LMScorer):
             batch_lines.append(line + eos_symbol)
             if self.prompt:
                 batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
-
             if len(batch_lines) == self.batch_size:
                 if len(batch_prompt)>1:
                     if batch_prompt[0] == batch_prompt[1]:
                         batch_prompt = [batch_prompt[0]] * len(batch_lines)
                 _process_batch(batch_lines, batch_prompt, scores_buffer)
                 batch_lines, batch_prompt = [], []
-
             # leftover
         if batch_lines:
             _process_batch(batch_lines, batch_prompt, scores_buffer)
@@ -862,6 +901,7 @@ def lm_am_framewise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
+    gt_res: Optional[RecogOutput] = None,
     am: Optional[ModelWithCheckpoint] = None,
     am_rescore_def: Optional[RescoreDef] = None,
     am_rescore_rqmt: Optional[Dict[str, Any]] = None,
@@ -881,7 +921,7 @@ def lm_am_framewise_prior_rescore(
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
     alias_name: Optional[str] = None,
-) -> RecogOutput:
+) -> tuple[RecogOutput, RecogOutput | Any]:
     """
     With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
 
@@ -907,22 +947,36 @@ def lm_am_framewise_prior_rescore(
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     raw_res_labels  # noqa  # unused here
+    if isinstance(lm,dict):
+        import copy
+        lm = copy.deepcopy(lm)
     lm_vocab = lm_vocab or vocab
     lm_vocab_opts_file = lm_vocab_opts_file or vocab_opts_file
     lm_vocab_to_word_func = lm_vocab_to_word_func or vocab_to_word_func
     normalize_seq = lm_vocab_to_word_func != vocab_to_word_func
-    if isinstance(lm, ModelWithCheckpoint): # RETURNN LM
-        lm_scorer = lm_score
-    elif isinstance(lm, tk.Path): # assert use ngram lm here
-        lm_scorer = ngram_score
-    elif lm is None or lm_scale == 0:
-        if lm is not None: # This only for float case of the scale
-            print(f"\nScale for {lm} is set to 0, not likely a tuned value! Use Dummy rescorer, set prior scale to 0 too\n")
-        lm = {"lm_type": "Dummy"}
-        prior_scale = 0.0
-        lm_scorer = HF_lm_score
-    else:
-        lm_scorer = HF_lm_score
+    def determine_lm_scorer(lm, scores):
+        nonlocal gt_res
+        if isinstance(lm, ModelWithCheckpoint): # RETURNN LM
+            lm_scorer = lm_score
+        elif isinstance(lm, tk.Path): # assert use ngram lm here
+            lm_scorer = ngram_score
+        # elif lm is None or lm_scale == 0:
+        #     if lm is not None: # This only for float case of the scale
+        #         print(f"\nScale for {lm} is set to 0, not likely a tuned value! Use Dummy rescorer, set prior scale to 0 too\n")
+        #     lm = {"lm_type": "Dummy"}
+        #     prior_scale = 0.0
+        #     lm_scorer = HF_lm_score
+        else:
+            assert isinstance(lm, dict)
+            # if lm.get("lm_type", None) == "Dummy":
+            #     return HF_lm_score, lm
+            lm_scorer = HF_lm_score
+            if lm.get("prev_one_ctx", False):
+                #lm["AM_prior_scores"] = scores
+                if lm.get("cheat_prev_ctx", False):
+                    assert gt_res is not None or res == gt_res #In case this is already rescoring for GT
+                    lm["gt_res"] = gt_res.output
+        return lm_scorer, lm
     def get_generic_alias_name(alias):
         # parts = alias.strip().split("/")
         # if len(parts) >= 2:
@@ -947,10 +1001,7 @@ def lm_am_framewise_prior_rescore(
             #to_word_func = lambda x: x.replace(" ", "").replace ("▁", " ")
         else:
             raise ValueError(f"Could not determine to_word_func from alias:\n -> {alias_name}")
-    res_labels_lm_scores = lm_scorer(
-        pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
-        alias_name=alias_name + "/LMrescoring", to_word_func=to_word_func,
-    )
+    scores = []
     res_labels_am_scores = rescore(
         config=config,
         recog_output=res,
@@ -964,9 +1015,17 @@ def lm_am_framewise_prior_rescore(
     )
     if normalize_seq:
         #print(f"Normalize the am lm out text! --> {alias_name}")
-        res_labels_lm_scores = lm_vocab_to_word_func(res_labels_lm_scores)
         res_labels_am_scores = vocab_to_word_func(res_labels_am_scores)
-    scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
+    scores.append((am_scale, res_labels_am_scores))
+
+    # if lm is None or lm_scale == 0:
+        # if lm is not None:  # This only for float case of the scale
+        #     print(f"\nScale for {lm} is set to 0, not likely a tuned value! Use Dummy rescorer, set prior scale to 0 too\n")
+    if lm is None:
+        lm = {"lm_type": "Dummy"}
+        prior_scale = 0.0
+        lm_scale = 0.0
+
     if prior and prior_scale:
         assert search_labels_to_labels
         res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
@@ -976,8 +1035,24 @@ def lm_am_framewise_prior_rescore(
         scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
-    combine_scores_alias = alias_name + f"/combine{f'pr{prior_scale}'.replace('.','_') + f'_lm{lm_scale}'.replace('.','_')}"
-    return combine_scores(scores, combine_scores_alias)
+
+    lm_scorer, lm = determine_lm_scorer(lm, scores)
+    # if isinstance(lm, dict):
+    #     if lm.get("lm_type", "Dummy") == "HuggingFaceLm":
+    #         lm["AM_priors_scores"] = scores
+    res_labels_lm_scores = lm_scorer(
+        pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
+        alias_name=alias_name + "/LMrescoring", to_word_func=to_word_func,
+    )
+
+    if normalize_seq:
+        #print(f"Normalize the am lm out text! --> {alias_name}")
+        res_labels_lm_scores = lm_vocab_to_word_func(res_labels_lm_scores)
+    # Reorder scores to keep hash
+    scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)] + ([scores[-1]] if len(scores) > 1 else [])
+    #combine_scores_alias = alias_name + f"/combine{f'pr{prior_scale}'.replace('.','_') + f'_lm{lm_scale}'.replace('.','_')}"
+
+    return combine_scores(scores), res_labels_lm_scores#, combine_scores_alias)
 
 # "work/i6_core/returnn/search/SearchOutputRawReplaceJob.a5gb36CLt4N6/output/search_results.py.gz"
 # "work/i6_core/returnn/search/SearchRemoveLabelJob.HxKTed4GQc38/output/search_results.py.gz"

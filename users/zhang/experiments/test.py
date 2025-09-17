@@ -297,12 +297,51 @@ class SearchCombineScoresJob(Job):
                     except Exception:
                         pass
 
+from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+from i6_experiments.users.zhang.recog import clean_RecogOut
+from i6_core.returnn.search import (
+    ReturnnSearchJobV2,
+    SearchRemoveLabelJob,
+    SearchCollapseRepeatedLabelsJob,
+    SearchTakeBestJob,
+)
+def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
+    """BPE to words"""
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+
+    words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
+    return RecogOutput(output=words)
 
 def py():
-    from i6_experiments.users.zhang.experiments.decoding.rescoring import SearchCombineScoresJob as SearchCombineScoresJob1
-    file1 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.9jP8jxwUa00b/output/output.py.gz"
-    file2 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.mpz441VR58h4/output/output.py.gz"
-    file3 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.4NMJDjOSJzr2/output/search_results.py.gz"
-    input = [(1.0, tk.Path(file1)), (0.5, tk.Path(file2)), (-0.3, tk.Path(file3))]
-    #job = SearchCombineScoresJob(search_py_output=input)
-    tk.register_output("test/combinescores", SearchCombineScoresJob(search_py_output=input).out_search_results)
+    # from i6_experiments.users.zhang.experiments.decoding.rescoring import SearchCombineScoresJob as SearchCombineScoresJob1
+    # file1 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.9jP8jxwUa00b/output/output.py.gz"
+    # file2 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.mpz441VR58h4/output/output.py.gz"
+    # file3 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.4NMJDjOSJzr2/output/search_results.py.gz"
+    # input = [(1.0, tk.Path(file1)), (0.5, tk.Path(file2)), (-0.3, tk.Path(file3))]
+    # #job = SearchCombineScoresJob(search_py_output=input)
+    # tk.register_output("test/combinescores", SearchCombineScoresJob(search_py_output=input).out_search_results)
+    from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size_PPL, HuggingFaceLmPerplexityJobV2, LLM_rqmt
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import \
+        get_corpus_text_dict as ES_get_corpus_text_dict
+    input_text_dict = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_experiments/users/zhang/experiments/decoding/lm_rescoring/LmRescoringJob.1bdD1JpX7Xd0/output/output.py.gz"
+    model_id = "microsoft/phi-4"
+    llm_config, _ = get_llm(model_ids=[model_id],batch_sizes=[LLM_Batch_size_PPL[model_id]],word_ppl=True,task_name="ES")
+    llm_config = llm_config["phi-4"]
+    lm_rescore_res = _spm_to_words(clean_RecogOut(RecogOutput(output=tk.Path(input_text_dict)))).output
+    ds_name = "test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer"
+    lm_rescore_res = SearchTakeBestJob(lm_rescore_res).out_best_search_results
+
+    ppl_job = HuggingFaceLmPerplexityJobV2(
+        model_dir=llm_config["model_dir"],
+        text_file=[ES_get_corpus_text_dict(key=ds_name)],  # get_test_corpus_text(keys=[ds_name])
+        batch_size=llm_config["batch_size"],
+        lower_case=True,
+        word_ppl=True,
+        prompt=lm_rescore_res,
+        eos_symbol="\n",
+        use_prev_context=True, # For now only check for this setting
+        context_len_limit=llm_config["ctx_len_limit"],
+        llm_name=model_id,
+    )
+    ppl_job.rqmt.update(LLM_rqmt[model_id])
+    tk.register_output(f"test/phi_4_rescor_ppl", ppl_job.out_ppl)

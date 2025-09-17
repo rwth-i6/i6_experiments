@@ -29,10 +29,11 @@ CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
 
 
 # --- Decoding Parameters ---
-USE_flashlight_decoder = False
+USE_flashlight_decoder = True
 seg_key = "ref" #aptk_leg ref
 DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
 EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
+EVAL_DATASET_KEYS = list(set(EVAL_DATASET_KEYS))
 DEFAULT_PRIOR_WEIGHT = 0.3
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
@@ -62,9 +63,9 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         assert beam_size > nbest
     decoding_config = {
         "log_add": False, #Flashlight
-        "nbest": 50 if "word" in lmname else nbest,
+        "nbest": 1 if "word" in lmname else nbest,
         "beam_size": 80 if "word" in lmname else beam_size,
-        "beam_threshold": 1e6, #Flashlight
+        "beam_threshold": 36, #Flashlight
         "lm_weight": 0.3,
         "use_logsoftmax": True, # Actualy also this, but kepp it for old hash
         "use_lm": False,
@@ -142,14 +143,14 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
     return alias_name, first_pass_name
 
 
-def select_recog_def(lmname: str, USE_flashlight_decoder: bool) -> callable:
+def select_recog_def(lmname: str) -> callable:
 
     if "ffnn" in lmname or "trafo" in lmname or "NoLM" in lmname:
         return recog_nn
     elif "word" in lmname:
         return model_recog_lm
     else:
-        return model_recog_lm
+        raise NotImplementedError
 
 
 # --- Main ctc_exp ---
@@ -164,7 +165,7 @@ def ctc_exp(
     vocab_config,
     model_config,
     i6_models,
-    lm_vocab: Optional[Bpe : SentencePieceModel] = None,
+    lm_vocab: Optional[Bpe : SentencePieceModel] = None, # Second pass LM vocab
     rescore_lm: Optional[ModelWithCheckpoint, dict] = None,
     rescore_lm_name: str = None,
     encoder: str = "conformer",
@@ -177,6 +178,8 @@ def ctc_exp(
         speed_pert_librosa_config,
         _raw_sample_rate,
     )
+    import copy
+    model_config = copy.deepcopy(model_config)
     if lm_vocab is None:
         lm_vocab = vocab
     #       --- get Task ---
@@ -236,7 +239,7 @@ def ctc_exp(
             tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2)]
             tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
 
-    recog_def = select_recog_def(lmname, USE_flashlight_decoder)
+    recog_def = select_recog_def(lmname)
     if recog_def != model_recog_lm:
         for key in ["log_add", "beam_threshold", "use_lexicon"]:
             decoding_config.pop(key, None)
@@ -281,7 +284,7 @@ def ctc_exp(
                                default_lm=decoding_config["lm_weight"],
                             default_prior=decoding_config["prior_weight"], first_pass=False)
         if lm is not None:  # First pass with a LM
-            decoding_config["tune_with_rescoring"] = True  # Set to false if do one pass tuning
+            decoding_config["tune_with_rescoring"] = False  # Set to false if do one pass tuning
             decoding_config["prior_weight"] = decoding_config["rescore_priorscale"] # Just safe guard, for now need them to be same
             set_tune_range_by_name(lmname, tune_config_updates,
                                    default_lm=decoding_config["rescore_lmscale"],
@@ -440,8 +443,6 @@ def py():
                     "allow_random_model_init": True,
                     }
 
-    for k, v in spm["vocabulary"].items():
-        print(f"{k}: {v}")
     # print(f"vocab setting: {spm}")
     vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
     greedy_first_pass = False
@@ -451,14 +452,14 @@ def py():
                   ]:
         word_ppl = False # Default
         # LM that do first pass,
-        lm_kinds = {"ffnn",
+        lm_kinds = {#"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
-                    #"word_ngram_apptek",
+                    "word_ngram_apptek",
                     }
         lm_kinds_2 = {#"ngram", # LM that do second pass
-                    "word_ngram",
+                    #"word_ngram",
                     "word_ngram_apptek",
-                    "ffnn",
+                    #"ffnn",
                     #"trafo",
                     #"LLM"
                     }
@@ -467,21 +468,22 @@ def py():
             word_ppl = True
             #lm_kinds = ["ffnn"]
             #lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, only_best=True, word_ppl=word_ppl, task_name="ES")  # NEW
+        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True,
+                                            task_name="ES")  # NEW
         #lms = {}
         #ppl_results = {}
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES")
-        rescor_lms.update({"NoLM": None})
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl,
+                                                     task_name="ES")
         if insert_spm10k_lm:
             from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
             other_lms, other_lms_ppl, _ =  build_trafo_lm_spm()
             rescor_lms.update(other_lms)
             ppl_results_2.update(other_lms_ppl)
 
-        rescor_lms.update({"NoLM": None})
+        #rescor_lms.update({"NoLM": None})
         ppl_results_2.update({"uniform": {k:10240.0 for k in EVAL_DATASET_KEYS}})
 
         # print(lms)
@@ -622,6 +624,7 @@ def py():
                             dafault_prior_scale)
                         wer_results[name_2] = output_dict
                         two_pass_same_lm = True
+                        continue
                     print(name, name_2)
                     (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict,
                      lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale) = exp(
@@ -706,6 +709,9 @@ def py():
                 greedy_first_pass_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
             else:
                 first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
+        from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import DummyJob
+        tk.register_output("/tools/debugDummy_time", DummyJob(version=3).output)
+
 
             # if wer_ppl_results and not train:
             #     names, res = zip(*wer_ppl_results.items())

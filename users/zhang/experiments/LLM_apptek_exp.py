@@ -35,10 +35,12 @@ DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
-CHEAT_N_BEST = True
-TUNE_WITH_CHEAT = True
-TUNE_TWO_ROUND = False
-DIAGNOSE = False
+# !! PLOT need to be set in main exp
+CHEAT_CTX = True
+CHEAT_N_BEST = True and seg_key == "ref"
+TUNE_WITH_CHEAT = True and CHEAT_N_BEST
+TUNE_TWO_ROUND = True
+DIAGNOSE = True
 
 BEAM_SIZE = 500
 NBEST = 80 # Use 100 for plot
@@ -182,6 +184,8 @@ def ctc_exp(
         speed_pert_librosa_config,
         _raw_sample_rate,
     )
+    import copy
+    model_config = copy.deepcopy(model_config)
     if lm_vocab is None:
         lm_vocab = vocab
     #       --- get Task ---
@@ -267,11 +271,12 @@ def ctc_exp(
         decoding_config["nbest"] = 1
         with_prior = False
 
+    decoding_config["two_round_tune"] = TUNE_TWO_ROUND
+
     if rescore_lm or rescore_lm_name:
         tune_rescore_scale = True
         decoding_config["cheat"] = CHEAT_N_BEST
         decoding_config["cheat_tune"] = TUNE_WITH_CHEAT
-        decoding_config["two_round_tune"] = TUNE_TWO_ROUND
         decoding_config["diagnose"] = DIAGNOSE
         decoding_config["check_search_error_rescore"] = True
         decoding_config["rescoring"] = True
@@ -426,13 +431,15 @@ def py():
             word_ppl = True
             #lm_kinds = ["ffnn"]
             #lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, only_best=True, word_ppl=word_ppl, task_name="ES")  # NEW
+        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True,
+                                            task_name="ES")  # NEW
         #lms = {}
         #ppl_results = {}
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES")
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, only_best=True,
+                                                     task_name="ES")
         rescor_lms.update({"NoLM": None})
         if insert_spm10k_lm:
             from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
@@ -641,7 +648,7 @@ def py():
                                                            search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
                                                            eval_dataset_keys=EVAL_DATASET_KEYS)
                     gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
-                    llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                    llm_related_name_ext = f"{'cheat_ctx' if CHEAT_CTX else ''}" + f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                         f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                     alias_prefix = (
                             f"wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder

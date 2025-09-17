@@ -127,6 +127,7 @@ class GetSubwordRatioJob(Job):
             self.subword_text  = apply_job(
                 text_file=self.text_file,
                 sentencepiece_model=vocab.model_file,
+                enable_unk=False,
             ).out_sentencepiece_text
         self.out_ratio = self.output_var("subword_to_word_ratio")
 

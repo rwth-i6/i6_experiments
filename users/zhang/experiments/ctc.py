@@ -420,7 +420,7 @@ def build_search_config(
 
     # 1) Bring recog_language_model (a nested dict of configs) to top-level
     #    e.g., {'preload_from_files': {...}, 'recog_language_model': {...}}
-    rlm = mc.get("recog_language_model")
+    rlm = mc.get("recog_language_model", None)
     if isinstance(rlm, dict):
         new_cfg.update(rlm)
 
@@ -531,10 +531,11 @@ def recog_exp(
         recog_post_proc_funcs.append(_remove_eos_label_v2)
 
     tune_with_cheat = decoding_config.pop("cheat_tune", False)
+    base_one_pass_for_tune_setting = decoding_config.pop("base_one_pass", None)
     diagnose = decoding_config.pop("diagnose", False)
     two_round_tune = decoding_config.pop("two_round_tune", False)
-    best_lm_tune = None
-    best_prior_tune = None
+    best_lm_scale = None
+    best_prior_scale = None
     #print(f"model_config{model_config}")
     #print(f"search_config{search_config}")
     from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #Clean this
@@ -544,7 +545,7 @@ def recog_exp(
                                              diagonise: bool = False):
         original_params = decoding_config
         params = copy.deepcopy(original_params)
-        datasets = dev_dataset_keys if not diagonise else (dev_dataset_keys + eval_dataset_keys)
+        datasets = dev_dataset_keys if not diagonise else list(set(dev_dataset_keys + eval_dataset_keys))
         # This is necessary for reducing to minimal hash:
         if not tune_with_cheat:
             params.pop("cheat", None)
@@ -739,39 +740,41 @@ def recog_exp(
 
     if decoding_config.get("lm_order", False) and tune_with_rescoring:
     # Tune first pass LM on a greedy(or small LM) n best list
+        lm_name_for_tuning = "ffnn4_50_spm10k_ES_trans"
         first_pass_lmname = decoding_config.get("lm_order")
-        from i6_experiments.users.zhang.experiments.lm_getter import get_lm_by_name
-        #from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #When refactor, this need to be moved out
-        lm_name_for_tuning = "ffnn4_50_spm10k_ES"
-        #lm_for_tune = get_lm_by_name(lm_name_for_tuning, task_name='ES', as_ckpt=False)
-        update_config = {
-            "nbest": 100,
-            "beam_size": 100,
-            "lm_weight": None,
-            "use_logsoftmax": True,
-            "use_lm": False,
-            "lm_order": None,
-            "lm": None,
-            "rescoring": True,
-            "rescore_lm_name": first_pass_lmname,
-            "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
-            "lm_vocab": None,
-            } if TUNE_ON_GREEDY_N_LIST else \
-            {
-            "nbest": 100,
-            "beam_size": 150,
-            "lm_weight": 0.2,
-            "prior_weight": 0.3,
-            "use_logsoftmax": True,
-            "use_lm": True,
-            "lm_order": lm_name_for_tuning,
-            "lm": None,
-            "recog_language_model":get_lm_by_name(lm_name_for_tuning, task_name="ES", as_ckpt=False),
-            "rescoring": True,
-            "rescore_lm_name": first_pass_lmname,
-            "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
-            "lm_vocab": None, #None is okay as long as vocab match AM
-            }
+        update_config = base_one_pass_for_tune_setting
+        if update_config is None: # Default first pass setting for tuning scales
+            from i6_experiments.users.zhang.experiments.lm_getter import get_lm_by_name
+            #from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #When refactor, this need to be moved out
+            #lm_for_tune = get_lm_by_name(lm_name_for_tuning, task_name='ES', as_ckpt=False)
+            update_config = {
+                "nbest": 100,
+                "beam_size": 100,
+                "lm_weight": None,
+                "use_logsoftmax": True,
+                "use_lm": False,
+                "lm_order": None,
+                "lm": None,
+                "rescoring": True,
+                "rescore_lm_name": first_pass_lmname,
+                "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+                "lm_vocab": None,
+                } if TUNE_ON_GREEDY_N_LIST else \
+                {
+                "nbest": 100,
+                "beam_size": 150,
+                "lm_weight": 0.2,
+                "prior_weight": 0.3,
+                "use_logsoftmax": True,
+                "use_lm": True,
+                "lm_order": lm_name_for_tuning,
+                "lm": None,
+                "recog_language_model":get_lm_by_name(lm_name_for_tuning, task_name="ES", as_ckpt=False),
+                "rescoring": True,
+                "rescore_lm_name": first_pass_lmname,
+                "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+                "lm_vocab": None, #None is okay as long as vocab match AM
+                }
         lm_tune_ls = [decoding_config["lm_weight"] + scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range") \
             else tune_config_updates["tune_range"]
         alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + f"b{update_config['beam_size']}n{update_config['nbest']}" + f"{'NoLM' if TUNE_ON_GREEDY_N_LIST else lm_name_for_tuning}" + f"_tune_scale-{first_pass_lmname}"
@@ -799,12 +802,12 @@ def recog_exp(
             ori_rescore_priorscale = decoding_config["rescore_priorscale"]
             decoding_config["rescore_priorscale"] = best_prior_scale  # This is for tuning the lm, will be overwritten by following tuning of real 2rd pass prior scale
 
-            best_lm_scale_1 = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
+            best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
                                                                       update_config=copy.deepcopy(update_config),
                                                                       first_pass_name=alias_tune_name + "_second_tune")
-            tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best_1", best_lm_scale_1)
+            tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best_1", best_lm_scale)
             #decoding_config["lm_weight_tune"] = best_lm_tune_1 + best_lm_tune# This is the total offset to best_lm_scale
-            decoding_config["lm_weight"] = best_lm_scale_1
+            decoding_config["lm_weight"] = best_lm_scale
 
             # Reset to original scale
             decoding_config["rescore_priorscale"] = ori_rescore_priorscale
@@ -841,13 +844,13 @@ def recog_exp(
             raw_range = [offset for offset in [scale / 100 for scale in range(-30, 31, 2)]]
             lm_tune_ls = SetTuneRangeVars(tune_values=raw_range,
                                           default_value=decoding_config["rescore_lmscale"]).out_tune_values
-            best_lm_scale_1 = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name + "_second_tune", tune_with_cheat=tune_with_cheat)
-            tk.register_output(tune_name + "/tune/resor_lm_weight_best_1", best_lm_scale_1)
+            best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name + "_second_tune", tune_with_cheat=tune_with_cheat)
+            tk.register_output(tune_name + "/tune/resor_lm_weight_best_1", best_lm_scale)
             if diagnose:
                 tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
                                                      first_pass_name=tune_name + "_second_tune",
                                                      tune_with_cheat=tune_with_cheat, diagonise=True,)
-            decoding_config["rescore_lmscale"] = best_lm_scale_1
+            decoding_config["rescore_lmscale"] = best_lm_scale
 
     # recog_result = recog_training_exp(
     #     prefix, task, model_with_checkpoint, recog_def=decoder_def,
@@ -864,9 +867,10 @@ def recog_exp(
         print(f"recog_config_updates{recog_config_updates}")
         decoding_config.update(recog_config_updates)
     search_error_check = True if decoding_config.get("lm_order", False) else False
+
     '''Final recog with tuned scale'''
     #print(f"{prefix}: \n model_config{model_config}")
-    #print(f"{prefix}: \n search_config{search_config}")
+    print(f"{prefix}: \n decoding_config['lm_weight']{decoding_config['lm_weight']}")
     recog_result, search_error, search_error_rescore, output_dict = recog_exp_(
         prefix, task, model_with_checkpoints,
         first_pass_name=first_pass_name + "final_recog",
@@ -886,7 +890,7 @@ def recog_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_tune, best_prior_tune, output_dict
+    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_scale, best_prior_scale, output_dict
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -2709,7 +2713,47 @@ def scoring(
     n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
                     raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob.shape[0], 1]))
 
-    return scores, score_dim, n_oovs, n_oov_dim
+    # --- 2) pad + lengths ---
+    seqs = alignments_fa
+    lengths_list = [len(s) for s in seqs]
+    B = len(seqs)
+    assert B == batch_dim.get_dim_value(), f"{B} != {batch_dim.get_dim_value()}"
+    T = max(lengths_list)
+
+    pad_value = 0  # choose your PAD id
+    padded = torch.full((B, T), pad_value, dtype=torch.int32)
+    for i, s in enumerate(seqs):
+        padded[i, :len(s)] = torch.tensor(s, dtype=torch.int32)
+
+    # --- 3) define dims ---
+    # batch_dim = Dim(name="batch", dimension=B)
+
+    # beam=1 (you can keep it as a plain spatial Dim of size 1)
+    beam_dim = Dim(name="beam", dimension=1)
+
+    # dynamic time/out_spatial_dim; leave dimension=None and attach dyn_size
+    out_spatial_dim = Dim(name="time", dimension=None)
+
+    # lengths tensor (B,) -> will become the dynamic size for the time dim
+    lengths_t = Tensor(
+        name="seq_lengths",
+        dims=[batch_dim],
+        dtype="int32",
+        raw_tensor=torch.tensor(lengths_list, dtype=torch.int32),
+    )
+
+    # attach dynamic size so RETURNN knows true sequence lengths
+    out_spatial_dim.set_size_tensor(lengths_t)  # or: out_spatial_dim.dyn_size_ext = lengths_t  (older versions)
+
+    # --- 4) add beam dim (size 1) and wrap as RETURNN Tensor ---
+    raw = padded.unsqueeze(1)  # [B, 1, T]
+    seq_targets_wb = Tensor(
+        name="target_wb",
+        dims=[batch_dim, beam_dim, out_spatial_dim],
+        dtype="int32",
+        raw_tensor=raw,
+    )
+    return scores, score_dim, n_oovs, n_oov_dim, seq_targets_wb, beam_dim, out_spatial_dim
 
 
 # RecogDef API
@@ -3522,9 +3566,10 @@ def decode_nn(
     recomb_with_sum = hyp_params.pop("recomb_with_sum", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
     print(f"Piror weight: {prior_weight}")
-    if isinstance(hyp_params["lm_weight"], tk.Variable):
-        hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
-    print(f"LM weight: {hyp_params['lm_weight']}")
+    if hyp_params.get("lm_weight", None) is not None:
+        if isinstance(hyp_params["lm_weight"], tk.Variable):
+            hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
+        print(f"LM weight: {hyp_params['lm_weight']}")
     # prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
     # lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
 

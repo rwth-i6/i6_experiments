@@ -193,10 +193,12 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
 def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]], epochs:List[int]=[], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab:[str | VocabConfig] = "bpe128", task_name:str = "LBS",**kwargs_unused):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
+    from i6_experiments.users.zhang.utils.report import ReportDictJob
     if isinstance(dataset_keys, str):
         dataset_keys = [dataset_keys]
     ppls = dict()
-    for epoch in model_with_checkpoints.fixed_epochs:
+    check_epochs = epochs or model_with_checkpoints.fixed_epochs
+    for epoch in check_epochs:
         ppls[f"epoch{epoch}"] = dict()
     for dataset_key in dataset_keys:
         if task_name == "LBS":
@@ -217,7 +219,8 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
 
         returnn_config = _returnn_ppl_config(model_with_checkpoints.definition, dataset, dataset_key, same_seq, batch_size=batch_size)
 
-        for epoch in model_with_checkpoints.fixed_epochs:
+
+        for epoch in check_epochs:#model_with_checkpoints.fixed_epochs:
             if len(epochs) > 0:
                 if epoch not in epochs:
                     continue
@@ -237,13 +240,14 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             ) if task_name == "LBS" else dataset_key
             #print(f"Will compute ppl:ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
-            tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl", ppl_job.out_ppl)
+            tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if word_ppl else ''}ppl", ppl_job.out_ppl)
             ppls[f"epoch{epoch}"][dataset_key_] = ppl_job.out_ppl
             # if prefix_name == "ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k":
             #     print(f"Add PPLs on {dataset_key_} for epoch {epoch}:\n -> {ppls}\n")
             # if dataset_key_ == "test-other":
             #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
-
+    for epoch in check_epochs:
+        tk.register_output(f"ppl/{prefix_name}/{epoch}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
     return ppls
 
 def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab: [str | VocabConfig] = "bpe128", task_name: str = "LBS", **kwargs_unused):
@@ -288,7 +292,7 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
         )
         exponent_raw = ratio.get() if isinstance(ratio, tk.Variable) else float(ratio)
         res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
-        tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if exponent_raw > 1 else 'subword'}_ppl", ppl_job.out_ppl)
+        #tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if exponent_raw > 1 else 'subword'}_ppl", ppl_job.out_ppl)
         ppls[dataset_key_] = ppl_job.out_ppl
     return ppls
 

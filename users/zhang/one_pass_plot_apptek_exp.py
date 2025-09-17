@@ -405,13 +405,15 @@ def py():
             word_ppl = True
             #lm_kinds = ["ffnn"]
             #lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, only_best=True, word_ppl=word_ppl, task_name="ES")  # NEW
+        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True,
+                                            task_name="ES")  # NEW
         #lms = {}
         #ppl_results = {}
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES")
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl,
+                                                     task_name="ES")
         rescor_lms.update({"NoLM": None})
         if insert_spm10k_lm:
             from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm

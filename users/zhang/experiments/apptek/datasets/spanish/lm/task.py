@@ -1,40 +1,22 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
+from apptek_asr.users.mgunz.datasets.spanish.lm.task import LM_TRAIN_DATA
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
-from sisyphus import Path
+from sisyphus import Path, tk
 
-from i6_core.corpus.convert import CorpusToTxtJob
-from i6_core.text.label.sentencepiece.train import SentencePieceType
-
+from functools import cache
+import os
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 from ..f8kHz.task import get_asr_task
 
 
 ALIAS_PREFIX = "datasets/spanish/lm"
-
-LM_TRAIN_DATA = Path("/nas/models/asr/mgunz/2024-07-08--zeyer-setup-apptek/lm_train.bgd.unk.subsampled.100m.txt.gz")
-
-
+#LM_TRAIN_DATA = Path("/nas/models/asr/mgunz/2024-07-08--zeyer-setup-apptek/lm_train.bgd.unk.subsampled.100m.txt.gz")
 @dataclass
 class LmTask:
     pass
 
-
-class SpanishLmDataset(DatasetConfig):
-    def __init__(
-        self,
-        *,
-        vocab: VocabConfig,
-        train_vocab: Optional[VocabConfig] = None,
-        train_partition_epoch: int,
-        train_sort_laplace_num_seqs: int = 1000
-    ):
-        self.vocab = vocab
-        self.train_vocab = train_vocab or vocab
-        self.train_partition_epoch = train_partition_epoch
-        self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
-
-
+#
 def get_lm_task(
     *,
     spm_dim: int,

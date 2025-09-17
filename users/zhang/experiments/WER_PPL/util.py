@@ -30,8 +30,8 @@ class WER_ppl_PlotAndSummaryJob(Job):
         prior_tunes: List[Optional[tk.Path]],
         search_errors: List[Dict[str,Optional[tk.Path]]],
         search_errors_rescore: List[Dict[str,Optional[tk.Path]]],
-        lm_default_scales: List[Optional[float]],
-        prior_default_scales: List[Optional[float]],
+        lm_default_scales: List[Optional[float]] = None,
+        prior_default_scales: List[Optional[float]] = None,
         eval_dataset_keys: List[str] = ["test-other","dev-other"],
         include_search_error: bool = True,
         # Reserved for plot setting
@@ -491,98 +491,165 @@ class WER_ppl_PlotAndSummaryJob(Job):
             sub.to_csv(self.out_tables[self.find_relevant_key(self.out_tables,dataset_id)].get_path(), index=False)
 
     def create_table(self):
-        def get_search_error(path):
-            with open(path) as f:
-                import re
-                search_error = f.readline()
-                search_error = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error)
-                if search_error is None:
-                    return "-"
-            return search_error.group(0)
-        ppls, *_ = self.get_points()
-        print(ppls)
+        """
+        Build a CSV summary of models with PPL/WER and (re)score search errors.
+        Robust to attributes being None (attributes that are None are simply ignored).
+        """
+
+        # -------- Helpers --------
+        import os
+        import json
         import csv
-        wers = list()
+        from typing import Any
+
+        def as_path_str(maybe_path_obj: Any) -> str | None:
+            """Try to obtain a filesystem path from either a string or objects with .get_path()."""
+            if maybe_path_obj is None:
+                return None
+            if isinstance(maybe_path_obj, str):
+                return maybe_path_obj
+            get_path = getattr(maybe_path_obj, "get_path", None)
+            if callable(get_path):
+                return get_path()
+            # As a last resort, if it looks like a path on disk:
+            if isinstance(maybe_path_obj, os.PathLike):
+                return os.fspath(maybe_path_obj)
+            return None
+
+        def safe_get(seq, idx, default=None):
+            """Index a sequence if possible; return default otherwise."""
+            try:
+                return seq[idx]
+            except Exception:
+                return default
+
+        def get_search_error(file_like) -> str:
+            """Extract a percent number like '12.3%' from the first line; return '-' if not found."""
+            import re
+            path = as_path_str(file_like)
+            if not path or not os.path.exists(path):
+                return "-"
+            with open(path, "r", encoding="utf-8") as f:
+                first = f.readline()
+            m = re.search(r"([-+]?\d*\.\d+|\d+)%", first)
+            return m.group(0) if m else "-"
+
+        def retrieve_from_file(file_like, default_scale: float | int | None):
+            """
+            When tune is a path, load JSON and read 'best_tune' then add to default scale.
+            """
+            assert default_scale is not None, "default_scale must not be None when using a tune file"
+            path = as_path_str(file_like)
+            if not path or not os.path.exists(path):
+                raise FileNotFoundError(f"Tune file does not exist: {file_like}")
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return default_scale + data["best_tune"]
+
+        def compute_scale(tune, default_scale):
+            """
+            Compute the effective scale given either:
+            - None -> use default_scale
+            - tk.Variable -> float(value)
+            - path-like -> default_scale + best_tune (from JSON)
+            """
+            if tune is None:
+                return default_scale
+            # Avoid importing tkinter at top; compare by duck-typing to reduce hard dependency.
+            is_tk_var = (tune.__class__.__name__ == "Variable" and hasattr(tune, "get"))
+            if is_tk_var:
+                return float(tune.get())
+            path = as_path_str(tune)
+            if path:
+                return retrieve_from_file(tune, default_scale)
+            # Fallback: if someone directly passed a number
+            if isinstance(tune, (int, float)):
+                return float(tune)
+            raise TypeError(f"Unsupported tune type: {type(tune).__name__}")
+
+        def fmt_num(x, decimals=1):
+            """Format numbers like 1 decimal; gracefully handle missing or non-numeric."""
+            if isinstance(x, (int, float)):
+                return f"{x:.{decimals}f}"
+            return "-"
+
+        # -------- Gather inputs --------
+        # ppls comes from get_points(); keep as-is
+        ppls, *_ = self.get_points()  # expecting ppls to be a list of dicts keyed by dataset_key
+
+        # Load WER JSONs (aligned with self.results)
+        wers = []
         for _, wer_path in self.results:
-            with open(wer_path.get_path(), "r") as f:
-                wers.append(json.load(f))
-        res = dict(zip(self.names, zip(ppls,wers,self.lm_tunes,self.search_errors,self.search_errors_rescore, self.lm_default_scales,self.prior_tunes,self.prior_default_scales)))
-        # Define filenames
+            path = as_path_str(wer_path)
+            with open(path, "r", encoding="utf-8") as f:
+                wers.append(json.load(f))  # expects {'best_scores': {...}, ...}
+
+        # Optional attributes; any of these might be None (the attribute itself)
+        lm_tunes = getattr(self, "lm_tunes", None)
+        search_errors = getattr(self, "search_errors", None)
+        search_errors_rescore = getattr(self, "search_errors_rescore", None)
+        lm_default_scales = getattr(self, "lm_default_scales", None)
+        prior_tunes = getattr(self, "prior_tunes", None)
+        prior_default_scales = getattr(self, "prior_default_scales", None)
+
+        names = list(self.names)  # names for each row/model
         csv_filename = self.out_summary.get_path()
 
-        def retrieve_from_file(file, default_scale): # This case we use offset as tune value
-            lm_weight_tune = json.load(open(file))
-            lm_weight_tune = lm_weight_tune["best_tune"]
-            return default_scale + lm_weight_tune
-
-        # Prepare the data as a list of lists
-        # dataset_header_ext_WER = [dataset_key + " WER" for dataset_key in self.eval_dataset_keys]
-        # dataset_header_ext_PPL = [dataset_key + " PPL" for dataset_key in self.eval_dataset_keys]
+        # -------- Header --------
         dataset_header = []
         for dataset_key in self.eval_dataset_keys:
-            dataset_header.append(dataset_key + " PPL")
-            dataset_header.append(dataset_key + " WER")
-            dataset_header.append(dataset_key + " Search Error-Re")
-        table_data = [["Model Name", "lm_scale", "prior_scale", "search_error"] + dataset_header]
-        for key, values in res.items():
-            ppl = values[0]
-            scores = values[1]["best_scores"]
-            best_lm_tune = values[2]
-            if best_lm_tune:
-                if isinstance(best_lm_tune, tk.Variable):
-                    lm_scale = best_lm_tune.get()
-                else: # Warning: assume best_lm_tune to be a path and an offset
-                    lm_scale = retrieve_from_file(best_lm_tune, values[5])
-            else:
-                lm_scale = values[5]
-            # if best_lm_tune and os.path.exists(best_lm_tune):
-            #     lm_weight_tune = json.load(open(best_lm_tune))
-            #     lm_weight_tune = lm_weight_tune["best_tune"]
-            #     lm_scale = values[4] + lm_weight_tune
-            # else:
-            #     lm_scale = values[4]
-            best_prior_tune = values[6]
-            if best_prior_tune:
-                if isinstance(best_prior_tune, tk.Variable):
-                    prior_scale = best_prior_tune.get()
-                else: # Warning: assume best_prior_tune to be a path and an offset
-                    prior_scale = retrieve_from_file(best_prior_tune, values[7])
-            else:
-                prior_scale = values[7]
+            dataset_header.extend([
+                f"{dataset_key} PPL",
+                f"{dataset_key} WER",
+                f"{dataset_key} Search Error",
+                f"{dataset_key} Search Error (rescore)",
+            ])
+        table_data = [["Model Name", "lm_scale", "prior_scale"] + dataset_header]
 
-            # In default, if lm_scale is 0, we will set prior scale also to 0 for search
+        # -------- Rows --------
+        for i, name in enumerate(names):
+            ppl_dict = safe_get(ppls, i, default={}) or {}
+            wer_obj = safe_get(wers, i, default={}) or {}
+            best_scores = wer_obj.get("best_scores", {}) if isinstance(wer_obj, dict) else {}
+
+            lm_tune_item = safe_get(lm_tunes, i) if lm_tunes is not None else None
+            prior_tune_item = safe_get(prior_tunes, i) if prior_tunes is not None else None
+
+            lm_def = safe_get(lm_default_scales, i) if lm_default_scales is not None else None
+            prior_def = safe_get(prior_default_scales, i) if prior_default_scales is not None else None
+
+            # Compute scales (allow lists containing None; only the attribute being None is special-cased)
+            lm_scale = compute_scale(lm_tune_item, lm_def)
+            prior_scale = compute_scale(prior_tune_item, prior_def)
+
+            # Optional policy: if lm_scale is 0, you may want prior_scale = 0 (as per your comment)
+            # Uncomment if you want that behavior:
             # if lm_scale == 0:
             #     prior_scale = 0
 
-            # search_error = "-"
-            # if values[3]:
-            #     search_error = get_search_error(values[3].get_path())
+            se_dict = safe_get(search_errors, i, default={}) if search_errors is not None else {}
+            se_rescore_dict = safe_get(search_errors_rescore, i,
+                                       default={}) if search_errors_rescore is not None else {}
 
+            row = [name, fmt_num(lm_scale, 2), fmt_num(prior_scale, 2)]
 
-            # for dataset_key in self.eval_dataset_keys:
-            #     row.append(f"{ppl.get(dataset_key, '-')}.1f" if dataset_key in ppl else "-")
-            #     row.append(f"{scores.get(dataset_key, '-'):.1f}")
-            #     search_error_log = search_error_rescore_dict.get(dataset_key, None)
-            #     row.append(f"{get_search_error(search_error_log.get_path())}"
-            #                    if search_error_log else "-")
-            # table_data.append(row)
-            search_error_dict = values[3]
-            search_error_rescore_dict = values[4]
-            row = [key, f"{lm_scale:.2f}",f"{prior_scale:.2f}"]#, search_error_rescore]
             for dataset_key in self.eval_dataset_keys:
-                row.append(f"{ppl.get(dataset_key, '-')}.1f" if dataset_key in ppl else "-")
-                row.append(f"{scores.get(dataset_key, '-'):.1f}")
-                search_error_log = search_error_dict.get(dataset_key, None)
-                row.append(f"{get_search_error(search_error_log.get_path())}"
-                               if search_error_log else "-")
-                search_error_rescore_log = search_error_rescore_dict.get(dataset_key, None)
-                row.append(f"{get_search_error(search_error_rescore_log.get_path())}"
-                               if search_error_rescore_log else "-")
+                # PPL
+                row.append(fmt_num(ppl_dict.get(dataset_key, "-"), 1))
+                # WER
+                row.append(fmt_num(best_scores.get(dataset_key, "-"), 1))
+                # Search Error & Rescore
+                se_log = se_dict.get(dataset_key) if isinstance(se_dict, dict) else None
+                row.append(get_search_error(se_log))
+
+                se_rescore_log = se_rescore_dict.get(dataset_key) if isinstance(se_rescore_dict, dict) else None
+                row.append(get_search_error(se_rescore_log))
+
             table_data.append(row)
 
-        # Save to a CSV file manually
-        with open(csv_filename, mode="w", newline="") as file:
-            writer = csv.writer(file)
+        # -------- Write CSV --------
+        with open(csv_filename, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
             writer.writerows(table_data)
 
 class GnuPlotJob(Job):

@@ -51,12 +51,12 @@ CTX_10_STR = ["THEY SAID IT TO THE END VERSE ANSWERING VERSE AND THE PRAYER OF T
 PROMPT = ["THIS IS A TEXT DATA SOURCED FROM PUBLIC DOMAIN AUDIOBOOKS\nIT REPRESENTS THE DOMAIN OF READ, AND SCRIPTED SPEECH"]
 EXAMPLE = ["I SAY ADVERSARIES FOR ON RECALLING SUCH PROUD MEMORIES WE SHOULD AVOID THE WORD ENEMIES WHOSE HOSTILE SOUND PERPETUATES THE ANTAGONISMS AND STRIFE OF NATIONS SO IRREMEDIABLE PERHAPS SO FATEFUL AND ALSO SO VAIN"]
 LLM_Batch_size = {#"meta-llama/Llama-3.2-1B": 18*3,
-                  "meta-llama/Llama-3.1-8B": 10*3,
+                  "meta-llama/Llama-3.1-8B": 14*9, #10*9, # actual 15 batch size-> ~ 50GB peak usage#  be at least 3 times larger from 10*3
                   #"Qwen/Qwen3-0.6B-Base": 51,
-                  "Qwen/Qwen3-1.7B-Base": 42,
+                  "Qwen/Qwen3-1.7B-Base": 30*3,#84, #42,
                   #"Qwen/Qwen3-4B-Base":24,
                   #"Qwen/Qwen3-8B-Base":5*3,
-                  "microsoft/phi-4": 8*3,
+                  "microsoft/phi-4": 14*6, #14*3, #  be at least 2 times larger from 8*3 -> could be twice larger
                   #"mistralai/Mistral-7B-v0.3": 4,
                   } # Keys of this determines which LLM will be built by lm_getter
 
@@ -82,6 +82,16 @@ LLM_rqmt = {"meta-llama/Llama-3.2-1B": {"time": 3, "cpu": 3, "mem": 16, "gpu": 1
 
 
 def get_raw_text_func_ES_spm(seq:list):
+    # import sentencepiece as spm
+    #
+    # sp = spm.SentencePieceProcessor(model_file="/nas/models/asr/artefacts/subword_units/sentencepiece/ES/2025-04-spm_10240-mbw/10240-nmt_nfkc_cf.spm")
+    # pieces = ["▁ac", "tion"]
+    # return sp.decode_pieces(seq)  # -> "action"
+    if len(seq) == 0:
+        return " ".join(seq)
+    if "▁" not in " ".join(seq): # Should not further do replacement
+        print(f"Warning: Passed non spm sequence: \n{seq}\n to get_raw_text_func_ES_spm")
+        return " ".join(seq)
     return " ".join(seq).replace("<sep>", "▁[noise]").replace(" ", "").replace("▁", " ")
 
 def get_prompt(LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE):
@@ -99,9 +109,9 @@ def get_prompt(LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE):
 def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool = False, task_name: str = "LBS") -> tuple[
     dict[Any, dict[str, int | str | Any]], dict[Any, Any]]:
     if task_name == "LBS":
-        from i6_experiments.users.zhang.experiments.exp_wer_ppl import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX
+        from i6_experiments.users.zhang.experiments.exp_wer_ppl import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX#, CHEAT_CTX
     elif task_name == "ES":
-        from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX
+        from i6_experiments.users.zhang.experiments.LLM_apptek_exp import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX, CHEAT_CTX
     else:
         raise ValueError(f"Unknown task name: {task_name}")
 
@@ -139,6 +149,8 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
             lm_cfg.update({"eos_symbol": "\n"})
             lm_cfg.update({"prev_one_ctx": LLM_PREV_ONE_CTX})
             lm_cfg.update({"ctx_len_limit": CTX_LEN_LIMIT})
+            if CHEAT_CTX:
+                lm_cfg.update({"cheat_prev_ctx": True})
         if USE_LOWER_CASE:
             lm_cfg.update({"lower_case": True})
         if task_name=="ES":
@@ -392,26 +404,31 @@ class HuggingFaceLmPerplexityJobV2(Job):
         #self.name = f"HFLM-PPL-{llm_name}-{self.text_file[0].basename()}"
         self.model_dir = model_dir
         self.text_file = text_file
-        self.batch_size = {"Llama-3.2-1B": 8, "Llama-3.1-8B": 3}.get(llm_name,1) if batch_size is None else batch_size
+        self.batch_size = batch_size or 4
         self.lower_case = lower_case
         self.add_eos_to_completion = add_eos_to_completion
         self.eos_symbol = eos_symbol
         self.delimiter = " " if not self.eos_symbol else (self.eos_symbol + " ") # Not sure
         self.use_prev_context = use_prev_context
         self.context_len_limit = context_len_limit
-        self.prompt = None
+        self.context = prompt
+
+        # These two are used for prev_ctx
+        self.prompt = None #
         self.prompt_buffer = []
-        if isinstance(prompt, tk.Path):
-            with open(prompt.get_path(), "r", encoding="utf-8") as f:
-                prompt = [line.strip() for line in f.readlines()]
-        if prompt:
-            prompt +=  [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
-            self.prompt = self.delimiter.join(prompt)
+
+        # Legacy setting for use fixed context
+        # if isinstance(prompt, tk.Path):
+        #     with open(prompt.get_path(), "r", encoding="utf-8") as f:
+        #         prompt = [line.strip() for line in f.readlines()]
+        # if prompt:
+        #     prompt +=  [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
+        #     self.prompt = self.delimiter.join(prompt)
         self.word_ppl = word_ppl
         self.out_ppl = self.output_path("ppl")
         self.rqmt = {"time": 4, "cpu": 3, "mem": 8 + self.batch_size//2, "gpu": 1, "gpu_mem": {"Llama-3.2-1B": 10, "Llama-3.1-8B": 36}.get(llm_name,10)}
-        self.rqmt.update({"mem": {"Llama-3.2-1B": 15, "Llama-3.1-8B": 40}.get(llm_name,25),
-                        "time": {"Llama-3.2-1B": 4, "Llama-3.1-8B": 6}.get(llm_name,4)})
+        # self.rqmt.update({"mem": {"Llama-3.2-1B": 15, "Llama-3.1-8B": 40}.get(llm_name,25),
+        #                 "time": {"Llama-3.2-1B": 4, "Llama-3.1-8B": 6}.get(llm_name,4)})
 
     def ctx_over_limit(self):
         if self.context_len_limit is None:
@@ -572,7 +589,9 @@ class HuggingFaceLmPerplexityJobV2(Job):
         from i6_experiments.users.zhang.datasets.utils import sort_dict_by_record, extract_record_id
         if self.use_prev_context:
             d_rec = sort_dict_by_record(d_rec)
-
+        ctx_rec = None
+        if self.context is not None:
+            ctx_rec = eval(cutil.uopen(self.context, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         batch_lines, batch_prompt = [], []
         eos_symbol = (
                 " " + tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol  # (" "+tokenizer.eos_token) makes ppl worse
@@ -612,8 +631,13 @@ class HuggingFaceLmPerplexityJobV2(Job):
                 batch_lines, batch_prompt = [], []  # clear for next batch
 
             if self.use_prev_context:
-                print(f"Transcription for {seq_tag}: {line}")
-                self.update_prompt(line)
+                if ctx_rec is not None:
+                    ctx = ctx_rec[seq_tag]
+                    print(f"Ctx for {seq_tag}: {ctx}")
+                else:
+                    ctx = line
+                    print(f"Transcription for {seq_tag}: {ctx}")
+                self.update_prompt(ctx)
                 print(f"Current context len: {len(self.prompt.split())}")
                 last_record = current_record
 

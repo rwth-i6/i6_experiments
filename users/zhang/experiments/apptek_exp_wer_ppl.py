@@ -4,6 +4,7 @@ CTC experiments on Apptek datasets(refactored).
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING, Iterator
 
@@ -27,12 +28,14 @@ RETURNN_ROOT = "/home/mgunz/setups/2024-07-08--zeyer-setup-apptek/recipe/returnn
 FINE_TUNED_MODEL = True # If use the FT model
 CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
 
-
+PLOT = True
+ONLY_TRANSCRIPT = True
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-seg_key = "aptk_leg" #aptk_leg ref
+seg_key = "ref" #aptk_leg ref
 DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
 EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
+EVAL_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval_p" in key] + [f"test_set.ES_US.f16kHz.dev_conversations_202411-v2.{seg_key}.ff_wer"] if PLOT else EVAL_DATASET_KEYS
 DEFAULT_PRIOR_WEIGHT = 0.3
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
@@ -41,7 +44,7 @@ DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with
 CHEAT_N_BEST = False
 TUNE_WITH_CHEAT = False
 TUNE_TWO_ROUND = True
-DIAGNOSE = True # Check scales vs WER for every dataset
+DIAGNOSE = True and not PLOT# Check scales vs WER for every dataset
 
 TUNE_ON_GREEDY_N_LIST = False
 
@@ -95,13 +98,13 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
 
     if "ffnn" in lmname:
         tune_hyperparameters = True
-        decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else 150
+        decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else (300 if PLOT else 150)
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
 
     elif "trafo" in lmname:
         tune_hyperparameters = True
-        decoding_config["beam_size"] = 50 if encoder == "conformer" else 300
+        decoding_config["beam_size"] = 80 if encoder == "conformer" else 300
         decoding_config["nbest"] = min(decoding_config["nbest"], decoding_config["beam_size"])
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
@@ -176,6 +179,8 @@ def ctc_exp(
         speed_pert_librosa_config,
         _raw_sample_rate,
     )
+    import copy
+    model_config = copy.deepcopy(model_config)
     if lm_vocab is None:
         lm_vocab = vocab
     #       --- get Task ---
@@ -243,6 +248,7 @@ def ctc_exp(
         # branch in the below will be exc, and same setting will be repeated
         # Make sure they are the same
         decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
+        decoding_config["two_round_tune"] = TUNE_TWO_ROUND
         decoding_config["rescore_priorscale"] = 0.30
         decoding_config["tune_with_rescoring"] = True
 
@@ -253,11 +259,46 @@ def ctc_exp(
                                default_lm = decoding_config["lm_weight"],
                                default_prior = decoding_config["prior_weight"],
                                first_pass=True)  # !!This overwrites the setting done in get_decoding_config
+    if PLOT and lm is not None:
+        from i6_experiments.users.zhang.experiments.lm_getter import get_lm_by_name
+        first_pass_lmname = "ffnn4_50_spm10k_ES"
+        decoding_config["base_one_pass"] = {
+            "nbest": 100,
+            "beam_size": 100,
+            "lm_weight": None,
+            "use_logsoftmax": True,
+            "use_lm": False,
+            "lm_order": None,
+            "lm": None,
+            "rescoring": True,
+            "rescore_lm_name": first_pass_lmname,
+            "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+            "lm_vocab": None,
+            } if TUNE_ON_GREEDY_N_LIST else \
+            {
+            "nbest": 100,
+            "beam_size": 150,
+            "lm_weight": 0.19,
+            "prior_weight": 0.14,
+            "use_logsoftmax": True,
+            "use_lm": True,
+            "lm_order": "ffnn4_50_spm10k_ES",
+            "lm": None,
+            "recog_language_model":get_lm_by_name("ffnn4_50_spm10k_ES", task_name="ES", as_ckpt=False),
+            "rescoring": True,
+            "rescore_lm_name": first_pass_lmname,
+            "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+            "lm_vocab": None, #None is okay as long as vocab match AM
+        }
+
+
 
     if rescore_lm is None and lm is None:
-        print("Pure greedy!!")
+        print(f"{(lmname, rescore_lm_name)}Pure greedy!!")
         decoding_config["beam_size"] = 1
         decoding_config["nbest"] = 1
+        # print(f"\n\ndec_config{decoding_config}")
+        # print(f"model_config{model_config}")
         with_prior = False
 
     if rescore_lm or rescore_lm_name:
@@ -376,7 +417,6 @@ class GetOutPutsJob(Job):
     """
     Collect all wer reports from recogs.
     """
-    # This could change the hash of many downstream tuning Job, becareful
     def __init__(
         self,
         *,
@@ -413,6 +453,35 @@ class GetOutPutsJob(Job):
                 out.write("\t}\n")
             out.write("}\n")
 
+class DummyJob(Job):
+    """
+    Keep Sis running for debug
+    """
+    def __init__(
+        self,
+        *,
+        version: int = 1,
+    ):
+        """
+        :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_and_score_func: epoch -> scores. called in graph proc
+        """
+        super(DummyJob, self).__init__()
+        self.version = version
+        self.output = self.output_var("run_time")
+
+    def tasks(self) -> Iterator[Task]:
+        """tasks"""
+        yield Task("run", rqmt={"cpu":1, "time":2})#mini_task=True)
+
+    def run(self):
+        """run"""
+        import time
+        start = time.time()
+        while time.time() < start + 60*60:
+            time.sleep(10)  # sleep for 10s to reduce CPU usage
+        self.output.set(time.time()-start)
+
 def py():
     # ! Note: for now when use rescoring, in first pass prior will not be considered, especially by greedy case
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
@@ -436,8 +505,8 @@ def py():
                     "allow_random_model_init": True,
                     }
 
-    for k, v in spm["vocabulary"].items():
-        print(f"{k}: {v}")
+    # for k, v in spm["vocabulary"].items():
+    #     print(f"{k}: {v}")
     # print(f"vocab setting: {spm}")
     vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
     greedy_first_pass = False
@@ -445,31 +514,41 @@ def py():
                   #"bpe10k",
                   "spm10k",
                   ]:
-        word_ppl = False # Default
+        word_ppl = not PLOT # Default, set to false ONlY when do plot
         # LM that do first pass,
         lm_kinds = {"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
                     #"word_ngram_apptek",
                     }
-        lm_kinds_2 = {#"ngram", # LM that do second pass
-                    "word_ngram",
-                    "word_ngram_apptek",
+        lm_kinds_2 = {"ngram", # LM that do second pass
+                    #"word_ngram",
+                    #"word_ngram_apptek",
                     "ffnn",
                     #"trafo",
                     #"LLM"
                     }
+        if PLOT:
+            assert all("word" not in name and "LLM" not in name for name in lm_kinds_2)
+        lm_combination = { #Specify lm_comb for PLOTs
+            ("trafo", "trafo"), # TWO pass same LM :
+            # -> First pass only in plot(or double rescoring(more tuning) depends on which is better)
+            ("ffnn", "ffnn"),
+            ("ffnn4_50", "ngram"),
+            ("NoLM", "NoLM")
+        }
+        #lm_combination.update({("ffnn4_50",rescor_lm) for rescor_lm in lm_kinds_2}) # For plot Rescoring only on ffnn_4_50
         #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
-        if "LLM" in lm_kinds_2:
-            word_ppl = True
-            #lm_kinds = ["ffnn"]
-            #lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, only_best=True, word_ppl=word_ppl, task_name="ES")  # NEW
+        # if "LLM" in lm_kinds_2:
+        #     word_ppl = True
+        #     #lm_kinds = ["ffnn"]
+        #     #lm_kinds_2 = ["trafo", "LLM"]
+        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=not PLOT, task_name="ES", only_transcript=ONLY_TRANSCRIPT)
         #lms = {}
         #ppl_results = {}
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES")
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES", only_best= not PLOT, only_transcript=ONLY_TRANSCRIPT)
         rescor_lms.update({"NoLM": None})
         if insert_spm10k_lm:
             from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
@@ -589,10 +668,24 @@ def py():
                     tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                     tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
 
+
+        def matching_comb_pair(name1, name2):
+            for infix1, infix2 in lm_combination:
+                if infix1 == infix2 and (name1 == name2):
+                    return True
+                elif infix1 in name1 and (infix2 in name2 or
+                                        (infix2 == "ngram" and "gram" in name2)):
+                    if infix1 != infix2:
+                        return True
+            return False
+
+            #return infix in name or ("gram" in infix and "gram" in name)
         def first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2):
-            lms.pop("NoLM",None)
-            nonlocal vocab, encoder, train, ppl_results_2, word_ppl
+            if not PLOT:
+                lms.pop("NoLM",None)
+            nonlocal vocab, encoder, train, ppl_results_2, word_ppl, lm_combination
             wer_results = dict()
+            wer_ppl_results_2 = dict()
             for name, lm in lms.items():  # First pass lms
                 # Do once one pass
                 (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict,
@@ -606,19 +699,33 @@ def py():
                     prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
                     i6_models=i6_models,
                 )
-                break_flag = False
-                wer_ppl_results_2 = dict()
                 for name_2, lm_2 in rescor_lms.items():  # Second pass lms
+                    print(name, name_2)
+                    if PLOT and not matching_comb_pair(name,name_2):#not any(check_matching_name(infix1, name) and check_matching_name(infix2, name_2) for infix1, infix2 in lm_combination):
+                        print(f"For plot, skip {(name,name_2)}")
+                        continue
                     two_pass_same_lm = False
                     if name_2 == name:
-                        wer_ppl_results_2[name_2] = (
-                            ppl_results_2.get(name_2), wer_result_path, search_error, search_error_rescore, lm_tune,
-                            prior_tune,
-                            dafault_lm_scale,
-                            dafault_prior_scale)
-                        wer_results[name_2] = output_dict
+                        one_pass_lm = name_2
+                        if one_pass_lm != "NoLM" or not PLOT: #
+                            wer_ppl_results_2[one_pass_lm] = (
+                                ppl_results_2.get(one_pass_lm), wer_result_path, search_error, search_error_rescore, lm_tune,
+                                prior_tune,
+                                dafault_lm_scale,
+                                dafault_prior_scale)
+                            wer_results[one_pass_lm] = output_dict
+                            if PLOT: # Only keep first pass results
+                                continue
+                            # If not ploting, Will do another rescoring recog
+                        else: # Greedy and do plot
+                            wer_ppl_results_2["uniform"] = (
+                                ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
+                                None,
+                                None, 0, 0)
+                            wer_results["uniform"] = output_dict
+                            continue # Skip further rescoring
                         two_pass_same_lm = True
-                    print(name, name_2)
+
                     (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict,
                      lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale) = exp(
                         name, lm, vocab,
@@ -656,42 +763,40 @@ def py():
                         #             ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
                         #             None,
                         #             None, 0, 0)
-                    if break_flag:  # Ensure for lm do first pass not do second pass multiple times
-                        break
                 # print(wer_ppl_results_2)
                 # if lm:
                 #     wer_ppl_results[name] = (
                 #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
                 #     dafault_prior_scale)
 
-                if wer_ppl_results_2 and not train:
-                    #print(wer_ppl_results_2)
-                    names, res = zip(*wer_ppl_results_2.items())
-                    results = [(x[0], x[1]) for x in res]
-                    search_errors = [x[2] for x in res]
-                    search_errors_rescore = [x[3] for x in res]
-                    lm_tunes = [x[4] for x in res]
-                    prior_tunes = [x[5] for x in res]
-                    dafault_lm_scales = [x[6] for x in res]
-                    dafault_prior_scales = [x[7] for x in res]
+            if wer_ppl_results_2 and not train:
+                #print(wer_ppl_results_2)
+                names, res = zip(*wer_ppl_results_2.items())
+                results = [(x[0], x[1]) for x in res]
+                search_errors = [x[2] for x in res]
+                search_errors_rescore = [x[3] for x in res]
+                lm_tunes = [x[4] for x in res]
+                prior_tunes = [x[5] for x in res]
+                # dafault_lm_scales = [x[6] for x in res]
+                # dafault_prior_scales = [x[7] for x in res]
 
-                    summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
-                                                           search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
-                                                           eval_dataset_keys=EVAL_DATASET_KEYS)
-                    gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
-                    llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
-                        f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
-                    alias_prefix = (
-                            f"wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
-                            + ("n_best_cheat" if CHEAT_N_BEST else "")
-                            + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
+                                                       search_errors_rescore,
+                                                       eval_dataset_keys=EVAL_DATASET_KEYS)
+                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
+                llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                    f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
+                alias_prefix = (
+                        f"wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
+                        + ("n_best_cheat" if CHEAT_N_BEST else "")
+                        + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
 
-                    tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
-                    tk.register_output(alias_prefix + "/report_summary", GetOutPutsJob(outputs=wer_results).out_report_dict)
-                    for i, key in enumerate(EVAL_DATASET_KEYS):
-                        tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
-                        tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
-                        tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
+                tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
+                tk.register_output(alias_prefix + "/report_summary", GetOutPutsJob(outputs=wer_results).out_report_dict)
+                for i, key in enumerate(EVAL_DATASET_KEYS):
+                    tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
+                    tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
+                    tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
 
 
         for model_name, exp in models.items():
@@ -702,6 +807,7 @@ def py():
                 greedy_first_pass_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
             else:
                 first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
+            tk.register_output("/tools/debugDummy_time", DummyJob().output)
 
             # if wer_ppl_results and not train:
             #     names, res = zip(*wer_ppl_results.items())

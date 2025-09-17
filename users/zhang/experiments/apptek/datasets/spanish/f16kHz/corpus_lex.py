@@ -3,8 +3,10 @@ from enum import Enum
 from functools import cache
 import itertools
 import os
-from typing import Any, Dict, Iterator
-
+from typing import Any, Dict, Iterator, List, Tuple
+import gzip
+import re
+import xml.etree.ElementTree as ET
 from sisyphus import Job, Task, tk
 
 from apptek_asr.artefacts.factory import AbstractArtefactRepository
@@ -321,6 +323,8 @@ def _get_eval_corpus(
         segment_audio_job.add_alias(f"segmenter/{namespace}.{corpus_key}/{seg_opts_as_str}")
         out_corpus_file = segment_audio_job.out_merged_corpus
         out_corpus_file = AddFakeTranscriptionJob(out_corpus_file).out_corpus
+        out_corpus_file = ProjectBlissRefToSegmenterJob(full_corpus, out_corpus_file).out_corpus
+        #tk.register_output("test/align_aptk_seg_Corpus",ProjectBlissRefToSegmenterJob(full_corpus, out_corpus_file).out_corpus)
     elif segmenter_type == SegmenterType.Pylasr:
 
         from apptek_asr.pylasr.segment import CreateScpFromWavs, SegmentScp
@@ -356,11 +360,11 @@ def _get_eval_corpus(
         (full_corpus, f"{namespace}.{corpus_key}"),
         (out_corpus_file, f"{namespace}.{corpus_key}.seg.{segmenter_type}"),
     ]:
-        tk.register_output(f"{alias_prefix}/corpus/{name}.xml.gz", corpus)
+        #tk.register_output(f"{alias_prefix}/corpus/{name}.xml.gz", corpus)
 
         stats = ComputeCorpusStatisticsJob(corpus, audio_dir=None)
-        tk.register_output(f"{alias_prefix}/costa/{name}/avg-seg-length", stats.average_segment_length)
-        tk.register_output(f"{alias_prefix}/costa/{name}/duration", stats.corpus_duration)
+        #tk.register_output(f"{alias_prefix}/costa/{name}/avg-seg-length", stats.average_segment_length)
+        #tk.register_output(f"{alias_prefix}/costa/{name}/duration", stats.corpus_duration)
 
     return eval_info
 
@@ -432,12 +436,12 @@ def get_corpora(
     filter_train_corpus_job = FilterCorpusByDurationWordsRatioJob(train_corpus_merge_job.out_merged_corpus, ratio=0.25)
     filter_train_corpus_job.add_alias(f"{alias_prefix}/corpus/train")
     train_corpus = filter_train_corpus_job.out_corpus
-    tk.register_output(f"{alias_prefix}/corpus/train.xml.gz", train_corpus)
+    #tk.register_output(f"{alias_prefix}/corpus/train.xml.gz", train_corpus)
 
     train_stats = ComputeCorpusStatisticsJob(train_corpus, audio_dir=None)
-    tk.register_output(f"{alias_prefix}/costa/train/avg-seg-length", train_stats.average_segment_length)
-    tk.register_output(f"{alias_prefix}/costa/train/avg-seg-length-std", train_stats.average_segment_length_std)
-    tk.register_output(f"{alias_prefix}/costa/train/duration", train_stats.corpus_duration)
+    #tk.register_output(f"{alias_prefix}/costa/train/avg-seg-length", train_stats.average_segment_length)
+    #tk.register_output(f"{alias_prefix}/costa/train/avg-seg-length-std", train_stats.average_segment_length_std)
+    #tk.register_output(f"{alias_prefix}/costa/train/duration", train_stats.corpus_duration)
 
     cv_corpus_merge_job = MergeCorporaJob(
         list(cv_corpora.values()), merge_strategy=MergeStrategy.CONCATENATE, name="spanish-8k-cv"
@@ -445,12 +449,12 @@ def get_corpora(
     filter_cv_corpus_job = FilterCorpusByDurationWordsRatioJob(cv_corpus_merge_job.out_merged_corpus, ratio=0.25)
     filter_cv_corpus_job.add_alias(f"{alias_prefix}/corpus/cv")
     cv_corpus = filter_cv_corpus_job.out_corpus
-    tk.register_output(f"{alias_prefix}/corpus/cv.xml.gz", cv_corpus)
+    #tk.register_output(f"{alias_prefix}/corpus/cv.xml.gz", cv_corpus)
 
     cv_stats = ComputeCorpusStatisticsJob(cv_corpus, audio_dir=None)
-    tk.register_output(f"{alias_prefix}/costa/cv/avg-seg-length", cv_stats.average_segment_length)
-    tk.register_output(f"{alias_prefix}/costa/cv/avg-seg-length-std", cv_stats.average_segment_length_std)
-    tk.register_output(f"{alias_prefix}/costa/cv/duration", cv_stats.corpus_duration)
+    #tk.register_output(f"{alias_prefix}/costa/cv/avg-seg-length", cv_stats.average_segment_length)
+    #tk.register_output(f"{alias_prefix}/costa/cv/avg-seg-length-std", cv_stats.average_segment_length_std)
+    #tk.register_output(f"{alias_prefix}/costa/cv/duration", cv_stats.corpus_duration)
 
     crp = Corpora(cv=cv_corpus, train=train_corpus, dev=dev_corpora, test=test_corpora)
     return crp
@@ -631,3 +635,196 @@ class RenameSegmentScpCorpus(Job):
             seg.name = seg.name.rsplit("/", 1)[-1]
 
         c.dump(self.out_merged_corpus.get_path())
+
+
+
+
+
+class ProjectBlissRefToSegmenterJob(Job):
+    """
+    Project reference <orth> onto segmenter-made segments for ALL <recording>s.
+
+    Inputs (gzipped Bliss):
+      - ref_bliss_gz: tk.Path -> *.xml.gz (reference Bliss with <orth>)
+      - seg_bliss_gz: tk.Path -> *.xml.gz (segmenter Bliss with <unk>)
+
+    Output:
+      - projected.xml.gz  (same structure as segmenter, but with filled <orth>)
+
+    Parameters:
+      - min_overlap: ignore ref/seg pairs with less than this overlap (sec)
+      - keep_unk_if_empty: keep "<unk>" when no tokens land in a segment
+    """
+
+    def __init__(
+        self,
+        ref_bliss_gz: tk.Path,
+        seg_bliss_gz: tk.Path,
+        *,
+        min_overlap: float = 0.02,
+        keep_unk_if_empty: bool = True,
+    ):
+        self.ref_bliss_gz = ref_bliss_gz
+        self.seg_bliss_gz = seg_bliss_gz
+        self.min_overlap = float(min_overlap)
+        self.keep_unk_if_empty = bool(keep_unk_if_empty)
+
+        self.out_corpus = self.output_path("projected.xml.gz")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 1, "mem": 2, "time": 1})
+
+    # ---------------- Internals ----------------
+
+    @dataclass
+    class RefSeg:
+        start: float
+        end: float
+        text: str
+
+    @dataclass
+    class SegSeg:
+        start: float
+        end: float
+        name: str
+
+    _SPACE_RE = re.compile(r"\s+")
+
+    @staticmethod
+    def _clean_text(s: str) -> str:
+        return ProjectBlissRefToSegmenterJob._SPACE_RE.sub(" ", (s or "").strip())
+
+    @staticmethod
+    def _parse_all_ref_recordings(path_gz: str) -> Dict[str, List["ProjectBlissRefToSegmenterJob.RefSeg"]]:
+        """
+        Parse ALL <recording>s from reference Bliss.
+        Returns: { recording_name: [RefSeg, ...], ... }
+        """
+        with gzip.open(path_gz, "rt", encoding="utf-8") as f:
+            tree = ET.parse(f)
+        root = tree.getroot()
+        out: Dict[str, List[ProjectBlissRefToSegmenterJob.RefSeg]] = {}
+        for rec in root.findall("./recording"):
+            rec_name = rec.attrib.get("name", "")
+            refs: List[ProjectBlissRefToSegmenterJob.RefSeg] = []
+            for seg in rec.findall("./segment"):
+                s = float(seg.attrib["start"])
+                e = float(seg.attrib["end"])
+                orth_el = seg.find("./orth")
+                txt = orth_el.text if (orth_el is not None and orth_el.text) else ""
+                refs.append(ProjectBlissRefToSegmenterJob.RefSeg(s, e, txt))
+            out[rec_name] = refs
+        return out
+
+    @staticmethod
+    def _parse_all_seg_recordings(path_gz: str):
+        """
+        Parse ALL <recording>s from segmenter Bliss (and keep the XML nodes to write back).
+        Returns:
+          tree: ElementTree for the segmenter XML
+          seg_map: { recording_name: ( [SegSeg], [segment_nodes] ) }
+        """
+        with gzip.open(path_gz, "rt", encoding="utf-8") as f:
+            tree = ET.parse(f)
+        root = tree.getroot()
+        seg_map = {}
+        for rec in root.findall("./recording"):
+            rec_name = rec.attrib.get("name", "")
+            segs: List[ProjectBlissRefToSegmenterJob.SegSeg] = []
+            nodes = []
+            for seg in rec.findall("./segment"):
+                s = float(seg.attrib["start"])
+                e = float(seg.attrib["end"])
+                name = seg.attrib.get("name", "")
+                segs.append(ProjectBlissRefToSegmenterJob.SegSeg(s, e, name))
+                nodes.append(seg)
+            seg_map[rec_name] = (segs, nodes)
+        return tree, seg_map
+
+    @staticmethod
+    def _interval_overlap(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        s = max(a[0], b[0])
+        e = min(a[1], b[1])
+        return max(0.0, e - s)
+
+    @staticmethod
+    def _tokenize_keep_punct(text: str) -> List[str]:
+        text = ProjectBlissRefToSegmenterJob._clean_text(text)
+        if not text:
+            return []
+        return text.split(" ")
+
+    def _assign_tokens_by_midpoint(
+        self, rs: float, re: float, tokens: List[str], seg_start: float, seg_end: float
+    ) -> List[str]:
+        """Assign tokens to a single segment bin by uniform midpoint; return tokens that land in [seg_start, seg_end)."""
+        if rs >= re or not tokens:
+            return []
+        dur = re - rs
+        N = len(tokens)
+        out = []
+        for i, tok in enumerate(tokens, start=1):
+            mid = rs + ((i - 0.5) / N) * dur
+            if (mid >= seg_start and mid < seg_end) or (abs(mid - seg_end) < 1e-8):
+                out.append(tok)
+        return out
+
+    def _project_one_recording(
+        self,
+        refs: List["ProjectBlissRefToSegmenterJob.RefSeg"],
+        segs: List["ProjectBlissRefToSegmenterJob.SegSeg"],
+    ) -> List[str]:
+        # Build overlap candidates per segmenter segment
+        per_seg_ref_ids: List[List[int]] = [[] for _ in segs]
+        for ri, r in enumerate(refs):
+            a = (r.start, r.end)
+            for si, s in enumerate(segs):
+                b = (s.start, s.end)
+                if self._interval_overlap(a, b) >= self.min_overlap:
+                    per_seg_ref_ids[si].append(ri)
+
+        out_texts: List[str] = []
+        for si, s in enumerate(segs):
+            toks_out: List[str] = []
+            for ri in per_seg_ref_ids[si]:
+                r = refs[ri]
+                toks = self._tokenize_keep_punct(r.text)
+                toks_here = self._assign_tokens_by_midpoint(r.start, r.end, toks, s.start, s.end)
+                toks_out.extend(toks_here)
+            out_texts.append(self._clean_text(" ".join(toks_out)))
+        return out_texts
+
+    def run(self):
+        # Parse full corpora
+        ref_map = self._parse_all_ref_recordings(self.ref_bliss_gz.get_path())
+        seg_tree, seg_map = self._parse_all_seg_recordings(self.seg_bliss_gz.get_path())
+
+        # For each segmenter recording, project using the matching reference recording (if present)
+        for rec_name, (segs, seg_nodes) in seg_map.items():
+            refs = ref_map.get(rec_name, [])
+            if refs:
+                out_texts = self._project_one_recording(refs, segs)
+            else:
+                # No refs for this recording → keep empty so we can optionally keep <unk>
+                out_texts = ["" for _ in segs]
+
+            # Write back into XML nodes
+            assert len(seg_nodes) == len(out_texts)
+            for node, txt in zip(seg_nodes, out_texts):
+                orth = node.find("./orth")
+                if orth is None:
+                    orth = ET.SubElement(node, "orth")
+                if not txt and self.keep_unk_if_empty:
+                    orth.text = " <unk> "
+                else:
+                    orth.text = txt
+
+        # Pretty print if available (Python 3.9+)
+        try:
+            ET.indent(seg_tree, space="  ")
+        except Exception:
+            pass
+
+        # Write gzipped output
+        with gzip.open(self.out_corpus.get_path(), "wt", encoding="utf-8") as f:
+            seg_tree.write(f, encoding="unicode", xml_declaration=True)

@@ -29,10 +29,12 @@ from sisyphus import Job, Task, tk, gs
 from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text, \
     _extract_audio_seq_len_file, _extract_text_seq_len_file, get_test_corpus_text
 from i6_experiments.users.zhang.datasets.vocab import ApplyBPEToTextJob
+from i6_experiments.users.zhang.utils.report import ReportDictJob
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH as LBS_SRILM_PATH
-from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import LM_DATA_PATH as ES_LM_DATA_PATH, DEV_KEYS, TEST_KEYS
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import LM_TRAIN_DATA, LM_TRANS_TRAIN_DATA
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 
 rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
@@ -44,8 +46,16 @@ default_rqmt = [("mem", 4),("time", 1)]
 
 SRILM_PATH_APPTEK = tk.Path("/nas/models/asr/hzhang/tools/srilm-1.7.3/bin/i686-m64/")
 SRILM_PATH_APPTEK.hash_overwrite = "APPTEK_SPAINISH_DEFAULT_SRILM_PATH"
+def py():
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+    _, spm, _ = get_model_and_vocab()
+    vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+    task_name = "ES"
+    for N_order in [4,5,6]:
+        get_count_based_n_gram(vocab_config, N_order,task_name=task_name, word_ppl=True, only_transcription=True)
 
-def get_count_based_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float], task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False) -> \
+
+def get_count_based_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float]=None, task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False, only_transcription: bool = False) -> \
 tuple[Path, dict[str | Any, Path | Any]]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
@@ -63,7 +73,11 @@ tuple[Path, dict[str | Any, Path | Any]]:
         for key in ["dev-clean", "dev-other", "test-clean", "test-other"]:
             eval_lm_data_dict[key] = get_test_corpus_text([key])
     elif task_name == "ES":
-        lm_data = tk.Path(ES_LM_DATA_PATH)
+        if only_transcription:
+            lm_data = LM_TRANS_TRAIN_DATA
+        else:
+            from i6_core.text.processing import ConcatenateJob
+            lm_data = ConcatenateJob([LM_TRANS_TRAIN_DATA, LM_TRAIN_DATA]).out
         for key in DEV_KEYS + TEST_KEYS:
             eval_lm_data_dict[key] = get_lm_eval_text(key=key)
     else:
@@ -102,12 +116,14 @@ tuple[Path, dict[str | Any, Path | Any]]:
             text_file=lm_data,
             sentencepiece_model=vocab.model_file,
             gzip_output=True,
+            enable_unk=False,
         ).out_sentencepiece_text
         for k, orig_text in eval_lm_data_dict.items():
             eval_lm_data_dict[k] = ApplySentencepieceToTextJob(
                 text_file=orig_text,
                 sentencepiece_model=vocab.model_file,
                 gzip_output=True,
+                enable_unk=False,
             ).out_sentencepiece_text
     else: # Train on whole word
         text = lm_data
@@ -133,6 +149,7 @@ tuple[Path, dict[str | Any, Path | Any]]:
             arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH, **rqmt
         ).out_lm
     ppls = dict()
+    ppl_scores = dict()
     for k, lm_eval_data in eval_lm_data_dict.items():
         ppl_job = ComputeNgramLmPerplexityJob(
             ngram_order=N_order,
@@ -157,9 +174,12 @@ tuple[Path, dict[str | Any, Path | Any]]:
             ratio = 1
         if word_ppl and vocab != "word":
             ppl_job = PPLConvertJob(ppl_job.out_ppl_log, ratio)
-        alias_name = f"ppl/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + f"/{k}" + ("word_ppl" if word_ppl else "")
-        tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
+        alias_name = f"ppl/{task_name}/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + f"/{k}" + ("word_ppl" if word_ppl else "")
+        #tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
         ppls[k] = ppl_job.out_ppl_log
+        ppl_scores[k] = ppl_job.out_ppl_score
+    tk.register_output(f"ppl/{task_name}/{N_order}gram_{prune_thresh}" + ('_'+ str(train_fraction) if train_fraction else '') + "/" + ("word_ppl" if word_ppl else "") + "report",
+                       ReportDictJob(outputs=ppl_scores).out_report_dict)
     # conversion_job = ConvertARPAtoTensor(
     #     lm=lm_arpa,
     #     bpe_vocab=vocab.vocab,
@@ -171,8 +191,9 @@ tuple[Path, dict[str | Any, Path | Any]]:
     #return conversion_job.out_lm_tensor
     return arpa_binary_lm, ppls
 
-def get_apptek_ES_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float], task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False) -> \
+def get_apptek_ES_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float], task_name: str = "ES", train_fraction: float = None, word_ppl: bool =False) -> \
 tuple[Path, dict[str | Any, Path | Any]]:
+    assert task_name == "ES"
     lm_file_path = "/nas/models/asr/artefacts/lm/ES/20220905-wwang-srilm-tel/es.tel.20220818.4-gram.lm.arpa.gz"
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
@@ -205,6 +226,7 @@ tuple[Path, dict[str | Any, Path | Any]]:
                 text_file=orig_text,
                 sentencepiece_model=vocab.model_file,
                 gzip_output=True,
+                enable_unk=False,
             ).out_sentencepiece_text
     else: # Train on whole word
         rqmt = dict([(key, value * 5) for key, value in rqmt.items()])
@@ -244,8 +266,8 @@ tuple[Path, dict[str | Any, Path | Any]]:
             ratio = 1
         if word_ppl and vocab != "word":
             ppl_job = PPLConvertJob(ppl_job.out_ppl_log, ratio)
-        alias_name = f"ppl/{N_order}gram{vocab}_apptek_tel_{prune_thresh if prune_thresh else ''}" + ('_'+ str(train_fraction) if train_fraction else '') + f"/{k}" + ("word_ppl" if word_ppl else "")
-        tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
+        alias_name = f"ppl/{task_name}/{N_order}gram{vocab}_apptek_tel_{prune_thresh if prune_thresh else ''}" + ('_'+ str(train_fraction) if train_fraction else '') + f"/{k}" + ("word_ppl" if word_ppl else "")
+        #tk.register_output(alias_name + "/ppl", ppl_job.out_ppl_log)
         ppls[k] = ppl_job.out_ppl_log
     # conversion_job = ConvertARPAtoTensor(
     #     lm=lm_arpa,
@@ -317,7 +339,7 @@ class PPLConvertJob(Job):
     def __init__(self, ppl:tk.Path, exponent: Union[float,tk.Variable]):
         self.original_ppl = ppl
         self.out_ppl_log = ppl
-        self.exponent = exponent.get() if isinstance(exponent, tk.Variable) else exponent
+        self.exponent = exponent
         self.out_ppl_score = self.output_var("perplexity.score")
         self.out_num_sentences = self.output_var("num_sentences")
         self.out_num_words = self.output_var("num_words")
@@ -330,6 +352,7 @@ class PPLConvertJob(Job):
     def get_ppl(self):
         """extracts various outputs from the ppl.log file"""
         from collections import deque
+        exponent = self.exponent.get() if isinstance(self.exponent, tk.Variable) else self.exponent
         with open(self.original_ppl.get_path(), "rt") as f:
             lines = deque(f, maxlen=2)
             for line in lines:
@@ -342,7 +365,7 @@ class PPLConvertJob(Job):
                     if ln == "OOVs":
                         self.out_num_oovs.set(int(line[idx - 1]))
                     if ln == "ppl=":
-                        self.out_ppl_score.set(float(line[idx + 1])**self.exponent)
+                        self.out_ppl_score.set(float(line[idx + 1])**exponent)
 
     # def run(self):
     #     with open(self.original_ppl.get_path(), "rt") as f:
