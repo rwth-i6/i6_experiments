@@ -267,11 +267,14 @@ def search_dataset(
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
-    env_updates = None
-    if (config and config.get("__env_updates")) or (search_post_config and search_post_config.get("__env_updates")):
-        env_updates = (config and config.pop("__env_updates", None)) or (
-            search_post_config and search_post_config.pop("__env_updates", None)
-        )
+    if config and config.get("__env_updates"):
+        config = config.copy()
+        env_updates = config.pop("__env_updates", None)
+    elif search_post_config and search_post_config.get("__env_updates"):
+        search_post_config = search_post_config.copy()
+        env_updates = search_post_config.pop("__env_updates", None)
+    else:
+        env_updates = None
     if getattr(model.definition, "backend", None) is None:
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
