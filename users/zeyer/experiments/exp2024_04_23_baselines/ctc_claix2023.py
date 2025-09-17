@@ -97,6 +97,8 @@ def py():
     recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.91
     # {"dev-clean": 1.85, "dev-other": 3.93, "test-clean": 2.0, "test-other": 4.27}
     recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.93
+    # TODO...
+    recog_ext_with_lm(ctc_model_name="L16-D1024-spm10k-auxAED-b100k", lm_name="n32-d1280-claix2023")
     # {"dev-clean": 1.9, "dev-other": 3.88, "test-clean": 1.98, "test-other": 4.26}
     recog_ext_with_lm(ctc_model_name="L16-D1280-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 3.88
     # {"dev-clean": 1.87, "dev-other": 3.88, "test-clean": 1.93, "test-other": 4.2}
