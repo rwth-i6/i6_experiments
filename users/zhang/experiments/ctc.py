@@ -26,10 +26,12 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
-from i6_experiments.users.zhang.experiments.lm.ffnn import FFNN_LM_flashlight, FeedForwardLm
+from i6_experiments.users.zhang.experiments.lm.ffnn import FeedForwardLm #FFNN_LM_flashlight,
 from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob
+from i6_experiments.users.zhang.experiments.tuning.jobs import SetTuneRangeVars
 from tools.hdf_dump_translation_dataset import UNKNOWN_LABEL
 
+#from torch.util.diagnose_gpu import diagnose_no_gpu
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 
@@ -243,9 +245,12 @@ _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
 def train_exp(
     name: str,
+    first_pass_name: str,
     config: Dict[str, Any],
     decoder_def: Callable,
     *,
+    task: Task = None,
+    model_with_checkpoints: ModelWithCheckpoints = None,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
     train_vocab_opts: Optional[Dict[str, Any]] = None,
@@ -267,14 +272,18 @@ def train_exp(
     exclude_epochs: Collection[int] = (),
     recog_epoch: int = None,
     with_prior: bool = False,
+    prior_file: Optional[tk.Path] = None,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
-    search_mem_rqmt: Union[int, float] = 6,
+    tune_rescore_scale: bool = False,
+    search_mem_rqmt: Union[int, float] = 10,
     search_rqmt: dict = None,
     recog: bool = False,
     batch_size: int = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.path]]:
+    dev_dataset_keys: Sequence[str] = ["dev-other"],
+    eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str,Any]]]:
 
     """
     Train experiment
@@ -287,13 +296,12 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-
-    task = get_librispeech_task_raw_v2(vocab=vocab,
-                                       train_vocab_opts=train_vocab_opts,
-                                       with_prior=with_prior,
-                                       empirical_prior=empirical_prior,
-                                       **(dataset_train_opts or {}))
-
+    if task is None:
+        task = get_librispeech_task_raw_v2(vocab=vocab,
+                                           train_vocab_opts=train_vocab_opts,
+                                           with_prior=with_prior,
+                                           empirical_prior=empirical_prior,
+                                           **(dataset_train_opts or {}))
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -303,41 +311,43 @@ def train_exp(
         assert hasattr(task.train_dataset, "train_audio_preprocess")  # e.g. LibrispeechOggZip
         task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
-    if not model_def:
-        model_def = ctc_model_def
-    if model_config:
-        model_config_ = model_config.copy()
-        if "recog_language_model" in model_config:
-            # recog_language_model = model_config["recog_language_model"].copy()
-            # cls_name = recog_language_model.pop("class")
-            # assert cls_name == "FeedForwardLm"
-            # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
-
-            search_config = model_config_.pop("recog_language_model")
-        model_def = ModelDefWithCfg(model_def, model_config_)
-
-    if not train_def:
-        train_def = ctc_training
     serialization_version = config.get("__serialization_version", None)
-    # print(f"prefix={prefix},\n"
-    #       f"epilog={epilog},\n"
-    #       f"model_def={model_def},\n"
-    #     f"train_def={train_def},\n")
-    model_with_checkpoints = train(
-        prefix,
-        task=task,
-        config=config,
-        post_config=dict_update_deep(post_config, post_config_updates),
-        epilog=epilog,
-        model_def=model_def,
-        train_def=train_def,
-        num_epochs=num_epochs,
-        gpu_mem=gpu_mem,
-        num_processes=num_processes,
-        time_rqmt=time_rqmt,
-        env_updates=env_updates,
-    )
-    print("fixed_epochs of AM:",model_with_checkpoints.fixed_epochs)
+
+    if model_with_checkpoints is None:
+        if not model_def:
+            model_def = ctc_model_def
+        if model_config:
+            model_config_ = model_config.copy()
+            if "recog_language_model" in model_config:
+                # recog_language_model = model_config["recog_language_model"].copy()
+                # cls_name = recog_language_model.pop("class")
+                # assert cls_name == "FeedForwardLm"
+                # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
+
+                search_config = model_config_.pop("recog_language_model")
+            model_def = ModelDefWithCfg(model_def, model_config_)
+
+        if not train_def:
+            train_def = ctc_training
+        # print(f"prefix={prefix},\n"
+        #       f"epilog={epilog},\n"
+        #       f"model_def={model_def},\n"
+        #     f"train_def={train_def},\n")
+        model_with_checkpoints = train(
+            prefix,
+            task=task,
+            config=config,
+            post_config=dict_update_deep(post_config, post_config_updates),
+            epilog=epilog,
+            model_def=model_def,
+            train_def=train_def,
+            num_epochs=num_epochs,
+            gpu_mem=gpu_mem,
+            num_processes=num_processes,
+            time_rqmt=time_rqmt,
+            env_updates=env_updates,
+        )
+    #print("fixed_epochs of AM:",model_with_checkpoints.fixed_epochs)
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
@@ -348,6 +358,7 @@ def train_exp(
     if recog:
         return recog_exp(
         name=name,
+        first_pass_name=first_pass_name,
         config=config,
         decoder_def=decoder_def,
         prefix=prefix,
@@ -361,31 +372,89 @@ def train_exp(
         recog_config_updates=recog_config_updates,
         exclude_epochs=exclude_epochs,
         with_prior=with_prior,
+        prior_file=prior_file,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
         tune_hyperparameters=tune_hyperparameters,
+        tune_rescore_scale=tune_rescore_scale,
         search_mem_rqmt=search_mem_rqmt,
         search_rqmt=search_rqmt,
         recog_epoch=recog_epoch,
         batch_size=batch_size,
+        dev_dataset_keys=dev_dataset_keys,
+        eval_dataset_keys=eval_dataset_keys,
     )
 
     recog_res = recog_training_exp(
         prefix,
         task,
         model_with_checkpoints,
+        #first_pass_name=first_pass_name,
+        decoding_config=decoding_config,
         recog_def=model_recog,
         search_config=search_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_res, None, None, None
+    return model_with_checkpoints, recog_res, None, None, None, None
+
+
+def build_search_config(
+    search_config: Dict[str, Any],
+    model_config: Dict[str, Any] | None
+) -> Dict[str, Any]:
+    """
+    Merge model_config into search_config safely:
+    - Deep-copy everything to avoid shared references.
+    - Promote model_config['recog_language_model'] (its contents) to top-level.
+    - Copy selected top-level keys.
+    - Merge preload_from_files deep (model_config takes precedence).
+    """
+    new_cfg = copy.deepcopy(search_config)  # don't mutate caller's config
+
+    if not model_config:
+        return new_cfg
+
+    mc = copy.deepcopy(model_config)  # isolate from caller
+
+    # 1) Bring recog_language_model (a nested dict of configs) to top-level
+    #    e.g., {'preload_from_files': {...}, 'recog_language_model': {...}}
+    rlm = mc.get("recog_language_model", None)
+    if isinstance(rlm, dict):
+        new_cfg.update(rlm)
+
+    # 2) Copy selected top-level keys from model_config
+    for k in ["network_config_kwargs", "allow_random_model_init"]:
+        if k in mc:
+            new_cfg[k] = mc[k]
+
+    # 3) Deep-merge preload_from_files (model_config wins on conflicts)
+    def deep_merge_dicts(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+        """Return deep-merged copy; values from b override a on conflict."""
+        out = copy.deepcopy(a)
+        for k, v in b.items():
+            if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                out[k] = deep_merge_dicts(out[k], v)
+            else:
+                out[k] = copy.deepcopy(v)
+        return out
+
+    preloads_existing = new_cfg.get("preload_from_files", {})
+    preloads_model = mc.get("preload_from_files", {})
+    if isinstance(preloads_existing, dict) or isinstance(preloads_model, dict):
+        new_cfg["preload_from_files"] = deep_merge_dicts(
+            preloads_existing if isinstance(preloads_existing, dict) else {},
+            preloads_model if isinstance(preloads_model, dict) else {},
+        )
+
+    return new_cfg
 
 
 # noinspection PyShadowingNames
 def recog_exp(
     name: str,
+    first_pass_name: str,
     config: Dict[str, Any],
     decoder_def: Callable,
     model_with_checkpoints: ModelWithCheckpoints,
@@ -409,19 +478,24 @@ def recog_exp(
     exclude_epochs: Collection[int] = (),
     recog_epoch: int = None,
     with_prior: bool = False,
+    prior_file: Optional[tk.Path] = None,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
-    search_mem_rqmt: Union[int, float] = 6,
+    tune_rescore_scale: bool = False,
+    search_mem_rqmt: Union[int, float] = 10,
     search_rqmt: dict = None,
     batch_size: int = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path], Optional[tk.path], Optional[tk.path]]:
+    dev_dataset_keys: Sequence[str] = ["dev-other"],
+    eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str, Any]]]:
     """
     Train experiment
     """
     from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
     from i6_experiments.users.zhang.experiments.language_models.n_gram import get_prior_from_unigram
 
+    tune_with_rescoring = decoding_config.pop("tune_with_rescoring", False)
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
@@ -431,29 +505,142 @@ def recog_exp(
     config = dict_update_deep(config, config_updates, config_deletes)
 
     search_config = dict()
-    if model_config:
-        if "recog_language_model" in model_config:
-            # recog_language_model = model_config["recog_language_model"].copy()
-            # cls_name = recog_language_model.pop("class")
-            # assert cls_name == "FeedForwardLm"
-            # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
-            model_config_ = model_config.copy()
-            search_config = model_config_.pop("recog_language_model")
+    #print(f"{prefix}: \n model_config{model_config}")
+    if model_config: # This need cleaning...
+        search_config = build_search_config(search_config, model_config)
+        # if "recog_language_model" in model_config:
+        #     # recog_language_model = model_config["recog_language_model"].copy()
+        #     # cls_name = recog_language_model.pop("class")
+        #     # assert cls_name == "FeedForwardLm"
+        #     # lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
+        #     recog_lm_config = model_config.get("recog_language_model",{}).copy()
+        #     search_config.update(recog_lm_config)
+        # for k in ["network_config_kwargs", "allow_random_model_init"]:
+        #     if k in model_config:
+        #         search_config[k] = model_config[k]
+        # if "preload_from_files" in model_config:
+        #     preloads = search_config.get("preload_from_files",{})
+        #     print(f"preloads{preloads}")
+        #     preloads.update(model_config["preload_from_files"])
+        #     search_config["preload_from_files"] = preloads
+
     if batch_size:
         search_config["batch_size"] = batch_size
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
 
-    best_lm_tune = None
-    best_prior_tune = None
-    if tune_hyperparameters and decoding_config["use_lm"]:
+    tune_with_cheat = decoding_config.pop("cheat_tune", False)
+    base_one_pass_for_tune_setting = decoding_config.pop("base_one_pass", None)
+    diagnose = decoding_config.pop("diagnose", False)
+    two_round_tune = decoding_config.pop("two_round_tune", False)
+    best_lm_scale = None
+    best_prior_scale = None
+    #print(f"model_config{model_config}")
+    #print(f"search_config{search_config}")
+    from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #Clean this
+    def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, *,
+                                             update_config: dict = {},
+                                             first_pass_name: str = None, tune_with_cheat: bool = False,
+                                             diagonise: bool = False):
+        original_params = decoding_config
+        params = copy.deepcopy(original_params)
+        datasets = dev_dataset_keys if not diagonise else list(set(dev_dataset_keys + eval_dataset_keys))
+        # This is necessary for reducing to minimal hash:
+        if not tune_with_cheat:
+            params.pop("cheat", None)
+        params.pop("check_search_error_rescore", None)
+        params.pop("tune_range_2", None)
+        params.pop("tune_range", None)
+        search_config_copy = None
+        #first_pass_wo_lm = not decoding_config.get("use_lm", False)
+        if update_config:
+            params.pop("recog_language_model", None)
+            params.pop("prior_weight", None)
+            params.pop("lm_weight_tune", None)
+            params.pop("prior_weight_tune", None)
+            if TUNE_ON_GREEDY_N_LIST: # or first_pass_wo_lm: # First pass with Greedy(No lm)
+                params.update(update_config)
+                if search_config.get("network_config_kwargs", False):
+                    search_config_copy = copy.deepcopy(search_config)
+                    if search_config_copy["preload_from_files"]:
+                        search_config_copy["preload_from_files"].pop("recog_lm",0)
+                    check_lm = search_config_copy.get("preload_from_files", 0) == 0 or search_config_copy["preload_from_files"].get("recog_lm", 0) == 0
+                    assert check_lm, f"Got first pass LM, check search_config{search_config_copy}\n -> Do not use this update_config except greedy first pass search"
+            else:
+                try:
+                    #print(update_config)
+                    recog_lm_config = update_config.pop("recog_language_model")
+                    preload_from_file = recog_lm_config["preload_from_files"]
+                    recog_lm = preload_from_file["recog_lm"]
+                except KeyError:
+                    raise KeyError(f"Update config must contain 'recog_language_model' key \n{update_config} \n{get_lm_by_name('ffnn4_50_spm10k_ES', task_name='ES', as_ckpt=False)}")
+                #assert update_config.get("recog_language_model",None), "LM not given"
+                search_config_copy = copy.deepcopy(search_config)
+                if search_config_copy.get("preload_from_files",None) is None:
+                    search_config_copy["preload_from_files"] = dict()
+                search_config_copy["preload_from_files"]["recog_lm"] = recog_lm
+                search_config_copy["recog_language_model"] = recog_lm_config["recog_language_model"]
+                params.pop("recog_language_model", None)
+                params.update(update_config)
+
+        else:
+            search_config_copy = search_config.copy()
+        #print(params)
+        #default_value = original_params.get(param_key)
+        scores = []
+
+        for dc in tune_range:
+            # if effective_tune_value:
+            #     assert default_value is None, "Do not pass default value when use effective scale range"
+            #     params[param_key] = dc
+            # else:
+            #     assert isinstance(dc,float) and isinstance(default_value, float)
+            #     assert default_value is not None
+            #     params[param_key] = default_value + dc
+            params[param_key] = dc
+            task_copy = copy.deepcopy(task)
+            score, *_ = recog_exp_( # TODO: this can be made a partial callable
+                first_pass_name + f"/tune/{param_key}/{str(dc).replace('.', '').replace('-', 'm')}",
+                task_copy,
+                model_with_checkpoints,
+                first_pass_name=first_pass_name,
+                epoch=recog_epoch,
+                recog_def=decoder_def,
+                decoding_config=params,
+                search_config=search_config_copy,
+                recog_post_proc_funcs=recog_post_proc_funcs,
+                exclude_epochs=exclude_epochs,
+                search_mem_rqmt=search_mem_rqmt,
+                prior_from_max=prior_from_max,
+                empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                prior_file=prior_file,
+                dev_sets=datasets,
+                #search_rqmt=search_rqmt,
+            )
+            scores.append(score)
+
+        if len(scores):
+            best_tune_job = GetBestTuneValue(scores, tune_range, dev_keys=datasets)
+            #original_params[target_param_key] = best_tune
+            best_tune_job.add_alias(first_pass_name + f"/tune/{param_key}/{'diagonise_' if diagonise else ''}getbest_tune_Job")
+            if diagonise:
+                tk.register_output(first_pass_name + f"/tune/{param_key}/diagonise_wer_scales_plot", best_tune_job.out_plot_all)
+            return best_tune_job.out_best_scale_var
+
+    # Block of code for tuning scale with first pass search
+    if tune_hyperparameters and decoding_config["use_lm"] and not tune_with_rescoring:
         original_params = decoding_config
         params = copy.copy(original_params)
         if tune_config_updates:
             params.update(tune_config_updates)
+
+        # Not sure why is this necessary:
         params.pop("lm_weight_tune", None)
         params.pop("prior_weight_tune", None)
+        params.pop("cheat", None)
+        params.pop("check_search_error_rescore", None)
+
         params.pop("tune_range", None)
         default_lm = original_params.get("lm_weight")
         default_prior = original_params.get("prior_weight")
@@ -467,6 +654,7 @@ def recog_exp(
             else tune_config_updates["priro_tune_range"]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
+
             task_copy = copy.deepcopy(task)
             # score = recog_training_exp(u
             #     prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
@@ -481,11 +669,12 @@ def recog_exp(
             #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
             #     dev_sets=["dev-other"],
             # )
-            print(f"param before lm_tune:{params}")
-            score, _ = recog_exp_(
-                prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+            #print(f"param before lm_tune:{params}")
+            score, *_ = recog_exp_(
+                first_pass_name + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
                 task_copy,
                 model_with_checkpoints,
+                first_pass_name=first_pass_name,
                 epoch=recog_epoch,
                 recog_def=decoder_def,
                 decoding_config=params,
@@ -495,17 +684,19 @@ def recog_exp(
                 search_mem_rqmt=search_mem_rqmt,
                 prior_from_max=prior_from_max,
                 empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                dev_sets=["dev-other"],
+                dev_sets=dev_dataset_keys,
+                prior_file=prior_file,
                 search_rqmt=search_rqmt,
             )
             lm_scores.append(score)
 
         if len(lm_scores):
-            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
-            tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
-            params["lm_weight"] = default_lm
-            params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
-            original_params["lm_weight_tune"] = best_lm_tune  # This will be implicitly used by following exps, i.e through decoding_config
+            best_lm_scale_var = GetBestTuneValue(lm_scores, lm_tune_ls, dev_keys=dev_dataset_keys).out_best_scale_var
+            tk.register_output(prefix + "/tune/lm_best", best_lm_scale_var)
+            params["lm_weight"] = best_lm_scale_var
+            #params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
+            original_params["lm_weight"] = best_lm_scale_var  # This will be implicitly used by following exps, i.e through decoding_config
+
         if with_prior:
             for dc_prior in prior_tune_ls:
                 params["prior_weight"] = default_prior + dc_prior
@@ -524,8 +715,8 @@ def recog_exp(
                 #     dev_sets=["dev-other"],
                 #     search_rqmt=search_rqmt,
                 # )
-                score, _ = recog_exp_(
-                    prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                score, *_ = recog_exp_(
+                    first_pass_name + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
                     task_copy,
                     model_with_checkpoints,
                     epoch=recog_epoch,
@@ -537,15 +728,129 @@ def recog_exp(
                     search_mem_rqmt=search_mem_rqmt,
                     prior_from_max=prior_from_max,
                     empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                    dev_sets=["dev-other"],
+                    dev_sets=dev_dataset_keys,
+                    prior_file=prior_file,
                     search_rqmt=search_rqmt,
                 )
                 prior_scores.append(score)
         if len(prior_scores):
-            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
-            tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
-            original_params["prior_weight_tune"] = best_prior_tune
+            best_prior_scale_var = GetBestTuneValue(prior_scores, prior_tune_ls, dev_keys=dev_dataset_keys).out_best_scale_var
+            tk.register_output(prefix + "/tune/prior_best", best_prior_scale_var)
+            original_params["prior_weight"] = best_prior_scale_var
 
+    if decoding_config.get("lm_order", False) and tune_with_rescoring:
+    # Tune first pass LM on a greedy(or small LM) n best list
+        lm_name_for_tuning = "ffnn4_50_spm10k_ES_trans"
+        first_pass_lmname = decoding_config.get("lm_order")
+        update_config = base_one_pass_for_tune_setting
+        if update_config is None: # Default first pass setting for tuning scales
+            from i6_experiments.users.zhang.experiments.lm_getter import get_lm_by_name
+            #from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #When refactor, this need to be moved out
+            #lm_for_tune = get_lm_by_name(lm_name_for_tuning, task_name='ES', as_ckpt=False)
+            update_config = {
+                "nbest": 100,
+                "beam_size": 100,
+                "lm_weight": None,
+                "use_logsoftmax": True,
+                "use_lm": False,
+                "lm_order": None,
+                "lm": None,
+                "rescoring": True,
+                "rescore_lm_name": first_pass_lmname,
+                "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+                "lm_vocab": None,
+                } if TUNE_ON_GREEDY_N_LIST else \
+                {
+                "nbest": 100,
+                "beam_size": 150,
+                "lm_weight": 0.2,
+                "prior_weight": 0.3,
+                "use_logsoftmax": True,
+                "use_lm": True,
+                "lm_order": lm_name_for_tuning,
+                "lm": None,
+                "recog_language_model":get_lm_by_name(lm_name_for_tuning, task_name="ES", as_ckpt=False),
+                "rescoring": True,
+                "rescore_lm_name": first_pass_lmname,
+                "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+                "lm_vocab": None, #None is okay as long as vocab match AM
+                }
+        lm_tune_ls = [decoding_config["lm_weight"] + scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range") \
+            else tune_config_updates["tune_range"]
+        alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + f"b{update_config['beam_size']}n{update_config['nbest']}" + f"{'NoLM' if TUNE_ON_GREEDY_N_LIST else lm_name_for_tuning}" + f"_tune_scale-{first_pass_lmname}"
+        best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls,
+                                                                           "rescore_lmscale", update_config=copy.deepcopy(update_config),
+                                                                           first_pass_name=alias_tune_name)
+        tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best", best_lm_scale)
+        decoding_config["lm_weight"] = best_lm_scale
+
+        ori_rescore_lmscale = decoding_config["rescore_lmscale"]
+        decoding_config["rescore_lmscale"] = best_lm_scale # This is for tuning the prior, will be overwritten by following tuning of real 2rd pass LM scale
+
+        prior_tune_ls = [decoding_config["prior_weight"] + scale / 100 for scale in range(-30, 21, 5)] if not tune_config_updates.get("prior_tune_range") \
+        else tune_config_updates["prior_tune_range"]
+        best_prior_scale = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",
+                                                           update_config=copy.deepcopy(update_config), first_pass_name=alias_tune_name)
+        tk.register_output(alias_tune_name + "/tune/priot_weight_tune_best", best_prior_scale)
+        decoding_config["prior_weight"] = best_prior_scale
+
+        if two_round_tune:
+            # Tune LM_scales again
+            # This Job set effective scale values
+            lm_tune_ls = SetTuneRangeVars(tune_values=[offset for offset in [scale / 100 for scale in range(-30, 31, 2)]],
+                                          default_value=decoding_config["rescore_lmscale"]).out_tune_values
+            ori_rescore_priorscale = decoding_config["rescore_priorscale"]
+            decoding_config["rescore_priorscale"] = best_prior_scale  # This is for tuning the lm, will be overwritten by following tuning of real 2rd pass prior scale
+
+            best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
+                                                                      update_config=copy.deepcopy(update_config),
+                                                                      first_pass_name=alias_tune_name + "_second_tune")
+            tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best_1", best_lm_scale)
+            #decoding_config["lm_weight_tune"] = best_lm_tune_1 + best_lm_tune# This is the total offset to best_lm_scale
+            decoding_config["lm_weight"] = best_lm_scale
+
+            # Reset to original scale
+            decoding_config["rescore_priorscale"] = ori_rescore_priorscale
+
+        # Reset to original scale
+        decoding_config["rescore_lmscale"] = ori_rescore_lmscale
+
+
+    '''Tune 2rd pass scales'''
+    if tune_rescore_scale and decoding_config["lm_rescore"]:
+        tune_name = prefix# + "/2rd_" + decoding_config["rescore_lm_name"]
+        lm_tune_ls = [decoding_config["rescore_lmscale"] + scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range_2") \
+            else tune_config_updates["tune_range_2"]
+
+        prior_tune_ls = [decoding_config["rescore_priorscale"] + scale / 100 for scale in range(-30, 21, 5)] if not tune_config_updates.get("prior_tune_range_2") \
+            else tune_config_updates["prior_tune_range_2"]
+        print(f"{prefix} \n -> tune 2rd pass scales!"# defaults_lm {decoding_config['rescore_lmscale']} prior{decoding_config['rescore_priorscale']} "
+              f"\n lm_range:[{min(lm_tune_ls),max(lm_tune_ls)}]\n "
+              f"prior_range:[{min(prior_tune_ls),max(prior_tune_ls)}]")
+        best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name, tune_with_cheat=tune_with_cheat)
+        tk.register_output(tune_name + "/tune/resor_lm_weight_best", best_lm_scale)
+        if diagnose:
+            tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
+                                                 first_pass_name=tune_name, tune_with_cheat=tune_with_cheat, diagonise=True)
+        decoding_config["rescore_lmscale"] = best_lm_scale
+        #print(f"tuned res_lmscale{decoding_config['rescore_lmscale'].get_path()}")
+        #if with_prior:
+        best_prior_scale = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",  first_pass_name=tune_name, tune_with_cheat=tune_with_cheat)
+        decoding_config["rescore_priorscale"] = best_prior_scale
+        tk.register_output(tune_name + "/tune/resor_prior_best", best_prior_scale)
+        #print(f"tuned rescore_priorscale{decoding_config['rescore_priorscale'].get_path()}")
+        if two_round_tune:
+            # Tune LM_scales again
+            raw_range = [offset for offset in [scale / 100 for scale in range(-30, 31, 2)]]
+            lm_tune_ls = SetTuneRangeVars(tune_values=raw_range,
+                                          default_value=decoding_config["rescore_lmscale"]).out_tune_values
+            best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name + "_second_tune", tune_with_cheat=tune_with_cheat)
+            tk.register_output(tune_name + "/tune/resor_lm_weight_best_1", best_lm_scale)
+            if diagnose:
+                tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
+                                                     first_pass_name=tune_name + "_second_tune",
+                                                     tune_with_cheat=tune_with_cheat, diagonise=True,)
+            decoding_config["rescore_lmscale"] = best_lm_scale
 
     # recog_result = recog_training_exp(
     #     prefix, task, model_with_checkpoint, recog_def=decoder_def,
@@ -559,9 +864,16 @@ def recog_exp(
     #     search_rqmt=search_rqmt,
     # )
     if recog_config_updates:
+        print(f"recog_config_updates{recog_config_updates}")
         decoding_config.update(recog_config_updates)
-    recog_result, search_error = recog_exp_(
+    search_error_check = True if decoding_config.get("lm_order", False) else False
+
+    '''Final recog with tuned scale'''
+    #print(f"{prefix}: \n model_config{model_config}")
+    print(f"{prefix}: \n decoding_config['lm_weight']{decoding_config['lm_weight']}")
+    recog_result, search_error, search_error_rescore, output_dict = recog_exp_(
         prefix, task, model_with_checkpoints,
+        first_pass_name=first_pass_name + "final_recog",
         epoch=recog_epoch,
         recog_def=decoder_def,
         decoding_config=decoding_config,
@@ -569,15 +881,16 @@ def recog_exp(
         recog_post_proc_funcs=recog_post_proc_funcs,
         exclude_epochs=exclude_epochs,
         search_mem_rqmt=search_mem_rqmt,
+        prior_file=prior_file,
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
-        dev_sets=["test-other","dev-other"],
+        dev_sets=eval_dataset_keys,
         search_rqmt=search_rqmt,
-        search_error_check=False,
+        search_error_check=search_error_check,
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, best_lm_tune, best_prior_tune
+    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_scale, best_prior_scale, output_dict
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -585,116 +898,6 @@ def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
     from i6_core.returnn.search import SearchRemoveLabelJob
 
     return RecogOutput(SearchRemoveLabelJob(res.output, remove_label="</s>", output_gzip=True).out_search_results)
-
-
-_sis_prefix: Optional[str] = None
-
-
-def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
-    if not prefix_name:
-        from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
-
-        prefix_name = get_setup_prefix_for_module(__name__)
-    global _sis_prefix
-    _sis_prefix = prefix_name
-
-
-def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
-    """Function is run within RETURNN."""
-    in_dim, epoch  # noqa
-    return Model(**_get_ctc_model_kwargs_from_global_config(target_dim=target_dim))
-
-
-ctc_model_def: ModelDef[Model]
-ctc_model_def.behavior_version = 21
-ctc_model_def.backend = "torch"
-ctc_model_def.batch_size_factor = _batch_size_factor
-
-
-def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, Any]:
-    from returnn.config import get_global_config
-
-    config = get_global_config()  # noqa
-    enc_aux_logits = config.typed_value("aux_loss_layers")
-    num_enc_layers = config.int("num_enc_layers", 12)
-    # real input is raw audio, internally it does logmel
-    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-
-    enc_input_layer = config.typed_value("enc_input_layer", None)
-    conv_norm = config.typed_value("conv_norm", None)
-    enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
-    if enc_conformer_layer:
-        assert not conv_norm, "set only enc_conformer_layer or conv_norm, not both"
-        assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
-    else:
-        enc_conformer_layer = rf.build_dict(
-            rf.encoder.conformer.ConformerEncoderLayer,
-            conv_norm=conv_norm or {"class": "rf.BatchNorm", "use_mask": True},
-            self_att=rf.build_dict(
-                rf.RelPosSelfAttention,
-                # Shawn et al 2018 style, old RETURNN way.
-                with_bias=False,
-                with_linear_pos=False,
-                with_pos_bias=False,
-                learnable_pos_emb=True,
-                separate_pos_emb_per_head=False,
-            ),
-            ff_activation=rf.build_dict(rf.relu_square),
-            num_heads=8,
-        )
-    enc_other_opts = config.typed_value("enc_other_opts", None)
-
-    recog_language_model = config.typed_value("recog_language_model", None)
-    recog_lm = None
-
-    if recog_language_model:
-        assert isinstance(recog_language_model, dict)
-        recog_language_model = recog_language_model.copy()
-        cls_name = recog_language_model.pop("class")
-        if cls_name == "FeedForwardLm":
-            recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
-        elif cls_name == "TransformerLm":
-            recog_lm = TransformerDecoder(encoder_dim=None,vocab_dim=target_dim, **recog_language_model)
-
-    return dict(
-        in_dim=in_dim,
-        enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
-        num_enc_layers=num_enc_layers,
-        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_input_layer=enc_input_layer,
-        enc_conformer_layer=enc_conformer_layer,
-        enc_other_opts=enc_other_opts,
-        target_dim=target_dim,
-        blank_idx=target_dim.dimension,
-        bos_idx=_get_bos_idx(target_dim),
-        eos_idx=_get_eos_idx(target_dim),
-        enc_aux_logits=enc_aux_logits or (),
-        recog_language_model=recog_lm,
-    )
-
-
-def _get_bos_idx(target_dim: Dim) -> int:
-    """for non-blank labels"""
-    assert target_dim.vocab
-    if target_dim.vocab.bos_label_id is not None:
-        bos_idx = target_dim.vocab.bos_label_id
-    elif target_dim.vocab.eos_label_id is not None:
-        bos_idx = target_dim.vocab.eos_label_id
-    elif "<sil>" in target_dim.vocab.user_defined_symbol_ids:
-        bos_idx = target_dim.vocab.user_defined_symbol_ids["<sil>"]
-    else:
-        raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
-    return bos_idx
-
-
-def _get_eos_idx(target_dim: Dim) -> int:
-    """for non-blank labels"""
-    assert target_dim.vocab
-    if target_dim.vocab.eos_label_id is not None:
-        eos_idx = target_dim.vocab.eos_label_id
-    else:
-        raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
-    return eos_idx
 
 
 def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim):
@@ -956,24 +1159,13 @@ def model_recog_lm(
 
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
 
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    print(f"Piror weight: {prior_weight}")
+    if isinstance(hyp_params["lm_weight"], tk.Variable):
+        hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
+    print(f"LM weight: {hyp_params['lm_weight']}")
 
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
@@ -1019,18 +1211,9 @@ def model_recog_lm(
     if use_lm:
         if lm: # Directly give path only for count based n-gram(arpa)
             lm = str(cf(lm))
-            # Other types distinguish with the name
-        else: # extend to elif as adding other LM type
-            assert lm_name.startswith("ffnn")
-            assert model.recog_language_model
-            assert isinstance(model.recog_language_model, FeedForwardLm)
-            assert model.recog_language_model.vocab_dim == model.target_dim
-            def extract_ctx_size(s):
-                match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
-                return match.group(1) if match else None
-            context_size = int(extract_ctx_size(lm_name))
-            #context_size = int(lm_name[len("ffnn"):])
-            lm = FFNN_LM_flashlight(model.recog_language_model, model.recog_language_model.vocab_dim, context_size)
+            # Only use word Ngram on this decoder
+        else:
+            raise ValueError("Make sure to only use word Ngram on this decoder")
     else:
         lm = None
 
@@ -1052,124 +1235,10 @@ def model_recog_lm(
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
 
-
-
     if use_logsoftmax:
         decoder_results = decoder(label_log_prob, enc_spatial_dim_torch)
     else:
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
-    # #--------------------------------------test---------------------------------------------------------
-
-    #
-    # def parse_lexicon_file(file_path):
-    #     parsed_dict = {}
-    #     with open(file_path, 'r', encoding='utf-8') as file:
-    #         for line in file:
-    #             parts = line.strip().split(maxsplit=1)  # Split into two parts: word and pieces
-    #             if len(parts) == 2:  # Ensure there's a value after the key
-    #                 word, pieces = parts
-    #                 parsed_dict[pieces] = word
-    #     return parsed_dict
-    # if use_lexicon:
-    #     lexicon_dict = parse_lexicon_file(configs["lexicon"])
-    ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
-    ctc_scores = torch.tensor(ctc_scores)
-    #pdb.set_trace()
-    # ctc_scores_forced = []
-    # sim_scores = []
-    # lm_scores = []
-    # ctc_losses = []
-    # sentences = []
-    # unmatch_idxs = []
-    # ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
-    # '''Parrallezing viterbi across batch'''
-    # from concurrent.futures import ProcessPoolExecutor
-    # import multiprocessing
-    # multiprocessing.set_start_method('spawn', force=True)
-    # from functools import partial
-    # seq_list = [res[0].tokens.cpu() for res in decoder_results]
-    # log_prob_list = list(label_log_prob.cpu())
-    # spatial_dim_list = list(enc_spatial_dim_torch.cpu())
-    # viterbi_batch_partial = partial(viterbi_batch, blank_idx=model.blank_idx)
-    # #cpu_cores = multiprocessing.cpu_count()
-    # print(f"using {min(32,label_log_prob.shape[0])} workers")
-    # import pdb  # ---------
-    # #pdb.set_trace()
-    # with ProcessPoolExecutor(max_workers=min(32,label_log_prob.shape[0])) as executor:
-    #     alignments, viterbi_scores = zip(*list(executor.map(viterbi_batch_partial, zip(seq_list, log_prob_list, spatial_dim_list))))
-    #
-    # for i in range(label_log_prob.shape[0]):
-    #     seq = decoder_results[i][0].tokens # These are not padded
-    #     log_prob = label_log_prob[i] # These are padded
-    #     # alignment, viterbi_score = ctc_viterbi_one_seq(log_prob, seq, int(enc_spatial_dim_torch[i].item()), # int(enc_spatial_dim_torch.max())
-    #     #                        blank_idx=model.blank_idx)
-    #     alignment = alignments[i]
-    #     viterbi_score = viterbi_scores[i]
-    #     collapsed = ctc_collapse(alignment)
-    #     if use_lexicon:
-    #         def merge_tokens(token_list):
-    #             # Merge bpe tokens according to lexicon
-    #             merged_string = ""
-    #             buffer = ""
-    #             for token in token_list:
-    #                 if token.endswith("@@"):
-    #                     buffer += token + " "
-    #                 else:
-    #                     buffer += token
-    #                     '''How does the ctcdecoder handle the OOV?'''
-    #                     assert buffer in lexicon_dict.keys(), buffer + f" not in the lexicon!\n token list: {token_list} \n seq from search: {decoder.idxs_to_tokens(seq)}"
-    #                     merged_string +=  lexicon_dict[buffer] + " "# Append buffer and curr
-    #                     # ent token
-    #                     buffer = ""  # Reset buffer
-    #             return merged_string.strip()
-    #         #sentence_from_viterbi = merge_tokens(decoder.idxs_to_tokens(collapsed))
-    #     #if i == 3: #----test
-    #         #pdb.set_trace()
-    #     '''Forced alignment and feed to the same decoder'''
-    #     alignment = torch.cat((alignment, torch.tensor([0 for _ in range(log_prob.shape[0] - alignment.shape[0])])))
-    #     mask = torch.arange(model.target_dim.size + 1, device=log_prob.device).unsqueeze(0).expand(log_prob.shape) == alignment.unsqueeze(1)
-    #     decoder_result = decoder(log_prob.masked_fill(~mask, float('-inf')).unsqueeze(0), enc_spatial_dim_torch[i].unsqueeze(0))
-    #     ctc_scores_forced.append(decoder_result[0][0].score)
-    #
-    #     sentence = " ".join(list(decoder_results[i][0].words))
-    #     word_seq = [decoder.word_dict.get_index(word) for word in decoder_results[i][0].words]
-    #     lm_score = CTClm_score(word_seq, decoder)
-    #     sentences.append(sentence)
-    #     lm_scores.append(lm_score)
-    #     sim_score = viterbi_score + hyp_params["lm_weight"]*lm_score
-    #
-    #     assert sim_score > ctc_scores[i] or abs(sim_score-ctc_scores[i]) < 1e-01
-    #
-    #     sim_scores.append(sim_score)
-    #     ctc_losses.append(ctc_loss(log_prob, seq, [log_prob.shape[0]],
-    #                            [seq.shape[0]]))
-    #     '''Check if output alignment give by viterbi matches the input sequence'''
-    #     assert (collapsed.tolist() == seq.tolist()), (f"Viterbi did not give path collapsed to the original sequence, idx: {i}!"
-    #                                                   f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
-    #                                                   f"\n sim_scores: {torch.tensor(sim_scores).tolist()} "
-    #                                                   f"\n ctc_scores: {torch.tensor(ctc_scores).tolist()}")
-    #     '''Check if output alignment give by viterbi matches the sequence output from decoder with masked emission'''
-    #     if not collapsed.tolist() == decoder_result[0][0].tokens.tolist():
-    #         unmatch_idxs.append(i)
-    #         print(f"Viterbi did not give path collapsed to the same sequence as forced decoder, idx: {i}!")
-    #     # assert (collapsed.tolist() == decoder_result[0][0].tokens.tolist()), (
-    #     #     f"Viterbi did not give path collapsed to the same sequence as forced decoder at position{i}!"
-    #     #     f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
-    #     #     f"\n sim_scores: {torch.tensor(sim_scores).tolist()} "
-    #     #     f"\n ctc_scores: {torch.tensor(ctc_scores).tolist()}")
-    #     #pdb.set_trace()
-    # print(f"\n ctc_scores_forced: {torch.tensor(ctc_scores_forced).tolist()}"
-    #       f"\n sim_scores: {torch.tensor(sim_scores).tolist()} "
-    #       f"\n ctc_scores: {torch.tensor(ctc_scores).tolist()}"
-    #       f"\n unmatch_idxs: {unmatch_idxs}")
-    # #pdb.set_trace()
-    # print(f"Average difference of ctc_decoder score and viterbi score: {abs(np.mean(np.array(ctc_scores[:,0])-sim_scores))}")
-    # if not use_lexicon:
-    #     assert abs(np.mean(np.array(ctc_scores[:,0])-sim_scores)) < 1e-05
-    #
-    # assert scores.raw_tensor[0,:] - ctc_viterbi_one_seq(label_log_prob[0], decoder_results[0][0].tokens, int(enc_spatial_dim_torch.max()),
-    #                            blank_idx=model.blank_idx) < tolerance, "CTCdecoder does use viterbi decoding!"
-    # # -----------------------------------------------------------------------------------------------
     if use_lexicon:
         print("Use words directly!")
         if CHECK_DECODER_CONSISTENCY:
@@ -1246,45 +1315,45 @@ model_recog_lm: RecogDef[Model]
 model_recog_lm.output_with_beam = True
 model_recog_lm.output_blank_label = OUT_BLANK_LABEL
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
-
-
-def model_recog_flashlight(
-        *,
-        model: Model,
-        data: Tensor,
-        data_spatial_dim: Dim,
-        hyperparameters: dict,
-        prior_file: tk.Path = None
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
-    """
-    Function is run within RETURNN.
-
-    Earlier we used the generic beam_search function,
-    but now we just directly perform the search here,
-    as this is overall simpler and shorter.
-
-    :return:
-        recog results including beam {batch, beam, out_spatial},
-        log probs {batch, beam},
-        out_spatial_dim,
-        final beam_dim
-    """
-    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
-
-    # The label log probs include the AM
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
-
-    return decode_flashlight(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim,
-                             hyperparameters=hyperparameters, prior_file=prior_file)
-
-
-# RecogDef API
-model_recog_flashlight: RecogDef[Model]
-model_recog_flashlight.output_with_beam = True
-model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
-model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+#
+# flashlight NN LM recog def, too slow
+# def model_recog_flashlight(
+#         *,
+#         model: Model,
+#         data: Tensor,
+#         data_spatial_dim: Dim,
+#         hyperparameters: dict,
+#         prior_file: tk.Path = None
+# ) -> Tuple[Tensor, Tensor, Dim, Dim]:
+#     """
+#     Function is run within RETURNN.
+#
+#     Earlier we used the generic beam_search function,
+#     but now we just directly perform the search here,
+#     as this is overall simpler and shorter.
+#
+#     :return:
+#         recog results including beam {batch, beam, out_spatial},
+#         log probs {batch, beam},
+#         out_spatial_dim,
+#         final beam_dim
+#     """
+#     assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+#     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+#     assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+#
+#     # The label log probs include the AM
+#     label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+#
+#     return decode_flashlight(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim,
+#                              hyperparameters=hyperparameters, prior_file=prior_file)
+#
+#
+# # RecogDef API
+# model_recog_flashlight: RecogDef[Model]
+# model_recog_flashlight.output_with_beam = True
+# model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
+# model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
 def _format_align_label_seq(align_label_seq: List[int], wb_target_dim: Dim) -> str:
@@ -1301,494 +1370,494 @@ def _format_align_label_seq(align_label_seq: List[int], wb_target_dim: Dim) -> s
     return " ".join(f"{label}*{count}" if count > 1 else label for label, count in zip(seq_label, seq_label_count))
 
 
-def decode_flashlight(
-        *,
-        model: Model,
-        label_log_prob: Tensor,
-        enc_spatial_dim: Dim,
-        hyperparameters: dict,
-        prior_file: tk.Path = None,
-) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
-    from dataclasses import dataclass
-    import json
-    from flashlight.lib.text.decoder import LM, LMState
-    from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
-    from returnn.util import basic as util
-
-    hyp_params = copy.copy(hyperparameters)
-    lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
-
-    n_best = hyp_params.pop("ps_nbest", 1)
-    beam_size = hyp_params.pop("beam_size", 1)
-    ####debug####
-    #pdb.set_trace()
-    #############
-    beam_size_token = hyp_params.pop("beam_size_token", model.wb_target_dim.vocab.num_labels)
-    beam_threshold = hyp_params.pop("beam_threshold", 1000000)
-    log_add = hyp_params.pop("log_add", False)
-
-    # Eager-mode implementation of beam search using Flashlight.
-
-    # noinspection PyUnresolvedReferences
-    assert lm_name.startswith("ffnn") or lm_name.startswith("trafo")
-
-
-    context_lm = True #Default: use n-gram nn model like ffnn
-
-    assert model.recog_language_model
-    #assert isinstance(model.recog_language_model, FeedForwardLm) or isinstance(model.recog_language_model, FeedForwardLm)
-    assert model.recog_language_model.vocab_dim == model.target_dim
-    if isinstance(model.recog_language_model, FeedForwardLm):
-        lm: FeedForwardLm = model.recog_language_model
-        context_lm = True
-    elif isinstance(model.recog_language_model,TransformerDecoder):
-        lm: TransformerDecoder = model.recog_language_model
-        context_lm = False
-    else:
-        raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
-    # context_size = int(lm_name[len("ffnn"):])
-
-    def extract_ctx_size(s):
-        match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
-        return match.group(1) if match else None
-    if context_lm:
-        context_size = int(extract_ctx_size(lm_name))
-    else:
-        context_size = 1
-
-    # noinspection PyUnresolvedReferences
-    lm_scale: float = hyp_params["lm_weight"]
-
-    dev_s = rf.get_default_device()
-    dev = torch.device(dev_s)
-
-    total_mem = None
-    if dev.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(dev)
-        _, total_mem = torch.cuda.mem_get_info(dev if dev.index is not None else None)
-
-    def _collect_mem_stats():
-        if dev.type == "cuda":
-            return [
-                f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
-                f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
-                f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
-                f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
-            ]
-        return ["(unknown)"]
-
-    print(
-        f"Memory usage {dev_s} before encoder forward:",
-        " ".join(_collect_mem_stats()),
-        "total:",
-        util.human_bytes_size(total_mem) if total_mem else "(unknown)",
-    )
-
-    lm_initial_state = lm.default_initial_state(batch_dims=[])
-
-    # https://github.com/flashlight/text/tree/main/bindings/python#decoding-with-your-own-language-model
-    # https://github.com/facebookresearch/fairseq/blob/main/examples/speech_recognition/new/decoders/flashlight_decoder.py
-    # https://github.com/pytorch/audio/blob/main/src/torchaudio/models/decoder/_ctc_decoder.py
-
-    # The current implementation of FlashlightLM below assumes we can just use the token_idx as-is for the LM.
-    assert model.blank_idx == model.target_dim.dimension
-
-    @dataclass
-    class FlashlightLMState:
-        def __init__(self, label_seq: List[int], prev_state: LMState):
-            if len(label_seq) > context_size and context_lm:
-                self.label_seq = label_seq[-context_size:]
-            else:
-                self.label_seq = label_seq
-            if context_lm:
-                assert len(self.label_seq) == context_size
-            self.prev_state = prev_state
-
-    # Use LRU cache for the LM states (on GPU) and log probs.
-    # Note that additionally to the cache size limit here,
-    # we free more when we run out of CUDA memory.
-    start_lru_cache_size = 1024
-    max_used_mem_fraction = 0.9
-
-    class FlashlightLM(LM):
-        def __init__(self):
-            super().__init__()
-            # Cannot use weakrefs because the LMState object will always be recreated on-the-fly,
-            # i.e. the Python object does not persist.
-            self.mapping_states: Dict[LMState, FlashlightLMState] = {}
-            self._count_recalc_whole_seq = 0
-            self._recent_debug_log_time = -sys.maxsize
-            self._max_used_mem_fraction = max_used_mem_fraction
-
-        def reset(self):
-            self.mapping_states.clear()
-            self._count_recalc_whole_seq = 0
-            self._recent_debug_log_time = -sys.maxsize
-            self._max_used_mem_fraction = max_used_mem_fraction
-            self._calc_next_lm_state.cache_clear()
-            self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
-
-        @lru_cache(maxsize=start_lru_cache_size)
-        def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
-            """
-            :param context_lm: if True, run full-context scoring; otherwise, run incremental (single-step) scoring
-            :return: LM state, log probs [Vocab]
-            """
-            state_ = self.mapping_states[state]
-
-            lm_logits = None
-            lm_state = None
-            if not context_lm:
-                # Incremental (single-step) scoring
-                if state_.label_seq == [model.bos_idx]:
-                    prev_lm_state = lm_initial_state
-                else:
-                    prev_lm_state, _ = self._calc_next_lm_state.cache_peek(
-                        state_.prev_state,
-                        fallback=(None, None)
-                    )
-            while True:
-                self._cache_maybe_free_memory()
-                try:
-                    if context_lm:
-                        # Full-sequence scoring (always recalculates whole sequence)
-                        self._count_recalc_whole_seq += 1
-                        spatial_dim = Dim(len(state_.label_seq), name="seq")
-                        out_spatial_dim = Dim(context_size + 1, name="seq_out")
-                        lm_logits, lm_state = lm(
-                            rf.convert_to_tensor(
-                                state_.label_seq,
-                                dims=[spatial_dim],
-                                sparse_dim=model.target_dim
-                            ),
-                            spatial_dim=spatial_dim,
-                            out_spatial_dim=out_spatial_dim,
-                            state=lm_initial_state,
-                        )
-                        # extract only the last-frame logits
-                        lm_logits = rf.gather(
-                            lm_logits,
-                            axis=out_spatial_dim,
-                            indices=rf.last_frame_position_of_dim(out_spatial_dim)
-                        )
-                    else: # We use a trafo lm
-                        if prev_lm_state is not None or lm_initial_state is None:
-                            # we have a previous state, so do one-step
-                            lm_logits, lm_state = lm(
-                                rf.constant(
-                                    state_.label_seq[-1], dims=[], sparse_dim=model.target_dim
-                                ),
-                                spatial_dim=single_step_dim,
-                                state=prev_lm_state,
-                            )
-                        else:
-                            # no prev state: recalc full seq but only last output
-                            self._count_recalc_whole_seq += 1
-                            spatial_dim = Dim(len(state_.label_seq), name="seq")
-                            lm_logits, lm_state = lm(
-                                rf.convert_to_tensor(
-                                    state_.label_seq,
-                                    dims=[spatial_dim],
-                                    sparse_dim=model.target_dim
-                                ),
-                                spatial_dim=spatial_dim,
-                                state=lm_initial_state,
-                                output_only_last_frame=True,
-                            )
-                    # exit loop if successful
-                    break
-                except torch.cuda.OutOfMemoryError as exc:
-                    # on OOM, try freeing cache or retry
-                    if self._calc_next_lm_state.cache_len() == 0:
-                        raise
-                    print(f"{type(exc).__name__}: {exc}")
-                    new_max = max(0.2, self._max_used_mem_fraction - 0.1)
-                    if new_max != self._max_used_mem_fraction:
-                        self._max_used_mem_fraction = new_max
-                        print(f"Reduce max used mem fraction to {new_max:.0%}")
-                    continue
-
-            # compute log-probs over vocabulary and move to CPU
-            assert lm_logits.dims == (model.target_dim,)
-            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)
-            log_probs_raw = lm_log_probs.raw_tensor.cpu()
-            return lm_state, log_probs_raw
-        # def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
-        #     """
-        #     :return: LM state, log probs [Vocab]
-        #     """
-        #     state_ = self.mapping_states[state]
-        #
-        #     lm_logits, lm_state = None, None
-        #     while True:
-        #         self._cache_maybe_free_memory()
-        #         try:
-        #             self._count_recalc_whole_seq += 1
-        #             spatial_dim = Dim(len(state_.label_seq), name="seq")
-        #             out_spatial_dim = Dim(context_size + 1, name="seq_out")
-        #             lm_logits, lm_state = lm(
-        #                 rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
-        #                 spatial_dim=spatial_dim,
-        #                 out_spatial_dim=out_spatial_dim,
-        #                 state=lm_initial_state,
-        #             )  # Vocab / ...
-        #             lm_logits = rf.gather(lm_logits, axis=out_spatial_dim,
-        #                                   indices=rf.last_frame_position_of_dim(out_spatial_dim))
-        #         except torch.cuda.OutOfMemoryError as exc:
-        #             if self._calc_next_lm_state.cache_len() == 0:
-        #                 raise  # cannot free more
-        #             print(f"{type(exc).__name__}: {exc}")
-        #             new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
-        #             if new_max_used_mem_fraction != self._max_used_mem_fraction:
-        #                 print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
-        #             continue  # try again
-        #         break
-        #     assert lm_logits.dims == (model.target_dim,)
-        #     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
-        #     log_probs_raw = lm_log_probs.raw_tensor.cpu()
-        #     # -------debug
-        #     #pdb.set_trace()
-        #     return lm_state, log_probs_raw
-
-        def _cache_maybe_free_memory(self):
-            if dev.type == "cuda":
-                # Maybe check if we should free some more memory.
-                count_pop = 0
-                used_mem = 0
-                while self._calc_next_lm_state.cache_len() > 0:
-                    used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < self._max_used_mem_fraction:
-                        break
-                    # Check again after trying to empty the cache.
-                    # Note: gc.collect() is problematic here because of how Flashlight handles the states:
-                    # We have millions of Python objects in the mapping_states dict,
-                    # which takes a very long time to go through.
-                    torch.cuda.empty_cache()
-                    used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < self._max_used_mem_fraction:
-                        break
-                    self._calc_next_lm_state.cache_pop_oldest()
-                    count_pop += 1
-                if count_pop > 0:
-                    print(
-                        f"Pop {count_pop} states from cache,"
-                        f" cache size {self._calc_next_lm_state.cache_len()},"
-                        f" reached {used_mem / total_mem:.1%} of total mem,"
-                        f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
-                    )
-                    self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
-
-        def start(self, start_with_nothing: bool):
-            """
-            Parameters:
-                start_with_nothing (bool): whether or not to start sentence with sil token.
-            """
-            start_with_nothing  # noqa  # not sure how to handle this?
-            self.reset()
-            state = LMState()
-            self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx] * context_size, prev_state=state) # label_seq=[model.bos_idx] * context_size
-            return state
-
-        def score(self, state: LMState, token_index: int):
-            """
-            Evaluate language model based on the current lm state and new word
-
-            Parameters:
-                state: current lm state
-                token_index: index of the word
-                            (can be lexicon index then you should store inside LM the
-                            mapping between indices of lexicon and lm, or lm index of a word)
-
-            Returns:
-                (LMState, float): pair of (new state, score for the current word)
-            """
-            state_ = self.mapping_states[state]
-
-            # import time
-            # if time.monotonic() - self._recent_debug_log_time > 1:
-            #     print(
-            #         "LM prefix",
-            #         [model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq],
-            #         f"score {model.target_dim.vocab.id_to_label(token_index)!r}",
-            #         f"({len(self.mapping_states)} states seen)",
-            #         f"(cache info {self._calc_next_lm_state.cache_info()})",
-            #         f"(mem usage {dev_s}: {' '.join(_collect_mem_stats())})",
-            #     )
-            #     self._recent_debug_log_time = time.monotonic()
-
-            outstate = state.child(token_index)
-            if outstate not in self.mapping_states:
-                self.mapping_states[outstate] = FlashlightLMState(
-                    label_seq=state_.label_seq + [token_index], prev_state=state
-                )
-
-            _, log_probs_raw = self._calc_next_lm_state(state)
-            return outstate, log_probs_raw[token_index]
-
-        def finish(self, state: LMState):
-            """
-            Evaluate eos for language model based on the current lm state
-
-            Returns:
-                (LMState, float): pair of (new state, score for the current word)
-            """
-            return self.score(state, model.eos_idx)
-
-    fl_lm = FlashlightLM()
-
-    from flashlight.lib.text.decoder import LexiconFreeDecoderOptions, LexiconFreeDecoder, CriterionType
-    #----debug---
-    #pdb.set_trace()
-    fl_decoder_opts = LexiconFreeDecoderOptions(
-        beam_size=beam_size,
-        beam_size_token=beam_size_token,
-        beam_threshold=beam_threshold,
-        lm_weight=lm_scale,
-        sil_score=0.0,
-        log_add=log_add,
-        criterion_type=CriterionType.CTC,
-    )
-    sil_idx = -1  # no silence
-    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, sil_idx, model.blank_idx, [])
-
-    # Subtract prior of labels if available
-    if prior_file and prior_weight > 0.0:
-        prior = np.loadtxt(prior_file, dtype="float32")
-        prior *= prior_weight
-        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
-        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
-        label_log_prob = label_log_prob - prior
-        # print("We subtracted the prior!")
-
-    label_log_prob = rf.where(
-        enc_spatial_dim.get_mask(),
-        label_log_prob,
-        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
-    )
-    label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
-    batch_size, max_seq_len = label_log_prob.raw_tensor.shape[:2]
-    assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
-
-    label_log_prob = rf.cast(label_log_prob, "float32")
-    label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
-    label_log_prob_raw = label_log_prob.raw_tensor.contiguous()
-    float_bytes = 4
-
-    print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
-
-    def _output_hyps(hyp: list) -> str:
-        prev = None
-        ls = []
-        for h in hyp:
-            if h != prev:
-                ls.append(h)
-                prev = h
-        ls = [model.target_dim.vocab.id_to_label(h) for h in ls if h != model.blank_idx]
-        s = " ".join(ls).replace("@@ ", "")
-        if s.endswith("@@"):
-            s = s[:-2]
-        return s
-
-    hyps = []
-    scores = []
-    for batch_idx in range(batch_size):
-        emissions_ptr = label_log_prob_raw.data_ptr() + float_bytes * batch_idx * label_log_prob_raw.stride(0)
-        seq_len = enc_spatial_dim.dyn_size[batch_idx]
-        assert seq_len <= max_seq_len
-        results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
-        # I get -1 (silence label?) at the beginning and end in the tokens? Filter those away.
-        # These are also additional frames which don't correspond to the input frames?
-        # When removing those two frames, the len of tokens (align labels) matches the emission frames
-        # (as it should be).
-        hyps_per_batch = [[label for label in result.tokens if label >= 0] for result in results]
-        scores_per_batch = [result.score for result in results]
-        print(
-            f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
-            f" best score: {scores_per_batch[0]},"
-            f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
-            f" worst score: {scores_per_batch[-1]},"
-            f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
-            f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
-            f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
-        )
-        assert all(
-            len(hyp) == seq_len for hyp in hyps_per_batch
-        ), f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
-        if len(results) >= n_best:
-            if n_best > 1:
-                # We have to select the n_best on output level
-                hyps_shortened = [_output_hyps(hyp) for hyp in hyps_per_batch]
-                nbest_hyps = []
-                nbest_hyps_ids = []
-                k = 0
-                i = 0
-                while k < n_best:
-                    if i >= len(hyps_shortened):
-                        break
-                    if hyps_shortened[i] not in nbest_hyps:
-                        nbest_hyps.append(hyps_shortened[i])
-                        nbest_hyps_ids.append(i)
-                        k += 1
-                    i += 1
-                hyps_per_batch = [hyps_per_batch[id] for id in nbest_hyps_ids]
-                scores_per_batch = [scores_per_batch[id] for id in nbest_hyps_ids]
-
-                if len(hyps_per_batch) < n_best:
-                    print("Not enough n-best")
-                    hyps_per_batch += [[]] * (n_best - len(hyps_per_batch))
-                    scores_per_batch += [-1e30] * (n_best - len(hyps_per_batch))
-            else:
-                hyps_per_batch = hyps_per_batch[:n_best]
-                scores_per_batch = scores_per_batch[:n_best]
-        else:
-            hyps_per_batch += [[]] * (n_best - len(results))
-            scores_per_batch += [-1e30] * (n_best - len(results))
-        assert len(hyps_per_batch) == len(scores_per_batch) == n_best
-        hyps_per_batch = [hyp + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
-        assert all(len(hyp) == max_seq_len for hyp in hyps_per_batch)
-        hyps.append(hyps_per_batch)
-        scores.append(scores_per_batch)
-    fl_lm.reset()
-    hyps_pt = torch.tensor(hyps, dtype=torch.int32)
-    assert hyps_pt.shape == (batch_size, n_best, max_seq_len)
-    scores_pt = torch.tensor(scores, dtype=torch.float32)
-    assert scores_pt.shape == (batch_size, n_best)
-    # import torch.nn.functional as F
-    # collapsed_hyps = [[ctc_collapse(hyp, model.blank_idx) for hyp in seq] for seq in hyps_pt]
-    # enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
-    # padded_hypotheses = [
-    #     [F.pad(hyp, (0, int(enc_spatial_dim_torch.max()) - hyp.shape[0]), value=0) for hyp in batch]
-    #     for batch in collapsed_hyps
-    # ]
-    # hyps_pt = torch.stack([torch.stack(batch) for batch in padded_hypotheses])
-    # debug------------------------
-    #pdb.set_trace()
-
-    #-----------------------
-    beam_dim = Dim(n_best, name="beam")
-    out_spatial_dim = enc_spatial_dim
-    hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
-    scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
-    print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
-
-    return hyps_r, scores_r, out_spatial_dim, beam_dim
+# def decode_flashlight(
+#         *,
+#         model: Model,
+#         label_log_prob: Tensor,
+#         enc_spatial_dim: Dim,
+#         hyperparameters: dict,
+#         prior_file: tk.Path = None,
+# ) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
+#     from dataclasses import dataclass
+#     import json
+#     from flashlight.lib.text.decoder import LM, LMState
+#     from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
+#     from returnn.util import basic as util
+#
+#     hyp_params = copy.copy(hyperparameters)
+#     lm_name = hyp_params.pop("lm_order", None)
+#     prior_weight = hyp_params.pop("prior_weight", 0.0)
+#     prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+#     lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+#
+#     if prior_weight_tune:
+#         prior_weight_tune = json.load(open(prior_weight_tune))
+#         prior_weight_tune = prior_weight_tune["best_tune"]
+#         assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+#         print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+#         prior_weight += prior_weight_tune
+#     if lm_weight_tune:
+#         lm_weight_tune = json.load(open(lm_weight_tune))
+#         lm_weight_tune = lm_weight_tune["best_tune"]
+#         assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+#         old_lm_weight = hyp_params.get("lm_weight", 0.0)
+#         print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+#         hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+#
+#     n_best = hyp_params.pop("ps_nbest", 1)
+#     beam_size = hyp_params.pop("beam_size", 1)
+#     ####debug####
+#     #pdb.set_trace()
+#     #############
+#     beam_size_token = hyp_params.pop("beam_size_token", model.wb_target_dim.vocab.num_labels)
+#     beam_threshold = hyp_params.pop("beam_threshold", 1000000)
+#     log_add = hyp_params.pop("log_add", False)
+#
+#     # Eager-mode implementation of beam search using Flashlight.
+#
+#     # noinspection PyUnresolvedReferences
+#     assert lm_name.startswith("ffnn") or lm_name.startswith("trafo")
+#
+#
+#     context_lm = True #Default: use n-gram nn model like ffnn
+#
+#     assert model.recog_language_model
+#     #assert isinstance(model.recog_language_model, FeedForwardLm) or isinstance(model.recog_language_model, FeedForwardLm)
+#     assert model.recog_language_model.vocab_dim == model.target_dim
+#     if isinstance(model.recog_language_model, FeedForwardLm):
+#         lm: FeedForwardLm = model.recog_language_model
+#         context_lm = True
+#     elif isinstance(model.recog_language_model,TransformerDecoder):
+#         lm: TransformerDecoder = model.recog_language_model
+#         context_lm = False
+#     else:
+#         raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
+#     # context_size = int(lm_name[len("ffnn"):])
+#
+#     def extract_ctx_size(s):
+#         match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
+#         return match.group(1) if match else None
+#     if context_lm:
+#         context_size = int(extract_ctx_size(lm_name))
+#     else:
+#         context_size = 1
+#
+#     # noinspection PyUnresolvedReferences
+#     lm_scale: float = hyp_params["lm_weight"]
+#
+#     dev_s = rf.get_default_device()
+#     dev = torch.device(dev_s)
+#
+#     total_mem = None
+#     if dev.type == "cuda":
+#         torch.cuda.reset_peak_memory_stats(dev)
+#         _, total_mem = torch.cuda.mem_get_info(dev if dev.index is not None else None)
+#
+#     def _collect_mem_stats():
+#         if dev.type == "cuda":
+#             return [
+#                 f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
+#                 f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
+#                 f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
+#                 f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
+#             ]
+#         return ["(unknown)"]
+#
+#     print(
+#         f"Memory usage {dev_s} before encoder forward:",
+#         " ".join(_collect_mem_stats()),
+#         "total:",
+#         util.human_bytes_size(total_mem) if total_mem else "(unknown)",
+#     )
+#
+#     lm_initial_state = lm.default_initial_state(batch_dims=[])
+#
+#     # https://github.com/flashlight/text/tree/main/bindings/python#decoding-with-your-own-language-model
+#     # https://github.com/facebookresearch/fairseq/blob/main/examples/speech_recognition/new/decoders/flashlight_decoder.py
+#     # https://github.com/pytorch/audio/blob/main/src/torchaudio/models/decoder/_ctc_decoder.py
+#
+#     # The current implementation of FlashlightLM below assumes we can just use the token_idx as-is for the LM.
+#     assert model.blank_idx == model.target_dim.dimension
+#
+#     @dataclass
+#     class FlashlightLMState:
+#         def __init__(self, label_seq: List[int], prev_state: LMState):
+#             if len(label_seq) > context_size and context_lm:
+#                 self.label_seq = label_seq[-context_size:]
+#             else:
+#                 self.label_seq = label_seq
+#             if context_lm:
+#                 assert len(self.label_seq) == context_size
+#             self.prev_state = prev_state
+#
+#     # Use LRU cache for the LM states (on GPU) and log probs.
+#     # Note that additionally to the cache size limit here,
+#     # we free more when we run out of CUDA memory.
+#     start_lru_cache_size = 1024
+#     max_used_mem_fraction = 0.9
+#
+#     class FlashlightLM(LM):
+#         def __init__(self):
+#             super().__init__()
+#             # Cannot use weakrefs because the LMState object will always be recreated on-the-fly,
+#             # i.e. the Python object does not persist.
+#             self.mapping_states: Dict[LMState, FlashlightLMState] = {}
+#             self._count_recalc_whole_seq = 0
+#             self._recent_debug_log_time = -sys.maxsize
+#             self._max_used_mem_fraction = max_used_mem_fraction
+#
+#         def reset(self):
+#             self.mapping_states.clear()
+#             self._count_recalc_whole_seq = 0
+#             self._recent_debug_log_time = -sys.maxsize
+#             self._max_used_mem_fraction = max_used_mem_fraction
+#             self._calc_next_lm_state.cache_clear()
+#             self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
+#
+#         @lru_cache(maxsize=start_lru_cache_size)
+#         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
+#             """
+#             :param context_lm: if True, run full-context scoring; otherwise, run incremental (single-step) scoring
+#             :return: LM state, log probs [Vocab]
+#             """
+#             state_ = self.mapping_states[state]
+#
+#             lm_logits = None
+#             lm_state = None
+#             if not context_lm:
+#                 # Incremental (single-step) scoring
+#                 if state_.label_seq == [model.bos_idx]:
+#                     prev_lm_state = lm_initial_state
+#                 else:
+#                     prev_lm_state, _ = self._calc_next_lm_state.cache_peek(
+#                         state_.prev_state,
+#                         fallback=(None, None)
+#                     )
+#             while True:
+#                 self._cache_maybe_free_memory()
+#                 try:
+#                     if context_lm:
+#                         # Full-sequence scoring (always recalculates whole sequence)
+#                         self._count_recalc_whole_seq += 1
+#                         spatial_dim = Dim(len(state_.label_seq), name="seq")
+#                         out_spatial_dim = Dim(context_size + 1, name="seq_out")
+#                         lm_logits, lm_state = lm(
+#                             rf.convert_to_tensor(
+#                                 state_.label_seq,
+#                                 dims=[spatial_dim],
+#                                 sparse_dim=model.target_dim
+#                             ),
+#                             spatial_dim=spatial_dim,
+#                             out_spatial_dim=out_spatial_dim,
+#                             state=lm_initial_state,
+#                         )
+#                         # extract only the last-frame logits
+#                         lm_logits = rf.gather(
+#                             lm_logits,
+#                             axis=out_spatial_dim,
+#                             indices=rf.last_frame_position_of_dim(out_spatial_dim)
+#                         )
+#                     else: # We use a trafo lm
+#                         if prev_lm_state is not None or lm_initial_state is None:
+#                             # we have a previous state, so do one-step
+#                             lm_logits, lm_state = lm(
+#                                 rf.constant(
+#                                     state_.label_seq[-1], dims=[], sparse_dim=model.target_dim
+#                                 ),
+#                                 spatial_dim=single_step_dim,
+#                                 state=prev_lm_state,
+#                             )
+#                         else:
+#                             # no prev state: recalc full seq but only last output
+#                             self._count_recalc_whole_seq += 1
+#                             spatial_dim = Dim(len(state_.label_seq), name="seq")
+#                             lm_logits, lm_state = lm(
+#                                 rf.convert_to_tensor(
+#                                     state_.label_seq,
+#                                     dims=[spatial_dim],
+#                                     sparse_dim=model.target_dim
+#                                 ),
+#                                 spatial_dim=spatial_dim,
+#                                 state=lm_initial_state,
+#                                 output_only_last_frame=True,
+#                             )
+#                     # exit loop if successful
+#                     break
+#                 except torch.cuda.OutOfMemoryError as exc:
+#                     # on OOM, try freeing cache or retry
+#                     if self._calc_next_lm_state.cache_len() == 0:
+#                         raise
+#                     print(f"{type(exc).__name__}: {exc}")
+#                     new_max = max(0.2, self._max_used_mem_fraction - 0.1)
+#                     if new_max != self._max_used_mem_fraction:
+#                         self._max_used_mem_fraction = new_max
+#                         print(f"Reduce max used mem fraction to {new_max:.0%}")
+#                     continue
+#
+#             # compute log-probs over vocabulary and move to CPU
+#             assert lm_logits.dims == (model.target_dim,)
+#             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)
+#             log_probs_raw = lm_log_probs.raw_tensor.cpu()
+#             return lm_state, log_probs_raw
+#         # def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
+#         #     """
+#         #     :return: LM state, log probs [Vocab]
+#         #     """
+#         #     state_ = self.mapping_states[state]
+#         #
+#         #     lm_logits, lm_state = None, None
+#         #     while True:
+#         #         self._cache_maybe_free_memory()
+#         #         try:
+#         #             self._count_recalc_whole_seq += 1
+#         #             spatial_dim = Dim(len(state_.label_seq), name="seq")
+#         #             out_spatial_dim = Dim(context_size + 1, name="seq_out")
+#         #             lm_logits, lm_state = lm(
+#         #                 rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
+#         #                 spatial_dim=spatial_dim,
+#         #                 out_spatial_dim=out_spatial_dim,
+#         #                 state=lm_initial_state,
+#         #             )  # Vocab / ...
+#         #             lm_logits = rf.gather(lm_logits, axis=out_spatial_dim,
+#         #                                   indices=rf.last_frame_position_of_dim(out_spatial_dim))
+#         #         except torch.cuda.OutOfMemoryError as exc:
+#         #             if self._calc_next_lm_state.cache_len() == 0:
+#         #                 raise  # cannot free more
+#         #             print(f"{type(exc).__name__}: {exc}")
+#         #             new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
+#         #             if new_max_used_mem_fraction != self._max_used_mem_fraction:
+#         #                 print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
+#         #             continue  # try again
+#         #         break
+#         #     assert lm_logits.dims == (model.target_dim,)
+#         #     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+#         #     log_probs_raw = lm_log_probs.raw_tensor.cpu()
+#         #     # -------debug
+#         #     #pdb.set_trace()
+#         #     return lm_state, log_probs_raw
+#
+#         def _cache_maybe_free_memory(self):
+#             if dev.type == "cuda":
+#                 # Maybe check if we should free some more memory.
+#                 count_pop = 0
+#                 used_mem = 0
+#                 while self._calc_next_lm_state.cache_len() > 0:
+#                     used_mem = torch.cuda.memory_reserved(dev)
+#                     if used_mem / total_mem < self._max_used_mem_fraction:
+#                         break
+#                     # Check again after trying to empty the cache.
+#                     # Note: gc.collect() is problematic here because of how Flashlight handles the states:
+#                     # We have millions of Python objects in the mapping_states dict,
+#                     # which takes a very long time to go through.
+#                     torch.cuda.empty_cache()
+#                     used_mem = torch.cuda.memory_reserved(dev)
+#                     if used_mem / total_mem < self._max_used_mem_fraction:
+#                         break
+#                     self._calc_next_lm_state.cache_pop_oldest()
+#                     count_pop += 1
+#                 if count_pop > 0:
+#                     print(
+#                         f"Pop {count_pop} states from cache,"
+#                         f" cache size {self._calc_next_lm_state.cache_len()},"
+#                         f" reached {used_mem / total_mem:.1%} of total mem,"
+#                         f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+#                     )
+#                     self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
+#
+#         def start(self, start_with_nothing: bool):
+#             """
+#             Parameters:
+#                 start_with_nothing (bool): whether or not to start sentence with sil token.
+#             """
+#             start_with_nothing  # noqa  # not sure how to handle this?
+#             self.reset()
+#             state = LMState()
+#             self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx] * context_size, prev_state=state) # label_seq=[model.bos_idx] * context_size
+#             return state
+#
+#         def score(self, state: LMState, token_index: int):
+#             """
+#             Evaluate language model based on the current lm state and new word
+#
+#             Parameters:
+#                 state: current lm state
+#                 token_index: index of the word
+#                             (can be lexicon index then you should store inside LM the
+#                             mapping between indices of lexicon and lm, or lm index of a word)
+#
+#             Returns:
+#                 (LMState, float): pair of (new state, score for the current word)
+#             """
+#             state_ = self.mapping_states[state]
+#
+#             # import time
+#             # if time.monotonic() - self._recent_debug_log_time > 1:
+#             #     print(
+#             #         "LM prefix",
+#             #         [model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq],
+#             #         f"score {model.target_dim.vocab.id_to_label(token_index)!r}",
+#             #         f"({len(self.mapping_states)} states seen)",
+#             #         f"(cache info {self._calc_next_lm_state.cache_info()})",
+#             #         f"(mem usage {dev_s}: {' '.join(_collect_mem_stats())})",
+#             #     )
+#             #     self._recent_debug_log_time = time.monotonic()
+#
+#             outstate = state.child(token_index)
+#             if outstate not in self.mapping_states:
+#                 self.mapping_states[outstate] = FlashlightLMState(
+#                     label_seq=state_.label_seq + [token_index], prev_state=state
+#                 )
+#
+#             _, log_probs_raw = self._calc_next_lm_state(state)
+#             return outstate, log_probs_raw[token_index]
+#
+#         def finish(self, state: LMState):
+#             """
+#             Evaluate eos for language model based on the current lm state
+#
+#             Returns:
+#                 (LMState, float): pair of (new state, score for the current word)
+#             """
+#             return self.score(state, model.eos_idx)
+#
+#     fl_lm = FlashlightLM()
+#
+#     from flashlight.lib.text.decoder import LexiconFreeDecoderOptions, LexiconFreeDecoder, CriterionType
+#     #----debug---
+#     #pdb.set_trace()
+#     fl_decoder_opts = LexiconFreeDecoderOptions(
+#         beam_size=beam_size,
+#         beam_size_token=beam_size_token,
+#         beam_threshold=beam_threshold,
+#         lm_weight=lm_scale,
+#         sil_score=0.0,
+#         log_add=log_add,
+#         criterion_type=CriterionType.CTC,
+#     )
+#     sil_idx = -1  # no silence
+#     fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, sil_idx, model.blank_idx, [])
+#
+#     # Subtract prior of labels if available
+#     if prior_file and prior_weight > 0.0:
+#         prior = np.loadtxt(prior_file, dtype="float32")
+#         prior *= prior_weight
+#         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+#         prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+#         label_log_prob = label_log_prob - prior
+#         # print("We subtracted the prior!")
+#
+#     label_log_prob = rf.where(
+#         enc_spatial_dim.get_mask(),
+#         label_log_prob,
+#         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+#     )
+#     label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+#     batch_size, max_seq_len = label_log_prob.raw_tensor.shape[:2]
+#     assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+#
+#     label_log_prob = rf.cast(label_log_prob, "float32")
+#     label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
+#     label_log_prob_raw = label_log_prob.raw_tensor.contiguous()
+#     float_bytes = 4
+#
+#     print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
+#
+#     def _output_hyps(hyp: list) -> str:
+#         prev = None
+#         ls = []
+#         for h in hyp:
+#             if h != prev:
+#                 ls.append(h)
+#                 prev = h
+#         ls = [model.target_dim.vocab.id_to_label(h) for h in ls if h != model.blank_idx]
+#         s = " ".join(ls).replace("@@ ", "")
+#         if s.endswith("@@"):
+#             s = s[:-2]
+#         return s
+#
+#     hyps = []
+#     scores = []
+#     for batch_idx in range(batch_size):
+#         emissions_ptr = label_log_prob_raw.data_ptr() + float_bytes * batch_idx * label_log_prob_raw.stride(0)
+#         seq_len = enc_spatial_dim.dyn_size[batch_idx]
+#         assert seq_len <= max_seq_len
+#         results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
+#         # I get -1 (silence label?) at the beginning and end in the tokens? Filter those away.
+#         # These are also additional frames which don't correspond to the input frames?
+#         # When removing those two frames, the len of tokens (align labels) matches the emission frames
+#         # (as it should be).
+#         hyps_per_batch = [[label for label in result.tokens if label >= 0] for result in results]
+#         scores_per_batch = [result.score for result in results]
+#         print(
+#             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
+#             f" best score: {scores_per_batch[0]},"
+#             f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
+#             f" worst score: {scores_per_batch[-1]},"
+#             f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
+#             f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
+#             f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+#         )
+#         assert all(
+#             len(hyp) == seq_len for hyp in hyps_per_batch
+#         ), f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
+#         if len(results) >= n_best:
+#             if n_best > 1:
+#                 # We have to select the n_best on output level
+#                 hyps_shortened = [_output_hyps(hyp) for hyp in hyps_per_batch]
+#                 nbest_hyps = []
+#                 nbest_hyps_ids = []
+#                 k = 0
+#                 i = 0
+#                 while k < n_best:
+#                     if i >= len(hyps_shortened):
+#                         break
+#                     if hyps_shortened[i] not in nbest_hyps:
+#                         nbest_hyps.append(hyps_shortened[i])
+#                         nbest_hyps_ids.append(i)
+#                         k += 1
+#                     i += 1
+#                 hyps_per_batch = [hyps_per_batch[id] for id in nbest_hyps_ids]
+#                 scores_per_batch = [scores_per_batch[id] for id in nbest_hyps_ids]
+#
+#                 if len(hyps_per_batch) < n_best:
+#                     print("Not enough n-best")
+#                     hyps_per_batch += [[]] * (n_best - len(hyps_per_batch))
+#                     scores_per_batch += [-1e30] * (n_best - len(hyps_per_batch))
+#             else:
+#                 hyps_per_batch = hyps_per_batch[:n_best]
+#                 scores_per_batch = scores_per_batch[:n_best]
+#         else:
+#             hyps_per_batch += [[]] * (n_best - len(results))
+#             scores_per_batch += [-1e30] * (n_best - len(results))
+#         assert len(hyps_per_batch) == len(scores_per_batch) == n_best
+#         hyps_per_batch = [hyp + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
+#         assert all(len(hyp) == max_seq_len for hyp in hyps_per_batch)
+#         hyps.append(hyps_per_batch)
+#         scores.append(scores_per_batch)
+#     fl_lm.reset()
+#     hyps_pt = torch.tensor(hyps, dtype=torch.int32)
+#     assert hyps_pt.shape == (batch_size, n_best, max_seq_len)
+#     scores_pt = torch.tensor(scores, dtype=torch.float32)
+#     assert scores_pt.shape == (batch_size, n_best)
+#     # import torch.nn.functional as F
+#     # collapsed_hyps = [[ctc_collapse(hyp, model.blank_idx) for hyp in seq] for seq in hyps_pt]
+#     # enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+#     # padded_hypotheses = [
+#     #     [F.pad(hyp, (0, int(enc_spatial_dim_torch.max()) - hyp.shape[0]), value=0) for hyp in batch]
+#     #     for batch in collapsed_hyps
+#     # ]
+#     # hyps_pt = torch.stack([torch.stack(batch) for batch in padded_hypotheses])
+#     # debug------------------------
+#     #pdb.set_trace()
+#
+#     #-----------------------
+#     beam_dim = Dim(n_best, name="beam")
+#     out_spatial_dim = enc_spatial_dim
+#     hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
+#     scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
+#     print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
+#
+#     return hyps_r, scores_r, out_spatial_dim, beam_dim
 
 
 def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx):
@@ -2644,7 +2713,47 @@ def scoring(
     n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
                     raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob.shape[0], 1]))
 
-    return scores, score_dim, n_oovs, n_oov_dim
+    # --- 2) pad + lengths ---
+    seqs = alignments_fa
+    lengths_list = [len(s) for s in seqs]
+    B = len(seqs)
+    assert B == batch_dim.get_dim_value(), f"{B} != {batch_dim.get_dim_value()}"
+    T = max(lengths_list)
+
+    pad_value = 0  # choose your PAD id
+    padded = torch.full((B, T), pad_value, dtype=torch.int32)
+    for i, s in enumerate(seqs):
+        padded[i, :len(s)] = torch.tensor(s, dtype=torch.int32)
+
+    # --- 3) define dims ---
+    # batch_dim = Dim(name="batch", dimension=B)
+
+    # beam=1 (you can keep it as a plain spatial Dim of size 1)
+    beam_dim = Dim(name="beam", dimension=1)
+
+    # dynamic time/out_spatial_dim; leave dimension=None and attach dyn_size
+    out_spatial_dim = Dim(name="time", dimension=None)
+
+    # lengths tensor (B,) -> will become the dynamic size for the time dim
+    lengths_t = Tensor(
+        name="seq_lengths",
+        dims=[batch_dim],
+        dtype="int32",
+        raw_tensor=torch.tensor(lengths_list, dtype=torch.int32),
+    )
+
+    # attach dynamic size so RETURNN knows true sequence lengths
+    out_spatial_dim.set_size_tensor(lengths_t)  # or: out_spatial_dim.dyn_size_ext = lengths_t  (older versions)
+
+    # --- 4) add beam dim (size 1) and wrap as RETURNN Tensor ---
+    raw = padded.unsqueeze(1)  # [B, 1, T]
+    seq_targets_wb = Tensor(
+        name="target_wb",
+        dims=[batch_dim, beam_dim, out_spatial_dim],
+        dtype="int32",
+        raw_tensor=raw,
+    )
+    return scores, score_dim, n_oovs, n_oov_dim, seq_targets_wb, beam_dim, out_spatial_dim
 
 
 # RecogDef API
@@ -2652,7 +2761,7 @@ scoring: RecogDef[Model]
 scoring.output_with_beam = True
 scoring.output_blank_label = OUT_BLANK_LABEL
 scoring.beam_size_dependent = False
-scoring.batch_size_dependent = False  # not totally correct, but we treat it as such...
+scoring.batch_size_dependent = True  # not totally correct, but we treat it as such...
 
 def scoring_v2(
         *,
@@ -2660,10 +2769,10 @@ def scoring_v2(
         data: Tensor,
         targets: Tensor,
         data_spatial_dim: Dim,
-        lm: str,
-        lexicon: str,
         hyperparameters: dict,
         prior_file: tk.Path = None,
+        lm: str,
+        lexicon: str,
         seq_tags: Tensor = None,
 ) -> Tensor:
     """
@@ -2677,33 +2786,55 @@ def scoring_v2(
         out_spatial_dim,
         final beam_dim
     """
-    from torchaudio.models.decoder import ctc_decoder
-    from returnn.util.basic import cf
     # Get the logits from the model
+
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
 
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
 
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+    # prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    # lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    print(f"Piror weight: {prior_weight}")
+    if isinstance(hyp_params["lm_weight"], tk.Variable):
+        hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
+    print(f"LM weight: {hyp_params['lm_weight']}")
+    # if prior_weight_tune is not None:
+    #     if isinstance(prior_weight_tune, float):
+    #         pass
+    #     elif isinstance(prior_weight_tune, tk.Path) or isinstance(prior_weight_tune, str):
+    #         prior_weight_tune = json.load(open(prior_weight_tune))
+    #         prior_weight_tune = prior_weight_tune["best_tune"]
+    #     else:
+    #         assert isinstance(prior_weight_tune, tk.Variable)
+    #         prior_weight_tune: tk.Variable
+    #         prior_weight_tune = prior_weight_tune.get()
+    #     assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+    #     prior_weight = hyp_params.pop("prior_weight", 0.0)
+    #     if isinstance(prior_weight, tk.Variable):
+    #         prior_weight = prior_weight.get()
+    #     print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+    #     prior_weight += prior_weight_tune
+    # if lm_weight_tune is not None:
+    #     if isinstance(prior_weight_tune, float):
+    #         pass
+    #     elif isinstance(lm_weight_tune, tk.Path) or isinstance(lm_weight_tune, str):
+    #         lm_weight_tune = json.load(open(lm_weight_tune))
+    #         lm_weight_tune = lm_weight_tune["best_tune"]
+    #     else:
+    #         assert isinstance(lm_weight_tune, tk.Variable)
+    #         lm_weight_tune: tk.Variable
+    #         lm_weight_tune = lm_weight_tune.get()
+    #     assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+    #     old_lm_weight = hyp_params.get("lm_weight", 0.0)
+    #     if isinstance(old_lm_weight, tk.Variable):
+    #         old_lm_weight = old_lm_weight.get()
+    #     print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+    #     hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
     if lm_name is not None:
         assert lm_name.startswith("ffnn") or lm_name.startswith("trafo"), "Not supported LM type!" + " " + lm_name
@@ -2761,29 +2892,109 @@ def scoring_v2(
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.to(torch.int64)
     target_spatial_dim_torch = targets.remaining_dims(batch_dim)[0].dyn_size_ext.raw_tensor.to(torch.int64)
 
+    def _ctc_preflight_check(i, logp, labels, seq_tag, blank_idx):
+        # logp: [T,C] on CUDA; labels: [L] on same device
+        T, C = logp.shape[-2], logp.shape[-1]
+
+        # 1) Finite logits?
+        if not torch.isfinite(logp).all():
+            print(f"[BAD LOGITS] {seq_tag} i={i} has NaN/Inf in logp. T={T}, C={C}")
+            return "[BAD LOGITS]"
+
+        # 2) dtype / range
+        if labels.dtype not in (torch.int32, torch.int64):
+            print(f"[BAD DTYPE] {seq_tag} i={i} labels dtype={labels.dtype}")
+            return "[BAD DTYPE]"
+        bad_low = (labels < 0).any().item()
+        bad_high = (labels >= C).any().item()
+        if bad_low or bad_high:
+            lmin = int(labels.min().item())
+            lmax = int(labels.max().item())
+            print(f"[OOB LABEL] {seq_tag} i={i} labels min/max={lmin}/{lmax} vs C={C}")
+            return "[OOB LABEL]"
+
+        # 3) blank inside targets?
+        if (labels == blank_idx).any().item():
+            print(f"[BLANK IN TARGETS] {seq_tag} i={i} blank_idx={blank_idx}")
+            return "[BLANK IN TARGETS]"
+
+        if (labels == 0).any().item() or (labels == 1).any().item() or (labels == 2).any().item():
+            print(f"[Disabled idx IN TARGETS] {seq_tag} i={i} blank_idx={blank_idx}")
+            return "[Disabled idx IN TARGETS]"
+
+        # 4) length feasibility
+        if labels.numel() == 0:
+            print(f"[EMPTY TARGET] {seq_tag} i={i}")
+            return "[EMPTY TARGET]"
+        L = labels.shape[-1]
+        if T < L:
+            print(f"[LEN FAIL] {seq_tag} i={i} T={T} < L_collapse={L} "
+                  f"(raw L={labels.numel()})")
+            return "[LEN FAIL]"
+
+        return "[OK]"
+
+    def remove_disabled_idx(labels):
+        out = []
+        DISABLED = {0, 1, 2}
+        for t in labels.squeeze(0):
+            if t in DISABLED:  # token AM cannot emit
+                continue
+            else:
+                out.append(t)
+        return torch.tensor(out, dtype=torch.long, device=labels.device).unsqueeze(0)
+
     '''Test torchaudio.functional.forced_align'''
     from torchaudio.functional import forced_align as forced_align
     alignments = []
     viterbi_scores = []
-    #import pdb; pdb.set_trace()
+    skips = []
     for i in range(label_log_prob_raw.shape[0]):
-        alignments_, viterbi_scores_ = forced_align(
-            label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0),
-            #targets.raw_tensor[i].unsqueeze(0),
-            trim_padded_sequence(targets.raw_tensor[i]).unsqueeze(0),
-            #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
-            #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
-            blank=model.blank_idx
-        )
+        logp = label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0)  # [1,T,C]
+        labels = trim_padded_sequence(targets.raw_tensor[i]).to(logp.device).unsqueeze(0)  # [1,L]
+        seq_tag = i + 1
+        check_info = _ctc_preflight_check(
+                            i,
+                            logp.squeeze(0),
+                            labels.squeeze(0),
+                            seq_tag,
+                            model.blank_idx)
+        if check_info != "[OK]":
+            # Skip or handle specially:
+            # e.g., write seq_tag to a "bad_samples.txt" and continue
+            if check_info == "[Disabled idx IN TARGETS]":
+                labels = remove_disabled_idx(labels)
+            else:
+                error_str = f"target_seq: {model.target_dim.vocab.get_seq_labels(labels.squeeze(0))}" + f"\nenc_spatial_dim{enc_spatial_dim_torch.max().item()}, logp: {logp}"
+                # print(f"target_seq: {model.target_dim.vocab.get_seq_labels(labels)}")
+                # print(f"enc_spatial_dim{enc_spatial_dim_torch.max().item()}, logp: {logp}")
+                print(f"\nWarning: {check_info}\n \t {error_str} \n Will not do mask for this sequence")
+                skips.append(i)
+                #raise ValueError(f"Unhandled Case: {check_info}: \n {error_str}")
+        if i in skips:
+            alignments_, viterbi_scores_ = torch.randn(logp.shape[1]), 0.0 # Will not be used anyway
+        else:
+            alignments_, viterbi_scores_ = forced_align(
+                logp,
+                #targets.raw_tensor[i].unsqueeze(0),
+                labels,
+                #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+                #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
+                blank=model.blank_idx
+            )
         alignments.append(alignments_)
-        viterbi_scores.append(viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum()) #Exclude the padding, might be redundant
+        viterbi_score = viterbi_scores_[0][:enc_spatial_dim_torch[i]].sum() if i not in skips else viterbi_scores_
+        viterbi_scores.append(viterbi_score) #Exclude the padding, might be redundant
 
     torch.cuda.empty_cache()
 
     '''Mask the label_log_prob using the forced alignment'''
+    # TODO: add a branch-If there is no LM involved we can just use viterbi_scores
     masked_label_log_prob = torch.full_like(label_log_prob_raw, fill_value=-1e30)
-
     for i in range(label_log_prob_raw.shape[0]):
+        if i in skips:
+            masked_label_log_prob[i] = label_log_prob_raw[i]
+            continue
         alignment = alignments[i].to(label_log_prob_raw.device).long().squeeze()
         T = enc_spatial_dim_torch[i].item()
         for t in range(T):
@@ -2796,7 +3007,7 @@ def scoring_v2(
     #                 raw_tensor=masked_label_log_prob)
 
 
-    seq_targets_wb, scores, _, _ = decode_nn(model=model, label_log_prob=masked_label_log_prob_ret,
+    seq_targets_wb, scores, out_spatial_dim, beam_dim = decode_nn(model=model, label_log_prob=masked_label_log_prob_ret,
                                   enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
                                   prior_file= prior_file, scoring=True) # TODO: use passed param to determine which decoder to use
 
@@ -2865,6 +3076,7 @@ def scoring_v2(
         #     scores.append(viterbi_scores[i] + hyp_params["lm_weight"] * lm_score)
     """-----------------------"""
     #````````````````````````````````````````````
+
     score_dim = Dim(1, name="score_dim")
     scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
                     raw_tensor=scores.raw_tensor.reshape([label_log_prob_raw.shape[0], 1]))
@@ -2875,7 +3087,7 @@ def scoring_v2(
     n_oovs = Tensor("n_oovs", dims=[batch_dim, n_oov_dim], dtype="int64",
                     raw_tensor=torch.tensor(n_oovs).reshape([label_log_prob_raw.shape[0], 1]))
 
-    return scores, score_dim, n_oovs, n_oov_dim
+    return scores, score_dim, n_oovs, n_oov_dim, seq_targets_wb, beam_dim, out_spatial_dim
 
 # RecogDef API   #Beam size independent for now
 scoring_v2: RecogDef[Model]
@@ -3049,79 +3261,195 @@ scoring_v3.output_blank_label = OUT_BLANK_LABEL
 scoring_v3.batch_size_dependent = False  # not totally correct, but we treat it as such...
 scoring_v3.beam_size_dependent = True
 
-def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: [FeedForwardLm| TransformerDecoder], lm_state, context_dim: Optional[rf.Dim]=None, lm_out_dim: Optional[rf.Dim]=None):
+def get_lm_logits(batch_dims, target, lm, lm_state, context_dim=None, lm_out_dim=None):
     from returnn.torch.util import diagnose_gpu
-    lm_logits = None
-    done = False
+    batch_dim = batch_dims[0]
+    bs_val = batch_dim.get_dim_value()
+    if isinstance(bs_val, torch.Tensor):
+        bs_val = int(bs_val.item())
+
+    def try_forward(x, state):
+        if isinstance(lm, FeedForwardLm):
+            return lm(x, spatial_dim=context_dim, out_spatial_dim=lm_out_dim, state=state)
+        elif isinstance(lm, TransformerDecoder):
+            # next-step only; no need to split
+            return lm(x, spatial_dim=single_step_dim, state=state)
+        else:
+            raise TypeError("Unknown LM type")
+
+    # If TransformerDecoder with cache: do not split at all
+    if isinstance(lm, TransformerDecoder):
+        return try_forward(target, lm_state)
+
+    # Otherwise (FFN), split progressively on OOM
     splits = 1
-    while not done:
+    while True:
         try:
-            if splits > 1:
-                batch_size = batch_dims[0].get_dim_value()
-                n_seqs = int(np.ceil(batch_size / splits))
-                new_dims = []
-                for i in range(splits):
-                    if (i + 1) * n_seqs <= batch_size:
-                        new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
-                    else:
-                        if isinstance(batch_size, torch.Tensor):
-                            batch_size = batch_size.item()
-                        new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
-                target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
-                lm_logits_split = []
-                for i in range(splits):
-                    if isinstance(lm,FeedForwardLm):
-                        lm_logits_i, _ = lm(
-                            target_split[i],
-                            spatial_dim=context_dim,
-                            out_spatial_dim=lm_out_dim,
-                            state=lm_state,
-                        )
-                    elif isinstance(lm,TransformerDecoder):
-                        lm_logits_i, _ = lm(
-                            target_split[i], #TODO: So the target are already started with bos
-                            spatial_dim=single_step_dim,
-                            state=lm_state,
-                        )  # Flat_Batch_Beam, Vocab / ...
-                    lm_logits_split.append((lm_logits_i, new_dims[i]))
-                lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
-            else:
-                if isinstance(lm, FeedForwardLm):
-                    lm_logits, lm_state = lm(
-                        target,
-                        spatial_dim=context_dim,
-                        out_spatial_dim=lm_out_dim,
-                        state=lm_state,
-                    )
-                elif isinstance(lm, TransformerDecoder):
-                    lm_logits, lm_state = lm(
-                        target,
-                        spatial_dim=single_step_dim,
-                        state=lm_state,
-                    )  # Flat_Batch_Beam, Vocab / ...
-            done = True
+            if splits == 1:
+                return try_forward(target, lm_state)
+            # compute safe sizes
+            q, r = divmod(bs_val, splits)
+            sizes = ([q + 1] * r) + ([q] * (splits - r))
+            sizes = [s for s in sizes if s > 0]
+            # slice-run-concat
+            starts = [0]
+            for s in sizes[:-1]:
+                starts.append(starts[-1] + s)
+            parts = []
+            for i, (st, ln) in enumerate(zip(starts, sizes)):
+                sl, _ = rf.slice(target, axis=batch_dim, start=st, size=ln)
+                # rename the slice dim to a stable, named tag
+                old = sl.dims[sl.dims.index(next(d for d in sl.dims if d.dimension == ln))]
+                named = rf.Dim(ln, name=f"split-{i}")
+                sl, _ = rf.replace_dim(sl, in_dim=old, out_dim=named)
+                out_i, _ = try_forward(sl, lm_state)
+                parts.append((out_i, named))
+            lm_logits, _ = rf.concat(*parts, out_dim=batch_dim)
+            return lm_logits, lm_state
         except RuntimeError as exc:
-            if "out of memory" in str(exc):
+            if "out of memory" in str(exc).lower():
                 print(f"OOM with {splits} splits:", exc)
                 diagnose_gpu.garbage_collect()
-                splits *= 2
-                if splits <= batch_dims[0].get_dim_value():
-                    continue
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                next_splits = min(splits * 2, bs_val)
+                if next_splits == splits:
+                    raise
+                splits = next_splits
+                continue
             raise
-    return lm_logits, lm_state
+#
+# def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: [FeedForwardLm| TransformerDecoder], lm_state, context_dim: Optional[rf.Dim]=None, lm_out_dim: Optional[rf.Dim]=None):
+#     from returnn.torch.util import diagnose_gpu
+#     lm_logits = None
+#     done = False
+#     splits = 1
+#     while not done:
+#         try:
+#             if splits > 1:
+#                 batch_size = batch_dims[0].get_dim_value()
+#                 n_seqs = int(np.ceil(batch_size / splits))
+#                 new_dims = []
+#                 for i in range(splits - 1):
+#                     if (i + 1) * n_seqs <= batch_size:
+#                         new_dims.append(rf.Dim(n_seqs, name=f"split-{i}"))
+#                     else:
+#                         if isinstance(batch_size, torch.Tensor):
+#                             batch_size = batch_size.item()
+#                         new_dims.append(rf.Dim(batch_size - i * n_seqs, name=f"split-{i}"))
+#                 target_split = rf.split(target, axis=batch_dims[0], out_dims=new_dims)
+#                 lm_logits_split = []
+#                 for i in range(splits):
+#                     if isinstance(lm,FeedForwardLm):
+#                         lm_logits_i, _ = lm(
+#                             target_split[i],
+#                             spatial_dim=context_dim,
+#                             out_spatial_dim=lm_out_dim,
+#                             state=lm_state,
+#                         )
+#                     elif isinstance(lm,TransformerDecoder):
+#                         lm_logits_i, _ = lm(
+#                             target_split[i], #TODO: So the target are already started with bos
+#                             spatial_dim=single_step_dim,
+#                             state=lm_state,
+#                         )  # Flat_Batch_Beam, Vocab / ...
+#                     lm_logits_split.append((lm_logits_i, new_dims[i]))
+#                 lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
+#             else:
+#                 if isinstance(lm, FeedForwardLm):
+#                     lm_logits, lm_state = lm(
+#                         target,
+#                         spatial_dim=context_dim,
+#                         out_spatial_dim=lm_out_dim,
+#                         state=lm_state,
+#                     )
+#                 elif isinstance(lm, TransformerDecoder):
+#                     lm_logits, lm_state = lm(
+#                         target,
+#                         spatial_dim=single_step_dim,
+#                         state=lm_state,
+#                     )  # Flat_Batch_Beam, Vocab / ...
+#             done = True
+#         except RuntimeError as exc:
+#             if "out of memory" in str(exc):
+#                 print(f"OOM with {splits} splits:", exc)
+#                 diagnose_gpu.garbage_collect()
+#                 torch.cuda.empty_cache()
+#                 splits *= 2
+#                 if splits <= batch_dims[0].get_dim_value():
+#                     continue
+#             raise
+#     return lm_logits, lm_state
 
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
+    # assert target.sparse_dim == wb_target_dim
+    # assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    # return rf.set_sparse_dim(target, target_dim)
+    """
+    WB (with-blank) sparse index -> label sparse index for LM context.
+    If target_dim == wb_target_dim (blank is already inside the vocab), this is identity.
+    If they differ (label space has no blank), compact indices > blank_idx by -1.
+    """
     assert target.sparse_dim == wb_target_dim
-    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-    return rf.set_sparse_dim(target, target_dim)
+    # Same dim: nothing to do, just set dim tag.
+    if target_dim is wb_target_dim or target_dim == wb_target_dim or blank_idx == target_dim.dimension:
+        return rf.set_sparse_dim(target, target_dim)
+
+    # Different dims: remove the blank slot by shifting indices > blank_idx down by one.
+    offset = rf.where(target > blank_idx, 1, 0)
+    new_idx = target - offset
+    return rf.set_sparse_dim(new_idx, target_dim)
 
 
 def _target_dense_extend_blank(
     target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int, value: float
 ) -> Tensor:
+    # assert target_dim in target.dims
+    # assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    # res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    # return res
+    """
+    Label-dense -> WB-dense.
+    If target_dim == wb_target_dim, just REPLACE the blank column with `value` (usually 0.0),
+    so the LM is silent on blank. If dims differ, insert a column at `blank_idx`.
+    """
     assert target_dim in target.dims
-    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-    res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+
+    # Same dim: replace the blank column by `value` (no LM on blank).
+    if target_dim is wb_target_dim or target_dim == wb_target_dim:
+        # Build a boolean mask that is True only at `blank_idx` along target_dim,
+        # then broadcast it across the other dims and replace.
+        mask_1d = rf.sparse_to_dense(blank_idx, axis=target_dim, label_value=True, other_value=False)
+        mask = mask_1d
+        for d in [d for d in target.dims if d is not target_dim]:
+            mask = rf.expand_dim(mask, dim=d)
+        return rf.where(mask, value, target)
+
+    # Different dims: insert a single column at `blank_idx`.
+    V = target_dim.dimension
+    assert wb_target_dim.dimension == V + 1
+    if blank_idx == V:
+        res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+        return res
+
+    # left | blank | right
+    other_dims = [d for d in target.dims if d is not target_dim]
+    left = None
+    if blank_idx > 0:
+        left_dim = rf.Dim(blank_idx, name=f"{target_dim.description or 'labels'}-left")
+        left = rf.gather(target, axis=target_dim, indices=rf.range_over_dim(left_dim))
+    right, right_dim = rf.slice(target, axis=target_dim, start=blank_idx)
+    one = rf.Dim(1, name=f"{target_dim.description or 'labels'}-blank-slot")
+    blank_col = rf.constant(value, dims=other_dims + [one])
+
+    if left is None:
+        res, _ = rf.concat((blank_col, one), (right, right_dim), out_dim=wb_target_dim)
+    elif right_dim.get_dim_value() == 0:
+        res, _ = rf.concat((left, left_dim), (blank_col, one), out_dim=wb_target_dim)
+    else:
+        res, _ = rf.concat((left, left_dim), (blank_col, one), (right, right_dim), out_dim=wb_target_dim)
     return res
 
 def recog_nn(
@@ -3225,7 +3553,6 @@ def decode_nn(
 
     hyp_params = copy.copy(hyperparameters)
     lm_name = hyp_params.pop("lm_order", None)
-    prior_weight = hyp_params.pop("prior_weight", 0.0)
 
     n_best = hyp_params.pop("nbest", 1)
     beam_size = hyp_params.pop("beam_size", 12)
@@ -3237,23 +3564,48 @@ def decode_nn(
     recomb_blank = hyp_params.pop("recomb_blank", False)
     recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
     recomb_with_sum = hyp_params.pop("recomb_with_sum", False)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    print(f"Piror weight: {prior_weight}")
+    if hyp_params.get("lm_weight", None) is not None:
+        if isinstance(hyp_params["lm_weight"], tk.Variable):
+            hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
+        print(f"LM weight: {hyp_params['lm_weight']}")
+    # prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    # lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
 
-    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    # if prior_weight_tune is not None:
+    #     if isinstance(prior_weight_tune, float):
+    #         pass
+    #     elif isinstance(prior_weight_tune, tk.Path) or isinstance(prior_weight_tune, str):
+    #         prior_weight_tune = json.load(open(prior_weight_tune))
+    #         prior_weight_tune = prior_weight_tune["best_tune"]
+    #     else:
+    #         assert isinstance(prior_weight_tune, tk.Variable)
+    #         prior_weight_tune: tk.Variable
+    #         prior_weight_tune = prior_weight_tune.get()
+    #     assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
+    #     prior_weight = hyp_params.pop("prior_weight", 0.0)
+    #     if isinstance(prior_weight, tk.Variable):
+    #         prior_weight = prior_weight.get()
+    #     print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+    #     prior_weight += prior_weight_tune
+    # if lm_weight_tune is not None:
+    #     if isinstance(prior_weight_tune, float):
+    #         pass
+    #     elif isinstance(lm_weight_tune, tk.Path) or isinstance(lm_weight_tune, str):
+    #         lm_weight_tune = json.load(open(lm_weight_tune))
+    #         lm_weight_tune = lm_weight_tune["best_tune"]
+    #     else:
+    #         assert isinstance(lm_weight_tune, tk.Variable)
+    #         lm_weight_tune: tk.Variable
+    #         lm_weight_tune = lm_weight_tune.get()
+    #     assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
+    #     old_lm_weight = hyp_params.get("lm_weight", 0.0)
+    #     if isinstance(old_lm_weight, tk.Variable):
+    #         old_lm_weight = old_lm_weight.get()
+    #     print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+    #     hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
-    if prior_weight_tune:
-        prior_weight_tune = json.load(open(prior_weight_tune))
-        prior_weight_tune = prior_weight_tune["best_tune"]
-        assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-        prior_weight += prior_weight_tune
-    if lm_weight_tune:
-        lm_weight_tune = json.load(open(lm_weight_tune))
-        lm_weight_tune = lm_weight_tune["best_tune"]
-        assert type(lm_weight_tune) == float or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-        old_lm_weight = hyp_params.get("lm_weight", 0.0)
-        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
     dev_s = rf.get_default_device()
     dev = torch.device(dev_s)
@@ -3281,6 +3633,7 @@ def decode_nn(
         else:
             prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
             label_log_prob = label_log_prob - prior
+        print(f"Prior is subtracted with weight{prior_weight}")
 
     if lm_name is not None:
         def extract_ctx_size(s):
@@ -3378,6 +3731,7 @@ def decode_nn(
 
     for t in range(max_seq_len):
         prev_target_wb = target_wb
+        #seq_log_prob = rf.combine(seq_log_prob, "add", label_log_prob_ta[t])
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
@@ -3659,47 +4013,167 @@ def decode_nn(
             seq_targets_wb = rf.gather(seq_targets_wb, axis=beam_dim, indices=indices)
             beam_dim = beam_dim_new
 
-    # '''Rescoring and reordering the n-best list using second pass LM if provided'''
-    # # Score are not replaced for search error check
-    # if lm_name_2pass is not None:
-    #     def extract_ctx_size(s):
-    #         match = re.match(r"ffnn(\d+)_\d+", s)  # Extract digits after "ffnn" before "_"
-    #         return match.group(1) if match else None
-    #     assert model.rescor_language_model
-    #     assert model.rescor_language_model.vocab_dim == model.target_dim
-    #
-    #     if lm_name_2pass.startswith("ffnn"):
-    #         context_size = int(extract_ctx_size(lm_name))
-    #         assert isinstance(model.rescor_language_model, FeedForwardLm)
-    #         lm_2pass: FeedForwardLm = model.rescor_language_model
-    #         assert lm.conv_filter_size_dim.dimension == context_size
-    #
-    #
-    #     elif lm_name_2pass.startswith("trafo"):
-    #         assert isinstance(model.rescor_language_model, TransformerDecoder)
-    #         lm_2pass: TransformerDecoder = model.rescor_language_model
-    #
-    #     elif lm_name_2pass.startswith("Llama"):
-    #         def raw_text_from_bpe_seq(seq:list):
-    #             token_list = [model.target_dim.vocab.id_to_label(idx) if idx != model. for idx in seq]
-    #             return " ".join(token_list).replace("@@ ","").replace(" <s>", "")
-    #         assert isinstance(model.rescor_language_model, tk.Path)
-    #         from transformers import AutoModelForCausalLM, AutoTokenizer
-    #         from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
-    #         model_path = get_content_dir_from_hub_cache_dir(model.rescor_language_model)
-    #         tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-    #         if tokenizer.pad_token is None:
-    #             tokenizer.pad_token = tokenizer.eos_token
-    #         print(f"\nTokenizer_max_length:{tokenizer.model_max_length}\n")
-    #         model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True)
-    #         model.eval()
-    #         model.to(dev)
-    #         raw_text = [raw_text_from_bpe_seq(hyp) for hyp in seq_targets_wb.raw_tensor]
-    #     else:
-    #         raise Exception("Not supported language model:" + lm_name_2pass + f"{model.rescor_language_model}")
-
-
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
+
+"""Rescore definition"""
+def ctc_model_rescore(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+        **_other,
+) -> Tensor:
+    """RescoreDef API"""
+    """This gives the summed score, not viterbi"""
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+    assert logits.feature_dim  # we expect a feature dim
+    assert enc_spatial_dim in logits.dims
+    log_probs = model.log_probs_wb_from_logits(logits)
+    assert isinstance(log_probs, Tensor)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+
+    # Note: Using ctc_loss directly requires quite a lot of memory,
+    # as we would broadcast the log_probs over the beam dim.
+    # Instead, we do a loop over the beam dim to avoid this.
+    neg_log_prob_ = []
+    for beam_idx in range(targets_beam_dim.get_dim_value()):
+        targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
+        targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+        targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
+        # Note: gradient does not matter (not used), thus no need use our ctc_loss_fixed_grad.
+        neg_log_prob = rf.ctc_loss(
+            logits=log_probs,
+            logits_normalized=True,
+            targets=targets_b,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_b_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        neg_log_prob_.append(neg_log_prob)
+    neg_log_prob, _ = rf.stack(neg_log_prob_, out_dim=targets_beam_dim)
+    log_prob_targets_seq = -neg_log_prob
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
+
+
+_sis_prefix: Optional[str] = None
+
+
+def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
+    if not prefix_name:
+        from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+
+        prefix_name = get_setup_prefix_for_module(__name__)
+    global _sis_prefix
+    _sis_prefix = prefix_name
+
+
+def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+    """Function is run within RETURNN."""
+    in_dim, epoch  # noqa
+    return Model(**_get_ctc_model_kwargs_from_global_config(target_dim=target_dim))
+
+
+ctc_model_def: ModelDef[Model]
+ctc_model_def.behavior_version = 21
+ctc_model_def.backend = "torch"
+ctc_model_def.batch_size_factor = _batch_size_factor
+
+
+def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, Any]:
+    from returnn.config import get_global_config
+
+    config = get_global_config()  # noqa
+    enc_aux_logits = config.typed_value("aux_loss_layers")
+    num_enc_layers = config.int("num_enc_layers", 12)
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+
+    enc_input_layer = config.typed_value("enc_input_layer", None)
+    conv_norm = config.typed_value("conv_norm", None)
+    enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
+    if enc_conformer_layer:
+        assert not conv_norm, "set only enc_conformer_layer or conv_norm, not both"
+        assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
+    else:
+        enc_conformer_layer = rf.build_dict(
+            rf.encoder.conformer.ConformerEncoderLayer,
+            conv_norm=conv_norm or {"class": "rf.BatchNorm", "use_mask": True},
+            self_att=rf.build_dict(
+                rf.RelPosSelfAttention,
+                # Shawn et al 2018 style, old RETURNN way.
+                with_bias=False,
+                with_linear_pos=False,
+                with_pos_bias=False,
+                learnable_pos_emb=True,
+                separate_pos_emb_per_head=False,
+            ),
+            ff_activation=rf.build_dict(rf.relu_square),
+            num_heads=8,
+        )
+    enc_other_opts = config.typed_value("enc_other_opts", None)
+
+    recog_language_model = config.typed_value("recog_language_model", None)
+    recog_lm = None
+
+    if recog_language_model:
+        assert isinstance(recog_language_model, dict)
+        recog_language_model = recog_language_model.copy()
+        cls_name = recog_language_model.pop("class")
+        if cls_name == "FeedForwardLm":
+            recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
+        elif cls_name == "TransformerLm":
+            recog_lm = TransformerDecoder(encoder_dim=None,vocab_dim=target_dim, **recog_language_model)
+
+    return dict(
+        in_dim=in_dim,
+        enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
+        num_enc_layers=num_enc_layers,
+        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+        enc_input_layer=enc_input_layer,
+        enc_conformer_layer=enc_conformer_layer,
+        enc_other_opts=enc_other_opts,
+        target_dim=target_dim,
+        blank_idx=target_dim.dimension,
+        bos_idx=_get_bos_idx(target_dim),
+        eos_idx=_get_eos_idx(target_dim),
+        enc_aux_logits=enc_aux_logits or (),
+        recog_language_model=recog_lm,
+    )
+
+
+def _get_bos_idx(target_dim: Dim) -> int:
+    """for non-blank labels"""
+    assert target_dim.vocab
+    if target_dim.vocab.bos_label_id is not None:
+        bos_idx = target_dim.vocab.bos_label_id
+    elif target_dim.vocab.eos_label_id is not None:
+        bos_idx = target_dim.vocab.eos_label_id
+    elif "<sil>" in target_dim.vocab.user_defined_symbol_ids:
+        bos_idx = target_dim.vocab.user_defined_symbol_ids["<sil>"]
+    else:
+        raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
+    return bos_idx
+
+
+def _get_eos_idx(target_dim: Dim) -> int:
+    """for non-blank labels"""
+    assert target_dim.vocab
+    if target_dim.vocab.eos_label_id is not None:
+        eos_idx = target_dim.vocab.eos_label_id
+    else:
+        raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
+    return eos_idx
 
 
 class Model(rf.Module):

@@ -1,9 +1,8 @@
-"""Param Import
-"""
+"""Param Import"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collection
+from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, List, Collection, Dict
 import tree
 import math
 import numpy as np
@@ -17,8 +16,19 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
 from ...model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
-from .configs import *
-from .configs import _batch_size_factor, _cfg_lrlin1e_5_295k, _get_cfg_lrlin_oclr_by_bs_nep
+from .configs import dyn_lr_piecewise_linear, dict_update_deep
+from .configs import (
+    post_config,
+    config_11gb,
+    config_24gb_v4,
+    config_24gb_v5,
+    config_24gb_v6,
+    config_11gb_v6_f32_bs15k_accgrad4_mgpu,
+    config_11gb_v6_f32_bs15k_accgrad1_mgpu4_wd1e_4_lrlin1e_5_295k,
+    _batch_size_factor,
+    _cfg_lrlin1e_5_295k,
+    _get_cfg_lrlin_oclr_by_bs_nep,
+)
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef

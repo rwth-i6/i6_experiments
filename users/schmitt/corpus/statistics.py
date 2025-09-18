@@ -8,6 +8,7 @@ from sisyphus import Path, Job, Task
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core import util
+from i6_core.lib import corpus
 
 
 class GetSeqLenFileJob(Job):
@@ -159,3 +160,48 @@ class GetCorrectDataFilteringJob(Job):
     with open(self.out_threshold.get_path(), "w+") as f:
       f.write(str(threshold_length))
 
+
+class GetBlissCorpusStatisticsJob(Job):
+  def __init__(
+          self,
+          bliss_corpus: Path,
+  ):
+    self.bliss_corpus = bliss_corpus
+
+    self.out_statistics = self.output_path("statistics")
+    self.out_seq_len_histogram_png = self.output_path("seq_len_histogram.png")
+    self.out_seq_len_histogram_pdf = self.output_path("seq_len_histogram.pdf")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+  def run(self):
+    import matplotlib.pyplot as plt
+
+    corpus_ = corpus.Corpus()
+    corpus_.load(self.bliss_corpus.get_path())
+
+    seq_lens = []
+    for segment in corpus_.segments():
+      assert segment.start == 0.0
+      seq_lens.append(segment.end)
+
+    sum_len = np.sum(seq_lens)
+    num_seqs = len(seq_lens)
+
+    with open(self.out_statistics.get_path(), "w+") as stat_file:
+      stat_file.write("Statistics\n")
+      stat_file.write(f"Max len: {np.max(seq_lens):.1f}s \n")
+      stat_file.write(f"Min len: {np.min(seq_lens):.1f}s \n")
+      stat_file.write(f"Mean len: {np.mean(seq_lens):.1f}s \n")
+      stat_file.write(f"Std len: {np.std(seq_lens):.1f}s \n")
+      stat_file.write(f"Sum len: {sum_len:.1f}s = {(sum_len / 60):.1f}min = {(sum_len / 3600):.2f}h \n")
+      stat_file.write("Number of sequences: " + str(len(seq_lens)) + "\n")
+
+    plt.hist(seq_lens, bins=num_seqs // 50)
+    plt.xlabel("Sequence length (s)")
+    plt.ylabel("Number of sequences")
+    plt.title("Histogram of sequence lengths")
+    plt.grid()
+    plt.savefig(self.out_seq_len_histogram_png.get_path())
+    plt.savefig(self.out_seq_len_histogram_pdf.get_path())

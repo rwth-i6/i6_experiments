@@ -89,6 +89,7 @@ def get_prior_config(
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
+    import_memristor: bool = False,
 ):
     """
     Get a generic config for extracting output label priors
@@ -125,6 +126,7 @@ def get_prior_config(
         forward_init_args=None,
         unhashed_forward_init_args=None,
         debug=debug,
+        import_memristor=import_memristor,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config
@@ -138,6 +140,7 @@ def get_forward_config(
     decoder_args: Dict[str, Any],
     unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
+    import_memristor: bool = False,
     debug: bool = False,
 ) -> ReturnnConfig:
     """
@@ -171,6 +174,7 @@ def get_forward_config(
         forward_module=decoder,
         forward_init_args=decoder_args,
         unhashed_forward_init_args=unhashed_decoder_args,
+        import_memristor=import_memristor,
         debug=debug,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

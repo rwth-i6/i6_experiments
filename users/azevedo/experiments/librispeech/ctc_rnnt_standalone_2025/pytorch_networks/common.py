@@ -1,12 +1,44 @@
 import torch
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional, Union, List, Tuple, Dict
 
 
 
 class Mode(Enum):
     STREAMING = 0
     OFFLINE = 1
+
+
+@dataclass
+class _Hypothesis:
+    tokens: List[int]
+    alignment: List[int]
+
+
+class CTCHypothesis(_Hypothesis):
+    words: List[str]
+
+
+@dataclass
+class RNNTHypothesis(_Hypothesis):
+    predictor_output: torch.Tensor
+    predictor_state: List[List[torch.Tensor]]
+    score: float
+    lm_output: Optional[torch.Tensor]
+    lm_state: Optional[List[List[torch.Tensor]]]
+
+
+# old
+@dataclass
+class Hypothesis:
+    tokens: List[int]
+    alignment: List[int]
+    predictor_output: torch.Tensor
+    predictor_state: List[List[torch.Tensor]]
+    score: float
+    lm_output: Optional[torch.Tensor]
+    lm_state: Optional[List[List[torch.Tensor]]]
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -90,3 +122,60 @@ def num_samples_to_frames(n_fft, hop_length, center, num_samples: int) -> int:
         return (num_samples // hop_length) + 1
     else:
         return ((num_samples - n_fft) // hop_length) + 1
+
+
+#
+# Trie (prefix-tree)
+#
+def follow_trie(trie: Dict, tokens: List) -> Union[List[List[any]], ValueError]:
+    """
+    Traverse trie and return path as a list of subpaths. Each subpath is the postfix of a sequence in the trie,
+    such that the concatenation of all subpaths is the original `tokens` sequence.
+
+    Example:
+        For a trie containing sequences `[1, 2], [1, 2, 3], [1, 2, 3, 4]` and `tokens = [1, 2, 3, 4]`, returns:
+        `[[1, 2], [3], [4]]`
+    """
+    cur = trie
+    path = []
+    cur_subpath = []
+    for token in tokens:
+        if "_end" in cur:
+            path.append(cur_subpath)
+            cur_subpath = []
+
+        if token not in cur:
+            raise ValueError(f"Sequence not in trie!")
+        
+        cur_subpath.append(token)
+        cur = cur[token]
+
+    # final check
+    if "_end" in cur:
+        path.append(cur_subpath)
+
+    return path
+
+
+def insert_trie(trie: dict, tokens: list, priority: int = 0) -> Tuple[dict, dict]:
+    """
+    Adds sequence of `tokens` to `trie`.
+
+    :param trie: prefix-tree as dictionray.
+    :param tokens: sequence to be inserted into trie.
+    :param priority: used in `search.decoder_module` for beam rankings
+    :return:
+    """
+    cur = trie
+    for token in tokens:
+        cur = cur.setdefault(token, {})
+    # indicate that partial hypo ended here
+    cur["_end"] = True
+    cur["_priority"] = priority
+
+    return trie, cur
+
+
+def filter_trie(trie: dict, token: int) -> dict:
+    # see jupyter
+    pass

@@ -43,7 +43,8 @@ class TrainingStrategy:
     # NOTE: should return List[LossEntry] containing attrs (name, loss, inv_norm_factor, scale)
     def step(self, data: dict):
         raise NotImplementedError
-    
+
+
 class TrainOffline(TrainingStrategy):
     def __init__(self, model: StreamableModule, train_step_mode: TrainStepMode) -> None:
         super().__init__(model, train_step_mode)
@@ -51,12 +52,14 @@ class TrainOffline(TrainingStrategy):
     def step(self, data: dict):
         return self.train_step_mode.step(self.model, data, Mode.OFFLINE, scale=1)
 
+
 class TrainStreaming(TrainingStrategy):
     def __init__(self, model: StreamableModule, train_step_mode: TrainStepMode) -> None:
         super().__init__(model, train_step_mode)
 
     def step(self, data: dict):
         return self.train_step_mode.step(self.model, data, Mode.STREAMING, scale=1)
+
 
 class TrainUnified(TrainingStrategy):
     def __init__(self, model: StreamableModule, train_step_mode: TrainStepMode, streaming_scale: float) -> None:
@@ -67,6 +70,7 @@ class TrainUnified(TrainingStrategy):
         str_loss, num_phon = self.train_step_mode.step(self.model, data, Mode.STREAMING, scale=self.streaming_scale)
         off_loss, _ = self.train_step_mode.step(self.model, data, Mode.OFFLINE, scale=1-self.streaming_scale)
         return {**str_loss, **off_loss}, num_phon
+
 
 class TrainSwitching(TrainingStrategy):
     def __init__(self, model: StreamableModule, train_step_mode: TrainStepMode, run_ctx) -> None:

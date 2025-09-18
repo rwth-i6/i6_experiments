@@ -5,14 +5,39 @@ import subprocess as sp
 from typing import Optional, Type, List, Dict, Any
 from sisyphus import Job, Task, tk
 import logging
-from .wav2vec_data_utils import get_rvad_root, get_fairseq_root
+from .wav2vec_data_utils import get_rvad_root, get_fairseq_root, w2v_manifest
 import i6_core.util as util
-from npy_append_array import NpyAppendArray
 import numpy as np
 import glob
-import h5py
+from sisyphus import tools
 import gc
 
+def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root, initial_manifests_dir: Optional[tk.Path] = None, concurrent, layer, model_path, dim:Optional[int] = 512, alias_prefix, alias_delete, alias_feat, existing_clusters: Optional[tk.Path] = None, existing_pca: Optional[tk.Path] = None, max_n_audios_per_manifest: Optional[int] = None, name_the_manifests_just_train_and_valid: Optional[bool] = True):
+    delete_silences_job = Wav2VecUDeleteSilencesInAudioJob(
+        environment=env,
+        fairseq_root=fairseq_root,
+        audio_dir=audio_dir,
+        valid_percent=valid_percent,
+        extension=ext,
+        rvad_root=rvad_root,
+        initial_manifests_dir=initial_manifests_dir,
+        concurrent=concurrent,
+        name_the_manifests_just_train_and_valid=name_the_manifests_just_train_and_valid,
+        max_n_audios_per_manifest=max_n_audios_per_manifest,
+    )
+    delete_silences_job.add_alias(os.path.join(alias_prefix, alias_delete))
+    featurize_job = Wav2VecUFeaturizeAudioJob(
+        environment=env,
+        fairseq_root=fairseq_root,
+        layer=layer,
+        existing_clusters=existing_clusters,
+        existing_pca=existing_pca,
+        w2v2_model_path=model_path,
+        input_audio_manifests=delete_silences_job.out_preprocessed_manifest,
+        concurrent=concurrent,
+    )
+    featurize_job.add_alias(os.path.join(alias_prefix, alias_feat))
+    return delete_silences_job, featurize_job
 
 class Wav2VecUDeleteSilencesInAudioJob(Job):
     """
@@ -20,17 +45,22 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
     This includes generating manifests, performing VAD, and removing silence from audio files.
     """
 
+    __sis_hash_exclude__ = {"environment":"/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3", "fairseq_root":"/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq",  "rvad_root":None, "name_the_manifests_just_train_and_valid":True}
+
+    __sis_hash_constant__ = {"concurrent": 8}
+
     def __init__(
         self,
         environment: Optional[tk.Path],
         fairseq_root: Type[tk.Path],
         audio_dir: Type[tk.Path],
-        valid_percent: Optional[float] = 0.01,
+        valid_percent: Optional[float] = 0,
         extension: Optional[str] = "flac",
         rvad_root: Optional[tk.Path] = None,
-        initial_manifests_dir: Optional[tk.Path] = None,
-        w2v2_model_path: tk.Path = None,
+        initial_manifests_dir: Optional[tk.Path] = None, # not supported yet
         concurrent: Optional[int] = 8,
+        name_the_manifests_just_train_and_valid: Optional[bool] = True,
+        max_n_audios_per_manifest: Optional[int] = None,  # Use only for testing purposes
     ):
         """
         :param environment: Path to the virtual environment.
@@ -39,31 +69,33 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
         :param valid_percent: Percentage of validation data to use.
         :param extension: Audio file extension (default: "flac").
         :param rvad_root: Path to the RVAD root directory.
-        :param initial_manifests_dir: Directory containing initial manifests train.tsv and valid.tsv.
-        :param w2v2_model_path: Path to the Wav2Vec 2.0 model.
+        :param initial_manifests_dir: Directory containing initial manifests 
         :param concurrent: Number of concurrent tasks to run (default: 16).
+        :param name_the_manifests_just_train_and_valid: If True, the manifests will be named just train and valid, otherwise they will be named with the split name.
+        :param max_n_audios_per_manifest: Maximum number of audio files per manifest (default: None).
         """
         self.environment = environment
         self.fairseq_root = fairseq_root
         self.audio_dir = audio_dir
-        self.valid_percent = valid_percent
+        self.valid_percent = valid_percent if valid_percent is not None else 0
         self.extension = extension
         self.rvad_root = (
             rvad_root
             if rvad_root
             else tk.Path("/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/rVADfast")
         )
-        self.w2v2_model_path = w2v2_model_path
         self.initial_manifests_dir = initial_manifests_dir
         self.valid_manifest_exists = False
         self.concurrent = concurrent
+        self.name_the_manifests_just_train_and_valid = name_the_manifests_just_train_and_valid
+        self.max_n_audios_per_manifest = max_n_audios_per_manifest
 
-        # self.out_manifest_and_vads = self.output_path("manifest_and_vads", directory=True)
+
         self.out_preprocessed_audio = self.output_path("preprocessed_audio", directory=True)
         self.out_preprocessed_manifest = self.output_path("preprocessed_manifest", directory=True)
 
         # Resource requirements
-        self.rqmt = {"time": 64, "cpu": 4, "gpu": 4, "mem": 64}
+        self.rqmt = {"time": 64, "cpu": concurrent//2,"gpu":1, "mem": 64}
 
         self.out_manifest_and_vads = self.output_path("manifest_and_vads", directory=True)
 
@@ -79,9 +111,9 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
         )
 
     def tasks(self):
-        yield Task("make_initial_manifest", rqmt=self.rqmt)
+        yield Task("make_initial_manifest", mini_task=True)
 
-        yield Task("split_manifest", rqmt=self.rqmt)
+        yield Task("split_manifest", mini_task=True)
 
         yield Task("run_vad", resume="run_vad", rqmt=self.rqmt, args=range(1, self.concurrent + 1))
 
@@ -108,57 +140,45 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
 
         # If initial manifests are provided, copy them to the output directory
         # and skip the manifest generation step
+        
         if self.initial_manifests_dir:
-            train_manifest = os.path.join(self.initial_manifests_dir.get_path(), "train.tsv")
-            valid_manifest = os.path.join(self.initial_manifests_dir.get_path(), "valid.tsv")
+            # Get the source and destination directories
+            src_dir = self.initial_manifests_dir.get_path()
+            dest_dir = self.out_manifest_and_vads.get_path()
 
-            if not os.path.exists(train_manifest):
-                raise FileNotFoundError(f"train.tsv not found in {self.initial_manifests_dir.get_path()}")
+            # Check if source directory exists
+            if not os.path.exists(src_dir):
+                raise FileNotFoundError(f"Source directory not found: {src_dir}")
 
-            self.valid_manifest_exists = os.path.exists(valid_manifest)
+            # Create destination directory if it doesn't exist
+            os.makedirs(dest_dir, exist_ok=True)
 
-            os.makedirs(self.out_manifest_and_vads.get_path(), exist_ok=True)
-            sp.run(f"cp {train_manifest} {self.out_manifest_and_vads.get_path()}/train.tsv", shell=True, check=True)
-
-            if self.valid_manifest_exists:
-                sp.run(f"cp {valid_manifest} {self.out_manifest_and_vads.get_path()}/valid.tsv", shell=True, check=True)
+            # Copy all .tsv files from source to destination
+            for file_name in os.listdir(src_dir):
+                if file_name.endswith('.tsv'):
+                    src_path = os.path.join(src_dir, file_name)
+                    dest_path = os.path.join(dest_dir, file_name)
+                    shutil.copy2(src_path, dest_path)
 
         else:
-            manifest_script = os.path.join(self.fairseq_root.get_path(), "examples/wav2vec/wav2vec_manifest.py")
-            sh_call = (
-                f"python {manifest_script} {self.audio_dir.get_path()} "
-                f"--ext {self.extension} --dest {self.out_manifest_and_vads.get_path()} "
-                f"--valid-percent 0"
-            )
-            sp.run(self.env_call() + sh_call, shell=True, check=True)
+            w2v_manifest(root=self.audio_dir.get_path(),
+                         valid_percent=0,
+                         dest=self.out_manifest_and_vads.get_path(),
+                         ext=self.extension,
+                         path_must_contain=None,
+                         name_the_manifests_just_train_and_valid=self.name_the_manifests_just_train_and_valid,
+                         max_n_audios_per_manifest=self.max_n_audios_per_manifest
+                     )
+
 
     def split_manifest(self):
         """Split the manifest into chunks for parallel processing"""
-        train_manifest = os.path.join(self.out_manifest_and_vads.get_path(), "train.tsv")
-        valid_manifest = os.path.join(self.out_manifest_and_vads.get_path(), "valid.tsv")
 
-        with open(train_manifest, "r") as f:
-            lines = f.readlines()
-            header = lines[0] if len(lines) > 0 else ""
-            data = lines[1:] if len(lines) > 1 else []
+        tsv_files = glob.glob(os.path.join(self.out_manifest_and_vads.get_path(), "*.tsv"))
 
-            # Split into chunks
-            chunk_size = math.ceil(len(data) / self.concurrent)
-            chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
-
-            # Write chunks to temporary directories
-            for task_id, chunk in enumerate(chunks, 1):
-                chunk_dir = self.out_manifest_and_vads_dirs[task_id].get_path()
-                os.makedirs(chunk_dir, exist_ok=True)
-
-                chunk_manifest = os.path.join(chunk_dir, "train.tsv")
-                with open(chunk_manifest, "w") as f_out:
-                    f_out.write(header)
-                    f_out.writelines(chunk)
-
-        if self.valid_manifest_exists:
-            logging.info("Valid manifest exists, splitting it as well")
-            with open(valid_manifest, "r") as f:
+        for tsv_file in tsv_files:
+            filename = os.path.basename(tsv_file)
+            with open(tsv_file, "r") as f:
                 lines = f.readlines()
                 header = lines[0] if len(lines) > 0 else ""
                 data = lines[1:] if len(lines) > 1 else []
@@ -166,28 +186,36 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
                 # Split into chunks
                 chunk_size = math.ceil(len(data) / self.concurrent)
                 chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
-
                 # Write chunks to temporary directories
                 for task_id, chunk in enumerate(chunks, 1):
                     chunk_dir = self.out_manifest_and_vads_dirs[task_id].get_path()
                     os.makedirs(chunk_dir, exist_ok=True)
-
-                    chunk_manifest = os.path.join(chunk_dir, "valid.tsv")
+                    
+                    chunk_manifest = os.path.join(chunk_dir, filename)
                     with open(chunk_manifest, "w") as f_out:
                         f_out.write(header)
                         f_out.writelines(chunk)
-
+        
     def run_vad(self, task_id):
 
+        
         manifest_and_vad_dir = self.out_manifest_and_vads_dirs[task_id].get_path()
 
         vads_script = os.path.join(self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/vads.py")
-        sh_call = (
-            f"python {vads_script} -r $RVAD_ROOT "
-            f"< {manifest_and_vad_dir}/train.tsv "
-            f"> {manifest_and_vad_dir}/train.vads"
-        )
-        sp.run(self.env_call() + sh_call, shell=True, check=True)
+
+        tsv_files = glob.glob(os.path.join(self.out_manifest_and_vads_dirs[task_id].get_path(), "*.tsv"))
+
+        for tsv_file in tsv_files:
+            filename = os.path.basename(tsv_file)
+            sh_call = (
+                f"python {vads_script} -r $RVAD_ROOT " +
+                f" < {manifest_and_vad_dir}/"+filename +
+                f" > {manifest_and_vad_dir}/"+filename[:-4]+".vads"
+            )
+            sp.run(self.env_call() + sh_call, shell=True, check=True)
+
+
+
 
     def remove_silence_from_audio(self, task_id):
 
@@ -197,22 +225,51 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
             self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/remove_silence.py"
         )
 
-        sh_call = (
-            f"python {silence_remove_script} "
-            f"--tsv {manifest_and_vad_dir}/train.tsv "
-            f"--vads {manifest_and_vad_dir}/train.vads "
-            f"--out {self.out_preprocessed_audio.get_path()} "
-        )
-        sp.run(self.env_call() + sh_call, shell=True, check=True)
+        tsv_files = glob.glob(os.path.join(self.out_manifest_and_vads.get_path(), "*.tsv"))
 
+        for tsv_file in tsv_files:
+            filename = os.path.basename(tsv_file)
+            
+            sh_call = (
+                f"python {silence_remove_script} "
+                f"--tsv {manifest_and_vad_dir}/"+filename+
+                f" --vads {manifest_and_vad_dir}/"+filename[:-4]+".vads"+
+                f" --out {self.out_preprocessed_audio.get_path()} "
+            )
+
+            sp.run(self.env_call() + sh_call, shell=True, check=True)
+
+        
     def make_final_manifest(self):
-        manifest_script = os.path.join(self.fairseq_root.get_path(), "examples/wav2vec/wav2vec_manifest.py")
-        sh_call = (
-            f"python {manifest_script} {self.out_preprocessed_audio.get_path()} "
-            f"--ext {self.extension} --dest {self.out_preprocessed_manifest.get_path()} "
-            f"--valid-percent {self.valid_percent}"
-        )
-        sp.run(self.env_call() + sh_call, shell=True, check=True)
+        w2v_manifest(root=self.out_preprocessed_audio.get_path(),
+                        valid_percent=self.valid_percent,
+                        dest=self.out_preprocessed_manifest.get_path(),
+                        ext=self.extension,
+                        path_must_contain=None,
+                        name_the_manifests_just_train_and_valid=self.name_the_manifests_just_train_and_valid)
+
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        d = {}
+        for k, v in parsed_args.items():
+            if k not in cls.__sis_hash_exclude__ or cls.__sis_hash_exclude__[k] != v:
+                d[k] = v
+
+        for k, org, replacement in cls.__sis_hash_overwrite__:
+            if k in d and d[k] == org:
+                d[k] = replacement
+
+        for k, v in cls.__sis_hash_constant__.items():
+            d[k] = v
+
+        if cls.__sis_version__ is None:
+            return tools.sis_hash(d)
+        else:
+            return tools.sis_hash((d, cls.__sis_version__))
 
 
 class Wav2VecUFeaturizeAudioJob(Job):
@@ -222,6 +279,10 @@ class Wav2VecUFeaturizeAudioJob(Job):
     This job prepares audio features by running the `prepare_audio.sh` script.
     """
 
+    __sis_hash_exclude__ = {"environment":"/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3", "fairseq_root":"/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"}
+
+    __sis_hash_constant__ = {"concurrent": 8}
+
     def __init__(
         self,
         environment: Optional[tk.Path],
@@ -230,6 +291,8 @@ class Wav2VecUFeaturizeAudioJob(Job):
         input_audio_manifests: tk.Path,
         dim: Optional[int] = 512,
         layer: Optional[int] = 14,  # Small w2v2 models don't have 14 layers
+        existing_clusters: Optional[tk.Path] = None,
+        existing_pca: Optional[tk.Path] = None,
         concurrent: Optional[int] = 4,
     ):
         """
@@ -239,6 +302,8 @@ class Wav2VecUFeaturizeAudioJob(Job):
         :param input_audio_manifests: Base directory with the .tsv files for audio manifests.
         :param dim: Feature dimension (default: 512).
         :param layer: Layer for feature extraction (default: 14) In the paper, they have base-1 order, they refer to this layer as layer 15
+        :param existing_clusters: Path to existing clusters (if any), should just be a centroids.npy file
+        :param existing_pca: Path to existing PCA (if any), should be a directory containing 512_pca_A.npy and 512_pca_b.npy
         """
         self.environment = environment
         self.fairseq_root = fairseq_root
@@ -246,10 +311,16 @@ class Wav2VecUFeaturizeAudioJob(Job):
         self.input_audio_manifests = input_audio_manifests
         self.dim = dim
         self.layer = layer
+        self.existing_clusters = existing_clusters
+        self.existing_pca = existing_pca
         self.concurrent = concurrent
 
         # Paths for outputs
         self.out_features = self.output_path("audio_features", directory=True)
+        self.out_features_precompute_pca512_cls128_mean = self.output_path("audio_features/precompute_pca512_cls128_mean", directory=True)
+        self.out_features_precompute_pca512_cls128_mean_pooled = self.output_path("audio_features/precompute_pca512_cls128_mean_pooled", directory=True)
+        self.out_features_clusters = self.output_path("audio_features/CLUS128/centroids.npy")
+        self.out_features_pca = self.output_path("audio_features/pca", directory=True)
 
         self.out_chunk_manifest = self.output_path("chunk_manifest", directory=True)
         self.out_chunk_manifest_dirs = {
@@ -266,16 +337,25 @@ class Wav2VecUFeaturizeAudioJob(Job):
         )
 
         # Resource requirements
-        self.rqmt = {"time": 100, "cpu": 1, "gpu": 2, "mem": 150}
+        self.rqmt = {"time": 100, "gpu": 1, "mem": 120}
 
     def tasks(self):
-        yield Task("copy_manifest_files", rqmt=self.rqmt)
-        yield Task("split_audio_manifest", rqmt=self.rqmt)
+        yield Task("copy_manifest_files", mini_task=True)
+        yield Task("split_audio_manifest", mini_task=True)
         yield Task("extract_features", rqmt=self.rqmt, args=range(1, self.concurrent + 1))
         yield Task("merge_features", rqmt=self.rqmt)
-        yield Task("cluster_features", rqmt=self.rqmt)
+        if self.existing_clusters is None:
+            yield Task("cluster_features", rqmt=self.rqmt)
+        else:
+            yield Task("cluster_features", mini_task=True)
+
         yield Task("apply_cluster", rqmt=self.rqmt)
-        yield Task("compute_pca", rqmt=self.rqmt)
+        
+        if self.existing_pca is None:
+            yield Task("compute_pca", rqmt=self.rqmt)
+        else:
+            yield Task("compute_pca", mini_task=True)
+
         yield Task("apply_pca", rqmt=self.rqmt)
         yield Task("merge_clusters", rqmt=self.rqmt)
         yield Task("mean_pool", rqmt=self.rqmt)
@@ -407,10 +487,14 @@ class Wav2VecUFeaturizeAudioJob(Job):
                 split_name = os.path.splitext(os.path.basename(npy_file))[0]
                 available_splits.add(split_name)
 
+        from npy_append_array import NpyAppendArray
+
         # Process each available split
         for split in available_splits:
             output_npy_file = os.path.join(self.out_features.get_path(), f"{split}.npy")
             output_lengths_path = os.path.join(self.out_features.get_path(), f"{split}.lengths")
+
+            
 
             npaa = NpyAppendArray(output_npy_file)
 
@@ -420,7 +504,7 @@ class Wav2VecUFeaturizeAudioJob(Job):
                 feature_file = os.path.join(chunk_dir, f"{split}.npy")
 
                 if os.path.exists(feature_file):
-                    data = np.load(feature_file)
+                    data = np.load(feature_file, mmap_mode="r")
                     npaa.append(data)
                     del data
                     gc.collect()
@@ -441,27 +525,61 @@ class Wav2VecUFeaturizeAudioJob(Job):
 
     def cluster_features(self):
         """
-        Cluster features across all chunks.
+        Cluster features for each non-validation manifest.
+
+        This function now finds all `.tsv` files in the features directory,
+        filters out any containing "valid" in their name, and then runs
+        clustering for each remaining manifest.
         """
-        combined_manifest = os.path.join(self.out_features.get_path(), "train.tsv")
+        if self.existing_clusters != None:
+            src_file = self.existing_clusters.get_path()
+            dst_file = self.out_features_clusters.get_path()
+            dst_dir = os.path.dirname(dst_file)
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.copy2(src_file, dst_file)
+            return
+
+
+        features_dir = self.out_features.get_path()
         script_path = os.path.join(
             self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/wav2vec_cluster_faiss.py"
         )
 
-        self.run_python_script(
-            script_path,
-            [
-                combined_manifest,
-                "--checkpoint",
-                self.w2v2_model_path.get_path(),
-                "--save-dir",
-                self.out_features.get_path(),
-                "-f",
-                "CLUS128",
-                "--sample-pct",
-                "0.01",
-            ],
-        )
+        # Find all .tsv files that do not contain 'valid' in their name.
+        # We sort the results to ensure deterministic behavior.
+        manifest_files = sorted([
+            f for f in glob.glob(os.path.join(features_dir, "*.tsv"))
+            if "valid" not in os.path.basename(f)
+        ])
+
+        if not manifest_files:
+            logging.warning("No non-validation .tsv manifest files found for clustering.")
+            return
+
+        # Note: The clustering script saves to a fixed filename ('CLUS128.pt').
+        # If multiple non-validation manifests are processed, the output from the last one
+        # will overwrite the previous ones.
+        for manifest_file in manifest_files:
+            logging.info(f"Running feature clustering for manifest: {os.path.basename(manifest_file)}")
+            self.run_python_script(
+                script_path,
+                [
+                    manifest_file,
+                    "--checkpoint",
+                    self.w2v2_model_path.get_path(),
+                    "--save-dir",
+                    self.out_features.get_path(),
+                    "-f",
+                    "CLUS128",
+                    "--sample-pct",
+                    "0.01",
+                    "--layer",
+                    str(self.layer),
+                ],
+            )
+
+
+
 
     def apply_cluster(self):
         """
@@ -487,28 +605,91 @@ class Wav2VecUFeaturizeAudioJob(Job):
                     os.path.join(self.out_features.get_path(), "CLUS128"),
                     "--split",
                     split,
+                    "--layer",
+                    str(self.layer),
                 ],
             )
 
+    # def compute_pca(self):
+    #     """
+    #     Task to compute PCA on the processed features.
+    #     """
+    #     train_split = "train"
+    #     train_split_npy = os.path.join(self.out_features.get_path(), f"{train_split}.npy")
+    #     output_pca_dir = os.path.join(self.out_features.get_path(), "pca")
+    #     script_path = os.path.join(self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/pca.py")
+
+    #     self.run_python_script(
+    #         script_path,
+    #         [
+    #             train_split_npy,
+    #             "--output",
+    #             output_pca_dir,
+    #             "--dim",
+    #             str(self.dim),
+    #         ],
+    #     )
+
+    
     def compute_pca(self):
         """
-        Task to compute PCA on the processed features.
+        Task to compute PCA on the features of each non-validation split.
+
+        This function identifies all non-validation splits by looking for `.tsv`
+        files without "valid" in their names. It then computes PCA for the
+        corresponding `.npy` feature file of each split.
         """
-        train_split = "train"
-        train_split_npy = os.path.join(self.out_features.get_path(), f"{train_split}.npy")
-        output_pca_dir = os.path.join(self.out_features.get_path(), "pca")
+
+        if self.existing_pca != None:
+            for file_name in os.listdir(self.existing_pca.get_path()):
+                src_file = os.path.join(self.existing_pca.get_path(), file_name)
+                dst_file = os.path.join(self.out_features_pca.get_path(), file_name)
+                os.makedirs(self.out_features_pca.get_path(), exist_ok=True)
+                shutil.copy2(src_file, dst_file)
+            return
+            
+        
+        features_dir = self.out_features.get_path()
         script_path = os.path.join(self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/pca.py")
 
-        self.run_python_script(
-            script_path,
-            [
-                train_split_npy,
-                "--output",
-                output_pca_dir,
-                "--dim",
-                str(self.dim),
-            ],
-        )
+        # Find all .tsv files that do not contain 'valid' in their name.
+        # We sort the results to ensure deterministic behavior.
+        manifest_files = sorted([
+            f for f in glob.glob(os.path.join(features_dir, "*.tsv"))
+            if "valid" not in os.path.basename(f)
+        ])
+
+        if not manifest_files:
+            logging.warning("No non-validation manifest files found for PCA computation.")
+            return
+
+        # Note: The PCA script saves to a fixed filename ('pca.pt'). If multiple
+        # non-validation splits are processed, the output from the last one will
+        # overwrite the previous ones.
+        for manifest_file in manifest_files:
+            split_name = os.path.splitext(os.path.basename(manifest_file))[0]
+            feature_file_npy = os.path.join(features_dir, f"{split_name}.npy")
+
+            if not os.path.exists(feature_file_npy):
+                logging.warning(
+                    f"Feature file {feature_file_npy} not found, "
+                    f"skipping PCA computation for split '{split_name}'."
+                )
+                continue
+
+            logging.info(f"Computing PCA for split: {split_name}")
+            output_pca_dir = os.path.join(self.out_features.get_path(), "pca")
+
+            self.run_python_script(
+                script_path,
+                [
+                    feature_file_npy,
+                    "--output",
+                    output_pca_dir,
+                    "--dim",
+                    str(self.dim),
+                ],
+            )
 
     def apply_pca(self):
         """
@@ -594,3 +775,26 @@ class Wav2VecUFeaturizeAudioJob(Job):
                     split,
                 ],
             )
+
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        d = {}
+        for k, v in parsed_args.items():
+            if k not in cls.__sis_hash_exclude__ or cls.__sis_hash_exclude__[k] != v:
+                d[k] = v
+
+        for k, org, replacement in cls.__sis_hash_overwrite__:
+            if k in d and d[k] == org:
+                d[k] = replacement
+
+        for k, v in cls.__sis_hash_constant__.items():
+            d[k] = v
+
+        if cls.__sis_version__ is None:
+            return tools.sis_hash(d)
+        else:
+            return tools.sis_hash((d, cls.__sis_version__)) 

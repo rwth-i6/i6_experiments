@@ -47,8 +47,13 @@ class I6EnergyCapture:
         print("EnergyCapture connected to MQTT server with result code " + str(rc))
         # Subscribing in on_connect() means that if we lose the connection and
         # reconnect then subscriptions will be renewed.
-        client.subscribe("gude1/#")
-        client.subscribe("paho/#")
+        if any(x in self.device for x in ["amd", "intel"]):
+            client.subscribe("gude1/#")
+            client.subscribe("paho/#")
+        elif any(x in self.device for x in ["gpu"]):
+            client.subscribe("tele/nous1/SENSOR")
+        else:
+            raise NotImplementedError
         self.connected = True
 
     # The callback for when a PUBLISH message is received from the server.
@@ -60,6 +65,8 @@ class I6EnergyCapture:
             self.last_power = d["line_in"][0]["voltage"] * d["line_in"][0]["current"]  # in watt = voltage * current
         elif "intel" in self.device:
             self.last_power = d["line_in"][1]["voltage"] * d["line_in"][1]["current"]  # in watt = voltage * current
+        elif "gpu" in self.device:
+            self.last_power = d["ENERGY"]["Voltage"] * d["ENERGY"]["Current"]
         else:
             raise NotImplementedError
         print(f"current W {self.device}: {self.last_power}")
@@ -104,6 +111,10 @@ class DecoderConfig:
 
     use_torch_compile: bool = False
     torch_compile_options: Optional[Dict[str, Any]] = None
+
+    turn_off_quant: Union[
+        bool, str
+    ] = 'leave_as_is'  # parameter for sanity checks, call self.prep_dequant instead of self.prep_quant
 
 
 @dataclass
@@ -180,6 +191,23 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.rtf_file = open("rtf", "wt")
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
+    if config.turn_off_quant is False:
+        print("Run quantization with torch")
+        run_ctx.engine._model.prep_quant()
+    elif config.turn_off_quant == "decomposed":
+        run_ctx.engine._model.prep_quant(decompose=True)
+        print("Use decomposed version, should match training")
+    elif config.turn_off_quant == "leave_as_is":
+        print("Use same version as in training")
+    else:
+        raise NotImplementedError
+        run_ctx.engine._model.prep_dequant()  # TODO: needs fix
+    run_ctx.engine._model.to(device=run_ctx.device)
+
+    if not "gpu" in config.energy_device:
+        import psutil
+        usage = psutil.cpu_percent(interval=1)
+        assert usage> 50, f"Load Script probably not started {usage}"
 
     run_ctx.energy_device = config.energy_device
     run_ctx.energy_capture = I6EnergyCapture(device=config.energy_device)
@@ -239,7 +267,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     if run_ctx.print_rtf:
         audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000
         run_ctx.running_audio_len_s += audio_len_batch
-    tmp = raw_audio.detach().numpy()
+    tmp = raw_audio.to("cpu").detach().numpy()
     am_start = time.time()
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,

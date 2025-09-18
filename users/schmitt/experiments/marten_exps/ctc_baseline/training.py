@@ -439,15 +439,21 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   """Function is run within RETURNN."""
   from returnn.config import get_global_config
   from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.sum_criterion import sum_loss_bigram, \
-    sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients
+    sum_loss_ngram, sum_loss_ffnn, safe_logsumexp, PrintGradients, NormGradients, sum_loss_ffnn_v3
 
   # torch.autograd.set_detect_anomaly(True)
   pg = PrintGradients.apply
   ng = NormGradients.apply
 
-  def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor, use_max: bool = False,
-                      separate_eos: bool = False) -> torch.Tensor:
-    with torch.no_grad():
+  def _calc_log_prior(
+          log_probs: torch.Tensor,
+          lengths: torch.Tensor,
+          use_max: bool = False,
+          separate_eos: bool = False,
+          no_grad: bool = True,
+  ) -> torch.Tensor:
+    import contextlib
+    with torch.no_grad() if no_grad else contextlib.nullcontext():
       lengths = lengths.to(log_probs.device)
       assert lengths.size(0) == log_probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
 
@@ -501,8 +507,12 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   am_scale = config.typed_value("am_scale", 1.0)
   if isinstance(am_scale, Callable):
     am_scale = am_scale("am_scale", rf.get_run_ctx().step)
-  lm_scale = config.float("lm_scale", 1.0)
-  prior_scale = config.float("prior_scale", 1.0)
+  lm_scale = config.typed_value("lm_scale", 1.0)
+  if isinstance(lm_scale, Callable):
+    lm_scale = lm_scale("lm_scale", rf.get_run_ctx().step)
+  prior_scale = config.typed_value("prior_scale", 1.0)
+  if isinstance(prior_scale, Callable):
+    prior_scale = prior_scale("prior_scale", rf.get_run_ctx().step)
 
   horizontal_prior = config.bool("horizontal_prior", True)
   blank_prior = config.bool("blank_prior", True)
@@ -518,8 +528,13 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
   w2v_opts = config.typed_value("w2v_opts", {})
   freeze_encoder_first_n_steps = w2v_opts.get("freeze_encoder_first_n_steps", 0)
   gradient_penalty_opts = config.typed_value("gradient_penalty_opts", {})
-  if gradient_penalty_opts and rf.get_run_ctx().train_flag and freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps:
-    # print("unfreezing wav2vec encoder for gradient penalty")
+  if (
+          # we have reached the unfreeze step
+          freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step == w2v_opts.get("freeze_encoder_first_n_steps", 0)
+  ) or (
+          # we have not reached the unfreeze step, but we need to unfreeze the encoder for gradient penalty
+          gradient_penalty_opts and rf.get_run_ctx().train_flag and freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps
+  ):
     model.set_wav2vec_encoder_trainable(True)
 
   print_gradients = config.bool("print_gradients", False)
@@ -640,13 +655,6 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
                          enc_spatial_dim.dyn_size_ext.raw_tensor[idx_t])
   else:
     log_probs = model.log_probs_wb_from_logits(logits)
-    blank_penalty_opts = config.typed_value("blank_penalty_opts", {})
-    if blank_penalty_opts:
-      blank_penalty = blank_penalty_opts["blank_penalty"]
-      blank_penalty = rf.sparse_to_dense(
-        model.blank_idx, axis=model.wb_target_dim, label_value=blank_penalty, other_value=0.0)
-      log_probs -= blank_penalty
-      # _blank_penalty(log_probs, model, enc_spatial_dim, blank_penalty_opts)
     log_probs_raw = log_probs.raw_tensor
 
   if use_prior:
@@ -662,43 +670,47 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
         assert model.blank_idx == log_prior.size(0)
         log_prior = torch.cat([log_prior, torch.tensor([0.0], device=log_probs_raw.device)], dim=0)
     else:
-      log_prior = _calc_log_prior(log_probs_raw, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
-      if not prior_gradient:
-        log_prior = log_prior.detach()
+      model_prior = config.typed_value("model_prior", {"type": "batch-wise"})
+      if model_prior["type"] == "exp-moving-average":
+        prior = model.model_prior(rf.exp(log_probs))
+        # renormalize to account for possible accumulated errors
+        log_prior = rf.log_softmax(rf.log(prior), axis=model.wb_target_dim).raw_tensor
+      else:
+        log_prior = _calc_log_prior(
+          log_probs_raw,
+          enc_spatial_dim.dyn_size_ext.raw_tensor,
+          use_max=max_prior,
+          no_grad=config.bool("prior_no_grad", True),
+        )
 
-      if not blank_prior:
-        log_prior[model.blank_idx] = float("-inf")
-        log_prior = torch.log_softmax(log_prior, dim=-1)
-        log_prior[model.blank_idx] = 0.0
+        if not prior_gradient:
+          log_prior = log_prior.detach()
+
+        if not blank_prior:
+          log_prior[model.blank_idx] = float("-inf")
+          log_prior = torch.log_softmax(log_prior, dim=-1)
+          log_prior[model.blank_idx] = 0.0
   else:
     log_prior = None
 
   # log_probs_raw = ng(log_probs_raw) # TODO
 
   if use_ffnn_lm:
-    log_probs.raw_tensor = log_probs_raw
+    # log_probs.raw_tensor = log_probs_raw
     log_prior = rf.convert_to_tensor(log_prior, dims=[model.wb_target_dim], dtype="float32")
 
-    loss = sum_loss_ffnn(
+    loss = sum_loss_ffnn_v3(
       model=model,
-      log_probs=log_probs,
+      label_log_prob=log_probs,
       lm=lm,
       context_size=lm_order,
       log_prior=log_prior,
-      input_lengths=enc_spatial_dim,
-      top_k=top_k,
+      enc_spatial_dim=enc_spatial_dim,
+      beam_size=top_k,
       am_scale=am_scale,
       lm_scale=lm_scale,
       prior_scale=prior_scale,
-      horizontal_prior=horizontal_prior,
-      blank_prior=blank_prior,
-      device=log_probs.device,
-      use_recombination=not alignment_topk,
-      recomb_blank=True,
-      recomb_after_topk=True,
-      recomb_with_sum=True,
-      blank_correction_version=blank_correction_version,
-      print_best_path_for_idx=print_for_idx,
+      scales_stop_grad=config.bool("scales_stop_grad", False),
     )
   else:
     # (B, T, V) -> (T, B, V)
@@ -709,7 +721,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
       log_lm_probs=lm,
       log_prior=log_prior,
       input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
-      top_k=top_k,
+      top_k=toqp_k,
       LM_order=lm_order,
       am_scale=am_scale,
       lm_scale=lm_scale,
@@ -723,7 +735,8 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
       print_best_path_for_idx=print_for_idx,
       alignment_topk=alignment_topk,
       blank_correction_version=blank_correction_version,
-      correction_in_final_score=correction_in_final_score
+      correction_in_final_score=correction_in_final_score,
+      scales_stop_grad=config.bool("scales_stop_grad", False),
     )
   if print_gradients and fixed_seqs[1] in seq_tags:
     print("Loss:", loss[np.where(seq_tags == fixed_seqs[1])[
@@ -751,6 +764,7 @@ def full_sum_train(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, seq_
     _gradient_penalty(log_probs, model, loss, gradient_penalty_opts)
 
     if freeze_encoder_first_n_steps > 0 and rf.get_run_ctx().step < freeze_encoder_first_n_steps:
+      # freeze the encoder again, if we are not past the unfreeze step
       model.set_wav2vec_encoder_trainable(False)
 
   if model.rescore_language_model is not None:
@@ -1414,10 +1428,12 @@ def _gradient_penalty(log_probs, model, loss, opts):
   else:
     feature_gradients_penalty = torch.pow(log_mean_l2_feature_gradients_raw - opts["target_gradient_log_l2_norm"], 2)
 
-  rf.get_run_ctx().mark_as_loss(
-    feature_gradients_penalty,
-    name="feature_gradients_penalty"
-  )
+  # in this mode, do not use as loss, but only for debugging
+  if not config.bool("debug_print_gradients", False):
+    rf.get_run_ctx().mark_as_loss(
+      feature_gradients_penalty,
+      name="feature_gradients_penalty"
+    )
 
   # the backward pass here should not be used for training the model, but only to compute the gradient penalty
   # therefore, we set the gradients of the model parameters to zero

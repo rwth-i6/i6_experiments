@@ -132,7 +132,6 @@ class GenerateBalancedSpeakerDevSegmentFileJob(Job):
                     f.write(segment + "\n")
 
 
-@lru_cache()
 def get_librispeech_tts_segments(ls_corpus_key="train-clean-100"):
     """
     Generate the fixed train and dev segments for fixed speaker TTS training
@@ -242,3 +241,21 @@ def get_ls_train_other_500_tts_silencepreprocessed(alias_path=""):
         ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"))
 
     return copy.deepcopy(processed_corpus)
+
+
+sub100_segments = None
+
+def get_100_from_ls360_segment_list():
+    global sub100_segments
+    if sub100_segments is None:
+        asr_bliss = get_bliss_corpus_dict()["train-clean-360"]
+
+        from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+        segments = SegmentCorpusJob(asr_bliss,1).out_single_segment_files[1]
+        segment_split = ShuffleAndSplitSegmentsJob(
+            segment_file=segments,
+            split={"100-from-360": 0.2743765262368527, "rest": 0.7256234737631473}
+        )
+        sub100_segments = segment_split.out_segments["100-from-360"]
+    assert sub100_segments is not None
+    return sub100_segments

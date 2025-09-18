@@ -48,7 +48,7 @@ class SpecaugStftConfig(ModelConfiguration):
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
-        return SpecaugStftConfig(**d)
+        return cls(**d)
 
 
 @dataclass
@@ -71,6 +71,50 @@ class SpecaugStftV2Config(SpecaugStftConfig):
         if d["multiplier"] is not None:
             d["multiplier"] = SpecaugMultiplierLinearConfig(**d["multiplier"])
         return SpecaugStftV2Config(**d)
+
+
+@dataclass
+class SpecaugStftV3Config(SpecaugStftConfig):
+    """
+    Apply masking in Mel warped domain.
+    """
+    num_mels: int
+
+
+@dataclass
+class SpecaugStftV4Config(SpecaugStftConfig):
+    """
+    Compute standard log Mel masks and convert them into STFT domain.
+
+    Attributes:
+        num_mels: number of mel filters to sample mask for
+        mel_triangle_percentage: when summing up all non-masked triangles, this is the threshold to get a binary mask
+            1.0 corresponds to masking every STFT channel that any masked triangle sees,
+            0.5 means masking until the intersection of masked and non-masked triangles,
+            eps > 0.0 means masking only STFT channels that are seen exclusively by masked triangles.
+        window: window used for STFT
+    """
+    num_mels: int
+    mel_triangle_percentage: float
+    window: str
+
+
+@dataclass
+class SpecaugStftV5Config(SpecaugStftConfig):
+    """
+    Just like SpecaugStftConfig, but with window.
+    """
+    window: str
+
+
+@dataclass
+class LogMelFeatureExtractionV2Config(LogMelFeatureExtractionV1Config):
+    module_class: str = "LogMelFeatureExtractionV1"
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        return cls(**d)
 
 
 @dataclass
@@ -156,12 +200,20 @@ class ModelConfig:
     def from_dict(cls, d):
         d = d.copy()
         feature_extraction_config_class = globals()[d["feature_extraction_config"]["module_class"] + "Config"]
+        if d["feature_extraction_config"]["module_class"] == "LogMelFeatureExtractionV1":
+            feature_extraction_config_class = LogMelFeatureExtractionV2Config
         d["feature_extraction_config"] = feature_extraction_config_class.from_dict(d["feature_extraction_config"])
         frontend_config_class = globals()[d["frontend_config_class"]]
         d["frontend_config"] = frontend_config_class(**d["frontend_config"])
         specaug_config_class = SpecaugConfig
         if "fft_size" in d["specaug_config"] and "min_num_time" in d["specaug_config"]:
             specaug_config_class = SpecaugStftV2Config
+        elif all(key in d["specaug_config"] for key in ["fft_size", "num_mels", "window"]):
+            specaug_config_class = SpecaugStftV4Config
+        elif "fft_size" in d["specaug_config"] and "num_mels" in d["specaug_config"]:
+            specaug_config_class = SpecaugStftV3Config
+        elif "fft_size" in d["specaug_config"] and "window" in d["specaug_config"]:
+            specaug_config_class = SpecaugStftV5Config
         elif "fft_size" in d["specaug_config"]:
             specaug_config_class = SpecaugStftConfig
         d["specaug_config"] = specaug_config_class.from_dict(d["specaug_config"])

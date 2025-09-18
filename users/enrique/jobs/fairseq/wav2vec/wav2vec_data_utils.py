@@ -13,21 +13,180 @@ import os
 import shutil
 import subprocess as sp
 from typing import Optional
-
 from sisyphus import *
 
 from i6_core.util import get_executable_path
 
 import numpy as np
 
+import random
+
+
+def calculate_all_configs(configs, seed_range: range):
+    """
+    Calculate the number of models to be trained based on the provided configurations.
+    This is a mini-task that runs before the main training task.
+    """
+    n_models = 1
+    for value in configs.values():
+        if isinstance(value, list):
+            n_models *= len(value)
+
+        elif isinstance(value, range):
+            n_models *= len(value)
+
+        else:
+            n_models *= 1
+
+    n_models *= len(seed_range)
+
+    logging.info(f"Number of models to train: {n_models}")
+
+    all_configs = [{}]
+
+    keys = list(configs.keys())
+
+    for key in keys:
+        all_configs_aux = []
+        for con in all_configs:
+            if isinstance(configs[key], list):
+                for value in configs[key]:
+                    new_config = con.copy()
+                    new_config[key] = value
+                    all_configs_aux.append(new_config)
+            elif isinstance(configs[key], range):
+                for value in configs[key]:
+                    new_config = con.copy()
+                    new_config[key] = value
+                    all_configs_aux.append(new_config)
+            else:
+                new_config = con.copy()
+                new_config[key] = configs[key]
+                all_configs_aux.append(new_config)
+        all_configs = all_configs_aux
+
+    all_configs_aux = []
+    for con in all_configs:
+        for seed in seed_range:
+            new_config = con.copy()
+            new_config["common.seed"] = seed
+            all_configs_aux.append(new_config)
+    all_configs = all_configs_aux
+
+    logging.info(f"All configurations: {all_configs}")
+    assert len(all_configs) == n_models
+
+    return all_configs, n_models
+
+    
+def w2v_manifest(
+    root,
+    dest,
+    ext,
+    valid_percent,
+    path_must_contain,
+    seed: Optional[int] = 42,
+    name_the_manifests_just_train_and_valid: bool = False,
+    max_n_audios_per_manifest: Optional[int] = None,
+):
+    assert valid_percent >= 0 and valid_percent <= 1.0
+
+    if not os.path.exists(dest):
+        os.makedirs(dest)
+
+    dir_path = os.path.realpath(root)
+    data_corpus = os.path.basename(dir_path.rstrip(os.sep))
+
+    search_path = os.path.join(dir_path, "**/*." + ext)
+    rand = random.Random(seed)
+
+    if name_the_manifests_just_train_and_valid:
+        valid_name = "valid.tsv"
+    else:
+        valid_name = data_corpus + "_valid.tsv"
+
+    valid_f = open(os.path.join(dest, valid_name), "w") if valid_percent > 0 else None
+
+    import glob
+    import soundfile
+
+    if name_the_manifests_just_train_and_valid:
+        tsv_name = "train.tsv"
+    else:
+        if valid_percent == 0:
+            tsv_name = data_corpus + ".tsv"
+        else:
+            tsv_name = data_corpus + "_train.tsv"
+
+    with open(os.path.join(dest, tsv_name), "w") as train_f:
+        print(dir_path, file=train_f)
+
+        if valid_f is not None:
+            print(dir_path, file=valid_f)
+
+        for fname in glob.iglob(search_path, recursive=True):
+            file_path = os.path.realpath(fname)
+
+            if max_n_audios_per_manifest is not None and max_n_audios_per_manifest <= 0:
+                break
+
+            max_n_audios_per_manifest = max_n_audios_per_manifest - 1 if max_n_audios_per_manifest is not None else None
+
+            if path_must_contain and path_must_contain not in file_path:
+                continue
+
+            frames = soundfile.info(fname).frames
+            dest = train_f if rand.random() >= valid_percent else valid_f
+            print("{}\t{}".format(os.path.relpath(file_path, dir_path), frames), file=dest)
+    if valid_f is not None:
+        valid_f.close()
+
+
+class CalculateWERJob(Job):
+    """
+    Job to calculate the Word Error Rate (WER) between two text files.
+    """
+
+    def __init__(self, reference: tk.Path, hypothesis: tk.Path, environment: tk.Path):
+        self.reference = reference
+        self.hypothesis = hypothesis
+        self.environment = environment
+
+        self.output_wer = self.output_path("wer.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+
+        sh_call = f"""
+        source {self.environment.get_path()}/bin/activate && \
+        python -c "from jiwer import process_words; \
+        with open('{self.reference.get_path()}', 'r') as f: \
+            gt = f.read(); \
+        with open('{self.hypothesis.get_path()}', 'r') as f: \
+            test = f.read(); \
+        measures = process_words(gt, test); \
+        with open('{self.output_wer.get_path()}', 'w') as f: \
+            f.write(f'WER: {{measures.wer}} Insertions: {{measures.insertions}} Deletions: {{measures.deletions}} Substitutions: {{measures.substitutions}}')
+        "
+        """
+
+        sp.check_call(sh_call, shell=True)
+
 
 # "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_u_audio_preprocessing/Wav2VecUFeaturizeAudioJob.TyJVh2DlIY8F/output/audio_features/valid.tsv"
 # This function is highly customized for the Librispeech dataset in /u/corpora i6
 def get_w2vu_librispeech_transcription(
     manifest_tsv_path: str,
-    output_path: str,
+    output_path: Optional[str] = None,
     corpus_root: str = "/u/corpora/speech/LibriSpeech/LibriSpeech/train-other-960/",
 ):
+
+    if output_path is not None and os.path.exists(output_path):
+        with open(output_path, "r") as f:
+            return f.read()
+
     with open(manifest_tsv_path, "r") as f:
         audios = f.readlines()
 
@@ -71,10 +230,50 @@ def get_w2vu_librispeech_transcription(
 
         audio_transcriptions.append(transcription_text)
 
-    all_transcriptions_in_a_string = "".join(audio_transcriptions)
+    all_transcriptions_in_a_string = "".join(audio_transcriptions).lower()
 
-    with open(output_path, "w") as f:
-        f.write(all_transcriptions_in_a_string)
+    if output_path is not None and not os.path.exists(output_path):
+
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        with open(output_path, "w") as f:
+            f.write(all_transcriptions_in_a_string)
+
+    return all_transcriptions_in_a_string
+
+
+class GetW2VLibriSpeechTranscriptionJob(Job):
+    """
+    Job to get the transcription of the Librispeech dataset.
+    It will download the transcription file and save it in the output path.
+    """
+
+    def __init__(
+        self, manifest_tsv_path: tk.Path, corpus_root: Optional[tk.Path] = None, sub_corpus: Optional[str] = None
+    ):
+        self.manifest_tsv_path = manifest_tsv_path
+        self.corpus_root = corpus_root
+        self.sub_corpus = sub_corpus
+
+        self.output_transcription = self.output_path("transcription.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        if self.corpus_root is not None:
+            self.corpus_root = self.corpus_root.get_path()
+        if self.sub_corpus is None:
+            self.sub_corpus = "train"
+
+        logging.info(
+            f"Getting Librispeech transcription from {self.manifest_tsv_path} to {self.output_path} with corpus root {self.corpus_root}"
+        )
+        get_w2vu_librispeech_transcription(
+            os.path.join(self.manifest_tsv_path.get_path(), self.sub_corpus) + ".tsv",
+            self.output_transcription.get_path(),
+            self.corpus_root,
+        )
 
 
 def cf(file_path: str) -> str:
@@ -88,12 +287,13 @@ def cache_path(path: str) -> str:
         return cf(path)
 
     all_cached_paths = []
-    for root, dirs, files in os.walk(path):
-        for name in files:
-            file_path = os.path.join(root, name)
-            if os.path.exists(file_path):
-                temp_path = cf(file_path)
-                all_cached_paths.append(temp_path)
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path):
+            for name in files:
+                file_path = os.path.join(root, name)
+                if os.path.exists(file_path):
+                    temp_path = cache_path(file_path)
+                    all_cached_paths.append(temp_path)
     return os.path.commonpath(all_cached_paths)
 
 
@@ -221,7 +421,7 @@ class PrepareWav2VecTextDataJob(Job):
         sil_prob: float,
         kaldi_root: Optional[Type[tk.Path]] = None,
         fairseq_python_env: Optional[Type[tk.Path]] = None,
-        vocab_size: int = 1000,
+        vocab_size: int = 1000,  # TODO: THIS IS NOT THE VOCAB SIZE, IT IS THE MIN NUMBER OF TIMES A PHONEME NEEDS TO APPEAR FOR IT TO NOT BE DISCARTED
         tts_engine: str = "espeak",
     ):
         """
@@ -245,6 +445,7 @@ class PrepareWav2VecTextDataJob(Job):
         self.fairseq_python_env = fairseq_python_env
 
         self.out_text_dir = self.output_path("text", directory=True)
+        self.processed_phn_data_and_LM = self.output_path("text/phones", directory=True)
 
         self.rqmt = {"time": 2000, "cpu": 1, "mem": 180}
 
@@ -328,6 +529,7 @@ def get_fairseq_root(
         ).out_repository
     else:
         if commit is not None:
-            logging.warning("Commit will be ignored since fairseq_root is provided")
+            # logging.warning("Commit will be ignored since fairseq_root is provided")
+            pass
 
     return SetupFairseqJob(fairseq_root, python_env, identifier).out_fairseq_root

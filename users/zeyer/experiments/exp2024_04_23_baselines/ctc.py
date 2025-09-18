@@ -1069,6 +1069,7 @@ def py():
 
     # v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
     # noBias. (Baseline: 5.77)
+    # {"dev-clean": 2.35, "dev-other": 5.65, "test-clean": 2.66, "test-other": 5.94}
     train_exp(  # 5.65 (!!!)
         "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
@@ -1761,12 +1762,9 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
-    enc_aux_logits = config.typed_value("aux_loss_layers")
-    num_enc_layers = config.int("num_enc_layers", 12)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
-    enc_input_layer = config.typed_value("enc_input_layer", None)
     conv_norm = config.typed_value("conv_norm", None)
     enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
     if enc_conformer_layer:
@@ -1788,7 +1786,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             ff_activation=rf.build_dict(rf.relu_square),
             num_heads=8,
         )
-    enc_other_opts = config.typed_value("enc_other_opts", None)
 
     cls = Model
     cls_name = config.typed_value("ctc_model_cls", None)
@@ -1805,16 +1802,18 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     return cls(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
-        num_enc_layers=num_enc_layers,
+        num_enc_layers=config.int("num_enc_layers", 12),
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_input_layer=enc_input_layer,
+        enc_input_layer=config.typed_value("enc_input_layer", None),
         enc_conformer_layer=enc_conformer_layer,
-        enc_other_opts=enc_other_opts,
+        enc_other_opts=config.typed_value("enc_other_opts", None),
         target_dim=target_dim,
         blank_idx=blank_idx,
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
-        enc_aux_logits=enc_aux_logits or (),
+        enc_aux_logits=config.typed_value("aux_loss_layers") or (),
+        enc_logits_with_bias=config.bool("enc_logits_with_bias", True),
+        enc_aux_logits_share_weights=config.bool("enc_aux_logits_share_weights", False),
     )
 
 
@@ -1866,7 +1865,11 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
         assert use_fixed_ctc_grad == "v2"  # v2 has the fix for scaled/normalized CTC loss
-        ctc_loss = ctc_loss_fixed_grad
+
+        if model.ctc_am_scale == 1 and model.ctc_prior_scale == 0:
+            ctc_loss = ctc_loss_fixed_grad  # including sanity check
+        else:
+            ctc_loss = functools.partial(ctc_loss_fixed_grad, sanity_check_zero=False)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -2071,6 +2074,8 @@ class Model(rf.Module):
         bos_idx: int,
         enc_build_dict: Optional[Dict[str, Any]] = None,
         enc_aux_logits: Sequence[int] = (),  # layers, 1-indexed
+        enc_aux_logits_share_weights: bool = False,
+        enc_logits_with_bias: bool = True,
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_input_layer: Optional[Dict[str, Any]] = None,
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
@@ -2100,7 +2105,7 @@ class Model(rf.Module):
                     strides=[(1, 1), (3, 1), (2, 1)],
                 )
 
-            enc_opts = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
+            enc_opts: Dict[str, Any] = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
 
             if enc_conformer_layer:
                 enc_opts["encoder_layer"] = enc_conformer_layer
@@ -2143,11 +2148,17 @@ class Model(rf.Module):
 
         if not wb_target_dim:
             wb_target_dim = target_dim + 1
+        self.wb_target_dim = wb_target_dim
+        self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim, with_bias=enc_logits_with_bias)
         self.enc_aux_selected_layers = enc_aux_logits
         for i in enc_aux_logits:
-            setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
-        self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
-        self.wb_target_dim = wb_target_dim
+            setattr(
+                self,
+                f"enc_aux_logits_{i}",
+                rf.Linear(self.encoder.out_dim, wb_target_dim, with_bias=enc_logits_with_bias)
+                if not enc_aux_logits_share_weights
+                else self.enc_logits,
+            )
         self.out_blank_separated = config.bool("out_blank_separated", False)
         self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
 
@@ -2199,20 +2210,12 @@ class Model(rf.Module):
                 vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
             )
 
-        ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
-        ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", self.out_blank_separated)
-        self.ctc_label_smoothing_exclude_blank = ctc_label_smoothing_exclude_blank
-        if not self.out_blank_separated:
-            self.ctc_label_smoothing_opts = {
-                "smoothing": ctc_label_smoothing,
-                "axis": self.wb_target_dim,
-                "exclude_labels": [self.blank_idx] if ctc_label_smoothing_exclude_blank else None,
-            }
-        else:  # separate blank
-            self.ctc_label_smoothing_opts = {
-                "smoothing": ctc_label_smoothing,
-                "axis": self.target_dim if ctc_label_smoothing_exclude_blank else self.wb_target_dim,
-            }
+        self.ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
+        self.ctc_label_smoothing_exclude_blank = config.bool(
+            "ctc_label_smoothing_exclude_blank", self.out_blank_separated
+        )
+        self.aux_ctc_label_smoothing = config.float("aux_ctc_label_smoothing", self.ctc_label_smoothing)
+
         self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
         self.log_prob_normed_grad_exclude_blank = config.bool(
             "log_prob_normed_grad_exclude_blank", self.out_blank_separated
@@ -2285,22 +2288,12 @@ class Model(rf.Module):
                 aux_attention_decoder, encoder_dim=self.encoder.out_dim, vocab_dim=target_dim
             )
 
-        vn = config.typed_value("variational_noise", None)
-        if vn:
-            # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
-            # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
-            blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
-            blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
-            for mod in self.modules():
-                if isinstance(mod, blacklist):
-                    continue
-                for param_name, param in mod.named_parameters(recurse=False):
-                    if param_name.endswith("bias"):  # no bias
-                        continue
-                    if param.auxiliary:
-                        continue
-                    rf.weight_noise(mod, param_name, std=vn)
+        from i6_experiments.users.zeyer.nn_rf.variational_noise import maybe_apply_variational_noise_from_config
 
+        maybe_apply_variational_noise_from_config(self, config)
+
+        # TODO also move weight_dropout into a separate common function
+        #   (very similar to maybe_apply_variational_noise_from_config)
         weight_dropout = config.typed_value("weight_dropout", None)
         if weight_dropout:
             # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
@@ -2315,6 +2308,7 @@ class Model(rf.Module):
                         continue
                     if param.auxiliary:
                         continue
+                    # TODO only for ndim>=2 (but backwards compatible...)
                     rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)
 
     def __call__(
@@ -2478,17 +2472,27 @@ class Model(rf.Module):
 
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs, aux_layer=aux_layer)
 
-        if self.ctc_label_smoothing_exclude_blank:
-            if self.out_blank_separated:
-                if log_probs.feature_dim == self.target_dim:
-                    log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+        ctc_label_smoothing = self.ctc_label_smoothing if aux_layer is None else self.aux_ctc_label_smoothing
+        if ctc_label_smoothing:
+            if self.ctc_label_smoothing_exclude_blank:
+                if self.out_blank_separated:
+                    if log_probs.feature_dim == self.target_dim:
+                        log_probs = rf.label_smoothed_log_prob_gradient(
+                            log_probs, smoothing=ctc_label_smoothing, axis=self.target_dim
+                        )
+                else:
+                    assert log_probs.feature_dim == self.wb_target_dim
+                    log_probs = rf.label_smoothed_log_prob_gradient(
+                        log_probs,
+                        smoothing=ctc_label_smoothing,
+                        axis=self.wb_target_dim,
+                        exclude_labels=[self.blank_idx],
+                    )
             else:
-                assert log_probs.feature_dim == self.wb_target_dim
-                assert self.ctc_label_smoothing_opts["exclude_labels"] == [self.blank_idx]
-                log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
-        else:
-            if log_probs.feature_dim == self.wb_target_dim:
-                log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+                if log_probs.feature_dim == self.wb_target_dim:
+                    log_probs = rf.label_smoothed_log_prob_gradient(
+                        log_probs, smoothing=ctc_label_smoothing, axis=self.wb_target_dim
+                    )
 
         return log_probs
 

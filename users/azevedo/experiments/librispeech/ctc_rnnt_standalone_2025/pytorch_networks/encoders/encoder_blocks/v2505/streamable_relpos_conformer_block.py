@@ -147,4 +147,4 @@ class StreamableRelPosConformerBlock(StreamableModule):
         x = 0.5 * self.ff2(x) + x  # [C+R, F]
         x = self.final_layer_norm(x)  # [C+R, F]
 
-        return x
+        return x    

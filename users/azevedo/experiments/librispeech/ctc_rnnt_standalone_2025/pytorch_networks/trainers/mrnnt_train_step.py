@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from typing import Tuple
 
-from i6_native_ops import monotonic_rnnt
 from .train_handler import TrainStepMode, LossEntry, List, Dict
 from ..streamable_module import StreamableModule
 from ..common import Mode
@@ -14,6 +13,7 @@ class MRNNTTrainStepMode(TrainStepMode):
         super().__init__()
 
     def step(self, model: StreamableModule, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
+        from i6_native_ops import monotonic_rnnt
 
         raw_audio = data["raw_audio"]  # [B, T', F]
         raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
@@ -33,6 +33,7 @@ class MRNNTTrainStepMode(TrainStepMode):
             raw_audio=raw_audio, raw_audio_len=raw_audio_len,
             labels=prepended_targets, labels_len=prepended_target_lengths,
         )
+        model.unset_mode_cascaded()
 
         has_mismatch = False
         for b in range(audio_features_len.size(0)):

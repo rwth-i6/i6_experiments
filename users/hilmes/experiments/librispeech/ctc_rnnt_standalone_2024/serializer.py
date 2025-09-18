@@ -8,7 +8,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH
+from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH, TORCH_MEMRISTOR_PATH
 
 
 def serialize_training(
@@ -72,6 +72,7 @@ def serialize_forward(
     forward_init_args: Optional[Dict[str, Any]] = None,
     unhashed_forward_init_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
+    import_memristor: bool = False,
     debug: bool = False,
 ):
     """
@@ -106,6 +107,10 @@ def serialize_forward(
         i6_models,
         pytorch_model_import,
     ]
+
+    if import_memristor is True:
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
+        serializer_objects.insert(1, memristor_modules)
 
     if include_native_ops:
         i6_native_ops = ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH)

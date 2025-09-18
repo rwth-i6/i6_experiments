@@ -93,6 +93,7 @@ class StreamableConformerConvolutionV1(StreamableModule):
         """
         :param tensor: [B, N, C, F]
         :param lookahead_sz: number of future frames in chunk
+        :param carry_over_size: number of past chunks we can convolve over
 
         :return: [B, N, C, F]
         """
@@ -106,7 +107,7 @@ class StreamableConformerConvolutionV1(StreamableModule):
             device=tensor.device
         )
 
-        # conv convolves over multiple past chunks w/o their fac
+        # conv convolves over multiple past chunks w/o their future-acoustic-context (fac)
         tensor = tensor.flatten(1, 2)  # [B, N*C, F]
         chunks_no_fac = tensor.unfold(
             1, chunk_sz-lookahead_sz, chunk_sz
@@ -114,7 +115,7 @@ class StreamableConformerConvolutionV1(StreamableModule):
 
         for i in range(num_chunks):
             if i > 0:
-                # how many past chunks needed for conv
+                # calc how many past chunks needed for conv
                 conv_carry = math.ceil(kernel_radius / (chunk_sz - lookahead_sz))
                 # don't go over predefined carryover
                 conv_carry = min(carry_over_size, conv_carry)

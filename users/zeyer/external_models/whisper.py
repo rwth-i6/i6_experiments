@@ -1,7 +1,7 @@
 from typing import Optional, Any, Dict
 from sisyphus import Job, Task, tk, gs
 from i6_core.util import uopen
-from .huggingface import get_content_dir_from_hub_cache_dir
+from .huggingface import set_hf_offline_mode, get_content_dir_from_hub_cache_dir
 
 
 class WhisperRecognitionJob(Job):
@@ -78,7 +78,7 @@ class WhisperRecognitionJob(Job):
         import sys
         import time
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         if self.python_virtual_env is not None:
             venv_dir = self.python_virtual_env.get_path()

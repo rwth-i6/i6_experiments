@@ -42,3 +42,16 @@ SUBWORD_NMT_REPO = get_returnn_subword_nmt(
     commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
 ).copy()
 SUBWORD_NMT_REPO.hash_overwrite = "I6_SUBWORD_NMT_V2"
+
+# TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
+#     url="https://github.com/rwth-i6/SynaptogenML",
+#     commit="7f5320d9331d4f27a0a7a5a58c2b697e608f0272",
+#     checkout_folder_name="SynaptogenML",
+# ).out_repository.copy()
+TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
+    url="git@git.rwth-aachen.de:mlhlt/torch-memristor.git",
+    commit="88af8c663fa8ce55ac3b559581081653da3e1610",
+    checkout_folder_name="torch_memristor",
+    branch="bene_cycle",
+).out_repository.copy()
+TORCH_MEMRISTOR_PATH.hash_overwrite = "LIBRISPEECH_STANDALONE_DEFAULT_TORCH_MEMRISTOR"

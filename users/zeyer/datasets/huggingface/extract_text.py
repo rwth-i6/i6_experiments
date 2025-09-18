@@ -1,6 +1,6 @@
 from sisyphus import Job, Task, tk
 from i6_core.util import uopen
-from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
+from i6_experiments.users.zeyer.external_models.huggingface import set_hf_offline_mode, get_content_dir_from_hub_cache_dir
 
 
 class ExtractTextFromHuggingFaceDatasetJob(Job):
@@ -32,6 +32,8 @@ class ExtractTextFromHuggingFaceDatasetJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        set_hf_offline_mode()
+
         from datasets import load_dataset
 
         # https://github.com/huggingface/open_asr_leaderboard/blob/main/normalizer/data_utils.py

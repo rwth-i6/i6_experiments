@@ -8,6 +8,7 @@ import copy
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from sisyphus import tk
 from i6_core.returnn.training import ReturnnTrainingJob
+import os
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -35,6 +36,8 @@ def eval_model(
     run_test: bool = False,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     prior_args: Optional[Dict[str, Any]] = None,
+    import_memristor: bool = False,
+    run_search_on_hpc: bool = False,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -55,6 +58,7 @@ def eval_model(
             with_prior=True,
             datasets=train_data,
             get_specific_checkpoint=epoch,
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
@@ -72,6 +76,8 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
+            import_memristor=import_memristor,
+            run_search_on_hpc=run_search_on_hpc,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -82,6 +88,7 @@ def eval_model(
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
         if prior_args is not None:
             asr_model_best4.net_args = train_args["net_args"]
@@ -99,6 +106,7 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
+            import_memristor=import_memristor,
         )
         result_dict.update(res)
     if run_best is True:
@@ -109,6 +117,7 @@ def eval_model(
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
         if prior_args is not None:
             asr_model_best.net_args = train_args["net_args"]
@@ -126,6 +135,7 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
+            import_memristor=import_memristor,
         )
         result_dict.update(res)
     return result_dict
@@ -146,6 +156,8 @@ def tune_and_evaluate_helper(
     use_gpu: bool = False,
     debug: bool = False,
     run_test: bool = False,
+    import_memristor: bool = False,
+    run_search_on_hpc:bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -177,11 +189,18 @@ def tune_and_evaluate_helper(
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples=dev_dataset_tuples,
                 use_gpu=use_gpu,
+                import_memristor=import_memristor,
                 debug=debug,
                 **default_returnn,
             )
+            if run_search_on_hpc is True:
+                for job in search_jobs:
+                    if not os.path.exists(
+                        f"{job._sis_path()}/finished.run.1"):  # sync back was successful
+                        job.hold()
+                        job.move_to_hpc = True
             tune_parameters.append((lm_weight, prior_scale))
-            tune_values_clean.append((wers[search_name + "/dev-clean"]))
+            # tune_values_clean.append((wers[search_name + "/dev-clean"]))
             tune_values_other.append((wers[search_name + "/dev-other"]))
             results.update(wers)
     if quant_args is not None:

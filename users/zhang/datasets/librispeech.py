@@ -3,7 +3,7 @@ Librispeech dataset
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict
+from typing import TYPE_CHECKING, Optional, Any, Union, Dict
 from copy import deepcopy
 import re
 import os
@@ -86,6 +86,7 @@ def _get_test_corpus_text() -> tk.Path:
         texts.append(job.out_text_lines)
     return ConcatenateJob(texts).out
 
+
 def get_test_corpus_text(keys:list[str]) -> tk.Path:
     from i6_core.text.processing import ConcatenateJob
     texts = []
@@ -95,7 +96,7 @@ def get_test_corpus_text(keys:list[str]) -> tk.Path:
         job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
         tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
         texts.append(job.out_text_lines)
-    return ConcatenateJob(texts).out
+    return ConcatenateJob(texts).out if len(texts) > 1 else texts[0]
 
 @cache
 def _get_spm_vocab(

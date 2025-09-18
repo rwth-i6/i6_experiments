@@ -423,36 +423,48 @@ class ExternalLMDecoder:
     def _create_external_lm_net(self) -> dict:
         lm_net_out = ReturnnNetwork()
 
-        ext_lm_subnet = self.ext_lm_opts["lm_subnet"]
-        ext_lm_scale = self.ext_lm_opts["lm_scale"]
-
-        assert isinstance(ext_lm_subnet, dict)
-        is_recurrent = self.ext_lm_opts.get(
-            "is_recurrent", False
-        )  # TODO: is this needed? we can always use subnet maybe
-        if is_recurrent:
-            lm_output_prob = self.ext_lm_opts["lm_output_prob_name"]
-            ext_lm_subnet[lm_output_prob]["target"] = self.target
-            lm_net_out.update(ext_lm_subnet)  # just append
+        if "kenlm_file" in self.ext_lm_opts:
+            # KenLM LM
+            lm_output_prob = lm_net_out.add_kenlm_layer(
+                name="lm_output_prob",
+                source="prev:output",
+                lm_file=self.ext_lm_opts["kenlm_file"],
+                **self.ext_lm_opts.get("kenlm_args", {}),
+            )
         else:
-            ext_lm_model = self.ext_lm_opts.get("lm_model", None)
-            if ext_lm_model:
-                load_on_init = ext_lm_model
+            # LSTM LM or Transformer LM
+
+            ext_lm_subnet = self.ext_lm_opts["lm_subnet"]
+
+            assert isinstance(ext_lm_subnet, dict)
+            is_recurrent = self.ext_lm_opts.get(
+                "is_recurrent", False
+            )  # TODO: is this needed? we can always use subnet maybe
+            if is_recurrent:
+                lm_output_prob = self.ext_lm_opts["lm_output_prob_name"]
+                ext_lm_subnet[lm_output_prob]["target"] = self.target
+                lm_net_out.update(ext_lm_subnet)  # just append
             else:
-                assert (
-                    "load_on_init_opts" in self.ext_lm_opts
-                ), "load_on_init opts or lm_model are missing for loading subnet."
-                assert "filename" in self.ext_lm_opts["load_on_init_opts"], "Checkpoint missing for loading subnet."
-                load_on_init = self.ext_lm_opts["load_on_init_opts"]
+                ext_lm_model = self.ext_lm_opts.get("lm_model", None)
+                if ext_lm_model:
+                    load_on_init = ext_lm_model
+                else:
+                    assert (
+                        "load_on_init_opts" in self.ext_lm_opts
+                    ), "load_on_init opts or lm_model are missing for loading subnet."
+                    assert "filename" in self.ext_lm_opts["load_on_init_opts"], "Checkpoint missing for loading subnet."
+                    load_on_init = self.ext_lm_opts["load_on_init_opts"]
 
-            lm_output = lm_net_out.add_subnetwork(
-                "lm_output", "prev:output", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init
-            )
-            lm_output_prob = lm_net_out.add_activation_layer(
-                "lm_output_prob", lm_output, activation="softmax", target=self.target
-            )
+                lm_output = lm_net_out.add_subnetwork(
+                    "lm_output", "prev:output", subnetwork_net=ext_lm_subnet, load_on_init=load_on_init
+                )
+                lm_output_prob = lm_net_out.add_activation_layer(
+                    "lm_output_prob", lm_output, activation="softmax", target=self.target
+                )
 
-        fusion_str = "safe_log(source(0)) + {} * safe_log(source(1))".format(ext_lm_scale)  # shallow fusion
+        fusion_str = "safe_log(source(0)) + {} * safe_log(source(1))".format(
+            self.ext_lm_opts["lm_scale"]
+        )  # shallow fusion
         fusion_source = [self.am_output_prob, lm_output_prob]
 
         if self.ext_lm_opts.get("am_scale") is not None:

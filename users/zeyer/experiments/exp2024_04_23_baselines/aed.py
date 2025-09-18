@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
 import numpy
 import tree
 
@@ -24,14 +24,21 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
+from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.zeyer.nn_rf.pad_ext import pad_ext
 
-from .configs import *
-from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
+from .configs import (
+    _get_cfg_lrlin_oclr_by_bs_nep,
+    _batch_size_factor,
+    dict_update_deep,
+    post_config,
+    config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+)
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.zeyer.datasets.task import Task
 
 
@@ -170,7 +177,7 @@ def py():
         )
 
     train_exp(  # 4.98 (!!), {"dev-clean": 2.35, "dev-other": 4.98, "test-clean": 2.21, "test-other": 5.49}
-        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -386,10 +393,10 @@ def py():
         ),
     ]:
         train_exp(
-            f"v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+            "v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
             f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
             f"-wd1e_2-lrlin1e_5_295k-speedpertV2"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-', '_')}" if sample else ""),
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config=model_cfg,
             config_updates={
@@ -477,7 +484,7 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = aed_training
-    serialization_version = config.get("__serialization_version", None)
+    serialization_version = get_from_config((config, model_def), "__serialization_version", None)
     train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
     model_with_checkpoint = train(
         prefix,
@@ -516,9 +523,6 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
 
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
-    enc_aux_logits = config.typed_value("aux_loss_layers")
-    pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
-    num_enc_layers = config.int("num_enc_layers", 12)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
@@ -537,25 +541,32 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                 with_pos_bias=False,
                 learnable_pos_emb=True,
                 separate_pos_emb_per_head=False,
-                pos_emb_dropout=pos_emb_dropout,
+                pos_emb_dropout=config.float("pos_emb_dropout", 0.0),
             ),
             ff_activation=rf.build_dict(rf.relu_square),
             num_heads=8,
         )
 
+    blank_idx = _aed_model_def_blank_idx
+    if blank_idx < 0:
+        blank_idx = target_dim.dimension + 1 + blank_idx
     return Model(
         in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
-        num_enc_layers=num_enc_layers,
+        num_enc_layers=config.int("num_enc_layers", 12),
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
         enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
         enc_att_num_heads=8,
         enc_conformer_layer=enc_conformer_layer,
         target_dim=target_dim,
-        blank_idx=target_dim.dimension,
+        blank_idx=blank_idx,
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
-        enc_aux_logits=enc_aux_logits or (),
+        enc_aux_logits=config.typed_value("aux_loss_layers") or (),
+        enc_aux_logits_with_bias=config.bool("enc_aux_logits_with_bias", True),
+        enc_aux_logits_share_weights=config.bool("enc_aux_logits_share_weights", False),
+        dec_aux_logits=config.typed_value("dec_aux_loss_layers") or (),
+        dec_aux_logits_share_weights=config.bool("dec_aux_logits_share_weights", False),
         dec_build_dict=config.typed_value("dec_build_dict", None),  # alternative more generic/flexible way
     )
 
@@ -564,6 +575,9 @@ aed_model_def: ModelDef[Model]
 aed_model_def.behavior_version = 21
 aed_model_def.backend = "torch"
 aed_model_def.batch_size_factor = _batch_size_factor
+
+_aed_model_def_blank_idx: int = -1  # for aux CTC
+_aed_model_def_blank_label: str = "<blank>"
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -595,53 +609,76 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
-    aux_loss_layers = config.typed_value("aux_loss_layers")
-    aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+    aux_loss_layers = config.typed_value("aux_loss_layers") or ()
+    aux_loss_scales = config.typed_value("aux_loss_scales", [1.0] * len(aux_loss_layers))
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    dec_aux_loss_layers = config.typed_value("dec_aux_loss_layers") or ()
+    dec_aux_loss_scales = config.typed_value("dec_aux_loss_scales", [1.0] * len(dec_aux_loss_layers))
     use_normalized_loss = config.typed_value("use_normalized_loss", True)
     if isinstance(use_normalized_loss, bool):
         use_normalized_loss = "frames" if use_normalized_loss else "none"
     assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
+    label_smoothing = config.float("label_smoothing", 0.1)
+    aux_ctc_label_smoothing = config.float("aux_ctc_label_smoothing", 0.0)
+    text_augment = config.typed_value("text_augment", None)
+
+    ctc_loss = rf.ctc_loss
+    if aux_ctc_label_smoothing:
+        from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
+
+        ctc_loss = ctc_loss_fixed_grad
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
 
+    if config.bool("use_eos_postfix", False):
+        ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
+    else:
+        ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
+
     collected_outputs = {}
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    if aux_loss_layers:
-        for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > len(model.encoder.layers):
-                continue
-            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_loss = rf.ctc_loss(
-                logits=aux_logits,
-                targets=targets,
-                input_spatial_dim=enc_spatial_dim,
-                targets_spatial_dim=targets_spatial_dim,
-                blank_index=model.blank_idx,
+    for i, layer_idx in enumerate(aux_loss_layers):
+        if layer_idx > len(model.encoder.layers):
+            continue
+        linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+        aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+        aux_ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+        if aux_ctc_label_smoothing:
+            aux_ctc_log_probs = rf.label_smoothed_log_prob_gradient(
+                aux_ctc_log_probs, smoothing=aux_ctc_label_smoothing, axis=model.wb_target_dim
             )
-            if use_normalized_loss in ("none", "frames"):
-                aux_loss.mark_as_loss(
-                    f"ctc_{layer_idx}",
-                    scale=aux_loss_scales[i],
-                    custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                    use_normalized_loss={"none": False, "frames": True}[use_normalized_loss],
-                )
-            elif use_normalized_loss == "seqs":
-                aux_loss.mark_as_loss(
-                    f"ctc_{layer_idx}", scale=0, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor()
-                )
-                aux_loss.mark_as_loss(f"seq_ctc_{layer_idx}", scale=aux_loss_scales[i], use_normalized_loss=True)
-            else:
-                raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
+        aux_loss = ctc_loss(
+            logits=aux_ctc_log_probs,
+            logits_normalized=True,
+            targets=ctc_targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=ctc_targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        if use_normalized_loss in ("none", "frames"):
+            aux_loss.mark_as_loss(
+                f"ctc_{layer_idx}",
+                scale=aux_loss_scales[i],
+                custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(),
+                use_normalized_loss={"none": False, "frames": True}[use_normalized_loss],
+            )
+        elif use_normalized_loss == "seqs":
+            aux_loss.mark_as_loss(
+                f"ctc_{layer_idx}", scale=0, custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor()
+            )
+            aux_loss.mark_as_loss(f"seq_ctc_{layer_idx}", scale=aux_loss_scales[i], use_normalized_loss=True)
+        else:
+            raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
 
-            # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
-            # error = rf.edit_distance(
-            #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
-            # )
-            # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
+        # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
+        # error = rf.edit_distance(
+        #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=ctc_targets, b_spatial_dim=ctc_targets_spatial_dim
+        # )
+        # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor())
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
@@ -650,44 +687,68 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     targets_w_eos, _ = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx, out_dims=[targets_w_eos_spatial_dim]
     )
+    if text_augment:
+        input_labels, targets_w_eos, targets_w_eos_spatial_dim = rf.cond(
+            rf.get_run_ctx().train_flag,
+            lambda: text_augment(
+                input_labels=input_labels,
+                targets_w_eos=targets_w_eos,
+                spatial_dim=targets_w_eos_spatial_dim,
+                exclude_labels={model.bos_idx, model.eos_idx},
+            ),
+            lambda: (input_labels, targets_w_eos, targets_w_eos_spatial_dim),
+        )
 
+    collected_outputs = {}
     logits, _ = model.decoder(
         input_labels,
         spatial_dim=targets_w_eos_spatial_dim,
         encoder=enc,
         state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        collected_outputs=collected_outputs,
     )
+    dec_aux_logits = {}
+    for layer_idx in dec_aux_loss_layers:
+        norm = getattr(model, f"dec_aux_final_layer_norm_{layer_idx}")
+        linear = getattr(model, f"dec_aux_logits_{layer_idx}")
+        out = collected_outputs[str(layer_idx - 1)]
+        dec_aux_logits[layer_idx] = linear(norm(out))
 
-    logits_packed, pack_dim = rf.pack_padded(
-        logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+    targets_packed, pack_dim = rf.pack_padded(
+        targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
     )
-    targets_packed, _ = rf.pack_padded(
-        targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
-    )
-
-    if not model.out_eos_separated:  # joint distrib, std case
-        log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
-    else:  # eos separated
-        log_prob = log_probs_with_eos_separated(logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx)
-    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
-    loss = rf.cross_entropy(
-        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
-    )
-    if use_normalized_loss in ("none", "frames"):
-        loss.mark_as_loss(
-            "ce", scale=aed_loss_scale, use_normalized_loss={"none": False, "frames": True}[use_normalized_loss]
+    for postfix, scale, logits_ in [("", aed_loss_scale, logits)] + [
+        (f"_{k}", dec_aux_loss_scales[i], dec_aux_logits[k]) for i, k in enumerate(dec_aux_loss_layers)
+    ]:
+        logits_packed, _ = rf.pack_padded(
+            logits_, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
         )
-    elif use_normalized_loss == "seqs":
-        loss.mark_as_loss("ce", scale=0)  # don't use this for training directly, just for reporting
-        loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
-        seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
-        seq_loss.mark_as_loss("seq_ce", use_normalized_loss=True)
-    else:
-        raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
 
-    best = rf.reduce_argmax(log_prob, axis=model.target_dim)
-    frame_error = best != targets_packed
-    frame_error.mark_as_loss(name="fer", as_error=True)
+        if not model.out_eos_separated:  # joint distrib, std case
+            log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+        else:  # eos separated
+            log_prob = log_probs_with_eos_separated(logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx)
+        log_prob = rf.label_smoothed_log_prob_gradient(log_prob, label_smoothing, axis=model.target_dim)
+        loss = rf.cross_entropy(
+            target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        )
+        if use_normalized_loss in ("none", "frames"):
+            loss.mark_as_loss(
+                f"ce{postfix}",
+                scale=scale,
+                use_normalized_loss={"none": False, "frames": True}[use_normalized_loss],
+            )
+        elif use_normalized_loss == "seqs":
+            loss.mark_as_loss(f"ce{postfix}", scale=0)  # don't use this for training directly, just for reporting
+            loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
+            seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
+            seq_loss.mark_as_loss(f"seq_ce{postfix}", scale=scale, use_normalized_loss=True)
+        else:
+            raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
+
+        best = rf.reduce_argmax(log_prob, axis=model.target_dim)
+        frame_error = best != targets_packed
+        frame_error.mark_as_loss(name=f"fer{postfix}", as_error=True)
 
 
 aed_training: TrainDef[Model]
@@ -714,10 +775,16 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
+    search_version = config.int("search_version", 1)
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
-    length_normalization_exponent = 1.0
+    beam_size = 12 if search_version == 1 else config.int("beam_size", 12)
+    length_normalization_exponent = 1.0 if search_version == 1 else config.float("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -838,6 +905,10 @@ class Model(rf.Module):
         bos_idx: int,
         enc_build_dict: Optional[Dict[str, Any]] = None,
         enc_aux_logits: Sequence[int] = (),  # layers
+        enc_aux_logits_with_bias: bool = True,  # if True, enc_aux_logits have bias
+        enc_aux_logits_share_weights: bool = False,  # if True, all enc_aux_logits share weights
+        dec_aux_logits: Sequence[int] = (),  # layers
+        dec_aux_logits_share_weights: bool = False,  # if True, all dec_aux_logits + final logits share weights
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         dec_model_dim: Dim = Dim(name="dec", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
@@ -922,8 +993,42 @@ class Model(rf.Module):
         if enc_aux_logits:
             if not wb_target_dim:
                 wb_target_dim = target_dim + 1
-        for i in enc_aux_logits:
-            setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+            if target_dim.vocab and not wb_target_dim.vocab:
+                from returnn.datasets.util.vocabulary import Vocabulary
+
+                # Just assumption for code now, might extend this later.
+                assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
+                vocab_labels = list(target_dim.vocab.labels) + [_aed_model_def_blank_label]
+                wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
+                    vocab_labels, user_defined_symbols={_aed_model_def_blank_label: blank_idx}
+                )
+        for i, layer_idx in enumerate(enc_aux_logits):
+            setattr(
+                self,
+                f"enc_aux_logits_{layer_idx}",
+                rf.Linear(self.encoder.out_dim, wb_target_dim, with_bias=enc_aux_logits_with_bias)
+                if i == 0 or not enc_aux_logits_share_weights
+                else getattr(self, f"enc_aux_logits_{enc_aux_logits[0]}"),
+            )
+        self.enc_aux_logits = enc_aux_logits
+        self.wb_target_dim = wb_target_dim
+
+        for layer_idx in dec_aux_logits:
+            setattr(
+                self,
+                f"dec_aux_final_layer_norm_{layer_idx}",
+                copy.deepcopy(self.decoder.final_layer_norm)
+                if not dec_aux_logits_share_weights
+                else self.decoder.final_layer_norm,
+            )
+            setattr(
+                self,
+                f"dec_aux_logits_{layer_idx}",
+                copy.deepcopy(self.decoder.logits) if not dec_aux_logits_share_weights else self.decoder.logits,
+            )
+        self.dec_aux_logits = dec_aux_logits
+
+        self.pad_audio = config.typed_value("pad_audio", None)
 
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
@@ -957,6 +1062,10 @@ class Model(rf.Module):
 
             self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
 
+        from i6_experiments.users.zeyer.nn_rf.variational_noise import maybe_apply_variational_noise_from_config
+
+        maybe_apply_variational_noise_from_config(self, config)
+
     def encode(
         self,
         source: Tensor,
@@ -965,6 +1074,8 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[rf.State, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
+        if self.pad_audio:
+            source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,

@@ -221,7 +221,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     def run_with_standard_settings(
         network_module, model_cfg, name_ext="", train_data_custom=None, prior_batch_size=None, forward_config=None,
-        train_rqmt=None, move_to_hpc=False, debug=False,
+        perturbation=None, train_rqmt=None, move_to_hpc=False, debug=False,
     ):
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
@@ -232,16 +232,18 @@ def eow_phon_ls960_relposencoder_0924_base():
             "max_seq_length": {"audio_features": 35 * 16000},
             "accum_grad_multiple_step": 1,
             "torch_amp_options": {"dtype": "bfloat16"},
-            "use_speed_perturbation": True,
             "gradient_clip_norm": 1.0,
         }
+        if perturbation is None:
+            train_config_24gbgpu_amp["use_speed_perturbation"] = True
 
         train_args = {
             "config": train_config_24gbgpu_amp,
             "network_module": network_module,
             "net_args": {"model_config_dict": asdict(model_cfg)},
             "debug": debug,
-            "use_speed_perturbation": True,
+            "use_speed_perturbation": perturbation == None,
+            "audio_perturbation": perturbation,
             "post_config": {"num_workers_per_gpu": 8},
         }
 
@@ -333,10 +335,14 @@ def eow_phon_ls960_relposencoder_0924_base():
         ModelConfig as FeatureModelConfigV2,
         SpecaugStftConfig,
         SpecaugStftV2Config,
+        SpecaugStftV3Config,
+        SpecaugStftV4Config,
+        SpecaugStftV5Config,
         SpecaugMultiplierLinearConfig,
         VGGNLayerActFrontendV1Config,
         VGGNLayerActFrontendV2Config,
         LinearConfig,
+        LogMelFeatureExtractionV2Config,
     )
 
     frontend_config = VGGNLayerActFrontendV1Config(
@@ -348,6 +354,12 @@ def eow_phon_ls960_relposencoder_0924_base():
     )
     specaug_configs = {
         "default": specaug_config,
+        "none": SpecaugConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=0,
+            max_dim_feat=0,
+            num_repeat_feat=5,
+        ),
         "default_v11": SpecaugConfig(
             repeat_per_n_frames=25,
             max_dim_time=55,
@@ -531,6 +543,16 @@ def eow_phon_ls960_relposencoder_0924_base():
             window_shift=160,
             fft_size=512,
         ),
+        "stft_v49": SpecaugStftV5Config(
+            repeat_per_n_frames=25,
+            max_dim_time=55,
+            max_dim_feat=int(16 / 80 * 201 * 1.3),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+        ),
         "stft_v51": SpecaugStftV2Config(
             repeat_per_n_frames=25,
             max_dim_time=20,
@@ -576,6 +598,178 @@ def eow_phon_ls960_relposencoder_0924_base():
             window_shift=320,
             fft_size=512,
         ),
+        "stft_v61": SpecaugStftConfig(  # mimic vanilla log Mel SpecAugment
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=int(16 / 80 * 257),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+        ),
+        "stft_v62": SpecaugStftConfig(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=160,
+            window_shift=160,
+            fft_size=160,  # shift has to be 160 and sizes cannot be smaller. results in 81 dim vectors close to log Mel
+        ),
+        "stft_v63": SpecaugStftV3Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=int(16 / 80 * 1024),
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            num_mels=1024,
+        ),
+        "stft_v64": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=0.5,
+        ),
+        "stft_v65": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v66": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=12,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v67": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=20,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v68": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=40,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v69": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=60,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v70": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=16,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=400,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v71": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=18,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v72": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=22,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v73": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=24,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v74": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=28,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
+        "stft_v75": SpecaugStftV4Config(
+            repeat_per_n_frames=25,
+            max_dim_time=20,
+            max_dim_feat=32,
+            num_repeat_feat=5,
+            window_size=400,
+            window_shift=160,
+            fft_size=512,
+            window="hann",
+            num_mels=80,
+            mel_triangle_percentage=1e-10,
+        ),
     }
     model_config = FeatureModelConfigV2(
         specaug_config=specaug_configs["stft_v1"],
@@ -590,9 +784,12 @@ def eow_phon_ls960_relposencoder_0924_base():
         (".sa64.scf", []),
         (".sa128.scf", []),
         (".stftsa.scf", []),
-        (".stftsav41.scf", []),
-        (".stftsav43.scf", []),
         (".stftsav47.scf", []),
+        (".stftsav65.scf", []),
+        (".stftsav66.scf", []),
+        (".stftsav67.scf", []),
+        (".stftsav71.scf", []),
+        (".stftsav72.scf", []),
         (".defaultsav11.scf", []),
     ]:
         model_config_exp = copy.deepcopy(model_config)
@@ -614,6 +811,27 @@ def eow_phon_ls960_relposencoder_0924_base():
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config_exp, name_ext=exp_name, move_to_hpc=True,
             forward_config={"batch_size": 16000 * 120}, prior_batch_size=120,
+        )
+
+    # rerun log mel with STFT-domain SpecAugment
+    logmel_config = LogMelFeatureExtractionV2Config(**asdict(fe_config))
+    for specaug_version in [
+        "none", "stft_v47", "stft_v61", "stft_v62", "stft_v63", "stft_v64", "stft_v65", "stft_v66", "stft_v67",
+        "stft_v71", "stft_v72",
+    ]:
+        model_config_exp = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=logmel_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        if specaug_version == "none":
+            model_config_exp.specaug_start_epoch = 1001
+            specaug_version = "nosa"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config_exp, name_ext="." + specaug_version.replace("_", "sa") + ".logmel", move_to_hpc=True,
         )
 
     # 2D experiments with STFT SpecAugment: different 2D configurations
@@ -956,30 +1174,7 @@ def eow_phon_ls960_relposencoder_0924_base():
 
     # 2D experiments: Tune STFT SpecAugment settings
     for exp_name, window_size, window_shift, n_fft, specaug_version in [
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v21"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v22"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v23"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v24"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v25"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v26"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v27"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v28"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v29"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v31"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v41"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v42"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v43"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v44"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v45"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v46"),
         (f".stftsa.2Dx2v1", 400, 160, None, "stft_v47"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v48"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v51"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v52"),
-        (f".stftsa.2Dx2v1", 400, 160, None, "stft_v53"),
-        (f".stftsa.2Dx2v2", 400, 160, None, "stft_v43"),
-        (f".stftsa.2Dx6v1", 400, 10, None, "stft_v43"),
-        (f".stftsa.2Dx5v1", 400, 20, None, "stft_v43"),
         (f".stftsa.2Dx7v1", 400, 5, None, "stft_v47"),
         (f".stftsa.2Dx6v1", 400, 10, None, "stft_v47"),
         (f".stftsa.2Dx5v1", 400, 20, None, "stft_v47"),
@@ -1090,8 +1285,6 @@ def eow_phon_ls960_relposencoder_0924_base():
         ConvFeatureExtractionV1Config, ConvFeatureExtractionV2Config
     )
     for fe_key, specaug_version, out_channels, kernel_size, stride, freeze, init, activation in [
-        ("2Dx6v1", "stft_v22", 80, 256, 10, False, "gammatone", None),
-        ("2Dx6v1", "stft_v22", 80, 256, 10, False, None, None),
         ("2Dx6v1", "stft_v47", 80, 256, 10, True, "gammatone", None),
         ("2Dx6v1", "stft_v47", 80, 256, 10, False, "gammatone", None),
         ("2Dx6v1", "stft_v47", 80, 256, 10, False, None, None),
@@ -1142,6 +1335,19 @@ def eow_phon_ls960_relposencoder_0924_base():
         ("2Dx6v13", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v14", "stft_v47", 128, 256, 10, False, None, None),
         ("2Dx6v15", "stft_v47", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "default", 32, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v61", 32, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v65", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v66", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v67", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v68", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v69", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v70", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v71", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v72", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v73", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v74", 128, 256, 10, False, None, None),
+        ("2Dx6v1", "stft_v75", 128, 256, 10, False, None, None),
     ]:
         if freeze:
             conv_config = ConvFeatureExtractionV2Config(
@@ -1168,6 +1374,51 @@ def eow_phon_ls960_relposencoder_0924_base():
             )
         frontend_config = copy.deepcopy(frontend_configs[fe_key])
         frontend_config.in_features = out_channels
+        specaug_config_exp = copy.deepcopy(specaug_configs[specaug_version])
+        if specaug_version == "default":
+            specaug_config_exp.max_dim_feat = int(specaug_config_exp.max_dim_feat / 80 * out_channels)
+            specaug_version = f"{specaug_version}sa"
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_config_exp,
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = "." + specaug_version.replace("stft_", "stftsa") + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name = (
+            exp_name +
+            (f"_{activation}" if activation else "") +
+            (f"_{init}" if init else "") +
+            ("_freeze" if freeze else "")
+        )
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": (16000 * 60 if out_channels > 256 else 16000 * 120)},
+            prior_batch_size=140 if out_channels <= 256 else 70,
+        )
+
+    # 2D experiments with STFT SpecAugment, first conv layer: tune audio perturbation
+    for fe_key, specaug_version, out_channels, kernel_size, stride, perturbation in [
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"speed": {"min": 0.9, "max": 1.1}}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"tempo": {"min": 0.9, "max": 1.1}}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"tempo": {"min": 0.8, "max": 1.2}}),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, {"tempo": {"min": 0.7, "max": 1.3}}),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=None,
+            activation=None,
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
         model_config = FeatureModelConfigV2(
             specaug_config=specaug_configs[specaug_version],
             feature_extraction_config=conv_config,
@@ -1176,12 +1427,88 @@ def eow_phon_ls960_relposencoder_0924_base():
             **model_base_args_feat,
         )
         exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
-        exp_name = (
-            exp_name +
-            (f"_{activation}" if activation else "") +
-            (f"_{init}" if init else "") +
-            ("_freeze" if freeze else "")
+        exp_name += ".pert_" + "_".join(
+            f"{pert_type}_{config['min']}_{config['max']}_{config.get('prob', 1.0)}"
+            for pert_type, config in perturbation.items()
         )
+        exp_name += "none" if len(perturbation) == 0 else ""
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
+        )
+
+    # 2D experiments with STFT SpecAugment, first conv layer: tune dropout
+    for fe_key, specaug_version, out_channels, kernel_size, stride, dropout in [
+        ("2Dx6v1", "stft_v47", 32, 256, 10, 0.05),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=None,
+            activation=None,
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
+        model_base_args_exp = {
+            **model_base_args_feat,
+            **dict(
+                att_weights_dropout=dropout,
+                conv_dropout=dropout,
+                ff_dropout=dropout,
+                mhsa_dropout=dropout,
+                final_dropout=dropout,
+            ),
+        }
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_exp,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name += f".drop{dropout}"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140, perturbation=perturbation,
+        )
+
+    # 2D experiments with STFT SpecAugment, first conv layer: per-channel energy normalization (PCEN)
+    conv_activation_configs = {
+        "ReLU": "ReLU",
+        "PCENv1": {"module_class": "PcenV1", "feat_dim": out_channels, "activation": "relu"},
+    }
+    for fe_key, specaug_version, out_channels, kernel_size, stride, activation in [
+        ("2Dx6v1", "stft_v47", 32, 256, 10, "ReLU"),
+        ("2Dx6v1", "stft_v47", 32, 256, 10, "PCENv1"),
+    ]:
+        conv_config = ConvFeatureExtractionV1Config(
+            wave_norm=True,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            bias=False,
+            init=None,
+            activation=conv_activation_configs[activation],
+            module_class="ConvFeatureExtractionV1",
+        )
+        frontend_config = copy.deepcopy(frontend_configs[fe_key])
+        frontend_config.in_features = out_channels
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=conv_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{fe_key}.conv{out_channels}x{kernel_size}x{stride}"
+        exp_name += f".{activation}"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
@@ -1192,8 +1519,15 @@ def eow_phon_ls960_relposencoder_0924_base():
     from ...pytorch_networks.ctc.features.wav2vec import (
         Wav2vecFeatureExtractionV1Config
     )
-    for specaug_version, conv_layers in [
-        ("stft_v47", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512,2,2)] * 3)
+    for name, specaug_version, conv_layers in [
+        ("w2v_fe", "stft_v47", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v65", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v66", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v67", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v71", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe", "stft_v72", [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe_lrgfiltv1", "stft_v47", [(512, 64, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 3),
+        ("w2v_fe_lrgfiltv2", "stft_v47", [(512, 64, 5)] + [(512, 32, 2)] * 4 + [(512, 16, 2)] * 3),
     ]:
         w2v_config = Wav2vecFeatureExtractionV1Config(
             conv_layers=conv_layers,
@@ -1206,7 +1540,34 @@ def eow_phon_ls960_relposencoder_0924_base():
             frontend_config_class="LinearConfig",
             **model_base_args_feat,
         )
-        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".w2v_fe"
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".{name}"
+        run_with_standard_settings(
+            network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
+            model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,
+            forward_config={"batch_size": 16000 * 120}, prior_batch_size=140,
+        )
+
+    # wav2vec feature extractor with subsequent VGG like in ITG 2023 paper
+    for specaug_version in ["stft_v47", "stft_v65", "stft_v66", "stft_v67", "stft_v71", "stft_v72"]:
+        w2v_config = Wav2vecFeatureExtractionV1Config(
+            conv_layers=[(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)],
+            module_class="Wav2vecFeatureExtractionV1",
+        )
+        frontend_config = VGGNLayerActFrontendV1Config(
+            in_features=512,
+            convs=[(32, (3, 3), 1), (64, (3, 3), 1), (64, (3, 3), 1), (32, (3, 3), 1)],
+            activations=[None, "ReLU", None, "ReLU"],
+            poolings=[None, ((2, 1), (2, 1), None), None, ((2, 1), (2, 1), None)],
+            out_features=512,
+        )
+        model_config = FeatureModelConfigV2(
+            specaug_config=specaug_configs[specaug_version],
+            feature_extraction_config=w2v_config,
+            frontend_config=frontend_config,
+            frontend_config_class="VGGNLayerActFrontendV1Config",
+            **model_base_args_feat,
+        )
+        exp_name = ".stftsa" + specaug_version.split("_")[1] + f".w2v_fe_6l.2D_4l"
         run_with_standard_settings(
             network_module="ctc.conformer_0924.i6models_relposV1_VGGNLayerActFrontendV1_feat_v2",
             model_cfg=model_config, name_ext=exp_name, train_rqmt={"mem_rqmt": 64}, move_to_hpc=True,

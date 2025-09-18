@@ -9,6 +9,7 @@ from sisyphus import tk, Job, Task
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
     DownloadHuggingFaceRepoJobV2,
+    set_hf_offline_mode,
     get_content_dir_from_hub_cache_dir,
 )
 from i6_experiments.users.zeyer.external_models.phi4multimodal import (
@@ -344,7 +345,7 @@ class GenAya(Job):
         import os
         import time
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         print("Import transformers / other libs...")
         start_time = time.time()
@@ -602,7 +603,7 @@ class ExtractInGradsFromPhi4MultimodalInstructJob(Job):
         import time
         import gc
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -909,7 +910,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
         import math
         from dataclasses import dataclass
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -917,6 +918,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
         sys.path.insert(0, recipe_dir)
 
         import i6_core.util as util
+        from i6_experiments.users.zeyer.numpy.wave import write_wave_file
 
         returnn_root = util.get_returnn_root(self.returnn_root)
         sys.path.insert(0, returnn_root.get_path())
@@ -1217,7 +1219,7 @@ class ChunkSegmentationFromPhi4MultimodalInstructLongFormJob(Job):
                 for cur_chunk_idx, ((cur_audio_start, cur_audio_end), ws) in enumerate(
                     zip(chunk_start_end, words_per_chunks)
                 ):
-                    _write_wave_file(
+                    write_wave_file(
                         f"seq{seq_idx}-chunk{cur_chunk_idx}.wav",
                         samples=audio[cur_audio_start:cur_audio_end],
                         sr=samplerate,
@@ -1273,7 +1275,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
         import sys
         import time
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1577,7 +1579,7 @@ class CalcAlignmentMetricsJob(Job):
         import sys
         import numpy as np
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1704,7 +1706,7 @@ class CalcChunkedAlignmentMetricsJob(Job):
         import sys
         import numpy as np
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -1857,7 +1859,7 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         import sys
         import numpy as np
 
-        os.environ["HF_HUB_CACHE"] = "/<on_purpose_invalid_hf_hub_cache_dir>"
+        set_hf_offline_mode()
 
         import i6_experiments
 
@@ -2005,6 +2007,7 @@ class Aligner:
         """
         import numpy as np
         import os
+        from i6_experiments.users.zeyer.numpy.math import log_softmax, log_sigmoid
 
         if self.cut_off_eos:  # disabled by default
             # Last row is EOS, remove it.
@@ -2045,8 +2048,8 @@ class Aligner:
             score_matrix = np.log(score_matrix)
             blank_score = np.log(blank_score)
         if self.apply_log_sigmoid:
-            score_matrix = _log_sigmoid(score_matrix)
-            blank_score = _log_sigmoid(blank_score)
+            score_matrix = log_sigmoid(score_matrix)
+            blank_score = log_sigmoid(blank_score)
         # Otherwise assume already in log space.
         # Make sure they are all negative or zero max.
         m = np.max(score_matrix)
@@ -2062,7 +2065,7 @@ class Aligner:
         else:
             raise ValueError(f"invalid substract {self.substract!r}")
         if self.apply_softmax_over_time:
-            score_matrix = _log_softmax(score_matrix, axis=1)
+            score_matrix = log_softmax(score_matrix, axis=1)
             non_blank_score = np.max(np.exp(score_matrix), axis=0)  # [T]
             if self.apply_softmax_over_time_est_blank:
                 blank_score = 1.0 - non_blank_score
@@ -2085,7 +2088,7 @@ class Aligner:
         if self.apply_softmax_over_labels:
             # Concat blank score to the end, to include it in the softmax.
             score_matrix = np.concatenate([score_matrix, blank_score[None, :]], axis=0)  # [S+1, T]
-            score_matrix = _log_softmax(score_matrix, axis=0)
+            score_matrix = log_softmax(score_matrix, axis=0)
             score_matrix, blank_score = score_matrix[:-1], score_matrix[-1]
 
         # scores/backpointers over the states and time steps.
@@ -2214,21 +2217,6 @@ class Aligner:
         return labels_start_end
 
 
-def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
-    import numpy as np
-
-    max_score = np.max(x, axis=axis, keepdims=True)
-    x = x - max_score
-    return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
-
-
-def _log_sigmoid(x: np.ndarray) -> np.ndarray:
-    # log_sigmoid(x) = -log(1 + exp(-x)) = -log1p(exp(-x))
-    import numpy as np
-
-    return np.log1p(np.exp(-x))
-
-
 def _y_to_mat(y, y_num_pixels=100):  # only for visualization
     import numpy as np
 
@@ -2309,28 +2297,6 @@ def _debug_grad_score_types(
             fake_logits[0, t0 - 1 : t1 - 1], input_ids[0, t0:t1], ignore_index=-100, reduction="sum"
         )
         _calc_input_grads(ref_norm=grad_mat_fake, i=i)
-
-
-def _write_wave_file(filename: str, samples: np.ndarray, *, sr: int = 16_000, w: int = 2):
-    """
-    Write a wave file to disk
-
-    :param filename:
-    :param samples: 1D, float, -1 to 1
-    :param sr: sample rate
-    :param w: sample width in bytes
-    """
-    import wave
-
-    assert samples.ndim == 1
-    samples = samples.clip(-1, 1)
-    with wave.open(filename, "w") as f:
-        f.setnchannels(1)
-        f.setframerate(sr)
-        f.setsampwidth(w)
-        samples_int = (samples * (2 ** (8 * w - 1) - 1)).astype({1: "int8", 2: "int16", 4: "int32"}[w])
-        f.writeframes(samples_int.tobytes())
-        f.close()
 
 
 def _name_for_dict(d: Dict[str, Any]) -> str:

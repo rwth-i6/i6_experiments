@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import Tuple, List, Optional, Union
+from typing import Tuple, List, Optional, Union, Any
 from dataclasses import dataclass
 
 from i6_models.config import ModuleFactoryV1
@@ -19,7 +19,7 @@ class StreamableEncoderConfig(BaseConfig):
 
     num_layers: int
     encoder_size: int
-    out_dim: int
+    out_dim: Union[int, Any]
 
     def module(self):
         return StreamableEncoder
@@ -57,7 +57,7 @@ class StreamableEncoder(StreamableModule):
             module_class=config.encoder_blocks.module(), 
             cfg=config.encoder_blocks
         )
-        self.encoder_blocks: List[StreamableModule] =nn.ModuleList([enc_blocks_factory() for _ in range(config.num_layers)])
+        self.encoder_blocks: List[StreamableModule] = nn.ModuleList([enc_blocks_factory() for _ in range(config.num_layers)])
 
         self.final_linear = nn.Linear(config.encoder_blocks.ff_cfg.input_dim, config.out_dim)
 
@@ -144,12 +144,13 @@ class StreamableEncoder(StreamableModule):
         chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(chunk_size))
         audio_features, audio_features_len = self.feature_extraction.infer(input, lengths, chunk_size_frames)
         # [P, C] where first P is current chunk and rest is future ac. ctx.
-        sequence_mask = mask_tensor(tensor=audio_features, seq_len=audio_features_len)  # (1, P*C)
+        #sequence_mask = mask_tensor(tensor=audio_features, seq_len=audio_features_len)  # (1, P*C)
 
-        audio_features = audio_features.view(-1, chunk_size_frames, audio_features.size(-1))  # (P, C, F)
-        sequence_mask = sequence_mask.view(-1, chunk_size_frames)  # (P, C)
+        #audio_features = audio_features.view(-1, chunk_size_frames, audio_features.size(-1))  # (P, C, F)
+        #sequence_mask = sequence_mask.view(-1, chunk_size_frames)  # (P, C)
 
-        x, sequence_mask = self.frontend(audio_features, sequence_mask)  # (P, C', F')
+        #x, sequence_mask = self.frontend(audio_features, sequence_mask)  # (P, C', F')
+        x, sequence_mask = self.frontend.infer(audio_features, audio_features_len, chunk_size_frames)
 
         if lookahead_size > 0:
             chunk = x[0]  # [C', F']
@@ -173,7 +174,7 @@ class StreamableEncoder(StreamableModule):
         layer_outs = [x]
         prev_layer = curr_layer = None
 
-        for i, module in enumerate(self.module_list):
+        for i, module in enumerate(self.encoder_blocks):
             if states is not None:
                 # first chunk is not provided with any previous states
                 prev_layer = [prev_chunk[-1][i] for prev_chunk in states]

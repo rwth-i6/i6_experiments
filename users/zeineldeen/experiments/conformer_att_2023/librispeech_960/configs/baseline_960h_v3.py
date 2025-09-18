@@ -57,8 +57,13 @@ BPE_1K = 1000
 
 # --------------------------- LM --------------------------- #
 
+lstm_lm_4l_net = generic_lm.get_libri_lstm_net(
+    num_layers=4, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+)
+assert lstm_lm_4l_net == generic_lm.libri_lstm_bpe10k_net
+
 lstm_10k_lm_opts = {
-    "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
+    "lm_subnet": lstm_lm_4l_net,
     "lm_model": generic_lm.libri_lstm_bpe10k_model,
     "name": "lstm",
 }
@@ -189,7 +194,7 @@ def conformer_baseline():
         recog_dataset,
         recog_ref,
         recog_bliss,
-        mem_rqmt=8,
+        mem_rqmt=15,
         time_rqmt: float = 4,
         **kwargs,
     ):
@@ -238,9 +243,11 @@ def conformer_baseline():
         coverage_threshold=None,
         coverage_update="sum",
         ext_lm_opts=None,
+        ext_lm_ckpt: str = None,
+        ext_lm_net: dict = None,
         **kwargs,
     ):
-        assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
+        assert lm_type in ["kenlm", "lstm", "trafo"]
 
         if isinstance(lm_scales, float):
             lm_scales = [lm_scales]
@@ -259,7 +266,20 @@ def conformer_baseline():
             search_checkpoint = train_job.out_checkpoints[epoch]
 
         if ext_lm_opts is None:
-            ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
+            assert lm_type != "kenlm"
+
+            ext_lm_opts = (
+                lstm_lm_opts_map[bpe_size].copy() if lm_type == "lstm" else copy.deepcopy(trafo_lm_opts_map[bpe_size])
+            )
+
+            if ext_lm_ckpt:
+                if lm_type == "lstm":
+                    ext_lm_opts["lm_model"] = ext_lm_ckpt
+                else:
+                    ext_lm_opts["load_on_init_opts"]["filename"] = ext_lm_ckpt
+
+            if ext_lm_net:
+                ext_lm_opts["lm_subnet"] = ext_lm_net
 
         time_rqmt = 1.0
 
@@ -813,6 +833,108 @@ def conformer_baseline():
         )
         return train_job
 
+    def get_ngram_lm(order: int, prune_threshold: float = None):
+        """Train an n-gram language model using KenLM."""
+
+        from i6_core.tools.git import CloneGitRepositoryJob
+        from i6_core.lm.kenlm import CompileKenLMJob, KenLMplzJob, CreateBinaryLMJob
+        from i6_core.lm.srilm import ComputeNgramLmPerplexityJob
+        from i6_core.bpe.apply import ApplyBPEToTextJob
+        from i6_core.corpus.convert import CorpusToTxtJob
+
+        from i6_experiments.common.datasets.librispeech import get_subword_nmt_bpe, get_bliss_corpus_dict
+        from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import (
+            get_returnn_subword_nmt as _get_returnn_subword_nmt,
+            BPESettings,
+        )
+
+        from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_combined_txt
+
+        kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
+        KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+        KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+
+        SRILM_NGRAM_EXE = tk.Path("/work/tools/users/luescher/srilm-1.7.3/bin/i686-m64/ngram")
+
+        subword_nmt_repo = _get_returnn_subword_nmt(output_prefix="")
+        bpe_settings: BPESettings = get_subword_nmt_bpe(
+            corpus_key="train-other-960", bpe_size=10_000, unk_label="<unk>"
+        )
+
+        # the train bpe job used for this setup was quite old so it did not have this vocab as output path
+        bpe_dummy_count_vocab_v1 = tk.Path(
+            "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/2023-04-17--conformer-att-proj/bpe.dummy_count.vocab",
+            hash_overwrite="bpe_dummy_count_vocab_v1",
+        )
+
+        bliss_dict = get_bliss_corpus_dict()
+
+        train_lm_data = get_librispeech_lm_combined_txt()
+
+        train_text = ApplyBPEToTextJob(
+            text_file=train_lm_data,
+            bpe_codes=bpe_settings.bpe_codes,
+            bpe_vocab=bpe_dummy_count_vocab_v1,
+            subword_nmt_repo=subword_nmt_repo,
+            gzip_output=True,
+            mini_task=False,
+        ).out_bpe_text
+
+        tk.register_output("bpe_text/train", train_text)
+
+        ngram_name = f"{order}_gram"
+
+        lm_arpa = KenLMplzJob(
+            text=[train_text],
+            order=order,
+            interpolate_unigrams=False,  # Set false for Compatibility with srilm
+            pruning=None,
+            kenlm_binary_folder=KENLM_BINARY_PATH,
+            vocabulary=None,
+            mem=12,
+            time=10,
+        ).out_lm
+
+        if prune_threshold:
+            from i6_core.lm.srilm import PruneLMWithHelperLMJob
+
+            lm_arpa = PruneLMWithHelperLMJob(
+                ngram_order=order,
+                lm=lm_arpa,
+                prune_thresh=prune_threshold,
+                helper_lm=None,
+                ngram_exe=SRILM_NGRAM_EXE,
+            ).out_lm
+
+            ngram_name += f"_prune_{prune_threshold}"
+
+        tk.register_output(f"ngram_lms/{ngram_name}/lm", lm_arpa)
+
+        for d in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+            eval_lm_data = CorpusToTxtJob(bliss_corpus=bliss_dict[d]).out_txt
+
+            eval_text = ApplyBPEToTextJob(
+                text_file=eval_lm_data,
+                bpe_codes=bpe_settings.bpe_codes,
+                bpe_vocab=bpe_dummy_count_vocab_v1,
+                subword_nmt_repo=subword_nmt_repo,
+                gzip_output=True,
+                mini_task=False,
+            ).out_bpe_text
+
+            ppl_job = ComputeNgramLmPerplexityJob(
+                ngram_order=order,
+                lm=lm_arpa,  # Seems only accept arpa LM
+                eval_data=eval_text,  # This is train data for the LM.
+                ngram_exe=SRILM_NGRAM_EXE,
+                time_rqmt=1,
+                extra_ppl_args="-debug 2",
+            )
+
+            tk.register_output(f"ngram_lms/{ngram_name}/{d}_ppl.log", ppl_job.out_ppl_log)
+
+        return lm_arpa
+
     # --------------------------- General Settings --------------------------- #
 
     conformer_enc_args = ConformerEncoderArgs(
@@ -987,6 +1109,331 @@ def conformer_baseline():
         bpe_size=BPE_10K,
         use_sclite=True,
     )
+
+    # BPE PPL on dev-clean + dev-other:
+    #
+    # lstm: 46
+    # trafo: 35
+
+    # 1.9/4.5/2.1/4.9
+    for lm_scale in [0.34]:
+        run_lm_fusion(
+            lm_type="lstm",
+            exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+            epoch="avg",
+            test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+            lm_scales=[lm_scale],
+            train_job=train_j,
+            train_data=train_data,
+            feature_net=log10_net_10ms,
+            args=oclr_args,
+            beam_size=32,
+            batch_size=10_000 * 160,
+            bpe_size=BPE_10K,
+            use_sclite=True,
+        )
+
+    # TODO: LBS-longform
+
+    # for order in [2, 3, 4]:
+    #     kenlm_arpa_file = get_ngram_lm(order=order)
+    #
+    #     if order == 2:
+    #         kenlm_ext_lm_opts = {
+    #             "kenlm_file": kenlm_arpa_file,
+    #             "kenlm_args": {
+    #                 "vocab_file": "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab",
+    #                 "vocab_unknown_label": "<unk>",
+    #                 "bpe_merge_symbol": None,
+    #                 "dense_output": True,
+    #                 "input_step_offset": 1,
+    #             },
+    #         }
+    #
+    #         for lm_scale in [0.0, 0.02, 0.04, 0.06, 0.08, 0.01, 0.12]:
+    #             for ilm_scale in [0.0]:  # [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]:
+    #                 run_lm_fusion(
+    #                     lm_type="kenlm",
+    #                     exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+    #                     epoch="avg",
+    #                     test_set_names=["dev-other"],
+    #                     lm_scales=[lm_scale],
+    #                     prior_scales=[ilm_scale],
+    #                     prior_type="avg",
+    #                     prior_type_name="seqAvg",
+    #                     train_job=train_j,
+    #                     train_data=train_data,
+    #                     feature_net=log10_net_10ms,
+    #                     args=oclr_args,
+    #                     beam_size=32,
+    #                     batch_size=15_000 * 160,
+    #                     bpe_size=BPE_10K,
+    #                     coverage_scale=None,  # 0.2,
+    #                     coverage_threshold=None,  # =0.1,
+    #                     use_sclite=True,
+    #                     length_norm_exponent=0.0,
+    #                     ext_lm_opts=kenlm_ext_lm_opts,
+    #                     extra_name=f"{order}gram",
+    #                     time_rqmt=4,
+    #                 )
+    #
+    # for prune_threshold in [
+    #     6.7e-8,
+    #     3e-7,
+    #     1.7e-6,
+    #     4.5e-6,
+    #     1e-5,
+    #     3e-5,
+    #     5e-5,
+    #     7e-5,
+    #     1e-4,
+    #     3e-4,
+    #     5e-4,
+    #     7e-4,
+    #     1e-2,
+    #     3e-2,
+    #     5e-2,
+    #     8e-2,
+    #     1e-1,
+    # ]:
+    #     for order in [2, 3]:
+    #         kenlm_arpa_file = get_ngram_lm(order=order, prune_threshold=prune_threshold)
+
+    # [51, 54, 65, 74, 83, 92]
+    ppl_vs_wer_list = [
+        # (
+        #     "ppl_vs_wer/best_lstm_ppl46",
+        #     lstm_10k_lm_opts["lm_subnet"],
+        #     lstm_10k_lm_opts["lm_model"],
+        # ),
+        # (
+        #     "ppl_vs_wer/3l_lstm_recog_ckpt2_ppl6000",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+        #     ),
+        #     "/u/zeineldeen/debugging/lm_ppl/bad_lms/net-model/network.002",
+        # ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt2_ppl4900",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/net-model/network.003",
+        ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt2_ppl2100",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/net-model/network.004",
+        ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt2_ppl1500",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/net-model/network.005",
+        ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt2_ppl1200",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/net-model/network.010",
+        ),
+        #
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt3_ppl850",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/v2/net-model/network.003",
+        ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt3_ppl670",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/v2/net-model/network.004",
+        ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt3_ppl520",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/v2/net-model/network.006",
+        ),
+        (
+            "ppl_vs_wer/3l_lstm_recog_ckpt3_ppl440",
+            generic_lm.get_libri_lstm_net(
+                num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+            ),
+            "/u/zeineldeen/debugging/lm_ppl/bad_lms/v2/net-model/network.009",
+        ),
+        # (
+        #     "ppl_vs_wer/3l_lstm_recog_ckpt5_ppl54",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/re_i128_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/net-model/network.005",
+        # ),
+        # (
+        #     "ppl_vs_wer/3l_lstm_recog_ckpt10_ppl51",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=3, embed_dim=128, lstm_dim=2048, out_dim=10025, use_transposed_weights=True
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/re_i128_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/net-model/network.010",
+        # ),
+        # (
+        #     "ppl_vs_wer/2l_i512_m1024_ppl92",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=2, embed_dim=512, lstm_dim=1024, out_dim=10025, use_transposed_weights=False
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/i512_m1024_m1024.sgd_b64_lr0_cl2.newbobabs.d0.2/net-model/network.011",
+        # ),
+        # (
+        #     "ppl_vs_wer/2l_i512_m2048_ppl65",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=2, embed_dim=512, lstm_dim=2048, out_dim=10025, use_transposed_weights=False
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/i512_m2048_m2048.sgd_b64_lr0_cl2.newbobabs.d0.2/net-model/network.023",
+        # ),
+        # (
+        #     "ppl_vs_wer/2l_i512_m2048_ppl74",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=2, embed_dim=512, lstm_dim=2048, out_dim=10025, use_transposed_weights=False
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/i512_m2048_m2048.sgd_b64_lr0_cl2.newbobabs.d0.2/net-model/network.005",
+        # ),
+        # (
+        #     "ppl_vs_wer/2l_i512_m2048_ppl83",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=2, embed_dim=512, lstm_dim=2048, out_dim=10025, use_transposed_weights=False
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/i512_m2048_m2048.sgd_b16_lr0_cl2.newbobabs.d0.2/net-model/network.008",
+        # ),
+        # (
+        #     "ppl_vs_wer/2l_i512_m1024_ppl96",
+        #     generic_lm.get_libri_lstm_net(
+        #         num_layers=2, embed_dim=512, lstm_dim=1024, out_dim=10025, use_transposed_weights=False
+        #     ),
+        #     "/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/i512_m1024_m1024.sgd_b64_lr0_cl2.newbobabs.d0.2/net-model/network.010",
+        # ),
+    ]
+
+    for extra_name, ext_lm_net, ext_lm_ckpt in ppl_vs_wer_list:
+        continue
+        # if extra_name != "ppl_vs_wer/3l_lstm_recog_ckpt2_ppl6000":
+        #     continue
+
+        # for lm_scale in [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.09, 0.1]:
+        #     run_lm_fusion(
+        #         lm_type="lstm",
+        #         exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        #         epoch="avg",
+        #         test_set_names=["dev-other"],
+        #         lm_scales=[lm_scale],
+        #         train_job=train_j,
+        #         train_data=train_data,
+        #         feature_net=log10_net_10ms,
+        #         args=oclr_args,
+        #         beam_size=32,
+        #         batch_size=10_000 * 160,
+        #         bpe_size=BPE_10K,
+        #         use_sclite=True,
+        #         ext_lm_net=ext_lm_net,
+        #         ext_lm_ckpt=ext_lm_ckpt,
+        #         extra_name=extra_name,
+        #     )
+
+        for lm_scale in [0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.14, 0.14, 0.15]:
+            for ilm_scale in [0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]:
+                run_lm_fusion(
+                    lm_type="lstm",
+                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                    epoch="avg",
+                    test_set_names=["dev-other"],
+                    lm_scales=[lm_scale],
+                    prior_scales=[ilm_scale],
+                    prior_type="avg",
+                    prior_type_name="seqAvg",
+                    train_job=train_j,
+                    train_data=train_data,
+                    feature_net=log10_net_10ms,
+                    args=oclr_args,
+                    beam_size=32,
+                    batch_size=10_000 * 160,
+                    bpe_size=BPE_10K,
+                    coverage_scale=None,  # 0.2,
+                    coverage_threshold=None,  # =0.1,
+                    use_sclite=True,
+                    length_norm_exponent=0.0,
+                    ext_lm_net=ext_lm_net,
+                    ext_lm_ckpt=ext_lm_ckpt,
+                    extra_name=extra_name,
+                )
+
+    # trafo:
+    # /work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_2_d00.8192_2048.sgd.lr1.16_heads/net-model/network.005
+    #      5  'dev_score_output/output:exp': 58.123283309203636,
+
+    trafo_2l_lm_net = TransformerLM(
+        source="prev:output",
+        num_layers=2,
+        vocab_size=10025,
+        use_as_ext_lm=True,
+        ff_dim=8192,
+        att_num_heads=16,
+        qk_dim=2048,
+        v_dim=2048,
+        out_dim=2048,
+    )
+    trafo_2l_lm_net.create_network()
+    for lm_scale_ in [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42]:
+        run_lm_fusion(
+            lm_type="trafo",
+            exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+            epoch="avg",
+            test_set_names=["dev-other"],
+            lm_scales=[lm_scale_],
+            train_job=train_j,
+            train_data=train_data,
+            feature_net=log10_net_10ms,
+            args=oclr_args,
+            beam_size=32,
+            batch_size=4000 * 160,
+            bpe_size=BPE_10K,
+            use_sclite=True,
+            ext_lm_net=trafo_2l_lm_net.network.get_net(),
+            ext_lm_ckpt="/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_2_d00.8192_2048.sgd.lr1.16_heads/net-model/network.005",
+            extra_name="ppl_vs_wer/2l_trafo_ppl58",
+        )
+    for lm_scale_ in [0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52, 0.54]:
+        for ilm_scale_ in [0.3, 0.32, 0.34, 0.4, 0.42, 0.44]:
+            run_lm_fusion(
+                lm_type="trafo",
+                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                epoch="avg",
+                test_set_names=["dev-other"],
+                lm_scales=[lm_scale_],
+                prior_scales=[ilm_scale_],
+                prior_type="avg",
+                prior_type_name="seqAvg",
+                train_job=train_j,
+                train_data=train_data,
+                feature_net=log10_net_10ms,
+                args=oclr_args,
+                beam_size=32,
+                batch_size=1000 * 160,
+                bpe_size=BPE_10K,
+                coverage_scale=None,  # 0.2,
+                coverage_threshold=None,  # =0.1,
+                use_sclite=True,
+                length_norm_exponent=0.0,
+                ext_lm_net=trafo_2l_lm_net.network.get_net(),
+                ext_lm_ckpt="/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_2_d00.8192_2048.sgd.lr1.16_heads/net-model/network.005",
+                extra_name="ppl_vs_wer/2l_trafo_ppl58",
+            )
 
     # TODO: tune mini-lstm dim for ted2 cross-domain
     for hn in [100, 150, 200, 300, 1000]:

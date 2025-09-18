@@ -461,7 +461,7 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(
-            activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj, num_cycles=self.cfg.num_cycles
+            activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj, num_cycles_init=self.cfg.num_cycles, correction_settings=None,
         )
         self.out_proj = mem_lin
         self.out_proj_in_quant = nn.Identity()
@@ -477,7 +477,7 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(
-            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj, num_cycles=self.cfg.num_cycles
+            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj, num_cycles_init=self.cfg.num_cycles, correction_settings=None,
         )
         self.in_proj = mem_lin
         self.in_proj_in_quant = nn.Identity()

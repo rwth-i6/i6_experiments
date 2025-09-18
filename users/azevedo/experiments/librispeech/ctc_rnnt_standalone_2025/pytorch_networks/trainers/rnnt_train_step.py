@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from typing import Tuple
 
-from i6_native_ops import warp_rnnt
 from .train_handler import TrainStepMode, LossEntry, List, Dict
 from ..rnnt.base_streamable_rnnt import StreamableRNNT
 from ..common import Mode
@@ -14,6 +13,7 @@ class RNNTTrainStepMode(TrainStepMode):
         super().__init__()
 
     def step(self, model: StreamableRNNT, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
+        from i6_native_ops import warp_rnnt  # search complains if we put it above
 
         raw_audio = data["raw_audio"]  # [B, T', F]
         raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
@@ -33,6 +33,7 @@ class RNNTTrainStepMode(TrainStepMode):
             raw_audio=raw_audio, raw_audio_len=raw_audio_len,
             labels=prepended_targets, labels_len=prepended_target_lengths,
         )
+        model.unset_mode_cascaded()
         
         logprobs = torch.log_softmax(logits, dim=-1)
         rnnt_loss = warp_rnnt.rnnt_loss(

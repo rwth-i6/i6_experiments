@@ -16,6 +16,7 @@ from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 from ...report import generate_report
 
+
 def bpe_ted_1023_base():
     prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/1024"
 
@@ -30,7 +31,7 @@ def bpe_ted_1023_base():
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data_bpe1024 = build_bpe_training_datasets(
         prefix=prefix_name,
-        bpe_size=1024, # TODO tune
+        bpe_size=1024,  # TODO tune
         settings=train_settings,
         use_postfix=False,
     )
@@ -121,7 +122,6 @@ def bpe_ted_1023_base():
                 )
                 results.update(wers)
         return results
-
 
     default_decoder_config_bpe1024 = DecoderConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, bpe_size=1024),
@@ -228,11 +228,11 @@ def bpe_ted_1023_base():
     results.update(res)
     generate_report(results=results, exp_name=training_name)
     del results
-    train_config_24gbgpu= {
+    train_config_24gbgpu = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 360 * 16000,  # GPU MEM still very moderate, but larger batch did not help
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -281,6 +281,9 @@ def bpe_ted_1023_base():
         activation=None,
     )
 
+    full_res = {}
+    lm_scales = [1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0]
+    priors = [0.3, 0.5, 0.7, 0.9, 1.0]
     for bpe in [32, 64, 100, 128, 256, 512, 1024]:
         prefix_name_bpe = f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/{bpe}"
         train_data_bpe = build_bpe_training_datasets(
@@ -319,8 +322,8 @@ def bpe_ted_1023_base():
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
             "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                              + list(np.linspace(5e-4, 5e-5, 110))
-                              + list(np.linspace(5e-5, 1e-7, 30)),
+            + list(np.linspace(5e-4, 5e-5, 110))
+            + list(np.linspace(5e-5, 1e-7, 30)),
             #############
             "batch_size": 360 * 16000,  # GPU MEM still very moderate, but larger batch did not help
             "max_seq_length": {"audio_features": 35 * 16000},
@@ -340,19 +343,22 @@ def bpe_ted_1023_base():
         train_job = training(training_name, train_data_bpe, train_args, num_epochs=250, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
         asr_model = prepare_asr_model(
-            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-            get_specific_checkpoint=250
+            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=250
         )
         res = tune_and_evaluate_helper(
             training_name,
             asr_model,
             default_decoder_config_bpe,
-            lm_scales=[1.6, 1.8, 2.0],
-            prior_scales=[0.2, 0.3, 0.4],
+            lm_scales=lm_scales,
+            prior_scales=priors,
         )
         results.update(res)
         generate_report(results=results, exp_name=training_name)
+        full_res[training_name + f"_{bpe}"] = copy.deepcopy(results)
         del results
+
+    from .report import build_base_report
+    from functools import partial
 
     bpe = 0
     prefix_name_bpe = f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/{bpe}"
@@ -392,8 +398,8 @@ def bpe_ted_1023_base():
     train_config_11gbgpu = {
         "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 180 * 16000,  # GPU MEM still very moderate, but larger batch did not help
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -411,16 +417,202 @@ def bpe_ted_1023_base():
     training_name = prefix_name_bpe + "/" + network_module + ".384dim_sub4_11gbgpu_50eps"
     train_job = training(training_name, train_data_bpe, train_args, num_epochs=250, **default_returnn)
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-        get_specific_checkpoint=250
+        training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=250
     )
     res = tune_and_evaluate_helper(
         training_name,
         asr_model,
         default_decoder_config_bpe,
-        lm_scales=[1.6, 1.8, 2.0],
-        prior_scales=[0.2, 0.3, 0.4],
+        lm_scales=lm_scales,
+        prior_scales=priors,
     )
     results.update(res)
     generate_report(results=results, exp_name=training_name)
+    full_res[training_name + f"_{bpe}"] = copy.deepcopy(results)
     del results
+
+    from ...pytorch_networks.ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1_cfg import (
+        ModelConfig as RelPosModelConfig,
+        ConformerPosEmbConfig,
+    )
+
+    for epochs in [500, 1000]:
+        for batch_size in [360, 180]:
+            for dim in [384, 512]:
+                for bpe in [64, 128, 256, 1024, 10000]:
+                    for speed_perturbation in [True, False]:
+                        if dim == 512 and not bpe == 128:
+                            continue
+                        if dim == 512 and batch_size == 180:
+                            continue
+                        prefix_name_bpe = (
+                            f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/pos_enc_{dim}/{bpe}"
+                        )
+                        train_data_bpe = build_bpe_training_datasets(
+                            prefix=prefix_name_bpe,
+                            bpe_size=bpe,
+                            settings=train_settings,
+                            use_postfix=False,
+                        )
+                        label_datastream_bpe = cast(LabelDatastream, train_data_bpe.datastreams["labels"])
+                        vocab_size_without_blank = label_datastream_bpe.vocab_size
+                        default_decoder_config_bpe = DecoderConfig(
+                            lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
+                            returnn_vocab=label_datastream_bpe.vocab,
+                            beam_size=1024,  # Untuned
+                            beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+                            arpa_lm=arpa_4gram_lm,
+                            beam_threshold=14,  # Untuned
+                        )
+                        pos_emb_cfg = ConformerPosEmbConfig(
+                            learnable_pos_emb=False,
+                            rel_pos_clip=16,
+                            with_linear_pos=True,
+                            with_pos_bias=True,
+                            separate_pos_emb_per_head=True,
+                            pos_emb_dropout=0.0,
+                        )
+                        frontend_config_sub4 = VGG4LayerActFrontendV1Config_mod(
+                            in_features=80,
+                            conv1_channels=32,
+                            conv2_channels=64,
+                            conv3_channels=64,
+                            conv4_channels=32,
+                            conv_kernel_size=(3, 3),
+                            conv_padding=None,
+                            pool1_kernel_size=(2, 1),
+                            pool1_stride=(2, 1),
+                            pool1_padding=None,
+                            pool2_kernel_size=(2, 1),
+                            pool2_stride=(2, 1),
+                            pool2_padding=None,
+                            activation_str="ReLU",
+                            out_features=dim,
+                            activation=None,
+                        )
+                        model_config_sub4 = RelPosModelConfig(
+                            feature_extraction_config=fe_config,
+                            frontend_config=frontend_config_sub4,
+                            specaug_config=specaug_config,
+                            label_target_size=vocab_size_without_blank,
+                            conformer_size=dim,
+                            num_layers=12,
+                            num_heads=8,
+                            ff_dim=2048,
+                            att_weights_dropout=0.2,
+                            conv_dropout=0.2,
+                            ff_dropout=0.2,
+                            mhsa_dropout=0.2,
+                            conv_kernel_size=31,
+                            final_dropout=0.2,
+                            specauc_start_epoch=11,  # BPE does not converge otherwise
+                            dropout_broadcast_axes=None,
+                            module_list=["ff", "conv", "mhsa", "ff"],
+                            module_scales=[0.5, 1.0, 1.0, 0.5],
+                            aux_ctc_loss_layers=None,
+                            aux_ctc_loss_scales=None,
+                            pos_emb_config=pos_emb_cfg,
+                            mhsa_with_bias=True,
+                        )
+                        train_config_24gbgpu_amp = {
+                            "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
+                            "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                            + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                            + list(np.linspace(5e-5, 1e-7, 30)),
+                            #############
+                            "batch_size": batch_size
+                            * 16000,  # GPU MEM still very moderate, but larger batch did not help
+                            "max_seq_length": {"audio_features": 35 * 16000},
+                            "accum_grad_multiple_step": 1,
+                            "torch_amp_options": {"dtype": "bfloat16"},
+                        }
+
+                        network_module_pos_enc_v1 = "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
+                        train_args = {
+                            "config": train_config_24gbgpu_amp,
+                            "network_module": network_module_pos_enc_v1,
+                            "net_args": {"model_config_dict": asdict(model_config_sub4)},
+                            "debug": False,
+                            "use_speed_perturbation": speed_perturbation,
+                        }
+                        results = {}
+                        if speed_perturbation:
+                            training_name = (
+                                prefix_name_bpe
+                                + "/"
+                                + network_module_pos_enc_v1
+                                + f".{dim}dim_sub4_{batch_size}bs_speedpert_24gbgpu_{epochs}_amp"
+                            )
+                        else:
+                            training_name = (
+                                prefix_name_bpe
+                                + "/"
+                                + network_module_pos_enc_v1
+                                + f".{dim}dim_sub4_{batch_size}bs_24gbgpu_{epochs}_amp"
+                            )
+                        train_job = training(
+                            training_name, train_data_bpe, train_args, num_epochs=epochs, **default_returnn
+                        )
+                        train_job.rqmt["gpu_mem"] = 24
+                        asr_model = prepare_asr_model(
+                            training_name,
+                            train_job,
+                            train_args,
+                            with_prior=True,
+                            datasets=train_data_bpe,
+                            get_specific_checkpoint=epochs,
+                        )
+                        res = tune_and_evaluate_helper(
+                            training_name,
+                            asr_model,
+                            default_decoder_config_bpe,
+                            lm_scales=lm_scales,
+                            prior_scales=priors,
+                        )
+                        results.update(res)
+                        generate_report(results=results, exp_name=training_name)
+                        full_res[training_name + f"_{bpe}"] = copy.deepcopy(results)
+                        del results
+                        larger_decoder_config_bpe = DecoderConfig(
+                            lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
+                            returnn_vocab=label_datastream_bpe.vocab,
+                            beam_size=4096,
+                            beam_size_token=20,
+                            arpa_lm=arpa_4gram_lm,
+                            beam_threshold=20,
+                        )
+                        results = {}
+                        res = tune_and_evaluate_helper(
+                            training_name + "larger_search",
+                            asr_model,
+                            larger_decoder_config_bpe,
+                            lm_scales=lm_scales,
+                            prior_scales=priors,
+                        )
+                        results.update(res)
+                        generate_report(results=results, exp_name=training_name + "_larger_search")
+                        full_res[training_name + f"_{bpe}" + "_larger_search"] = copy.deepcopy(results)
+                        del results
+
+                        largerer_decoder_config_bpe = DecoderConfig(
+                            lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
+                            returnn_vocab=label_datastream_bpe.vocab,
+                            beam_size=4096 * 2,
+                            beam_size_token=20 * 2,
+                            arpa_lm=arpa_4gram_lm,
+                            beam_threshold=20 * 2,
+                        )
+                        results = {}
+                        res = tune_and_evaluate_helper(
+                            training_name + "largerer_search",
+                            asr_model,
+                            largerer_decoder_config_bpe,
+                            lm_scales=lm_scales,
+                            prior_scales=priors,
+                        )
+                        results.update(res)
+                        generate_report(results=results, exp_name=training_name + "_largerer_search")
+                        full_res[training_name + f"_{bpe}" + "_largerer_search"] = copy.deepcopy(results)
+                        del results
+
+    tk.register_report("reports/bpe_tune_report", partial(build_base_report, full_res), required=full_res)

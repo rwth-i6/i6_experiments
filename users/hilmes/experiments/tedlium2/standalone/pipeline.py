@@ -108,6 +108,7 @@ def search(
     import_memristor: bool = False,
     debug: bool = False,
     additional_outputs: Optional[List[str]] = None,
+    unhashed_decoder_args: Optional = None,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -133,6 +134,7 @@ def search(
         decoder=decoder_module,
         debug=debug,
         import_memristor=import_memristor,
+        unhashed_decoder_args=unhashed_decoder_args,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -146,6 +148,8 @@ def search(
             mem = 60
         elif "rtf_amd" in search_name or "rtf_intel" in search_name:  # RTF with larger search space might need more mem
             mem = 40
+        elif "largerer" in search_name:
+            mem = 32
         else:
             mem = 16
         wers[search_name], search_job = search_single(

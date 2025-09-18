@@ -377,7 +377,7 @@ class Wav2VecModel(rf.Module):
       self.wav2vec2.config.apply_spec_augment = False
 
     if w2v_opts["freeze_encoder_first_n_steps"] > 0:
-      self.set_wav2vec_encoder_trainable(False)
+      self.set_wav2vec_encoder_trainable(False, except_layers=w2v_opts.get("unfrozen_encoder_layers", None))
 
     num_enc_layers = w2v_opts.get("num_enc_layers", len(self.wav2vec2.encoder.layers))
     if num_enc_layers != len(self.wav2vec2.encoder.layers):
@@ -430,16 +430,26 @@ class Wav2VecModel(rf.Module):
       else:
         self.enc_logits = rf.Linear(self.enc_out_dim, wb_target_dim)
 
+    model_prior = config.typed_value("model_prior", {"type": "batch-wise"})
+    if model_prior["type"] == "exp-moving-average":
+      self.model_prior = rf.RunningMean(wb_target_dim, alpha=model_prior["alpha"], is_prob_distribution=True)
+
     self.train_language_model = train_language_model
     self.recog_language_model = recog_language_model
     self.rescore_language_model = rescore_language_model
     self.decoder = None
 
-  def set_wav2vec_encoder_trainable(self, trainable: bool):
+  def set_wav2vec_encoder_trainable(self, trainable: bool, except_layers: Optional[Sequence[int]] = None):
     for param in self.wav2vec2.encoder.parameters():
       param.requires_grad = trainable
     for param in self.wav2vec2.feature_projection.parameters():
       param.requires_grad = trainable
+
+    if except_layers is not None:
+      for layer_idx in except_layers:
+        print(f"Setting layer {layer_idx} trainable: {not trainable}")
+        for param in self.wav2vec2.encoder.layers[layer_idx].parameters():
+          param.requires_grad = not trainable
 
   def set_param_grads_to_zero(self):
     for param in self.parameters(recurse=True):
@@ -545,6 +555,17 @@ class Wav2VecModel(rf.Module):
         If out_blank_separated, we use a separate sigmoid for the blank.
     """
     log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
+
+    # optionally apply blank penalty
+    from returnn.config import get_global_config
+    config = get_global_config()
+    blank_penalty_opts = config.typed_value("blank_penalty_opts", {})
+    if blank_penalty_opts:
+      blank_penalty = blank_penalty_opts["blank_penalty"]
+      blank_penalty = rf.sparse_to_dense(
+        self.blank_idx, axis=self.wb_target_dim, label_value=blank_penalty, other_value=0.0)
+      log_probs -= blank_penalty
+
     return log_probs
 
 

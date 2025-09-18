@@ -31,8 +31,8 @@ from .memristor_v5_cfg import (
 )
 from .memristor_v5_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
 from torch.nn.quantized._reference.modules import Conv1d
-#from lovely_tensors import monkey_patch
 
+# from lovely_tensors import monkey_patch
 
 
 class ConformerPositionwiseFeedForwardQuant(nn.Module):
@@ -42,7 +42,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
     def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV4Config):
         super().__init__()
-        #monkey_patch()
+        # monkey_patch()
 
         self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
@@ -303,9 +303,9 @@ class ConformerConvolutionQuant(nn.Module):
         # conv layers expect shape [B,F,T] so we have to transpose here
         tensor = tensor.transpose(1, 2)  # [B,F,T]
         tensor = self.dconv_1_in_quant(tensor)
-        #print("Real", self.depth_tmp(tensor))
+        # print("Real", self.depth_tmp(tensor))
         tensor = self.depthwise_conv(tensor)
-        #print("Memristor", tensor)
+        # print("Memristor", tensor)
         tensor = self.dconv_1_out_quant(tensor)
 
         tensor = self.norm(tensor)
@@ -326,9 +326,9 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.pointwise_conv1.in_features,
             out_features=self.pointwise_conv1.out_features,
-            weight_precision=self.pointwise_conv1.weight_bit_prec
-            if not self.pointwise_conv1.weight_bit_prec == 1.5
-            else 2,
+            weight_precision=(
+                self.pointwise_conv1.weight_bit_prec if not self.pointwise_conv1.weight_bit_prec == 1.5 else 2
+            ),
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -349,9 +349,9 @@ class ConformerConvolutionQuant(nn.Module):
             kernel_size=self.depthwise_conv.kernel_size,
             stride=self.depthwise_conv.stride,
             groups=self.depthwise_conv.groups,
-            weight_precision=self.depthwise_conv.weight_bit_prec
-            if not self.depthwise_conv.weight_bit_prec == 1.5
-            else 2,
+            weight_precision=(
+                self.depthwise_conv.weight_bit_prec if not self.depthwise_conv.weight_bit_prec == 1.5 else 2
+            ),
             converter_hardware_settings=self.converter_hardware_settings,
             padding=(self.depthwise_conv.kernel_size - 1) // 2,
         )
@@ -359,17 +359,18 @@ class ConformerConvolutionQuant(nn.Module):
             activation_quant=self.dconv_1_in_quant,
             conv_quant=self.depthwise_conv,
             num_cycles=self.model_cfg.num_cycles,
+            correction_settings=None,
         )
-        #self.depth_tmp = self.depthwise_conv
+        # self.depth_tmp = self.depthwise_conv
         self.depthwise_conv = mem_conv
         self.pointwise_conv2.weight_quantizer.set_scale_and_zp()
         self.pconv_2_in_quant.set_scale_and_zp()
         mem_lin = TiledMemristorLinear(
             in_features=self.pointwise_conv2.in_features,
             out_features=self.pointwise_conv2.out_features,
-            weight_precision=self.pointwise_conv2.weight_bit_prec
-            if not self.pointwise_conv2.weight_bit_prec == 1.5
-            else 2,
+            weight_precision=(
+                self.pointwise_conv2.weight_bit_prec if not self.pointwise_conv2.weight_bit_prec == 1.5 else 2
+            ),
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -639,7 +640,7 @@ class Model(torch.nn.Module):
 
             mem_lin = TiledMemristorLinear(
                 in_features=self.lin_out.in_features,
-                out_features=self.lin_out.out_features * 2,
+                out_features=self.lin_out.out_features,
                 weight_precision=self.lin_out.weight_bit_prec if not self.lin_out.weight_bit_prec == 1.5 else 2,
                 converter_hardware_settings=self.converter_hardware_settings,
                 memristor_inputs=128,

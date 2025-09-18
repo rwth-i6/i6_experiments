@@ -98,6 +98,7 @@ def search(
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
     use_gpu: bool = False,
+    import_memristor: bool = False,
     debug: bool = False,
 ):
     """
@@ -123,6 +124,7 @@ def search(
         decoder_args=decoder_args,
         decoder=decoder_module,
         debug=debug,
+        import_memristor=import_memristor,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -290,6 +292,7 @@ def prepare_asr_model(
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
+            import_memristor=(prior_config or {}).pop("import_memristor", False),
         )
         prior_file = compute_prior(
             training_name,

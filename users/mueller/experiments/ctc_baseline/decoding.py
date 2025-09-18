@@ -68,7 +68,7 @@ def recog_flashlight_ngram(
         label_log_prob = model.log_probs_wb_from_logits(logits)
         label_log_prob = label_log_prob.raw_tensor.cpu()
     
-        # Subtract prior of labels if available
+        # Subtract frame prior if available
         if prior_file and prior_weight > 0.0:
             prior = np.loadtxt(prior_file, dtype="float32")
             assert prior.shape[0] == label_log_prob.shape[-1]
@@ -279,6 +279,7 @@ def recog_flashlight_ffnn(
     hyperparameters: dict,
     prior_file: tk.Path = None,
     train_lm = False,
+    return_as_list: bool = False,
     print_idx = []
 ) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
     from dataclasses import dataclass
@@ -613,7 +614,7 @@ def recog_flashlight_ffnn(
     hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
     scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
     print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
-    if train_lm:
+    if return_as_list:
         return hyps, scores_r
     else:
         return hyps_r, scores_r, out_spatial_dim, beam_dim
@@ -627,6 +628,7 @@ def recog_ffnn(
     batch_dims: List[Dim],
     prior_file: tk.Path = None,
     train_lm: bool = False,
+    return_as_list: bool = False,
     version: int = 1,
     print_idx: list = []
 ):
@@ -903,7 +905,7 @@ def recog_ffnn(
             seq_targets_wb = rf.gather(seq_targets_wb, axis=beam_dim, indices=indices)
             beam_dim = beam_dim_new
 
-    if train_lm:
+    if return_as_list:
         return seq_targets_wb.raw_tensor.transpose(0,1).transpose(1,2).tolist(), seq_log_prob
     else:
         return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
@@ -978,8 +980,7 @@ def recog_gradients(
     if rescore_ctc_loss:
         assert use_ffnn_lm
         assert "ps_nbest" not in hyperparameters
-        hyps, _, _, _ = recog_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=[batch_dim], prior_file=prior_file, version=version, print_idx=print_idx)
-        hyps = hyps.raw_tensor.transpose(0,1).transpose(1,2).tolist()
+        hyps, _ = recog_ffnn(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=[batch_dim], prior_file=prior_file, train_lm=train_lm, return_as_list=True, version=version, print_idx=print_idx)
         
         assert len(hyps[0]) == 1
         hyps = [convert_to_output_hyps(model, hyps_batch[0]) for hyps_batch in hyps]

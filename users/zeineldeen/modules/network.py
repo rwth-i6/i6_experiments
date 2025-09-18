@@ -391,8 +391,8 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
-    def add_kenlm_layer(self, name, lm_file, **kwargs):
-        self._net[name] = {"class": "kenlm", "lm_file": lm_file, **kwargs}
+    def add_kenlm_layer(self, name, source, lm_file, **kwargs):
+        self._net[name] = {"class": "kenlm", "from": source, "lm_file": lm_file, **kwargs}
         return name
 
     def add_length_layer(self, name, source, **kwargs):

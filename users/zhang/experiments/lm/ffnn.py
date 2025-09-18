@@ -17,14 +17,19 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDe
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    config_96gb_bf16_accgrad1,
+    _get_cfg_lrlin_oclr_by_bs_nep_v3,
+    _get_cfg_lrlin_oclr_by_bs_nep_v4,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import _get_cfg_lrlin_oclr_by_bs_nep
+
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl
 
 import torch
-from torchaudio.models.decoder import CTCDecoderLM, CTCDecoderLMState
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
+#from torchaudio.models.decoder import CTCDecoderLM, CTCDecoderLMState
 
 if TYPE_CHECKING:
     from sisyphus import *
@@ -32,57 +37,159 @@ if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 
 def py():
-    from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
-    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import SpanishLmDataset
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+    _, spm, _ = get_model_and_vocab()
 
-    lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
-    num_layers = 2
-    context_size = 4
+    # print(f"vocab setting: {spm}")
+    spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+
+    from i6_experiments.users.zeyer.train_v3 import train
+    for only_transcript in [True, False]:
+        lm_dataset = SpanishLmDataset(vocab=spm_config, train_epoch_split=20, only_transcripts=only_transcript)
+        ff_hidden_dim = 1024
+        for context_size, num_layers, embeding_size, batch_size, max_seq, drop_out in [#(128, 30_000, 200, 0), Overfit
+                                                   (4, 2, 256, 80_000, None, 0.1),
+                                                    (6, 2, 256, 120_000, None, 0.1),
+                                                    #(8, 3, 256, 120_000, None, 0.2), (12, 3, 512, 80_000, None, 0.2),
+                                                       #(128, 10_000, 200)# More than this does not have corresponding step entry in _get_cfg_lrlin_oclr_by_bs_nep
+                                                   ]:
+            train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu_{'trans' if only_transcript else 'train_trans'}"
+            conf = _get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 50, batch_size_factor=1)
+            #conf = _get_cfg_lrlin_oclr_by_bs_nep(max_seq, batch_size, 50) #ms_200, b10_000
+            #conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+            config_gb = config_11gb_lm_v1.copy()
+            if batch_size >= 120_000 and max_seq is None:
+                config_gb.update({"__gpu_mem": 48})
+            else:
+                config_gb.update({"__gpu_mem": 24})
+            config_gb.update({"max_seqs":max_seq})
+            model_with_checkpoints = train(
+                f"lm/{train_prefix_name}",
+                config=dict_update_deep(
+                    config_gb,
+                    {
+                        **conf,
+                        "max_seq_length": {},
+                        "torch_distributed": None,
+                        "use_horovod": False,
+                        "version": 3,#2: with get_librispeech_lm_dataset
+                    },
+                ),
+                train_dataset=lm_dataset,
+                model_def=ModelDefWithCfg(
+                    lm_model_def,
+                    {
+                        "_model_def_dict": rf.build_dict(
+                            FeedForwardLm,
+                            embed_dim=embeding_size,
+                            num_layers=num_layers,
+                            context_size=context_size,
+                            embed_dropout=0 if embeding_size <= 256 else 0.1,
+                            dropout=drop_out,
+                            ff_hidden_dim=ff_hidden_dim,
+                        )
+                    },
+                ),
+                train_def=lm_train_def,
+            )
+
+            from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+            compute_ppl(
+                prefix_name=train_prefix_name,
+                model_with_checkpoints=model_with_checkpoints,
+                dataset=lm_dataset,
+                vocab=spm_config,
+                word_ppl=True,
+                task_name="ES",
+                dataset_keys=DEV_KEYS+TEST_KEYS,
+            )
+
+def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+    #from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import SpanishLmDataset
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+    _, spm, _ = get_model_and_vocab()
+    # for k, v in spm["vocabulary"].items():
+    #     print(f"{k}: {v}")
+    # print(f"vocab setting: {spm}")
+    spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+
+    from i6_experiments.users.zeyer.train_v3 import train
+    # from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
+    # from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+    #
+    # lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
+    lm_dataset = SpanishLmDataset(vocab=spm_config, train_epoch_split=20, only_transcripts=only_transcript)
+    # num_layers = 2
+    # context_size = 4
     ff_hidden_dim = 1024
-    drop_out = 0
-    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-bpe128-drop{drop_out}-relu"
-    conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
-    conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
-    model_with_checkpoints = train(
-        f"lm/{train_prefix_name}",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **conf,
-                "max_seq_length": {},
-                "torch_distributed": None,
-                "use_horovod": False,
-                "version": 3,#2: with get_librispeech_lm_dataset
-            },
-        ),
-        train_dataset=lm_dataset,
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    FeedForwardLm,
-                    num_layers=num_layers,
-                    context_size=context_size,
-                    embed_dropout=0,
-                    dropout=drop_out,
-                    ff_hidden_dim=ff_hidden_dim,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-    # TODO: a simple look up for approx exponent for convert ppl of bpe to word level.
-    #  For now, hard coded 2.6 in lm.lm_ppl.ComputePerplexityJob for bpe128
-    compute_ppl(
-        prefix_name=train_prefix_name,
-        model_with_checkpoints=model_with_checkpoints,
-        dataset=lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-    )
+    # TODO: make sure the params here match the naming in lm_getter
+    for context_size, num_layers, embeding_size, batch_size, max_seq, drop_out in [#(128, 30_000, 200, 0), Overfit
+                                                    (4, 2, 256, 80_000, None, 0.1),
+                                                    #(6, 2, 256, 120_000, None, 0.1),
+                                                   #(128, 10_000, 200)# More than this does not have corresponding step entry in _get_cfg_lrlin_oclr_by_bs_nep
+                                                   ]:
+        train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu_{'trans' if only_transcript else 'train_trans'}"
+        conf = _get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 50, batch_size_factor=1)
+        #conf = _get_cfg_lrlin_oclr_by_bs_nep(max_seq, batch_size, 50) #ms_200, b10_000
+        #conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+        config_gb = config_11gb_lm_v1.copy()
+        if batch_size >= 50_000 and max_seq is None:
+            config_gb.update({"__gpu_mem": 48})
+        else:
+            config_gb.update({"__gpu_mem": 24})
+        config_gb.update({"max_seqs":max_seq})
+        model_with_checkpoints = train(
+            f"lm/{train_prefix_name}",
+            config=dict_update_deep(
+                config_gb,
+                {
+                    **conf,
+                    "max_seq_length": {},
+                    "torch_distributed": None,
+                    "use_horovod": False,
+                    "version": 3,#2: with get_librispeech_lm_dataset
+                },
+            ),
+            train_dataset=lm_dataset,
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        FeedForwardLm,
+                        embed_dim=embeding_size,
+                        num_layers=num_layers,
+                        context_size=context_size,
+                        embed_dropout=0,
+                        dropout=drop_out,
+                        ff_hidden_dim=ff_hidden_dim,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+        ppls = compute_ppl(
+            prefix_name=train_prefix_name,
+            model_with_checkpoints=model_with_checkpoints,
+            dataset=lm_dataset,
+            vocab=spm_config,
+            word_ppl=word_ppl,
+            epochs=epochs,
+            task_name="ES",
+            dataset_keys=DEV_KEYS+TEST_KEYS,
+        )
+    if epochs:
+        for epoch in epochs:
+            #assert epoch in model_with_checkpoints.fixed_epochs
+            yield model_with_checkpoints.get_epoch(epoch), ppls[f"epoch{epoch}"], epoch
+    else:
+        return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
+
 
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
-                embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+                embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None,bpe_ratio: Optional[float | tk.Variable]=None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
     lm_dataset = LibrispeechLmDataset(vocab=vocab) #get_librispeech_lm_dataset(vocab=vocab)
@@ -158,14 +265,14 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     #     ),
     #     train_def=lm_train_def,
     # )
-
+    #exponent = get_subword_ratio(["test-other"], vocab)
     exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1.0, 10_025: 1.0}#184-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-        exponent=exponents.get(vocab.dim,1),
+        dataset_keys=["transcriptions-test-other", "transcriptions-dev-other"],
+        exponent=bpe_ratio if word_ppl else 1.0,
         epochs=epochs,
     )
     print(f"------fixed epochs of ffnnlm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")
@@ -182,94 +289,94 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     else:
         return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
 
-class FFNN_LM_State(CTCDecoderLMState):
-    def __init__(self, tokens: Sequence[int], context_size: int, labels: Sequence[int]):
-        super().__init__()
-        assert len(tokens) == context_size
-        self.context_size = context_size
-        self.tokens = tokens
-        self.labels = labels
-
-    def __add__(self, token: int):
-        new_tokens = self.tokens[1:] + [token]
-        return FFNN_LM_State(new_tokens, context_size=self.context_size, labels=self.labels)
-
-    def child(self, token: int) -> FFNN_LM_State:
-        return self + token
-
-    def __repr__(self):
-        return f"FFNN_LM_State({self.tokens})"
-
-    def __eq__(self, other):
-        return isinstance(other, FFNN_LM_State) and self.tokens == other.tokens
-
-    def __hash__(self):
-        return hash(tuple(self.tokens))
-
-    # @property
-    # def children(self) -> Dict[int, FFNN_LM_State]:
-    #     """Map of indices to LM states"""
-    #     return {i: self.child(i) for i in self.labels}
-
-
-class FFNN_LM_flashlight(CTCDecoderLM):
-    """Create a Python wrapper around `language_model` to feed to the decoder."""
-
-    def __init__(self, language_model: FeedForwardLm, vocab_dim: Dim, context_size: int):
-        super().__init__()
-        self.language_model = language_model
-        self.vocab_dim = vocab_dim
-        self.vocab = vocab_dim.vocab
-        self.context_size = context_size
-        self.states = {}
-        # self.cache = {} # NOTE: necessary as the garbage collector will delete states otherwise which leads to errors, so we have to keep track of them
-        self.cache = []
-
-    def _get_logprobs(self, tokens: list) -> torch.Tensor:
-        tokens = torch.tensor(tokens, dtype=torch.int64).unsqueeze(0)
-        #-------------------------------------------------------------------------
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        tokens = tokens.to(device)
-        #-------------------------------------------------------------------------
-        spatial_dim = Dim(int(tokens.size(1)), name="frames", kind=Dim.Types.Spatial)
-        out_spatial_dim = Dim(int(tokens.size(1)) + 1, name="frames_out", kind=Dim.Types.Spatial)
-        tokens = rtf.TorchBackend.convert_to_tensor(tokens, dims=[batch_dim, spatial_dim], sparse_dim=self.vocab_dim,
-                                                    dtype="int64", name="tokens")
-        logits, _ = self.language_model(tokens, spatial_dim=spatial_dim, out_spatial_dim=out_spatial_dim)
-        log_prob = rf.log_softmax(logits, axis=self.vocab_dim)
-        log_prob = log_prob.raw_tensor
-        log_prob = log_prob[0][-1]
-        assert log_prob.exp().sum().allclose(torch.tensor(1.0)), str(log_prob.exp().sum())
-        return log_prob
-
-    def start(self, start_with_nothing: bool = False):
-        state = FFNN_LM_State(tokens=[self.vocab.bos_label_id] * self.context_size, context_size=self.context_size,
-                              labels=range(self.vocab.num_labels))
-        score = self._get_logprobs(state.tokens)
-
-        self.states[state] = score
-        # self.cache[state] = state
-        self.cache.append(state)
-        return state
-
-    def score(self, state: FFNN_LM_State, token_index: int):
-        outstate = state.child(token_index)
-        self.cache.append(outstate)
-        # if outstate in self.cache:
-        #     outstate = self.cache[outstate]
-        # else:
-        #     self.cache[outstate] = outstate
-        if outstate not in self.states:
-            score = self._get_logprobs(outstate.tokens)
-            self.states[outstate] = score
-        score = self.states[state][token_index].item()
-
-        return outstate, score
-
-    def finish(self, state: FFNN_LM_State):
-        outstate = state.child(self.vocab.eos_label_id)
-        assert state in self.states
-        return outstate, self.states[state][self.vocab.eos_label_id].item()
+# class FFNN_LM_State(CTCDecoderLMState):
+#     def __init__(self, tokens: Sequence[int], context_size: int, labels: Sequence[int]):
+#         super().__init__()
+#         assert len(tokens) == context_size
+#         self.context_size = context_size
+#         self.tokens = tokens
+#         self.labels = labels
+#
+#     def __add__(self, token: int):
+#         new_tokens = self.tokens[1:] + [token]
+#         return FFNN_LM_State(new_tokens, context_size=self.context_size, labels=self.labels)
+#
+#     def child(self, token: int) -> FFNN_LM_State:
+#         return self + token
+#
+#     def __repr__(self):
+#         return f"FFNN_LM_State({self.tokens})"
+#
+#     def __eq__(self, other):
+#         return isinstance(other, FFNN_LM_State) and self.tokens == other.tokens
+#
+#     def __hash__(self):
+#         return hash(tuple(self.tokens))
+#
+#     # @property
+#     # def children(self) -> Dict[int, FFNN_LM_State]:
+#     #     """Map of indices to LM states"""
+#     #     return {i: self.child(i) for i in self.labels}
+#
+#
+# class FFNN_LM_flashlight(CTCDecoderLM):
+#     """Create a Python wrapper around `language_model` to feed to the decoder."""
+#
+#     def __init__(self, language_model: FeedForwardLm, vocab_dim: Dim, context_size: int):
+#         super().__init__()
+#         self.language_model = language_model
+#         self.vocab_dim = vocab_dim
+#         self.vocab = vocab_dim.vocab
+#         self.context_size = context_size
+#         self.states = {}
+#         # self.cache = {} # NOTE: necessary as the garbage collector will delete states otherwise which leads to errors, so we have to keep track of them
+#         self.cache = []
+#
+#     def _get_logprobs(self, tokens: list) -> torch.Tensor:
+#         tokens = torch.tensor(tokens, dtype=torch.int64).unsqueeze(0)
+#         #-------------------------------------------------------------------------
+#         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#         tokens = tokens.to(device)
+#         #-------------------------------------------------------------------------
+#         spatial_dim = Dim(int(tokens.size(1)), name="frames", kind=Dim.Types.Spatial)
+#         out_spatial_dim = Dim(int(tokens.size(1)) + 1, name="frames_out", kind=Dim.Types.Spatial)
+#         tokens = rtf.TorchBackend.convert_to_tensor(tokens, dims=[batch_dim, spatial_dim], sparse_dim=self.vocab_dim,
+#                                                     dtype="int64", name="tokens")
+#         logits, _ = self.language_model(tokens, spatial_dim=spatial_dim, out_spatial_dim=out_spatial_dim)
+#         log_prob = rf.log_softmax(logits, axis=self.vocab_dim)
+#         log_prob = log_prob.raw_tensor
+#         log_prob = log_prob[0][-1]
+#         assert log_prob.exp().sum().allclose(torch.tensor(1.0)), str(log_prob.exp().sum())
+#         return log_prob
+#
+#     def start(self, start_with_nothing: bool = False):
+#         state = FFNN_LM_State(tokens=[self.vocab.bos_label_id] * self.context_size, context_size=self.context_size,
+#                               labels=range(self.vocab.num_labels))
+#         score = self._get_logprobs(state.tokens)
+#
+#         self.states[state] = score
+#         # self.cache[state] = state
+#         self.cache.append(state)
+#         return state
+#
+#     def score(self, state: FFNN_LM_State, token_index: int):
+#         outstate = state.child(token_index)
+#         self.cache.append(outstate)
+#         # if outstate in self.cache:
+#         #     outstate = self.cache[outstate]
+#         # else:
+#         #     self.cache[outstate] = outstate
+#         if outstate not in self.states:
+#             score = self._get_logprobs(outstate.tokens)
+#             self.states[outstate] = score
+#         score = self.states[state][token_index].item()
+#
+#         return outstate, score
+#
+#     def finish(self, state: FFNN_LM_State):
+#         outstate = state.child(self.vocab.eos_label_id)
+#         assert state in self.states
+#         return outstate, self.states[state][self.vocab.eos_label_id].item()
 
 
 # ---------------------------------------------------

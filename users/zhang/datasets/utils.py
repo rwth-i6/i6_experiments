@@ -2,6 +2,7 @@ import os
 
 from typing import Dict, Tuple, Union, Any, Optional, Sequence
 
+import re
 from i6_core.lib import corpus
 from sisyphus import Job, Task as SisTask, tk
 from i6_core.util import uopen
@@ -80,6 +81,124 @@ def get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dic
         ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
 
     return ogg_zip_dict
+
+def raw_text_spm_to_word(text: str) -> str:
+    return text.replace(" ", "").replace ("▁", " ")
+
+def raw_text_bpe_to_word(text: str) -> str:
+    return text.replace("@@ ", "")
+
+import re
+from decimal import Decimal
+
+def extract_record_id(key: str) -> str:
+    """
+    Returns a *string* record ID usable for grouping:
+      - LibriSpeech-style: parent dir '672-122797-0033' -> '122797'
+      - Corpus-style: parent dir 'es_US_cc_AP_Finance_100_20220907_channel1' -> the whole string
+      - Time-range style: parent dir 'zm_website_29e5dff2' -> the whole string
+    """
+    parts = key.split('/')
+    if len(parts) < 2:
+        raise ValueError(f"Invalid key format: {key}")
+
+    parent = parts[-2]  # identifier before the final segment
+
+    # LibriSpeech-style pattern like '672-122797-0033'
+    if re.fullmatch(r"\d+-\d+-\d+", parent):
+        _, mid, _ = parent.split('-')
+        return mid  # return as string
+
+    # Generic/corpus-style: record id is the whole parent identifier
+    return parent
+
+
+def extract_sequence_num(key: str) -> int:
+    """
+    Returns the numeric sequence index for ordering within a record:
+      - Corpus-style: final path segment (e.g., '/1') -> 1
+      - LibriSpeech-style: last hyphen group in parent (e.g., '...-0033') -> 33
+      - Fallback: last number within parent
+    NOTE: Time-range tags (idx-start-end) are not handled here; they use a different sort path.
+    """
+    parts = key.split('/')
+    if not parts:
+        raise ValueError(f"Invalid key format: {key}")
+
+    last = parts[-1]
+    if re.fullmatch(r"\d+", last):
+        return int(last)
+
+    if len(parts) >= 2:
+        parent = parts[-2]
+        if re.fullmatch(r"\d+-\d+-\d+", parent):
+            seq = parent.split('-')[-1]
+            return int(seq)  # '0033' -> 33
+
+        # Generic fallback: take the last number in parent if present
+        nums = re.findall(r"\d+", parent)
+        if nums:
+            return int(nums[-1])
+
+    raise ValueError(f"Cannot extract sequence number from key: {key}")
+
+
+# ---- New: support for time-range style tails like '212-2434.110-2446.810' or '2434.110-2446.810' ----
+
+_TIME_TAIL_RE = re.compile(r"(?:(\d+)-)?(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\Z")
+
+def _parse_time_range_tail(tail: str):
+    """
+    Parse tails of the form:
+        idx-start-end      e.g. '212-2434.110-2446.810'
+        start-end          e.g. '2434.110-2446.810'
+    Returns (start: Decimal, end: Decimal, idx: int) or None if not a time-range tail.
+    """
+    m = _TIME_TAIL_RE.fullmatch(tail)
+    if not m:
+        return None
+    idx_str, start_str, end_str = m.groups()
+    start = Decimal(start_str)
+    end = Decimal(end_str)
+    idx = int(idx_str) if idx_str is not None else -1
+    return (start, end, idx)
+
+
+def sort_key_for_segment(key: str):
+    """
+    Unified sort key for all supported formats.
+
+    For time-range tags (idx-start-end or start-end in the final path component):
+        (record_id, start, end, idx, 0)
+
+    For classic numeric-sequence tags:
+        (record_id, seq_as_decimal, seq_as_decimal, -1, 1)
+
+    Using the same tuple shape keeps Python's sort stable and comparable.
+    """
+    rec = extract_record_id(key)
+    parts = key.split('/')
+    tail = parts[-1] if parts else ''
+
+    parsed = _parse_time_range_tail(tail)
+    if parsed is not None:
+        start, end, idx = parsed
+        return (rec, start, end, idx, 0)
+
+    # Fallback to your existing numeric sequence logic
+    seq = Decimal(extract_sequence_num(key))
+    return (rec, seq, seq, -1, 1)
+
+
+def sort_dict_by_record(data: dict) -> dict:
+    """
+    Groups by record ID and orders within each record:
+      - time-range tags: by start, then end, then idx
+      - others: by numeric sequence
+    Output is a dict whose iteration order reflects the sorted order.
+    """
+    sorted_keys = sorted(data.keys(), key=sort_key_for_segment)
+    return {k: data[k] for k in sorted_keys}
 
 class MetaDataset():
     """

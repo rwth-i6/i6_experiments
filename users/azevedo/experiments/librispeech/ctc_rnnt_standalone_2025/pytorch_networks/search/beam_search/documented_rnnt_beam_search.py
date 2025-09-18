@@ -8,16 +8,8 @@ from dataclasses import dataclass
 import torch
 from torchaudio.models import RNNT
 
+from ...common import Hypothesis
 
-
-@dataclass
-class Hypothesis:
-    tokens: List[int]
-    predictor_output: torch.Tensor
-    predictor_state: List[List[torch.Tensor]]
-    score: float
-    lm_output: Optional[torch.Tensor]
-    lm_state: Optional[List[List[torch.Tensor]]]
 
 Hypothesis.__doc__ = """
     
@@ -41,6 +33,8 @@ def _batch_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
     for i in range(len(hypos[0].predictor_state)):
         batched_state_components: List[torch.Tensor] = []
         for j in range(len(hypos[0].predictor_state[i])):
+            # print(f"{j = }")
+            # print([len(hypo.predictor_state[0]) for hypo in hypos])
             batched_state_components.append(torch.cat([hypo.predictor_state[i][j] for hypo in hypos]))
         states.append(batched_state_components)
     return states
@@ -221,6 +215,7 @@ class RNNTBeamSearch(torch.nn.Module):
 
         init_hypo = Hypothesis(
             tokens=[token],
+            alignment=[token],
             predictor_output=pred_out[0].detach(),
             predictor_state=pred_state,
             score=0.0,
@@ -316,6 +311,7 @@ class RNNTBeamSearch(torch.nn.Module):
             # labels and label-based states are unchanged, also when recombination happens
             h_b = Hypothesis(
                 tokens=h_a.tokens,
+                alignment=h_a.alignment + [self.blank],
                 predictor_output=h_a.predictor_output,
                 predictor_state=h_a.predictor_state,
                 lm_output=h_a.lm_output,
@@ -418,6 +414,7 @@ class RNNTBeamSearch(torch.nn.Module):
             new_tokens = h_a.tokens + [tokens[i]]
             new_hypo = Hypothesis(
                 tokens=new_tokens,
+                alignment=h_a.alignment + [tokens[i]],
                 predictor_output=pred_out[i].detach(),
                 predictor_state=_slice_state(pred_states, i, device),
                 score=scores[i],

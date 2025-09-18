@@ -79,10 +79,10 @@ def generalized_specaugment(
     """
     Adapted from rf.audio.specaugment
     """
-    if not feature_dim:
+    if feature_dim is None:
         assert x.feature_dim
         feature_dim = x.feature_dim
-    if not max_consecutive_feature_dims:
+    if max_consecutive_feature_dims is None:
         max_consecutive_feature_dims = feature_dim.dimension // 5
 
     def _mask_branch():
