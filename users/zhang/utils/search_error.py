@@ -36,8 +36,11 @@ class ComputeSearchErrorsJob(Job):
         # for each seq tag, calculate whether we have a search error
         for seq_tag in d_gt.keys():
             num_seqs += 1
-
-            score_ground_truth, targets_ground_truth, oov = d_gt[seq_tag][0]
+            try:
+                score_ground_truth, targets_ground_truth, oov = d_gt[seq_tag][0]
+            except ValueError:
+                score_ground_truth, targets_ground_truth = d_gt[seq_tag][0]
+                oov = 0
             num_oov += oov
             try:
                 score_search, targets_search = d_rec[seq_tag][0]

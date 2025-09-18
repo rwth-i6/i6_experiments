@@ -2772,7 +2772,7 @@ def scoring_v2(
         hyperparameters: dict,
         prior_file: tk.Path = None,
         lm: str,
-        lexicon: str,
+        lexicon: str = None,
         seq_tags: Tensor = None,
 ) -> Tensor:
     """
@@ -2800,9 +2800,10 @@ def scoring_v2(
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
     print(f"Piror weight: {prior_weight}")
-    if isinstance(hyp_params["lm_weight"], tk.Variable):
-        hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
-    print(f"LM weight: {hyp_params['lm_weight']}")
+    if "lm_weight" in hyp_params:
+        if isinstance(hyp_params["lm_weight"], tk.Variable):
+            hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
+        print(f"LM weight: {hyp_params['lm_weight']}")
     # if prior_weight_tune is not None:
     #     if isinstance(prior_weight_tune, float):
     #         pass

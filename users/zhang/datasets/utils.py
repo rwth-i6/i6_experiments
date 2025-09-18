@@ -200,6 +200,49 @@ def sort_dict_by_record(data: dict) -> dict:
     sorted_keys = sorted(data.keys(), key=sort_key_for_segment)
     return {k: data[k] for k in sorted_keys}
 
+class TextDictToDummyRecogOutJob(Job):
+    """
+    Convert pure text dict to Recogout: seq_tag: {[dummyscore, seq]}
+    """
+
+    def __init__(self, text_dict: tk.Path, *, spm: tk.Path = None, enable_unk: bool = False ,output_gzip: bool = True):
+        """
+        :param text_dict
+        :param output_gzip: gzip the output
+        """
+        self.text_dict = text_dict
+        self.spm = spm
+        self.enable_unk = enable_unk
+        self.dummy_rec_out = self.output_path("dummy_rec_out.py" + (".gz" if output_gzip else ""))
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 3}
+
+    def tasks(self):
+        """task"""
+        yield SisTask("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import i6_core.util as util
+        text_d = eval(util.uopen(self.text_dict, "rt").read(),
+                       {"nan": float("nan"), "inf": float("inf")})  # {seq_tag:[(score, hyp)]}
+        spm = None
+        if self.spm is not None:
+            import sentencepiece
+            spm = sentencepiece.SentencePieceProcessor(model_file=self.spm.get_path())
+            if self.enable_unk:
+                spm.set_encode_extra_options("unk")
+                
+        with util.uopen(self.dummy_rec_out, "wt") as out:
+            out.write("{\n")
+            for seq_tag, seq in text_d.items():
+                out.write(f"{seq_tag!r}: [\n")
+                if spm is not None:
+                    pieces = spm.encode(seq.rstrip("\n"), out_type=str)
+                    seq = " ".join(pieces)
+                out.write(f"({0.0!r}, {seq!r}),\n")
+                out.write("],\n")
+            out.write("}\n")
+
 class MetaDataset():
     """
     Represents :class:`MetaDataset` in RETURNN

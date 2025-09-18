@@ -333,11 +333,11 @@ def py():
 
     ppl_job = HuggingFaceLmPerplexityJobV2(
         model_dir=llm_config["model_dir"],
-        text_file=[ES_get_corpus_text_dict(key=ds_name)],  # get_test_corpus_text(keys=[ds_name])
+        text_file=[tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/corpus/convert/CorpusToTextDictJob.neCUj8m5VRif/output/text_dictionary.py.gz")],#[ES_get_corpus_text_dict(key=ds_name)],  # get_test_corpus_text(keys=[ds_name])
         batch_size=llm_config["batch_size"],
         lower_case=True,
         word_ppl=True,
-        prompt=lm_rescore_res,
+        prompt=tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchTakeBestJob.jJiw86R2keDE/output/best_search_results.py.gz"),#lm_rescore_res,
         eos_symbol="\n",
         use_prev_context=True, # For now only check for this setting
         context_len_limit=llm_config["ctx_len_limit"],

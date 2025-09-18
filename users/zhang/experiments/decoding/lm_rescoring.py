@@ -114,13 +114,16 @@ class LmRescoringJob(Job):
         gt_res = self.lm_cfg.get("gt_res",None)
         if gt_res is not None: # No need to reorder, only need it as a look up
             gt_rec = eval(cutil.uopen(gt_res, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-            print(f"Got gt_rec! {gt_rec.keys()[0]}:{gt_rec[gt_rec.keys()[0]]}")
+            some_key = next(iter(gt_rec))
+            print(f"Got gt_rec! {some_key}:{gt_rec[some_key]}")
         else:
             gt_rec = None
 
         am_prior_scores = self.lm_cfg.get("AM_prior_scores",None)
         other_scores_hyps = None
+        lm_scale = None
         if am_prior_scores is not None:
+            lm_scale = self.lm_cfg["lm_scale"]
             other_scores_hyps = list()
             assert isinstance(am_prior_scores, list) and len(am_prior_scores) > 0, f"Check input scores {am_prior_scores}"
             for scale, score_res in am_prior_scores:
@@ -168,6 +171,7 @@ class LmRescoringJob(Job):
                         return score
                 assert False, f"No matching found \n\t'{hyp}'\n in {scores_hyps[seq_tag]}"
             for lm_score, hyp in zip(lm_scores, hyps):
+                lm_score *= lm_scale
                 for scale, scores_hyps in other_scores_hyps:
                     lm_score += scale*get_score_by_hyp(hyp, scores_hyps)
                 combined_scores.append(lm_score)
@@ -188,10 +192,12 @@ class LmRescoringJob(Job):
             lm_scores = self.scorer.batch_score(hyps)
             if prev_one_ctx:
                 if other_scores_hyps is not None:
+                    #Naming misleading, the score now contains not only lm_score, but weighted sum of LM/AM/Prior
                     lm_scores = combine_scores(seq_tag, lm_scores, hyps, other_scores_hyps)
                 else:
                     if not PRINTED:
                         print(f"\n\n[Warning]: Using LLM clue only for determine top1 hyp as context\n\n")
+                        PRINTED = True
             # reorder and select top
             if lines_seen % log_every == 0:
                 print(f"[Line {lines_seen:,}/{total_lines}] {100 * lines_seen / total_lines:.2f}% processed…")
@@ -203,6 +209,7 @@ class LmRescoringJob(Job):
                 self.scorer: HuggingFaceLmScorer
                 reorder = list(zip(lm_scores, hyps))
                 if gt_rec is not None:
+                    #_, recog_seq = gt_rec[seq_tag][0]
                     recog_seq = gt_rec[seq_tag]
                     print(f"Reference for {seq_tag}: {recog_seq}")
                 else:
@@ -954,8 +961,9 @@ def lm_am_framewise_prior_rescore(
     lm_vocab_opts_file = lm_vocab_opts_file or vocab_opts_file
     lm_vocab_to_word_func = lm_vocab_to_word_func or vocab_to_word_func
     normalize_seq = lm_vocab_to_word_func != vocab_to_word_func
-    def determine_lm_scorer(lm, scores):
-        nonlocal gt_res
+    score_combined_by_lm_rescoring = False
+    def determine_lm_scorer(lm, scores, lm_scale):
+        nonlocal gt_res, score_combined_by_lm_rescoring
         if isinstance(lm, ModelWithCheckpoint): # RETURNN LM
             lm_scorer = lm_score
         elif isinstance(lm, tk.Path): # assert use ngram lm here
@@ -972,10 +980,13 @@ def lm_am_framewise_prior_rescore(
             #     return HF_lm_score, lm
             lm_scorer = HF_lm_score
             if lm.get("prev_one_ctx", False):
-                #lm["AM_prior_scores"] = scores
-                if lm.get("cheat_prev_ctx", False):
-                    assert gt_res is not None or res == gt_res #In case this is already rescoring for GT
+                if lm.get("cheat_prev_ctx", False) and "gt_res" not in alias_name:
+                    assert gt_res is not None #In case this is already rescoring for GT
                     lm["gt_res"] = gt_res.output
+                # else:
+                #     lm["AM_prior_scores"] = scores
+                #     lm["lm_scale"] = lm_scale
+                #     score_combined_by_lm_rescoring = True
         return lm_scorer, lm
     def get_generic_alias_name(alias):
         # parts = alias.strip().split("/")
@@ -1036,7 +1047,7 @@ def lm_am_framewise_prior_rescore(
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
 
-    lm_scorer, lm = determine_lm_scorer(lm, scores)
+    lm_scorer, lm = determine_lm_scorer(lm, scores, lm_scale)
     # if isinstance(lm, dict):
     #     if lm.get("lm_type", "Dummy") == "HuggingFaceLm":
     #         lm["AM_priors_scores"] = scores
@@ -1052,7 +1063,7 @@ def lm_am_framewise_prior_rescore(
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)] + ([scores[-1]] if len(scores) > 1 else [])
     #combine_scores_alias = alias_name + f"/combine{f'pr{prior_scale}'.replace('.','_') + f'_lm{lm_scale}'.replace('.','_')}"
 
-    return combine_scores(scores), res_labels_lm_scores#, combine_scores_alias)
+    return combine_scores(scores) if not score_combined_by_lm_rescoring else res_labels_lm_scores, res_labels_lm_scores#, combine_scores_alias)
 
 # "work/i6_core/returnn/search/SearchOutputRawReplaceJob.a5gb36CLt4N6/output/search_results.py.gz"
 # "work/i6_core/returnn/search/SearchRemoveLabelJob.HxKTed4GQc38/output/search_results.py.gz"

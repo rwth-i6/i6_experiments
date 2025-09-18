@@ -53,10 +53,10 @@ EXAMPLE = ["I SAY ADVERSARIES FOR ON RECALLING SUCH PROUD MEMORIES WE SHOULD AVO
 LLM_Batch_size = {#"meta-llama/Llama-3.2-1B": 18*3,
                   "meta-llama/Llama-3.1-8B": 14*9, #10*9, # actual 15 batch size-> ~ 50GB peak usage#  be at least 3 times larger from 10*3
                   #"Qwen/Qwen3-0.6B-Base": 51,
-                  "Qwen/Qwen3-1.7B-Base": 30*3,#84, #42,
+                  "Qwen/Qwen3-1.7B-Base": 30*3,#15 has peak 19GB on 48G, so can be at least doubled
                   #"Qwen/Qwen3-4B-Base":24,
                   #"Qwen/Qwen3-8B-Base":5*3,
-                  "microsoft/phi-4": 14*6, #14*3, #  be at least 2 times larger from 8*3 -> could be twice larger
+                  "microsoft/phi-4": 14*6, #Can be 24 on 80GB with 100 ctx(peak 40 with 14), so 20*6
                   #"mistralai/Mistral-7B-v0.3": 4,
                   } # Keys of this determines which LLM will be built by lm_getter
 
@@ -115,7 +115,7 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
     else:
         raise ValueError(f"Unknown task name: {task_name}")
 
-    ds_names = ["test-other"] if task_name=="LBS" else list(set(DEV_KEYS + TEST_KEYS))
+    ds_names = ["test-other", "dev-other"] if task_name=="LBS" else list(set(DEV_KEYS + TEST_KEYS))
     #main_ppl_mesure_name = ["test-other"] if task_name=="LBS" else (DEV_KEYS + TEST_KEYS)[0]
     prompt = get_prompt(LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE)
     llms = dict()

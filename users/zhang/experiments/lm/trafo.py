@@ -271,7 +271,7 @@ def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcri
         return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
 
 
-def get_ES__old_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+def get_ES_old_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
     _, spm, _ = get_model_and_vocab()
