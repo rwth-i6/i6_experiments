@@ -3489,7 +3489,7 @@ def py():
     # About num params. From the E-Branchformer paper (https://arxiv.org/pdf/2210.00077):
     # Conformer enc: 114.9M params, E-Branchformer (L) enc: 116.0M params.
     # E-Branch (L): 17 layers, feat dimension d=512, heads d/64=8, hidden dim cgMLP 6d, FFN 2d (for macaron-style).
-    name = "EncL16-DecL6-D896-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
+    name = "EncL16-DecL6-D1024-FFD2k-EBranchformer-DecPosEncAbs-featBN-aux4_10_16-spm10k-bpeSample001-baseLr0.5-b100k"
     exp = aed_train_exp(
         name,
         config_96gb_bf16_accgrad1,
