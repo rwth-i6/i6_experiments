@@ -85,7 +85,7 @@ def get_lexiconfree_timesync_recog_config(
         rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = intermediate_max_beam_size
     if score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
-    if intermediate_score_threshold is not None:
+    if score_threshold is not None and intermediate_score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = intermediate_score_threshold
     if blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index
@@ -251,9 +251,9 @@ def get_tree_timesync_recog_config(
         rasr_config.lib_rasr.search_algorithm.intermediate_max_beam_size = intermediate_max_beam_size
     if score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
-    if word_end_score_threshold is not None:
+    if score_threshold is not None and word_end_score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.word_end_score_threshold = word_end_score_threshold
-    if intermediate_score_threshold is not None:
+    if score_threshold is not None and intermediate_score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.intermediate_score_threshold = intermediate_score_threshold
     if blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index

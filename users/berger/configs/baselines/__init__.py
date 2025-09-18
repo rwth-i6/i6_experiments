@@ -20,56 +20,100 @@ def main() -> None:
                 checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
 
                 recog_results = []
-                for score_threshold in [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]:
-
-                    recog_results.extend(
-                        librispeech_experiments.bpe_ctc.run_recognitions_offline_tree(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev-other"],
-                            descriptor=f"recog_score-{score_threshold}",
-                            score_threshold=score_threshold,
-                            max_beam_size=5000,
-                        )
-                    )
-
-                    recog_results.extend(
-                        librispeech_experiments.bpe_ctc.run_recognitions_offline_tree_4gram(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev-other"],
-                            descriptor=f"recog_score-{score_threshold}",
-                            score_threshold=score_threshold,
-                            max_beam_size=5000,
-                        )
-                    )
-
-                    recog_results.extend(
-                        librispeech_experiments.bpe_ctc.run_recognitions_tedlium_offline_tree_4gram(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev"],
-                            descriptor=f"recog_score-{score_threshold}",
-                            score_threshold=score_threshold,
-                            max_beam_size=5000,
-                        )
-                    )
-
-                for score_threshold in [2.0, 4.0, 6.0, 8.0]:
-                    for intermediate_score_threshold in [score_threshold // 2, score_threshold, score_threshold + 2]:
+                for score_threshold in [0.0, 4.0, 8.0, 12.0, 16.0, None]:
+                    for max_beam_size in [1, 4, 16, 64, 256, 512]:
                         recog_results.extend(
-                            librispeech_experiments.bpe_ctc.run_recognitions_offline_lexiconfree_lstm(
+                            librispeech_experiments.bpe_ctc.run_recognitions_offline_tree(
                                 checkpoint=checkpoint,
                                 model_config=model_config,
                                 corpora=["dev-other"],
-                                descriptor=f"recog_score-{score_threshold}_inter-score-{intermediate_score_threshold}",
+                                descriptor=f"recog_score-{score_threshold}_beam-{max_beam_size}",
                                 score_threshold=score_threshold,
-                                intermediate_score_threshold=intermediate_score_threshold,
-                                max_beam_size=64,
-                                intermediate_max_beam_size=64,
+                                max_beam_size=max_beam_size,
                             )
                         )
 
+                        recog_results.extend(
+                            librispeech_experiments.bpe_ctc.run_recognitions_offline_tree_4gram(
+                                checkpoint=checkpoint,
+                                model_config=model_config,
+                                corpora=["dev-other"],
+                                descriptor=f"recog_score-{score_threshold}_beam-{max_beam_size}",
+                                score_threshold=score_threshold,
+                                max_beam_size=max_beam_size,
+                            )
+                        )
+
+                    # recog_results.extend(
+                    #     librispeech_experiments.bpe_ctc.run_recognitions_tedlium_offline_tree_4gram(
+                    #         checkpoint=checkpoint,
+                    #         model_config=model_config,
+                    #         corpora=["dev"],
+                    #         descriptor=f"recog_score-{score_threshold}",
+                    #         score_threshold=score_threshold,
+                    #         max_beam_size=5000,
+                    #     )
+                    # )
+
+                # for score_threshold in [6.0, 8.0, 10.0, 12.0]:
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_ctc.run_recognitions_offline_lexiconfree_lstm(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev-other"],
+                #             descriptor=f"recog_score-{score_threshold}",
+                #             score_threshold=score_threshold,
+                #             intermediate_score_threshold=score_threshold + 2,
+                #             max_beam_size=64,
+                #             intermediate_max_beam_size=64,
+                #         )
+                #     )
+                #
+                # for score_threshold in [6.0, 8.0, 10.0, 12.0, 14.0, 16.0]:
+                #     for max_beam_size in [64, 256]:
+                #         recog_results.extend(
+                #             librispeech_experiments.bpe_ctc.run_recognitions_offline_tree_lstm_4gram(
+                #                 checkpoint=checkpoint,
+                #                 model_config=model_config,
+                #                 corpora=["dev-other"],
+                #                 descriptor=f"recog_score-{score_threshold}_beam-{max_beam_size}",
+                #                 score_threshold=score_threshold,
+                #                 intermediate_score_threshold=score_threshold + 2,
+                #                 max_beam_size=max_beam_size,
+                #                 intermediate_max_beam_size=max_beam_size,
+                #             )
+                #         )
+
+                # # for max_beam_size in [16, 64, 256, 1024]:
+                # #     for intermediate_max_beam_size in [16, 64, 256, 1024]:
+                # #         if max_beam_size > intermediate_max_beam_size:
+                # #             continue
+                # #         recog_results.extend(
+                # #             librispeech_experiments.bpe_ctc.run_recognitions_offline_lexiconfree_lstm(
+                # #                 checkpoint=checkpoint,
+                # #                 model_config=model_config,
+                # #                 corpora=["dev-other"],
+                # #                 descriptor=f"recog_max-beam-{max_beam_size}_inter-beam-{intermediate_max_beam_size}",
+                # #                 score_threshold=8.0,
+                # #                 intermediate_score_threshold=6.0,
+                # #                 max_beam_size=max_beam_size,
+                # #                 intermediate_max_beam_size=intermediate_max_beam_size,
+                # #             )
+                # #         )
+                # #
+                #         recog_results.extend(
+                #             librispeech_experiments.bpe_ctc.run_recognitions_offline_tree_lstm_4gram(
+                #                 checkpoint=checkpoint,
+                #                 model_config=model_config,
+                #                 corpora=["dev-other"],
+                #                 descriptor=f"recog_max-beam-{max_beam_size}_inter-beam-{intermediate_max_beam_size}",
+                #                 score_threshold=8.0,
+                #                 intermediate_score_threshold=6.0,
+                #                 max_beam_size=max_beam_size,
+                #                 intermediate_max_beam_size=intermediate_max_beam_size,
+                #             )
+                #         )
+                #
                 for max_beam_size in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]:
                     # recog_results.extend(
                     #     librispeech_experiments.bpe_ctc.run_recognitions_offline_lexiconfree_lstm(
@@ -170,6 +214,7 @@ def main() -> None:
                     checkpoint=checkpoint,
                     model_config=model_config,
                     lexiconfree_lstm_search=False,
+                    tree_lstm_search=False,
                     tree_4gram_lstm_search=False,
                     tree_trafo_search=False,
                     tree_trafo_kazuki_search=False,
@@ -223,6 +268,9 @@ def main() -> None:
                 librispeech_experiments.bpe_ctc.run_base_recognition_suite(
                     checkpoint=checkpoint,
                     model_config=model_config,
+                    lexiconfree_lstm_search=False,
+                    tree_lstm_search=False,
+                    tree_4gram_lstm_search=False,
                     tree_trafo_search=False,
                     tree_trafo_kazuki_search=False,
                 )
@@ -326,63 +374,139 @@ def main() -> None:
                 train_job, model_config = librispeech_experiments.bpe_ffnn_transducer.run_training()
                 checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
                 recog_results = []
-                for score_threshold in [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0]:
-                    recog_results.extend(
-                        librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev-other"],
-                            descriptor=f"recog_score-{score_threshold}",
-                            score_threshold=score_threshold,
-                            max_beam_size=5000,
-                        )
-                    )
-
-                    recog_results.extend(
-                        librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_tree(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev-other"],
-                            descriptor=f"recog_score-{score_threshold}",
-                            score_threshold=score_threshold,
-                            max_beam_size=5000,
-                        )
-                    )
+                # for score_threshold in [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0]:
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev-other"],
+                #             descriptor=f"recog_score-{score_threshold}",
+                #             score_threshold=score_threshold,
+                #             max_beam_size=5000,
+                #         )
+                #     )
+                #
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_tree(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev-other"],
+                #             descriptor=f"recog_score-{score_threshold}",
+                #             score_threshold=score_threshold,
+                #             max_beam_size=5000,
+                #         )
+                #     )
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_tree_4gram(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev-other"],
+                #             descriptor=f"recog_score-{score_threshold}",
+                #             score_threshold=score_threshold,
+                #             max_beam_size=5000,
+                #         )
+                #     )
+                #
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_tedlium_offline_tree_4gram(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev"],
+                #             descriptor=f"recog_score-{score_threshold}",
+                #             score_threshold=score_threshold,
+                #         )
+                #     )
+                for score_threshold, max_beam_size in [
+                    (0.0, 1),
+                    (4, 16),
+                    (8, 64),
+                    (12, 64),
+                    (None, 2),
+                    (None, 4),
+                    (None, 8),
+                    (None, 16),
+                    (None, 32),
+                    (None, 64),
+                ]:
                     recog_results.extend(
                         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_tree_4gram(
                             checkpoint=checkpoint,
                             model_config=model_config,
                             corpora=["dev-other"],
-                            descriptor=f"recog_score-{score_threshold}",
+                            descriptor=f"recog_score-{score_threshold}_beam-{max_beam_size}",
                             score_threshold=score_threshold,
-                            max_beam_size=5000,
+                            max_beam_size=max_beam_size,
                         )
                     )
-
+                for score_threshold, max_beam_size in [
+                    (0.0, 1),
+                    (4, 16),
+                    (8, 64),
+                    (12, 64),
+                    (12, 256),
+                    (14, 128),
+                    (14, 256),
+                    (14, 512),
+                    (16, 128),
+                    (16, 256),
+                    (16, 512),
+                    (None, 2),
+                    (None, 4),
+                    (None, 8),
+                    (None, 16),
+                    (None, 32),
+                    (None, 64),
+                    (None, 128),
+                    (None, 256),
+                    (None, 512),
+                ]:
                     recog_results.extend(
-                        librispeech_experiments.bpe_ffnn_transducer.run_recognitions_tedlium_offline_tree_4gram(
+                        librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_tree_trafo_kazuki(
                             checkpoint=checkpoint,
                             model_config=model_config,
-                            corpora=["dev"],
-                            descriptor=f"recog_score-{score_threshold}",
+                            corpora=["dev-other"],
+                            descriptor=f"recog_score-{score_threshold}_beam-{max_beam_size}",
                             score_threshold=score_threshold,
+                            max_beam_size=max_beam_size,
                         )
                     )
 
-                for score_threshold in [2.0, 4.0, 6.0, 8.0]:
-                    for intermediate_score_threshold in [score_threshold // 2, score_threshold, score_threshold + 2]:
-                        recog_results.extend(
-                            librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree_lstm(
-                                checkpoint=checkpoint,
-                                model_config=model_config,
-                                corpora=["dev-other"],
-                                descriptor=f"recog_score-{score_threshold}_inter-score-{intermediate_score_threshold}",
-                                score_threshold=score_threshold,
-                                max_beam_size=64,
-                                intermediate_max_beam_size=64,
-                                intermediate_score_threshold=intermediate_score_threshold,
-                            )
-                        )
+                # for score_threshold in [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
+                #     for intermediate_score_threshold in [
+                #         score_threshold // 2,
+                #         score_threshold,
+                #         score_threshold + 2,
+                #         score_threshold + 4,
+                #     ]:
+                #         recog_results.extend(
+                #             librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree_lstm(
+                #                 checkpoint=checkpoint,
+                #                 model_config=model_config,
+                #                 corpora=["dev-other"],
+                #                 descriptor=f"recog_score-{score_threshold}_inter-score-{intermediate_score_threshold}",
+                #                 score_threshold=score_threshold,
+                #                 max_beam_size=64,
+                #                 intermediate_max_beam_size=64,
+                #                 intermediate_score_threshold=intermediate_score_threshold,
+                #             )
+                #         )
+                #
+                # for max_beam_size in [16, 64, 256, 1024]:
+                #     for intermediate_max_beam_size in [16, 64, 256, 1024]:
+                #         if max_beam_size > intermediate_max_beam_size:
+                #             continue
+                #         recog_results.extend(
+                #             librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree_lstm(
+                #                 checkpoint=checkpoint,
+                #                 model_config=model_config,
+                #                 corpora=["dev-other"],
+                #                 descriptor=f"recog_beam-{max_beam_size}_inter-beam-{intermediate_max_beam_size}",
+                #                 score_threshold=6.0,
+                #                 max_beam_size=max_beam_size,
+                #                 intermediate_max_beam_size=intermediate_max_beam_size,
+                #                 intermediate_score_threshold=10.0,
+                #             )
+                #         )
                 for max_beam_size in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]:
                     recog_results.extend(
                         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree(
@@ -427,19 +551,19 @@ def main() -> None:
                         )
                     )
 
-                for max_beam_size in [2, 4, 8, 16, 32, 64, 128]:
-                    recog_results.extend(
-                        librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree_lstm(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev-other"],
-                            descriptor=f"recog_beam-{max_beam_size}",
-                            score_threshold=6.0,
-                            intermediate_score_threshold=4.0,
-                            max_beam_size=max_beam_size,
-                            intermediate_max_beam_size=max_beam_size,
-                        )
-                    )
+                # for max_beam_size in [2, 4, 8, 16, 32, 64, 128]:
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_ffnn_transducer.run_recognitions_offline_lexiconfree_lstm(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev-other"],
+                #             descriptor=f"recog_beam-{max_beam_size}",
+                #             score_threshold=6.0,
+                #             intermediate_score_threshold=4.0,
+                #             max_beam_size=max_beam_size,
+                #             intermediate_max_beam_size=max_beam_size,
+                #         )
+                #     )
 
                 tk.register_report(
                     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report.txt",
@@ -476,36 +600,36 @@ def main() -> None:
             with ExperimentContext("score_threshold_tuning"):
                 train_job, model_config = librispeech_experiments.bpe_aed.run_training()
                 checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
-                recog_results = []
-                for score_threshold in [0.1, 0.3]:
-                    recog_results.extend(
-                        librispeech_experiments.bpe_aed.run_recognitions_offline_lexiconfree(
-                            checkpoint=checkpoint,
-                            model_config=model_config,
-                            corpora=["dev-other"],
-                            descriptor=f"recog_score-{score_threshold}",
-                            score_threshold=score_threshold,
-                            max_beam_size=64,
-                        )
-                    )
-                    for intermediate_score_threshold in [score_threshold // 2, score_threshold, score_threshold * 2]:
-                        recog_results.extend(
-                            librispeech_experiments.bpe_aed.run_recognitions_offline_lexiconfree_lstm(
-                                checkpoint=checkpoint,
-                                model_config=model_config,
-                                corpora=["dev-other"],
-                                descriptor=f"recog_score-{score_threshold}_inter-score-{intermediate_score_threshold}",
-                                score_threshold=score_threshold,
-                                intermediate_score_threshold=intermediate_score_threshold,
-                                max_beam_size=64,
-                                intermediate_max_beam_size=64,
-                            )
-                        )
-
-                tk.register_report(
-                    f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report.txt",
-                    create_offline_recog_report_with_search_errors(recog_results),
-                )
+                # recog_results = []
+                # for score_threshold in []:
+                #     recog_results.extend(
+                #         librispeech_experiments.bpe_aed.run_recognitions_offline_lexiconfree(
+                #             checkpoint=checkpoint,
+                #             model_config=model_config,
+                #             corpora=["dev-other"],
+                #             descriptor=f"recog_score-{score_threshold}",
+                #             score_threshold=score_threshold,
+                #             max_beam_size=64,
+                #         )
+                #     )
+                #     for intermediate_score_threshold in [score_threshold + 0.1]:
+                #         recog_results.extend(
+                #             librispeech_experiments.bpe_aed.run_recognitions_offline_lexiconfree_lstm(
+                #                 checkpoint=checkpoint,
+                #                 model_config=model_config,
+                #                 corpora=["dev-other"],
+                #                 descriptor=f"recog_score-{score_threshold}_inter-score-{intermediate_score_threshold}",
+                #                 score_threshold=score_threshold,
+                #                 intermediate_score_threshold=intermediate_score_threshold,
+                #                 max_beam_size=64,
+                #                 intermediate_max_beam_size=64,
+                #             )
+                #         )
+                #
+                # tk.register_report(
+                #     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report.txt",
+                #     create_offline_recog_report_with_search_errors(recog_results),
+                # )
 
     with ExperimentContext("switchboard"):
         switchboard_experiments.run_all()

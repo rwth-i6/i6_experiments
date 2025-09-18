@@ -101,7 +101,7 @@ def get_kazuki_trafo_lm_config(lm_scale: float = 1.0) -> RasrConfig:
     return config
 
 
-def get_bpe_lstm_label_scorer_config(bpe_size: int = 128) -> RasrConfig:
+def get_bpe_lstm_label_scorer_config(bpe_size: int = 128, use_gpu: bool = False) -> RasrConfig:
     assert bpe_size == 128
     model_config = bpe_lstm_lm.get_model_config(bpe_size=bpe_size)
 
@@ -111,4 +111,6 @@ def get_bpe_lstm_label_scorer_config(bpe_size: int = 128) -> RasrConfig:
         )
     )
 
-    return get_lstm_lm_label_scorer_config(model_config=model_config, checkpoint=lstm_lm_checkpoint)
+    return get_lstm_lm_label_scorer_config(
+        model_config=model_config, checkpoint=lstm_lm_checkpoint, execution_provider_type="cuda" if use_gpu else None
+    )
