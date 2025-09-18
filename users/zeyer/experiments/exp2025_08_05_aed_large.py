@@ -1203,6 +1203,7 @@ def py():
     # Try again old-vs-new serialization, also old-vs-new behavior version.
     # Try also running it again multiple times (__trigger_new_hash, "hN").
     # Note: fixMp (fix_mp) will fix MultiProcDataset opts for serialization version 2.
+    # On the issue of fixMp (MultiProcDataset workers RNGs): https://github.com/rwth-i6/returnn/issues/1762
     # This will only change num_workers from 4 -> 25. And 4 workers gives much worse results?
     # But what does this change? The only thing that I can see now is the RNG for audio/targets:
     # self._audio_random.seed(random_seed), self.targets.set_random_seed(random_seed).
