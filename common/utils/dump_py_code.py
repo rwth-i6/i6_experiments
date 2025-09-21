@@ -302,11 +302,11 @@ class PythonCodeDumper:
                         return f"gs.{name}"
                     if obj.startswith(v + "/"):
                         self._import_reserved("gs")
-                        self._import_user_mod("os")
+                        self._import_reserved("os")
                         return f"os.path.join(gs.{name}, {self._py_repr(obj[len(v) + 1:])})"
                     if v.endswith("/") and obj.startswith(v):
                         self._import_reserved("gs")
-                        self._import_user_mod("os")
+                        self._import_reserved("os")
                         return f"os.path.join(gs.{name}, {self._py_repr(obj[len(v):])})"
             return repr(obj)
         if isinstance(obj, _valid_primitive_types):
@@ -443,6 +443,7 @@ class PythonCodeDumper:
             "tk": "from sisyphus import tk",
             "rasr": "import i6_core.rasr as rasr",
             "make_fake_job": "from i6_experiments.common.utils.fake_job import make_fake_job",
+            "os": "import os",
         }
         print(code[name], file=self.file)
         self._imports.add(name)
