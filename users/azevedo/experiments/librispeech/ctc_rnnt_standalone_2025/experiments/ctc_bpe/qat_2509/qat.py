@@ -731,7 +731,6 @@ def bpe_lib_qat_comparisons():
         debug=True,
         use_gpu=False,
     )
-    """
     # results = {}
     # results = eval_model(
     #     training_name=training_name,
@@ -1020,7 +1019,7 @@ def bpe_lib_qat_comparisons():
         # )
         # generate_report(results=results, exp_name=training_name + "_greedy")
         # qat_report[training_name + "_greedy"] = results
-        "" HERE
+        """
         ########################################################################
         # FF 512 and 512 with mean abs
         network_module_v1_mean = "ctc.qat_0711.full_qat_v1_mean_abs_norm"

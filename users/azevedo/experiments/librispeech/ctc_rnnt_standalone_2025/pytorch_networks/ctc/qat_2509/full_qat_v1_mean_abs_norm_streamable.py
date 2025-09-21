@@ -10,6 +10,7 @@ import math
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import init
 import copy
 from typing import Tuple, Optional, List, Dict
 
@@ -54,6 +55,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         super().__init__()
 
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
+
         self.linear_ff = LinearQuant(
             in_features=cfg.input_dim,
             out_features=cfg.hidden_dim,
@@ -145,6 +147,10 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             observer_only_in_train=cfg.observer_only_in_train,
         )
         self.dropout = cfg.dropout
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -152,7 +158,9 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         :return: shape [B,T,F], F=input_dim
         """
         tensor = self.layer_norm_in_quant(tensor)
-        tensor = self.layer_norm(tensor)
+        tensor = tensor - torch.mean(tensor, dim=-1, keepdim=True)
+        tensor = tensor / (torch.sum(torch.abs(tensor), dim=-1, keepdim=True) / tensor.size(-1) + torch.tensor(1e-5))
+        tensor = tensor * self.layer_norm_scale + self.layer_norm_bias
         tensor = self.layer_norm_out_quant(tensor)
         tensor = self.lin_1_in_quant(tensor)
         tensor = self.linear_ff(tensor, self.lin_1_in_quant)  # [B,T,F]
@@ -250,6 +258,10 @@ class ConformerMHSAQuantStreamable(StreamableModule):
             moving_avrg=cfg.moving_average,
             observer_only_in_train=cfg.observer_only_in_train,
         )
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.input_dim), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
@@ -264,8 +276,14 @@ class ConformerMHSAQuantStreamable(StreamableModule):
             inv_attn_mask = compat.logical_not(attn_mask)
 
         input_tensor = self.layer_norm_in_quant(input_tensor)
-        output_tensor = self.layernorm(input_tensor)  # [B,T,F] or [B,N,C,F] (but we only do layernorm across last dim so its fine)
-        output_tensor = self.layer_norm_out_quant(output_tensor)
+        input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
+        output_tensor = input_tensor / (torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5))
+        output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
+        # print(
+        #     "Post norm MHSA", output_tensor[0, 0, :10], torch.sum(torch.abs(output_tensor), dim=-1, keepdim=True)[0, 0]
+        # )
+        # output_tensor = self.layernorm(input_tensor)  # [B,T,F]
+        output_tensor = self.layer_norm_out_quant(output_tensor) # [B,T,F] or [B,N,C,F] (but we only do layernorm across last dim so its fine)
 
         output_tensor, _ = self.mhsa(
             output_tensor, output_tensor, output_tensor, sequence_mask=inv_sequence_mask, attn_mask=inv_attn_mask
@@ -479,6 +497,10 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
         )
         self.dropout = nn.Dropout(model_cfg.dropout)
         self.activation = model_cfg.activation
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(model_cfg.channels), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(model_cfg.channels), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward_offline(self, tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -486,7 +508,11 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
         :return: torch.Tensor of shape [B,T,F]
         """
         tensor = self.layer_norm_in_quant(tensor)
-        tensor = self.layer_norm(tensor)
+        tensor = tensor - torch.mean(tensor, dim=-1, keepdim=True)
+        tensor = tensor / (torch.sum(torch.abs(tensor), dim=-1, keepdim=True) / tensor.size(-1) + torch.tensor(1e-5))
+        tensor = tensor * self.layer_norm_scale + self.layer_norm_bias
+        # print("Post norm Conv", tensor[0, 0, :10], torch.sum(torch.abs(tensor), dim=-1, keepdim=True)[0, 0])
+        # tensor = self.layer_norm(tensor)
         tensor = self.layer_norm_out_quant(tensor)
         tensor = self.pconv_1_in_quant(tensor)
         tensor = self.pointwise_conv1(tensor, self.pconv_1_in_quant)  # [B,T,2F]
@@ -768,7 +794,11 @@ class ConformerBlockQuantStreamable(StreamableModule):
         self.mhsa = ConformerMHSAQuantStreamable(cfg=cfg.mhsa_cfg)
         self.conv = ConformerConvolutionQuantStreamable(model_cfg=cfg.conv_cfg)
         self.ff2 = ConformerPositionwiseFeedForwardQuant(cfg=cfg.ff_cfg)
-        self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
+        # self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
+        self.layer_norm_scale = torch.nn.Parameter(torch.empty(cfg.ff_cfg.input_dim), requires_grad=True)
+        self.layer_norm_bias = torch.nn.Parameter(torch.empty(cfg.ff_cfg.input_dim), requires_grad=True)
+        init.ones_(self.layer_norm_scale)
+        init.zeros_(self.layer_norm_bias)
 
     def forward_offline(self, x: torch.Tensor, /, sequence_mask: torch.Tensor) -> torch.Tensor:
         """
@@ -797,9 +827,10 @@ class ConformerBlockQuantStreamable(StreamableModule):
         x = 0.5 * y + x  # [B, T, F]
         x = self.add_4_out_quant(x)
         x = self.ln_in_quant(x)
-        x = self.final_layer_norm(x)  # [B, T, F]
+        x = x - torch.mean(x, dim=-1, keepdim=True)
+        x = x / (torch.sum(torch.abs(x), dim=-1, keepdim=True) / x.size(-1)  + torch.tensor(1e-5))
+        x = x * self.layer_norm_scale + self.layer_norm_bias
         x = self.ln_out_quant(x)
-
         return x
     
     def forward_streaming(
@@ -839,7 +870,9 @@ class ConformerBlockQuantStreamable(StreamableModule):
         x = 0.5 * y + x  # [B, N, C+R, F']
         x = self.add_4_out_quant(x)
         x = self.ln_in_quant(x)
-        x = self.final_layer_norm(x)  # [B, N, C+R, F']
+        x = x - torch.mean(x, dim=-1, keepdim=True)
+        x = x / (torch.sum(torch.abs(x), dim=-1, keepdim=True) / x.size(-1)  + torch.tensor(1e-5))
+        x = x * self.layer_norm_scale + self.layer_norm_bias  # [B, N, C+R, F']
         x = self.ln_out_quant(x)
 
         # FIXME: unnecessary reshape
@@ -916,7 +949,9 @@ class ConformerBlockQuantStreamable(StreamableModule):
 
         # x = self.final_layer_norm(x)  # [C+R, F']
         x = self.ln_in_quant(x)
-        x = self.final_layer_norm(x)  # [C+R, F']
+        x = x - torch.mean(x, dim=-1, keepdim=True)
+        x = x / (torch.sum(torch.abs(x), dim=-1, keepdim=True) / x.size(-1)  + torch.tensor(1e-5))
+        x = x * self.layer_norm_scale + self.layer_norm_bias  # [C+R, F']
         x = self.ln_out_quant(x)
 
         return x    
