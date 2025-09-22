@@ -2105,7 +2105,13 @@ def py():
     setup_job_symlinks()
 
 
-def recog_ext_with_lm(*, ctc_model_name: str, ctc_model: Optional[ModelWithCheckpoint] = None, lm_name: str):
+def recog_ext_with_lm(
+    *,
+    ctc_model_name: str,
+    ctc_model: Optional[ModelWithCheckpoint] = None,
+    lm_name: str,
+    ctc_soft_collapse_threshold: float = 0.8,
+):
     from .ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         _get_lm_model,
@@ -2150,29 +2156,28 @@ def recog_ext_with_lm(*, ctc_model_name: str, ctc_model: Optional[ModelWithCheck
     ).out_prior
     tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
-    for sct in [0.8]:  #  [None, 0.7, 0.8]:
-        name_postfix = ""
-        extra_config = {}
-        if sct is not None:
-            name_postfix += f"-sct{sct}"
-            extra_config.update(
-                {
-                    "ctc_soft_collapse_threshold": sct,
-                    "ctc_soft_collapse_reduce_type": "max_renorm",
-                }
-            )
-        ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
-            task=task,
-            ctc_model=ctc_model,
-            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-            lm=_get_lm_model(_lms[lm_name]),
-            vocab_file=vocab_file,
-            vocab_opts_file=vocab_opts_file,
-            n_best_list_size=64,
-            first_pass_recog_beam_size=64,
-            extra_config=extra_config,
+    name_postfix = ""
+    extra_config = {}
+    if ctc_soft_collapse_threshold is not None:
+        name_postfix += f"-sct{ctc_soft_collapse_threshold}"
+        extra_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
         )
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
+        task=task,
+        ctc_model=ctc_model,
+        labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+        lm=_get_lm_model(_lms[lm_name]),
+        vocab_file=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        n_best_list_size=64,
+        first_pass_recog_beam_size=64,
+        extra_config=extra_config,
+    )
 
 
 def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
