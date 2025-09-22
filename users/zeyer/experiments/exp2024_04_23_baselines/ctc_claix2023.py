@@ -89,7 +89,7 @@ def py():
     del num_layers, num_dims, batch_size
 
     # recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b150k")
-    recog_ext_labelwise_with_lm_exps(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024")
+    recog_ext_with_lm_exps(ctc_model_name="L16-D768-spm10k-auxAED-b100k", lm_name="n32-d1024")
 
     # {"dev-clean": 1.82, "dev-other": 4.07, "test-clean": 2.08, "test-other": 4.33}
     recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b100k", lm_name="n32-d1024-claix2023")  # 4.07
@@ -2180,7 +2180,7 @@ def recog_ext_with_lm(
     )
 
 
-def recog_ext_labelwise_with_lm_exps(*, ctc_model_name: str, lm_name: str):
+def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
     from .ctc_recog_ext import (
         ctc_recog_labelwise_prior_auto_scale,
         ctc_recog_recomb_labelwise_prior_auto_scale,
