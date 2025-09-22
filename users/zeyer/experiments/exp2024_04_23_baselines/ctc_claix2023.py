@@ -2180,7 +2180,13 @@ def recog_ext_with_lm(
     )
 
 
-def recog_ext_labelwise_with_lm(*, ctc_model_name: str, lm_name: str, ctc_soft_collapse_threshold: float = 0.8):
+def recog_ext_labelwise_with_lm(
+    *,
+    ctc_model_name: str,
+    ctc_model: Optional[ModelWithCheckpoint] = None,
+    lm_name: str,
+    ctc_soft_collapse_threshold: float = 0.8,
+):
     from .ctc_recog_ext import (
         ctc_labelwise_recog_auto_scale,
         _get_lm_model,
@@ -2197,7 +2203,7 @@ def recog_ext_labelwise_with_lm(*, ctc_model_name: str, lm_name: str, ctc_soft_c
     )
 
     prefix = "ctc"
-    ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
+    ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
     prior = get_ctc_prior_probs(
