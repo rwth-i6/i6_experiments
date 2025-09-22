@@ -2180,6 +2180,75 @@ def recog_ext_with_lm(
     )
 
 
+def recog_ext_labelwise_with_lm(*, ctc_model_name: str, lm_name: str, ctc_soft_collapse_threshold: float = 0.8):
+    from .ctc_recog_ext import (
+        ctc_labelwise_recog_auto_scale,
+        _get_lm_model,
+        _lms,
+        get_ctc_prior_probs,
+    )
+    from .ctc import _train_experiments, _ctc_model_def_blank_idx, model_recog
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
+    from i6_experiments.users.zeyer.datasets.utils.vocab import (
+        ExtractVocabLabelsJob,
+        ExtractVocabSpecialLabelsJob,
+        ExtendVocabLabelsByNewLabelJob,
+    )
+
+    prefix = "ctc"
+    ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab)
+    prior = get_ctc_prior_probs(
+        ctc_model,
+        task.train_dataset.copy_train_as_static(),
+        config={"behavior_version": 24, "batch_size": 200_000 * _batch_size_factor, "max_seqs": 2000},
+    )
+    prior.creator.add_alias(f"{prefix}/{ctc_model_name}/prior")
+    tk.register_output(f"{prefix}/{ctc_model_name}/prior.txt", prior)
+    vocab_ = get_vocab_by_str(vocab)
+    vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab.txt.gz", vocab_file)
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
+    vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+        vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+    ).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+    log_prior_wo_blank = PriorRemoveLabelRenormJob(
+        prior_file=prior,
+        prior_type="prob",
+        vocab=vocab_w_blank_file,
+        remove_label=model_recog.output_blank_label,
+        out_prior_type="log_prob",
+    ).out_prior
+    tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
+
+    name_postfix = ""
+    extra_config = {}
+    if ctc_soft_collapse_threshold is not None:
+        name_postfix += f"-sct{ctc_soft_collapse_threshold}"
+        extra_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
+        )
+    ctc_labelwise_recog_auto_scale(
+        prefix=f"{prefix}/{ctc_model_name}/recog-labelsync-beam64-fp64-lm_{lm_name}{name_postfix}",
+        task=task,
+        ctc_model=ctc_model,
+        labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+        lm=_get_lm_model(_lms[lm_name]),
+        vocab_file=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        n_best_list_size=64,
+        first_pass_recog_beam_size=64,
+        extra_config=extra_config,
+    )
+
+
 def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
     from .ctc_recog_ext import (
         ctc_recog_labelwise_prior_auto_scale,
