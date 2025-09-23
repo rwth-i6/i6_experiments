@@ -15,6 +15,7 @@ import json
 import os
 
 import torch
+from sisyphus.delayed_ops import DelayedBase
 from sisyphus import tk
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
@@ -494,7 +495,6 @@ def recog_exp(
     """
     from i6_experiments.users.zhang.recog import recog_exp as recog_exp_, GetBestTuneValue
     from i6_experiments.users.zhang.experiments.language_models.n_gram import get_prior_from_unigram
-
     tune_with_rescoring = decoding_config.pop("tune_with_rescoring", False)
     if _sis_prefix is None:
         _sis_setup_global_prefix()
@@ -505,7 +505,8 @@ def recog_exp(
     config = dict_update_deep(config, config_updates, config_deletes)
 
     search_config = dict()
-    #print(f"{prefix}: \n model_config{model_config}")
+    # print(f"{prefix}: \n model_config{model_config}")
+    # print(f"search_config{search_config}")
     if model_config: # This need cleaning...
         search_config = build_search_config(search_config, model_config)
         # if "recog_language_model" in model_config:
@@ -523,13 +524,11 @@ def recog_exp(
         #     print(f"preloads{preloads}")
         #     preloads.update(model_config["preload_from_files"])
         #     search_config["preload_from_files"] = preloads
-
     if batch_size:
         search_config["batch_size"] = batch_size
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
-
     tune_with_cheat = decoding_config.pop("cheat_tune", False)
     base_one_pass_for_tune_setting = decoding_config.pop("base_one_pass", None)
     diagnose = decoding_config.pop("diagnose", False)
@@ -538,7 +537,8 @@ def recog_exp(
     best_prior_scale = None
     #print(f"model_config{model_config}")
     #print(f"search_config{search_config}")
-    from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #Clean this
+    #from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #Clean this
+    TUNE_ON_GREEDY_N_LIST = False
     def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, *,
                                              update_config: dict = {},
                                              first_pass_name: str = None, tune_with_cheat: bool = False,
@@ -590,6 +590,16 @@ def recog_exp(
         #default_value = original_params.get(param_key)
         scores = []
 
+        def get_scales_as_float(scale):
+            if isinstance(scale, DelayedBase):
+                try:
+                    return float(scale.get())
+                except TypeError:  # Scales not ready yet
+                    return -1.0
+            else:
+                assert any(isinstance(scale, typ) for typ in [float, str, int])
+                return scale
+
         for dc in tune_range:
             # if effective_tune_value:
             #     assert default_value is None, "Do not pass default value when use effective scale range"
@@ -601,7 +611,7 @@ def recog_exp(
             params[param_key] = dc
             task_copy = copy.deepcopy(task)
             score, *_ = recog_exp_( # TODO: this can be made a partial callable
-                first_pass_name + f"/tune/{param_key}/{str(dc).replace('.', '').replace('-', 'm')}",
+                first_pass_name + f"/tune/{param_key}/" + f"{get_scales_as_float(dc):.1f}".replace('.', '').replace('-', 'm'),
                 task_copy,
                 model_with_checkpoints,
                 first_pass_name=first_pass_name,
@@ -740,11 +750,13 @@ def recog_exp(
 
     if decoding_config.get("lm_order", False) and tune_with_rescoring:
     # Tune first pass LM on a greedy(or small LM) n best list
-        lm_name_for_tuning = "ffnn4_50_spm10k_ES_trans"
+        # TODO: this names are manually aligned with what specified in exp
+        lm_name_for_tuning = "ffnn4_50_spm10k_ES" if "spanish" in task.name else "ffnn8_50std_bpe128"
         first_pass_lmname = decoding_config.get("lm_order")
         update_config = base_one_pass_for_tune_setting
         if update_config is None: # Default first pass setting for tuning scales
             from i6_experiments.users.zhang.experiments.lm_getter import get_lm_by_name
+
             #from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GREEDY_N_LIST #When refactor, this need to be moved out
             #lm_for_tune = get_lm_by_name(lm_name_for_tuning, task_name='ES', as_ckpt=False)
             update_config = {
@@ -757,6 +769,8 @@ def recog_exp(
                 "lm": None,
                 "rescoring": True,
                 "rescore_lm_name": first_pass_lmname,
+                "rescore_lmscale": decoding_config.get("lm_weight", 0.5),
+                "rescore_priorscale": decoding_config.get("prior_weight", 0.3),
                 "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
                 "lm_vocab": None,
                 } if TUNE_ON_GREEDY_N_LIST else \
@@ -771,6 +785,8 @@ def recog_exp(
                 "lm": None,
                 "recog_language_model":get_lm_by_name(lm_name_for_tuning, task_name="ES", as_ckpt=False),
                 "rescoring": True,
+                "rescore_lmscale": decoding_config.get("lm_weight", 0.5),
+                "rescore_priorscale": decoding_config.get("prior_weight", 0.3),
                 "rescore_lm_name": first_pass_lmname,
                 "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
                 "lm_vocab": None, #None is okay as long as vocab match AM
@@ -784,7 +800,7 @@ def recog_exp(
         tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best", best_lm_scale)
         decoding_config["lm_weight"] = best_lm_scale
 
-        ori_rescore_lmscale = decoding_config["rescore_lmscale"]
+        ori_rescore_lmscale = decoding_config.get("rescore_lmscale", 0.5)
         decoding_config["rescore_lmscale"] = best_lm_scale # This is for tuning the prior, will be overwritten by following tuning of real 2rd pass LM scale
 
         prior_tune_ls = [decoding_config["prior_weight"] + scale / 100 for scale in range(-30, 21, 5)] if not tune_config_updates.get("prior_tune_range") \
@@ -797,9 +813,9 @@ def recog_exp(
         if two_round_tune:
             # Tune LM_scales again
             # This Job set effective scale values
-            lm_tune_ls = SetTuneRangeVars(tune_values=[offset for offset in [scale / 100 for scale in range(-30, 31, 2)]],
+            lm_tune_ls = SetTuneRangeVars(tune_values=[offset for offset in [scale / 100 for scale in range(-20, 21, 2)]],
                                           default_value=decoding_config["rescore_lmscale"]).out_tune_values
-            ori_rescore_priorscale = decoding_config["rescore_priorscale"]
+            ori_rescore_priorscale = decoding_config.get("rescore_priorscale", 0.3)
             decoding_config["rescore_priorscale"] = best_prior_scale  # This is for tuning the lm, will be overwritten by following tuning of real 2rd pass prior scale
 
             best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
@@ -818,7 +834,7 @@ def recog_exp(
 
     '''Tune 2rd pass scales'''
     if tune_rescore_scale and decoding_config["lm_rescore"]:
-        tune_name = prefix# + "/2rd_" + decoding_config["rescore_lm_name"]
+        tune_name = prefix + f"{'cheated' if tune_with_cheat else ''}"# + "/2rd_" + decoding_config["rescore_lm_name"]
         lm_tune_ls = [decoding_config["rescore_lmscale"] + scale / 100 for scale in range(-50, 51, 5)] if not tune_config_updates.get("tune_range_2") \
             else tune_config_updates["tune_range_2"]
 
@@ -841,7 +857,17 @@ def recog_exp(
         #print(f"tuned rescore_priorscale{decoding_config['rescore_priorscale'].get_path()}")
         if two_round_tune:
             # Tune LM_scales again
-            raw_range = [offset for offset in [scale / 100 for scale in range(-30, 31, 2)]]
+            # TODO, pass a second tune range in tune_config_updates
+            if "spanish" in task.name:
+                from i6_experiments.users.zhang.experiments.LLM_apptek_exp import CHEAT_CTX, LLM_PREV_ONE_CTX
+            else:
+                from i6_experiments.users.zhang.experiments.LLM_LBS_exp import CHEAT_CTX, LLM_PREV_ONE_CTX
+            raw_range = tune_config_updates.get("second_tune_range", None)
+            if raw_range is None:
+                # Offset
+                raw_range = [scale / 100 for scale in range(-10, 11, 5)] if LLM_PREV_ONE_CTX and not CHEAT_CTX and any(name in decoding_config["rescore_lm_name"] for name in ["phi", "Qwen", "Llama"]) \
+                    else [scale / 100 for scale in range(-20, 21, 2)]
+
             lm_tune_ls = SetTuneRangeVars(tune_values=raw_range,
                                           default_value=decoding_config["rescore_lmscale"]).out_tune_values
             best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale", first_pass_name=tune_name + "_second_tune", tune_with_cheat=tune_with_cheat)
@@ -870,7 +896,7 @@ def recog_exp(
 
     '''Final recog with tuned scale'''
     #print(f"{prefix}: \n model_config{model_config}")
-    print(f"{prefix}: \n decoding_config['lm_weight']{decoding_config['lm_weight']}")
+    print(f"\n\n{prefix}: \n decoding_config['lm_weight']{decoding_config['lm_weight']}, best_lm_scale {best_lm_scale}")
     recog_result, search_error, search_error_rescore, output_dict = recog_exp_(
         prefix, task, model_with_checkpoints,
         first_pass_name=first_pass_name + "final_recog",

@@ -260,21 +260,17 @@ class ConvertPyLiteralToNDJSONJob(Job):
 class SearchCombineScoresJob(Job):
     """
     Expects:
-      self.search_py_output: List[Tuple[float|DelayedBase, str]]  # (weight, path_to_input)
-      self.out_search_results: object with get_path()
-      util.uopen: text open that handles gz transparently
-      DelayedBase: (optional) lazy wrapper for weights
+      self.search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]] # (weight, path_to_input)
     """
 
     def __init__(self, search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]], *, output_gzip: bool = True):
         self.search_py_output = search_py_output
         self.out_search_results = self.output_path("search_results.py" + (".gz" if output_gzip else ""))
-
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 2}
         # --- conversion from py dict to json ---
         converted = []
         for weight, fn in self.search_py_output:
             src = fn
-
             if _is_probably_ndjson(src):
                 # already NDJSON
                 converted.append((weight, src))
@@ -284,7 +280,7 @@ class SearchCombineScoresJob(Job):
         self.search_ndjson_inputs = converted
 
     def tasks(self):
-        yield Task("run")
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         """Streaming merge over NDJSON; writes gzipped Python-dict-literal (your old output)."""
@@ -294,8 +290,8 @@ class SearchCombineScoresJob(Job):
         weights: List[float] = []
         ndjson_files: List[str] = []
         for weight, fn in self.search_ndjson_inputs:
-            if isinstance(weight, tk.Variable):
-                weight = weight.get()
+            if isinstance(weight, DelayedBase):
+                weight = float(weight.get())
             assert isinstance(weight, (int, float)), f"invalid weight {weight!r} type {type(weight)}"
             weights.append(float(weight))
             ndjson_files.append(fn)
@@ -367,65 +363,3 @@ class SearchCombineScoresJob(Job):
             out.write("\n}\n")
 
         os.replace(tmp_filename, self.out_search_results.get_path())
-
-
-from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
-from i6_experiments.users.zhang.recog import clean_RecogOut
-from i6_core.returnn.search import (
-    ReturnnSearchJobV2,
-    SearchRemoveLabelJob,
-    SearchCollapseRepeatedLabelsJob,
-    SearchTakeBestJob,
-)
-def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
-    """BPE to words"""
-    from i6_core.returnn.search import SearchOutputRawReplaceJob
-
-    words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
-    return RecogOutput(output=words)
-
-def py():
-    #work/i6_experiments/users/zhang/experiments/decoding/rescoring/SearchCombineScoresJob.eDm9woEaR1Ju
-    '''[(1.0,
-    <Path /nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.YohrR9yvfN5D/output/output.py.gz>),
-
-    (<Variable work/i6_experiments/users/zhang/recog/GetBestTuneValue.3VwqN9VjeM39/output/best_scale 0.26999999999999996>,
-    <Path /nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_experiments/users/zhang/experiments/decoding/lm_rescoring/LmRescoringJob.8qrtQT52an78/output/output.py.gz>),
-
-    (-0.13999999999999999,
-    <Path /nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.8sfI0LNbeG8p/output/search_results.py.gz>)]'''
-    from i6_experiments.users.zhang.experiments.decoding.rescoring import SearchCombineScoresJob as SearchCombineScoresJob1
-    file1 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.YohrR9yvfN5D/output/output.py.gz"
-    file2 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_experiments/users/zhang/experiments/decoding/lm_rescoring/LmRescoringJob.8qrtQT52an78/output/output.py.gz"
-    file3 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.8sfI0LNbeG8p/output/search_results.py.gz"
-    input = [(1.0, tk.Path(file1)), (0.26999999999999996, tk.Path(file2)), (-0.13999999999999999, tk.Path(file3))]
-    job = SearchCombineScoresJob(search_py_output=input)
-    tk.register_output("test/combinescores", SearchCombineScoresJob(search_py_output=input).out_search_results)
-
-
-def llmppl_py():
-    from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size_PPL, HuggingFaceLmPerplexityJobV2, LLM_rqmt
-    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import \
-        get_corpus_text_dict as ES_get_corpus_text_dict
-    input_text_dict = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_experiments/users/zhang/experiments/decoding/lm_rescoring/LmRescoringJob.1bdD1JpX7Xd0/output/output.py.gz"
-    model_id = "microsoft/phi-4"
-    llm_config, _ = get_llm(model_ids=[model_id],batch_sizes=[LLM_Batch_size_PPL[model_id]],word_ppl=True,task_name="ES")
-    llm_config = llm_config["phi-4"]
-    lm_rescore_res = _spm_to_words(clean_RecogOut(RecogOutput(output=tk.Path(input_text_dict)))).output
-    ds_name = "test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer"
-    lm_rescore_res = SearchTakeBestJob(lm_rescore_res).out_best_search_results
-
-    ppl_job = HuggingFaceLmPerplexityJobV2(
-        model_dir=llm_config["model_dir"],
-        text_file=[tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/corpus/convert/CorpusToTextDictJob.neCUj8m5VRif/output/text_dictionary.py.gz")],#[ES_get_corpus_text_dict(key=ds_name)],  # get_test_corpus_text(keys=[ds_name])
-        batch_size=llm_config["batch_size"],
-        lower_case=True,
-        word_ppl=True,
-        prompt=tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchTakeBestJob.jJiw86R2keDE/output/best_search_results.py.gz"),#lm_rescore_res,
-        eos_symbol="\n",
-        use_prev_context=True, # For now only check for this setting
-        context_len_limit=llm_config["ctx_len_limit"],
-        llm_name=model_id,
-    )
-    ppl_job.rqmt.update(LLM_rqmt[model_id])
-    tk.register_output(f"test/phi_4_rescor_ppl", ppl_job.out_ppl)

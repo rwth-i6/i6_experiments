@@ -13,7 +13,6 @@ import re
 from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
 
 from i6_experiments.users.zhang.datasets.vocab import GetSubwordRatioJob
-from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
 from i6_core.lm.kenlm import CompileKenLMJob#, CreateBinaryLMJob
 from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
 from i6_core.tools.git import CloneGitRepositoryJob
@@ -33,8 +32,6 @@ from i6_experiments.users.zhang.utils.report import ReportDictJob
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH as LBS_SRILM_PATH
-from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
-from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import LM_TRAIN_DATA, LM_TRANS_TRAIN_DATA
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 
 rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
@@ -73,6 +70,11 @@ tuple[Path, dict[str | Any, Path | Any]]:
         for key in ["dev-clean", "dev-other", "test-clean", "test-other"]:
             eval_lm_data_dict[key] = get_test_corpus_text([key])
     elif task_name == "ES":
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import LM_TRAIN_DATA, \
+            LM_TRANS_TRAIN_DATA
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
+
         if only_transcription:
             lm_data = LM_TRANS_TRAIN_DATA
         else:

@@ -50,9 +50,10 @@ class ComputeSearchErrorsJob(Job):
 
             # we count as search error if the label seqs differ and the search score is worse than the ground truth score
             is_search_error = False
-            targets_search = targets_search.replace("@@ ", "")
-            targets_search = targets_search.replace("<blank>", "")
-            targets_search = " ".join(targets_search.split())
+            targets_search = targets_search.replace("@@ ", "").strip()
+            targets_ground_truth = targets_ground_truth.replace("@@ ", "").strip()
+            #targets_search = targets_search.replace("<blank>", "")
+            #targets_search = " ".join(targets_search.split())
             if list(targets_ground_truth) == list(targets_search):
                 assert oov == 0, "Search reached a sequence with OOV?"
                 equal_label_seq = True
