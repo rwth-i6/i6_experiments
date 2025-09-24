@@ -41,7 +41,8 @@ TUNE_TWO_ROUND = True
 DIAGNOSE = True
 
 BEAM_SIZE = 500
-NBEST = 80 # Use 100 for plot
+TRAFO_BEAM = 100
+NBEST = 100 # Use 100 for plot
 
 TUNE_ON_GREEDY_N_LIST = False
 
@@ -121,7 +122,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
 
     elif "trafo" in lmname:
         tune_hyperparameters = False
-        decoding_config["beam_size"] = 80 if encoder == "conformer" else 300
+        decoding_config["beam_size"] = TRAFO_BEAM if encoder == "conformer" else 300
         decoding_config["nbest"] = min(decoding_config["nbest"], decoding_config["beam_size"])
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]

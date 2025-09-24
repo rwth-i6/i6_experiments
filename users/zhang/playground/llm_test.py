@@ -1,178 +1,248 @@
+# import torch
+# import math
+# import time
+# import returnn.util.basic as util  # noqa
+# from i6_experiments.users.zeyer.external_models.huggingface import (
+#     DownloadHuggingFaceRepoJob,
+#     get_content_dir_from_hub_cache_dir,
+# )
+#!/usr/bin/env python3
+import os, time, math, argparse
+from typing import List, Tuple, Optional
+
 import torch
-import math
-import time
-import returnn.util.basic as util  # noqa
-from i6_experiments.users.zeyer.external_models.huggingface import (
-    DownloadHuggingFaceRepoJob,
-    get_content_dir_from_hub_cache_dir,
-)
-if __name__ == "__main__":
-    device_str = "cuda" if torch.cuda.is_available() else "cpu"
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-    def _report_dev_memory_stats():
-        dev = torch.device(device_str)
-        if dev.type == "cuda":
-            stats = [
-                f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
-                f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
-                f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
-                f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
-            ]
-            print(f"Memory usage ({device_str}):", " ".join(stats))
-
-
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
+def load_model_and_tokenizer(model_dir: str):
+    model_path = model_dir  # you can wrap with your get_content_dir_from_hub_cache_dir
+    print("Loading model/tokenizer...")
     start_time = time.time()
-    print("Loading model...")
 
-    model_path = get_content_dir_from_hub_cache_dir(self.model_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    print(f"\nTokenizer_max_length:{tokenizer.model_max_length}\n")
+    print(f"Tokenizer_max_length: {tokenizer.model_max_length}")
 
-    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[
-        0] >= 8 else torch.float16
+    if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8:
+        dtype = torch.bfloat16
+    else:
+        dtype = torch.float16
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         local_files_only=True,
-        torch_dtype=dtype,  # load directly in low precision
-        device_map={"": 0},  # put the whole model on cuda:0 (single GPU)
-        low_cpu_mem_usage=True,  # stream weights, smaller CPU peak
-        # attn_implementation="flash_attention_2",  # faster runtime; f
+        torch_dtype=dtype,
+        device_map={"": 0},
+        low_cpu_mem_usage=True,
     )
-    # model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True)
     model.eval()
-    device = torch.device(device_str)
-    # model.to(device)
+    print(f"Loaded in {time.time() - start_time:.1f}s")
+    return model, tokenizer
 
-    print(f"({time.time() - start_time} secs)")
-    _report_dev_memory_stats()
 
-    for s in ["A BUSINESS. ", "a business \n"]:
-        enc = tokenizer(s, return_tensors="pt")
-        print(s, "→ token IDs:", enc.input_ids.tolist())
-    print(f"bos_token id:{tokenizer.bos_token}")
-    print(f"eos_token id:{tokenizer.eos_token}")
+def build_concat_ids(
+    tokenizer,
+    prompts: List[str],
+    hyps: List[str],
+    add_bos_once: bool = True,
+) -> Tuple[List[List[int]], List[int]]:
+    """
+    For each sample: ids = [BOS?] + prompt_ids + hyp_ids
+    Returns:
+      - list of per-sample token id lists
+      - list of hyp_start positions (index of first hyp token for each sample)
+    """
+    assert len(prompts) == len(hyps)
+    bos_id = tokenizer.bos_token_id
+    out_ids: List[List[int]] = []
+    hyp_starts: List[int] = []
 
-    total_logprob = 0.0
-    total_tokens = 0
-    total_word_tokens = 0
+    for p, h in zip(prompts, hyps):
+        # tokenize w/o special tokens so we control BOS once
+        p_ids = tokenizer.encode(p, add_special_tokens=False)
+        h_ids = tokenizer.encode(h, add_special_tokens=False)
 
-    lines_seen = 0
-    total_lines = 0
-    batch_count = 0
-    log_every = 1000  # print a message every 1k lines
-    d_rec = dict()
-    import i6_core.util as cutil
+        seq: List[int] = []
+        if add_bos_once and bos_id is not None:
+            seq.append(bos_id)
 
-    for text_file in self.text_file:
-        d_rec.update(eval(cutil.uopen(text_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")}))
-        # Iterate records
-        lines_seen = 0
-    total_lines = sum(len(n_best) for _, n_best in d_rec.items())
-    from i6_experiments.users.zhang.datasets.utils import sort_dict_by_record, extract_record_id
+        seq.extend(p_ids)
+        hyp_start = len(seq)  # first hyp token index
+        seq.extend(h_ids)
 
-    if self.use_prev_context:
-        d_rec = sort_dict_by_record(d_rec)
-    ctx_rec = None
-    if self.context is not None:
-        ctx_rec = eval(cutil.uopen(self.context, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-    batch_lines, batch_prompt = [], []
-    eos_symbol = (
-            " " + tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol  # (" "+tokenizer.eos_token) makes ppl worse
-    eos_symbol = eos_symbol if self.add_eos_to_completion else ""
-    last_record = None
-    for seq_tag, raw_line in d_rec.items():
-        boundary = False
-        line = raw_line.strip().lower() if self.lower_case else raw_line.strip()
-        if not line:
+        out_ids.append(seq)
+        hyp_starts.append(hyp_start)
+    return out_ids, hyp_starts
+
+
+def pad_right(batch_ids: List[List[int]], pad_id: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Right-pad a batch to max length; return input_ids and attention_mask."""
+    maxlen = max(len(x) for x in batch_ids) if batch_ids else 0
+    input_ids = torch.full((len(batch_ids), maxlen), pad_id, dtype=torch.long)
+    attn = torch.zeros((len(batch_ids), maxlen), dtype=torch.long)
+    for i, ids in enumerate(batch_ids):
+        L = len(ids)
+        input_ids[i, :L] = torch.tensor(ids, dtype=torch.long)
+        attn[i, :L] = 1
+    return input_ids, attn
+
+
+def make_position_ids(attention_mask: torch.Tensor) -> torch.Tensor:
+    """
+    Explicit position_ids that increment only on real tokens:
+    pos = cumsum(attention_mask)-1, with pads set to 0.
+    This mirrors how many HF models derive positions internally.
+    """
+    pos = attention_mask.cumsum(dim=-1) - 1
+    pos = pos.clamp_min(0)
+    pos = pos.masked_fill(attention_mask == 0, 0)
+    return pos.to(torch.long)
+
+
+@torch.inference_mode()
+def score_batch(
+    model,
+    tokenizer,
+    batch_prompts: List[str],
+    batch_hyps: List[str],
+    pass_position_ids: bool = False,
+    include_eos_in_hyp: bool = False,
+) -> List[Tuple[float, int]]:
+    """
+    Returns list of (nll, T), where nll = -sum log p(hyp_tokens | prompt),
+    T = number of scored tokens (hyp length (+1 if include_eos)).
+    """
+    # 1) Build per-sample concats
+    cat_ids, hyp_starts = build_concat_ids(tokenizer, batch_prompts, batch_hyps)
+
+    # Optionally append EOS to hyp for scoring
+    if include_eos_in_hyp and tokenizer.eos_token_id is not None:
+        for i, (h, s) in enumerate(zip(batch_hyps, hyp_starts)):
+            # append EOS only if sequence is non-empty so target exists
+            cat_ids[i].append(tokenizer.eos_token_id)
+
+    # 2) Single pad at batch level (no interior pads)
+    input_ids, attention_mask = pad_right(cat_ids, tokenizer.pad_token_id)
+
+    device = next(model.parameters()).device
+    input_ids = input_ids.to(device)
+    attention_mask = attention_mask.to(device)
+
+    # 3) Optional explicit position_ids
+    model_kwargs = {"input_ids": input_ids, "attention_mask": attention_mask}
+    if pass_position_ids:
+        position_ids = make_position_ids(attention_mask)
+        model_kwargs["position_ids"] = position_ids
+
+    # 4) Forward
+    logits = model(**model_kwargs).logits  # [B, L, V]
+    # Shift to get p(x_t | x_<t)
+    logprobs = torch.log_softmax(logits[:, :-1, :], dim=-1)  # [B, L-1, V]
+    tokens = input_ids[:, 1:]  # next tokens as labels
+
+    # 5) For each sample, gather only hyp tokens
+    results: List[Tuple[float, int]] = []
+    for b in range(input_ids.size(0)):
+        L = attention_mask[b].sum().item()
+        hyp_start = hyp_starts[b]
+        # hyp tokens live in positions [hyp_start .. L-1] in the *input*;
+        # their conditional probs are taken from logprobs indices [hyp_start-1 .. L-2]
+        left = max(hyp_start - 1, 0)
+        right = L - 1  # inclusive index in input for last conditional; slice end is right
+        if right <= left:
+            # empty hyp -> length 0 (nll = 0.0)
+            results.append((0.0, 0))
             continue
-        total_lines += 1
-        total_word_tokens += len(line.split()) + (1 if self.eos_symbol else 0)
-        current_record = extract_record_id(seq_tag)
-        batch_lines.append(line + eos_symbol)
-        if self.use_prev_context and current_record != last_record:
-            boundary = True  # This will skip one time following prompt append
-            self.clear_prompt()  # makes self.prompt = '', double guard
-            # Ensure there is no empty prompt inside a prompt batch
-            # Process current batch, separately handle the boundary sequence
-            if len(batch_lines) == 1:
-                batch_count += 1
-                nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
-                total_logprob += nll
-                total_tokens += tok_count
-            else:
-                batch_count += 2
-                nll, tok_count = _score_batch(batch_lines[:-1], batch_prompt, tokenizer, model, device)
-                nll_boundary, tok_count_boundary = _score_batch([batch_lines[-1]], [], tokenizer, model, device)
-                total_logprob += nll + nll_boundary
-                total_tokens += tok_count + tok_count_boundary
 
-            if batch_count % 1000 == 0:
-                print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
+        lp_slice = logprobs[b, left:right, :]                # [T, V]
+        tok_slice = tokens[b, left:right]                    # [T]
+        tok_lp = lp_slice.gather(1, tok_slice.unsqueeze(1)).squeeze(1)  # [T]
+        nll = -tok_lp.sum().double().item()
+        T = tok_slice.numel()
+        results.append((nll, T))
+    return results
 
-            batch_lines, batch_prompt = [], []  # clear for next batch
-            print(f"Clear context for record {last_record}")
 
-        if self.prompt and not boundary:  # Never append " "
-            batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
-        lines_seen += 1
+def run_compare(
+    model, tokenizer, data: List[Tuple[str, str]],
+    batch_size: int, pass_pos_ids: bool, include_eos: bool
+):
+    prompts = [p for p, _ in data]
+    hyps = [h for _, h in data]
 
-        # Log after every `log_every` lines
-        if lines_seen % log_every == 0:
-            print(f"[Line {lines_seen:,}/{total_lines}] {100 * lines_seen / total_lines:.2f}% processed…")
-            print(f"current lines:{batch_lines}")
-            _report_dev_memory_stats()
-        # Once we have `batch_size` lines, tokenize & process them
-        if len(batch_lines) == self.batch_size:
-            batch_count += 1
-            nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
-            total_logprob += nll
-            total_tokens += tok_count
+    # Non-batched (true per-sample)
+    nb_nll_T = []
+    for p, h in zip(prompts, hyps):
+        r = score_batch(model, tokenizer, [p], [h],
+                        pass_position_ids=pass_pos_ids,
+                        include_eos_in_hyp=include_eos)
+        nb_nll_T.append(r[0])
 
-            if batch_count % 1000 == 0:
-                print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
+    # Batched in chunks
+    b_nll_T = []
+    for i in range(0, len(data), batch_size):
+        chunk_p = prompts[i:i+batch_size]
+        chunk_h = hyps[i:i+batch_size]
+        r = score_batch(model, tokenizer, chunk_p, chunk_h,
+                        pass_position_ids=pass_pos_ids,
+                        include_eos_in_hyp=include_eos)
+        b_nll_T.extend(r)
 
-            batch_lines, batch_prompt = [], []  # clear for next batch
+    # Compare
+    assert len(nb_nll_T) == len(b_nll_T)
+    print("\n=== Per-sample comparison (non-batch vs batched) ===")
+    max_abs_diff = 0.0
+    for idx, ((n1, T1), (n2, T2)) in enumerate(zip(nb_nll_T, b_nll_T)):
+        diff = abs(n1 - n2)
+        max_abs_diff = max(max_abs_diff, diff)
+        ppl1 = math.exp(n1 / T1) if T1 > 0 else float("nan")
+        ppl2 = math.exp(n2 / T2) if T2 > 0 else float("nan")
+        print(f"[{idx:03d}] T={T1}  NLL(nb)={n1:.6f}  NLL(b)={n2:.6f}  Δ={diff:.6g}  "
+              f"PPL(nb)={ppl1:.4f}  PPL(b)={ppl2:.4f}")
+    print(f"\nMax |Δ NLL| = {max_abs_diff:.6g}\n")
 
-        if self.use_prev_context:
-            if ctx_rec is not None:
-                ctx = ctx_rec[seq_tag]
-                print(f"Ctx for {seq_tag}: {ctx}")
-            else:
-                ctx = line
-                print(f"Transcription for {seq_tag}: {ctx}")
-            self.update_prompt(ctx)
-            print(f"Current context len: {len(self.prompt.split())}")
-            last_record = current_record
 
-    # Process any leftover lines (if total lines % batch_size != 0)
-    if batch_lines:
-        nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
-        total_logprob += nll
-        total_tokens += tok_count
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model_dir", required=True, help="Local HF model directory")
+    ap.add_argument("--batch_size", type=int, default=8)
+    ap.add_argument("--pass_position_ids", action="store_true",
+                    help="If set, pass explicit position_ids derived from attention_mask")
+    ap.add_argument("--include_eos", action="store_true",
+                    help="If set, score EOS right after the hypothesis")
+    ap.add_argument("--stdin_pairs", action="store_true",
+                    help="Read prompt<TAB>hyp pairs from stdin instead of built-ins")
+    args = ap.parse_args()
 
-    # print(f"(Assumed batch size 1)Average bpe seq length:{bpe_length/total_lines:.2f}")
-    print(f"Average bpe/word length ratio:{total_tokens}/{total_word_tokens}->{total_tokens / total_word_tokens:.2f}")
-    # Explicit cleanup to avoid stuck CG state
-    del model
-    del tokenizer
-    torch.cuda.empty_cache()
-    import gc
+    model, tokenizer = load_model_and_tokenizer(args.model_dir)
 
-    gc.collect()
-    print("Finished and cleaned up.")
+    # Provide a tiny default set; or read from stdin as TSV lines
+    data: List[Tuple[str, str]] = [
+        ("", "hello world"),
+        ("The capital of France is", " Paris."),
+        ("User: Hi\nAssistant:", " Hello! How can I help you today?"),
+        ("Context: speech recognition system logs\nQuery:", " show the top five errors."),
+    ]
+    if args.stdin_pairs:
+        import sys
+        data = []
+        for line in sys.stdin:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            if "\t" not in line:
+                raise ValueError("stdin_pairs expects lines as: <prompt>\\t<hyp>")
+            p, h = line.split("\t", 1)
+            data.append((p, h))
 
-    # Finally compute PPL
-    bpe_ppl = math.exp(-total_logprob / total_tokens)
-    ppl = math.exp(-total_logprob / total_word_tokens) if self.word_ppl else bpe_ppl
-    with open(self.out_ppl.get_path(), "w") as out_f:
-        out_f.write(f"Average bpe/word length ratio:: {total_tokens / total_word_tokens:.2f}\n")
-        out_f.write(f"Total word tokens:: {total_word_tokens}\n")
-        out_f.write(f"Total bpe tokens:: {total_tokens}\n")
-        out_f.write(f"bpe level: {bpe_ppl}\n")
-        out_f.write(f"Perplexity: {ppl}\n")
+    run_compare(
+        model, tokenizer, data,
+        batch_size=args.batch_size,
+        pass_pos_ids=args.pass_position_ids,
+        include_eos=args.include_eos
+    )
+
+
+if __name__ == "__main__":
+    main()

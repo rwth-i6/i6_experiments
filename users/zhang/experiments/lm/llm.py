@@ -416,7 +416,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
     """
     __sis_hash_exclude__ = {"batch_size" : None}
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
-                 llm_name: str, lower_case:bool = False, context_len_limit: int = None, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, use_prev_context: bool = False, version:int = 7):
+                 llm_name: str, lower_case:bool = False, context_len_limit: int = None, eos_symbol: str = "", word_ppl: bool = False, add_eos_to_completion: bool = False, use_prev_context: bool = False, version:int = 8):
         super().__init__()
         #self.name = f"HFLM-PPL-{llm_name}-{self.text_file[0].basename()}"
         self.model_dir = model_dir
@@ -468,6 +468,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
         self.prompt = ""
 
     def _score_batch(self, batch_lines, batch_prompt, tokenizer, model, device):
+        #import pdb;pdb.set_trace()
         use_prompt = bool(batch_prompt) and any(p.strip() for p in batch_prompt)
         if not all(p.strip() for p in batch_prompt):
             print(f"Warning: Not all prompt are non empty{batch_prompt}")
@@ -510,7 +511,8 @@ class HuggingFaceLmPerplexityJobV2(Job):
             llm_scores = torch.gather(log_probs, dim=-1, index=gather_ids).squeeze()
             llm_scores = llm_scores * scores_mask
             token_count = int(scores_mask.sum().item())
-            nll = llm_scores.sum()
+            llm_scores = llm_scores.float()
+            nll = llm_scores.sum().float().cpu().item()
         return nll, token_count
 
     def tasks(self):
@@ -521,219 +523,11 @@ class HuggingFaceLmPerplexityJobV2(Job):
         import time
         import returnn.util.basic as util # noqa
 
-        debug_flag = True
-        # def _score_batch(batch_lines, batch_prompt, tokenizer, model, device):
-        #     """
-        #     Tokenize a batch of lines, run through the model, and compute negative log-likelihood,
-        #     token count, and total BPE tokens (sum of sequence lengths).
-        #     Returns (neg_log_likelihood, token_count, total_bpe_tokens).
-        #     """
-        #     nonlocal debug_flag
-        #
-        #     use_prompt = bool(batch_prompt) and any(p.strip() for p in batch_prompt)
-        #     encoding = tokenizer(
-        #         batch_lines,
-        #         return_tensors=None,# if use_prompt else "pt",
-        #         padding=False,
-        #         truncation=True,
-        #         add_special_tokens=False if use_prompt else True,
-        #         max_length=tokenizer.model_max_length,
-        #     )
-        #     # encoding_0 = tokenizer(
-        #     #     batch_lines[0],
-        #     #     return_tensors="pt",
-        #     #     padding=True,
-        #     #     truncation=True,
-        #     #     add_special_tokens=False if use_prompt else True,
-        #     #     max_length=tokenizer.model_max_length,
-        #     # )
-        #     # hyp_input_ids_0 = encoding_0["input_ids"].to(device)
-        #     # hyp_input_ids = encoding["input_ids"].to(device)
-        #     # Prepare inputs
-        #     if use_prompt:
-        #         assert len(batch_prompt) == len(batch_lines)
-        #         assert "" not in batch_prompt
-        #         enc_prompt = tokenizer(
-        #             batch_prompt,
-        #             return_tensors=None,
-        #             padding=False,
-        #             truncation=True,
-        #             max_length=tokenizer.model_max_length,
-        #         )
-        #         # enc_prompt_0 = tokenizer(
-        #         #     batch_prompt[0],
-        #         #     return_tensors="pt",
-        #         #     padding=True,
-        #         #     truncation=True,
-        #         #     max_length=tokenizer.model_max_length,
-        #         # )
-        #         # start = enc_prompt["input_ids"].shape[1]  # M
-        #         # end = start + hyp_input_ids.shape[1]  # M + H
-        #         # input_ids = torch.cat([enc_prompt["input_ids"], encoding["input_ids"]], dim=1).to(device)
-        #         # input_ids = input_ids.long()
-        #         # attention_mask = torch.cat([enc_prompt["attention_mask"], encoding["attention_mask"]], dim=1).to(device)
-        #         #
-        #         # input_ids_0 = torch.cat([enc_prompt_0["input_ids"], encoding_0["input_ids"]], dim=1).to(device)
-        #         # input_ids_0 = input_ids_0.long()
-        #         # attention_mask_0 = torch.cat([enc_prompt_0["attention_mask"], encoding_0["attention_mask"]], dim=1).to(device)
-        #         #
-        #         # if debug_flag:
-        #         #     debug_flag = False
-        #         #     print(f"\n \n batch_prompt: {batch_prompt[0:2]}\n batch_prompt_token: {enc_prompt['input_ids'][0:2]}, shape:{enc_prompt['input_ids'].shape}")
-        #         #     print(f"\n \n encoding: {batch_lines[0:2]}\n encoding_token: {hyp_input_ids[0:2]}\n  shape:{hyp_input_ids.shape}")
-        #         #     print(f"\n \n Cat: {input_ids[0:2]}\n shape:{input_ids.shape}")
-        #         #     print(f"\n \n Slice: {input_ids[0][start:end]}\n shape:{input_ids[0][start:end].shape} , with start{start}, end{end}")
-        #         #     print(f"\n \n Slice2: {input_ids[0][-hyp_input_ids.shape[1] - 1:-1]}\n shape:{input_ids[0][-hyp_input_ids.shape[1] - 1:-1].shape} , with start{-hyp_input_ids.shape[1] - 1}, end{-1}")
-        #     else:
-        #         enc_prompt = {"input_ids": [[] for _ in batch_lines]}
-        #         # input_ids = encoding["input_ids"].to(device)
-        #         # attention_mask = encoding["attention_mask"].to(device)
-        #
-        #     # Compute logits and log-probs
-        #     # with torch.no_grad():
-        #     #     logits = model(input_ids, attention_mask=attention_mask).logits
-        #     #     gather_ids = hyp_input_ids[:, 1:].unsqueeze(-1)
-        #     #     scores_mask = encoding["attention_mask"][..., 1:].to(device)
-        #     #     if use_prompt:
-        #     #         #TEST
-        #     #         # logits_0 = model(input_ids_0, attention_mask=attention_mask_0).logits
-        #     #         # gather_ids_0 = hyp_input_ids_0.unsqueeze(-1)
-        #     #         # scores_mask_0 = encoding_0["attention_mask"].to(device)
-        #     #         # logits_0 = logits_0[:, -hyp_input_ids_0.shape[1] - 1:-1, :]
-        #     #         #TEST
-        #     #
-        #     #         gather_ids = hyp_input_ids.unsqueeze(-1) # No bos here
-        #     #         scores_mask = encoding["attention_mask"].to(device)
-        #     #         logits = logits[:, -hyp_input_ids.shape[1] - 1:-1, :]
-        #     #         #logits = logits[:, start :end, :]
-        #     #
-        #     #     log_probs = torch.log_softmax(logits, dim=-1)
-        #     #     nll = torch.gather(log_probs, dim=-1, index=gather_ids).squeeze()
-        #     #     nll = nll * scores_mask
-        #     #     nll_0_batch = nll[0].sum()
-        #     #     nll = nll.sum()
-        #     #     # if use_prompt:
-        #     #     #     log_probs_0 = torch.log_softmax(logits_0, dim=-1)
-        #     #     #     nll_0 = torch.gather(log_probs_0, dim=-1, index=gather_ids_0).squeeze()
-        #     #     #     nll_0 = nll_0 * scores_mask_0
-        #     #     #     nll_0 = nll_0.sum()
-        #     #     #     print(f"Test {input_ids[0]} Score compare batched {nll_0_batch} single {nll_0}")
-        #     #
-        #     # # Total non-padded tokens across the batch
-        #     # token_count = int(encoding["attention_mask"].sum().item())
-        #
-        #     return nll, token_count
-
         def _score_batch(batch_lines, batch_prompt, tokenizer, model, device):
             """
             Use same scoring as rescoring job does
             """
             return self._score_batch(batch_lines, batch_prompt, tokenizer, model, device)
-            """
-            Manual log-softmax + gather scorer that:
-              - concatenates prompt+hyp per example (no interior PADs),
-              - provide position id for each real token,
-              - pads once across the batch,
-              - indexes the correct time steps for each hypothesis token,
-              - sums exact token log-probs and returns (nll, token_count, total_bpe_tokens).
-            """
-            # 0) Decide whether there is any *non-empty* prompt in this batch
-            use_prompt = bool(batch_prompt) and any(p.strip() for p in batch_prompt)
-            if not all(p.strip() for p in batch_prompt):
-                print(f"Warning: Not all prompt are non empty{batch_prompt}")
-            if not use_prompt:
-                # normalize to empty prompts list of same length (keeps code uniform)
-                batch_prompt = [""] * len(batch_lines)
-
-            # 1) Tokenize WITHOUT padding (get raw lists)
-            enc_hyp = tokenizer(
-                batch_lines,
-                return_tensors=None,
-                padding=False,
-                truncation=True,
-                add_special_tokens=not use_prompt,  # if we have prompt, hyp should NOT add BOS/EOS
-                max_length=tokenizer.model_max_length,
-            )
-            enc_prm = tokenizer(
-                batch_prompt,
-                return_tensors=None,
-                padding=False,
-                truncation=True,
-                add_special_tokens=True,  # let tokenizer add BOS/EOS for the prompt context
-                max_length=tokenizer.model_max_length,
-            )
-
-            # 2) Concatenate per example; record prompt/hyp lengths
-            examples = []
-            prm_lens, hyp_lens = [], []
-            for prm_ids, hyp_ids in zip(enc_prm["input_ids"], enc_hyp["input_ids"]):
-                # treat empty prompt as zero-length
-                prm_len = len(prm_ids)
-                hyp_len = len(hyp_ids)
-                prm_lens.append(prm_len)
-                hyp_lens.append(hyp_len)
-                examples.append({"input_ids": prm_ids + hyp_ids})
-
-            # 3) Pad once across the batch
-            batch = tokenizer.pad(examples, return_tensors="pt")
-            input_ids = batch["input_ids"].to(device)  # [B, T]
-            attn_mask = batch["attention_mask"].to(device)  # [B, T]
-            B, T = input_ids.shape
-
-            # 4) Forward pass
-            with torch.no_grad():
-                # [B, T] attention mask, 1 = real token, 0 = PAD
-                position_ids = (attn_mask.cumsum(dim=1) - 1).clamp(min=0)
-
-                for i, row in enumerate(position_ids):
-                    if row.sum() == 0:
-                        print(position_ids)
-                        print(batch_lines[max(i-2,0):i+1])
-                        print(input_ids[max(i-2,0):i+1])
-                logits = model(input_ids=input_ids, attention_mask=attn_mask,
-                               position_ids=position_ids).logits  # [B, T, V]
-
-            # 5) Build per-row time indices for hypothesis predictions
-            # For causal LMs: logits[:, t] predicts token at t+1.
-            # Hyp tokens live at absolute positions:    pos = prm_len + j, j=0..hyp_len-1
-            # We need predicting steps (time indices):  t = pos - 1 = (prm_len - 1) + j
-            pl = torch.tensor(prm_lens, device=logits.device)  # [B]
-            hl = torch.tensor(hyp_lens, device=logits.device)  # [B]
-            maxH = int(hl.max().item())
-            steps = torch.arange(maxH, device=logits.device)  # [maxH]
-            time_idx = (pl - 1)[:, None] + steps[None, :]  # [B, maxH]
-            valid_mask = steps[None, :] < hl[:, None]  # [B, maxH]
-            # keep inside bounds after truncation/padding (safety)
-            time_idx = time_idx.clamp(min=0, max=T - 1)
-
-            # 6) Gather the logits at those times: [B, maxH, V]
-            logits_hyp = torch.take_along_dim(
-                logits, time_idx.unsqueeze(-1).expand(-1, -1, logits.size(-1)), dim=1
-            )
-
-            # 7) Build a padded tensor of hyp token ids to gather
-            hyp_only_examples = [{"input_ids": ids} for ids in enc_hyp["input_ids"]]
-            hyp_pad = tokenizer.pad(hyp_only_examples, return_tensors="pt")
-            hyp_ids = hyp_pad["input_ids"].to(logits.device)  # [B, maxH]
-
-            # 8) Log-softmax and gather per-token log-probs
-            log_probs = torch.log_softmax(logits_hyp, dim=-1)  # [B, maxH, V]
-            gather_ids = hyp_ids.unsqueeze(-1)  # [B, maxH, 1]
-            tok_logp = torch.take_along_dim(log_probs, gather_ids, dim=-1).squeeze(-1)  # [B, maxH]
-
-            # 9) Mask out padded hyp slots and any positions we clamped away
-            hyp_mask = valid_mask & (hyp_ids != tokenizer.pad_token_id)
-            tok_logp = tok_logp * hyp_mask
-
-            # 10) Sum and count
-            nll = tok_logp.sum()  # scalar (log-prob sum in nats)
-            token_count = int(hyp_mask.sum().item())  # exact # of scored tokens
-            total_bpe_tokens = int(sum(len(x) for x in enc_hyp["input_ids"]))  # diagnostic
-
-            # Sanity guard: make sure dims align (helps catch future drift)
-            assert logits_hyp.shape[:2] == hyp_ids.shape[:2], (logits_hyp.shape, hyp_ids.shape)
-
-            return nll, token_count#, total_bpe_tokens
 
         device_str = "cuda" if torch.cuda.is_available() else "cpu"
         def _report_dev_memory_stats():
@@ -758,8 +552,9 @@ class HuggingFaceLmPerplexityJobV2(Job):
             tokenizer.pad_token = tokenizer.eos_token
         print(f"\nTokenizer_max_length:{tokenizer.model_max_length}\n")
 
-        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[
-            0] >= 8 else torch.float16
+        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8 else torch.float16
+        if dtype != torch.bfloat16:
+            print(f"!!! Warning : Using {dtype} dtype!")
 
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
@@ -809,7 +604,11 @@ class HuggingFaceLmPerplexityJobV2(Job):
                 " " + tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol  # (" "+tokenizer.eos_token) makes ppl worse
         eos_symbol = eos_symbol if self.add_eos_to_completion else ""
         last_record = None
+
         for seq_tag, raw_line in d_rec.items():
+            # if self.batch_size == 1: # and lines_seen % 40 == 0:
+            #     print(f"Current summed scores for {len(scores_list)} seq: {torch.tensor(scores_list).sum()} total_log_prob {total_logprob}")
+            #     scores_list = []
             boundary = False
             line = raw_line.strip().lower() if self.lower_case else raw_line.strip()
             if not line:
@@ -835,7 +634,8 @@ class HuggingFaceLmPerplexityJobV2(Job):
                     total_tokens += tok_count + tok_count_boundary
 
                 if batch_count % 1000 == 0:
-                    print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
+                    pass
+                    #print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
 
                 batch_lines, batch_prompt = [], []  # clear for next batch
                 print(f"Clear context for record {last_record}")
@@ -853,11 +653,15 @@ class HuggingFaceLmPerplexityJobV2(Job):
             if len(batch_lines) == self.batch_size:
                 batch_count += 1
                 nll, tok_count = _score_batch(batch_lines, batch_prompt, tokenizer, model, device)
+                # if self.batch_size > 1:
+                #     print(f"current batching summed score {batch_count}*{self.batch_size}: {nll} total_log_prob {total_logprob}")
+                # scores_list.append(nll)
                 total_logprob += nll
                 total_tokens += tok_count
 
-                if batch_count % 50 == 0:
-                    print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
+                if batch_count % 1000 == 0:
+                    pass
+                    # print(f"  → Completed {batch_count:,} batches; Tokens so far: {total_tokens:,}")
 
                 batch_lines, batch_prompt = [], []  # clear for next batch
 
@@ -878,6 +682,8 @@ class HuggingFaceLmPerplexityJobV2(Job):
             total_logprob += nll
             total_tokens += tok_count
 
+        print(f"nll:{total_logprob}")
+        print(f"Subword ppl:{math.exp(-total_logprob / total_tokens)}")
         #print(f"(Assumed batch size 1)Average bpe seq length:{bpe_length/total_lines:.2f}")
         print(f"Average bpe/word length ratio:{total_tokens}/{total_word_tokens}->{total_tokens / total_word_tokens:.2f}")
         # Explicit cleanup to avoid stuck CG state
@@ -1275,16 +1081,26 @@ class DummyJob(Job):
         self.output.set(time.time() - start)
 
 def py():
-
+    from i6_experiments.users.zhang.utils.report import ReportDictJob
     tk.register_output("/tools/debugDummy_time", DummyJob().output)
 
-    ds_names = ["test_set.ES_ES.f16kHz.eval_voice_call-v3",
-                #"dev-clean",
-                #"dev-other",
-                #"test-clean",
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+    ds_names = list(set(DEV_KEYS + TEST_KEYS))
+
+    ds_names = [
+                "dev-clean",
+                "dev-other",
+                "test-clean",
                 "test-other",
-            # "train",
          ]
+    check_models = [#"meta-llama/Llama-3.2-1B",
+                      "meta-llama/Llama-3.1-8B",
+                      "Qwen/Qwen3-1.7B-Base",
+                      #"Qwen/Qwen3-8B-Base",
+                      "microsoft/phi-4",
+                         ]
+
+
 
     def get_corpus_text_dict_by_name(ds_name):
         from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import \
@@ -1294,24 +1110,21 @@ def py():
         return get_corpus_text_dict(key=ds_name)
     ppls = dict()
     ppls_by_ds = {}
-    ctx_order = [#10,
-                 100] #[0, 100, 300, 500]
-    batch_sizes = [5, 30]
+    ctx_order = [10, 50, 100, 300, 500] #[0, 100, 300, 500]
+    batch_sizes = [1, 10, 40]
+    ppls_per_model = dict()
     for ds_name in ds_names:
         text_file = get_corpus_text_dict_by_name(ds_name)
-        for model_id in [#"meta-llama/Llama-3.2-1B",
-                      "meta-llama/Llama-3.1-8B",
-                      "Qwen/Qwen3-1.7B-Base",
-                      #"Qwen/Qwen3-8B-Base",
-                      "microsoft/phi-4",
-                         ]:
+        for model_id in check_models:
             name = os.path.basename(model_id)
             model = DownloadHuggingFaceRepoJob(model_id=model_id)
             tk.register_output(model_id, model.out_hub_cache_dir)
             ppls[name] = dict()
             #for ctx_len_limit in [None]:#ctx_order:#, 5000, None]:
-            ctx_len_limit = 100
-            for batch_size in batch_sizes:
+            for ctx_len_limit in ctx_order:
+                batch_size = 50
+                if name == "Llama-3.1-8B" and ctx_len_limit > 300 and "dev-other" in ds_name:
+                    batch_size = 30
                 ppl_job = HuggingFaceLmPerplexityJobV2(
                     model_dir=model.out_hub_cache_dir,
                     text_file=[text_file], # get_test_corpus_text(keys=[ds_name])
@@ -1321,27 +1134,32 @@ def py():
                     word_ppl=True,
                     prompt=None,
                     eos_symbol="\n",
-                    use_prev_context=True,
+                    use_prev_context=True and ctx_len_limit is not None,
                     context_len_limit=ctx_len_limit,
                     add_eos_to_completion=True
                 )
                 ppl_job.rqmt.update(LLM_rqmt[model_id])
-                ppl_job_name = f"ppl/{'ES/' if 'ES' in ds_name else ''}{name}/{ds_name}" + f"{'low'}{f'_prev{str(ctx_len_limit)}' if ctx_len_limit else ''}" + f"batch_{batch_size}"
+                ppl_job_name = f"ppl/{'ES/' if 'ES' in ds_name else ''}{name}/{ds_name}" + f"{'low'}{f'_prev{str(ctx_len_limit)}' if ctx_len_limit else ''}" + f"batch_{50}"
                 ppl_job.add_alias(ppl_job_name)
                 ppls[name].update({ds_name: ppl_job.out_ppl})
+                ppls_per_model.setdefault(name, {})[ds_name] = ppl_job.out_ppl
                 name_ext = ""
                 name_ext += f"prev_{ctx_len_limit}" if ctx_len_limit is not None else ""
-                name_ext += f"{'_low'}" + f"batch_{batch_size}"
+                name_ext += f"{'_low'}" + f"batch_{50}"
                 # tk.register_output(
                 #     "ppl/" + name + f"/{task_name}-" + ds_name + name_ext + "-ppl",
                 #     ppl_job.out_ppl)
                 # Fill nested structure
-                ppls_by_ds.setdefault(ds_name, {}).setdefault(name, {})[batch_size] = ppl_job.out_ppl
+                ppls_by_ds.setdefault(ds_name, {}).setdefault(name, {})[ctx_len_limit] = ppl_job.out_ppl
+    # Use this only with fixed ctx_limit
+    for model_id in check_models:
+        name = os.path.basename(model_id)
+        tk.register_output(f"test/ppl/{name}_ppl_ctx{ctx_len_limit}_report", ReportDictJob(outputs=ppls_per_model[name]).out_report_dict)
 
     summary_job = SummarizeLLMPPLJob(
         ppls_by_ds=ppls_by_ds,
-        compare_dim=batch_sizes,
-        dim_name="Batch_size",
+        compare_dim=ctx_order,
+        dim_name="Context_Length",
         value_source="perplexity",  # word-level
         float_fmt="{:.3f}",
         title="LLM Perplexity Summary",

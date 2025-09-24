@@ -332,7 +332,7 @@ def check_rescor_ppl(model_id:str, llm_config: dict, ds_name: str, lm_rescore_re
     ppl_job = HuggingFaceLmPerplexityJobV2(
         model_dir=llm_config["model_dir"],
         text_file=[target_file],  # get_test_corpus_text(keys=[ds_name])
-        batch_size=1,#llm_config["batch_size"],
+        batch_size=llm_config["batch_size"],
         lower_case=True,
         word_ppl=True,
         prompt=lm_rescore_res.output,
