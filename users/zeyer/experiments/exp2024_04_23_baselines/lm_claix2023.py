@@ -127,7 +127,7 @@ def py():
 
     # batch size max_seqs 2k
     train(
-        f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-nEp200-spm10k",
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-nEp200-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -149,9 +149,7 @@ def py():
                     pos_enc=None,
                     norm=rf.build_dict(rf.RMSNorm),
                     ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                    decoder_layer_opts=dict(
-                        self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
-                    ),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
                     dropout=0.0,
                     att_dropout=0.0,
                 )
