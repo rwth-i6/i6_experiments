@@ -14,7 +14,7 @@ from i6_experiments.common.setups.returnn.serialization import get_serializable_
 
 from i6_experiments.common.setups.serialization import Import
 from .data.common import TrainingDatasets
-from .serializer import serialize_training, serialize_forward, PACKAGE
+from ..serializer import serialize_training, serialize_forward, PACKAGE
 
 
 def get_training_config(
@@ -44,7 +44,11 @@ def get_training_config(
     """
 
     # changing these does not change the hash
-    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
+    base_post_config = {
+        "stop_on_nonfinite_train_score": True,
+        "backend": "torch",
+        "torch_log_memory_usage": True,
+    }
 
     base_config = {
         "cleanup_old_models": {

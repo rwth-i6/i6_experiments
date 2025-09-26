@@ -15,7 +15,7 @@ from i6_experiments.users.zeyer.datasets.librispeech import _get_spm_vocab
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 from .common import DatasetSettings, TrainingDatasets, build_training_datasets
-from ..default_tools import RETURNN_ROOT, RETURNN_EXE, SUBWORD_NMT_REPO
+from ...default_tools import RETURNN_ROOT, RETURNN_EXE, SUBWORD_NMT_REPO
 
 
 def get_spm_datastream(vocab_size: int) -> SentencePieceDatastream:

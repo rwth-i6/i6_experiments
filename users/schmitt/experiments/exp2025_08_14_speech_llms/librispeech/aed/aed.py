@@ -6,7 +6,7 @@ from typing import cast
 from sisyphus import tk
 from functools import partial
 
-from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.aed import model_configs
+from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.librispeech.aed import model_configs
 from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms import learning_rate_configs
 from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms import optimizer_configs
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -15,9 +15,9 @@ from ..data.common import DatasetSettings, build_test_dataset
 from ..data.spm import build_spm_training_datasets
 from ..pipeline import training
 from .tune_eval import build_base_report, eval_model
-from ..default_tools import RETURNN_EXE, RETURNN_ROOT, MINI_RETURNN_ROOT
-from ..report import generate_report
-from ..recognition.aed.beam_search import DecoderConfig
+from ...default_tools import RETURNN_EXE, RETURNN_ROOT, MINI_RETURNN_ROOT
+from ...report import generate_report
+from ...recognition.aed.beam_search import DecoderConfig
 
 
 def aed_baseline():
@@ -94,6 +94,9 @@ def aed_baseline():
         # batch size, adamw, speed pert, gradient clip,
         train_args = {
             "config": train_config,
+            "post_config": {
+                "torch_log_memory_usage": True
+            },
             "network_module": network_module,
             "train_step_module": "training.aed_ctc_train_step",
             "net_args": model_config,

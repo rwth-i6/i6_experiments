@@ -7,17 +7,18 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from i6_core.returnn.oggzip import BlissToOggZipJob
+from i6_core.corpus.convert import CorpusToStmJob
 
-from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
+from i6_experiments.common.datasets.loquacious.corpus import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset
 
-from .cv_segments import get_mixed_cv_segments
 from .multi_proc import MultiProcDataset
 
-from ..default_tools import RETURNN_ROOT, RETURNN_EXE
+from ...default_tools import RETURNN_ROOT, RETURNN_EXE
+from .cv_segments import get_dev_segments
 
 # -------------- Dataclasses for configuration and data passing -------------------
 
@@ -107,8 +108,8 @@ def make_multi_proc(dataset: OggZipDataset):
 
 def build_training_datasets(
     train_ogg: Union[tk.Path, List[tk.Path]],
-    dev_clean_ogg: tk.Path,
-    dev_other_ogg: tk.Path,
+    dev_ogg: tk.Path,
+    dev_segments: tk.Path,
     label_datastream: LabelDatastream,
     settings: DatasetSettings,
 ) -> TrainingDatasets:
@@ -124,11 +125,11 @@ def build_training_datasets(
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
     datastreams = {
-        "raw_audio": audio_datastream,
+        "data": audio_datastream,
         "labels": label_datastream,
     }
 
-    data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+    data_map = {"data": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 
@@ -148,10 +149,10 @@ def build_training_datasets(
     train_dataset = make_multi_proc(train_zip_dataset)
 
     cv_zip_dataset = OggZipDataset(
-        files=[dev_clean_ogg, dev_other_ogg],
+        files=[dev_ogg],
         audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=label_datastream.as_returnn_targets_opts(),
-        segment_file=get_mixed_cv_segments(),
+        segment_file=dev_segments,
         seq_ordering="sorted_reverse",
     )
     cv_dataset = make_multi_proc(cv_zip_dataset)
@@ -190,7 +191,7 @@ def build_test_dataset(
 
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
-    # data_map = {"raw_audio": ("zip_dataset", "data")}
+    # data_map = {"data": ("zip_dataset", "data")}
 
     test_zip_dataset = OggZipDataset(
         files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
@@ -201,3 +202,58 @@ def build_test_dataset(
     # )
 
     return test_dataset, bliss_dict[dataset_key]
+
+
+def build_short_dev_dataset(
+    settings: DatasetSettings,
+) -> Tuple[Dataset, tk.Path]:
+    """
+    Create ASR test set that only contains the audio stream
+
+    :param dataset_key: e.g. dev-other, which test set to create
+    :param settings: settings object for the RETURNN data pipeline
+    :return: tuple of the test dataset and a path to the corresponding bliss corpus file
+    """
+    ogg_zip_dict = get_ogg_zip_dict(returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+    bliss_dict = get_bliss_corpus_dict()
+    test_ogg = ogg_zip_dict["dev.all"]
+
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+
+    data_map = {"data": ("zip_dataset", "data")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse",
+        segment_file = get_dev_segments(),
+    )
+    test_dataset = MetaDataset(
+        data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+    )
+
+    bliss = bliss_dict["dev.all"]
+    from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+    filtered_bliss = FilterCorpusBySegmentsJob(
+        bliss_corpus=bliss,
+        segment_file=get_dev_segments(),
+    ).out_corpus
+
+    return test_dataset, filtered_bliss
+
+
+@lru_cache()
+def get_devtest_all_stms() -> Tuple[tk.Path, tk.Path]:
+    """
+    Specific function to create the stms for dev.all and test.all
+    This is needed because we do not run recognition on those, but concat the ctm files of the recognition jobs
+    in the recognition helper functions locally
+
+    :return tuple of dev.all stm and test.all stm file
+    """
+    bliss_dict = get_bliss_corpus_dict()
+    dev_bliss = bliss_dict["dev.all"]
+    test_bliss = bliss_dict["test.all"]
+
+    dev_stm_file = CorpusToStmJob(bliss_corpus=dev_bliss).out_stm_path
+    test_stm_file = CorpusToStmJob(bliss_corpus=test_bliss).out_stm_path
+
+    return dev_stm_file, test_stm_file

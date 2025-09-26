@@ -1,4 +1,4 @@
-from ..default_tools import RETURNN_EXE, RETURNN_ROOT
+from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..pipeline import search, ASRModel, prepare_asr_model
 from typing import List, Optional, Dict, Any, List, Union
 from ..data.common import TrainingDatasets
@@ -8,7 +8,7 @@ from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from sisyphus import tk
 from i6_core.returnn.training import ReturnnTrainingJob
 
-from ..recognition.aed.beam_search import DecoderConfig
+from ...recognition.aed.beam_search import DecoderConfig
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,

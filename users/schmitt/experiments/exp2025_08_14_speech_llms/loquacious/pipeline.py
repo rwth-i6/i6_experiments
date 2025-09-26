@@ -21,8 +21,9 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
-from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward
-from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, RETURNN_ROOT
+from .config import get_forward_config, get_training_config, get_prior_config
+from .data.common import TrainingDatasets, get_devtest_all_stms
+from ..default_tools import SCTK_BINARY_PATH, RETURNN_EXE, RETURNN_ROOT
 
 
 @dataclass
@@ -76,7 +77,7 @@ def search_single(
 
     words = SearchOutputRawReplaceJob(
       search_job.out_files["search_out.py.gz"],
-      [(" ", ""), ("▁", " ")],
+      [("@@", "")],
       output_gzip=True
     ).out_search_results
 
@@ -91,7 +92,7 @@ def search_single(
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
-    return sclite_job.out_wer, search_job
+    return sclite_job.out_wer, search_job, search_ctm
 
 
 @tk.block()
@@ -137,6 +138,7 @@ def search(
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     wers = {}
     search_jobs = []
+    ctms = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         search_name = prefix_name + "/%s" % key
         if "hubert_tune" in search_name:
@@ -145,7 +147,7 @@ def search(
             mem = 16
         else:
             mem = 12
-        wers[search_name], search_job = search_single(
+        wers[search_name], search_job, ctms[key] = search_single(
             search_name,
             returnn_search_config,
             asr_model.checkpoint,
@@ -158,7 +160,26 @@ def search(
         )
         search_jobs.append(search_job)
 
-    return search_jobs, wers
+    return search_jobs, wers, ctms
+
+
+def evaluate_all(prefix_name: str, dev_ctms: Dict[str, tk.Path], test_ctms: dict[str, tk.Path]):
+    """
+    Compute the full Loquacious WER based on the given subset ctm dicts
+    """
+    dev_stm, test_stm = get_devtest_all_stms()
+
+    from i6_core.text.processing import PipelineJob
+    dev_ctm_all = PipelineJob(list(dev_ctms.values()), [], zip_output=False, mini_task=True).out
+    test_ctm_all = PipelineJob(list(test_ctms.values()), [], zip_output=False, mini_task=True).out
+
+    dev_sclite_job = ScliteJob(ref=dev_stm, hyp=dev_ctm_all, sort_files=True, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
+    tk.register_output(prefix_name + "/dev.all/sclite/wer", dev_sclite_job.out_wer)
+    tk.register_output(prefix_name + "/dev.all/sclite/report", dev_sclite_job.out_report_dir)
+
+    test_sclite_job = ScliteJob(ref=test_stm, hyp=test_ctm_all, sort_files=True, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
+    tk.register_output(prefix_name + "/test.all/sclite/wer", test_sclite_job.out_wer)
+    tk.register_output(prefix_name + "/test.all/sclite/report", test_sclite_job.out_report_dir)
 
 
 @tk.block()

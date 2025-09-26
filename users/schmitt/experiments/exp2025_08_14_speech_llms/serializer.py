@@ -149,9 +149,13 @@ def serialize_forward(
         unhashed_arguments={},
     )
 
-    assert vocab_opts["class"] == "SentencePieces"
-    spm_model_file = vocab_opts["model_file"]
-    vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
+    if vocab_opts["class"] == "SentencePieces":
+        spm_model_file = vocab_opts["model_file"]
+        vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
+    else:
+        assert vocab_opts["class"] == "BytePairEncoding"
+        vocab_file = vocab_opts["vocab_file"]
+
     callback = PartialImport(
         code_object_path=f"{package}.recognition.aed.callback.RecognitionToTextDictCallback",
         import_as="forward_callback",
