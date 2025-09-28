@@ -10,6 +10,7 @@ from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.loquacio
 from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms import learning_rate_configs
 from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms import optimizer_configs
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 
 from ..data.common import DatasetSettings, build_test_dataset, build_short_dev_dataset
 # from ..data.spm import build_spm_training_datasets
@@ -72,10 +73,13 @@ def aed_small_baseline():
     batch_size = 15_000
     default_decoder_config = DecoderConfig()
 
-    for model_config, model_alias, epochs, bpe_size in [
-        (copy.deepcopy(model_configs.v2), "v2", 125, 10_000),
-        (copy.deepcopy(model_configs.v2), "v2", 125, 2_000),
-        (copy.deepcopy(model_configs.v2), "v2", 125, 1_000),
+    for model_config, model_alias, epochs, bpe_size, out_dim in [
+        (copy.deepcopy(model_configs.v2), "v2", 125, 10_000, 10_240),
+        (copy.deepcopy(model_configs.v2), "v2", 125, 10_000, None),
+        (copy.deepcopy(model_configs.v2), "v2", 125, 2_000, None),
+        (copy.deepcopy(model_configs.v2), "v2", 125, 1_000, None),
+        (copy.deepcopy(model_configs.v3), "v3", 125, 1_000, None),
+        (copy.deepcopy(model_configs.v4), "v4", 125, 1_000, None),
     ]:
         # build the training datasets object containing train, cv, dev-train and the extern_data dict
         train_data = build_bpe_training_datasets(
@@ -85,6 +89,9 @@ def aed_small_baseline():
             settings=train_settings,
             use_postfix=False,
         )
+
+        if out_dim is None:
+            model_config["out_dim"] = train_data.datastreams["labels"].vocab_size
 
         sampling_rate = model_config["sampling_rate"]
 
@@ -127,6 +134,7 @@ def aed_small_baseline():
             + "/"
             + network_module
             + f"/{model_alias}_bpe-{bpe_size}_{epochs}-ep"
+            + (f"_fix-out-dim" if out_dim is None else f"_wrong-out-dim")
         )
         train_job = training(
             training_name, train_data, train_args, num_epochs=epochs, **default_returnn
