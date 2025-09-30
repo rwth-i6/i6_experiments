@@ -5,6 +5,7 @@ from sisyphus import Job, Task, tk
 import logging
 import shutil
 
+from i6_experiments.users.enrique.jobs.fairseq.wav2vec.wav2vec_data_utils import get_w2vu_librispeech_transcription
 
 class FairseqGenerateWav2VecUJob(Job):
     """
@@ -13,6 +14,7 @@ class FairseqGenerateWav2VecUJob(Job):
 
     def __init__(
         self,
+        decoding_audio_name,
         environment: Optional[tk.Path],
         fairseq_root: Type[tk.Path],
         task_data: Type[tk.Path],
@@ -26,6 +28,7 @@ class FairseqGenerateWav2VecUJob(Job):
         extra_config: Optional[str] = None,
     ):
         """
+        :param decoding_audio_name: Name of the decoding audio
         :param environment: Path to the Python virtual environment.
         :param fairseq_root: Path to the user directory for Fairseq.
         :param task_data: Path to the directory with features.
@@ -34,6 +37,7 @@ class FairseqGenerateWav2VecUJob(Job):
         :param config_name: Name of the Hydra configuration (default: "viterbi").
         :param gen_subset: Subset to generate (default: "valid").
         """
+        self.decoding_audio_name = decoding_audio_name
         self.environment = environment
         self.fairseq_root = fairseq_root
         self.task_data = task_data
@@ -41,29 +45,17 @@ class FairseqGenerateWav2VecUJob(Job):
         self.checkpoints_path = checkpoints_path
         self.config_dir = config_dir
         self.config_name = config_name
-        self.gen_subset = gen_subset
+        self.gen_subset = gen_subset 
         self.dict_phn_txt_path = dict_phn_txt_path
         self.dict_wrd_txt_path = dict_wrd_txt_path
         self.extra_config = extra_config if extra_config is not None else ""
 
         self.results_path = self.output_path("transcriptions", directory=True)
-        self.transcription_generated = self.output_path(f"transcriptions/{gen_subset}.txt")
+        
 
-        # Resource requirements (adjust as needed)
-        self.rqmt = {"time": 1000, "cpu": 1, "gpu": 1, "mem": 70}
+        self.ground_truth_transcription = self.output_path(f"ground_truth.txt")
 
-    def tasks(self):
-        yield Task("copy_dict_phn_txt", mini_task=True)
-        yield Task("run", rqmt=self.rqmt)
-
-    def copy_dict_phn_txt(self):
-        dict_phn_path = os.path.join(self.prepare_text.get_path(), "phones/dict.phn.txt")
-        dest = os.path.join(self.task_data.get_path(), "dict.phn.txt")
-        shutil.copy2(dict_phn_path, dest)
-        logging.info(f"Coppied {dict_phn_path} to {dest}")
-
-    def run(self):
-        logging.info(self.gen_subset)
+        
         if self.gen_subset == None:
             feat_subsets = []
             for file in os.listdir(self.task_data.get_path()):
@@ -81,7 +73,27 @@ class FairseqGenerateWav2VecUJob(Job):
                 self.gen_subset = feat_subsets[0]
 
             logging.info(f"Found gen_subset: {self.gen_subset}, will be used for decoding")
+            print(f"Found gen_subset: {self.gen_subset}, will be used for decoding")
 
+        self.transcription_generated = self.output_path(f"transcriptions/{self.gen_subset}.txt")
+
+
+        self.rqmt = {"time": 1000, "cpu": 1, "gpu": 1, "mem": 70}
+        if self.decoding_audio_name == "train-other-960":
+            self.rqmt = {"time": 2000, "cpu": 1, "gpu": 1, "mem": 150}            
+        
+
+    def tasks(self):
+        yield Task("copy_dict_phn_txt", mini_task=True)
+        yield Task("run", rqmt=self.rqmt)
+
+    def copy_dict_phn_txt(self):
+        dict_phn_path = os.path.join(self.prepare_text.get_path(), "phones/dict.phn.txt")
+        dest = os.path.join(self.task_data.get_path(), "dict.phn.txt")
+        shutil.copy2(dict_phn_path, dest)
+        logging.info(f"Coppied {dict_phn_path} to {dest}")
+
+    def run(self):
         # Extract the best checkpoint path from the provided checkpoints_path, which could be a folder or a file.
         best_checkpoint_path = ""
         chckpt_found = False
@@ -124,11 +136,17 @@ class FairseqGenerateWav2VecUJob(Job):
             logging.warning("No config_name provided, using default.")
             self.config_name = "viterbi"
 
+
+        # Get the ground truth transcription
+        get_w2vu_librispeech_transcription(os.path.join(self.task_data.get_path(), f"{self.gen_subset}.tsv"), output_path=self.ground_truth_transcription.get_path(), corpus_root=f"/u/corpora/speech/LibriSpeech/LibriSpeech/{self.decoding_audio_name}")
+
+
         # TODO: THIS SHOULD CHANGE DEPENDING ON THE CONFIG!! this is specific for the kaldi decoding
         self.extra_config += f""" \
             lexicon={os.path.join(self.prepare_text.get_path(), 'lexicon.lst')} \
-            kaldi_decoder_config.hlg_graph_path={os.path.join(self.prepare_text.get_path(), 'fst/phn_to_words_sil/HLG.phn.kenlm.wrd.o40014.fst')} \
-            kaldi_decoder_config.output_dict={os.path.join(self.prepare_text.get_path(), 'fst/phn_to_words_sil/kaldi_dict.kenlm.wrd.o40014.txt')} \
+            kaldi_decoder_config.hlg_graph_path={os.path.join(self.prepare_text.get_path(), 'fst/phn_to_words_sil/HLG.phn.kenlm.wrd.o4.fst')} \
+            kaldi_decoder_config.output_dict={os.path.join(self.prepare_text.get_path(), 'fst/phn_to_words_sil/kaldi_dict.kenlm.wrd.o4.txt')} \
+            viterbi_transcript={self.ground_truth_transcription.get_path()}
             """
 
         sh_call_str = ""

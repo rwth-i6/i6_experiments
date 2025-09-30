@@ -1,6 +1,6 @@
 import os
-from typing import Optional, Type
-from sisyphus import Job, Task, tk
+from typing import Dict, Optional, Type, Any
+from sisyphus import Job, Task, tk, tools
 import logging
 from i6_core.tools.download import DownloadJob
 import subprocess as sp
@@ -159,21 +159,51 @@ class CalculateWERJob(Job):
 
     def run(self):
 
-        sh_call = f"""
-        source {self.environment.get_path()}/bin/activate && \
-        python -c "from jiwer import process_words; \
-        with open('{self.reference.get_path()}', 'r') as f: \
-            gt = f.read(); \
-        with open('{self.hypothesis.get_path()}', 'r') as f: \
-            test = f.read(); \
-        measures = process_words(gt, test); \
-        with open('{self.output_wer.get_path()}', 'w') as f: \
-            f.write(f'WER: {{measures.wer}} Insertions: {{measures.insertions}} Deletions: {{measures.deletions}} Substitutions: {{measures.substitutions}}')
-        "
-        """
 
-        sp.check_call(sh_call, shell=True)
-
+        python_script = (
+            "from jiwer import process_words; "
+            f"with open('{self.reference.get_path()}', 'r') as f: gt = f.read(); "
+            f"with open('{self.hypothesis.get_path()}', 'r') as f: test = f.read(); "
+            "measures = process_words(gt, test); "
+            f"with open('{self.output_wer.get_path()}', 'w') as f: "
+            "f.write(f'WER: {{measures.wer}}   "
+            "Insertions: {{measures.insertions}}   "
+            "Deletions: {{measures.deletions}}   "
+            "Substitutions: {{measures.substitutions}}')"
+        )
+        sh_call = (
+            f"source {self.environment.get_path()}/bin/activate && \\\n"
+            f'python -c "{python_script}"'
+        )
+        print(f"Calculating WER with command: {sh_call}")
+        
+        
+        try:
+            # THE FIX: Explicitly use '/bin/bash' as the executable.
+            # The error "/bin/sh: 1: source: not found" occurs because 'source' is a
+            # bash-specific command, but the default shell (`/bin/sh`) was being used.
+            # Specifying `executable='/bin/bash'` ensures the command is run with bash.
+            result = sp.run(
+                sh_call,
+                shell=True,
+                check=True,
+                executable='/bin/bash',
+                capture_output=True, # Capture stdout and stderr
+                text=True # Decode stdout/stderr as text
+            )
+            print("\n--- Command Executed Successfully ---")
+            print("STDOUT:", result.stdout)
+            with open(self.output_wer.get_path(), 'r') as f:
+                print("Output file content:", f.read())
+        except sp.CalledProcessError as e:
+            print(f"\n--- Command Failed with return code {e.returncode} ---")
+            print("STDOUT:", e.stdout)
+            print("STDERR:", e.stderr)
+            print("\nPlease ensure your virtual environment path is correct and 'jiwer' is installed.")
+        except FileNotFoundError:
+            print("\n--- Command Failed: FileNotFoundError ---")
+            print("Could not find '/bin/bash'. Please ensure bash is installed and in your PATH.")
+        
 
 # "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_u_audio_preprocessing/Wav2VecUFeaturizeAudioJob.TyJVh2DlIY8F/output/audio_features/valid.tsv"
 # This function is highly customized for the Librispeech dataset in /u/corpora i6
@@ -423,6 +453,7 @@ class PrepareWav2VecTextDataJob(Job):
         fairseq_python_env: Optional[Type[tk.Path]] = None,
         vocab_size: int = 1000,  # TODO: THIS IS NOT THE VOCAB SIZE, IT IS THE MIN NUMBER OF TIMES A PHONEME NEEDS TO APPEAR FOR IT TO NOT BE DISCARTED
         tts_engine: str = "espeak",
+        lm_pruning: Optional[list] = [0,0,0,3], # In this example, we only keep the 4-grams that appear at least 4 times
     ):
         """
         :param fairseq_root: Path to the fairseq root directory
@@ -443,6 +474,8 @@ class PrepareWav2VecTextDataJob(Job):
         self.kaldi_root = kaldi_root
         self.fasttext_model = fasttext_model
         self.fairseq_python_env = fairseq_python_env
+        self.lm_pruning = lm_pruning
+
 
         self.out_text_dir = self.output_path("text", directory=True)
         self.processed_phn_data_and_LM = self.output_path("text/phones", directory=True)
@@ -459,9 +492,11 @@ class PrepareWav2VecTextDataJob(Job):
         if self.vocab_size <= 0:
             raise ValueError("Vocabulary size must be greater than 0")
 
-        script_path = os.path.join(
-            self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/prepare_text.sh"
-        )
+        # script_path = os.path.join(
+        #     self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/prepare_text.sh"
+        # )
+
+        script_path = "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_06_02/fairseq_2025_06_02-proj/recipe/i6_experiments/users/enrique/experiments/wav2vec_u/prepare_text.sh"
 
         env = os.environ.copy()
 
@@ -477,8 +512,8 @@ class PrepareWav2VecTextDataJob(Job):
         env["VIRTUAL_ENV"] = self.fairseq_python_env.get_path()
         env["KENLM_ROOT"] = self.kenlm_root.get_path() if self.kenlm_root else ""
 
-        activate_path = os.path.join(self.fairseq_python_env.get_path(), "bin/activate")
-        activate_path = ["source", activate_path]
+        # activate_path = os.path.join(self.fairseq_python_env.get_path(), "bin/activate")
+        # activate_path = ["source", activate_path]
 
         sh_call = [
             "zsh",
@@ -490,13 +525,39 @@ class PrepareWav2VecTextDataJob(Job):
             self.tts_engine,
             self.fasttext_model.get_path(),
             str(self.sil_prob),
+            str(self.lm_pruning[0]),
+            str(self.lm_pruning[1]),
+            str(self.lm_pruning[2]),
+            str(self.lm_pruning[3]),
         ]
 
-        logging.info(f"Running command: {' '.join(activate_path + ['&&'] + sh_call)}")
+        logging.info(f"Running command: {' '.join(sh_call)}")
         logging.info(f"Environment: {env}")
 
-        sp.run(" ".join(activate_path + [" && "] + sh_call), shell=True, env=env, check=True)
+        sp.run(sh_call, env=env, check=True)
+        #sp.run(" ".join(activate_path + [" && "] + sh_call), shell=True, env=env, check=True)
         # sp.run(sh_call, shell=True, env=env, check=True)
+
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        d = {}
+        for k, v in parsed_args.items():
+            if k not in cls.__sis_hash_exclude__ or cls.__sis_hash_exclude__[k] != v:
+                if k == "lm_pruning" and v == [0,0,0,3]:
+                    continue
+                d[k] = v
+
+        for k, org, replacement in cls.__sis_hash_overwrite__:
+            if k in d and d[k] == org:
+                d[k] = replacement
+        if cls.__sis_version__ is None:
+            return tools.sis_hash(d)
+        else:
+            return tools.sis_hash((d, cls.__sis_version__))
 
 
 def get_rvad_root():
