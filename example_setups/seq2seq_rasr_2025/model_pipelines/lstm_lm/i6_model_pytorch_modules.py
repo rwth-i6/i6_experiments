@@ -3,7 +3,7 @@ from typing import Tuple
 
 import torch
 from i6_models.config import ModelConfiguration
-from apptek_asr.lib.pytorch.networks import LstmLmModelV1
+from apptek_asr.lib.pytorch.networks.lstm import LstmLmModelV1
 
 
 class LstmLmScorer(LstmLmModelV1):
