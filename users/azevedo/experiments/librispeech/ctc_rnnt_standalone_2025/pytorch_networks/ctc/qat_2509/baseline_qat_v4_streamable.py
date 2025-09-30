@@ -226,6 +226,22 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         :return: (B, N, C, F)
         """
         return self.forward_offline(input_tensor, sequence_mask, attn_mask)
+    
+    def infer(
+            self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
+    ) -> torch.Tensor:
+        """
+        :param x: chunk, carryover and future frames, with shape [t, F]
+        :param seq_mask:
+        :param ext_chunk_sz: number of chunk frames and future frames = C+R
+        :return: chunk with shape [C+R, F] where each feature attended to the carryover and future context
+        """
+        # x.shape: [t, F]
+        attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
+        y = self.forward_offline(
+            input_tensor=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask)
+        
+        return y[0, -ext_chunk_sz:]  # [C+R, F]
 
     def prep_quant(self, extra_act_quant: bool, decompose: bool):
         self.mhsa.prep_quant(extra_act_quant, decompose=decompose)
@@ -377,20 +393,20 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
         """
         Transform chunks into "carryover + chunk" and call self.forward_offline to compute causal convolution.
 
-        :param tensor: [B, N, C, F] = [batch_size, number_of_chunks, chunk_size+future_context_size, conformer_dim]
-        :param lookahead_size: the future acoustic context size, i.e. number of future frames per chunk
+        :param tensor: [B, N, C+R, F] = [batch_size, number_of_chunks, chunk_size+future_context_size, conformer_dim]
+        :param lookahead_size: the future acoustic context size, i.e. number of future frames per chunk = R
         :param carry_over_size: number of past chunks we may convolve over
-        :return: [B, N, C, F]
+        :return: [B, N, C+R, F]
 
         B: batch size
         N: number of chunks
-        C: chunk size (+ future acoustic context size), i.e. the "extended" chunk size
+        C+R: chunk size (+ future acoustic context size), i.e. the "extended" chunk size
         F: feature dimension
         """
         assert tensor.dim() == 4, ""
 
         bsz, num_chunks, chunk_sz, _ = tensor.shape
-        kernel_radius = self.depthwise_conv.kernel_size[0] // 2  # = KRN//2
+        kernel_radius = self.depthwise_conv.kernel_size // 2  # = KRN//2
 
         # tensor to be filled and passed to forward_offline
         conv_in = torch.zeros(
@@ -401,10 +417,10 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
         # we remove future-acoustic-context (fac) as conv convolves over multiple past chunks w/o their fac
         # FIXME: why didnt i just do:
         # tensor = tensor[:, :, :-lookahead_size].contiguous()
-        tensor = tensor.flatten(1, 2)  # [B, N*C, F]
+        tensor = tensor.flatten(1, 2)  # [B, N*(C+R), F]
         chunks_no_fac = tensor.unfold(
             1, chunk_sz - lookahead_size, chunk_sz
-        ).swapaxes(-2, -1)  # [B, N, C-R, F]
+        ).swapaxes(-2, -1)  # [B, N, C, F]
 
 
         for i in range(num_chunks):
@@ -422,11 +438,11 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
             # add chunk itself
             conv_in[:, i, -chunk_sz:] = tensor[:, t_step: t_step + chunk_sz]
 
-        conv_in = conv_in.flatten(0, 1)  # [B*N, KRN//2 + C, F]  (KRN is the kernel_size)
+        conv_in = conv_in.flatten(0, 1)  # [B*N, KRN//2 + C+R, F]  (KRN is the kernel_size)
 
         out = self.forward_offline(conv_in)
-        out = out[:, -chunk_sz:]  # remove kernel_radius and get [B*N, C, F]
-        out = out.view(bsz, num_chunks, chunk_sz, -1)
+        out = out[:, -chunk_sz:]  # remove kernel_radius and get [B*N, C+R, F]
+        out = out.view(bsz, num_chunks, chunk_sz, -1)  # [B, N, C+R, F]
 
         return out
 
@@ -565,21 +581,29 @@ class ConformerBlockQuantStreamable(StreamableModule):
         self, x: torch.Tensor, /, sequence_mask: torch.Tensor, attn_mask: torch.Tensor, 
         lookahead_size: int, carry_over_size: int
     ):
+        """
+        :param x: [B, N, C+R, F']
+        :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside (e.g. padding), shape: [B, N, C+R]
+        :param attn_mask: expecting a causal mask that prevents chunks from attending to future chunks with shape [N*(C+R), N*(C+R)]
+        :param lookahead_size: number of future frames per chunk (R)
+        :param carry_over_size: number of past chunks we may depend on per block (i.e. attend to or convolve over)
+        :return: [B, N, C+R, F']
+        """
         assert x.dim() == 4, ""
 
         bsz, num_chunks, chunk_sz, _ = x.shape
 
-        x = 0.5 * self.ff1(x) + x  # [B, N, C, F]
-        x = self.mhsa(x, sequence_mask, attn_mask) + x  # [B, N, C, F]
+        x = 0.5 * self.ff1(x) + x  # [B, N, C+R, F']
+        x = self.mhsa(x, sequence_mask, attn_mask) + x  # [B, N, C+R, F']
 
         x = x.masked_fill((~sequence_mask.unsqueeze(-1)), 0.0)  # convolution of previous layer might have overwritten 0-padding
         x = self.conv(x, lookahead_size, carry_over_size) + x
 
-        x = 0.5 * self.ff2(x) + x  # [B, N, C, F]
-        x = self.final_layer_norm(x)  # [B, N, C, F]
+        x = 0.5 * self.ff2(x) + x  # [B, N, C+R, F']
+        x = self.final_layer_norm(x)  # [B, N, C+R, F']
 
         # FIXME: unnecessary reshape
-        x = x.reshape(bsz, num_chunks, chunk_sz, x.size(-1))  # [B, N, C, F]
+        x = x.reshape(bsz, num_chunks, chunk_sz, x.size(-1))  # [B, N, C+R, F']
 
         return x
 
@@ -590,9 +614,16 @@ class ConformerBlockQuantStreamable(StreamableModule):
             states: Optional[List[torch.Tensor]],
             curr_layer: Optional[torch.Tensor],
             lookahead_size: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
+    ) -> torch.Tensor:
         """
         Compute encoder block outputs based on previously cached chunks (states) and current chunk of subsampled features.
+
+        :param input: chunk outputs with shape [C+R, F'], where C, R are the chunk size and the lookahead size in #frames respectively
+        :param sequence_mask:
+        :param states: encoder block outputs of the previous chunk at the previous layer (the carryover for mhsa)
+        :param curr_layer: encoder block outputs of the previous chunk at the current layer (needed for convolution)
+        :param lookahead_size: R
+        :return: encoder block outputs of the current chunk [C+R, F']
         """
         ext_chunk_sz = input.size(0)
 
@@ -620,8 +651,8 @@ class ConformerBlockQuantStreamable(StreamableModule):
         x = x.masked_fill((~sequence_mask[0, :, None]), 0.0)
         x = self.conv.infer(x, states=curr_layer, chunk_sz=ext_chunk_sz, lookahead_sz=lookahead_size) + x  # [C+R, F']
 
-        x = 0.5 * self.ff2(x) + x  # [C+R, F]
-        x = self.final_layer_norm(x)  # [C+R, F]
+        x = 0.5 * self.ff2(x) + x  # [C+R, F']
+        x = self.final_layer_norm(x)  # [C+R, F']
 
         return x    
 
@@ -676,12 +707,13 @@ class ConformerEncoderQuantStreamable(StreamableModule):
     
     def forward_streaming(
             self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor,
-            lookahead_size: int, carry_over_size: int,
+            chunk_size: int, lookahead_size: int, carry_over_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         :param data_tensor: input tensor of shape [B, N, C', F]
         :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside (e.g. padding), shape: [B, N, C']
-        :param lookahead_size: number of future frames per chunk  (R)
+        :param chunk_size:
+        :param lookahead_size: number of future frames per chunk (R)
         :param carry_over_size: number of past chunks we may depend on per block (i.e. attend to or convolve over)
         :return: (output, out_seq_mask)
             where output is torch.Tensor of shape [B, C' * N, F'],
@@ -713,7 +745,7 @@ class ConformerEncoderQuantStreamable(StreamableModule):
             device=x.device
         )
 
-        for module in self.encoder_blocks:
+        for module in self.module_list:
             x = module(
                 x, sequence_mask, attn_mask=attn_mask,
                 lookahead_size=lookahead_size, carry_over_size=carry_over_size
@@ -757,7 +789,7 @@ class ConformerEncoderQuantStreamable(StreamableModule):
 
         # add future acoustic context to the current chunk
         if lookahead_size > 0:
-            chunk = x[0]  # the current chunk whose encoder outputs we want to compute with shape [C, F]
+            chunk = x[0]  # the current chunk whose encoder outputs we want to compute with shape [C, F']
             chunk_seq_mask = sequence_mask[0]  # [C]
 
             future_ac_ctx = x[1:]  # the future acoustic context [P-1, C, F']
@@ -775,7 +807,7 @@ class ConformerEncoderQuantStreamable(StreamableModule):
         else:
             x = x[0]
 
-        # save layer outs for next chunk (state)
+        # save layer outs for next chunk (state for next chunk)
         layer_outs = [x]
         prev_layer = curr_layer = None
 
@@ -790,10 +822,10 @@ class ConformerEncoderQuantStreamable(StreamableModule):
 
         # remove fac if any
         if lookahead_size > 0:
-            x = x[:-lookahead_size]  # [C', F']
-            sequence_mask = sequence_mask[:, :-lookahead_size]  # [1, C']
+            x = x[:-lookahead_size]  # [C, F']
+            sequence_mask = sequence_mask[:, :-lookahead_size]  # [1, C]
 
-        x = x.unsqueeze(0)  # [1, C', F']
+        x = x.unsqueeze(0)  # [1, C, F']
 
         return x, torch.sum(sequence_mask, dim=1), layer_outs
 
@@ -949,6 +981,8 @@ class Model(StreamableModule):
         self.lookahead_size = self.train_config.lookahead_size
         self.carry_over_size = self.train_config.carry_over_size
 
+        self.cfg = self.train_config  # FIXME: need this for train_step, specifically CTCTrainStepMode
+
     def forward_offline(
         self,
         raw_audio: torch.Tensor,
@@ -976,7 +1010,7 @@ class Model(StreamableModule):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T', #labels + blank]
         """
-        conformer_in, mask = self.feature_extraction(raw_audio, raw_audio_len)  # [B, N, C', F]
+        conformer_in, mask = self.feature_extraction(raw_audio, raw_audio_len, self.chunk_size)  # [B, N, C', F]
         conformer_out, out_mask = self.conformer(
             conformer_in, mask, chunk_size=self.chunk_size, lookahead_size=self.lookahead_size, carry_over_size=self.carry_over_size,
         )  # [B, C*N, F'] = [B, T', F']

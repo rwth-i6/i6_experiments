@@ -38,7 +38,9 @@ def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]], 
     :return: combined scores
     """
     assert scores
-    job = SearchCombineScoresJob([(weight, recog_output.output) for weight, recog_output in scores])
+    from i6_experiments.users.zhang.experiments.decoding.combine_scores import SearchCombineScoresJob as SearchCombineScoresJob_streaming
+    #job = SearchCombineScoresJob([(weight, recog_output.output) for weight, recog_output in scores])
+    job = SearchCombineScoresJob_streaming([(weight, recog_output.output) for weight, recog_output in scores])
     if alias:
         job.add_alias(alias)
     return RecogOutput(output=job.out_search_results)
@@ -363,11 +365,30 @@ class SearchCombineScoresJob(Job):
                 # references only; do not copy
                 entries_per_file = [d[seq_tag] for _, d in data]
 
-                # sanity: same n-best order across files
+                # sanity: same n-best order across files, force same order inside the list
                 nb0 = entries_per_file[0]
+                hyp_list0 = [hyp.strip().replace("<unk>", "@@") for _, hyp in nb0]
                 for i, nb in enumerate(entries_per_file[1:], start=1):
-                    if len(nb) != len(nb0) or any(nb[j][1] != nb0[j][1] for j in range(len(nb0))):
-                        raise AssertionError(f"Mismatch found at index {i}")
+                    if len(nb) != len(nb0):
+                        raise AssertionError(f"[Same n-best and order Check]Length Mismatch found at {seq_tag} file_index {i}, lengths ({len(nb)},{len(nb0)})")
+                    # TODO: remove this hack, should clean the input rather do this here
+                    hyp_list = [hyp.strip().replace("<unk>", "@@") for _, hyp in nb]
+
+                    hyp_set = set(hyp_list)
+                    hyp_set0 = set(hyp_list0)
+                    if hyp_set != hyp_set0:#any(nb[j][1].strip() != nb0[j][1].strip() for j in range(len(nb0))):
+                        #if hyp_set != hyp_set0:
+                        diff_idx = zip(hyp_list0, hyp_list)
+                        for j, hyp_pair in enumerate(diff_idx):
+                            if not hyp_pair[0] and not hyp_pair[1]:
+                                # print("DEBUG repr:", repr(hyp_pair[0]), repr(hyp_pair[1]))
+                                # print("DEBUG types:", type(hyp_pair[0]), type(hyp_pair[1]))
+                                continue
+                            if hyp_pair[0] != hyp_pair[1]:
+                                break
+                        raise AssertionError(f"[Same n-best and order Check]Mismatch found at {seq_tag} file_index {i}, inner index {j} pair {hyp_pair}")
+                        # else:
+                        #     raise AssertionError(f"[Same n-best and order Check]Mismatch n list order {seq_tag} file_index {i}")
 
                 out.write(f"{seq_tag!r}: [\n")
                 for hyp_idx in range(len(nb0)):
@@ -418,7 +439,7 @@ class RescoreCheatJob(Job):
     Add GT into the recog_out N list
     """
 
-    def __init__(self, combined_search_py_output: tk.Path, combined_gt_py_output: tk.Path, *, output_gzip: bool = True, version:int = 2):
+    def __init__(self, combined_search_py_output: tk.Path, combined_gt_py_output: tk.Path, *, output_gzip: bool = True, version:int = 3):
         """
         :param combined_search_py_output: rescored search output file from RETURNN in python format (n-best list)
         :param output_gzip: gzip the output
@@ -442,6 +463,30 @@ class RescoreCheatJob(Job):
         assert len(seq_tags) == len(seq_tags_set), "duplicate seq tags"
         assert set(gts.keys()) == seq_tags_set, "inconsistent seq tags"
 
+        def ctc_collapse(ctc_sequence, blank_token = "<blank>"):
+            """
+            Collapses a CTC decoded tensor by removing consecutive duplicates and blank tokens.
+
+            Args:
+                ctc_sequence (list or tensor): Decoded CTC output sequence (list of indices).
+                blank_token (int): Index representing the blank token in the sequence.
+
+            Returns:
+                Tensor: Collapsed sequence without repeated characters and blanks.
+            """
+            if blank_token not in ctc_sequence:
+                #print(f"Warning: Passed likely non search labels to for collapse {ctc_sequence}")
+                return ctc_sequence
+            collapsed_sequence = []
+            prev_token = None
+
+            for token in ctc_sequence:
+                if token != prev_token and token != blank_token:  # Remove repetition and blank
+                    collapsed_sequence.append(token)
+                prev_token = token  # Update previous token
+
+            return collapsed_sequence
+
         with util.uopen(self.out_search_results, "wt") as out:
             out.write("{\n")
             for seq_tag in seq_tags:
@@ -454,7 +499,7 @@ class RescoreCheatJob(Job):
                 out.write(f"{seq_tag!r}: [\n")
                 targets_search_str = "["
                 for score, hyp, *_ in n_lists[seq_tag]:
-                    if hyp == gt:
+                    if ctc_collapse(hyp.split()) == ctc_collapse(gt.split()):
                         targets_search_str += f"[\n\t [{hyp}]\n\t"
                         gt_present = True
                     else:
@@ -464,8 +509,8 @@ class RescoreCheatJob(Job):
                 max_hyp_score = max([x[0] for x in n_lists[seq_tag]])
                 if not gt_present:
                     out.write(f"({gt_score!r}, {gt!r}),\n")
-                else: # Also Write a dummy hyp there
-                    out.write(f"({float(-1e30)!r}, {''!r}),\n")
+                # else: # Also Write a dummy hyp there
+                #     out.write(f"({float(-1e30)!r}, {''!r}),\n")
 
                 with open("cheat_log", "a") as f:
                     log_txt = "Seq Tag: %s\n\tGround-truth score: %f\n\tMax Search score: %f" % (

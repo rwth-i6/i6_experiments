@@ -39,6 +39,7 @@ def bpe_lib_qat_comparisons():
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data_bpe256 = build_bpe_training_datasets(
         prefix=prefix_name,
+        librispeech_key="train-other-960",
         bpe_size=256,  # TODO tune
         settings=train_settings,
         use_postfix=False,
@@ -47,14 +48,14 @@ def bpe_lib_qat_comparisons():
     vocab_size_without_blank = label_datastream_bpe256.vocab_size
 
     dev_dataset_tuples = {}
-    for testset in ["dev"]:
+    for testset in ["dev-clean", "dev-other"]:
         dev_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
             settings=train_settings,
         )
 
     test_dataset_tuples = {}
-    for testset in ["test"]:
+    for testset in ["test-clean", "test-other"]:
         test_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
             settings=train_settings,
@@ -78,7 +79,7 @@ def bpe_lib_qat_comparisons():
         report_values = {}
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
-                decoder_config = copy.deepcopy(base_decoder_config)
+                decoder_config: DecoderConfig = copy.deepcopy(base_decoder_config)
                 if hasattr(decoder_config, "lm_scale"):
                     decoder_config.lm_scale = lm_weight
                 else:
@@ -235,7 +236,7 @@ def bpe_lib_qat_comparisons():
     # network_module_v4 = "ctc.qat_2509.baseline_qat_v4"
     # from ....pytorch_networks.ctc.qat_2509.baseline_qat_v4_cfg import QuantModelTrainConfigV4
     
-    network_module_v4_streamable = "ctc.qat_25-0.baseline_qat_v4_streamable"
+    network_module_v4_streamable = "ctc.qat_2509.baseline_qat_v4_streamable"
     from ....pytorch_networks.ctc.qat_2509.baseline_qat_v4_streamable_cfg import QuantModelTrainConfigV4
 
     model_config = QuantModelTrainConfigV4(
@@ -432,7 +433,7 @@ def bpe_lib_qat_comparisons():
         )
 
         tune_and_evaluate_helper(
-            training_name + "/offline/4gram_lm",
+            training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
             dev_dataset_tuples=dev_dataset_tuples,
             test_dataset_tuples=test_dataset_tuples,
             asr_model=asr_model,
@@ -444,7 +445,7 @@ def bpe_lib_qat_comparisons():
             use_gpu=False,
         )
         tune_and_evaluate_helper(
-            training_name + "/streaming/4gram_lm",
+            training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
             dev_dataset_tuples=dev_dataset_tuples,
             test_dataset_tuples=test_dataset_tuples,
             asr_model=asr_model,
@@ -628,10 +629,9 @@ def bpe_lib_qat_comparisons():
 
 
     #########################################################################################
-    """
     # Full Quant Baseline
-    network_module_v1 = "ctc.qat_0711.full_qat_v1"
-    from ...pytorch_networks.ctc.qat_0711.full_qat_v1_cfg import QuantModelTrainConfigV4
+    network_module_v1 = "ctc.qat_2509.full_qat_v1_streamable"
+    from ....pytorch_networks.ctc.qat_2509.full_qat_v1_streamable_cfg import QuantModelTrainConfigV4
 
     model_config = QuantModelTrainConfigV4(
         feature_extraction_config=fe_config,
@@ -664,6 +664,14 @@ def bpe_lib_qat_comparisons():
         extra_act_quant=False,
         quantize_bias=None,
         observer_only_in_train=False,
+
+        # streaming params
+        chunk_size=0.27 * 16000,  # samples corresponding to 28 frames
+        lookahead_size=8,
+        carry_over_size=1,
+        dual_mode=False,
+        streaming_scale=1,
+        train_mode=str(TrainMode.STREAMING),
     )
     train_args = {
         "config": train_config,
@@ -677,41 +685,87 @@ def bpe_lib_qat_comparisons():
     training_name = prefix_name + "/" + network_module_v1 + f"_{8}_{8}"
     train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
-    results = {}
-    results = eval_model(
-        training_name=training_name,
-        train_job=train_job,
-        train_args=train_args,
-        train_data=train_data_bpe256,
-        decoder_config=as_training_decoder_config,
-        dev_dataset_tuples=dev_dataset_tuples,
-        result_dict=results,
-        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
-        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
-        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-        run_rtf=False,
-        rtf_args=None,
-    )
-    generate_report(results=results, exp_name=training_name)
-    qat_report[training_name] = results
 
-    results = {}
-    results = eval_model(
-        training_name=training_name + "/greedy",
-        train_job=train_job,
-        train_args=train_args,
-        train_data=train_data_bpe256,
-        decoder_config=as_training_greedy_decoder_config,
-        dev_dataset_tuples=dev_dataset_tuples,
-        result_dict=results,
-        decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
-        prior_scales=[0.0],
-        lm_scales=[0.0],
-        with_prior=False,
-        run_rtf=False,
+    decoder_config_streaming = DecoderConfig(
+        beam_size=315,
+        returnn_vocab=label_datastream_bpe256.vocab,
+
+        search_config=search_config,
+
+        mode=Mode.STREAMING.name,
+        chunk_size=int(model_config.chunk_size),
+        lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+        carry_over_size=model_config.carry_over_size,
+        test_version=0.0,
     )
-    generate_report(results=results, exp_name=training_name + "_greedy")
-    qat_report[training_name + "_greedy"] = results
+    decoder_config_offline = DecoderConfig(
+        beam_size=315,
+        returnn_vocab=label_datastream_bpe256.vocab,
+        search_config=search_config,
+
+        mode=Mode.OFFLINE.name,
+        test_version=0.0,
+    )
+
+    tune_and_evaluate_helper(
+        training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
+        dev_dataset_tuples=dev_dataset_tuples,
+        test_dataset_tuples=test_dataset_tuples,
+        asr_model=asr_model,
+        base_decoder_config=decoder_config_offline,
+        lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+        prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+        decoder_module="search.decoder_module",
+        debug=True,
+        use_gpu=False,
+    )
+    tune_and_evaluate_helper(
+        training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
+        dev_dataset_tuples=dev_dataset_tuples,
+        test_dataset_tuples=test_dataset_tuples,
+        asr_model=asr_model,
+        base_decoder_config=decoder_config_streaming,
+        lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+        prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+        decoder_module="search.decoder_module",
+        debug=True,
+        use_gpu=False,
+    )
+    # results = {}
+    # results = eval_model(
+    #     training_name=training_name,
+    #     train_job=train_job,
+    #     train_args=train_args,
+    #     train_data=train_data_bpe256,
+    #     decoder_config=as_training_decoder_config,
+    #     dev_dataset_tuples=dev_dataset_tuples,
+    #     result_dict=results,
+    #     decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+    #     prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+    #     lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    #     run_rtf=False,
+    #     rtf_args=None,
+    # )
+    # generate_report(results=results, exp_name=training_name)
+    # qat_report[training_name] = results
+
+    # results = {}
+    # results = eval_model(
+    #     training_name=training_name + "/greedy",
+    #     train_job=train_job,
+    #     train_args=train_args,
+    #     train_data=train_data_bpe256,
+    #     decoder_config=as_training_greedy_decoder_config,
+    #     dev_dataset_tuples=dev_dataset_tuples,
+    #     result_dict=results,
+    #     decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+    #     prior_scales=[0.0],
+    #     lm_scales=[0.0],
+    #     with_prior=False,
+    #     run_rtf=False,
+    # )
+    # generate_report(results=results, exp_name=training_name + "_greedy")
+    # qat_report[training_name + "_greedy"] = results
 
     for ff_dim in [512, 1024]:
         # ########################################################################
@@ -864,6 +918,14 @@ def bpe_lib_qat_comparisons():
             extra_act_quant=False,
             quantize_bias=None,
             observer_only_in_train=False,
+
+            # streaming params
+            chunk_size=0.27 * 16000,  # samples corresponding to 28 frames
+            lookahead_size=8,
+            carry_over_size=1,
+            dual_mode=False,
+            streaming_scale=1,
+            train_mode=str(TrainMode.STREAMING),
         )
         train_args = {
             "config": train_config,
@@ -877,40 +939,87 @@ def bpe_lib_qat_comparisons():
         training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_{ff_dim}"
         train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
-        results = {}
-        results = eval_model(
-            training_name=training_name,
-            train_job=train_job,
-            train_args=train_args,
-            train_data=train_data_bpe256,
-            decoder_config=as_training_decoder_config,
-            dev_dataset_tuples=dev_dataset_tuples,
-            result_dict=results,
-            decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
-            prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
-            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-            run_rtf=False,
-            rtf_args=None,
-        )
-        generate_report(results=results, exp_name=training_name)
-        qat_report[training_name] = results
 
-        results = {}
-        results = eval_model(
-            training_name=training_name + "/greedy",
-            train_job=train_job,
-            train_args=train_args,
-            train_data=train_data_bpe256,
-            decoder_config=as_training_greedy_decoder_config,
-            dev_dataset_tuples=dev_dataset_tuples,
-            result_dict=results,
-            decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
-            prior_scales=[0.0],
-            lm_scales=[0.0],
-            with_prior=False,
+        decoder_config_streaming = DecoderConfig(
+            beam_size=315,
+            returnn_vocab=label_datastream_bpe256.vocab,
+
+            search_config=search_config,
+
+            mode=Mode.STREAMING.name,
+            chunk_size=int(model_config.chunk_size),
+            lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+            carry_over_size=model_config.carry_over_size,
+            test_version=0.0,
         )
-        generate_report(results=results, exp_name=training_name + "_greedy")
-        qat_report[training_name + "_greedy"] = results
+        decoder_config_offline = DecoderConfig(
+            beam_size=315,
+            returnn_vocab=label_datastream_bpe256.vocab,
+            search_config=search_config,
+
+            mode=Mode.OFFLINE.name,
+            test_version=0.0,
+        )
+
+        tune_and_evaluate_helper(
+            training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_offline,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+        tune_and_evaluate_helper(
+            training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_streaming,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+        # results = {}
+        # results = eval_model(
+        #     training_name=training_name,
+        #     train_job=train_job,
+        #     train_args=train_args,
+        #     train_data=train_data_bpe256,
+        #     decoder_config=as_training_decoder_config,
+        #     dev_dataset_tuples=dev_dataset_tuples,
+        #     result_dict=results,
+        #     decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        #     prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        #     lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+        #     run_rtf=False,
+        #     rtf_args=None,
+        # )
+        # generate_report(results=results, exp_name=training_name)
+        # qat_report[training_name] = results
+
+        # results = {}
+        # results = eval_model(
+        #     training_name=training_name + "/greedy",
+        #     train_job=train_job,
+        #     train_args=train_args,
+        #     train_data=train_data_bpe256,
+        #     decoder_config=as_training_greedy_decoder_config,
+        #     dev_dataset_tuples=dev_dataset_tuples,
+        #     result_dict=results,
+        #     decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+        #     prior_scales=[0.0],
+        #     lm_scales=[0.0],
+        #     with_prior=False,
+        # )
+        # generate_report(results=results, exp_name=training_name + "_greedy")
+        # qat_report[training_name + "_greedy"] = results
+        """
         ########################################################################
         # FF 512 and 512 with mean abs
         network_module_v1_mean = "ctc.qat_0711.full_qat_v1_mean_abs_norm"
@@ -1628,4 +1737,4 @@ def bpe_lib_qat_comparisons():
         qat_report[training_name + "_greedy"] = results
 
     tk.register_report("reports/qat_report_bpe_comparison", partial(build_qat_report, qat_report), required=qat_report)
-"""
+    """

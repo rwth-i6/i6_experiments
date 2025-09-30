@@ -513,12 +513,11 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
 
         dot = torch.matmul(query, key)  # [B, D//H, T, T]
         dot = dot / self.norm
-        if mask is not None:
-            mask = attn_mask.view(batch_dim, 1, 1, attn_mask.size(1))
-            # dot = dot.masked_fill(mask, -float("inf"))
-            dot = dot.masked_fill(total_mask, float("-inf"))
+
+        # total_mask = total_mask.view(batch_dim, 1, 1, total_mask.size(1))
+        dot = dot.masked_fill(total_mask, float("-inf"))
         alpha = self.softmax(dot)
-        alpha = alpha.masked_fill(total_mask, 0.0)  # double masking because weird gradient errors during streaming
+        alpha = alpha.masked_fill(total_mask, 0.0)  # double masking due to nan vals from combination of seq_mask and attn_mask
         # alpha = self.dropout(alpha)
 
         if self.bit_prec_Av < 16:
@@ -556,7 +555,7 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
         D: feature dimension
         """
         assert query.dim() == 4, ""
-        assert query == key == value, "Quantized-MHA currently only supports Quantized-MHSA during streaming"
+        assert torch.all((query == key) & (key == value)), "Quantized-MHA currently only supports Quantized-MHSA during streaming"
 
         bsz, num_chunks, chunk_sz, _ = query.shape
 
@@ -571,17 +570,18 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
 
         return att_out, alpha
 
-    def infer(
-            self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
-    ) -> torch.Tensor:
+    # NOTE: moved to ConformerMHSAQuantStreamable
+    # def infer(
+    #         self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
+    # ) -> torch.Tensor:
 
-        # x.shape: [t, D]
-        attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
-        y, _ = self.forward_offline(
-            query=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask
-        )
+    #     # x.shape: [t, D]
+    #     attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
+    #     y, _ = self.forward_offline(
+    #         query=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask
+    #     )
 
-        return y[0, -ext_chunk_sz:]  # [C+R, D]
+    #     return y[0, -ext_chunk_sz:]  # [C+R, D]
 
     def prep_quant(self, extra_act_quant, decompose):
         self.out_proj.weight_quantizer.set_scale_and_zp()

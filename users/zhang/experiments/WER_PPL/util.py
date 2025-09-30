@@ -200,27 +200,37 @@ class WER_ppl_PlotAndSummaryJob(Job):
     @staticmethod
     def _parse_dataset_map(columns: List[str]) -> Dict[str, Dict[str, str]]:
         """
-        Map dataset_id -> {"WER": colname, "PPL": colname}
-        dataset_id = token immediately before '.ref' in the original column name.
+        Build a map: dataset_id -> {"WER": <colname>, "PPL": <colname>}.
+
+        Column headers are expected to look like "<base> WER" or "<base> PPL".
+        If <base> contains dot-separated tokens, we infer dataset_id as the token
+        immediately before ".ref" (preferred) or ".aptk_leg".
+        If neither marker is present (e.g., "test-other WER"), we fall back to <base> itself.
         """
         by_dataset: Dict[str, Dict[str, str]] = {}
+
         for col in columns:
-            m = re.match(r"^(.*)\s+(WER|PPL)$", col)
+            m = re.match(r"^(.*?)\s+(WER|PPL)$", col)
             if not m:
                 continue
-            base, metric = m.group(1), m.group(2)
+            base, metric = m.group(1).strip(), m.group(2)
+
             parts = base.split(".")
-            try:
-                ref_idx = parts.index("ref")
-                dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
-            except ValueError:
-                try:
-                    ref_idx = parts.index("aptk_leg")
-                    dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
-                except ValueError:
-                    raise  # do not fallback
+            dataset_token: str
+
+            # Try marker-based extraction first
+            for marker in ("ref", "aptk_leg"):
+                if marker in parts:
+                    idx = parts.index(marker)
+                    dataset_token = parts[idx - 1] if idx > 0 else base
+                    break
+            else:
+                # No known marker -> use the whole base (handles "test-other WER")
+                dataset_token = base
+
             by_dataset.setdefault(dataset_token, {})
             by_dataset[dataset_token][metric] = col
+
         return by_dataset
 
     def export_metric_matrix(self):
@@ -434,27 +444,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         keep_cols: Tuple[str, str, str, str] = ("Model Name", "lm_scale", "prior_scale", "search_error")
         # Find metric columns and group by dataset id
         metric_cols: List[str] = [c for c in df.columns if c.endswith(" WER") or c.endswith(" PPL")]
-        by_dataset: Dict[str, Dict[str, str]] = {}
-
-        for col in metric_cols:
-            m = re.match(r"^(.*)\s+(WER|PPL)$", col)
-            if not m:
-                continue
-            base, metric = m.group(1), m.group(2)
-            parts = base.split(".")
-            try:
-                ref_idx = parts.index("ref")
-                dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
-            except ValueError:
-                try:
-                    ref_idx = parts.index("aptk_leg")
-                    dataset_token = parts[ref_idx - 1] if ref_idx > 0 else base
-                except ValueError:
-                    raise  # do not fallback
-            dataset_id = dataset_token
-
-            by_dataset.setdefault(dataset_id, {})
-            by_dataset[dataset_id][metric] = col
+        by_dataset = self._parse_dataset_map(metric_cols)
 
         results: Dict[str, str] = {}
         for dataset_id, metric_map in by_dataset.items():

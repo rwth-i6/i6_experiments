@@ -6,6 +6,7 @@ from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 import subprocess as sp
 import shutil
 import os
+import sys
 import sentencepiece
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
@@ -285,5 +286,5 @@ class ApplySentencepieceToWordOutputJob(Job):
 
 def RecogOut_words_to_spm(data: RecogOutput, spm:SentencePieceModel):
     """words to spms"""
-    spms = ApplySentencepieceToWordOutputJob(search_py_output=data.output, sentencepiece_model=spm.model_file, gzip_output=True).out_search_results
+    spms = ApplySentencepieceToWordOutputJob(search_py_output=data.output, sentencepiece_model=spm.model_file, enable_unk=False ,gzip_output=True).out_search_results
     return RecogOutput(output=spms)
