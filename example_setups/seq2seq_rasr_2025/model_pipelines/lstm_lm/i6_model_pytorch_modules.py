@@ -26,8 +26,9 @@ class LstmLmStateInitializer(LstmLmModelV1):
         # self.encoder.embedding = nn.Embedding(self.cfg.input_dim, self.cfg.embed_dim)
         embed = self.encoder.embedding.forward(token)  # [1, 1, E] emebed -> encoder.embedding:
         hidden_size = self.cfg.lstm_encoder_cfg.lstm_layers_cfg.hidden_dim
-        h_0 = torch.zeros((self.lstm.num_layers, 1, hidden_size), dtype=torch.float32)  # [L, 1, H]
-        c_0 = torch.zeros((self.lstm.num_layers, 1, hidden_size), dtype=torch.float32)  # [L, 1, H]
+        lstm_layers = self.cfg.lstm_encoder_cfg.lstm_layers_cfg.num_layers
+        h_0 = torch.zeros((lstm_layers, 1, hidden_size), dtype=torch.float32)  # [L, 1, H]
+        c_0 = torch.zeros((lstm_layers, 1, hidden_size), dtype=torch.float32)  # [L, 1, H]
 
         # lstm -> encoder.lstm_block.lstm_stack
         # self.encoder.lstm_block.lstm_stack = nn.LSTM()
