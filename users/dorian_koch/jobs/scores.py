@@ -1,10 +1,9 @@
-import collections
-from typing import Dict, List, Sequence, Tuple, Any
+from __future__ import annotations
+from typing import Dict, Optional, Any
 from i6_experiments.users.zeyer.recog import RecogOutput
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
-from sisyphus import Job, Task, tk
+from sisyphus import Job, Task
 from i6_core.util import uopen
-import re
 
 
 def read_scores(file_path, item_format):
@@ -21,7 +20,7 @@ def read_scores(file_path, item_format):
     try:
         data: Dict[str, Any] = literal_eval(txt)
     except Exception as exc:
-        print(f": Warning: literal_py_to_pickle.literal_eval failed:")
+        print(": Warning: literal_py_to_pickle.literal_eval failed:")
         print(f"  {type(exc).__name__}: {exc}")
         print("  Fallback to eval...")
         data: Dict[str, Any] = eval(txt)
@@ -82,7 +81,7 @@ class TextDictToScoresTextDictJob(Job):
 
 
 class AverageScores(Job):
-    def __init__(self, *, scores: RecogOutput, length_normalize_with_vocab: Dict[str, Any] | None = None):
+    def __init__(self, *, scores: RecogOutput, length_normalize_with_vocab: Optional[Dict[str, Any]] = None):
         self.scores = scores
         self.length_normalize_with_vocab = length_normalize_with_vocab
 
@@ -138,8 +137,6 @@ class AverageScores(Job):
 
 class CalcSearchErrors(Job):
     def __init__(self, *, ref_scores: RecogOutput, hyp_scores: RecogOutput):
-        import Levenshtein
-
         self.ref_scores = ref_scores
         self.hyp_scores = hyp_scores
 
