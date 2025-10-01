@@ -4,14 +4,46 @@
 Check hashes...
 """
 
+from __future__ import annotations
 import argparse
 import os
 import sys
 import logging
 import time
+from functools import reduce
 
+
+# It will take the dir of the checked out git repo.
+# So you can also only use it there...
 _my_dir = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(0, _my_dir + "/external-repos/sisyphus")
+_base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
+_setup_base_dir = os.path.dirname(_base_recipe_dir)
+_sis_dir = f"{_setup_base_dir}/tools/sisyphus"
+
+
+def _setup():
+    # In case the user started this script directly.
+    if not globals().get("__package__"):
+        globals()["__package__"] = "i6_experiments.users.zeyer.sis_tools"
+        if _base_recipe_dir not in sys.path:
+            sys.path.append(_base_recipe_dir)
+        if _sis_dir not in sys.path:
+            sys.path.append(_sis_dir)
+
+        os.environ["SIS_GLOBAL_SETTINGS_FILE"] = f"{_setup_base_dir}/settings.py"
+
+        try:
+            import sisyphus  # noqa
+            import i6_experiments  # noqa
+        except ImportError:
+            print("setup base dir:", _setup_base_dir)
+            print("sys.path:")
+            for path in sys.path:
+                print(f"  {path}")
+            raise
+
+
+_setup()
 
 from sisyphus.loader import config_manager
 from sisyphus import toolkit, Path
