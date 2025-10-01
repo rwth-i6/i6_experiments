@@ -86,6 +86,15 @@ frameshift40_conformer_viterbi_zhou = GeneralNetworkParams(
     auxilary_loss_layers=[6, 12],
 )
 
+frameshift40_conformer_viterbi_zhou_XL = GeneralNetworkParams(
+    encoder_out_len=1024,
+    l2=5e-6,
+    chunking="256:128",
+    specaug_args=asdict(default_sa_args),
+    frame_rate_reduction_ratio_factor=4,
+    auxilary_loss_layers=[8, 16],
+)
+
 frameshift40_conformer_viterbi_zhou_singlestate = GeneralNetworkParams(
     l2=5e-6,
     chunking="256:128",

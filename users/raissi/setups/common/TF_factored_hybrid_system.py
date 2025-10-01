@@ -200,6 +200,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self,
         chunking: str,
         conf_model_dim: int,
+        n_layers: int = 12,
         frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
         label_smoothing: float = 0.0,
         **kwargs,
@@ -224,6 +225,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             upsample_by_transposed_conv=self.frame_rate_reduction_ratio_info.factor == 1,
             chunking=chunking,
             label_smoothing=label_smoothing,
+            n_layers=n_layers,
             clipping=kwargs.pop("clipping", None),
             weights_init=weights_init,
             additional_args=kwargs,
@@ -246,6 +248,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
     def get_conformer_network_zhou_variant(
         self,
         conf_model_dim: int,
+        num_blocks: int = 12,
         out_layer_name: str = "encoder-output",
         spec_augment_as_data: bool = True,
         auxilary_loss_layers: list = [6],
@@ -268,12 +271,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             init_layer = "data"
             encoder_net = {}
-        from_list = encoder_archs.add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list=init_layer)
+        from_list = encoder_archs.add_initial_conv(network=encoder_net,
+                                                   linear_size=conf_model_dim,
+                                                   from_list=init_layer)
 
-        encoder_archs.add_conformer_stack(encoder_net, from_list=from_list)
+        encoder_archs.add_conformer_stack(encoder_net, from_list=from_list, num_blocks=num_blocks)
         encoder_net[out_layer_name] = {
             "class": "copy",
-            "from": "conformer_12_output",
+            "from": f"conformer_{num_blocks}_output",
             "n_out": conf_model_dim,
         }
         for aux_p in auxilary_loss_layers:
@@ -657,8 +662,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         zero_weight: float = 1e-8,
         data_share: float = 0.3,
     ):
-        # if self.experiments[key]["graph"].get("inference", None) is None:
-        #    self.set_graph_for_experiment(key)
+
 
         name = f"{self.experiments[key]['name']}/e{epoch}"
 
@@ -677,7 +681,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         config = copy.deepcopy(self.experiments[key]["returnn_config"])
         config.config["forward_output_layer"] = output_layer_name
 
-        mem_rqmt = 32 if context_type.is_joint_triphone() else 12
+        mem_rqmt = 64 if context_type.is_joint_triphone() else 12
 
         job = self._compute_returnn_rasr_priors(
             key,
@@ -689,6 +693,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             mem_rqmt=mem_rqmt,
             device=device,
         )
+
+        if context_type.is_joint_triphone():
+            job.rqmt["gpu_mem"] = 64
+
+
+
 
         job.add_alias(f"priors/{name}/single_prior-{data_share}data")
         if context_type == PhoneticContext.monophone:

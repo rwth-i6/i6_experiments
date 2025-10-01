@@ -90,6 +90,16 @@ CONF_FH_DECODING_TENSOR_CONFIG_10ms = dataclasses.replace(
     out_center_state="center__output/output_batch_major",
 )
 
+CONF_FH_DECODING_TENSOR_CONFIG_10ms_v2 = dataclasses.replace(
+    DecodingTensorMap.default(),
+    in_encoder_output="length_masked/strided_slice",
+    in_seq_length="extern_data/placeholders/data/data_dim0_size",
+    out_encoder_output="encoder__output/output_batch_major",
+    out_right_context="right__output/output_batch_major",
+    out_left_context="left__output/output_batch_major",
+    out_center_state="center__output/output_batch_major",
+)
+
 CONF_FH_DECODING_TENSOR_CONFIG_10ms_mono = dataclasses.replace(
     DecodingTensorMap.default(),
     in_encoder_output="length_masked/strided_slice",

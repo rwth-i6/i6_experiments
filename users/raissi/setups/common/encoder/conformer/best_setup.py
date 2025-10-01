@@ -19,6 +19,7 @@ class Size(Enum):
     S = 256
     M = 384
     L = 512
+    XL = 1024
 
     def size(self) -> int:
         return self.value
@@ -37,6 +38,7 @@ def get_best_model_config(
     time_tag_name: Optional[str] = None,
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
+    n_layers: int = 12,
     clipping: Optional[int] = None,
     weights_init: str = DEFAULT_INIT,
     additional_args: Optional[dict] = None,
@@ -93,7 +95,7 @@ def get_best_model_config(
         args.update(**additional_args)
 
     configured_args = get_network_args(
-        num_enc_layers=12,
+        num_enc_layers=n_layers,
         type="conformer",
         enc_args=enc_args,
         target=target,

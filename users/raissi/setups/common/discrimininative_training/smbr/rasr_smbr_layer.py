@@ -243,6 +243,7 @@ def _generate_lattices(
     )
     state_acc.add_alias(f"lattices/{name}/accuracy")
     state_acc.rqmt["cpu"] = 1
+    state_acc.rqmt["mem"] = 16
 
     return StateAccuracyLatticeAndAlignment(
         alignment_bundle=state_acc.segmentwise_alignment_bundle, lattice_bundle=state_acc.lattice_bundle

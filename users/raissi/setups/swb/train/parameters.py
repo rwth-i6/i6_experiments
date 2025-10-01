@@ -4,7 +4,7 @@ def get_initial_nn_args(train_partition: int = 6, num_epochs: int = 50):
         "num_input": 40,
         "partition_epochs": {"train": train_partition, "dev": 1},
         "num_epochs": num_epochs,  # this is actually sub epochs
-        "keep_epochs": list(range(num_epochs - 10, num_epochs + 1)),
+        "keep_epochs": list(range(num_epochs - 10, num_epochs + 1)) if num_epochs > 10 else list(range(1, num_epochs+1)),
         "keep_best_n": 3,
     }
 
