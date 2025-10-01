@@ -104,21 +104,30 @@ def main():
     # dump always path, object_type -> hash, starting from target, where path == "/"
     # then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
 
-    _stack.append(_StackEntry(None, 0))
+    _stack.append(_StackEntry(None, ""))
     _patched_sis_hash_helper(path)
+    _stack.pop(-1)
+    assert not _stack
+
+    for report in _reports:
+        print(" ".join(report))
 
 
 @dataclass
 class _StackEntry:
     obj: Any
-    idx: int
+    key: str
     child_count: int = 0
+
+    def as_str(self):
+        if self.key:
+            return f"#{self.key} ({type(self.obj).__name__})"
 
 
 _visited_objs = {}  # id -> (obj, hash)
 _queue = deque()
 _stack: List[_StackEntry] = []
-_file = sys.stdout
+_reports: List[List[str]] = []
 
 
 def _patched_sis_hash_helper(obj: Any) -> bytes:
@@ -136,21 +145,13 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     else:
         _hash_helper_func = _orig_sis_hash_helper
 
-    new_stack_entry = _StackEntry(obj=obj, idx=_stack[-1].child_count)
+    new_stack_entry = _StackEntry(obj=obj, key=f"(#{_stack[-1].child_count})")
     _stack[-1].child_count += 1
     _stack.append(new_stack_entry)
-    path = " / ".join(f"(#{entry.idx}) ({type(entry.obj).__name__})" for entry in _stack[1:])
-
-    # Recursive call.
-    hash_ = _hash_helper_func(obj)
-
-    _visited_objs[id(obj)] = (obj, hash_)
-    new_stack_entry_ = _stack.pop(-1)
-    assert new_stack_entry is new_stack_entry_
-
-    info = [path]
+    path = "/ " + " / ".join(entry.key for entry in _stack[2:])
+    info = [path.strip(), f"({type(obj).__name__})"]
     if isinstance(obj, Path):
-        info += [obj.rel_path()]
+        info += [repr(obj.rel_path())]
     elif isinstance(obj, Job):
         info += [obj._sis_id()]
     elif isinstance(obj, (int, float, bool)):
@@ -160,8 +161,15 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
             info += [repr(obj[:60]) + "..."]
         else:
             info += [repr(obj)]
-    info += ["->", _short_hash_from_binary(hash_)]
-    print(" ".join(info), file=_file)
+    _reports.append(info)
+
+    # Recursive call.
+    hash_ = _hash_helper_func(obj)
+
+    _visited_objs[id(obj)] = (obj, hash_)
+    new_stack_entry_ = _stack.pop(-1)
+    assert new_stack_entry is new_stack_entry_
+    info.extend(["->", _short_hash_from_binary(hash_)])
 
     return hash_
 
@@ -185,7 +193,7 @@ def _sis_job_id(job: Job) -> str:
     _visited_jobs.add(job)
     # See JobSingleton.__call__
     cls = type(job)
-    sis_hash = cls._sis_hash_static(copy.deepcopy(job._sis_kwargs))
+    sis_hash = cls._sis_hash_static(_dict_lazy_pop(job._sis_kwargs))
     module_name = cls.__module__
     recipe_prefix = gs.RECIPE_PREFIX + "."
     if module_name.startswith(recipe_prefix):
@@ -196,6 +204,13 @@ def _sis_job_id(job: Job) -> str:
     sis_id = "%s.%s" % (sis_name, sis_hash)
     assert job._sis_id() == sis_id, f"{job} sis_id mismatch: {job._sis_id()} != {sis_id}"
     return sis_id
+
+
+class _dict_lazy_pop(dict):
+    def pop(self, k, d=None):
+        if k in self:
+            return super().pop(k)
+        return d
 
 
 def _sis_path_hash_helper(self: Path) -> bytes:
