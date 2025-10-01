@@ -151,7 +151,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     path = "/ " + " / ".join(entry.key for entry in _stack[2:])
     info = [path.strip(), f"({type(obj).__name__})"]
     if isinstance(obj, Path):
-        info += [repr(obj.rel_path())]
+        info += [obj.rel_path()]
     elif isinstance(obj, Job):
         info += [obj._sis_id()]
     elif isinstance(obj, (int, float, bool)):
@@ -211,6 +211,10 @@ class _dict_lazy_pop(dict):
         if k in self:
             return super().pop(k)
         return d
+
+    def __delitem__(self, key):
+        if key in self:
+            super().__delitem__(key)
 
 
 def _sis_path_hash_helper(self: Path) -> bytes:
