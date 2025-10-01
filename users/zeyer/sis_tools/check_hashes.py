@@ -5,11 +5,16 @@ Check hashes...
 """
 
 from __future__ import annotations
+from typing import Any, List
 import argparse
 import os
 import sys
 import logging
 import time
+import hashlib
+import copy
+from dataclasses import dataclass
+from collections import deque
 from functools import reduce
 
 
@@ -46,7 +51,10 @@ def _setup():
 _setup()
 
 from sisyphus.loader import config_manager
-from sisyphus import toolkit, Path
+from sisyphus import gs, tk, Path, Job
+import sisyphus.hash
+import sisyphus.job_path
+from sisyphus.hash import sis_hash_helper as _orig_sis_hash_helper
 
 
 def main():
@@ -61,12 +69,16 @@ def main():
     arg_parser.add_argument("--target")
     args = arg_parser.parse_args()
 
+    # Do that early, such that all imports of sis_hash_helper get our patched version.
+    sisyphus.hash.sis_hash_helper = _patched_sis_hash_helper
+    sisyphus.job_path.sis_hash_helper = _patched_sis_hash_helper
+
     start = time.time()
     config_manager.load_configs(args.config_files)
     load_time = time.time() - start
     logging.info("Config loaded (time needed: %.2f)" % load_time)
 
-    sis_graph = toolkit.sis_graph
+    sis_graph = tk.sis_graph
     if not args.target:
         print("--target not specified, printing all targets:")
         for name, target in sis_graph.targets_dict.items():
@@ -91,6 +103,127 @@ def main():
     # always call sis_hash_helper with settrace to detect recursive calls to sis_hash_helper
     # dump always path, object_type -> hash, starting from target, where path == "/"
     # then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
+
+    _stack.append(_StackEntry(None, 0))
+    _patched_sis_hash_helper(path)
+
+
+@dataclass
+class _StackEntry:
+    obj: Any
+    idx: int
+    child_count: int = 0
+
+
+_visited_objs = {}  # id -> (obj, hash)
+_queue = deque()
+_stack: List[_StackEntry] = []
+_file = sys.stdout
+
+
+def _patched_sis_hash_helper(obj: Any) -> bytes:
+    if id(obj) in _visited_objs:
+        obj_, hash_ = _visited_objs[id(obj)]
+        assert obj is obj_
+        return hash_
+    if not _stack:
+        return _orig_sis_hash_helper(obj)
+
+    if isinstance(obj, Job):
+        _hash_helper_func = _sis_job_hash_helper
+    elif isinstance(obj, Path):
+        _hash_helper_func = _sis_path_hash_helper
+    else:
+        _hash_helper_func = _orig_sis_hash_helper
+
+    new_stack_entry = _StackEntry(obj=obj, idx=_stack[-1].child_count)
+    _stack[-1].child_count += 1
+    _stack.append(new_stack_entry)
+    path = " / ".join(f"(#{entry.idx}) ({type(entry.obj).__name__})" for entry in _stack[1:])
+
+    # Recursive call.
+    hash_ = _hash_helper_func(obj)
+
+    _visited_objs[id(obj)] = (obj, hash_)
+    new_stack_entry_ = _stack.pop(-1)
+    assert new_stack_entry is new_stack_entry_
+
+    info = [path]
+    if isinstance(obj, Path):
+        info += [obj.rel_path()]
+    elif isinstance(obj, Job):
+        info += [obj._sis_id()]
+    elif isinstance(obj, (int, float, bool)):
+        info += [repr(obj)]
+    elif isinstance(obj, str):
+        if len(obj) > 60:
+            info += [repr(obj[:60]) + "..."]
+        else:
+            info += [repr(obj)]
+    info += ["->", _short_hash_from_binary(hash_)]
+    print(" ".join(info), file=_file)
+
+    return hash_
+
+
+def _sis_job_hash_helper(job: Job) -> bytes:
+    hash_ = job._sis_hash()
+
+    # Manual hash computation:
+    hash_manual = _sis_job_id(job).encode()
+    assert hash_ == hash_manual, f"{job} sis_hash mismatch: {hash_} != {hash_manual}"
+    return hash_
+
+
+_visited_jobs = set()
+
+
+def _sis_job_id(job: Job) -> str:
+    assert isinstance(job, Job)
+    if job in _visited_jobs:
+        return job._sis_id()
+    _visited_jobs.add(job)
+    # See JobSingleton.__call__
+    cls = type(job)
+    sis_hash = cls._sis_hash_static(copy.deepcopy(job._sis_kwargs))
+    module_name = cls.__module__
+    recipe_prefix = gs.RECIPE_PREFIX + "."
+    if module_name.startswith(recipe_prefix):
+        sis_name = module_name[len(recipe_prefix) :]
+    else:
+        sis_name = module_name
+    sis_name = os.path.join(sis_name.replace(".", os.path.sep), cls.__name__)
+    sis_id = "%s.%s" % (sis_name, sis_hash)
+    assert job._sis_id() == sis_id, f"{job} sis_id mismatch: {job._sis_id()} != {sis_id}"
+    return sis_id
+
+
+def _sis_path_hash_helper(self: Path) -> bytes:
+    hash_ = self._sis_hash()
+
+    if self.hash_overwrite is None:
+        creator = self.creator
+        path = self.path
+    else:
+        creator, path = self.hash_overwrite
+    if hasattr(creator, "_sis_id"):
+        _patched_sis_hash_helper(creator)  # make sure we recursively visit the job
+        creator = f"{creator._sis_id()}/{gs.JOB_OUTPUT}"
+    hash_manual = b"(Path, " + _patched_sis_hash_helper((creator, path)) + b")"
+    assert hash_ == hash_manual, f"{self} sis_hash mismatch: {hash_} != {hash_manual}"
+    return hash_
+
+
+def _short_hash_from_binary(
+    binary: bytes, length=12, chars="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+) -> str:
+    h = hashlib.sha256(binary).digest()
+    h = int.from_bytes(h, byteorder="big", signed=False)
+    ls = []
+    for i in range(length):
+        ls.append(chars[int(h % len(chars))])
+        h = h // len(chars)
+    return "".join(ls)
 
 
 if __name__ == "__main__":
