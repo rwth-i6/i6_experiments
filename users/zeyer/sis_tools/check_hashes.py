@@ -161,19 +161,16 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     _stack[-1].child_count += 1
     _stack.append(new_stack_entry)
     _visited_objs[id(obj)] = new_stack_entry
-    path = "/ " + " / ".join(entry.key for entry in _stack[2:])
-    info = [path.strip(), f"({type(obj).__name__})"]
+    path = "/".join(f"{entry.key}:({type(entry.obj).__name__})" for entry in _stack[1:])
+    info = [path]
     if isinstance(obj, Path):
-        info += [obj.rel_path()]
+        info += ["\n =", obj.rel_path()]
     elif isinstance(obj, Job):
-        info += [obj._sis_id()]
+        info += ["\n =", obj._sis_id()]
     elif isinstance(obj, (int, float, bool)):
-        info += [repr(obj)]
+        info += ["\n =", repr(obj)]
     elif isinstance(obj, str):
-        if len(obj) > 60:
-            info += [repr(obj[:60]) + "..."]
-        else:
-            info += [repr(obj)]
+        info += ["\n =", (repr(obj[:60]) + "...") if len(obj) > 60 else repr(obj)]
     _reports.append(info)
 
     # Recursive call.
@@ -182,7 +179,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     new_stack_entry.hash = hash_
     new_stack_entry_ = _stack.pop(-1)
     assert new_stack_entry is new_stack_entry_
-    info.extend(["->\n ", _short_hash_from_binary(hash_)])
+    info.extend(["\n ->", _short_hash_from_binary(hash_)])
 
     return hash_
 
