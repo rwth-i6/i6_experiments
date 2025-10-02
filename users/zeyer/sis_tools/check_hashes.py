@@ -131,7 +131,7 @@ def main():
 
     target = sis_graph.targets_dict[args.target]
     print(f"Target: {args.target} -> {target.required_full_list}")
-    path, = target.required_full_list  # assume only one output path
+    (path,) = target.required_full_list  # assume only one output path
     assert isinstance(path, Path)
     assert not path.hash_overwrite
 
@@ -145,7 +145,7 @@ def main():
     if args.output:
         output = open(args.output, "w")
     for report in _reports:
-        print(" ".join(report), file=output)
+        print("".join(report), file=output)
     if args.output:
         output.close()
         print("Done. Wrote to", args.output)
@@ -213,13 +213,13 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     path = "/".join(f"{entry.key}:({type(entry.obj).__name__})" for entry in _stack[1:])
     info = [path]
     if isinstance(obj, Path):
-        info += ["\n =", obj.rel_path()]
+        info += ["\n = ", obj.rel_path()]
     elif isinstance(obj, Job):
-        info += ["\n =", obj._sis_id()]
+        info += ["\n = ", obj._sis_id()]
     elif isinstance(obj, (int, float, bool)):
-        info += ["\n =", repr(obj)]
+        info += ["\n = ", repr(obj)]
     elif isinstance(obj, str):
-        info += ["\n =", (repr(obj[:60]) + "...") if len(obj) > 60 else repr(obj)]
+        info += ["\n = ", (repr(obj[:60]) + "...") if len(obj) > 60 else repr(obj)]
     _reports.append(info)
 
     # Recursive call.
@@ -228,7 +228,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     new_stack_entry.hash = hash_
     new_stack_entry_ = _stack.pop(-1)
     assert new_stack_entry is new_stack_entry_
-    info.extend(["\n ->", _short_hash_from_binary(hash_)])
+    info.extend(["\n -> ", _short_hash_from_binary(hash_)])
 
     return hash_
 
