@@ -67,6 +67,7 @@ def main():
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("config_files", nargs="*")
+    arg_parser.add_argument("--custom-sis-import-paths", nargs="*")
     arg_parser.add_argument("--target")
     arg_parser.add_argument(
         "--output", help="output file, default: stdout. The idea is that you can do a diff on the file."
@@ -76,6 +77,9 @@ def main():
     # Do that early, such that all imports of sis_hash_helper get our patched version.
     sisyphus.hash.sis_hash_helper = _patched_sis_hash_helper
     sisyphus.job_path.sis_hash_helper = _patched_sis_hash_helper
+
+    if args.custom_sis_import_paths:
+        gs.IMPORT_PATHS = args.custom_sis_import_paths
 
     start = time.time()
     config_manager.load_configs(args.config_files)
