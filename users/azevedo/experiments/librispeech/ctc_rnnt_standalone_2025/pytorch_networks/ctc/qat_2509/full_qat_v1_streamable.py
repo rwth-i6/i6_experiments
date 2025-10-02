@@ -251,7 +251,7 @@ class ConformerMHSAQuantStreamable(StreamableModule):
             observer_only_in_train=cfg.observer_only_in_train,
         )
 
-    def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Apply layer norm and multi-head self attention and dropout
 
@@ -260,8 +260,7 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         which will be applied/added to dot product, used to mask padded key positions out
         """
         inv_sequence_mask = compat.logical_not(sequence_mask)
-        if attn_mask is not None:
-            inv_attn_mask = compat.logical_not(attn_mask)
+        inv_attn_mask = None if attn_mask is None else compat.logical_not(attn_mask)
 
         input_tensor = self.layer_norm_in_quant(input_tensor)
         output_tensor = self.layernorm(input_tensor)  # [B,T,F] or [B,N,C,F] (but we only do layernorm across last dim so its fine)
@@ -996,6 +995,7 @@ class ConformerEncoderQuantStreamable(StreamableModule):
 
         x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # [B, N, C', F] -> [B, N, C, F']
 
+        # FIXME: unnecessary
         x = x.view(batch_sz, num_chunks, -1, x.size(-1))
         sequence_mask = sequence_mask.view(batch_sz, num_chunks, sequence_mask.size(-1))
 

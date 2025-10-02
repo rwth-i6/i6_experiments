@@ -220,6 +220,7 @@ def bpe_lib_qat_comparisons():
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
         "gradient_clip_norm": 1.0,
+        "torch_amp_options": {"dtype": "bfloat16"},
     }
     # from ..ctc_phon.tune_eval import RTFArgs
 
@@ -272,7 +273,7 @@ def bpe_lib_qat_comparisons():
         observer_only_in_train=False,
 
         # streaming params
-        chunk_size=0.27 * 16000,  # samples corresponding to 28 frames
+        chunk_size=1.64 * 16000,  # samples corresponding to 28 frames
         lookahead_size=8,
         carry_over_size=1,
         dual_mode=False,
@@ -290,7 +291,7 @@ def bpe_lib_qat_comparisons():
         "use_speed_perturbation": True,
     }
 
-    training_name = prefix_name + "/" + network_module_v4_streamable + f"_8_8_bpe"
+    training_name = prefix_name + "/" + network_module_v4_streamable + f"_8_8_bpe" + "/streaming"
     train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
     results = {}
@@ -456,7 +457,6 @@ def bpe_lib_qat_comparisons():
             debug=True,
             use_gpu=False,
         )
-
 
         # beam_search_decoder_config_v4_lstmlm = BeamSearchDecoderConfigv4(
         #     returnn_vocab=label_datastream_bpe256.vocab,
@@ -682,7 +682,7 @@ def bpe_lib_qat_comparisons():
         "use_speed_perturbation": True,
     }
 
-    training_name = prefix_name + "/" + network_module_v1 + f"_{8}_{8}"
+    training_name = prefix_name + "/" + network_module_v1 + f"_{8}_{8}" + "/streaming"
     train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
 
@@ -936,7 +936,7 @@ def bpe_lib_qat_comparisons():
             "use_speed_perturbation": True,
         }
 
-        training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_{ff_dim}"
+        training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_{ff_dim}" + "/streaming"
         train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
 

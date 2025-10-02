@@ -1,7 +1,5 @@
 """
-V3 adds option to quantize bias
-V4 adds option to use observer only in training
-
+no QAT baseline
 streamable version which allows for streaming training
 """
 
@@ -23,17 +21,16 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .baseline_qat_v4_streamable_cfg import (
-    QuantModelTrainConfigV4,
-    ConformerPositionwiseFeedForwardQuantV4Config,
-    QuantizedMultiheadAttentionV4Config,
-    ConformerConvolutionQuantV4Config,
-    ConformerBlockQuantV1Config,
-    ConformerEncoderQuantV1Config,
+from .baseline_no_qat_v1_streamable_cfg import (
+    ModelTrainNoQuantConfigV1,
+    ConformerPositionwiseFeedForwardNoQuantV1Config,
+    MultiheadAttentionNoQuantV1Config,
+    ConformerConvolutionNoQuantV1Config,
+    ConformerBlockNoQuantV1Config,
+    ConformerEncoderNoQuantV1Config,
     StreamableFeatureExtractorV1Config
 )
-from .baseline_qat_v4_streamable_modules import LinearQuant, QuantizedMultiheadAttentionStreamable, Conv1dQuant, ActivationQuantizer
-from torch.nn.quantized._reference.modules import Linear, Conv1d
+from .baseline_no_qat_v1_modules_streamable import MultiheadAttentionNoQuantStreamable
 
 from ...streamable_module import StreamableModule
 from ...encoders.components.frontend.streamable_vgg_act import StreamableVGG4LayerActFrontendV1
@@ -46,7 +43,7 @@ from ..train_step_mode import CTCTrainStepMode
 
 
 
-class ConformerPositionwiseFeedForwardQuant(nn.Module):
+class ConformerPositionwiseFeedForwardNoQuant(nn.Module):
     """
     Conformer feedforward module
     """
@@ -55,62 +52,16 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         super().__init__()
 
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
-        self.linear_ff = LinearQuant(
+        self.linear_ff = nn.Linear(
             in_features=cfg.input_dim,
             out_features=cfg.hidden_dim,
-            weight_bit_prec=cfg.weight_bit_prec,
-            weight_quant_dtype=cfg.weight_quant_dtype,
-            weight_quant_method=cfg.weight_quant_method,
             bias=True,
-            quantize_bias=cfg.quantize_bias,
-            observer_only_in_train=cfg.observer_only_in_train,
         )
         self.activation = cfg.activation
-        self.linear_out = LinearQuant(
+        self.linear_out = nn.Linear(
             in_features=cfg.hidden_dim,
             out_features=cfg.input_dim,
-            weight_bit_prec=cfg.weight_bit_prec,
-            weight_quant_dtype=cfg.weight_quant_dtype,
-            weight_quant_method=cfg.weight_quant_method,
             bias=True,
-            quantize_bias=cfg.quantize_bias,
-            observer_only_in_train=cfg.observer_only_in_train,
-        )
-
-        self.lin_1_in_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
-        )
-
-        self.lin_1_out_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
-        )
-
-        self.lin_2_in_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
-        )
-
-        self.lin_2_out_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-            observer_only_in_train=cfg.observer_only_in_train,
         )
         self.dropout = cfg.dropout
 
@@ -120,82 +71,29 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         :return: shape [B,T,F], F=input_dim
         """
         tensor = self.layer_norm(tensor)
-        tensor = self.lin_1_in_quant(tensor)
         tensor = self.linear_ff(tensor)  # [B,T,F]
-        tensor = self.lin_1_out_quant(tensor)
         tensor = self.activation(tensor)  # [B,T,F]
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
-        tensor = self.lin_2_in_quant(tensor)
         tensor = self.linear_out(tensor)  # [B,T,F]
-        tensor = self.lin_2_out_quant(tensor)
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
         return tensor
-
-    def prep_quant(self, extra_act_quant, decompose):
-        self.linear_ff.weight_quantizer.set_scale_and_zp()
-        self.linear_ff = Linear.from_float(
-            self.linear_ff,
-            weight_qparams={
-                "qscheme": self.linear_ff.weight_quantizer.method,
-                "dtype": self.linear_ff.weight_quant_dtype,
-                "zero_point": self.linear_ff.weight_quantizer.zero_point,
-                "scale": self.linear_ff.weight_quantizer.scale,
-                "quant_min": self.linear_ff.weight_quantizer.quant_min,
-                "quant_max": self.linear_ff.weight_quantizer.quant_max,
-                "is_decomposed": decompose,
-            },
-        )
-        self.linear_out.weight_quantizer.set_scale_and_zp()
-        self.linear_out = Linear.from_float(
-            self.linear_out,
-            weight_qparams={
-                "qscheme": self.linear_out.weight_quantizer.method,
-                "dtype": self.linear_out.weight_quant_dtype,
-                "zero_point": self.linear_out.weight_quantizer.zero_point,
-                "scale": self.linear_out.weight_quantizer.scale,
-                "quant_min": self.linear_out.weight_quantizer.quant_min,
-                "quant_max": self.linear_out.weight_quantizer.quant_max,
-                "is_decomposed": decompose,
-            },
-        )
-        if extra_act_quant is False:
-            self.lin_1_in_quant = nn.Identity()
-            self.lin_1_out_quant = nn.Identity()
-            self.lin_2_in_quant = nn.Identity()
-            self.lin_2_out_quant = nn.Identity()
-
-    def prep_dequant(self):
-        tmp = nn.Linear(self.linear_ff.in_features, self.linear_ff.out_features)
-        tmp.weight = self.linear_ff.weight
-        tmp.bias = self.linear_ff.bias
-        self.linear_ff = tmp
-        del tmp
-        tmp = nn.Linear(self.linear_out.in_features, self.linear_out.out_features)
-        tmp.weight = self.linear_out.weight
-        tmp.bias = self.linear_out.bias
-        self.linear_out = tmp
-        del tmp
-        self.lin_1_in_quant = nn.Identity()
-        self.lin_1_out_quant = nn.Identity()
-        self.lin_2_in_quant = nn.Identity()
-        self.lin_2_out_quant = nn.Identity()
 
 
 ###############################################################################################################
 # NOTE: now streamable
-class ConformerMHSAQuantStreamable(StreamableModule):
+class ConformerMHSANoQuantStreamable(StreamableModule):
     """
     Conformer multi-headed self-attention module with streamable mhsa
 
-    Note: Needs to be a StreamableModule so that the mode of QuantizedMultiHeadAttentionStreamable is set appropriately.
+    Note: Needs to be a StreamableModule so that the mode of MultiHeadAttentionNoQuantStreamable is set appropriately.
     """
 
-    def __init__(self, cfg: QuantizedMultiheadAttentionV4Config):
+    def __init__(self, cfg: MultiheadAttentionNoQuantV1Config):
 
         super().__init__()
 
         self.layernorm = torch.nn.LayerNorm(cfg.input_dim)
-        self.mhsa = QuantizedMultiheadAttentionStreamable(cfg=cfg)
+        self.mhsa = MultiheadAttentionNoQuantStreamable(cfg=cfg)
         self.dropout = cfg.dropout
 
     def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -242,16 +140,10 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         
         return y[0, -ext_chunk_sz:]  # [C+R, F]
 
-    def prep_quant(self, extra_act_quant: bool, decompose: bool):
-        self.mhsa.prep_quant(extra_act_quant, decompose=decompose)
-
-    def prep_dequant(self):
-        self.mhsa.prep_dequant()
-
 
 ###############################################################################################################
 # NOTE: now streamable
-class ConformerConvolutionQuantStreamable(StreamableModule):
+class ConformerConvolutionNoQuantStreamable(StreamableModule):
     """
     Conformer convolution module with support for streaming training and inference.
     see also: https://github.com/espnet/espnet/blob/713e784c0815ebba2053131307db5f00af5159ea/espnet/nets/pytorch_backend/conformer/convolution.py#L13
@@ -260,24 +152,19 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
     https://github.com/pytorch/pytorch/issues/68880
     """
 
-    def __init__(self, model_cfg: ConformerConvolutionQuantV4Config):
+    def __init__(self, model_cfg: ConformerConvolutionNoQuantV1Config):
         """
         :param model_cfg: model configuration for this module
         """
         super().__init__()
         model_cfg.check_valid()
         self.model_cfg = model_cfg
-        self.pointwise_conv1 = LinearQuant(
+        self.pointwise_conv1 = nn.Linear(
             in_features=model_cfg.channels,
             out_features=2 * model_cfg.channels,
-            weight_bit_prec=model_cfg.weight_bit_prec,
-            weight_quant_dtype=model_cfg.weight_quant_dtype,
-            weight_quant_method=model_cfg.weight_quant_method,
             bias=True,
-            quantize_bias=model_cfg.quantize_bias,
-            observer_only_in_train=model_cfg.observer_only_in_train,
         )
-        self.depthwise_conv = Conv1dQuant(
+        self.depthwise_conv = nn.Conv1d(
             in_channels=model_cfg.channels,
             out_channels=model_cfg.channels,
             kernel_size=model_cfg.kernel_size,
@@ -286,74 +173,11 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
             bias=True,
             stride=1,
             dilation=1,
-            weight_bit_prec=model_cfg.weight_bit_prec,
-            weight_quant_dtype=model_cfg.weight_quant_dtype,
-            weight_quant_method=model_cfg.weight_quant_method,
-            quantize_bias=model_cfg.quantize_bias,
-            observer_only_in_train=model_cfg.observer_only_in_train,
         )
-        self.dconv_1_in_quant = ActivationQuantizer(
-            bit_precision=model_cfg.activation_bit_prec,
-            dtype=model_cfg.activation_quant_dtype,
-            method=model_cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=model_cfg.moving_average,
-            observer_only_in_train=model_cfg.observer_only_in_train,
-        )
-
-        self.dconv_1_out_quant = ActivationQuantizer(
-            bit_precision=model_cfg.activation_bit_prec,
-            dtype=model_cfg.activation_quant_dtype,
-            method=model_cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=model_cfg.moving_average,
-            observer_only_in_train=model_cfg.observer_only_in_train,
-        )
-
-        self.pointwise_conv2 = LinearQuant(
+        self.pointwise_conv2 = nn.Linear(
             in_features=model_cfg.channels,
             out_features=model_cfg.channels,
-            weight_bit_prec=model_cfg.weight_bit_prec,
-            weight_quant_dtype=model_cfg.weight_quant_dtype,
-            weight_quant_method=model_cfg.weight_quant_method,
             bias=True,
-            quantize_bias=model_cfg.quantize_bias,
-            observer_only_in_train=model_cfg.observer_only_in_train,
-        )
-        self.pconv_1_in_quant = ActivationQuantizer(
-            bit_precision=model_cfg.activation_bit_prec,
-            dtype=model_cfg.activation_quant_dtype,
-            method=model_cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=model_cfg.moving_average,
-            observer_only_in_train=model_cfg.observer_only_in_train,
-        )
-
-        self.pconv_1_out_quant = ActivationQuantizer(
-            bit_precision=model_cfg.activation_bit_prec,
-            dtype=model_cfg.activation_quant_dtype,
-            method=model_cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=model_cfg.moving_average,
-            observer_only_in_train=model_cfg.observer_only_in_train,
-        )
-
-        self.pconv_2_in_quant = ActivationQuantizer(
-            bit_precision=model_cfg.activation_bit_prec,
-            dtype=model_cfg.activation_quant_dtype,
-            method=model_cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=model_cfg.moving_average,
-            observer_only_in_train=model_cfg.observer_only_in_train,
-        )
-
-        self.pconv_2_out_quant = ActivationQuantizer(
-            bit_precision=model_cfg.activation_bit_prec,
-            dtype=model_cfg.activation_quant_dtype,
-            method=model_cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=model_cfg.moving_average,
-            observer_only_in_train=model_cfg.observer_only_in_train,
         )
         self.layer_norm = nn.LayerNorm(model_cfg.channels)
         self.norm = copy.deepcopy(model_cfg.norm)
@@ -366,24 +190,18 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
         :return: torch.Tensor of shape [B,T,F]
         """
         tensor = self.layer_norm(tensor)
-        tensor = self.pconv_1_in_quant(tensor)
         tensor = self.pointwise_conv1(tensor)  # [B,T,2F]
-        tensor = self.pconv_1_out_quant(tensor)
         tensor = nn.functional.glu(tensor, dim=-1)  # [B,T,F]
 
         # conv layers expect shape [B,F,T] so we have to transpose here
         tensor = tensor.transpose(1, 2)  # [B,F,T]
-        tensor = self.dconv_1_in_quant(tensor)
         tensor = self.depthwise_conv(tensor)
-        tensor = self.dconv_1_out_quant(tensor)
 
         tensor = self.norm(tensor)
         tensor = tensor.transpose(1, 2)  # transpose back to [B,T,F]
 
         tensor = self.activation(tensor)
-        tensor = self.pconv_2_in_quant(tensor)
         tensor = self.pointwise_conv2(tensor)
-        tensor = self.pconv_2_out_quant(tensor)
 
         return self.dropout(tensor)
     
@@ -420,7 +238,6 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
         chunks_no_fac = tensor.unfold(
             1, chunk_sz - lookahead_size, chunk_sz
         ).swapaxes(-2, -1)  # [B, N, C, F]
-
 
         for i in range(num_chunks):
             if i > 0:
@@ -464,103 +281,23 @@ class ConformerConvolutionQuantStreamable(StreamableModule):
 
         return x.squeeze(0)
 
-    def prep_quant(self, extra_act_quant: bool, decompose: bool):
-        self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
-        self.pointwise_conv1 = Linear.from_float(
-            self.pointwise_conv1,
-            weight_qparams={
-                "qscheme": self.pointwise_conv1.weight_quantizer.method,
-                "dtype": self.pointwise_conv1.weight_quant_dtype,
-                "zero_point": self.pointwise_conv1.weight_quantizer.zero_point,
-                "scale": self.pointwise_conv1.weight_quantizer.scale,
-                "quant_min": self.pointwise_conv1.weight_quantizer.quant_min,
-                "quant_max": self.pointwise_conv1.weight_quantizer.quant_max,
-                "decompose": decompose,
-            },
-        )
-        self.depthwise_conv.weight_quantizer.set_scale_and_zp()
-        self.depthwise_conv = Conv1d.from_float(
-            self.depthwise_conv,
-            weight_qparams={
-                "qscheme": self.depthwise_conv.weight_quantizer.method,
-                "dtype": self.depthwise_conv.weight_quant_dtype,
-                "zero_point": self.depthwise_conv.weight_quantizer.zero_point,
-                "scale": self.depthwise_conv.weight_quantizer.scale,
-                "quant_min": self.depthwise_conv.weight_quantizer.quant_min,
-                "quant_max": self.depthwise_conv.weight_quantizer.quant_max,
-                "decompose": decompose,
-            },
-        )
-        self.pointwise_conv2.weight_quantizer.set_scale_and_zp()
-        self.pointwise_conv2 = Linear.from_float(
-            self.pointwise_conv2,
-            weight_qparams={
-                "qscheme": self.pointwise_conv2.weight_quantizer.method,
-                "dtype": self.pointwise_conv2.weight_quant_dtype,
-                "zero_point": self.pointwise_conv2.weight_quantizer.zero_point,
-                "scale": self.pointwise_conv2.weight_quantizer.scale,
-                "quant_min": self.pointwise_conv2.weight_quantizer.quant_min,
-                "quant_max": self.pointwise_conv2.weight_quantizer.quant_max,
-                "decompose": decompose,
-            },
-        )
-        if extra_act_quant is False:
-            self.pconv_1_in_quant = nn.Identity()
-            self.pconv_1_out_quant = nn.Identity()
-            self.dconv_1_in_quant = nn.Identity()
-            self.dconv_1_out_quant = nn.Identity()
-            self.pconv_2_in_quant = nn.Identity()
-            self.pconv_2_out_quant = nn.Identity()
-
-    def prep_dequant(self):
-        tmp = nn.Linear(self.pointwise_conv1.in_features, self.pointwise_conv1.out_features)
-        tmp.weight = self.pointwise_conv1.weight
-        tmp.bias = self.pointwise_conv1.bias
-        self.pointwise_conv1 = tmp
-        del tmp
-        tmp = nn.Conv1d(
-            in_channels=self.model_cfg.channels,
-            out_channels=self.model_cfg.channels,
-            kernel_size=self.model_cfg.kernel_size,
-            padding=(self.model_cfg.kernel_size - 1) // 2,
-            groups=self.model_cfg.channels,
-            bias=True,
-            stride=1,
-            dilation=1,
-        )
-        tmp.weight = self.depthwise_conv.weight
-        tmp.bias = self.depthwise_conv.bias
-        self.depthwise_conv = tmp
-        del tmp
-        tmp = nn.Linear(self.pointwise_conv2.in_features, self.pointwise_conv2.out_features)
-        tmp.weight = self.pointwise_conv2.weight
-        tmp.bias = self.pointwise_conv2.bias
-        self.pointwise_conv2 = tmp
-        del tmp
-        self.pconv_1_in_quant = nn.Identity()
-        self.pconv_1_out_quant = nn.Identity()
-        self.dconv_1_in_quant = nn.Identity()
-        self.dconv_1_out_quant = nn.Identity()
-        self.pconv_2_in_quant = nn.Identity()
-        self.pconv_2_out_quant = nn.Identity()
-
 
 ###############################################################################################################
 # NOTE: now streamable
-class ConformerBlockQuantStreamable(StreamableModule):
+class ConformerBlockNoQuantStreamable(StreamableModule):
     """
     Streamable Conformer block module
     """
 
-    def __init__(self, cfg: ConformerBlockQuantV1Config):
+    def __init__(self, cfg: ConformerBlockNoQuantV1Config):
         """
         :param cfg: conformer block configuration with subunits for the different conformer parts
         """
         super().__init__()
-        self.ff1 = ConformerPositionwiseFeedForwardQuant(cfg=cfg.ff_cfg)
-        self.mhsa = ConformerMHSAQuantStreamable(cfg=cfg.mhsa_cfg)
-        self.conv = ConformerConvolutionQuantStreamable(model_cfg=cfg.conv_cfg)
-        self.ff2 = ConformerPositionwiseFeedForwardQuant(cfg=cfg.ff_cfg)
+        self.ff1 = ConformerPositionwiseFeedForwardNoQuant(cfg=cfg.ff_cfg)
+        self.mhsa = ConformerMHSANoQuantStreamable(cfg=cfg.mhsa_cfg)
+        self.conv = ConformerConvolutionNoQuantStreamable(model_cfg=cfg.conv_cfg)
+        self.ff2 = ConformerPositionwiseFeedForwardNoQuant(cfg=cfg.ff_cfg)
         self.final_layer_norm = torch.nn.LayerNorm(cfg.ff_cfg.input_dim)
 
     def forward_offline(self, x: torch.Tensor, /, sequence_mask: torch.Tensor) -> torch.Tensor:
@@ -655,22 +392,10 @@ class ConformerBlockQuantStreamable(StreamableModule):
 
         return x    
 
-    def prep_quant(self, extra_act_quant: bool, decompose: bool):
-        self.ff1.prep_quant(extra_act_quant, decompose=decompose)
-        self.mhsa.prep_quant(extra_act_quant, decompose=decompose)
-        self.conv.prep_quant(extra_act_quant, decompose=decompose)
-        self.ff2.prep_quant(extra_act_quant, decompose=decompose)
-
-    def prep_dequant(self):
-        self.ff1.prep_dequant()
-        self.mhsa.prep_dequant()
-        self.conv.prep_dequant()
-        self.ff2.prep_dequant()
-
 
 ###############################################################################################################
 # NOTE: now streamable
-class ConformerEncoderQuantStreamable(StreamableModule):
+class ConformerEncoderNoQuantStreamable(StreamableModule):
     """
     Implementation of a streamable Conformer. 
     Derived from the convolution-augmented Transformer (short Conformer), as in the original publication.
@@ -678,14 +403,14 @@ class ConformerEncoderQuantStreamable(StreamableModule):
     C.f. https://arxiv.org/pdf/2005.08100.pdf
     """
 
-    def __init__(self, cfg: ConformerEncoderQuantV1Config):
+    def __init__(self, cfg: ConformerEncoderNoQuantV1Config):
         """
         :param cfg: conformer encoder configuration with subunits for frontend and conformer blocks
         """
         super().__init__()
 
         self.frontend: StreamableVGG4LayerActFrontendV1 = cfg.frontend()
-        self.module_list = torch.nn.ModuleList([ConformerBlockQuantStreamable(cfg.block_cfg) for _ in range(cfg.num_layers)])
+        self.module_list = torch.nn.ModuleList([ConformerBlockNoQuantStreamable(cfg.block_cfg) for _ in range(cfg.num_layers)])
 
     def forward_offline(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -828,14 +553,6 @@ class ConformerEncoderQuantStreamable(StreamableModule):
 
         return x, torch.sum(sequence_mask, dim=1), layer_outs
 
-    def prep_quant(self, extra_act_quant: bool, decompose: bool):
-        for module in self.module_list:
-            module.prep_quant(extra_act_quant, decompose=decompose)
-
-    def prep_dequant(self):
-        for module in self.module_list:
-            module.prep_dequant()
-
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     """
@@ -865,7 +582,7 @@ class Model(StreamableModule):
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
 
         super().__init__()
-        self.train_config = QuantModelTrainConfigV4.from_dict(model_config_dict)
+        self.train_config = ModelTrainNoQuantConfigV1.from_dict(model_config_dict)
         # fe_config = self.train_config.feature_extraction_config
         fe_config = StreamableFeatureExtractorV1Config(
             logmel_cfg=self.train_config.feature_extraction_config, 
@@ -877,103 +594,36 @@ class Model(StreamableModule):
         # self.feature_extraction = LogMelFeatureExtractionV1(cfg=fe_config)
 
         self.feature_extraction = StreamableFeatureExtractorV1(cfg=fe_config)
-        conformer_config = ConformerEncoderQuantV1Config(
+        conformer_config = ConformerEncoderNoQuantV1Config(
             num_layers=self.train_config.num_layers,
             frontend=ModuleFactoryV1(module_class=StreamableVGG4LayerActFrontendV1, cfg=frontend_config),
-            block_cfg=ConformerBlockQuantV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardQuantV4Config(
+            block_cfg=ConformerBlockNoQuantV1Config(
+                ff_cfg=ConformerPositionwiseFeedForwardNoQuantV1Config(
                     input_dim=conformer_size,
                     hidden_dim=self.train_config.ff_dim,
                     dropout=self.train_config.ff_dropout,
                     activation=nn.functional.silu,
-                    weight_quant_dtype=self.train_config.weight_quant_dtype,
-                    weight_quant_method=self.train_config.weight_quant_method,
-                    activation_quant_dtype=self.train_config.activation_quant_dtype,
-                    activation_quant_method=self.train_config.activation_quant_method,
-                    moving_average=self.train_config.moving_average,
-                    weight_bit_prec=self.train_config.weight_bit_prec,
-                    activation_bit_prec=self.train_config.activation_bit_prec,
-                    quantize_bias=self.train_config.quantize_bias,
-                    observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
-                mhsa_cfg=QuantizedMultiheadAttentionV4Config(
+                mhsa_cfg=MultiheadAttentionNoQuantV1Config(
                     input_dim=conformer_size,
                     num_att_heads=self.train_config.num_heads,
                     att_weights_dropout=self.train_config.att_weights_dropout,
                     dropout=self.train_config.mhsa_dropout,
-                    weight_quant_dtype=self.train_config.weight_quant_dtype,
-                    weight_quant_method=self.train_config.weight_quant_method,
-                    activation_quant_dtype=self.train_config.activation_quant_dtype,
-                    activation_quant_method=self.train_config.activation_quant_method,
-                    activation_bit_prec=self.train_config.activation_bit_prec,
-                    dot_quant_dtype=self.train_config.dot_quant_dtype,
-                    dot_quant_method=self.train_config.dot_quant_method,
-                    Av_quant_dtype=self.train_config.Av_quant_dtype,
-                    Av_quant_method=self.train_config.Av_quant_method,
-                    bit_prec_W_q=self.train_config.weight_bit_prec,
-                    bit_prec_W_k=self.train_config.weight_bit_prec,
-                    bit_prec_W_v=self.train_config.weight_bit_prec,
-                    bit_prec_dot=self.train_config.weight_bit_prec,
-                    bit_prec_A_v=self.train_config.weight_bit_prec,
-                    bit_prec_W_o=self.train_config.weight_bit_prec,
-                    moving_average=self.train_config.moving_average,
-                    quantize_bias=self.train_config.quantize_bias,
-                    observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
-                conv_cfg=ConformerConvolutionQuantV4Config(
+                conv_cfg=ConformerConvolutionNoQuantV1Config(
                     channels=conformer_size,
                     kernel_size=self.train_config.conv_kernel_size,
                     dropout=self.train_config.conv_dropout,
                     activation=nn.functional.silu,
                     norm=LayerNormNC(conformer_size),
-                    weight_bit_prec=self.train_config.weight_bit_prec,
-                    weight_quant_dtype=self.train_config.weight_quant_dtype,
-                    weight_quant_method=self.train_config.weight_quant_method,
-                    activation_bit_prec=self.train_config.activation_bit_prec,
-                    activation_quant_dtype=self.train_config.activation_quant_dtype,
-                    activation_quant_method=self.train_config.activation_quant_method,
-                    moving_average=self.train_config.moving_average,
-                    quantize_bias=self.train_config.quantize_bias,
-                    observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
             ),
         )
-        self.conformer = ConformerEncoderQuantStreamable(cfg=conformer_config)
+        self.conformer = ConformerEncoderNoQuantStreamable(cfg=conformer_config)
 
-        if self.train_config.quantize_output is True:
-            self.lin_out = LinearQuant(
-                in_features=self.train_config.conformer_size,
-                out_features=self.train_config.label_target_size + 1,
-                weight_bit_prec=self.train_config.weight_bit_prec,
-                weight_quant_dtype=self.train_config.weight_quant_dtype,
-                weight_quant_method=self.train_config.weight_quant_method,
-                bias=True,
-                quantize_bias=self.train_config.quantize_bias,
-                observer_only_in_train=self.train_config.observer_only_in_train,
-            )
-            self.lin_out_in_quant = ActivationQuantizer(
-                bit_precision=self.train_config.activation_bit_prec,
-                dtype=self.train_config.activation_quant_dtype,
-                method=self.train_config.activation_quant_method,
-                channel_axis=1,
-                moving_avrg=self.train_config.moving_average,
-                observer_only_in_train=self.train_config.observer_only_in_train,
-            )
-            self.lin_out_out_quant = ActivationQuantizer(
-                bit_precision=self.train_config.activation_bit_prec,
-                dtype=self.train_config.activation_quant_dtype,
-                method=self.train_config.activation_quant_method,
-                channel_axis=1,
-                moving_avrg=self.train_config.moving_average,
-                observer_only_in_train=self.train_config.observer_only_in_train,
-            )
-            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
-        else:
-            self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank
+        self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.train_config.final_dropout)
         self.specaug_start_epoch = self.train_config.specauc_start_epoch
-        self.extra_act_quant = self.train_config.extra_act_quant
-        # No particular weight init!
 
         # streaming relevant params
         self.chunk_size = self.train_config.chunk_size
@@ -1050,55 +700,9 @@ class Model(StreamableModule):
         # return encoder_out[:, :encoder_out_lengths[0]], encoder_out_lengths, [state]
         return encoder_out, encoder_out_lengths, [state]
 
-    def prep_quant(self, decompose=False):
-        print("Converting Model for efficient inference")
-        print(f"Activation quantization is {self.extra_act_quant}")
-        if self.train_config.quantize_output is True:
-            self.lin_out.weight_quantizer.set_scale_and_zp()
-            self.lin_out = Linear.from_float(
-                self.lin_out,
-                weight_qparams={
-                    "qscheme": self.lin_out.weight_quantizer.method,
-                    "dtype": self.lin_out.weight_quant_dtype,
-                    "zero_point": self.lin_out.weight_quantizer.zero_point,
-                    "scale": self.lin_out.weight_quantizer.scale,
-                    "quant_min": self.lin_out.weight_quantizer.quant_min,
-                    "quant_max": self.lin_out.weight_quantizer.quant_max,
-                    "decompose": decompose,
-                },
-            )
-            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
-        self.conformer.prep_quant(self.extra_act_quant, decompose=decompose)
-
-    def prep_dequant(self):
-        print("Removing Quantized parts from the model")
-        self.conformer.prep_dequant()
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
-
-    # raw_audio = data["raw_audio"]  # [B, T', F]
-    # raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
-
-    # labels = data["labels"]  # [B, N] (sparse)
-    # labels_len = data["labels:size1"]  # [B, N]
-
-    # logprobs, audio_features_len = model(
-    #     raw_audio=raw_audio,
-    #     raw_audio_len=raw_audio_len,
-    # )
-    # transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
-    # ctc_loss = nn.functional.ctc_loss(
-    #     transposed_logprobs,
-    #     labels,
-    #     input_lengths=audio_features_len,
-    #     target_lengths=labels_len,
-    #     blank=model.train_config.label_target_size,
-    #     reduction="sum",
-    #     zero_infinity=True,
-    # )
-    # num_phonemes = torch.sum(labels_len)
-    # run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
     train_strat: train_handler.TrainingStrategy = None
     train_step_mode = CTCTrainStepMode()
     match model.cfg.train_mode:

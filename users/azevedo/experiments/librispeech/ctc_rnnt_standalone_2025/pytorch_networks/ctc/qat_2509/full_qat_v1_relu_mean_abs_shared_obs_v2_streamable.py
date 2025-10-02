@@ -263,7 +263,7 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         init.zeros_(self.layer_norm_bias)
 
     def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor,
-                        attn_mask: Optional[torch.Tensor]) -> torch.Tensor:
+                        attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Apply layer norm and multi-head self attention and dropout
 
@@ -272,8 +272,7 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         which will be applied/added to dot product, used to mask padded key positions out
         """
         inv_sequence_mask = compat.logical_not(sequence_mask)
-        if attn_mask is not None:
-            inv_attn_mask = compat.logical_not(attn_mask)
+        inv_attn_mask = None if attn_mask is None else compat.logical_not(attn_mask)
 
         input_tensor = self.layer_norm_in_quant(input_tensor)
         input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)

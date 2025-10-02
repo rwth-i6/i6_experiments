@@ -70,7 +70,6 @@ def prior_finish_hook(run_ctx, **kwargs):
     print("Saved prior in prior.txt in +log space.")
 
 
-# TODO
 def prior_step(*, model: StreamableModule, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
@@ -79,11 +78,10 @@ def prior_step(*, model: StreamableModule, data, run_ctx, **kwargs):
         model.set_mode_cascaded(Mode.OFFLINE)
     elif model.cfg.train_mode == TrainMode.STREAMING:
         model.set_mode_cascaded(Mode.STREAMING)
+    elif model.cfg.train_mode == TrainMode.SWITCHING:
+        model.set_mode_cascaded(Mode.STREAMING if run_ctx.global_step % 2 == 0 else Mode.OFFLINE)
     else:
         raise NotImplementedError
-        model.set_mode_cascaded(
-            Mode.STREAMING if run_ctx.global_step % 2 == 0 else Mode.OFFLINE
-        )
 
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,

@@ -302,6 +302,7 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
+    search_job.rqmt["gpu_mem"] = mem_rqmt
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
 
@@ -341,6 +342,7 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
+    mem_rqmt: int = 16,
 ):
     """
     :param training_name:
@@ -352,6 +354,7 @@ def prepare_asr_model(
     :param get_best_averaged_checkpoint: return the average with (n checkpoints, loss-key), n checkpoints can be 1
     :param get_last_averaged_checkpoint: return the average of the last n checkpoints
     :param prior_config: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
+    :param mem_rqmt: memory requirement for the prior compute job
     :return:
     """
 
@@ -412,6 +415,7 @@ def prepare_asr_model(
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
+            mem_rqmt=mem_rqmt,
         )
         tk.register_output(training_name + "/prior.txt", prior_file)
     else:
