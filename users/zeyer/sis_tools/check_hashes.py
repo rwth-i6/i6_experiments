@@ -5,7 +5,7 @@ Check hashes...
 """
 
 from __future__ import annotations
-from typing import Any, Optional, Union, List, Dict
+from typing import Any, Optional, Union, List, Dict, Tuple
 import argparse
 import os
 import sys
@@ -263,7 +263,7 @@ def _sis_path_hash_helper(self: Path) -> bytes:
     return hash_
 
 
-def _sis_seq_hash_helper(obj: Union[list, tuple], *, patched_start_idx: int = 0) -> bytes:
+def _sis_seq_hash_helper(obj: Union[list, tuple]) -> bytes:
     with _enable_patched_sis_hash_helper(False):
         hash_ = _orig_sis_hash_helper(obj)
     # See _orig_sis_hash_helper for the original implementation.
@@ -271,8 +271,22 @@ def _sis_seq_hash_helper(obj: Union[list, tuple], *, patched_start_idx: int = 0)
     assert type(obj) in _BasicSeqTypes
     for i, item in enumerate(obj):
         _stack[-1].next_child_key = f"[{i}]"
-        with _enable_patched_sis_hash_helper(i >= patched_start_idx):
-            byte_list.append(_patched_sis_hash_helper(item))
+        byte_list.append(_patched_sis_hash_helper(item))
+    _stack[-1].next_child_key = None
+    return _sis_hash_helper_finalize(byte_list, verify_orig_hash=hash_)
+
+
+def _sis_kv_tuple_hash_helper(kv: Tuple[Any, Any]) -> bytes:
+    with _enable_patched_sis_hash_helper(False):
+        hash_ = _orig_sis_hash_helper(kv)
+    key, value = kv
+    # See _orig_sis_hash_helper for the original implementation.
+    byte_list = [tuple.__qualname__.encode()]
+    # We assume that the key hash is not of interest, so don't include it in the report.
+    with _enable_patched_sis_hash_helper(False):
+        byte_list.append(_orig_sis_hash_helper(key))
+    _stack[-1].next_child_key = f"[{key!r}]"
+    byte_list.append(_patched_sis_hash_helper(value))
     _stack[-1].next_child_key = None
     return _sis_hash_helper_finalize(byte_list, verify_orig_hash=hash_)
 
@@ -283,14 +297,7 @@ def _sis_dict_hash_helper(obj: dict) -> bytes:
     # See _orig_sis_hash_helper for the original implementation.
     byte_list = [_obj_type_qualname(obj)]
     assert isinstance(obj, _BasicDictTypes)
-    byte_list_ = []
-    for key, value in obj.items():
-        _stack[-1].next_child_key = f"[{key!r}]"
-        # We assume that the key hash is not of interest, so don't include it in the report.
-        byte_list_.append(_sis_seq_hash_helper((key, value), patched_start_idx=1))
-    _stack[-1].next_child_key = None
-    # Note: the sorting doesn't really make sense on the bytes... but this is how it is in the orig func.
-    byte_list += sorted(byte_list_)
+    byte_list += sorted(map(_sis_kv_tuple_hash_helper, obj.items()))
     return _sis_hash_helper_finalize(byte_list, verify_orig_hash=hash_)
 
 
