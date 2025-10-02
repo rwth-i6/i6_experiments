@@ -26,6 +26,7 @@ import sys
 import logging
 import time
 import hashlib
+import runpy
 from inspect import isclass, isfunction
 from dataclasses import dataclass
 from collections import deque
@@ -83,7 +84,8 @@ def main():
 
     arg_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     arg_parser.add_argument("config_files", nargs="*")
-    arg_parser.add_argument("--custom-sis-import-paths", nargs="*")
+    arg_parser.add_argument("--custom-sis-import-paths", nargs="*", help="if set, overwrite gs.IMPORT_PATHS by this")
+    arg_parser.add_argument("--preload", nargs="*", help="if set, preload these Python files")
     arg_parser.add_argument("--target")
     arg_parser.add_argument(
         "--output", help="output file, default: stdout. The idea is that you can do a diff on the file."
@@ -111,6 +113,14 @@ def main():
             better_exchook.replace_traceback_format_tb()
         else:
             raise Exception("invalid VERBOSE_TRACEBACK_TYPE %r" % gs.VERBOSE_TRACEBACK_TYPE)
+
+    if args.preload:
+        for fn in args.preload:
+            logging.info("Preloading %r" % fn)
+            start = time.time()
+            runpy.run_path(fn)
+            load_time = time.time() - start
+            logging.info("Preloaded %r (time needed: %.2f)" % (fn, load_time))
 
     start = time.time()
     config_manager.load_configs(args.config_files)
