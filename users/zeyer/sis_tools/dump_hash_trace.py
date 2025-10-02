@@ -72,7 +72,7 @@ import sisyphus.hash
 import sisyphus.job_path
 from sisyphus.job_path import AbstractPath
 from sisyphus.hash import sis_hash_helper as _orig_sis_hash_helper
-from sisyphus.hash import _obj_type_qualname, _BasicDictTypes, _BasicSeqTypes
+from sisyphus.hash import _obj_type_qualname, _BasicDictTypes, _BasicSeqTypes, _BasicTypes
 
 
 def main():
@@ -195,7 +195,7 @@ def _enable_patched_sis_hash_helper(enabled: bool = True):
 def _patched_sis_hash_helper(obj: Any) -> bytes:
     if not _stack or not _enabled:
         return _orig_sis_hash_helper(obj)
-    if id(obj) in _visited_objs:
+    if type(obj) not in _BasicTypes and id(obj) in _visited_objs:
         stack_entry = _visited_objs[id(obj)]
         assert obj is stack_entry.obj
         if stack_entry.hash is not None:
@@ -228,10 +228,10 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
         info += ["\n = ", obj.rel_path()]
     elif isinstance(obj, Job):
         info += ["\n = ", obj._sis_id()]
-    elif isinstance(obj, (int, float, bool)):
-        info += ["\n = ", repr(obj)]
     elif isinstance(obj, str):
         info += ["\n = ", (repr(obj[:60]) + "...") if len(obj) > 60 else repr(obj)]
+    elif isinstance(obj, _BasicTypes):
+        info += ["\n = ", repr(obj)]
     elif isfunction(obj) or isclass(obj):
         info += ["\n = ", f"{obj.__module__}.{obj.__qualname__}"]
     _reports.append(info)
