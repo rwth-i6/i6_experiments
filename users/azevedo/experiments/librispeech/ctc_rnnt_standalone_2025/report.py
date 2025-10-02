@@ -1,5 +1,6 @@
 from functools import partial
 import numpy as np
+import pandas as pd
 from typing import Any, Dict, List
 
 from sisyphus import tk
@@ -100,3 +101,70 @@ def tune_and_evalue_report(
     tk.register_output(training_name + "/tune_and_evaluate_report.txt", report)
 
 
+def build_qat_report(qat_report, ret_best=True):
+    """
+    Example qat_report (e.g. dev-other results):
+    --------------------------------------------
+
+    {
+        "ctc.qat_2509.baseline_qat_v4_streamable_512_1024_4gram_lm_offline": {
+            "ctc_beam_search_decoder": [{"wer": 7.7, "lm_scale": 0.5, "prior_scale": 0.8, "beam_size": 1024}, ...],
+            "ctc_greedy_decoder": [{"wer": 12.5}]
+        },
+        "ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming": {
+            "ctc_beam_search_decoder": [
+                {"wer": 8.1, "lm_scale": 0.2, "prior_scale": 1.2, "beam_size": 1024},
+                {"wer": 7.9, "lm_scale": 0.35, "prior_scale": 0.9, "beam_size": 1024},
+            ]
+            ...
+        }
+        "ctc.qat_2509.full_qat_v1_streamable_512_1024": {
+            "ctc_greedy_decoder": [{"wer": 12.9}],
+        },
+    }
+
+    Example output:
+    ---------------
+
+    ctc_beam_search_decoder:
+                    model   wer   lm_scale   prior_scale   beam_size
+    ctc.qat_2509.baseline_qat_v4_streamable_512_1024_4gram_lm_offline    7.7    0.5    0.8    1024
+    ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming    8.1    0.2    1.2    1024
+    ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming    7.9    0.35   0.9    1024
+
+    ctc_greedy_decoder:
+                    model   wer
+    ctc.qat_2509.baseline_qat_v4_streamable_512_1024_4gram_lm_offline    12.5
+    ctc.qat_2509.full_qat_v1_streamable_512_1024                         12.9
+    """
+    # we create a table for each decoder as they have the same search params
+    decoder_tables = {}
+
+    # collect results of models per decoder
+    for model_name, decoders in qat_report.items():
+        for decoder_name, results in decoders.items():
+            rows = [
+                {"model": model_name, **result}
+                for result in results
+            ]
+            if decoder_name not in decoder_tables:
+                decoder_tables[decoder_name] = []
+            decoder_tables[decoder_name].extend(rows)
+
+    # convert to pandas dataframe
+    for decoder_name, rows in decoder_tables.items():
+        df = pd.DataFrame(rows)
+        if ret_best:
+            # we only return the row of each model that has the best WER
+            df['wer'] = df['wer'].astype(float)
+            df = df.sort_values('wer').groupby('model').head(1)
+            decoder_tables[decoder_name] = df
+        else:
+            decoder_tables[decoder_name] = pd.DataFrame(rows)
+
+    final_str = ""
+    for decoder, df in decoder_tables.items():
+        final_str += f"\n{decoder}:\n"
+        final_str += df.to_string(index=False)
+
+    return final_str

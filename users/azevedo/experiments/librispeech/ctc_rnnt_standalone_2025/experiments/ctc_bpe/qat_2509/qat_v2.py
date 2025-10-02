@@ -16,7 +16,7 @@ from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ....lm import get_4gram_binary_lm
 from ....pipeline import training, prepare_asr_model, search, ASRModel
 # from ....report import generate_report
-from ....report import tune_and_evalue_report
+from ....report import tune_and_evalue_report, build_qat_report
 # from ...experiments.ctc_phon.tune_eval import build_qat_report
 
 # from ..ctc_phon.tune_eval import eval_model
@@ -104,6 +104,16 @@ def bpe_lib_qat_comparisons():
                 tune_parameters.append((lm_weight, prior_scale))
                 tune_values_clean.append((wers[search_name + "/dev-clean"]))
                 tune_values_other.append((wers[search_name + "/dev-other"]))
+
+                report_key = training_name[len(prefix_name)+1:].replace("/", "_")
+                if report_key not in qat_report:
+                    qat_report[report_key] = {decoder_module: []}
+
+                qat_report[report_key][decoder_module].extend({
+                    "wer": wers[search_name + "/dev-other"], 
+                    "lm_scale": lm_weight, 
+                    "prior_scale": prior_scale, 
+                })
 
         # for key, tune_values in [("test-other", tune_values_other)]:
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
@@ -203,6 +213,7 @@ def bpe_lib_qat_comparisons():
 
     num_epochs = 1000
 
+    qat_report = {}
 
     ####################################################################################################
     # No-QAT Baseline
@@ -241,7 +252,7 @@ def bpe_lib_qat_comparisons():
         "debug": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
-    training_name = prefix_name + "/" + network_module + f"_512_1024" + ".streaming"
+    training_name = prefix_name + "/" + network_module + f"_512_1024_streaming"
     train_job = training(training_name, train_data_bpe, train_args,
                          num_epochs=num_epochs, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
@@ -360,7 +371,7 @@ def bpe_lib_qat_comparisons():
         "debug": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
-    training_name = prefix_name + "/" + network_module + f"_8_8_512_1024" + ".streaming"
+    training_name = prefix_name + "/" + network_module + f"_8_8_512_1024_streaming"
     train_job = training(training_name, train_data_bpe, train_args,
                          num_epochs=num_epochs, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
@@ -476,7 +487,7 @@ def bpe_lib_qat_comparisons():
         "debug": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
-    training_name = prefix_name + "/" + network_module + f"_8_8_512_1024" + ".streaming"
+    training_name = prefix_name + "/" + network_module + f"_8_8_512_1024_streaming"
     train_job = training(training_name, train_data_bpe, train_args,
                          num_epochs=num_epochs, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
@@ -538,3 +549,6 @@ def bpe_lib_qat_comparisons():
         debug=True,
         use_gpu=False,
     )
+
+    # report string
+    tk.register_report("reports/qat/streamable_qat_comparison", partial(build_qat_report, qat_report), required=qat_report)
