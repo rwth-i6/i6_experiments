@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Check hashes...
+Dump hash traces, to check hashes...
 
 E.g.: You have two pipelines, and expect to get the same hash (e.g. for some particular output),
 but you don't, and you want to find out why.
@@ -80,7 +80,7 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    arg_parser = argparse.ArgumentParser()
+    arg_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     arg_parser.add_argument("config_files", nargs="*")
     arg_parser.add_argument("--custom-sis-import-paths", nargs="*")
     arg_parser.add_argument("--target")
