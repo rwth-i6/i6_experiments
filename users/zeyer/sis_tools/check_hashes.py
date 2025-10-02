@@ -12,7 +12,6 @@ import sys
 import logging
 import time
 import hashlib
-import copy
 from dataclasses import dataclass
 from collections import deque
 from functools import reduce
@@ -119,10 +118,6 @@ class _StackEntry:
     key: str
     child_count: int = 0
 
-    def as_str(self):
-        if self.key:
-            return f"#{self.key} ({type(self.obj).__name__})"
-
 
 _visited_objs = {}  # id -> (obj, hash)
 _queue = deque()
@@ -169,7 +164,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     _visited_objs[id(obj)] = (obj, hash_)
     new_stack_entry_ = _stack.pop(-1)
     assert new_stack_entry is new_stack_entry_
-    info.extend(["->", _short_hash_from_binary(hash_)])
+    info.extend(["->\n ", _short_hash_from_binary(hash_)])
 
     return hash_
 
@@ -193,7 +188,7 @@ def _sis_job_id(job: Job) -> str:
     _visited_jobs.add(job)
     # See JobSingleton.__call__
     cls = type(job)
-    sis_hash = cls._sis_hash_static(_dict_lazy_pop(job._sis_kwargs))
+    sis_hash = cls._sis_hash_static(_DictLazyPop(job._sis_kwargs))
     module_name = cls.__module__
     recipe_prefix = gs.RECIPE_PREFIX + "."
     if module_name.startswith(recipe_prefix):
@@ -206,7 +201,14 @@ def _sis_job_id(job: Job) -> str:
     return sis_id
 
 
-class _dict_lazy_pop(dict):
+class _DictLazyPop(dict):
+    """
+    Ignores pop or __delitem__ exceptions if key not present.
+    We use this because the _sis_kwargs that is stored in the job
+    sometimes has already some of the keys popped
+    (see JobSingleton.__call__).
+    """
+
     def pop(self, k, d=None):
         if k in self:
             return super().pop(k)
