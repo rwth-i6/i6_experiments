@@ -86,7 +86,7 @@ def main():
     arg_parser.add_argument("config_files", nargs="*")
     arg_parser.add_argument("--custom-sis-import-paths", nargs="*", help="if set, overwrite gs.IMPORT_PATHS by this")
     arg_parser.add_argument("--preload", nargs="*", help="if set, preload these Python files")
-    arg_parser.add_argument("--target")
+    arg_parser.add_argument("--target", help="Sisyphus target file from your Sisyphus graph")
     arg_parser.add_argument(
         "--output", help="output file, default: stdout. The idea is that you can do a diff on the file."
     )
