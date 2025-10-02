@@ -69,6 +69,7 @@ from sisyphus.loader import config_manager
 from sisyphus import gs, tk, Path, Job
 import sisyphus.hash
 import sisyphus.job_path
+from sisyphus.job_path import AbstractPath
 from sisyphus.hash import sis_hash_helper as _orig_sis_hash_helper
 from sisyphus.hash import _obj_type_qualname, _BasicDictTypes, _BasicSeqTypes
 
@@ -193,7 +194,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
 
     if isinstance(obj, Job):
         _hash_helper_func = _sis_job_hash_helper
-    elif isinstance(obj, Path):
+    elif isinstance(obj, AbstractPath):
         _hash_helper_func = _sis_path_hash_helper
     elif type(obj) in _BasicSeqTypes:
         _hash_helper_func = _sis_seq_hash_helper
@@ -213,7 +214,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     _visited_objs[id(obj)] = new_stack_entry
     path = "/".join(f"{entry.key}:({type(entry.obj).__name__})" for entry in _stack[1:])
     info = [path]
-    if isinstance(obj, Path):
+    if isinstance(obj, AbstractPath):
         info += ["\n = ", obj.rel_path()]
     elif isinstance(obj, Job):
         info += ["\n = ", obj._sis_id()]
@@ -286,10 +287,11 @@ class _DictLazyPop(dict):
             super().__delitem__(key)
 
 
-def _sis_path_hash_helper(self: Path) -> bytes:
+def _sis_path_hash_helper(self: AbstractPath) -> bytes:
     with _enable_patched_sis_hash_helper(False):
         hash_ = self._sis_hash()
 
+    # See AbstractPath._sis_hash
     if self.hash_overwrite is None:
         creator = self.creator
         path = self.path
