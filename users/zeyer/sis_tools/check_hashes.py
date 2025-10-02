@@ -235,7 +235,8 @@ class _DictLazyPop(dict):
 
 
 def _sis_path_hash_helper(self: Path) -> bytes:
-    hash_ = self._sis_hash()
+    with _enable_patched_sis_hash_helper(False):
+        hash_ = self._sis_hash()
 
     if self.hash_overwrite is None:
         creator = self.creator
@@ -245,7 +246,8 @@ def _sis_path_hash_helper(self: Path) -> bytes:
     if hasattr(creator, "_sis_id"):
         _patched_sis_hash_helper(creator)  # make sure we recursively visit the job
         creator = f"{creator._sis_id()}/{gs.JOB_OUTPUT}"
-    hash_manual = b"(Path, " + _patched_sis_hash_helper((creator, path)) + b")"
+    with _enable_patched_sis_hash_helper(False):
+        hash_manual = b"(Path, " + _patched_sis_hash_helper((creator, path)) + b")"
     assert hash_ == hash_manual, f"{self} sis_hash mismatch: {hash_} != {hash_manual}"
     return hash_
 
