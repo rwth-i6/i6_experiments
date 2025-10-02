@@ -273,7 +273,7 @@ def bpe_lib_qat_comparisons():
         observer_only_in_train=False,
 
         # streaming params
-        chunk_size=1.64 * 16000,  # samples corresponding to 28 frames
+        chunk_size=1.67 * 16000,  # samples corresponding to 28 frames
         lookahead_size=8,
         carry_over_size=1,
         dual_mode=False,

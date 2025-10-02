@@ -48,7 +48,7 @@ class ConformerPositionwiseFeedForwardNoQuant(nn.Module):
     Conformer feedforward module
     """
 
-    def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV4Config):
+    def __init__(self, cfg: ConformerPositionwiseFeedForwardNoQuantV1Config):
         super().__init__()
 
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
@@ -223,7 +223,7 @@ class ConformerConvolutionNoQuantStreamable(StreamableModule):
         assert tensor.dim() == 4, ""
 
         bsz, num_chunks, chunk_sz, _ = tensor.shape
-        kernel_radius = self.depthwise_conv.kernel_size // 2  # = KRN//2
+        kernel_radius = self.depthwise_conv.kernel_size[0] // 2  # = KRN//2
 
         # tensor to be filled and passed to forward_offline
         conv_in = torch.zeros(

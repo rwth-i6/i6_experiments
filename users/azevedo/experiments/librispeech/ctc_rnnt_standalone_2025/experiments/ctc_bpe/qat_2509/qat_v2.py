@@ -249,7 +249,7 @@ def bpe_lib_qat_comparisons():
 
     asr_model = prepare_asr_model(
         training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-        get_specific_checkpoint=1000,
+        get_specific_checkpoint=num_epochs,
     )
     search_config = CTCBeamSearchConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),
@@ -368,7 +368,7 @@ def bpe_lib_qat_comparisons():
 
     asr_model = prepare_asr_model(
         training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-        get_specific_checkpoint=1000,
+        get_specific_checkpoint=num_epochs,
     )
     search_config = CTCBeamSearchConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),
@@ -470,7 +470,7 @@ def bpe_lib_qat_comparisons():
     )
 
     train_args = {
-        "config": train_config,
+        "config": train_config_no_amp,
         "network_module": network_module,
         "include_native_ops": True,
         "debug": True,
@@ -484,7 +484,7 @@ def bpe_lib_qat_comparisons():
 
     asr_model = prepare_asr_model(
         training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-        get_specific_checkpoint=1000,
+        get_specific_checkpoint=num_epochs,
     )
     search_config = CTCBeamSearchConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),

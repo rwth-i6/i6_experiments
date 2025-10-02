@@ -10,7 +10,7 @@ from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union, List
-from .baseline_no_qat_v1_cfg import MultiheadAttentionNoQuantV1Config
+from .baseline_no_qat_v1_streamable_cfg import MultiheadAttentionNoQuantV1Config
 import math
 from returnn.torch.context import get_run_ctx
 from torch.ao.quantization.utils import check_min_max_valid
@@ -24,14 +24,14 @@ from i6_models.util import compat
 ###############################################################################################################
 # NOTE: now streamable
 class MultiheadAttentionNoQuantStreamable(StreamableModule):
-    def __init__(self, cfg: MultiheadAttentionNoQuantV4Config):
+    def __init__(self, cfg: MultiheadAttentionNoQuantV1Config):
         super().__init__()
         self.cfg = cfg
         self.num_att_heads = cfg.num_att_heads
         self.input_dim = cfg.input_dim
         self.dim_heads = self.input_dim // self.num_att_heads
 
-        self.in_proj = nn.Linear(self.input_dim, self.input_dim, bias=True)
+        self.in_proj = nn.Linear(self.input_dim, 3*self.input_dim, bias=True)
         self.out_proj = nn.Linear(self.input_dim, self.input_dim, bias=True)
 
         self.norm = math.sqrt(self.dim_heads)
