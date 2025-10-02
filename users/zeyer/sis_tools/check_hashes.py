@@ -5,7 +5,7 @@ Check hashes...
 """
 
 from __future__ import annotations
-from typing import Any, List
+from typing import Any, Optional, List, Dict
 import argparse
 import os
 import sys
@@ -14,6 +14,7 @@ import time
 import hashlib
 from dataclasses import dataclass
 from collections import deque
+from contextlib import contextmanager
 from functools import reduce
 
 
@@ -104,7 +105,8 @@ def main():
     # then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
 
     _stack.append(_StackEntry(None, ""))
-    _patched_sis_hash_helper(path)
+    with _enable_patched_sis_hash_helper(True):
+        _patched_sis_hash_helper(path)
     _stack.pop(-1)
     assert not _stack
 
@@ -117,20 +119,35 @@ class _StackEntry:
     obj: Any
     key: str
     child_count: int = 0
+    hash: Optional[bytes] = None
 
 
-_visited_objs = {}  # id -> (obj, hash)
+_visited_objs: Dict[int, _StackEntry] = {}  # id -> _StackEntry
 _queue = deque()
 _stack: List[_StackEntry] = []
+_enabled: bool = False
 _reports: List[List[str]] = []
 
 
+@contextmanager
+def _enable_patched_sis_hash_helper(enabled: bool = True):
+    global _enabled
+    prev = _enabled
+    _enabled = enabled
+    try:
+        yield
+    finally:
+        _enabled = prev
+
+
 def _patched_sis_hash_helper(obj: Any) -> bytes:
+    if not _stack or not _enabled:
+        return _orig_sis_hash_helper(obj)
     if id(obj) in _visited_objs:
-        obj_, hash_ = _visited_objs[id(obj)]
-        assert obj is obj_
-        return hash_
-    if not _stack:
+        stack_entry = _visited_objs[id(obj)]
+        assert obj is stack_entry.obj
+        if stack_entry.hash is not None:
+            return stack_entry.hash
         return _orig_sis_hash_helper(obj)
 
     if isinstance(obj, Job):
@@ -143,6 +160,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     new_stack_entry = _StackEntry(obj=obj, key=f"(#{_stack[-1].child_count})")
     _stack[-1].child_count += 1
     _stack.append(new_stack_entry)
+    _visited_objs[id(obj)] = new_stack_entry
     path = "/ " + " / ".join(entry.key for entry in _stack[2:])
     info = [path.strip(), f"({type(obj).__name__})"]
     if isinstance(obj, Path):
@@ -161,7 +179,7 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     # Recursive call.
     hash_ = _hash_helper_func(obj)
 
-    _visited_objs[id(obj)] = (obj, hash_)
+    new_stack_entry.hash = hash_
     new_stack_entry_ = _stack.pop(-1)
     assert new_stack_entry is new_stack_entry_
     info.extend(["->\n ", _short_hash_from_binary(hash_)])
