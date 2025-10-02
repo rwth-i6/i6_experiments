@@ -26,6 +26,7 @@ import sys
 import logging
 import time
 import hashlib
+from inspect import isclass, isfunction
 from dataclasses import dataclass
 from collections import deque
 from contextlib import contextmanager
@@ -220,6 +221,8 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
         info += ["\n = ", repr(obj)]
     elif isinstance(obj, str):
         info += ["\n = ", (repr(obj[:60]) + "...") if len(obj) > 60 else repr(obj)]
+    elif isfunction(obj) or isclass(obj):
+        info += ["\n = ", f"{obj.__module__}.{obj.__qualname__}"]
     _reports.append(info)
 
     # Recursive call.
