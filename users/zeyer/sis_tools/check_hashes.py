@@ -121,7 +121,14 @@ def main():
         for name, target in sis_graph.targets_dict.items():
             print(f"Target: {name} -> {target.required_full_list}")
         sys.exit(0)
-    
+
+    if args.target not in sis_graph.targets_dict:
+        print(f"Error: Invalid target {args.target}, valid targets are:")
+        for name, target in sis_graph.targets_dict.items():
+            print(f"Target: {name} -> {target.required_full_list}")
+        print("Error, exiting.")
+        sys.exit(1)
+
     target = sis_graph.targets_dict[args.target]
     print(f"Target: {args.target} -> {target.required_full_list}")
     path, = target.required_full_list  # assume only one output path
