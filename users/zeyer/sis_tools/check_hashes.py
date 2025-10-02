@@ -2,6 +2,20 @@
 
 """
 Check hashes...
+
+E.g.: You have two pipelines, and expect to get the same hash (e.g. for some particular output),
+but you don't, and you want to find out why.
+
+Idea: use this script to dump hash reconstruction.
+We hook sis_hash_helper (here we just patch it; could also use settrace)
+to detect recursive calls to sis_hash_helper.
+Dump always path, object_type -> hash, starting from target, where path == "/"
+then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
+Dump that to a file, then you can do a diff.
+
+Some objects need some special handling, e.g. Job and Path,
+as they use cached values (e.g. the job sis_id),
+and we want to see the dependencies there as well.
 """
 
 from __future__ import annotations
@@ -113,19 +127,6 @@ def main():
     path, = target.required_full_list  # assume only one output path
     assert isinstance(path, Path)
     assert not path.hash_overwrite
-
-    # if name == "2024-denoising-lm/error_correction_model/base-puttingItTogether(low)-nEp200/recog-ext/dlm_sum_score_results.txt":
-    # path = target.required_full_list[0]
-    # assert not path.hash_overwrite
-    # print("Job id:", path.creator._sis_id())
-
-    # job sis hash is the job sis_id, which is cached.
-    # sis_id: via sis_hash = cls._sis_hash_static(parsed_args)
-
-    # idea: use script to dump hash reconstruction
-    # always call sis_hash_helper with settrace to detect recursive calls to sis_hash_helper
-    # dump always path, object_type -> hash, starting from target, where path == "/"
-    # then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
 
     _stack.append(_StackEntry(None, "", next_child_key=""))
     with _enable_patched_sis_hash_helper(True):
