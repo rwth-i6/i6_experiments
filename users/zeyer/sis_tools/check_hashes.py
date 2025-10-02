@@ -68,6 +68,9 @@ def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("config_files", nargs="*")
     arg_parser.add_argument("--target")
+    arg_parser.add_argument(
+        "--output", help="output file, default: stdout. The idea is that you can do a diff on the file."
+    )
     args = arg_parser.parse_args()
 
     # Do that early, such that all imports of sis_hash_helper get our patched version.
@@ -111,8 +114,16 @@ def main():
     _stack.pop(-1)
     assert not _stack
 
+    output = sys.stdout
+    if args.output:
+        output = open(args.output, "w")
     for report in _reports:
-        print(" ".join(report))
+        print(" ".join(report), file=output)
+    if args.output:
+        output.close()
+        print("Done. Wrote to", args.output)
+    else:
+        print("Done. If you want to dump this to a file (e.g. for a diff), use --output <file>.")
 
 
 @dataclass
