@@ -81,6 +81,21 @@ def main():
     if args.custom_sis_import_paths:
         gs.IMPORT_PATHS = args.custom_sis_import_paths
 
+    if gs.USE_VERBOSE_TRACEBACK:
+        sys.excepthook_org = sys.excepthook
+        if gs.VERBOSE_TRACEBACK_TYPE == "ipython":
+            from IPython.core import ultratb
+
+            sys.excepthook = ultratb.VerboseTB()
+        elif gs.VERBOSE_TRACEBACK_TYPE == "better_exchook":
+            # noinspection PyPackageRequirements
+            import better_exchook
+
+            better_exchook.install()
+            better_exchook.replace_traceback_format_tb()
+        else:
+            raise Exception("invalid VERBOSE_TRACEBACK_TYPE %r" % gs.VERBOSE_TRACEBACK_TYPE)
+
     start = time.time()
     config_manager.load_configs(args.config_files)
     load_time = time.time() - start
