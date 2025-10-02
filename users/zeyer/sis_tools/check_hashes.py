@@ -5,7 +5,7 @@ Check hashes...
 """
 
 from __future__ import annotations
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, Union, List, Dict
 import argparse
 import os
 import sys
@@ -55,6 +55,7 @@ from sisyphus import gs, tk, Path, Job
 import sisyphus.hash
 import sisyphus.job_path
 from sisyphus.hash import sis_hash_helper as _orig_sis_hash_helper
+from sisyphus.hash import _obj_type_qualname, _BasicDictTypes, _BasicSeqTypes
 
 
 def main():
@@ -104,7 +105,7 @@ def main():
     # dump always path, object_type -> hash, starting from target, where path == "/"
     # then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
 
-    _stack.append(_StackEntry(None, ""))
+    _stack.append(_StackEntry(None, "", next_child_key=""))
     with _enable_patched_sis_hash_helper(True):
         _patched_sis_hash_helper(path)
     _stack.pop(-1)
@@ -119,6 +120,7 @@ class _StackEntry:
     obj: Any
     key: str
     child_count: int = 0
+    next_child_key: Optional[str] = None
     hash: Optional[bytes] = None
 
 
@@ -154,10 +156,19 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
         _hash_helper_func = _sis_job_hash_helper
     elif isinstance(obj, Path):
         _hash_helper_func = _sis_path_hash_helper
+    elif type(obj) in _BasicSeqTypes:
+        _hash_helper_func = _sis_seq_hash_helper
+    elif isinstance(obj, _BasicDictTypes):
+        _hash_helper_func = _sis_dict_hash_helper
     else:
         _hash_helper_func = _orig_sis_hash_helper
 
-    new_stack_entry = _StackEntry(obj=obj, key=f"(#{_stack[-1].child_count})")
+    if _stack[-1].next_child_key is not None:
+        key = _stack[-1].next_child_key
+        _stack[-1].next_child_key = None
+    else:
+        key = f"(#{_stack[-1].child_count})"
+    new_stack_entry = _StackEntry(obj=obj, key=key)
     _stack[-1].child_count += 1
     _stack.append(new_stack_entry)
     _visited_objs[id(obj)] = new_stack_entry
@@ -250,6 +261,49 @@ def _sis_path_hash_helper(self: Path) -> bytes:
         hash_manual = b"(Path, " + _patched_sis_hash_helper((creator, path)) + b")"
     assert hash_ == hash_manual, f"{self} sis_hash mismatch: {hash_} != {hash_manual}"
     return hash_
+
+
+def _sis_seq_hash_helper(obj: Union[list, tuple], *, patched_start_idx: int = 0) -> bytes:
+    with _enable_patched_sis_hash_helper(False):
+        hash_ = _orig_sis_hash_helper(obj)
+    # See _orig_sis_hash_helper for the original implementation.
+    byte_list = [_obj_type_qualname(obj)]
+    assert type(obj) in _BasicSeqTypes
+    for i, item in enumerate(obj):
+        _stack[-1].next_child_key = f"[{i}]"
+        with _enable_patched_sis_hash_helper(i >= patched_start_idx):
+            byte_list.append(_patched_sis_hash_helper(item))
+    _stack[-1].next_child_key = None
+    return _sis_hash_helper_finalize(byte_list, verify_orig_hash=hash_)
+
+
+def _sis_dict_hash_helper(obj: dict) -> bytes:
+    with _enable_patched_sis_hash_helper(False):
+        hash_ = _orig_sis_hash_helper(obj)
+    # See _orig_sis_hash_helper for the original implementation.
+    byte_list = [_obj_type_qualname(obj)]
+    assert isinstance(obj, _BasicDictTypes)
+    byte_list_ = []
+    for key, value in obj.items():
+        _stack[-1].next_child_key = f"[{key!r}]"
+        # We assume that the key hash is not of interest, so don't include it in the report.
+        byte_list_.append(_sis_seq_hash_helper((key, value), patched_start_idx=1))
+    _stack[-1].next_child_key = None
+    # Note: the sorting doesn't really make sense on the bytes... but this is how it is in the orig func.
+    byte_list += sorted(byte_list_)
+    return _sis_hash_helper_finalize(byte_list, verify_orig_hash=hash_)
+
+
+def _sis_hash_helper_finalize(byte_list: List[bytes], *, verify_orig_hash: bytes) -> bytes:
+    # Taken from _orig_sis_hash_helper.
+    byte_str = b"(" + b", ".join(byte_list) + b")"
+    if len(byte_str) > 4096:
+        # hash long outputs to avoid arbitrary long return values. 4096 is just
+        # picked because it looked good and not optimized,
+        # it's most likely not that important.
+        byte_str = hashlib.sha256(byte_str).digest()
+    assert byte_str == verify_orig_hash, f"hash mismatch: {byte_str} != {verify_orig_hash}"
+    return byte_str
 
 
 def _short_hash_from_binary(
