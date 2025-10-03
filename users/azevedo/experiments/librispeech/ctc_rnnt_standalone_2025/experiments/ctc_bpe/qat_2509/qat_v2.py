@@ -238,8 +238,8 @@ def bpe_lib_qat_comparisons():
 
         # streaming params
         chunk_size=chunk_size * 16000,  # samples corresponding to 28 sub-frames
-        lookahead_size=8,
-        carry_over_size=1,
+        lookahead_size=fac_size,
+        carry_over_size=carry_over_size,
         dual_mode=None,
         streaming_scale=None,
         train_mode=str(TrainMode.STREAMING),
@@ -355,8 +355,8 @@ def bpe_lib_qat_comparisons():
 
         # streaming params
         chunk_size=chunk_size * 16000,  # samples corresponding to 28 sub-frames
-        lookahead_size=8,
-        carry_over_size=1,
+        lookahead_size=fac_size,
+        carry_over_size=carry_over_size,
         dual_mode=None,
         streaming_scale=None,
         train_mode=str(TrainMode.STREAMING),
@@ -435,120 +435,353 @@ def bpe_lib_qat_comparisons():
     )
 
 
-    #########################################################################################
-    # Full Quant Baseline
-    network_module = "ctc.qat_2509.full_qat_v1_streamable"
     from ....pytorch_networks.ctc.qat_2509.full_qat_v1_streamable_cfg import QuantModelTrainConfigV4
-    model_config = QuantModelTrainConfigV4(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config_sub6,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=512,
-        num_layers=12,
-        num_heads=8,
-        ff_dim=1024,
-        att_weights_dropout=0.1,
-        conv_dropout=0.1,
-        ff_dropout=0.1,
-        mhsa_dropout=0.1,
-        conv_kernel_size=31,
-        final_dropout=0.1,
-        specauc_start_epoch=11,
-        weight_quant_dtype="qint8",
-        weight_quant_method="per_tensor",
-        activation_quant_dtype="qint8",
-        activation_quant_method="per_tensor",
-        dot_quant_dtype="qint8",
-        dot_quant_method="per_tensor",
-        Av_quant_dtype="qint8",
-        Av_quant_method="per_tensor",
-        moving_average=None,
-        weight_bit_prec=8,
-        activation_bit_prec=8,
-        quantize_output=False,
-        extra_act_quant=False,
-        quantize_bias=None,
-        observer_only_in_train=False,
 
-        # streaming params
-        chunk_size=chunk_size * 16000,  # samples corresponding to 28 sub-frames
-        lookahead_size=8,
-        carry_over_size=1,
-        dual_mode=None,
-        streaming_scale=None,
-        train_mode=str(TrainMode.STREAMING),
-    )
+    for ff_dim in [512, 1024]:
+        #########################################################################################
+        # Full Quant Baseline
+        network_module = "ctc.qat_2509.full_qat_v1_streamable"
 
-    train_args = {
-        "config": train_config_no_amp,
-        "network_module": network_module,
-        "include_native_ops": True,
-        "debug": True,
-        "net_args": {"model_config_dict": asdict(model_config)}
-    }
-    training_name = prefix_name + "/" + network_module + f"_8_8_512_1024_streaming"
-    train_job = training(training_name, train_data_bpe, train_args,
-                         num_epochs=num_epochs, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 48
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        model_config = QuantModelTrainConfigV4(
+            feature_extraction_config=fe_config,
+            frontend_config=frontend_config_sub6,
+            specaug_config=specaug_config,
+            label_target_size=vocab_size_without_blank,
+            conformer_size=512,
+            num_layers=12,
+            num_heads=8,
+            ff_dim=ff_dim,
+            att_weights_dropout=0.1,
+            conv_dropout=0.1,
+            ff_dropout=0.1,
+            mhsa_dropout=0.1,
+            conv_kernel_size=31,
+            final_dropout=0.1,
+            specauc_start_epoch=11,
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor",
+            moving_average=None,
+            weight_bit_prec=8,
+            activation_bit_prec=8,
+            quantize_output=False,
+            extra_act_quant=False,
+            quantize_bias=None,
+            observer_only_in_train=False,
 
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-        get_specific_checkpoint=num_epochs,
-    )
-    search_config = CTCBeamSearchConfig(
-        lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),
-        beam_size_token=16,
-        beam_threshold=14,  # Untuned,
-        lm_package=arpa_4gram_lm,
-        prior_file=asr_model.prior_file,
-    )
-    decoder_config_offline = DecoderConfig(
-        beam_size=1024,
-        returnn_vocab=label_datastream_bpe.vocab,
-        search_config=search_config,
+            # streaming params
+            chunk_size=chunk_size * 16000,  # samples corresponding to 28 sub-frames
+            lookahead_size=fac_size,
+            carry_over_size=carry_over_size,
+            dual_mode=None,
+            streaming_scale=None,
+            train_mode=str(TrainMode.STREAMING),
+        )
 
-        mode=Mode.OFFLINE.name,
-        test_version=0.0,
-    )
-    decoder_config_streaming = DecoderConfig(
-        beam_size=1024,
-        returnn_vocab=label_datastream_bpe.vocab,
+        train_args = {
+            "config": train_config_no_amp,
+            "network_module": network_module,
+            "include_native_ops": True,
+            "debug": True,
+            "net_args": {"model_config_dict": asdict(model_config)}
+        }
+        training_name = prefix_name + "/" + network_module + f"_8_8_512_{ff_dim}_streaming"
+        train_job = training(training_name, train_data_bpe, train_args,
+                            num_epochs=num_epochs, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-        search_config=search_config,
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
+            get_specific_checkpoint=num_epochs,
+        )
+        search_config = CTCBeamSearchConfig(
+            lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),
+            beam_size_token=16,
+            beam_threshold=14,  # Untuned,
+            lm_package=arpa_4gram_lm,
+            prior_file=asr_model.prior_file,
+        )
+        decoder_config_offline = DecoderConfig(
+            beam_size=1024,
+            returnn_vocab=label_datastream_bpe.vocab,
+            search_config=search_config,
 
-        mode=Mode.STREAMING.name,
-        chunk_size=int(model_config.chunk_size),
-        lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
-        carry_over_size=model_config.carry_over_size,
-        test_version=0.0,
-    )
+            mode=Mode.OFFLINE.name,
+            test_version=0.0,
+        )
+        decoder_config_streaming = DecoderConfig(
+            beam_size=1024,
+            returnn_vocab=label_datastream_bpe.vocab,
 
-    tune_and_evaluate_helper(
-        training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
-        dev_dataset_tuples=dev_dataset_tuples,
-        test_dataset_tuples=test_dataset_tuples,
-        asr_model=asr_model,
-        base_decoder_config=decoder_config_offline,
-        lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
-        prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
-        decoder_module="search.decoder_module",
-        debug=True,
-        use_gpu=False,
-    )
-    tune_and_evaluate_helper(
-        training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
-        dev_dataset_tuples=dev_dataset_tuples,
-        test_dataset_tuples=test_dataset_tuples,
-        asr_model=asr_model,
-        base_decoder_config=decoder_config_streaming,
-        lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
-        prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
-        decoder_module="search.decoder_module",
-        debug=True,
-        use_gpu=False,
-    )
+            search_config=search_config,
+
+            mode=Mode.STREAMING.name,
+            chunk_size=int(model_config.chunk_size),
+            lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+            carry_over_size=model_config.carry_over_size,
+            test_version=0.0,
+        )
+
+        tune_and_evaluate_helper(
+            training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_offline,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+        tune_and_evaluate_helper(
+            training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_streaming,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+
+
+        #########################################################################################
+        # FF 512 and [512, 1024] with mean abs
+        network_module = "ctc.qat_0711.full_qat_v1_mean_abs_norm_streamable"
+
+        model_config = QuantModelTrainConfigV4(
+            feature_extraction_config=fe_config,
+            frontend_config=frontend_config_sub6,
+            specaug_config=specaug_config,
+            label_target_size=vocab_size_without_blank,
+            conformer_size=512,
+            num_layers=12,
+            num_heads=8,
+            ff_dim=ff_dim,
+            att_weights_dropout=0.1,
+            conv_dropout=0.1,
+            ff_dropout=0.1,
+            mhsa_dropout=0.1,
+            conv_kernel_size=31,
+            final_dropout=0.1,
+            specauc_start_epoch=11,
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor",
+            moving_average=None,
+            weight_bit_prec=8,
+            activation_bit_prec=8,
+            quantize_output=False,
+            extra_act_quant=False,
+            quantize_bias=None,
+            observer_only_in_train=False,
+
+            # streaming params
+            chunk_size=chunk_size * 16000,  # samples corresponding to 28 sub-frames
+            lookahead_size=fac_size,
+            carry_over_size=carry_over_size,
+            dual_mode=None,
+            streaming_scale=None,
+            train_mode=str(TrainMode.STREAMING),
+        )
+
+        train_args = {
+            "config": train_config_no_amp,
+            "network_module": network_module,
+            "include_native_ops": True,
+            "debug": True,
+            "net_args": {"model_config_dict": asdict(model_config)}
+        }
+        training_name = prefix_name + "/" + network_module + f"_8_8_512_{ff_dim}_streaming"
+        train_job = training(training_name, train_data_bpe, train_args,
+                            num_epochs=num_epochs, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
+            get_specific_checkpoint=num_epochs,
+        )
+        search_config = CTCBeamSearchConfig(
+            lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),
+            beam_size_token=16,
+            beam_threshold=14,  # Untuned,
+            lm_package=arpa_4gram_lm,
+            prior_file=asr_model.prior_file,
+        )
+        decoder_config_offline = DecoderConfig(
+            beam_size=1024,
+            returnn_vocab=label_datastream_bpe.vocab,
+            search_config=search_config,
+
+            mode=Mode.OFFLINE.name,
+            test_version=0.0,
+        )
+        decoder_config_streaming = DecoderConfig(
+            beam_size=1024,
+            returnn_vocab=label_datastream_bpe.vocab,
+
+            search_config=search_config,
+
+            mode=Mode.STREAMING.name,
+            chunk_size=int(model_config.chunk_size),
+            lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+            carry_over_size=model_config.carry_over_size,
+            test_version=0.0,
+        )
+
+        tune_and_evaluate_helper(
+            training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_offline,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+        tune_and_evaluate_helper(
+            training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_streaming,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+
+
+        #########################################################################################
+        # FF 512 and [512, 1024] with mean abs symmetric
+        model_config = QuantModelTrainConfigV4(
+            feature_extraction_config=fe_config,
+            frontend_config=frontend_config_sub6,
+            specaug_config=specaug_config,
+            label_target_size=vocab_size_without_blank,
+            conformer_size=512,
+            num_layers=12,
+            num_heads=8,
+            ff_dim=ff_dim,
+            att_weights_dropout=0.1,
+            conv_dropout=0.1,
+            ff_dropout=0.1,
+            mhsa_dropout=0.1,
+            conv_kernel_size=31,
+            final_dropout=0.1,
+            specauc_start_epoch=11,
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor_symmetric",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor_symmetric",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor_symmetric",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor_symmetric",
+            moving_average=None,
+            weight_bit_prec=8,
+            activation_bit_prec=8,
+            quantize_output=False,
+            extra_act_quant=False,
+            quantize_bias=None,
+            observer_only_in_train=False,
+
+            # streaming params
+            chunk_size=chunk_size * 16000,  # samples corresponding to 28 sub-frames
+            lookahead_size=fac_size,
+            carry_over_size=carry_over_size,
+            dual_mode=None,
+            streaming_scale=None,
+            train_mode=str(TrainMode.STREAMING),
+        )
+
+        train_args = {
+            "config": train_config_no_amp,
+            "network_module": network_module,
+            "include_native_ops": True,
+            "debug": True,
+            "net_args": {"model_config_dict": asdict(model_config)}
+        }
+        training_name = prefix_name + "/" + network_module + f"_8_8_512_{ff_dim}_sym_streaming"
+        train_job = training(training_name, train_data_bpe, train_args,
+                            num_epochs=num_epochs, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
+            get_specific_checkpoint=num_epochs,
+        )
+        search_config = CTCBeamSearchConfig(
+            lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=bpe_size),
+            beam_size_token=16,
+            beam_threshold=14,  # Untuned,
+            lm_package=arpa_4gram_lm,
+            prior_file=asr_model.prior_file,
+        )
+        decoder_config_offline = DecoderConfig(
+            beam_size=1024,
+            returnn_vocab=label_datastream_bpe.vocab,
+            search_config=search_config,
+
+            mode=Mode.OFFLINE.name,
+            test_version=0.0,
+        )
+        decoder_config_streaming = DecoderConfig(
+            beam_size=1024,
+            returnn_vocab=label_datastream_bpe.vocab,
+
+            search_config=search_config,
+
+            mode=Mode.STREAMING.name,
+            chunk_size=int(model_config.chunk_size),
+            lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
+            carry_over_size=model_config.carry_over_size,
+            test_version=0.0,
+        )
+
+        tune_and_evaluate_helper(
+            training_name + "/offline/4gram_lm/search_bs%i" % decoder_config_offline.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_offline,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
+        tune_and_evaluate_helper(
+            training_name + "/streaming/4gram_lm/search_bs%i" % decoder_config_streaming.beam_size,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            asr_model=asr_model,
+            base_decoder_config=decoder_config_streaming,
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
+            decoder_module="search.decoder_module",
+            debug=True,
+            use_gpu=False,
+        )
 
     # report string
     tk.register_report("reports/qat/streamable_qat_comparison", partial(build_qat_report, qat_report), required=qat_report)

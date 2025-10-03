@@ -123,17 +123,18 @@ def build_qat_report(qat_report, ret_best=True):
         },
     }
 
-    Example output:
-    ---------------
+    Example output (with ret_best=False):
+    -------------------------------------
 
     ctc_beam_search_decoder:
-                    model   wer   lm_scale   prior_scale   beam_size
-    ctc.qat_2509.baseline_qat_v4_streamable_512_1024_4gram_lm_offline    7.7    0.5    0.8    1024
-    ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming    8.1    0.2    1.2    1024
-    ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming    7.9    0.35   0.9    1024
+                                                                model    wer  lm_scale  prior_scale  beam_size
+    ctc.qat_2509.baseline_qat_v4_streamable_512_1024_4gram_lm_offline    7.7      0.50          0.8       1024
+    ...
+    ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming    8.1      0.20          1.2       1024
+    ctc.qat_2509.baseline_qat_v4_streamable_512_512_lstm_lm_streaming    7.9      0.35          0.9       1024
 
     ctc_greedy_decoder:
-                    model   wer
+                                                                model     wer
     ctc.qat_2509.baseline_qat_v4_streamable_512_1024_4gram_lm_offline    12.5
     ctc.qat_2509.full_qat_v1_streamable_512_1024                         12.9
     """
@@ -154,17 +155,17 @@ def build_qat_report(qat_report, ret_best=True):
     # convert to pandas dataframe
     for decoder_name, rows in decoder_tables.items():
         df = pd.DataFrame(rows)
+        df['wer'] = df['wer'].astype(float)
         if ret_best:
             # we only return the row of each model that has the best WER
-            df['wer'] = df['wer'].astype(float)
             df = df.sort_values('wer').groupby('model').head(1)
-            decoder_tables[decoder_name] = df
+            decoder_tables[decoder_name] = df.sort_values("model")
         else:
-            decoder_tables[decoder_name] = pd.DataFrame(rows)
+            decoder_tables[decoder_name] = df.sort_values(["model", "wer"])
 
     final_str = ""
     for decoder, df in decoder_tables.items():
         final_str += f"\n{decoder}:\n"
-        final_str += df.to_string(index=False)
+        final_str += df.to_string(index=False) + "\n"
 
     return final_str
