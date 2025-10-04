@@ -116,6 +116,17 @@ def get_returnn_root() -> tk.Path:
     return tk.Path(getattr(gs, "RETURNN_ROOT"), hash_overwrite="DEFAULT_RETURNN_ROOT")
 
 
+def get_ffmpeg_binary() -> tk.Path:
+    """
+    FFMPEG binary
+    """
+    path = getattr(gs, "FFMPEG_BINARY", None)
+    if path is None:
+        path = shutil.which("ffmpeg")
+        assert path, "ffmpeg not found"
+    return tk.Path(path, hash_overwrite="DEFAULT_FFMPEG_BINARY")
+
+
 _orig_i6_core_util_get_executable_path: Optional[Callable[..., tk.Path]] = None
 
 
