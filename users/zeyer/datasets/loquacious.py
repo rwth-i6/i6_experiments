@@ -23,8 +23,9 @@ def get_loquacious_hf_ogg() -> Path:
         transform=_transform_rename_columns,
         map_func=partial(_map_func_wav_to_ogg, ffmpeg_binary=ffmpeg_binary, quality_opts=["-q", "4"]),
         map_opts=_map_opts,
+        non_hashed_map_opts={"num_proc": 64},
     )
-    job.rqmt.update({"cpu": 10, "time": 4, "mem": 20})
+    job.rqmt.update({"cpu": 32, "time": 24, "mem": 32})
     return job.out_dir
 
 
