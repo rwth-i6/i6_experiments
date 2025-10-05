@@ -11,17 +11,18 @@ if TYPE_CHECKING:
 
 def py():
     for name in ["small", "medium", "large"]:
-        tk.register_output(f"datasets/loquacious_hf_{name}_ogg", get_loquacious_hf_ogg(name))
+        for q in [3, 4]:
+            tk.register_output(f"datasets/loquacious_hf_{name}_q{q}_ogg", get_loquacious_hf_ogg(name, quality=q))
 
 
-def get_loquacious_hf_ogg(name: str = "large") -> Path:
+def get_loquacious_hf_ogg(name: str = "large", *, quality: int = 3) -> Path:
     ffmpeg_binary = tools_paths.get_ffmpeg_binary()
 
     job = TransformAndMapHuggingFaceDatasetJob(
         "speechbrain/LoquaciousSet",
         name,
         transform=_transform_rename_columns,
-        map_func=partial(_map_func_wav_to_ogg, ffmpeg_binary=ffmpeg_binary, quality_opts=["-q", "4"]),
+        map_func=partial(_map_func_wav_to_ogg, ffmpeg_binary=ffmpeg_binary, quality_opts=["-q", str(quality)]),
         map_opts=_map_opts,
     )
     job.rqmt.update({"cpu": 32, "time": 24, "mem": 32})
