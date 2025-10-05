@@ -20,6 +20,7 @@ def py():
         for q in [3, 4]:
             get_loquacious_hf_ogg(name, quality=q)
     get_train_corpus_text()
+    get_train_corpus_text("medium")
     get_spm_vocab(dim=10_240)
 
 
@@ -41,10 +42,10 @@ def get_loquacious_hf_ogg(name: str = "large", *, quality: int = 3) -> Path:
 
 
 @cache
-def get_train_corpus_text() -> Path:
-    job = ExtractTextFromHuggingFaceDatasetJob("speechbrain/LoquaciousSet", "large", split="train", column_name="text")
-    job.add_alias(f"{_alias_prefix}train_corpus.txt.extract")
-    tk.register_output(f"{_alias_prefix}train_corpus.txt.gz", job.out_text)
+def get_train_corpus_text(name: str = "large", *, split: str = "train") -> Path:
+    job = ExtractTextFromHuggingFaceDatasetJob("speechbrain/LoquaciousSet", name, split=split, column_name="text")
+    job.add_alias(f"{_alias_prefix}{split}_{name}_corpus.txt.extract")
+    tk.register_output(f"{_alias_prefix}{split}_{name}_corpus.txt.gz", job.out_text)
     return job.out_text
 
 
