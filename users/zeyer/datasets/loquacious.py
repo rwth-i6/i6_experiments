@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Any, Sequence, Dict
+from typing import TYPE_CHECKING, Union, Optional, Any, Sequence, Dict
+import re
 from functools import partial, cache
 from sisyphus import tk, Path
 from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob, ExtractTextFromHuggingFaceDatasetJob
@@ -7,6 +8,8 @@ from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, Senten
 from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from i6_experiments.users.zeyer import tools_paths
 from .utils.spm import SentencePieceModel
+from .task import Task, MeasureType, RecogOutput
+from .utils.sclite_generic_score import generic_sclite_score_recog_out
 
 if TYPE_CHECKING:
     from datasets import DatasetDict
@@ -94,6 +97,85 @@ def get_spm_vocab(
         eos_idx=0,
     )
     return spm
+
+
+@cache
+def get_loquacious_task_raw(
+    *,
+    vocab: str,
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+    **dataset_train_opts,
+) -> Task:
+    vocab = get_vocab_by_str(vocab)
+
+    # See :func:`search_dataset`.
+    # We first optionally do :func:`ctc_alignment_to_label_seq` if ``recog_def.output_blank_label`` is set.
+    # (SearchCollapseRepeatedLabelsJob, SearchRemoveLabelJob).
+    # Then ``recog_post_proc_funcs`` are applied.
+    # Then SearchTakeBestJob.
+    # Then, for Sclite scoring, there is SearchWordsDummyTimesToCTMJob.
+    if isinstance(vocab, SentencePieceModel):
+        recog_post_proc_funcs = [_spm_to_words]
+    else:
+        raise TypeError(f"unhandled vocab type {type(vocab)}")
+
+    # TODO peak_normalization ?
+    dataset_common_opts = dict(audio=_raw_audio_opts, audio_dim=1, vocab=vocab)
+    if train_vocab_opts:
+        dataset_common_opts["train_vocab"] = vocab.copy(**train_vocab_opts)
+    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
+    train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    eval_datasets = {
+        "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
+        "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
+        "test-clean": dataset_cls(**dataset_common_opts, main_key="test-clean"),
+        "test-other": dataset_cls(**dataset_common_opts, main_key="test-other"),
+    }
+    dev_dataset = eval_datasets["dev-other"]
+
+    task = Task(
+        name="loquacious",
+        train_dataset=train_dataset,
+        train_epoch_split=train_dataset.train_epoch_split,
+        dev_dataset=dev_dataset,
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="WER%"),
+        main_measure_name="dev-other",
+        score_recog_output_func=generic_sclite_score_recog_out,
+        recog_post_proc_funcs=recog_post_proc_funcs,
+    )
+    return task
+
+
+_raw_audio_opts = dict(
+    features="raw",
+    sample_rate=16_000,
+    peak_normalization=True,
+    preemphasis=None,
+)
+
+
+@cache
+def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel]:
+    """
+    Get vocab
+    """
+    if re.match("^spm[0-9]+.*$", vocab):
+        return get_spm_vocab(dim=vocab[len("spm") :], model_type=SentencePieceType.UNIGRAM)
+    elif re.match("^spmLm[0-9]+.*$", vocab):
+        return get_spm_vocab(dim=vocab[len("spmLm") :], model_type=SentencePieceType.UNIGRAM, train_full=True)
+    elif re.match("^spm_bpe[0-9]+.*$", vocab):
+        return get_spm_vocab(dim=vocab[len("spm_bpe") :], model_type=SentencePieceType.BPE)
+    else:
+        raise ValueError(f"invalid vocab {vocab!r}")
+
+
+def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
+    """BPE to words"""
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+
+    words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("▁", " ")], output_gzip=True).out_search_results
+    return RecogOutput(output=words)
 
 
 def _transform_rename_columns(ds: DatasetDict) -> DatasetDict:
