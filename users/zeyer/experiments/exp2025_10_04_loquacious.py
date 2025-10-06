@@ -40,6 +40,7 @@ def py():
         name,
         config_96gb_bf16_accgrad1,
         prefix=prefix + "/aed/",
+        task=task_spm10k,
         model_config={
             "behavior_version": 24,
             "__serialization_version": 2,

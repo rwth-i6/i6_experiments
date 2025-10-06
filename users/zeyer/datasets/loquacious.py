@@ -142,7 +142,7 @@ def get_loquacious_task_raw(
         "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
         "test": _make_hf_dataset(hf_data_dir=hf_data_dir, split="test", vocab=vocab),
     }
-    dev_dataset = eval_datasets["dev-other"]
+    dev_dataset = eval_datasets["dev"]
 
     task = Task(
         name="loquacious",
@@ -151,7 +151,7 @@ def get_loquacious_task_raw(
         dev_dataset=dev_dataset,
         eval_datasets=eval_datasets,
         main_measure_type=MeasureType(short_name="WER%"),
-        main_measure_name="dev-other",
+        main_measure_name="dev",
         score_recog_output_func=generic_sclite_score_recog_out,
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
