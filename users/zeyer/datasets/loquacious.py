@@ -24,7 +24,7 @@ def py():
             get_loquacious_hf_ogg(name, quality=q)
     get_train_corpus_text()
     get_train_corpus_text("medium")
-    get_spm_vocab(dim=10_240)
+    get_spm_vocab(dim="10k")
 
 
 @cache
