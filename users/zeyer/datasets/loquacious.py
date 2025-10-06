@@ -171,6 +171,7 @@ def _make_hf_dataset_train(
         use_distrib_files=True,
         vocab=train_vocab or vocab,
         partition_epoch=train_epoch_split,
+        seq_ordering="random",
     )
     return DatasetConfigStatic(
         extern_data=train_ds.extern_data,
@@ -192,6 +193,7 @@ def _make_hf_dataset(
     hf_data_dir: Path,
     split: str,
     vocab: VocabConfig,
+    seq_ordering: str = "sorted_reverse",
     partition_epoch: Optional[int] = None,
     use_distrib_files: bool = False,
     take_first_shard_subset: bool = False,
@@ -223,6 +225,7 @@ def _make_hf_dataset(
         "sorting_seq_len_column": "duration",
         "cast_columns": {"audio": {"_type": "Audio", "sample_rate": 16_000}},
         "data_format": extern_data_dict,
+        "seq_ordering": seq_ordering,
     }
 
     if use_distrib_files:
@@ -233,6 +236,7 @@ def _make_hf_dataset(
             "class": "DistributeFilesDataset",
             "files": partial(_distribute_files_get_files, hf_data_dir=hf_ds_opts),
             "get_sub_epoch_dataset": partial(_distribute_files_get_sub_epoch_dataset, base_dict=d),
+            "seq_ordering": "random",
         }
 
     if partition_epoch:
