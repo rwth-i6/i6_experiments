@@ -231,7 +231,7 @@ def _make_hf_dataset(
         del d["use_file_cache"]  # handled via _distribute_files_get_sub_epoch_dataset
         d = {
             "class": "DistributeFilesDataset",
-            "files": partial(_distribute_files_get_files, hf_data_dir=hf_data_dir),
+            "files": partial(_distribute_files_get_files, hf_data_dir=hf_ds_opts),
             "get_sub_epoch_dataset": partial(_distribute_files_get_sub_epoch_dataset, base_dict=d),
         }
 
