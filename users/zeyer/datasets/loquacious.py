@@ -1,18 +1,30 @@
+"""
+Loquacious dataset
+"""
+
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Optional, Any, Sequence, Dict
+
+import os
+from typing import TYPE_CHECKING, Union, Optional, Any, Sequence, Dict, List
 import re
 from functools import partial, cache
+
 from sisyphus import tk, Path
+
 from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob, ExtractTextFromHuggingFaceDatasetJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
+
 from i6_experiments.users.zeyer import tools_paths
+
+from returnn_common.datasets_old_2022_10.interface import VocabConfig, DatasetConfigStatic
+
 from .utils.spm import SentencePieceModel
 from .task import Task, MeasureType, RecogOutput
 from .utils.sclite_generic_score import generic_sclite_score_recog_out
 
 if TYPE_CHECKING:
-    from datasets import DatasetDict
+    import datasets
 
 
 _alias_prefix = "datasets/Loquacious/"
@@ -104,9 +116,8 @@ def get_loquacious_task_raw(
     *,
     vocab: str,
     train_vocab_opts: Optional[Dict[str, Any]] = None,
-    **dataset_train_opts,
 ) -> Task:
-    vocab = get_vocab_by_str(vocab)
+    vocab: VocabConfig = get_vocab_by_str(vocab)
 
     # See :func:`search_dataset`.
     # We first optionally do :func:`ctc_alignment_to_label_seq` if ``recog_def.output_blank_label`` is set.
@@ -119,24 +130,24 @@ def get_loquacious_task_raw(
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
+    hf_data_dir = get_loquacious_hf_ogg()
+
     # TODO peak_normalization ?
-    dataset_common_opts = dict(audio=_raw_audio_opts, audio_dim=1, vocab=vocab)
-    if train_vocab_opts:
-        dataset_common_opts["train_vocab"] = vocab.copy(**train_vocab_opts)
-    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
-    train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    train_epoch_split = 25  # so one subepoch is approx 1000h
+    train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
+    train_dataset = _make_hf_dataset_train(
+        hf_data_dir=hf_data_dir, vocab=vocab, train_vocab=train_vocab, train_epoch_split=train_epoch_split
+    )
     eval_datasets = {
-        "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
-        "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
-        "test-clean": dataset_cls(**dataset_common_opts, main_key="test-clean"),
-        "test-other": dataset_cls(**dataset_common_opts, main_key="test-other"),
+        "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
+        "test": _make_hf_dataset(hf_data_dir=hf_data_dir, split="test", vocab=vocab),
     }
     dev_dataset = eval_datasets["dev-other"]
 
     task = Task(
         name="loquacious",
         train_dataset=train_dataset,
-        train_epoch_split=train_dataset.train_epoch_split,
+        train_epoch_split=train_epoch_split,
         dev_dataset=dev_dataset,
         eval_datasets=eval_datasets,
         main_measure_type=MeasureType(short_name="WER%"),
@@ -147,16 +158,111 @@ def get_loquacious_task_raw(
     return task
 
 
-_raw_audio_opts = dict(
-    features="raw",
-    sample_rate=16_000,
-    peak_normalization=True,
-    preemphasis=None,
-)
+def _make_hf_dataset_train(
+    *, hf_data_dir: Path, vocab: VocabConfig, train_vocab: Optional[VocabConfig] = None, train_epoch_split: int = 1
+) -> DatasetConfigStatic:
+    train_ds = _make_hf_dataset(
+        hf_data_dir=hf_data_dir, split="train", use_distrib_files=True, vocab=train_vocab or vocab
+    )
+    return DatasetConfigStatic(
+        extern_data=train_ds.extern_data,
+        default_input=train_ds.default_input,
+        default_target=train_ds.default_target,
+        train_dataset=train_ds.main_dataset,
+        eval_datasets={
+            "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab).main_dataset,
+            "devtrain": _make_hf_dataset(
+                hf_data_dir=hf_data_dir, split="train", vocab=vocab, take_first_shard_subset=True
+            ).main_dataset,
+        },
+        use_deep_copy=True,
+    )
+
+
+def _make_hf_dataset(
+    *,
+    hf_data_dir: Path,
+    split: str,
+    vocab: VocabConfig,
+    use_distrib_files: bool = False,
+    take_first_shard_subset: bool = False,
+) -> DatasetConfigStatic:
+    vocab_opts = vocab.get_opts()
+    # Note: Actually, extern_data would be with batch dim,
+    # while data_format of the dataset is without batch dim.
+    # However, "shape" is always without batch dim,
+    # thus this dict here works for both.
+    extern_data_dict = {
+        "audio": {"dtype": "float32", "shape": [None]},
+        "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": vocab_opts},
+    }
+    hf_ds_opts = hf_data_dir.join_right(split)
+    if take_first_shard_subset:
+        hf_ds_opts = partial(_hf_dataset_dir_take_first_shard, hf_ds_opts)
+
+    d = {
+        "class": "HuggingFaceDataset",
+        "dataset_opts": hf_ds_opts,
+        "use_file_cache": True,
+        # {'id': Value(dtype='string', id=None),
+        #  'duration': Value(dtype='float32', id=None),
+        #  'audio': Audio(sampling_rate=None, mono=True, decode=True, id=None),
+        #  'spk_id': Value(dtype='string', id=None),
+        #  'sex': Value(dtype='string', id=None),
+        #  'text': Value(dtype='string', id=None)}
+        "seq_tag_column": "id",
+        "sorting_seq_len_column": "duration",
+        "cast_columns": {"audio": {"_type": "Audio", "sample_rate": 16_000}},
+        "data_format": extern_data_dict,
+    }
+
+    if use_distrib_files:
+        assert not take_first_shard_subset
+        d["dataset_opts"] = None  # will be set _distribute_files_get_files
+        del d["use_file_cache"]
+        d = {
+            "class": "DistributeFilesDataset",
+            "files": partial(_distribute_files_get_files, hf_data_dir=hf_data_dir),
+            "get_sub_epoch_dataset": partial(_distribute_files_get_sub_epoch_dataset, base_dict=d),
+        }
+
+    return DatasetConfigStatic(
+        main_name=split,
+        main_dataset=d,
+        extern_data=extern_data_dict,
+        default_input="audio",
+        default_target="text",
+        use_deep_copy=True,
+    )
+
+
+def _distribute_files_get_files(hf_data_dir: Union[Path, str, os.PathLike]) -> List[Union[Path, str]]:
+    from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
+
+    return get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir)
+
+
+def _distribute_files_get_sub_epoch_dataset(files: List[str], *, base_dict: Dict[str, Any]):
+    d = base_dict.copy()
+    d["dataset_opts"] = files
+    return d
+
+
+def _hf_dataset_dir_take_first_shard(hf_data_dir: Union[Path, str, os.PathLike]) -> List[str]:
+    content = os.listdir(hf_data_dir)
+    assert "state.json" in content
+    assert "dataset_info.json" in content
+    content = [fn for fn in content if fn.endswith(".arrow")]
+    assert content, f"no .arrow files found in {hf_data_dir!r}"
+    pat_first = re.compile("^data-(0+)-of-([0-9]+).arrow$")
+    content = [pat_first.match(fn) for fn in content]
+    content = list(filter(None, content))
+    assert len(content) == 1, f"expected exactly one shard file in {hf_data_dir!r}, got {content}"
+    return [hf_data_dir + "/" + content[0].group(0)]
 
 
 @cache
-def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel]:
+def get_vocab_by_str(vocab: str) -> Union[VocabConfig, SentencePieceModel]:
     """
     Get vocab
     """
@@ -178,7 +284,7 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
-def _transform_rename_columns(ds: DatasetDict) -> DatasetDict:
+def _transform_rename_columns(ds: datasets.DatasetDict) -> datasets.DatasetDict:
     return ds.rename_columns({"ID": "id", "wav": "audio"})
 
 
@@ -213,7 +319,7 @@ def _map_func_wav_to_ogg(
     return data
 
 
-def _map_opts(ds: DatasetDict) -> Dict[str, Any]:
+def _map_opts(ds: datasets.DatasetDict) -> Dict[str, Any]:
     from datasets import Audio
 
     features = ds["train"].features.copy()
