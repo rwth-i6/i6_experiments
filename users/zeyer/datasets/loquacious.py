@@ -159,10 +159,18 @@ def get_loquacious_task_raw(
 
 
 def _make_hf_dataset_train(
-    *, hf_data_dir: Path, vocab: VocabConfig, train_vocab: Optional[VocabConfig] = None, train_epoch_split: int = 1
+    *,
+    hf_data_dir: Path,
+    vocab: VocabConfig,
+    train_vocab: Optional[VocabConfig] = None,
+    train_epoch_split: Optional[int] = None,
 ) -> DatasetConfigStatic:
     train_ds = _make_hf_dataset(
-        hf_data_dir=hf_data_dir, split="train", use_distrib_files=True, vocab=train_vocab or vocab
+        hf_data_dir=hf_data_dir,
+        split="train",
+        use_distrib_files=True,
+        vocab=train_vocab or vocab,
+        partition_epoch=train_epoch_split,
     )
     return DatasetConfigStatic(
         extern_data=train_ds.extern_data,
@@ -184,6 +192,7 @@ def _make_hf_dataset(
     hf_data_dir: Path,
     split: str,
     vocab: VocabConfig,
+    partition_epoch: Optional[int] = None,
     use_distrib_files: bool = False,
     take_first_shard_subset: bool = False,
 ) -> DatasetConfigStatic:
@@ -219,12 +228,15 @@ def _make_hf_dataset(
     if use_distrib_files:
         assert not take_first_shard_subset
         d["dataset_opts"] = None  # will be set _distribute_files_get_files
-        del d["use_file_cache"]
+        del d["use_file_cache"]  # handled via _distribute_files_get_sub_epoch_dataset
         d = {
             "class": "DistributeFilesDataset",
             "files": partial(_distribute_files_get_files, hf_data_dir=hf_data_dir),
             "get_sub_epoch_dataset": partial(_distribute_files_get_sub_epoch_dataset, base_dict=d),
         }
+
+    if partition_epoch:
+        d["partition_epoch"] = partition_epoch
 
     return DatasetConfigStatic(
         main_name=split,
@@ -243,8 +255,10 @@ def _distribute_files_get_files(hf_data_dir: Union[Path, str, os.PathLike]) -> L
 
 
 def _distribute_files_get_sub_epoch_dataset(files: List[str], *, base_dict: Dict[str, Any]):
+    from returnn.util.file_cache import CachedFile
+
     d = base_dict.copy()
-    d["dataset_opts"] = files
+    d["dataset_opts"] = [CachedFile(fn) for fn in files]
     return d
 
 
