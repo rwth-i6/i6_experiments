@@ -471,7 +471,7 @@ def _hf_dataset_dir_take_first_shard(hf_data_dir: Union[Path, str, os.PathLike])
     content = os.listdir(hf_data_dir)
     assert "state.json" in content
     assert "dataset_info.json" in content
-    content = [fn for fn in content if fn.endswith(".arrow")]
+    content = [fn for fn in content if fn.startswith("data-") and fn.endswith(".arrow")]
     assert content, f"no .arrow files found in {hf_data_dir!r}"
     pat_first = re.compile("^data-(0+)-of-([0-9]+).arrow$")
     content = [pat_first.match(fn) for fn in content]
