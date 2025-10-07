@@ -19,6 +19,8 @@ from i6_experiments.users.zeyer import tools_paths
 
 from returnn_common.datasets_old_2022_10.interface import VocabConfig, DatasetConfigStatic
 
+from returnn.tensor import batch_dim, Dim
+
 from .utils.spm import SentencePieceModel
 from .task import Task, MeasureType, RecogOutput
 from .utils.sclite_generic_score import generic_sclite_score_recog_out
@@ -199,13 +201,14 @@ def _make_hf_dataset(
     take_first_shard_subset: bool = False,
 ) -> DatasetConfigStatic:
     vocab_opts = vocab.get_opts()
-    # Note: Actually, extern_data would be with batch dim,
-    # while data_format of the dataset is without batch dim.
-    # However, "shape" is always without batch dim,
-    # thus this dict here works for both.
     extern_data_dict = {
-        "audio": {"dtype": "float32", "shape": [None]},
-        "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": vocab_opts},
+        "audio": {"dtype": "float32", "dim_tags": [batch_dim, Dim(None, name="time")]},
+        "text": {
+            "dtype": "int32",
+            "dim_tags": [batch_dim, Dim(None, name="text_spatial")],
+            "sparse": True,
+            "vocab": vocab_opts,
+        },
     }
     hf_ds_opts = hf_data_dir.join_right(split)
     if take_first_shard_subset:
@@ -224,7 +227,11 @@ def _make_hf_dataset(
         "seq_tag_column": "id",
         "sorting_seq_len_column": "duration",
         "cast_columns": {"audio": {"_type": "Audio", "sample_rate": 16_000}},
-        "data_format": extern_data_dict,
+        # Keep data_format consistent to extern_data_dict.
+        "data_format": {
+            "audio": {"dtype": "float32", "shape": [None]},
+            "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": vocab_opts},
+        },
         "seq_ordering": seq_ordering,
     }
 
