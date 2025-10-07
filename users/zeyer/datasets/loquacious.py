@@ -38,7 +38,7 @@ def py():
     for name in ["small", "medium", "large"]:
         for q in [3, 4]:
             get_loquacious_hf_ogg(name, quality=q)
-    # get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3")
+    get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3")
     get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "dev", take_n=5_000, alias_name="dev_q3")
     get_train_corpus_text()
     get_train_corpus_text("medium")
