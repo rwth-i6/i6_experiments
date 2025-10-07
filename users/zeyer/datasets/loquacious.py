@@ -214,7 +214,7 @@ def get_loquacious_task_raw(
         eval_datasets=eval_datasets,
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev",
-        score_recog_output_func=generic_sclite_score_recog_out,
+        score_recog_output_func=partial(generic_sclite_score_recog_out, post_proc_funcs=recog_post_proc_funcs),
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
     return task
@@ -270,7 +270,7 @@ def get_loquacious_task_raw_v2(
         eval_datasets=eval_datasets,
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev",
-        score_recog_output_func=generic_sclite_score_recog_out,
+        score_recog_output_func=partial(generic_sclite_score_recog_out, post_proc_funcs=recog_post_proc_funcs),
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
     return task
