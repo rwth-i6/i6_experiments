@@ -781,7 +781,7 @@ def model_recog(
 
     search_version = config.int("search_version", 1)
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12 if search_version == 1 else config.int("beam_size", 12)
     length_normalization_exponent = 1.0 if search_version == 1 else config.float("length_normalization_exponent", 1.0)
