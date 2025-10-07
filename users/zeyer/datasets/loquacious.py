@@ -274,6 +274,7 @@ def _distribute_files_get_sub_epoch_dataset(files: List[str], *, base_dict: Dict
 
 
 def _hf_dataset_dir_take_first_shard(hf_data_dir: Union[Path, str, os.PathLike]) -> List[str]:
+    hf_data_dir = os.fspath(hf_data_dir)
     content = os.listdir(hf_data_dir)
     assert "state.json" in content
     assert "dataset_info.json" in content
