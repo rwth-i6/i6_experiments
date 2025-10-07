@@ -1,5 +1,7 @@
 """
 Loquacious dataset
+
+# TODO peak_normalization ?
 """
 
 from __future__ import annotations
@@ -188,7 +190,6 @@ def get_loquacious_task_raw(
 
     hf_data_dir = get_loquacious_hf_ogg()
 
-    # TODO peak_normalization ?
     train_epoch_split = 25  # so one subepoch is approx 1000h
     train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
     train_dataset = _make_hf_dataset_train(
@@ -245,7 +246,6 @@ def get_loquacious_task_raw_v2(
 
     hf_data_dir = get_loquacious_hf_ogg()
 
-    # TODO peak_normalization ?
     train_epoch_split = 25  # so one subepoch is approx 1000h
     train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
     train_dataset = _make_hf_dataset_train_v2(
