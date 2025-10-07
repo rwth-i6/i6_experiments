@@ -16,6 +16,7 @@ from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, Senten
 from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
 
 from returnn_common.datasets_old_2022_10.interface import VocabConfig, DatasetConfigStatic
 
@@ -119,6 +120,7 @@ def get_loquacious_task_raw(
     vocab: str,
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     train_seq_ordering: str = "laplace:.1000",
+    multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> Task:
     vocab: VocabConfig = get_vocab_by_str(vocab)
 
@@ -144,6 +146,7 @@ def get_loquacious_task_raw(
         train_vocab=train_vocab,
         train_epoch_split=train_epoch_split,
         train_seq_ordering=train_seq_ordering,
+        multi_proc_dataset=multi_proc_dataset,
     )
     eval_datasets = {
         "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
@@ -165,6 +168,12 @@ def get_loquacious_task_raw(
     return task
 
 
+# TODO v2:
+#   - multiprocdataset?
+#   - better devtrain: take random subset of train
+#   - better dev: take subset of dev
+
+
 def _make_hf_dataset_train(
     *,
     hf_data_dir: Path,
@@ -172,6 +181,7 @@ def _make_hf_dataset_train(
     train_vocab: Optional[VocabConfig] = None,
     train_epoch_split: Optional[int] = None,
     train_seq_ordering: str = "random",
+    multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> DatasetConfigStatic:
     train_ds = _make_hf_dataset(
         hf_data_dir=hf_data_dir,
@@ -180,6 +190,7 @@ def _make_hf_dataset_train(
         vocab=train_vocab or vocab,
         partition_epoch=train_epoch_split,
         seq_ordering=train_seq_ordering,
+        multi_proc_dataset=multi_proc_dataset,
     )
     return DatasetConfigStatic(
         extern_data=train_ds.extern_data,
@@ -187,9 +198,15 @@ def _make_hf_dataset_train(
         default_target=train_ds.default_target,
         train_dataset=train_ds.main_dataset,
         eval_datasets={
-            "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab).main_dataset,
+            "dev": _make_hf_dataset(
+                hf_data_dir=hf_data_dir, split="dev", vocab=vocab, multi_proc_dataset=multi_proc_dataset
+            ).main_dataset,
             "devtrain": _make_hf_dataset(
-                hf_data_dir=hf_data_dir, split="train", vocab=vocab, take_first_shard_subset=True
+                hf_data_dir=hf_data_dir,
+                split="train",
+                vocab=vocab,
+                take_first_shard_subset=True,
+                multi_proc_dataset=multi_proc_dataset,
             ).main_dataset,
         },
         use_deep_copy=True,
@@ -205,6 +222,7 @@ def _make_hf_dataset(
     partition_epoch: Optional[int] = None,
     use_distrib_files: bool = False,
     take_first_shard_subset: bool = False,
+    multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> DatasetConfigStatic:
     vocab_opts = vocab.get_opts()
     extern_data_dict = {
@@ -248,12 +266,19 @@ def _make_hf_dataset(
         d = {
             "class": "DistributeFilesDataset",
             "files": partial(_distribute_files_get_files, hf_data_dir=hf_ds_opts),
-            "get_sub_epoch_dataset": partial(_distribute_files_get_sub_epoch_dataset, base_dict=d),
+            "get_sub_epoch_dataset": partial(
+                _distribute_files_get_sub_epoch_dataset,
+                base_dict=d,
+                **({"multi_proc_dataset": multi_proc_dataset} if multi_proc_dataset else {}),
+            ),
             "seq_ordering": "random",
         }
 
     if partition_epoch:
         d["partition_epoch"] = partition_epoch
+
+    if multi_proc_dataset and not use_distrib_files:
+        d = mp_ds_utils.multi_proc_dataset_opts(d, **multi_proc_dataset)
 
     return DatasetConfigStatic(
         main_name=split,
@@ -271,11 +296,17 @@ def _distribute_files_get_files(hf_data_dir: Union[Path, str, os.PathLike]) -> L
     return get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir)
 
 
-def _distribute_files_get_sub_epoch_dataset(files: List[str], *, base_dict: Dict[str, Any]):
+def _distribute_files_get_sub_epoch_dataset(
+    files: List[str], *, base_dict: Dict[str, Any], multi_proc_dataset: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     from returnn.util.file_cache import CachedFile
 
     d = base_dict.copy()
     d["dataset_opts"] = [CachedFile(fn) for fn in files]
+
+    if multi_proc_dataset is not None:
+        d = mp_ds_utils.multi_proc_dataset_opts(d, **multi_proc_dataset)
+
     return d
 
 
