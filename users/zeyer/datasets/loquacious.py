@@ -4,9 +4,10 @@ Loquacious dataset
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Union, Optional, Any, Sequence, Dict, List
+import os
 import re
+import numpy as np
 from functools import partial, cache
 
 from sisyphus import tk, Path
@@ -37,6 +38,8 @@ def py():
     for name in ["small", "medium", "large"]:
         for q in [3, 4]:
             get_loquacious_hf_ogg(name, quality=q)
+    # get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3")
+    get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "dev", take_n=5_000, alias_name="dev_q3")
     get_train_corpus_text()
     get_train_corpus_text("medium")
     get_spm_vocab(dim="10k")
@@ -54,9 +57,52 @@ def get_loquacious_hf_ogg(name: str = "large", *, quality: int = 3) -> Path:
         map_opts=_map_opts,
     )
     job.rqmt.update({"cpu": 32, "time": 24, "mem": 32})
-    job.add_alias(_alias_prefix + f"dataset_hf_{name}_q{quality}_ogg")
+    job.add_alias(f"{_alias_prefix}dataset_hf_{name}_q{quality}_ogg")
     tk.register_output(f"{_alias_prefix}dataset_hf_{name}_q{quality}_ogg", job.out_dir)
     return job.out_dir
+
+
+@cache
+def get_hf_random_sorted_subset(
+    path: Path,
+    split: str,
+    *,
+    take_n: int,
+    duration_key: str = "duration",
+    random_seed: int = 42,
+    alias_name: Optional[str] = None,
+) -> Path:
+    """
+    Take some HF dataset path (e.g. via :func:`get_loquacious_hf_ogg`),
+    shuffle it, take N seqs, and sort it by (reversed) duration,
+    and store it as new HF dataset.
+    """
+    job = TransformAndMapHuggingFaceDatasetJob(
+        path,
+        load_dataset_opts={"split": split},
+        transform=partial(
+            _hf_dataset_transform_random_sorted_subset,
+            take_n=take_n,
+            duration_key=duration_key,
+            random_seed=random_seed,
+        ),
+    )
+    if alias_name:
+        job.add_alias(f"{_alias_prefix}dataset_hf_{alias_name}_random_sorted_subset_n{take_n}")
+        tk.register_output(f"{_alias_prefix}dataset_hf_{alias_name}_random_sorted_subset_n{take_n}", job.out_dir)
+    return job.out_dir
+
+
+def _hf_dataset_transform_random_sorted_subset(
+    ds: datasets.Dataset, *, take_n: int, duration_key: str = "duration", random_seed: int = 42
+) -> datasets.Dataset:
+    assert isinstance(ds, datasets.Dataset), f"expected datasets.Dataset, got {type(ds)} {ds}"
+    # like ds.shuffle(...).take(...) but faster and more direct
+    generator = np.random.default_rng(random_seed)
+    permutation = generator.permutation(take_n)
+    ds = ds.select(permutation)
+    ds = ds.sort(duration_key, reverse=True)
+    return ds
 
 
 @cache
