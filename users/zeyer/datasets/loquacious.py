@@ -96,6 +96,8 @@ def get_hf_random_sorted_subset(
 def _hf_dataset_transform_random_sorted_subset(
     ds: datasets.Dataset, *, take_n: int, duration_key: str = "duration", random_seed: int = 42
 ) -> datasets.Dataset:
+    import datasets
+
     assert isinstance(ds, datasets.Dataset), f"expected datasets.Dataset, got {type(ds)} {ds}"
     # like ds.shuffle(...).take(...) but faster and more direct
     generator = np.random.default_rng(random_seed)
