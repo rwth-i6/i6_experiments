@@ -170,6 +170,9 @@ def get_loquacious_task_raw(
     train_seq_ordering: str = "laplace:.1000",
     multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> Task:
+    """
+    Get Loquacious task with raw audio input and text output.
+    """
     vocab: VocabConfig = get_vocab_by_str(vocab)
 
     # See :func:`search_dataset`.
@@ -216,10 +219,61 @@ def get_loquacious_task_raw(
     return task
 
 
-# TODO v2:
-#   - multiprocdataset?
-#   - better devtrain: take random subset of train
-#   - better dev: take subset of dev
+@cache
+def get_loquacious_task_raw_v2(
+    *,
+    vocab: str,
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+    train_seq_ordering: str = "laplace:.1000",
+    multi_proc: int = 2,
+) -> Task:
+    """
+    v2: multiprocessing by default, subset of dev and devtrain, devtrain not via take_first_shard_subset.
+    """
+    vocab: VocabConfig = get_vocab_by_str(vocab)
+
+    # See :func:`search_dataset`.
+    # We first optionally do :func:`ctc_alignment_to_label_seq` if ``recog_def.output_blank_label`` is set.
+    # (SearchCollapseRepeatedLabelsJob, SearchRemoveLabelJob).
+    # Then ``recog_post_proc_funcs`` are applied.
+    # Then SearchTakeBestJob.
+    # Then, for Sclite scoring, there is SearchWordsDummyTimesToCTMJob.
+    if isinstance(vocab, SentencePieceModel):
+        recog_post_proc_funcs = [_spm_to_words]
+    else:
+        raise TypeError(f"unhandled vocab type {type(vocab)}")
+
+    hf_data_dir = get_loquacious_hf_ogg()
+
+    # TODO peak_normalization ?
+    train_epoch_split = 25  # so one subepoch is approx 1000h
+    train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
+    train_dataset = _make_hf_dataset_train_v2(
+        hf_data_dir=hf_data_dir,
+        vocab=vocab,
+        train_vocab=train_vocab,
+        train_epoch_split=train_epoch_split,
+        train_seq_ordering=train_seq_ordering,
+        multi_proc=multi_proc,
+    )
+    eval_datasets = {
+        "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
+        "test": _make_hf_dataset(hf_data_dir=hf_data_dir, split="test", vocab=vocab),
+    }
+    dev_dataset = eval_datasets["dev"]
+
+    task = Task(
+        name="loquacious",
+        train_dataset=train_dataset,
+        train_epoch_split=train_epoch_split,
+        dev_dataset=dev_dataset,
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="WER%"),
+        main_measure_name="dev",
+        score_recog_output_func=generic_sclite_score_recog_out,
+        recog_post_proc_funcs=recog_post_proc_funcs,
+    )
+    return task
 
 
 def _make_hf_dataset_train(
@@ -261,6 +315,53 @@ def _make_hf_dataset_train(
     )
 
 
+def _make_hf_dataset_train_v2(
+    *,
+    hf_data_dir: Path,
+    vocab: VocabConfig,
+    train_vocab: Optional[VocabConfig] = None,
+    train_epoch_split: Optional[int] = None,
+    train_seq_ordering: str = "random",
+    multi_proc: int = 2,
+    # dev has 7759. take 5000 just for a nicer number.
+    eval_take_random_sorted_subset: int = 5000,
+) -> DatasetConfigStatic:
+    multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
+
+    train_ds = _make_hf_dataset(
+        hf_data_dir=hf_data_dir,
+        split="train",
+        use_distrib_files=True,
+        vocab=train_vocab or vocab,
+        partition_epoch=train_epoch_split,
+        seq_ordering=train_seq_ordering,
+        multi_proc_dataset=multi_proc_dataset,
+    )
+    return DatasetConfigStatic(
+        extern_data=train_ds.extern_data,
+        default_input=train_ds.default_input,
+        default_target=train_ds.default_target,
+        train_dataset=train_ds.main_dataset,
+        eval_datasets={
+            "dev": _make_hf_dataset(
+                hf_data_dir=hf_data_dir,
+                split="dev",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+            "devtrain": _make_hf_dataset(
+                hf_data_dir=hf_data_dir,
+                split="train",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+        },
+        use_deep_copy=True,
+    )
+
+
 def _make_hf_dataset(
     *,
     hf_data_dir: Path,
@@ -270,6 +371,7 @@ def _make_hf_dataset(
     partition_epoch: Optional[int] = None,
     use_distrib_files: bool = False,
     take_first_shard_subset: bool = False,
+    take_random_sorted_subset: Optional[int] = None,
     multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> DatasetConfigStatic:
     vocab_opts = vocab.get_opts()
@@ -282,9 +384,15 @@ def _make_hf_dataset(
             "vocab": vocab_opts,
         },
     }
-    hf_ds_opts = hf_data_dir.join_right(split)
-    if take_first_shard_subset:
-        hf_ds_opts = partial(_hf_dataset_dir_take_first_shard, hf_ds_opts)
+    if take_random_sorted_subset:
+        assert not take_first_shard_subset
+        hf_ds_opts = get_hf_random_sorted_subset(path=hf_data_dir, split=split, take_n=take_random_sorted_subset)
+        if seq_ordering == "sorted_reverse":
+            seq_ordering = "default"
+    else:
+        hf_ds_opts = hf_data_dir.join_right(split)
+        if take_first_shard_subset:
+            hf_ds_opts = partial(_hf_dataset_dir_take_first_shard, hf_ds_opts)
 
     d = {
         "class": "HuggingFaceDataset",
