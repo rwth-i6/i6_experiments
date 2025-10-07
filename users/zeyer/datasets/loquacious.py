@@ -118,6 +118,7 @@ def get_loquacious_task_raw(
     *,
     vocab: str,
     train_vocab_opts: Optional[Dict[str, Any]] = None,
+    train_seq_ordering: str = "laplace:.1000",
 ) -> Task:
     vocab: VocabConfig = get_vocab_by_str(vocab)
 
@@ -138,7 +139,11 @@ def get_loquacious_task_raw(
     train_epoch_split = 25  # so one subepoch is approx 1000h
     train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
     train_dataset = _make_hf_dataset_train(
-        hf_data_dir=hf_data_dir, vocab=vocab, train_vocab=train_vocab, train_epoch_split=train_epoch_split
+        hf_data_dir=hf_data_dir,
+        vocab=vocab,
+        train_vocab=train_vocab,
+        train_epoch_split=train_epoch_split,
+        train_seq_ordering=train_seq_ordering,
     )
     eval_datasets = {
         "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
@@ -166,6 +171,7 @@ def _make_hf_dataset_train(
     vocab: VocabConfig,
     train_vocab: Optional[VocabConfig] = None,
     train_epoch_split: Optional[int] = None,
+    train_seq_ordering: str = "random",
 ) -> DatasetConfigStatic:
     train_ds = _make_hf_dataset(
         hf_data_dir=hf_data_dir,
@@ -173,7 +179,7 @@ def _make_hf_dataset_train(
         use_distrib_files=True,
         vocab=train_vocab or vocab,
         partition_epoch=train_epoch_split,
-        seq_ordering="random",
+        seq_ordering=train_seq_ordering,
     )
     return DatasetConfigStatic(
         extern_data=train_ds.extern_data,
