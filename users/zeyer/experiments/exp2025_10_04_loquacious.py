@@ -35,7 +35,10 @@ def py():
     prefix = get_setup_prefix_for_module(__name__)
     task_spm10k = get_loquacious_task_raw(vocab="spm10k")
 
-    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
+    # Librispeech baseline name:
+    # EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k
+    # -> here: "base"
+    name = "base"
     exp = aed_train_exp(
         name,
         config_96gb_bf16_accgrad1,
@@ -106,7 +109,7 @@ def py():
         aux_ctc_layer=16,
     )
 
-    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k-bRnd"
+    name = "base-bRnd"
     exp = aed_train_exp(
         name,
         config_96gb_bf16_accgrad1,
@@ -179,7 +182,7 @@ def py():
 
     task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
     for n_ep in [25, 100]:  # get some results quick
-        name = f"EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k-v2-nEp{n_ep}"
+        name = f"base-v2-nEp{n_ep}"
         exp = aed_train_exp(
             name,
             config_96gb_bf16_accgrad1,
