@@ -15,6 +15,7 @@ import math
 from returnn.torch.context import get_run_ctx
 from torch.ao.quantization.utils import check_min_max_valid
 from torch.nn.quantized._reference.modules import Linear
+import lovely_tensor
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):

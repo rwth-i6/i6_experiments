@@ -566,6 +566,9 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
         dot = torch.matmul(query, key)  # [B, D//H, T, T]
         dot = self.norm_in_quant(dot)
         norm = self.norm_in_quant(self.norm.to(device=dot.device))
+        print(dot)
+        print(f"{norm = }")
+        print(f"{self.norm_in_quant = }")
         dot = dot / norm
         dot = self.norm_out_quant(dot)
 

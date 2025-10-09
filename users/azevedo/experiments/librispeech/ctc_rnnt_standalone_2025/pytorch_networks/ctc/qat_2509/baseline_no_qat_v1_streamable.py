@@ -136,9 +136,9 @@ class ConformerMHSANoQuantStreamable(StreamableModule):
         # x.shape: [t, F]
         attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
         y = self.forward_offline(
-            input_tensor=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask)
+            input_tensor=x[None, None], sequence_mask=seq_mask[None, None], attn_mask=attn_mask)  # [1, 1, t, F]
         
-        return y[0, -ext_chunk_sz:]  # [C+R, F]
+        return y[0, 0, -ext_chunk_sz:]  # [C+R, F]
 
 
 ###############################################################################################################
@@ -490,14 +490,14 @@ class ConformerEncoderNoQuantStreamable(StreamableModule):
             input: torch.Tensor,
             lengths: torch.Tensor,
             states: Optional[List[List[torch.Tensor]]],
-            chunk_size: int,
+            chunk_size_frames: int,
             lookahead_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
         """
         :param input: [1, P*C', F], where P is the number of future chunks we need for the future frames of current chunk
         :param lengths: the number of non-padding frames [1,]
         :param states: list of encoder block outputs of previous chunks (each output having shape [C, F'])
-        :param chunk_size: C'
+        :param chunk_size_frames: C
         :param lookahead_size: R
         :return: encoder outputs of the current chunk, number of (non-padding) encoder outputs, intermediate encoder block outputs
         """
@@ -505,7 +505,6 @@ class ConformerEncoderNoQuantStreamable(StreamableModule):
 
         # chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(chunk_size))
         # audio_features, audio_features_len = self.feature_extraction.infer(input, lengths, chunk_size_frames)
-        chunk_size_frames = chunk_size
         audio_features, audio_features_len = input, lengths
 
         # [1, P*C', F] -> [P, C, F']
@@ -535,7 +534,7 @@ class ConformerEncoderNoQuantStreamable(StreamableModule):
         layer_outs = [x]
         prev_layer = curr_layer = None
 
-        for i, module in enumerate(self.encoder_blocks):
+        for i, module in enumerate(self.module_list):
             if states is not None:
                 # first chunk is not provided with any previous states
                 prev_layer = [prev_chunk[-1][i] for prev_chunk in states]
@@ -693,7 +692,7 @@ class Model(StreamableModule):
             chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(chunk_size))
             conformer_in, mask = self.feature_extraction.infer(input, lengths, chunk_size_frames)
             encoder_out, encoder_out_lengths, state = self.conformer.infer(
-                conformer_in, mask, states, chunk_size=chunk_size, lookahead_size=lookahead_size
+                conformer_in, mask, states, chunk_size_frames=chunk_size_frames, lookahead_size=lookahead_size
             )
             encoder_out = self.final_linear(encoder_out)
         
