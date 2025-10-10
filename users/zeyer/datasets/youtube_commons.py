@@ -68,4 +68,5 @@ def _load_en():
     #     features: ['video_id', 'video_link', 'title', 'text', 'channel', 'channel_id', 'date', 'license', 'original_language', 'transcription_language', 'word_count', 'character_count'],
     #     num_rows: 3262750
     # })
+    # sum(ds["word_count"]) = 6_664_116_242
     return ds
