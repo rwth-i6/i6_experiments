@@ -564,7 +564,21 @@ class TextNormaliser:
     * Titouan Parcollet 2024
     """
 
-    def english_specific_preprocess(self, sentence, upper_case=True, symbols_limit=4):
+    def __init__(self):
+        # pip install nemo-text-processing==1.1.0
+        from nemo_text_processing.text_normalization.normalize import Normalizer
+
+        self._normaliser = Normalizer(input_case="cased", lang="en")
+
+    def __call__(self, words: str) -> Optional[str]:
+        words = self._normaliser.normalize(words)
+        words = self._english_specific_preprocess(words)
+        return words
+
+    @classmethod
+    def _english_specific_preprocess(
+        cls, sentence: str, upper_case: bool = True, symbols_limit: int = 4
+    ) -> Optional[str]:
         """
         Preprocess English text.
         This function relies on different tools to convert numerals and special symbols.
@@ -592,10 +606,10 @@ class TextNormaliser:
         Example
         -------
         >>> norm = TextNormaliser()
-        >>> txt = norm.english_specific_preprocess("Over the Rainbow! How are you today? Good + one hundred %")
+        >>> txt = norm._english_specific_preprocess("Over the Rainbow! How are you today? Good + one hundred %")
         >>> print(txt)
         OVER THE RAINBOW HOW ARE YOU TODAY GOOD PLUS ONE HUNDRED PERCENT
-        >>> txt = norm.english_specific_preprocess("Over the Rainbow! How are you today? Good + 100 %")
+        >>> txt = norm._english_specific_preprocess("Over the Rainbow! How are you today? Good + 100 %")
         >>> print(txt)
         None
         """
@@ -623,7 +637,7 @@ class TextNormaliser:
             return None
 
         # encoding goes brrrrr
-        sentence = self.clean_text(sentence)
+        sentence = cls._clean_text(sentence)
 
         # These characters mark word boundaries.
         split_character_regex = '[ ",:;!?¡\\.…()\\-—–‑_“”„/«»]'
@@ -656,7 +670,7 @@ class TextNormaliser:
 
         # Remove sentences that contain too many symbols.
         symbol_list = list(sentence_level_mapping.keys())
-        if self.count_symbols_in_str(sentence, symbol_list) >= symbols_limit:
+        if cls.count_symbols_in_str(sentence, symbol_list) >= symbols_limit:
             return None
 
         final_characters = set(" ABCDEFGHIJKLMNOPQRSTUVWXYZ'")
@@ -700,7 +714,8 @@ class TextNormaliser:
         else:
             return result
 
-    def clean_text(self, text):
+    @staticmethod
+    def _clean_text(text: str) -> str:
         """Some sentences are poorly decoded from people's speech or yodas. This
         removes these char in the text.
 
@@ -720,7 +735,8 @@ class TextNormaliser:
         text = "".join([(" " if n in unwanted_char else n) for n in text if n not in unwanted_char])
         return text
 
-    def count_symbols_in_str(self, sentence, symbols):
+    @staticmethod
+    def count_symbols_in_str(sentence: str, symbols: List[str]) -> int:
         """Count the total number of symbols occurring in a string from a list of
         symbols
 
