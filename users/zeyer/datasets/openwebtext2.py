@@ -3,6 +3,9 @@ OpenWebText2
 
 https://openwebtext2.readthedocs.io/
 https://huggingface.co/datasets/Geralt-Targaryen/openwebtext2
+
+Loquacious text is 1.2GB. OpenWebText is 40GB. OpenWebText2 is 66GB.
+But here this is a cleaned version of OpenWebText2.
 """
 
 
