@@ -555,10 +555,10 @@ def _map_opts(ds: datasets.DatasetDict) -> Dict[str, Any]:
 
 class TextNormaliser:
     """
-    Used to normalise text with custom rules. Note that we do not provide any numeral conversion.
-    This must be done beforehand with, for instance the Nemo text processing tool.
+    Used to normalise text with custom rules, and with the Nemo text normalisation tool as base.
 
     This code is copied from here: https://github.com/speechbrain/speechbrain/pull/2802/files
+    And then adapted.
 
     Authors
     * Titouan Parcollet 2024
@@ -587,6 +587,9 @@ class TextNormaliser:
         but not other ones, which are probably quotation marks.
         It capitalises all text.
         This function may error out if new characters show up in the given sentence.
+
+        Note that this does not provide any numeral conversion.
+        This must be done beforehand with, for instance the Nemo text processing tool.
 
         Parameters
         ----------
