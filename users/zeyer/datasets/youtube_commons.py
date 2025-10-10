@@ -54,4 +54,18 @@ def _load():
     )
     ds3 = ds3.remove_columns([key for key in ds3.column_names if key not in f])
     ds = concatenate_datasets([ds1, ds2, ds3])
+    # Dataset({
+    #     features: ['video_id', 'video_link', 'title', 'text', 'channel', 'channel_id', 'date', 'license', 'original_language', 'transcription_language', 'word_count', 'character_count'],
+    #     num_rows: 22684737
+    # })
+    return ds
+
+
+def _load_en():
+    ds = _load()
+    ds = ds.filter(lambda x: x["transcription_language"] == "en")
+    # Dataset({
+    #     features: ['video_id', 'video_link', 'title', 'text', 'channel', 'channel_id', 'date', 'license', 'original_language', 'transcription_language', 'word_count', 'character_count'],
+    #     num_rows: 3262750
+    # })
     return ds
