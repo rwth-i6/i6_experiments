@@ -14,4 +14,6 @@ def _load_cleaned_en():
     #     features: ['title', 'text', 'reddit_scores'],
     #     num_rows: 13071217
     # })
+    # Not sure how accurate this estimate of number of words is:
+    # sum(len(x["text"].split()) for x in ds) = 9_638_326_931
     return ds
