@@ -416,11 +416,10 @@ class HuggingFaceLmPerplexityJob(Job):
             out_f.write(f"Average bpe/word length ratio:: {total_tokens / total_word_tokens:.2f}\n")
             out_f.write(f"Perplexity: {ppl}\n")
 
-"""Compute perplexity for a HuggingFace Transformer LLM model on given text corpus."""
+
 class HuggingFaceLmPerplexityJobV2(Job):
-    """Compute perplexity of a HuggingFace LM over a text corpus.
-        Using a fixed context from training set
-    """
+    """Compute perplexity for a HuggingFace Transformer LLM model on given text dict corpus."""
+    
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
                  llm_name: str, lower_case:bool = False, context_len_limit: int = None, eos_symbol: str = "", word_ppl: bool = False,
                  add_eos_to_completion: bool = True, use_prev_context: bool = False, version:int = 9):
