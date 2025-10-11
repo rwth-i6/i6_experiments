@@ -34,12 +34,12 @@ from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_return
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH as LBS_SRILM_PATH
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 
-rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
+rqmt_map = {4: [("mem", 15),("time", 2)], 5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
                                              7: [("mem", 25),("time", 2)],
                                                  8: [("mem", 30),("time", 2)],
             9: [("mem", 35),("time", 2)],
             10: [("mem", 40),("time", 2)]} # rqmt_map for n_gram KenLMplz job. Smaller as 4 use default setting
-default_rqmt = [("mem", 4),("time", 1)]
+default_rqmt = [("mem", 12),("time", 1)]
 
 SRILM_PATH_APPTEK = tk.Path("/nas/models/asr/hzhang/tools/srilm-1.7.3/bin/i686-m64/")
 SRILM_PATH_APPTEK.hash_overwrite = "APPTEK_SPAINISH_DEFAULT_SRILM_PATH"
@@ -52,14 +52,14 @@ def py():
         get_count_based_n_gram(vocab_config, N_order,task_name=task_name, word_ppl=True, only_transcription=True)
 
 
-def get_count_based_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float]=None, task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False, only_transcription: bool = False) -> \
+def get_count_based_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float]=None, task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False, only_transcription: bool = False, eval_keys: set = None) -> \
 tuple[Path, dict[str | Any, Path | Any]]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     hash_name = "LBS" if task_name == "LIBRISPEECH" else task_name
     KENLM_BINARY_PATH.hash_overwrite = f"{hash_name}_DEFAULT_KENLM_BINARY_PATH"
     vocab_str = vocab if isinstance(vocab, str) else "ES_spm10k" # For LBS vocab_config can be get with str
-    if N_order > 4 and vocab != "bpe128":
+    if N_order >= 4 and vocab != "bpe128":
         rqmt = dict(rqmt_map[N_order])
     else:
         rqmt = dict(default_rqmt)
@@ -85,7 +85,7 @@ tuple[Path, dict[str | Any, Path | Any]]:
     else:
         raise ValueError("Unknown task name {}".format(task_name))
 
-    if train_fraction:
+    if train_fraction and train_fraction < 1.0:
         lm_data = ReduceCorpusByTokenFractionJob(lm_data, target_fraction=train_fraction).out
     if re.match("^bpe[0-9]+.*$", vocab_str):
         if task_name == "LBS":
@@ -153,12 +153,14 @@ tuple[Path, dict[str | Any, Path | Any]]:
     ppls = dict()
     ppl_scores = dict()
     for k, lm_eval_data in eval_lm_data_dict.items():
+        if eval_keys and k not in eval_keys:
+            continue
         ppl_job = ComputeNgramLmPerplexityJob(
             ngram_order=N_order,
             lm = lm_arpa, # Seems only accept arpa LM
-            eval_data=lm_eval_data, # This is train data for the LM.
+            eval_data=lm_eval_data,
             ngram_exe=SRILM_PATH.join_right("ngram"),
-            mem_rqmt=rqmt["mem"],
+            mem_rqmt=rqmt["mem"] + 10 if N_order == 6 else rqmt["mem"],
             time_rqmt=1,
             extra_ppl_args= '-debug 2'
         )
@@ -191,10 +193,12 @@ tuple[Path, dict[str | Any, Path | Any]]:
     # conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram")
         
     #return conversion_job.out_lm_tensor
-    return arpa_binary_lm, ppls
+    return arpa_binary_lm, ppl_scores
 
 def get_apptek_ES_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float], task_name: str = "ES", train_fraction: float = None, word_ppl: bool =False) -> \
 tuple[Path, dict[str | Any, Path | Any]]:
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
     assert task_name == "ES"
     lm_file_path = "/nas/models/asr/artefacts/lm/ES/20220905-wwang-srilm-tel/es.tel.20220818.4-gram.lm.arpa.gz"
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
@@ -569,6 +573,13 @@ class CreateBinaryLMJob(Job):
         else:
             sp.check_call([build_binary, self.arpa_lm.get_path(), self.out_lm.get_path()])
 
+    # @classmethod
+    # def hash(cls, kwargs):
+    #     """delete the queue requirements from the hashing"""
+    #     del kwargs["mem"]
+    #     del kwargs["time"]
+    #     return super().hash(kwargs)
+
 class ConvertARPAtoTensor(Job):
     def __init__(
         self,
@@ -714,3 +725,13 @@ class KenLMplzJob(Job):
         del parsed_args["mem"]
         del parsed_args["time"]
         return super().hash(parsed_args)
+
+def py():
+    # from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, \
+    #     NETWORK_CONFIG_KWARGS
+    from i6_experiments.users.zhang.experiments.lm.trafo import get_ES_trafo
+    # _, spm, _ = get_model_and_vocab(fine_tuned_model=True)
+    # vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+
+    #get_count_based_n_gram(vocab=vocab_config, N_order=4, task_name="ES", word_ppl=True)
+    get_ES_trafo(epochs=[100],word_ppl=True,only_transcript=False,old=False)

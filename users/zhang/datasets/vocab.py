@@ -254,7 +254,7 @@ class ApplySentencepieceToWordOutputJob(Job):
         self.enable_unk = enable_unk
         self.out_search_results = self.output_path("search_results.py" + (".gz" if gzip_output else ""))
 
-        self.rqmt: Optional[Dict[str, Any]] = {"cpu": 1, "mem": 2.0, "time": 2.0}
+        self.rqmt: Optional[Dict[str, Any]] = {"cpu": 1, "mem": 6.0, "time": 2.0}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, mini_task=self.rqmt is None)

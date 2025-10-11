@@ -23,6 +23,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self,
         names: List[str],
         results: List[Tuple[Dict[str, Union[tk.Variable, float]], tk.Path]],
+
         # PPL: {dataset_name: ppl}
         # WER: {"best_scores": {dataset name: wer} }
 
@@ -34,6 +35,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         prior_default_scales: List[Optional[float]] = None,
         eval_dataset_keys: List[str] = ["test-other","dev-other"],
         include_search_error: bool = True,
+        aggregated: bool = False,
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
@@ -46,6 +48,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.out_plots = [self.output_path(f"plots/{key}.png") for key in eval_dataset_keys]
         self.out_plot_avg = self.output_path(f"plots/avg.png")
         self.out_tables = {key: self.output_path(f"tables/{key}.csv") for key in eval_dataset_keys + ["wers", "ppls", "avg"]}
+        self.out_verbose_report = self.output_path("wer_report.json")
         self.names = names
         self.results = results
 
@@ -57,11 +60,12 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.search_errors_rescore = search_errors_rescore
         self.eval_dataset_keys = eval_dataset_keys
         self.include_search_error = include_search_error
+        self.aggregated = aggregated
 
     def tasks(self) -> Iterator[Task]:
         yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
-        yield Task("export_dataset_tables", mini_task=True)
         yield Task("export_metric_matrix", mini_task=True)
+        yield Task("export_dataset_tables", mini_task=True)
         yield Task("export_metric_averages", mini_task=True)
         yield Task("plots", mini_task=True)
 
@@ -114,9 +118,13 @@ class WER_ppl_PlotAndSummaryJob(Job):
 
         assert len(ppls) == len(wers)
         #wers = {"dev-other":[all_res["best_scores"]["dev-other"] for all_res in wers], "test-other":[all_res["best_scores"]["test-other"] for all_res in wers]}
-        wers_dict = {key: [all_res["best_scores"][key] for all_res in wers] for key in self.eval_dataset_keys}
+        if self.aggregated:
+            wers_dict = {key: [all_res["best_scores"]["all"][key] for all_res in wers] for key in self.eval_dataset_keys}
+            ppls = [{self.find_relevant_key(wers[0]['best_scores']["all"], k): v for k,v in d.items()} for d in ppls]
+        else:
+            wers_dict = {key: [all_res["best_scores"][key] for all_res in wers] for key in self.eval_dataset_keys}
+            ppls = [{self.find_relevant_key(wers[0]['best_scores'], k): v for k,v in d.items()} for d in ppls]
 
-        ppls = [{self.find_relevant_key(wers[0]['best_scores'], k): v for k,v in d.items()} for d in ppls]
         ppls_dict = {key: [all_res[self.find_relevant_key(all_res, key)] for all_res in ppls] for key in self.eval_dataset_keys}
         return ppls, wers, ppls_dict, wers_dict
 
@@ -256,6 +264,18 @@ class WER_ppl_PlotAndSummaryJob(Job):
                 s = pd.to_numeric(s, errors="coerce")
             return s
 
+            # if metric == "WER":
+            #     # Trim, drop trailing '%', normalize commas, and coerce junk like '-' to NaN
+            #     s = pd.to_numeric(
+            #         df[colname].astype(str)
+            #         .str.strip()
+            #         .str.rstrip("%")
+            #         .str.replace(",", ".", regex=False),
+            #         errors="coerce"
+            #     )
+            # else:
+            #     s = pd.to_numeric(df[colname], errors="coerce")
+
         # Collect outputs
         written = {}
 
@@ -385,8 +405,8 @@ class WER_ppl_PlotAndSummaryJob(Job):
 
         by_dataset = self._parse_dataset_map(df.columns.tolist())
         dev_datasets = [ds for ds in by_dataset if "dev" in ds.lower()]
-        eval_datasets = [ds for ds in by_dataset if "eval" in ds.lower()]
-
+        eval_datasets = [ds for ds in by_dataset if any(infix in ds.lower() for infix in ["common_voice", "eval"]) and "mtp_eval-v2" not in ds.lower()]
+        print(eval_datasets)
         def compute_avg(cols, is_wer=False):
             if not cols:
                 return pd.Series([float("nan")] * len(df))
@@ -594,14 +614,26 @@ class WER_ppl_PlotAndSummaryJob(Job):
                 f"{dataset_key} Search Error",
                 f"{dataset_key} Search Error (rescore)",
             ])
+            if self.aggregated:
+                dataset_header.extend([f"Weighted_avg_ff WER"])
         table_data = [["Model Name", "lm_scale", "prior_scale"] + dataset_header]
 
+        verbose_res_dict = dict()
         # -------- Rows --------
         for i, name in enumerate(names):
             ppl_dict = safe_get(ppls, i, default={}) or {}
             wer_obj = safe_get(wers, i, default={}) or {}
-            best_scores = wer_obj.get("best_scores", {}) if isinstance(wer_obj, dict) else {}
-
+            res_dict = wer_obj.get("best_scores", {}) if isinstance(wer_obj, dict) else {}
+            verbose_res_dict[name] = res_dict
+            best_scores = res_dict.get("all",res_dict)
+            avg_ff_wer = None
+            if self.aggregated:
+                pooled_res = res_dict.get("pooled", {})
+                assert pooled_res, f"Check res dict {res_dict}"
+                try:
+                    avg_ff_wer = pooled_res['v2.ref']['by_custom_weight']['full_file_wer']
+                except KeyError:
+                    avg_ff_wer = pooled_res['v2.aptk_leg']['by_custom_weight']['full_file_wer']
             lm_tune_item = safe_get(lm_tunes, i) if lm_tunes is not None else None
             prior_tune_item = safe_get(prior_tunes, i) if prior_tunes is not None else None
 
@@ -611,11 +643,6 @@ class WER_ppl_PlotAndSummaryJob(Job):
             # Compute scales (allow lists containing None; only the attribute being None is special-cased)
             lm_scale = compute_scale(lm_tune_item, lm_def)
             prior_scale = compute_scale(prior_tune_item, prior_def)
-
-            # Optional policy: if lm_scale is 0, you may want prior_scale = 0 (as per your comment)
-            # Uncomment if you want that behavior:
-            # if lm_scale == 0:
-            #     prior_scale = 0
 
             se_dict = safe_get(search_errors, i, default={}) if search_errors is not None else {}
             se_rescore_dict = safe_get(search_errors_rescore, i,
@@ -634,6 +661,9 @@ class WER_ppl_PlotAndSummaryJob(Job):
 
                 se_rescore_log = se_rescore_dict.get(dataset_key) if isinstance(se_rescore_dict, dict) else None
                 row.append(get_search_error(se_rescore_log))
+                if self.aggregated:
+                    assert avg_ff_wer is not None, f"Check res dict {res_dict}"
+                    row.append(fmt_num(avg_ff_wer, 1))
 
             table_data.append(row)
 
@@ -641,6 +671,9 @@ class WER_ppl_PlotAndSummaryJob(Job):
         with open(csv_filename, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerows(table_data)
+        # -------- Write verbose res json --------
+        with open(self.out_verbose_report.get_path(), "w") as f:
+            json.dump(verbose_res_dict, f, indent=2, sort_keys=True, ensure_ascii=False)
 
 class GnuPlotJob(Job):
     def __init__(

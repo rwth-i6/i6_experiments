@@ -243,10 +243,12 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if word_ppl else ''}ppl", ppl_job.out_ppl)
             ppls[f"epoch{epoch}"][dataset_key_] = ppl_job.out_ppl
+
             # if prefix_name == "ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k":
             #     print(f"Add PPLs on {dataset_key_} for epoch {epoch}:\n -> {ppls}\n")
             # if dataset_key_ == "test-other":
             #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
+    print(ppls)
     for epoch in check_epochs:
         tk.register_output(f"ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
     return ppls

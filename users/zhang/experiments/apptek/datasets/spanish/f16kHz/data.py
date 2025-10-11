@@ -448,6 +448,36 @@ class EvalOggZip(DatasetConfig):
             "fixed_random_seed": 1,
         }
 
+AVAILABLE_NBEST = {
+    "dev_conversation": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.GK76328ZVDPE/output/recognition.n-best.1",
+    "eval_voice_call-v2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.8iFMxstdSWkA/output/recognition.n-best.1",
+    "movies_tvshows": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.yobSzRP0Yx57/output/recognition.n-best.1",
+    "napoli": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.Adch0WcXbH0u/output/recognition.n-best.1",
+    "eval_callcenter_lt": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.xq4snNUkvFVO/output/recognition.n-best.1",
+    "mtp_eval_p1": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.mHXtp3P5l3zn/output/recognition.n-best.1",
+    "mtp_eval_p2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.CfpoktWhYsjp/output/recognition.n-best.1",
+    "mtp_eval_p3": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.rpwvPfiKvv5B/output/recognition.n-best.1",
+    "mtp_eval_p4": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.CsWxBC1dQIJ2/output/recognition.n-best.1",
+}
+class NbestListDataset(DatasetConfig):
+    def __init__(self, spm: SentencePieceModel):
+        self.spm = spm
+
+    def _get_match_Nbest(self, name: str, N: int = 80):
+        from i6_experiments.users.zhang.experiments.apptek.datasets.tools import ConvertNbestTextToDictJob
+        assert N == 80, f"Only have N=80 for now, given is N={N}"
+        for key, path in AVAILABLE_NBEST.items():
+            if key in name:
+                return ConvertNbestTextToDictJob(in_text=tk.Path(path), nbest_size=N).out_nbest_dict
+        raise ValueError(f"Nbest key {name} not found in AVAILABLE_NBEST")
+    def get_dataset(self, key: str, *, tokenize: bool = True, N: int = 80) -> tk.Path:
+        assert "ref" in key, f"Only have Nbest for ref.seg for now, given: {key}"
+        from i6_experiments.users.zhang.datasets.vocab import ApplySentencepieceToWordOutputJob
+        Nbest = self._get_match_Nbest(key, N)
+        if tokenize:
+            Nbest = ApplySentencepieceToWordOutputJob(search_py_output=Nbest,sentencepiece_model=self.spm.model_file,enable_unk=False).out_search_results
+        return Nbest
+
 NEED_FIX_OGG_ZIP_DATASET_NAME = ["test_set.ES_ES.f16kHz.eval_voice_call-v2",
                                  "test_set.ES_ES.f16kHz.eval_napoli_202210-v3",
                                  "test_set.ES_ES.f16kHz.eval_voice_call-v3",
@@ -460,8 +490,12 @@ def _get_ogg_zip(
     keep_training_hash: bool = False,
 ) -> tk.Path:
     segment_job = SegmentCorpusJob(corpus, split)
-    if "dev_conversation" in name and not keep_training_hash:
+    if (any(infix in name for infix in ["dev_conversation","common_voice_two_speakers"])  # Actually this should be done right after the creation of corpus
+            and not keep_training_hash):
         corpus = BlissStripOrthPunctJob(corpus).out_corpus
+        if "common_voice_two_speakers" in name:
+            from i6_experiments.users.zhang.experiments.apptek.datasets.tools import FixInfEndInBlissJob
+            corpus = FixInfEndInBlissJob(in_corpus=corpus).out_corpus
     oggzip_job = BlissToOggZipJob(corpus, segments=segment_job.out_segment_path, returnn_root=returnn_root)
     oggzip_job.rqmt = {"cpu": 1, "mem": 2}
     oggzip_job.merge_rqmt = None  # merge on local machine, to be more robust against slowness due to slow FS
@@ -623,7 +657,7 @@ def _get_lm_eval_ogg_zip( # any data set inside "dev" or "test" will affect the 
                         alias_prefix=alias_prefix,
                     )
                     )
-        elif "eval" in key:
+        elif "eval" in key or "mbw" in key:
             for k, eval_info in corpora.test.items():
                 if key in k and str(eval_info.segmenter_type) == "ref":
                     ogg_zip_files.append(_get_ogg_zip(
@@ -665,10 +699,14 @@ def get_corpus_text_dict(key: str) -> tk.Path:
             if key in k and str(eval_info.segmenter_type) == "ref":
                 return _get_corpus_text_dict(eval_info.segmented_corpus, k)
 
-    elif "eval" in key:
+    elif "eval" in key or "mbw" in key:
         for k, eval_info in corpora.test.items():
             if key in k and str(eval_info.segmenter_type) == "ref":
-                return _get_corpus_text_dict(eval_info.segmented_corpus, k)
+                corpus = eval_info.segmented_corpus
+                if any(infix in k for infix in ["dev_conversation",
+                                                   "common_voice_two_speakers"]):  # Actually this should be done right after the creation of corpus
+                    corpus = BlissStripOrthPunctJob(corpus).out_corpus
+                return _get_corpus_text_dict(corpus, k)
     else:
         raise NotImplementedError(f"Can not determine which part {key} is belonging to (dev/eval)")
     assert False, f"No data find for {key}"
@@ -699,7 +737,7 @@ def get_lm_eval_text(
             for k, eval_info in corpora.dev.items():
                 if key in k and str(eval_info.segmenter_type) == "ref":
                     text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))
-        elif "eval" in key:
+        elif "eval" in key or "mbw" in key:
             for k, eval_info in corpora.test.items():
                 if key in k and str(eval_info.segmenter_type) == "ref":
                     text_files.append(_get_corpus_text(eval_info.segmented_corpus, key))

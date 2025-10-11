@@ -181,7 +181,7 @@ def iter_ndjson(fn: str) -> Iterator[Tuple[str, List[Tuple[float, str]]]]:
             if not line.strip():
                 continue
             obj = json.loads(line)
-            # Convert lists back to tuples for your downstream code style
+            # Convert lists back to tuples for downstream code style
             nbest = [(float(s), h) for s, h in obj["nbest"]]
             yield obj["seq_tag"], nbest
 

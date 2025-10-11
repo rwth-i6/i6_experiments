@@ -192,7 +192,7 @@ def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False, only_transcrip
 
 
 def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
-                embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None,bpe_ratio: Optional[float | tk.Variable]=None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+                embed_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, train_subset: Optional[int] = None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset,LibrispeechLmDataset
     lm_dataset = LibrispeechLmDataset(vocab=vocab) #get_librispeech_lm_dataset(vocab=vocab)
@@ -269,13 +269,12 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
     #     train_def=lm_train_def,
     # )
     #exponent = get_subword_ratio(["test-other"], vocab)
-    exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1.0, 10_025: 1.0}#184-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
         dataset_keys=["transcriptions-test-other", "transcriptions-dev-other","transcriptions-test-clean", "transcriptions-dev-clean"],
-        exponent=bpe_ratio if word_ppl else 1.0,
+        word_ppl=word_ppl,
         epochs=epochs,
     )
     print(f"------fixed epochs of ffnnlm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")

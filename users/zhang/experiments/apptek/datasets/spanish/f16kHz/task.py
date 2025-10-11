@@ -21,10 +21,10 @@ from sisyphus import Path, tk
 
 from apptek_asr.artefacts import AbstractArtefactRepository
 from apptek_asr.meta.evaluations.aggregated_scoring import (
-    ES_TEL_TEST_SET_SPECS_V1,
-    ES_TEL_TEST_SET_SPECS_V2,
-    spanish_8k_metrics_v1,
-    spanish_8k_metrics_v2,
+    ES_MBW_TEST_SET_SPECS_V1,
+    ES_MBW_TEST_SET_SPECS_V2,
+    spanish_mbw_metrics_v1,
+    spanish_mbw_metrics_v2,
 )
 from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_task_data
 from i6_core.returnn.search import SearchWordsToCTMJob
@@ -107,6 +107,7 @@ def get_asr_task_given_spm(
     train_partition_epoch: int = 1,
     returnn_root: Path,
     include_extra_train_data_beyond_2k: bool = False,
+    aggregate_wer: bool = True,
     **kwargs,
 ) -> SpanishTask:
     assert train_partition_epoch > 0
@@ -136,38 +137,54 @@ def get_asr_task_given_spm(
         train_epoch_split=train_partition_epoch,
         score_recog_output_func=partial(_score_recog_out_v2, corpora=corpora, remove_labels=spm_extra_symbols),
         recog_post_proc_funcs=[_spm_to_words],
-        #collect_score_results_func=_score_aggregate_es,
+        collect_score_results_func=_score_aggregate_es if aggregate_wer else None,
         spm=spm,
     )
     return task
 
 def _score_aggregate_es(results: Dict[str, ScoreResult]) -> ScoreResultCollection:
     results_by_seg = {}
+    from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import seg_key
     for seg, (version, score_callback, spec) in itertools.product(
-        ALL_SEGMENTER_TYPES,
+        [seg_key],
         [
-            ("v1", spanish_8k_metrics_v1, ES_TEL_TEST_SET_SPECS_V1),
-            ("v2", spanish_8k_metrics_v2, ES_TEL_TEST_SET_SPECS_V2),
+            #("v1", spanish_mbw_metrics_v1, ES_MBW_TEST_SET_SPECS_V1),
+            ("v2", spanish_mbw_metrics_v2, ES_MBW_TEST_SET_SPECS_V2),
         ],
     ):
         suffix = f".{seg}.ff_wer"
-        weighed_results, reflen_results = score_callback(
-            AbstractArtefactRepository(),
-            ctms={
-                stripped_key: result.ctm
-                for k, result in results.items()
-                if k.endswith(suffix)
-                for stripped_key in [k.replace(suffix, "")]
-                if stripped_key in spec
-            },
-        )
-        results_by_seg[f"{version}.{seg}"] = {
-            "by_custom_weight": weighed_results,
-            "by_reflen": reflen_results,
-        }
+        if score_callback in [spanish_mbw_metrics_v2, spanish_mbw_metrics_v1]:
+            weighed_results = score_callback(
+                AbstractArtefactRepository(),
+                ctms={
+                    stripped_key: result.ctm
+                    for k, result in results.items()
+                    if k.endswith(suffix)
+                    for stripped_key in [k.replace(suffix, "")]
+                    if stripped_key in spec
+                },
+            )
+            results_by_seg[f"{version}.{seg}"] = {
+                "by_custom_weight": weighed_results,
+            }  # noqa
+        else:
+            weighed_results, reflen_results = score_callback(
+                AbstractArtefactRepository(),
+                ctms={
+                    stripped_key: result.ctm
+                    for k, result in results.items()
+                    if k.endswith(suffix)
+                    for stripped_key in [k.replace(suffix, "")]
+                    if stripped_key in spec
+                },
+            )
+            results_by_seg[f"{version}.{seg}"] = {
+                "by_custom_weight": weighed_results,
+                "by_reflen": reflen_results,
+            }
     return ScoreResultCollection(
         main_measure_value=ToVariableJob(
-            results_by_seg[f"v2.{SegmenterType.AppTekLegacy}"]["by_custom_weight"]["full_file_wer"]
+            results_by_seg[f"v2.{seg_key}"]["by_custom_weight"]["full_file_wer"]
         ).out,
         output=DumpAsJsonJob(
             {"all": {k: v.main_measure_value for k, v in results.items()}, "pooled": results_by_seg}

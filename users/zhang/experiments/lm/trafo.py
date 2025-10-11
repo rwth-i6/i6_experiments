@@ -369,11 +369,12 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
             }
     if max_seq_length_default_target:
         deep_update.update({"max_seq_length_default_target": None})
-
+    config_80gb = config_96gb_bf16_accgrad1.copy()
+    config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 60})
     model_with_checkpoints = train(  # 12.79
         f"lm/trafo-n{num_layers}-d{model_dim}-gelu-drop0-b{max_seqs}_{bs_feat//1000}k-bpe{vocab.dim}",
         config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
+            config_80gb,
             deep_update
         ),
         post_config={"log_grad_norm": True},
@@ -397,13 +398,11 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
         # time_rqmt=2,
     )
 
-    exponents = {184: 2.3, 10_025: 1.1} if word_ppl else {184: 1, 10_025: 1}#185-bpe128 10_025-bpe10k
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
         dataset_keys=["transcriptions-test-other", "transcriptions-dev-other","transcriptions-test-clean", "transcriptions-dev-clean"],
-        exponent=bpe_ratio if word_ppl else 1.0,
         epochs=epochs,
         same_seq=True,
         word_ppl=word_ppl,

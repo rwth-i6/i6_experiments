@@ -26,6 +26,7 @@ from i6_experiments.users.zeyer.recog import (
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
+    from i6_experiments.users.zhang.experiments.decoding.prior_rescoring import Prior
 
 
 def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]], alias: Optional[str] = "") -> RecogOutput:
@@ -634,6 +635,7 @@ def rescore(
     forward_device: str = "gpu",
     forward_alias_name: Optional[str] = None,
     to_word_func: Optional[Callable] = None,
+    prior: Optional[Prior] = None,
 ) -> RecogOutput:
     """
     Rescore on the specific dataset, given some hypotheses, using the :class:`RescoreDef` interface.
@@ -674,6 +676,7 @@ def rescore(
             config=config,
             post_config=forward_post_config,
             to_word_func=to_word_func,
+            prior=prior,
         ),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -712,6 +715,7 @@ def _returnn_rescore_config(
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
     to_word_func: Optional[Callable] = None,
+    prior: Optional[Prior] = None,
 ) -> ReturnnConfig:
     """
     Create config for rescoring.
@@ -854,6 +858,8 @@ def _returnn_rescore_config(
     # When us a word Ngram LM
     if to_word_func:
         config["to_word_func"] = to_word_func
+    if prior:
+        config["prior"] = prior
     #Hot fix for f16kHz model
     path = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/tools/git/CloneGitRepositoryJob.maXwYTjr7NZe/output/i6_models"
     return ReturnnConfigWithNewSerialization(config, post_config, extra_sys_paths=[path])
@@ -893,8 +899,10 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     # rescore_def = config.typed_value("_rescore_def")
     try:
         to_word_func = config.typed_value("to_word_func")
+        prior = config.typed_value("prior")
     except KeyError:
         to_word_func = None
+        prior = None
     scores = rescore_def(
         model=model,
         data=data,
@@ -903,6 +911,7 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         targets_spatial_dim=targets_spatial_dim,
         targets_beam_dim=targets_beam_dim,
         to_word_func=to_word_func,
+        prior=prior,
     )
     assert isinstance(scores, Tensor)
     rf.get_run_ctx().mark_as_output(targets, "hyps", dims=[batch_dim, targets_beam_dim, targets_spatial_dim])

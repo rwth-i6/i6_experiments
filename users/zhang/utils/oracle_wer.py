@@ -45,6 +45,8 @@ def edit_distance_sdi(ref: Sequence[str], hyp: Sequence[str]) -> Tuple[int, int,
     Compute Levenshtein distance and count S, D, I along an optimal path.
     Returns (distance, S, D, I), where distance == S + D + I.
     """
+    if ref == hyp:
+        return 0,0,0,0
     n, m = len(ref), len(hyp)
     if n == 0:
         return m, 0, 0, m
@@ -278,7 +280,9 @@ class OracleWerJob(Job):
         abs_gaps: List[float] = []
         rank_gaps: List[int] = []
         same_hyp_count = 0
-
+        unique_counts = 0
+        gt_present_count = 0
+        N = 0
         with _smart_open(str(self.out_per_utt), "wt") as f_csv:
             f_csv.write(
                 "seq_tag,edits,S,D,I,ref_len,wer,"
@@ -288,7 +292,7 @@ class OracleWerJob(Job):
             )
 
             best_nbest_dict: Dict[str, List[Tuple[float, str]]] = {}
-
+            N = len(hyp_dict[next(iter(hyp_dict))])
             for seq_tag in sorted(hyp_dict.keys()):
                 hyps: List[Tuple[float, str]] = hyp_dict[seq_tag]
                 refs_variants = _coerce_ref_variants(ref_dict_raw[seq_tag])
@@ -317,6 +321,10 @@ class OracleWerJob(Job):
                     rank_gap = ""
                 else:
                     # Oracle-WER selection
+                    best_ref = refs_variants[0][1] if refs_variants else ""
+                    unique_counts += len(set(hyps))
+                    if best_ref in [pair[1] for pair in hyps]:
+                        gt_present_count += 1
                     best_pair = None  # (dist,S,D,I,ref_len,wer,hyp_score,hyp_text,ref_text)
                     for hyp_score, hyp_text in hyps:
                         hyp_norm = normalize_text(hyp_text, self.lowercase, self.remove_punct)
@@ -325,6 +333,7 @@ class OracleWerJob(Job):
                             ref_norm = normalize_text(ref_text, self.lowercase, self.remove_punct)
                             ref_tok = word_tokenize(ref_norm)
                             dist, s_cnt, d_cnt, i_cnt = edit_distance_sdi(ref_tok, hyp_tok)
+
                             ref_len = len(ref_tok)
                             wer = 0.0 if ref_len == 0 else dist / ref_len
 
@@ -387,10 +396,14 @@ class OracleWerJob(Job):
             avg_abs_gap = float(statistics.mean(abs_gaps))
             median_abs_gap = float(statistics.median(abs_gaps))
             same_rate = same_hyp_count / len(abs_gaps)
+            coverage = gt_present_count / len(abs_gaps)
+            avg_unique_hyps = unique_counts / len(abs_gaps)
         else:
             avg_abs_gap = None
             median_abs_gap = None
             same_rate = None
+            coverage = None
+            avg_unique_hyps = None
 
         if rank_gaps:
             avg_rank_gap = float(statistics.mean(rank_gaps))
@@ -405,6 +418,9 @@ class OracleWerJob(Job):
 
         report = {
             "overall_wer": overall_wer,
+            "N": N,
+            "GT_coverage": coverage,
+            "avg_unique_hyps": avg_unique_hyps,
             "total_edits": int(total_edits),
             "total_ref_words": int(total_ref_words),
             "num_utts": int(num_utts),

@@ -19,12 +19,12 @@ from i6_core.util import instanciate_delayed, uopen
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
-from i6_core.returnn.search import (
-    ReturnnSearchJobV2,
+from i6_experiments.users.zhang._i6_core.returnn.search import ( #i6_core.returnn.search
     SearchRemoveLabelJob,
     SearchCollapseRepeatedLabelsJob,
     SearchTakeBestJob,
 )
+from i6_core.returnn.search import ReturnnSearchJobV2
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -73,7 +73,7 @@ def recog_exp(
     dev_sets: Optional[Sequence[str]] = None, # The naming is a bit confusing, dev or not is transparent to this method
     search_error_check: bool = False,
     search_rqmt: dict = None,
-)-> tuple[tk.Path, tk.Path, tk.Path | None, Any] | tuple[tk.Path, None, tk.Path | None, Any]:
+)-> tuple[tk.Path, tk.Path, tk.Path | None, Any, tk.Path | None] | tuple[tk.Path, None, tk.Path | None, Any, tk.Path | None]:
     """recog on given epoch"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
@@ -96,7 +96,7 @@ def recog_exp(
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
-    res, search_error, search_error_rescore, output_dict = get_res(epoch, recog_and_score_func)
+    res, search_error, search_error_rescore, output_dict, rescor_ppls = get_res(epoch, recog_and_score_func)
     summarize_job = GetRecogSummaryJob(scores_outputs=(res, search_error, search_error_rescore))
     # summarize_job = GetRecogExp(
     #     epoch=epoch,
@@ -106,8 +106,8 @@ def recog_exp(
     #tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     if search_error_check:
         #tk.register_output(first_pass_name + "/search_error", summarize_job.out_search_error)
-        return summarize_job.out_summary_json, search_error, search_error_rescore, output_dict
-    return summarize_job.out_summary_json, None, search_error_rescore, output_dict
+        return summarize_job.out_summary_json, search_error, search_error_rescore, output_dict, rescor_ppls
+    return summarize_job.out_summary_json, None, search_error_rescore, output_dict, rescor_ppls
 
 
 def recog_training_exp(
@@ -229,7 +229,7 @@ class _RecogAndScoreFunc:
                 #     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
         else:
             prior_path = None
-        res, search_error_dict, search_error_rescore_dict, output = recog_model(
+        res, search_error_dict, search_error_rescore_dict, output, rescor_ppls = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
@@ -248,7 +248,7 @@ class _RecogAndScoreFunc:
         )
         #if isinstance(epoch_or_ckpt, int):
             #tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
-        return res, search_error_dict, search_error_rescore_dict, output
+        return res, search_error_dict, search_error_rescore_dict, output, rescor_ppls
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
@@ -282,20 +282,20 @@ class _RecogAndScoreFunc:
         return sis_hash_helper(d)
 
 
-def using_spm10k_ctc(config):
-    return "am" in config["preload_from_files"]
+def using_spm10k_ctc(config, task_name: str = "ES"):
+    return "am" in config["preload_from_files"] or task_name == "LBS" #Hack
 
-def using_trafo_lm(config):
+def using_trafo_lm(config, task_name: str = "ES"):
     if config is not None:
         if config.get("recog_language_model", False) and config.get("preload_from_files", False):
-            return using_spm10k_ctc(config) and config["recog_language_model"]["class"] == "TransformerLm" and "recog_lm" in \
+            return using_spm10k_ctc(config, task_name) and config["recog_language_model"]["class"] == "TransformerLm" and "recog_lm" in \
                 config["preload_from_files"]
     return False
 
-def using_ffnn_lm(config):
+def using_ffnn_lm(config, task_name: str = "ES"):
     if config is not None:
         if config.get("recog_language_model", False) and config.get("preload_from_files", False):
-            return using_spm10k_ctc(config) and config["recog_language_model"]["class"] == "FeedForwardLm" and "recog_lm" in \
+            return using_spm10k_ctc(config, task_name) and config["recog_language_model"]["class"] == "FeedForwardLm" and "recog_lm" in \
                 config["preload_from_files"]
     return False
 
@@ -324,6 +324,7 @@ def get_corpus_text_dict_by_name(ds_name):
 
 def check_rescor_ppl(model_id:str, llm_config: dict, ds_name: str, lm_rescore_res: RecogOutput,alias: str = None)-> tk.Path:
     'Check ppl of LLM during rescoring when use prev context'
+    # TODO: current implementation only support the check with ref.segmentation
     from i6_experiments.users.zhang.experiments.lm.llm import HuggingFaceLmPerplexityJobV2, LLM_rqmt
     for id in LLM_rqmt.keys():
         if model_id in id:
@@ -364,7 +365,7 @@ def recog_model(
     name: Optional[str] = None,
     search_error_check: bool = False,
     search_error_version: int = 2,
-) -> Tuple[ScoreResultCollection, Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str,ScoreResult]]]:
+) -> Tuple[ScoreResultCollection, Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str,ScoreResult]], Optional[Dict[str, tk.Path]]]:
     """
     Recog for some given model (a single given checkpoint / epoch).
     (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
@@ -400,14 +401,16 @@ def recog_model(
     outputs = {}
     search_error = None
 
-    decoding_params = decoding_config.copy()
-    rescoring = decoding_params.pop("rescoring", False)
 
+    decoding_params = decoding_config.copy()
+    n_best_size = decoding_params.get("nbest", 1)
+    givenNbest = decoding_params.pop("Nbest_dataset", None)
+    rescoring = decoding_params.pop("rescoring", False)
     rescoringLM = decoding_params.pop("lm_rescore", None)
     rescoringLM_scale = decoding_params.pop("rescore_lmscale", None)
     rescoreLM_name = decoding_params.pop("rescore_lm_name", "")
     rescore_Priorscale = decoding_params.pop("rescore_priorscale", None)
-
+    llm_rescoring = False
     if rescoring: # Prepare rescoring settings
         from .experiments.decoding.lm_rescoring import lm_am_framewise_prior_rescore, ngram_rescore_def, ffnn_rescore_def, trafo_lm_rescore_def
         from .experiments.ctc import ctc_model_rescore
@@ -481,7 +484,7 @@ def recog_model(
             rescor_def = trafo_lm_rescore_def
             lm_rescor_rqmt = {"cpu": 2, "mem": 12, "time": 2, "gpu_mem": 48 if USE_48gb else 24}
             if "spm10k" in rescoreLM_name:
-                lm_rescor_rqmt["gpu_mem"] = 80 if "ES" in rescoreLM_name else 48
+                lm_rescor_rqmt["gpu_mem"] = 80 if "ES" in rescoreLM_name else (80 if n_best_size > 300 else 48)
         elif rescoreLM_name[0].isdigit() and "gram" in rescoreLM_name:
             rescor_def = ngram_rescore_def
             lm_rescor_rqmt = {"cpu": 2, "mem": 12, "time": 2}
@@ -493,18 +496,18 @@ def recog_model(
             if isinstance(rescoringLM, dict):
                 prev_one_ctx = rescoringLM.get("prev_one_ctx", False)
                 prompt = rescoringLM.get("prompt", None)
-            time_factor = 2 if prev_one_ctx or prompt else 1
-            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2*time_factor, "gpu_mem": 48 if prev_one_ctx else 48},
-                              "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 80 if prev_one_ctx else 48},
+            time_factor = max(1,n_best_size//100) if prev_one_ctx or prompt else 1
+            lm_rescor_rqmt = {"Llama-3.2-1B":{"cpu": 2, "mem": 30, "time": 2*time_factor, "gpu_mem": (80 if n_best_size > 300 else 48) if prev_one_ctx else 48},
+                              "Llama-3.1-8B":{"cpu": 2, "mem": 40, "time": 3*time_factor, "gpu_mem": (141 if n_best_size > 300 else 80) if prev_one_ctx else 48},
                               "Qwen3-0.6B-Base":{"cpu": 2, "mem": 25, "time": 2*time_factor, "gpu_mem": 48 if prev_one_ctx else 24},
-                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 2*time_factor, "gpu_mem": 48 if prev_one_ctx else 48},
+                              "Qwen3-1.7B-Base":{"cpu": 2, "mem": 33, "time": 2*time_factor, "gpu_mem": (80 if n_best_size > 300 else 48) if prev_one_ctx else 48},
                               "Qwen3-4B-Base":{"cpu": 2, "mem": 35, "time": 12*time_factor, "gpu_mem": 48 if USE_48gb else 24},
-                              "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 48},
-                              "phi-4":{ "cpu": 3, "mem": 65, "time": 4*time_factor, "gpu_mem": 80},
+                              "Qwen3-8B-Base":{"cpu": 2, "mem": 40, "time": 3*time_factor, "gpu_mem": 80},
+                              "phi-4":{ "cpu": 3, "mem": 65, "time": 4*time_factor, "gpu_mem": (141 if n_best_size > 300 else 80)},
                               "Mistral-7B-v0.3":{"cpu": 2, "mem": 40, "time": 4*time_factor, "gpu_mem": 48 if USE_48gb else 24},}.get(rescoreLM_name)
             assert lm_rescor_rqmt is not None, f"LM type '{rescoreLM_name}' not found"
+            llm_rescoring = True
             #print(f"Warning: Check LM type{rescoreLM_name}, will use HF_LM rescoring")
-
 
         recog_pre_post_proc_funcs_ext = list(recog_pre_post_proc_funcs_ext)
         recog_pre_post_proc_funcs_ext += [
@@ -516,7 +519,7 @@ def recog_model(
                     prior_scale=rescore_Priorscale,
                     am=model,
                     am_rescore_def=ctc_model_rescore,
-                    am_rescore_rqmt={"cpu": 2, "mem": 25, "time": 2, "gpu_mem": 10},
+                    am_rescore_rqmt={"cpu": 1, "mem": 12, "time": 2, "gpu_mem": 10},
                     am_scale=1.0,
                     lm=rescoringLM,
                     lm_scale=rescoringLM_scale,
@@ -541,7 +544,9 @@ def recog_model(
     oracle_res_dict = dict()
     rescor_ppls = dict()
     sanity_ppls = dict()
+    # Just for keeping hash for some already done exps
     Returnn_py_exe = None if recog_def != model_recog_lm else tk.Path('/home/hzhang/environments/pyenvs/py_3.10_torch_2.1/bin/python3')
+    search_rqmt = dict() if search_rqmt is None else search_rqmt
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets and dataset_name not in dev_sets:
                 continue
@@ -564,14 +569,14 @@ def recog_model(
             #     if PLOT:
             #         trafo_config["max_seqs"] = 90
 
-            watch_list = ["eval_napoli_202210-v3", "movies_tvshows_talks_202303-v3"]
+            watch_list = ["eval_napoli_202210-v3", "movies_tvshows_talks_202303-v3"]#, "mtp_dev_heldout-v2"]
             if any(watch in dataset_name for watch in watch_list):
                 trafo_config["batch_size"] = 2_000_000 if decoding_config["beam_size"] <= 50 else 1_000_000
             # watch_list = ["mtp_eval_p4_family_holiday_other", "mtp_dev_heldout-v2", "eval_callcenter_lt-v5"]
             # for name in watch_list:
             #     if name in dataset.get_main_name():
             #         trafo_config["batch_size"] = 2_000_000
-
+            search_rqmt.update({"gpu_mem": 80, "time": 12 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 8})
             config_ = trafo_config
         if using_ffnn_lm(config):
             ffnn_config = copy.deepcopy(config)
@@ -584,8 +589,19 @@ def recog_model(
             #if PLOT:
             ffnn_config["max_seqs"] = 90 if decoding_config.get("beam_size", 150) == 150 else 50
             ffnn_config["batch_size"] = int(20000 * 100 / reduce_factor)
+            search_rqmt.update({"gpu_mem": 11, "time": 6 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 4})
+            if decoding_config.get("beam_size", 150) > 300:
+                ffnn_config["max_seqs"] = 100
+                ffnn_config["batch_size"] = 3_200_000  # 200 second audio
+                search_rqmt.update({"gpu_mem": 80, })
             config_ = ffnn_config
-
+        # if using_ffnn_lm(config, "LBS"):
+        #     ffnn_config = copy.deepcopy(config)
+        #     #if 'dev-other' in dataset.get_main_name() and decoding_params.get("nbest", 1) >= 300:
+        #     if "ES" not in dataset.get_main_name():
+        #         ffnn_config["batch_size"] = 9_600_000
+        #         search_rqmt.update({"gpu_mem": 11, "time":2})
+        #     config_ = ffnn_config
         (recog_out, hyps, search_error_rescore, oracle_res,
          lm_rescoring_res, gt_res_one_pass, lm_rescoring_res_gt) = search_dataset( # Hyps here is raw out from first pass
             decoding_config=decoding_params,
@@ -594,6 +610,7 @@ def recog_model(
             model=model,
             recog_def=recog_def,
             prior_path=prior_path,
+            llm_rescoring=llm_rescoring,
             config=config_,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
@@ -602,6 +619,7 @@ def recog_model(
             first_pass_name=first_pass_name + f"/{dataset_name}",
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             recog_pre_post_proc_funcs_ext=recog_pre_post_proc_funcs_ext,
+            Nbest_dataset = givenNbest,
         )
         if oracle_res:
             oracle_score_out = task.score_recog_output_func(dataset,oracle_res)
@@ -610,7 +628,7 @@ def recog_model(
 
         if any(llm_type in rescoreLM_name for llm_type in ["Qwen", "Llama", "phi"]) and "final_recog" in first_pass_name:
             assert isinstance(rescoringLM, Dict)
-            if rescoringLM.get("prev_one_ctx", False):
+            if rescoringLM.get("prev_one_ctx", False) and "aptk_leg" not in dataset_name:
                 rescor_ppls[dataset_name] = check_rescor_ppl(model_id=rescoreLM_name, llm_config=rescoringLM, ds_name=dataset_name,
                                                              lm_rescore_res = lm_rescoring_res, alias = f"ppl/{rescoreLM_name}/rescore_ppl/{dataset_name}_ppl{'_cheated' if cheat else ''}")
                 from i6_experiments.users.zhang.experiments.lm.lm_ppl import ComputePPLOnRecogOutJob
@@ -623,7 +641,7 @@ def recog_model(
         score_out = task.score_recog_output_func(dataset, recog_out)
         # tk.register(score_out.report, f"{name}/search/{dataset_name}/"
         outputs[dataset_name] = score_out
-        if search_error_check:
+        if search_error_check and "aptk_leg" not in dataset_name and givenNbest is not None:
             #config_ = config.copy()
             # if config.get("batch_size"):
             #     config_.pop("batch_size")
@@ -642,15 +660,20 @@ def recog_model(
     from i6_experiments.users.zhang.utils.report import ReportDictJob
     if rescor_ppls:
         tk.register_output(get_concise_first_pass_name(first_pass_name, decoding_config)+f"/{rescoreLM_name}_rescore_ppl/ppl_report{'_cheated' if cheat else ''}_batch{rescoringLM['batch_size']}", ReportDictJob(outputs=rescor_ppls).out_report_dict)
-    if oracle_res_dict:
+    if oracle_res_dict and 'final_recog' in first_pass_name:
+        oracle_name_ext = "_final_recog" if "final_recog" in first_pass_name else "_tune"
         from i6_experiments.users.zhang.utils.oracle_wer import GetOracleWerReportJob
-        tk.register_output(get_concise_first_pass_name(first_pass_name, decoding_config)+"/oracle_wer/report", GetOracleWerReportJob(outputs=oracle_res_dict, name=first_pass_name).out_report_dict)
+        tk.register_output(get_concise_first_pass_name(first_pass_name, decoding_config)+f"/oracle_wer/report{oracle_name_ext}", GetOracleWerReportJob(outputs=oracle_res_dict, name=first_pass_name).out_report_dict)
     if sanity_ppls:
         tk.register_output(get_concise_first_pass_name(first_pass_name, decoding_config) + f"/{rescoreLM_name}_rescore_ppl/sanity_ppl_report{'_cheatedCTX' if rescoringLM.get('cheat_prev_ctx',False) else ''}_batch{rescoringLM['batch_size']}",
                            ReportDictJob(outputs=sanity_ppls).out_report_dict)
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
-    return task.collect_score_results_func(outputs), search_error_dict, search_error_rescore_dict, outputs#[search_error_key]
+    if 'final_recog' in first_pass_name:
+        res = task.collect_score_results_func(outputs)
+    else:
+        res = task.default_collect_score_results(outputs)
+    return res, search_error_dict, search_error_rescore_dict, outputs, rescor_ppls#[search_error_key]
 
 
 def compute_prior(
@@ -866,8 +889,10 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     first_pass_name: Optional[str] = None,
+    llm_rescoring: bool = False,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
+    Nbest_dataset: Optional[DatasetConfig] = None,
 ) -> Tuple[RecogOutput, tk.Path, tk.Path, RecogOutput, RecogOutput, tk.Path, tk.Path]:
     """
     Recog on the specific dataset using RETURNN.
@@ -926,42 +951,43 @@ def search_dataset(
         )
         res = search_job.out_search_file
     else:
-        out_files = [_v2_forward_out_filename]
-        if config and config.get("__recog_def_ext", False):
-            out_files.append(_v2_forward_ext_out_filename)
+        if Nbest_dataset is None:
+            out_files = [_v2_forward_out_filename]
+            if config and config.get("__recog_def_ext", False):
+                out_files.append(_v2_forward_ext_out_filename)
 
-        search_job = ReturnnForwardJobV2(
-            model_checkpoint=model.checkpoint if (config is not None and not config.get("allow_random_model_init", False)) else None,
-            returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, decoding_config, prior_path, config=config, post_config=search_post_config
-            ),
-            output_files=out_files,
-            returnn_python_exe=Returnn_python_exe or tools_paths.get_returnn_python_exe(),
-            returnn_root=tools_paths.get_returnn_root(),
-            mem_rqmt=search_mem_rqmt,
-        )
+            search_job = ReturnnForwardJobV2(
+                model_checkpoint=model.checkpoint if (config is not None and not config.get("allow_random_model_init", False)) else None,
+                returnn_config=search_config_v2(
+                    dataset, model.definition, recog_def, decoding_config, prior_path, config=config, post_config=search_post_config
+                ),
+                output_files=out_files,
+                returnn_python_exe=Returnn_python_exe or tools_paths.get_returnn_python_exe(),
+                returnn_root=tools_paths.get_returnn_root(),
+                mem_rqmt=search_mem_rqmt,
+            )
 
-        # if using_big_lm():
-        #     print(search_job.rqmt)
-        res = search_job.out_files[_v2_forward_out_filename]
+            # if using_big_lm():
+            #     print(search_job.rqmt)
+            res = search_job.out_files[_v2_forward_out_filename]
+        else:
+            res = Nbest_dataset.get_dataset(dataset.get_main_name())
     res_with_score = res.copy() # With orig scores, no 2. pass, for search error check
 
-    if USE_24GB:
-        search_job.rqmt.update({"gpu_mem":24})
-    if search_rqmt:
-        search_job.rqmt.update(search_rqmt)
-    if using_trafo_lm(config):
-        search_job.rqmt.update({"gpu_mem": 80, "time": 12 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 8})
-    if using_ffnn_lm(config):
-        search_job.rqmt.update({"gpu_mem": 11, "time": 6 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 4})
-    if env_updates:
-        for k, v in env_updates.items():
-            search_job.set_env(k, v)
-    if first_pass_name:
-        search_job.add_alias(first_pass_name)
+    if Nbest_dataset is None:
+        if USE_24GB:
+            search_job.rqmt.update({"gpu_mem":24})
+        if search_rqmt:
+            search_job.rqmt.update(search_rqmt)
+
+        if env_updates:
+            for k, v in env_updates.items():
+                search_job.set_env(k, v)
+        if first_pass_name:
+            search_job.add_alias(first_pass_name)
 
     raw_res_search_labels = RecogOutput(output=res)
-    if recog_def.output_blank_label:
+    if recog_def.output_blank_label and Nbest_dataset is None:
         raw_res_labels = ctc_alignment_to_label_seq(raw_res_search_labels, blank_label=recog_def.output_blank_label)
         # if rescoring:
         #     lm_rescor_name, rescoringLM = rescoringLM
@@ -1019,7 +1045,7 @@ def search_dataset(
         return oracle_wer_res
 
     oracle_check = functools.partial(_check_oracle_wer, hyp=res_with_score.output)
-    if "final_recog" in first_pass_name:# and "ref" in dataset.get_main_name():
+    if "aptk_leg" not in dataset.get_main_name(): #"final_recog" in first_pass_name and
         oracle_wer_res = oracle_check(alias=f"{get_concise_first_pass_name(first_pass_name, decoding_config)}/{dataset.get_main_name()}", ref=gt_res_one_pass)
         # from i6_experiments.users.zhang.utils.oracle_wer import OracleWerJob
         # oracle_wer_job = OracleWerJob(hyp_path=res_with_score.output, ref_path=gt_res_one_pass)
@@ -1037,7 +1063,7 @@ def search_dataset(
     #targets_with_dummy_scores = TextDictToDummyRecogOutJob(get_corpus_text_dict_by_name(dataset.get_main_name()),output_gzip=True).dummy_rec_out
     res = ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
     # Just a reminder -> cheat = decoding_config.pop("cheat", False) and "aptk_leg" not in dataset.get_main_name()
-    if cheat:  # If put it here,the rescoring Job will also depend on gt_res, so make sure the gt_res is minimal dependent
+    if cheat and llm_rescoring:  # If put it here,the rescoring Job will also depend on gt_res, so make sure the gt_res is minimal dependent
         from i6_experiments.users.zhang.experiments.decoding.rescoring import RescoreCheatJob
         cheat_job = RescoreCheatJob(combined_search_py_output=res, combined_gt_py_output=targets_with_dummy_scores)
         # cheat_job.add_alias(search_alias_name + "/search_error_job")
@@ -1047,11 +1073,46 @@ def search_dataset(
         # cheat_job.add_alias(search_alias_name + "/search_error_job")
         raw_res_search_labels = RecogOutput(output=search_label_cheat_job.out_search_results)
 
+    config = None # Additional config for LM RETURNN forward
     for f in recog_pre_post_proc_funcs_ext:
+        # if cheat and hasattr(f, "keywords"):
+        #     if "lm_rescore_def" in f.keywords:
+        #         from i6_experiments.users.zhang.experiments.decoding.lm_rescoring import trafo_lm_rescore_def, ffnn_rescore_def
+        #         if f.keywords["lm_rescore_def"] == trafo_lm_rescore_def or ffnn_rescore_def:
+        #             config = {"batch_size" : 10000}
+        #             #print(f"\n{search_alias_name}: ->>>> Change batch_size for Rescor trafo LM !!")
+
+        res = f(
+            RecogOutput(output=res),
+            dataset=dataset,
+            gt_res=get_corpus_text_dict_by_name(ds_name=dataset.get_main_name()) if not "aptk_leg" in dataset.get_main_name() else None, # This will only be used by LLM, prefer subword recog out than words #output=get_corpus_text_dict_by_name(dataset.get_main_name())),
+            raw_res_search_labels=raw_res_search_labels if Nbest_dataset is None else None,
+            raw_res_labels=raw_res_labels,
+            search_labels_to_labels=functools.partial(
+                ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
+            ),
+            config_lm=config,
+            alias_name=search_alias_name,
+        )
+        if isinstance(res, tuple):
+            # rescoringLM = decoding_config.get("lm_rescore", None)
+            # if isinstance(rescoringLM, dict) and rescoringLM.get("cheat_prev_ctx", False):
+            #     lm_rescoring_res = lm_rescoring_gt_res
+            # else:
+            lm_rescoring_res = res[1].output
+            res = res[0].output
+
+            # For rescor_ppl calculation, irrelevant for normal LMs
+            # if cheat and lm_rescoring_res is not None: #If cheat, lm_rescoring_res already contains GT
+            #     assert lm_rescoring_gt_res is not None
+            #     cheat_job1 = RescoreCheatJob(combined_search_py_output=lm_rescoring_res,
+            #                                  combined_gt_py_output=lm_rescoring_gt_res)
+            #     cheat_job1.add_alias(search_alias_name + "/lm_rescore_cheat_job")
+            #     lm_rescoring_res = cheat_job1.out_search_results
         gt_res = f(
             RecogOutput(output=targets_with_dummy_scores),
             dataset=dataset,
-            #gt_res=RecogOutput(output=gt_res_),
+            gt_res=SearchTakeBestJob(lm_rescoring_res, output_gzip=True).out_best_search_results if llm_rescoring else None,
             raw_res_search_labels=RecogOutput(output=targets_with_dummy_scores_search_labels), # This affect the Prior rescoring
             raw_res_labels=raw_res_labels, #Unused
             search_labels_to_labels=functools.partial(
@@ -1065,44 +1126,24 @@ def search_dataset(
             gt_res = gt_res[0].output
             oracle_check(alias=f"{get_concise_first_pass_name(first_pass_name, decoding_config)}/{dataset.get_main_name()}/AM", ref=am_rescoring_gt_res)
 
-        res = f(
-            RecogOutput(output=res),
-            dataset=dataset,
-            gt_res=get_corpus_text_dict_by_name(ds_name=dataset.get_main_name()), # This will only be used by LLM, prefer subword recog out than words #output=get_corpus_text_dict_by_name(dataset.get_main_name())),
-            raw_res_search_labels=raw_res_search_labels,
-            raw_res_labels=raw_res_labels,
-            search_labels_to_labels=functools.partial(
-                ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
-            ),
-            alias_name=search_alias_name,
-        )
-        if isinstance(res, tuple):
-            lm_rescoring_res = res[1].output
-            res = res[0].output
-            # if cheat and lm_rescoring_res is not None: #If cheat, lm_rescoring_res already contains GT
-            #     assert lm_rescoring_gt_res is not None
-            #     cheat_job1 = RescoreCheatJob(combined_search_py_output=lm_rescoring_res,
-            #                                  combined_gt_py_output=lm_rescoring_gt_res)
-            #     cheat_job1.add_alias(search_alias_name + "/lm_rescore_cheat_job")
-            #     lm_rescoring_res = cheat_job1.out_search_results
     search_error_rescore = None
-    if check_rescore_search_error:
+    if check_rescore_search_error and "aptk_leg" not in dataset.get_main_name():
         from .experiments.decoding.rescoring import RescoreSearchErrorJob
         search_error_rescore_job = RescoreSearchErrorJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
         search_error_rescore_job.add_alias(search_alias_name + "/search_error_job")
         search_error_rescore = search_error_rescore_job.out_search_errors
         #tk.register_output(search_alias_name + "/search_error_rescore", search_error_rescore)
 
-    # if cheat: #keep it here make LLM to scoring GT also in a cheated way(using ref context rather hyp)
-    #     from .experiments.decoding.rescoring import RescoreCheatJob
-    #     cheat_job = RescoreCheatJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
-    #     #cheat_job.add_alias(search_alias_name + "/search_error_job")
-    #     res = cheat_job.out_search_results
-    #     if lm_rescoring_res is not None:
-    #         assert lm_rescoring_gt_res is not None
-    #         cheat_job1 = RescoreCheatJob(combined_search_py_output=lm_rescoring_res, combined_gt_py_output=lm_rescoring_gt_res)
-    #         cheat_job1.add_alias(search_alias_name + "/lm_rescore_cheat_job")
-    #         lm_rescoring_res = cheat_job1.out_search_results
+    if cheat and not llm_rescoring: #keep it here make LLM to scoring GT also in a cheated way(using ref context rather hyp)
+        from .experiments.decoding.rescoring import RescoreCheatJob
+        cheat_job = RescoreCheatJob(combined_search_py_output=res, combined_gt_py_output=gt_res)
+        #cheat_job.add_alias(search_alias_name + "/search_error_job")
+        res = cheat_job.out_search_results
+        if lm_rescoring_res is not None:
+            assert lm_rescoring_gt_res is not None
+            cheat_job1 = RescoreCheatJob(combined_search_py_output=lm_rescoring_res, combined_gt_py_output=lm_rescoring_gt_res)
+            cheat_job1.add_alias(search_alias_name + "/lm_rescore_cheat_job")
+            lm_rescoring_res = cheat_job1.out_search_results
 
     if len(recog_pre_post_proc_funcs_ext) < 1:
         res = raw_res_labels.output
@@ -1779,7 +1820,7 @@ def search_config_v2(
                 raise NotImplementedError(f"Unknown lm_name {lm_name}")
         else:
             lm = None
-            decoder_params.pop("lm_weight")
+            decoder_params.pop("lm_weight", 0)
             if decoder_params.get("nbest", 1) == 1:
                 decoder_params.pop("beam_size") #No LM just equivalent to greedy
 
@@ -2074,6 +2115,12 @@ def _returnn_v2_get_forward_callback():
                         self.out_ext_file.write(f"  {d!r},\n")
                     self.out_ext_file.write("],\n")
             else: # We are already having the words at hand
+                def _py_double_quoted_literal(s: str) -> str:
+                    # Guard against accidental newlines
+                    assert "\n" not in s and "\r" not in s, f"unexpected newline in words: {repr(s)[:120]}"
+                    # Escape backslash and double quote; leave apostrophes alone
+                    s = s.replace("\\", "\\\\").replace('"', '\\"')
+                    return f'"{s}"'
                 assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
                 num_beam = hyps.raw_tensor.shape[0]
                 # Consistent to old search task, list[(float,str)].
@@ -2081,7 +2128,10 @@ def _returnn_v2_get_forward_callback():
                 for i in range(num_beam):
                     score = float(scores.raw_tensor[i])
                     words = hyps.raw_tensor[i][0]
-                    self.out_file.write(f"  ({score!r}, {words!r}),\n")
+                    words = _py_double_quoted_literal(words)
+                    self.out_file.write(f"  ({score!r}, {words}),\n")
+                    if i == 0:
+                        print(f"Best_hyp of {seq_tag}: \n {words}")
                 self.out_file.write("],\n")
 
                 assert not self.out_ext_file, "not implemented"
@@ -2095,10 +2145,10 @@ def _returnn_v2_get_forward_callback():
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
-def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[Dict[str, tk.Path]],Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResult]]]]):
-    res, search_error, search_error_rescore, output = recog_and_score_func(epoch)
+def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[Dict[str, tk.Path]],Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResult]], Optional[Dict[str, tk.Path]]]]):
+    res, search_error, search_error_rescore, output, rescor_ppls = recog_and_score_func(epoch)
     # assert isinstance(res, Tuple[ScoreResultCollection,Optional[tk.path]])
-    return res, search_error, search_error_rescore, output
+    return res, search_error, search_error_rescore, output, rescor_ppls
 
 PRINTED = False
 class GetRecogSummaryJob(sisyphus.Job):

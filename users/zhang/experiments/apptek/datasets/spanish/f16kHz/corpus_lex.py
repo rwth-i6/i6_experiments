@@ -87,11 +87,15 @@ test_corpora_def = {
     "test_set.ES_ES.f8kHz": [
         "mtp_eval-v2", #present but bug in data loader
     ],
+    "test_set.ES.mbw": [
+        "common_voice_two_speakers-v1",
+    ],
     # "test_set.ES.f16kHz": [
     #     "mtp_eval_heldout-v2",
     # ],
     "test_set.ES_ES.f16kHz": [
         "eval_voice_call-v3", #present but bug in data loader
+        "eval_voice_call-v2",
         "eval_napoli_202210-v3",
     ],
     "test_set.ES_US.f8kHz": [ #ok
@@ -153,7 +157,8 @@ segmenter_flow_artefact = (
 )
 rasr_artefact = (
     "rasr",
-    "streaming-rasr-2024-06-21",
+    "streaming-rasr-2025-07-12_haotian"
+    #"streaming-rasr-2024-06-21",
 )
 
 
@@ -282,7 +287,7 @@ def _get_eval_corpus(
     khz = namespace.split(".")[-1]
     if khz == "f16kHz":
         audio_files = artefact["audio_files"]
-    elif khz == "f8kHz":
+    elif khz == "f8kHz" or khz == "mbw":
         resample_job = ChangeEncodingJob(
             file_list=artefact["audio_files"],
             output_filenames=[os.path.basename(p) for p in artefact["audio_files"]],

@@ -284,7 +284,7 @@ def train_exp(
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str,Any]]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str,Any]], Optional[Dict[str,Any]]]:
 
     """
     Train experiment
@@ -489,7 +489,7 @@ def recog_exp(
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str, Any]]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str, Any]], Optional[Dict[str, tk.Path]]]:
     """
     Train experiment
     """
@@ -892,12 +892,14 @@ def recog_exp(
     if recog_config_updates:
         print(f"recog_config_updates{recog_config_updates}")
         decoding_config.update(recog_config_updates)
-    search_error_check = True if decoding_config.get("lm_order", False) else False
+
+
+    search_error_check = decoding_config.get("lm_order", False)
 
     '''Final recog with tuned scale'''
     #print(f"{prefix}: \n model_config{model_config}")
-    print(f"\n\n{prefix}: \n decoding_config['lm_weight']{decoding_config['lm_weight']}, best_lm_scale {best_lm_scale}")
-    recog_result, search_error, search_error_rescore, output_dict = recog_exp_(
+    print(f"\n\n{prefix}: \n decoding_config['lm_weight']{decoding_config.get('lm_weight',None)}, best_lm_scale {best_lm_scale}")
+    recog_result, search_error, search_error_rescore, output_dict, rescor_ppls = recog_exp_(
         prefix, task, model_with_checkpoints,
         first_pass_name=first_pass_name + "final_recog",
         epoch=recog_epoch,
@@ -916,7 +918,7 @@ def recog_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_scale, best_prior_scale, output_dict
+    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_scale, best_prior_scale, output_dict, rescor_ppls
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -1267,33 +1269,72 @@ def model_recog_lm(
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     if use_lexicon:
         print("Use words directly!")
-        if CHECK_DECODER_CONSISTENCY:
-            for l1 in decoder_results:
-                for l2 in l1:
-                    lexicon_words = " ".join(l2.words)
-                    token_words = " ".join([configs["tokens"][t] for t in l2.tokens])
-                    assert not token_words.endswith(
-                        "@@"), f"Token words ends with @@: {token_words}, Lexicon words: {lexicon_words}"
-                    token_words = token_words.replace("@@ ", "")
-                    assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
-
-        words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
-
-        if  len(decoder_results) != batch_dim.get_dim_value().item():
-            pdb.set_trace()
-
-        words = np.array(words)
-        words = np.expand_dims(words, axis=2)
-        scores = [[l2.score for l2 in l1] for l1 in decoder_results]
-        scores = torch.tensor(scores)
-
-        beam_dim = Dim(words.shape[1], name="beam_dim")
-        enc_spatial_dim = Dim(1, name="spatial_dim")
-        words = rf._numpy_backend.NumpyBackend.convert_to_tensor(words, dims=[batch_dim, beam_dim, enc_spatial_dim],
-                                                                 dtype="string", name="hyps")
-        scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores)
+        # if CHECK_DECODER_CONSISTENCY:
+        #     for l1 in decoder_results:
+        #         for l2 in l1:
+        #             lexicon_words = " ".join(l2.words)
+        #             token_words = " ".join([configs["tokens"][t] for t in l2.tokens])
+        #             assert not token_words.endswith(
+        #                 "@@"), f"Token words ends with @@: {token_words}, Lexicon words: {lexicon_words}"
+        #             token_words = token_words.replace("@@ ", "")
+        #             assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
+        # pdb.set_trace()
+        # words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
+        #
+        # if  len(decoder_results) != batch_dim.get_dim_value().item():
+        #     pdb.set_trace()
+        #
+        # words = np.array(words)
+        # words = np.expand_dims(words, axis=2)
+        # scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        # scores = torch.tensor(scores)
+        #
+        # beam_dim = Dim(words.shape[1], name="beam_dim")
+        # enc_spatial_dim = Dim(1, name="spatial_dim")
+        # words = rf._numpy_backend.NumpyBackend.convert_to_tensor(words, dims=[batch_dim, beam_dim, enc_spatial_dim],
+        #                                                          dtype="string", name="hyps")
+        # scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores)
 
         #pdb.set_trace()
+        B = len(decoder_results)
+        beam = max(len(hyps) for hyps in decoder_results)
+
+        # Build rectangular Python lists first (no dtype yet).
+        words_2d = []
+        scores_2d = []
+        for hyps in decoder_results:
+            row_w, row_s = [], []
+            for n in range(beam):
+                if n < len(hyps):
+                    r = hyps[n]
+                    # r.words might be list[str] or list[int]. You said you don't have an ID->word dict,
+                    # so stringify ints if needed.
+                    if r.words and not isinstance(r.words[0], str):
+                        seq_str = " ".join(str(x) for x in r.words)
+                    else:
+                        seq_str = " ".join(r.words) if r.words else ""
+                    row_w.append(seq_str)
+                    row_s.append(float(r.score))
+                else:
+                    row_w.append("")  # pad missing beams with empty string
+                    row_s.append(-np.inf)  # so downstream argmax won't pick it
+            words_2d.append(row_w)
+            scores_2d.append(row_s)
+
+        # Now convert to real Unicode array (NOT object).
+        words_mat = np.array(words_2d, dtype=np.str_)  # shape (B, beam), dtype '<U...'
+        words_mat = np.expand_dims(words_mat, axis=2)  # (B, beam, 1)
+        scores_mat = np.asarray(scores_2d, dtype=np.float32)  # (B, beam)
+
+        # RETURNN dims + tensors
+        beam_dim = Dim(words_mat.shape[1], name="beam_dim")
+        enc_spatial_dim = Dim(words_mat.shape[2], name="spatial_dim")  # =1
+
+        words = rf._numpy_backend.NumpyBackend.convert_to_tensor(
+            words_mat, dims=[batch_dim, beam_dim, enc_spatial_dim], dtype="string", name="hyps"
+        )
+        scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores_mat)
+
         return words, scores, enc_spatial_dim, beam_dim
     else:
         def _pad_blanks(tokens, max_len):
@@ -2985,7 +3026,7 @@ def scoring_v2(
                             logp.squeeze(0),
                             labels.squeeze(0),
                             seq_tag,
-                            model.blank_idx)
+                            model.blank_idx) if lm_name is None or "ES" in lm_name else "[OK]"
         if check_info != "[OK]":
             # Skip or handle specially:
             # e.g., write seq_tag to a "bad_samples.txt" and continue
