@@ -4,6 +4,9 @@ YouTube-Commons
 https://huggingface.co/datasets/PleIAs/YouTube-Commons/
 """
 
+from __future__ import annotations
+from typing import Dict, Any
+
 
 def _load():
     from datasets import Features, Value, VerificationMode, load_dataset, concatenate_datasets
@@ -63,10 +66,14 @@ def _load():
 
 def _load_en():
     ds = _load()
-    ds = ds.filter(lambda x: x["transcription_language"] == "en")
+    ds = ds.filter(_filter_func_lang_en, num_proc=8)
     # Dataset({
     #     features: ['video_id', 'video_link', 'title', 'text', 'channel', 'channel_id', 'date', 'license', 'original_language', 'transcription_language', 'word_count', 'character_count'],
     #     num_rows: 3262750
     # })
     # sum(ds["word_count"]) = 6_664_116_242
     return ds
+
+
+def _filter_func_lang_en(example: Dict[str, Any]) -> bool:
+    return example["transcription_language"] == "en"
