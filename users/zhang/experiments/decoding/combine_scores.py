@@ -34,88 +34,97 @@ def _smart_text_open(fn: str, mode: str = "rt", encoding: str = "utf-8"):
 def _next_char(stream: io.TextIOBase) -> str:
     return stream.read(1)
 
+
 def _consume_ws(stream: io.TextIOBase) -> str:
-    c = _next_char(stream)
-    while c and c.isspace():
-        c = _next_char(stream)
-    return c
+    """Read until a non-whitespace char or EOF; return that char (or '')."""
+    while True:
+        c = stream.read(1)
+        if not c or not c.isspace():
+            return c
 
 def _read_quoted(stream: io.TextIOBase, quote: str) -> str:
-    # returns the full quoted literal including quotes
-    out = [quote]
+    """Read a Python-quoted string literal starting after its first char `quote`."""
+    # We were passed the first quote already; include it in the result.
+    buf = [quote]
     esc = False
     while True:
-        c = _next_char(stream)
-        if not c:
-            raise ValueError("unterminated string")
-        out.append(c)
+        ch = stream.read(1)
+        if not ch:
+            raise ValueError("EOF while reading quoted string")
+        buf.append(ch)
         if esc:
             esc = False
-        elif c == "\\":
+            continue
+        if ch == '\\':
             esc = True
-        elif c == quote:
-            break
-    return "".join(out)
+            continue
+        if ch == quote:
+            # Done (we included closing quote)
+            return ''.join(buf)
 
 def _read_balanced_list_literal(stream: io.TextIOBase) -> str:
-    # reads a list literal "[ ... ]" including nested () and [] and quoted strings
+    """
+    Read a list literal starting at (or just before) '['.
+    Returns the exact text of the list, stopping right after the matching ']'.
+    Does not consume any trailing comma/next key.
+    """
+    # Skip whitespace to first char of the value
     c = _consume_ws(stream)
-    if c != "[":
-        raise ValueError("expected list literal starting with '['")
-    out = [c]
+    if c != '[':
+        raise ValueError(f"Expected '[' to start list literal, got {c!r}")
+
+    buf = ['[']
     depth = 1
     in_str = False
-    quote = ""
+    str_quote = ''
     esc = False
-    while depth > 0:
-        c = _next_char(stream)
-        if not c:
-            raise ValueError("unterminated list literal")
-        out.append(c)
+
+    while True:
+        ch = stream.read(1)
+        if not ch:
+            raise ValueError("EOF while reading list literal")
+        buf.append(ch)
+
         if in_str:
             if esc:
                 esc = False
-            elif c == "\\":
+                continue
+            if ch == '\\':
                 esc = True
-            elif c == quote:
+                continue
+            if ch == str_quote:
                 in_str = False
-        else:
-            if c in ("'", '"'):
-                in_str = True
-                quote = c
-            elif c in "[(":
-                depth += 1
-            elif c in "])":
-                depth -= 1
-    return "".join(out)
+            continue
 
-def _peek_non_ws(stream: io.TextIOBase) -> str:
-    # peek the next non-ws char by reading one char and pushing back via tell/seek if possible
-    pos = stream.tell()
-    c = _consume_ws(stream)
-    # restore pointer for caller
-    try:
-        stream.seek(pos)
-    except (io.UnsupportedOperation, OSError):
-        # If underlying stream doesn't support seek (rare for files),
-        # you can wrap with io.BufferedRandom; for our usage we have file handles -> seekable.
-        pass
-    return c
+        # not in string
+        if ch in ("'", '"'):
+            in_str = True
+            str_quote = ch
+            continue
+        if ch == '[':
+            depth += 1
+        elif ch == ']':
+            depth -= 1
+            if depth == 0:
+                return ''.join(buf)
+        # else: other chars don't matter
 
 def iter_py_dict_items(stream: io.TextIOBase) -> Iterator[Tuple[str, List[Tuple[float, str]]]]:
     """
-    Stream (seq_tag, nbest_list) from a top-level Python dict literal:
-    {
-      'tag': [(score, 'hyp'), ...],
-      ...
-    }
+    Stream (seq_tag, nbest_list) from a top-level Python dict literal like:
+      { 'tag': [(score, "hyp"), ...], ... }
     """
     # Expect opening "{"
     c = _consume_ws(stream)
     if c != "{":
         raise ValueError("expected '{' at start of dict")
+
+    def _safe_eval_floaty_literals(text: str):
+        # No builtins; only allow inf/nan names.
+        env = {"__builtins__": {}, "inf": float("inf"), "nan": float("nan")}
+        return eval(text, env, {})
     while True:
-        # Look ahead for "}" (end) or next quoted key
+        # Next significant: '}' (end) or a quoted key
         c = _consume_ws(stream)
         if not c:
             raise ValueError("unexpected EOF (missing closing '}')")
@@ -123,28 +132,28 @@ def iter_py_dict_items(stream: io.TextIOBase) -> Iterator[Tuple[str, List[Tuple[
             return
         if c not in ("'", '"'):
             raise ValueError(f"expected quoted key, got {c!r}")
-        key_lit = c + _read_quoted(stream, c)[1:]  # include both quotes
+
+        key_lit = _read_quoted(stream, c)  # includes both quotes
         key = ast.literal_eval(key_lit)
 
-        # expect colon
+        # Expect colon
         c = _consume_ws(stream)
         if c != ":":
             raise ValueError("expected ':' after key")
 
-        # parse list literal value
+        # Read value list literal *exactly*
         val_lit = _read_balanced_list_literal(stream)
         try:
             val = ast.literal_eval(val_lit)
-        except Exception as e:
-            raise ValueError(f"failed to parse value for key {key!r}: {e}") from e
+        except Exception:
+            # Fallback for lists that may contain inf/-inf/nan
+            val = _safe_eval_floaty_literals(val_lit)
 
-        # After value, consume optional trailing comma (and allow trailing '}' in next loop)
-        # Move cursor to the next significant token
-        # We’ll try to consume a comma if present; if not, the loop's opening consume_ws will handle '}'.
+        # After value, optionally consume a single trailing comma
         pos = stream.tell()
         c = _consume_ws(stream)
         if c != ",":
-            # Not a comma: rewind so outer loop can see '}' or next key
+            # Not a comma; rewind so the next loop sees '}' or the next key's quote
             try:
                 stream.seek(pos)
             except (io.UnsupportedOperation, OSError):

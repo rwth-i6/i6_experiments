@@ -419,10 +419,10 @@ class HuggingFaceLmPerplexityJob(Job):
 
 class HuggingFaceLmPerplexityJobV2(Job):
     """Compute perplexity for a HuggingFace Transformer LLM model on given text dict corpus."""
-    
+
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
                  llm_name: str, lower_case:bool = False, context_len_limit: int = None, eos_symbol: str = "", word_ppl: bool = False,
-                 add_eos_to_completion: bool = True, use_prev_context: bool = False, version:int = 9):
+                 add_eos_to_completion: bool = True, use_prev_context: bool = False, version:int = 10):
         super().__init__()
         self.model_dir = model_dir
         self.text_file = text_file
@@ -493,7 +493,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
             add_special_tokens=False if use_prompt else True,
         )
         hyp_input_ids = enc_hyp["input_ids"].to(device)
-
+        print(enc_hyp["input_ids"])
         # Prepare inputs
         if use_prompt:
             enc_prompt = tokenizer(
@@ -556,8 +556,6 @@ class HuggingFaceLmPerplexityJobV2(Job):
             """
             # 0) Decide whether there is any *non-empty* prompt in this batch
             use_prompt = bool(batch_prompt) and any(p.strip() for p in batch_prompt)
-            if not use_prompt:
-                return self._score_batch(batch_lines, batch_prompt, tokenizer, model, device)
             if not all(p.strip() for p in batch_prompt):
                 print(f"Warning: Not all prompt are non empty{batch_prompt}")
             if not use_prompt:
@@ -601,7 +599,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
             input_ids = batch["input_ids"].to(device)  # [B, T]
             attn_mask = batch["attention_mask"].to(device)  # [B, T]
             B, T = input_ids.shape
-
+            #print(input_ids)
             # 4) Forward pass
             with torch.no_grad():
                 # [B, T] attention mask, 1 = real token, 0 = PAD
@@ -1311,7 +1309,7 @@ def py():
                     "dev-other",
              ]
     else:
-        ds_names = list(set([key for key in TEST_KEYS if "mtp_eval-v2" not in key])) if ES else []
+        ds_names = list(set([key for key in TEST_KEYS if "mtp_eval-v2" not in key and "eval_voice_call-v2" not in key])) if ES else []
         ds_names += [] if not LBS else [
                     "test-clean",
                     "test-other",
@@ -1321,11 +1319,13 @@ def py():
                       "Qwen/Qwen3-1.7B-Base",
                       #"Qwen/Qwen3-0.6B-Base",
                       #"Qwen/Qwen3-8B-Base",
-                     "Qwen/Qwen2-0.5B",
-                     "Qwen/Qwen2-1.5B",
-                     "Qwen/Qwen2-7B",
                      "microsoft/phi-4",
                          ]
+    qwen2_models = [  "Qwen/Qwen2-0.5B",
+                     "Qwen/Qwen2-1.5B",
+                     "Qwen/Qwen2-7B",]
+
+    check_models = qwen2_models
 
     LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 40,  # 40*6,
                           "meta-llama/Llama-3.1-8B": 50,
@@ -1351,7 +1351,8 @@ def py():
     ppls = dict()
     ppls_by_ds = {}
     #ctx_order = [0, 100, 300, 500, 700, 1000, 2000, 3000, 5000, 'unlimited']
-    ctx_order = [0, #64,
+    ctx_order = [0,
+                 #64,
                  #128, 256, 512,
                  #1024, 2048, 4096,
                  ]
