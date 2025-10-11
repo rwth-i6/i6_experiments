@@ -5,7 +5,7 @@ https://huggingface.co/datasets/PleIAs/YouTube-Commons/
 """
 
 from __future__ import annotations
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 def _load():
