@@ -125,7 +125,10 @@ def get_hf_text_only(name: str = "large") -> Path:
     Remove the audio part, keep only text.
     """
     job = TransformAndMapHuggingFaceDatasetJob(
-        "speechbrain/LoquaciousSet", name, transform=[_transform_rename_columns, _hf_dataset_remove_audio]
+        "speechbrain/LoquaciousSet",
+        name,
+        transform=[_transform_rename_columns, _hf_dataset_remove_audio],
+        map_func=_hf_dataset_map_add_num_words,
     )
     job.add_alias(f"{_alias_prefix}dataset_hf_text_only")
     tk.register_output(f"{_alias_prefix}dataset_hf_text_only", job.out_dir)
@@ -134,6 +137,11 @@ def get_hf_text_only(name: str = "large") -> Path:
 
 def _hf_dataset_remove_audio(ds: datasets.DatasetDict) -> datasets.DatasetDict:
     return ds.remove_columns("audio")
+
+
+def _hf_dataset_map_add_num_words(example: Dict[str, Any]) -> Dict[str, Any]:
+    example["num_words"] = len(example["text"].split())
+    return example
 
 
 @cache
@@ -552,12 +560,8 @@ def _make_hf_dataset_text_only(
         "class": "HuggingFaceDataset",
         "dataset_opts": hf_ds_opts,
         "use_file_cache": True,
-        # {'id': Value(dtype='string', id=None),
-        #  'spk_id': Value(dtype='string', id=None),
-        #  'sex': Value(dtype='string', id=None),
-        #  'text': Value(dtype='string', id=None)}
         "seq_tag_column": "id",
-        "sorting_seq_len_column": "duration",  # TODO...
+        "sorting_seq_len_column": "num_words",
         # Keep data_format consistent to extern_data_dict.
         "data_format": {
             "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": vocab_opts},
