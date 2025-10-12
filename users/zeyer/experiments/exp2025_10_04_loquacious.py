@@ -282,35 +282,39 @@ def py():
             aux_ctc_layer=16,
         )
 
-    train(
-        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
-                "batch_size": 20_000,
-                "max_seqs": 400,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            },
-        ),
-        train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=25),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=32,
-                    model_dim=1024,
-                    pos_enc=None,
-                    norm=rf.build_dict(rf.RMSNorm),
-                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                    dropout=0.1,
-                    att_dropout=0.1,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
+    for num_full_ep, split in [(4, 25), (5, 10), (10, 10)]:
+        n_ep = round(num_full_ep * split)
+        train(
+            f"{prefix}/lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nFullEp{num_full_ep}-nEp{n_ep}-spm10k",
+            config=dict_update_deep(
+                config_96gb_bf16_accgrad1,
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep),
+                    "batch_size": 20_000,
+                    "max_seqs": 400,
+                    "optimizer.weight_decay": 1e-2,
+                    "calculate_exp_loss": True,
+                },
+            ),
+            train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=split),
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        TransformerDecoder,
+                        encoder_dim=None,
+                        num_layers=32,
+                        model_dim=1024,
+                        pos_enc=None,
+                        norm=rf.build_dict(rf.RMSNorm),
+                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                        decoder_layer_opts=dict(
+                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
+                        ),
+                        dropout=0.1,
+                        att_dropout=0.1,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
