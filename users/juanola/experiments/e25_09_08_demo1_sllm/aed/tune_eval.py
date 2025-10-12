@@ -36,6 +36,7 @@ def eval_model(
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     prior_args: Optional[Dict[str, Any]] = None,
 ):
+    # TODO: MJ: defaults can be in parameters
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
     if isinstance(specific_epoch, int):
@@ -47,6 +48,7 @@ def eval_model(
     if result_dict is None:
         result_dict = {}
     debug = train_args.get("debug", False)
+
     for epoch in specific_epoch:
         asr_model = prepare_asr_model(
             training_name + f"/{epoch}",
@@ -75,7 +77,8 @@ def eval_model(
             vocab_opts=train_data.train.dataset.target_options,
         )
         result_dict.update(res)
-    if run_best_4 is True:
+
+    if run_best_4:
         asr_model_best4 = prepare_asr_model(
             training_name + "/best4",
             train_job,
@@ -103,7 +106,8 @@ def eval_model(
             vocab_opts=train_data.train.dataset.target_options,
         )
         result_dict.update(res)
-    if run_best is True:
+
+    if run_best:
         asr_model_best = prepare_asr_model(
             training_name + "/best",
             train_job,

@@ -36,7 +36,7 @@ def get_training_config(
     :param post_config: Add non-hashed arguments for RETURNN
     """
 
-    # changing these does not change the hash
+    # changing these do not change the hash
     base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
 
     base_config = {
@@ -78,7 +78,8 @@ def get_training_config(
 
     # TODO: maybe make nice (if capability added to RETURNN itself)
     if use_speed_perturbation:
-        from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+        from i6_experiments.users.zeyer.speed_pert.librosa_config import \
+            speed_pert_librosa_config  # TODO: MJ: change import!!
 
         # prolog_serializer = TorchCollection(
         #     serializer_objects=[
