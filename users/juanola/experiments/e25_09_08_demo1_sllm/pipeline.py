@@ -1,6 +1,7 @@
 """
 Pipeline parts to create the necessary jobs for training / forwarding / search etc...
 """
+# TODO: rename file
 
 import copy
 from dataclasses import dataclass
@@ -16,8 +17,9 @@ from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpointsJob, GetBestPtCheckpointJob
 from i6_experiments.common.setups.returnn.datasets import Dataset
-from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
+from .data.common import TrainingDatasets
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, RETURNN_ROOT
+from .returnn_config_helpers import get_forward_config, get_training_config, get_prior_config
 
 
 @dataclass
@@ -192,7 +194,12 @@ def compute_prior(
     return search_job.out_files["prior.txt"]
 
 
-def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+def create_training_job(training_name: str,
+                        datasets: TrainingDatasets,
+                        train_args: Dict[str, Any],
+                        num_epochs: int,
+                        returnn_exe: tk.Path,
+                        returnn_root: tk.Path) -> ReturnnTrainingJob:
     """
     :param training_name:
     :param datasets:

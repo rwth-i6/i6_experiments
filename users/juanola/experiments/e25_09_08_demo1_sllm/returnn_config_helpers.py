@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 from .data.common import TrainingDatasets
-from .serializer import serialize_training, serialize_forward
+from .returnn_config_serializer import serialize_training, serialize_forward
 
 
 def get_training_config(
@@ -18,7 +18,7 @@ def get_training_config(
     net_args: Dict[str, Any],
     train_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
-    include_native_ops=False,
+        include_native_ops: bool = False,
     debug: bool = False,
     use_speed_perturbation: bool = False,
     post_config: Optional[Dict[str, Any]] = None,
@@ -28,58 +28,39 @@ def get_training_config(
 
     :param training_datasets: datasets for training
     :param network_module: path to the pytorch config file containing Model
-    :param net_args: extra arguments for constructing the PyTorch model
-    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param train_step_module: ????? path to the pytorch config file containing TrainingStep
     :param config: config arguments for RETURNN
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param train_args: ??????? extra arguments for constructing the PyTorch model
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :parm include_native_ops: ????
     :param debug: run training in debug mode (linking from recipe instead of copy)
-    :param use_speed_perturbation: Use speedperturbation in the training
+    :param use_speed_perturbation: Use speed perturbation in the training
     :param post_config: Add non-hashed arguments for RETURNN
     """
 
-    # changing these do not change the hash
-    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
-
+    # RC - CONFIG
     base_config = {
         "cleanup_old_models": {
             "keep_last_n": 4,
             "keep_best_n": 4,
         },
-        #############
         "train": copy.deepcopy(training_datasets.train.as_returnn_opts()),
         "dev": training_datasets.cv.as_returnn_opts(),
         "eval_datasets": {"devtrain": training_datasets.devtrain.as_returnn_opts()},
     }
-    config = {**base_config, **copy.deepcopy(config)}
+    config = {**base_config, **copy.deepcopy(config)}  # Our base config + parameter config options
+
+    # RC - POST CONFIG
+    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 
-    extern_data = {
-        "data": {"dim": 1},
-        "classes": {
-            "dim": training_datasets.datastreams["labels"].vocab_size,
-            "sparse": True,
-            # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
-            # strings. we don't want this to affect the original dictionary object
-            "vocab": copy.deepcopy(training_datasets.train.dataset.target_options),
-        },
-    }
-
-    serializer = serialize_training(
-        network_module=network_module,
-        train_step_module=train_step_module,
-        net_args=net_args,
-        train_args=train_args,
-        unhashed_net_args=unhashed_net_args,
-        include_native_ops=include_native_ops,
-        debug=debug,
-        extern_data=extern_data,
-    )
-
+    # RC - PYTHON PROLOG
     python_prolog = None
-
-    # TODO: maybe make nice (if capability added to RETURNN itself)
-    if use_speed_perturbation:
-        from i6_experiments.users.zeyer.speed_pert.librosa_config import \
-            speed_pert_librosa_config  # TODO: MJ: change import!!
+    if use_speed_perturbation:  # TODO: maybe make nice (if capability added to RETURNN itself)
+        from i6_experiments.users.zeyer.speed_pert.librosa_config import (
+            speed_pert_librosa_config,
+        )  # TODO: MJ: should be copied and not imported
 
         # prolog_serializer = TorchCollection(
         #     serializer_objects=[
@@ -92,11 +73,32 @@ def get_training_config(
         # python_prolog = [prolog_serializer]
         config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
 
-    returnn_config = ReturnnConfig(
-        config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
+    # RC - PYTHON EPILOG
+    extern_data = {
+        "data": {"dim": 1},
+        "classes": {
+            "dim": training_datasets.datastreams["labels"].vocab_size,
+            "sparse": True,
+            # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
+            # strings. we don't want this to affect the original dictionary object
+            "vocab": copy.deepcopy(training_datasets.train.dataset.target_options),
+        },
+    }
+    serializer = serialize_training(
+        network_module=network_module,
+        train_step_module=train_step_module,
+        net_args=net_args,
+        train_args=train_args,
+        unhashed_net_args=unhashed_net_args,
+        include_native_ops=include_native_ops,
+        debug=debug,
+        extern_data=extern_data,
     )
-    returnn_config = get_serializable_config(returnn_config, serialize_dim_tags=False)
-    return returnn_config
+
+    return get_serializable_config(
+        ReturnnConfig(config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]),
+        serialize_dim_tags=False,
+    )
 
 
 def get_prior_config(
@@ -117,22 +119,21 @@ def get_prior_config(
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
-
-    # changing these does not change the hash
-    post_config = {
-        "num_workers_per_gpu": 2,
-    }
-
+    # RC - CONFIG
     base_config = {
-        #############
         "batch_size": 500 * 16000,
         "max_seqs": 240,
-        #############
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
     config = {**base_config, **copy.deepcopy(config)}
-    post_config["backend"] = "torch"
 
+    # RC - POST CONFIG
+    post_config = {
+        "num_workers_per_gpu": 2,
+        "backend": "torch"
+    }
+
+    # RC - PYTHON EPILOG
     serializer = serialize_forward(
         network_module=network_module,
         net_args=net_args,
@@ -143,8 +144,8 @@ def get_prior_config(
         unhashed_forward_init_args=None,
         debug=debug,
     )
-    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
-    return returnn_config
+
+    return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
 
 
 def get_forward_config(
@@ -162,30 +163,29 @@ def get_forward_config(
     Get a generic config for forwarding
 
     :param network_module: path to the pytorch config file containing Model
+    :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
     :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
     :param decoder_args: extra arguments to pass to forward_init
-    :param config: config arguments for RETURNN
+    :param vocab_opts: ????? vocab options
     :param unhashed_decoder_args: unhashed extra arguments for the forward init
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
-
-    # changing these does not change the hash
-    post_config = {}
-
-    # changeing these does change the hash
+    # RC - CONFIG
     base_config = {
         "batch_size": 15_000 * 160,
         "max_seqs": 200,
     }
     config = {**base_config, **copy.deepcopy(config)}
-    post_config["backend"] = "torch"
 
+    # RC - POST CONFIG
+    post_config = {"backend": "torch"}
+
+    # RC - PYTHON EPILOG
     extern_data = {
         "data": {"dim": 1},
     }
-
     serializer = serialize_forward(
         network_module=network_module,
         net_args=net_args,
@@ -197,5 +197,5 @@ def get_forward_config(
         extern_data=extern_data,
         vocab_opts=vocab_opts,
     )
-    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
-    return returnn_config
+
+    return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
