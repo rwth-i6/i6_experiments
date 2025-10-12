@@ -349,7 +349,7 @@ def _make_hf_dataset_train_v2(
     vocab: VocabConfig,
     train_vocab: Optional[VocabConfig] = None,
     train_epoch_split: Optional[int] = None,
-    train_seq_ordering: str = "random",
+    train_seq_ordering: str,
     multi_proc: int = 2,
     # dev has 7759. take 5000 just for a nicer number.
     eval_take_random_sorted_subset: int = 5000,
@@ -469,6 +469,127 @@ def _make_hf_dataset(
         main_dataset=d,
         extern_data=extern_data_dict,
         default_input="audio",
+        default_target="text",
+        use_deep_copy=True,
+    )
+
+
+def get_loquacious_text_only_dataset(
+    *,
+    vocab: str,
+    train_epoch_split: Optional[int] = None,
+    train_seq_ordering: str = "laplace:.1000",
+    multi_proc: int = 2,
+    # dev has 7759. take 5000 just for a nicer number.
+    eval_take_random_sorted_subset: int = 5000,
+) -> DatasetConfigStatic:
+    vocab: VocabConfig = get_vocab_by_str(vocab)
+    hf_data_dir = get_hf_text_only()
+    multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
+
+    train_ds = _make_hf_dataset_text_only(
+        hf_data_dir=hf_data_dir,
+        split="train",
+        use_distrib_files=True,
+        vocab=vocab,
+        partition_epoch=train_epoch_split,
+        seq_ordering=train_seq_ordering,
+        multi_proc_dataset=multi_proc_dataset,
+    )
+    return DatasetConfigStatic(
+        extern_data=train_ds.extern_data,
+        default_input=train_ds.default_input,
+        default_target=train_ds.default_target,
+        train_dataset=train_ds.main_dataset,
+        eval_datasets={
+            "dev": _make_hf_dataset_text_only(
+                hf_data_dir=hf_data_dir,
+                split="dev",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+            "devtrain": _make_hf_dataset_text_only(
+                hf_data_dir=hf_data_dir,
+                split="train",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+        },
+        use_deep_copy=True,
+    )
+
+
+def _make_hf_dataset_text_only(
+    *,
+    hf_data_dir: Path,
+    split: str,
+    vocab: VocabConfig,
+    seq_ordering: str = "sorted_reverse",
+    partition_epoch: Optional[int] = None,
+    use_distrib_files: bool = False,
+    take_random_sorted_subset: Optional[int] = None,
+    multi_proc_dataset: Optional[Dict[str, Any]] = None,
+) -> DatasetConfigStatic:
+    vocab_opts = vocab.get_opts()
+    extern_data_dict = {
+        "text": {
+            "dtype": "int32",
+            "dim_tags": [batch_dim, Dim(None, name="text_spatial")],
+            "sparse": True,
+            "vocab": vocab_opts,
+        },
+    }
+    if take_random_sorted_subset:
+        hf_ds_opts = get_hf_random_sorted_subset(path=hf_data_dir, split=split, take_n=take_random_sorted_subset)
+        if seq_ordering == "sorted_reverse":
+            seq_ordering = "default"
+    else:
+        hf_ds_opts = hf_data_dir.join_right(split)
+
+    d = {
+        "class": "HuggingFaceDataset",
+        "dataset_opts": hf_ds_opts,
+        "use_file_cache": True,
+        # {'id': Value(dtype='string', id=None),
+        #  'spk_id': Value(dtype='string', id=None),
+        #  'sex': Value(dtype='string', id=None),
+        #  'text': Value(dtype='string', id=None)}
+        "seq_tag_column": "id",
+        "sorting_seq_len_column": "duration",  # TODO...
+        # Keep data_format consistent to extern_data_dict.
+        "data_format": {
+            "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": vocab_opts},
+        },
+        "seq_ordering": seq_ordering,
+    }
+
+    if use_distrib_files:
+        d["dataset_opts"] = None  # will be set _distribute_files_get_files
+        del d["use_file_cache"]  # handled via _distribute_files_get_sub_epoch_dataset
+        d = {
+            "class": "DistributeFilesDataset",
+            "files": partial(_distribute_files_get_files, hf_data_dir=hf_ds_opts),
+            "get_sub_epoch_dataset": partial(
+                _distribute_files_get_sub_epoch_dataset,
+                base_dict=d,
+                **({"multi_proc_dataset": multi_proc_dataset} if multi_proc_dataset else {}),
+            ),
+            "seq_ordering": "random",
+        }
+
+    if partition_epoch:
+        d["partition_epoch"] = partition_epoch
+
+    if multi_proc_dataset and not use_distrib_files:
+        d = mp_ds_utils.multi_proc_dataset_opts(d, **multi_proc_dataset)
+
+    return DatasetConfigStatic(
+        main_name=split,
+        main_dataset=d,
+        extern_data=extern_data_dict,
+        default_input="text",
         default_target="text",
         use_deep_copy=True,
     )

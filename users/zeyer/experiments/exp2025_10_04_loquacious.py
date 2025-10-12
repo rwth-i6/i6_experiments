@@ -5,6 +5,7 @@ Some Loquacious baselines
 from __future__ import annotations
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as aed_train_exp,
     _raw_sample_rate,
@@ -17,7 +18,14 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
     aed_ctc_timesync_recog_recomb_auto_scale,
 )
-from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw, get_loquacious_task_raw_v2
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
+from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
+
+from i6_experiments.users.zeyer.datasets.loquacious import (
+    get_loquacious_task_raw,
+    get_loquacious_task_raw_v2,
+    get_loquacious_text_only_dataset,
+)
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -274,4 +282,35 @@ def py():
             aux_ctc_layer=16,
         )
 
-    # TODO train LM on transcriptions
+    train(
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp100-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
+                "batch_size": 20_000,
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=25),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.1,
+                    att_dropout=0.1,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
