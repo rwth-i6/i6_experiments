@@ -77,7 +77,7 @@ def tune_and_evaluate_report(
     report_values: Dict[str, tk.Variable],
 ):
     """
-    A helper function for the reporting, specifically targeting the tune_and_evalaute_helper for lexical search
+    A helper function for the reporting, specifically targeting the tune_and_evaluate_helper for lexical search
 
     :param training_name: needs to be unique, is used for hash
     :param tune_parameters: list of tuples containing tunable parameters

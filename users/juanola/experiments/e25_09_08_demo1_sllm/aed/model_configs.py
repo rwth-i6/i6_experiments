@@ -1,3 +1,5 @@
+# TODO: Could be improved as an enum or dict (and keep the names here instead of keeping them in aed.py
+
 # Does not converge
 v1 = {
     "aux_loss_layers": (4, 8),

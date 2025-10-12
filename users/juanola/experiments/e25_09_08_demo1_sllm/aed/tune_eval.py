@@ -35,7 +35,7 @@ def eval_model(
     run_test: bool = False,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     prior_args: Optional[Dict[str, Any]] = None,
-):
+) -> Dict[Any, Any]:
     # TODO: MJ: defaults can be in parameters
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
