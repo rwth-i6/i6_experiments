@@ -124,7 +124,9 @@ def get_hf_text_only(name: str = "large") -> Path:
     """
     Remove the audio part, keep only text.
     """
-    job = TransformAndMapHuggingFaceDatasetJob("speechbrain/LoquaciousSet", name, transform=_hf_dataset_remove_audio)
+    job = TransformAndMapHuggingFaceDatasetJob(
+        "speechbrain/LoquaciousSet", name, transform=[_transform_rename_columns, _hf_dataset_remove_audio]
+    )
     job.add_alias(f"{_alias_prefix}dataset_hf_text_only")
     tk.register_output(f"{_alias_prefix}dataset_hf_text_only", job.out_dir)
     return job.out_dir
