@@ -68,7 +68,7 @@ test-clean: {best_test_other.get()}
     return name_str + best_param_clean_str + best_param_other_str + final_results_str + latex_str
 
 
-def tune_and_evalue_report(
+def tune_and_evaluate_report(
     training_name: str,
     tune_parameters: List[Any],
     tuning_names: List[str],
@@ -99,7 +99,7 @@ def tune_and_evalue_report(
     report = GenerateReportStringJob(
         report_values=report_values, report_template=search_report, compress=False
     ).out_report
-    tk.register_output(training_name + "/tune_and_evaluate_report.txt", report)
+    tk.register_output(training_name + "/tune_and_evaluate_report.txt", report)  # TODO: MJ: find this
 
 
 def baseline_report_format(report: _Report_Type) -> str:
@@ -145,6 +145,7 @@ def baseline_report_format(report: _Report_Type) -> str:
 def generate_report(results, exp_name, report_template=baseline_report_format):
     report = GenerateReportStringJob(report_values=results, report_template=report_template)
     report.add_alias(f"report/report/{exp_name}")
+    # TODO: MJ: try out
     # mail = MailJob(report.out_report, send_contents=True, subject=exp_name)
     # mail.add_alias(f"report/mail/{exp_name}")
     # tk.register_output("mail/" + exp_name, mail.out_status)

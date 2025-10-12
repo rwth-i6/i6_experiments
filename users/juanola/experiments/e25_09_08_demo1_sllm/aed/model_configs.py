@@ -1,3 +1,4 @@
+# Does not converge
 v1 = {
     "aux_loss_layers": (4, 8),
     "num_enc_layers": 12,
@@ -13,6 +14,7 @@ v1 = {
     "eos_idx": 0,
 }
 
+# Converges!
 v2 = {
     "aux_loss_layers": (4, 8),
     "num_enc_layers": 12,

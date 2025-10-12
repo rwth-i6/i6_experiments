@@ -64,6 +64,7 @@ def aed_baseline():
     batch_size = 15_000
     default_decoder_config = DecoderConfig()
 
+    # Build network, train, eval, report for each configuration in model_configs
     for model_config, model_alias in [
         # (copy.deepcopy(model_configs.v1), "v1"),  # did not converge
         (copy.deepcopy(model_configs.v2), "v2"),
@@ -126,7 +127,7 @@ def aed_baseline():
         )
         generate_report(results=results, exp_name=training_name)
         report[training_name] = results
-        del results
+        del results  # TODO: MJ: understand better, i guess delete in memory results
         tk.register_report(
             "reports/ls_baseline_report", partial(build_base_report, report), required=report, update_frequency=900
         )
