@@ -122,6 +122,9 @@ def get_train_corpus_text(name: str = "large", *, split: str = "train") -> Path:
     return job.out_text
 
 
+# TODO train corpus text as HF dataset
+
+
 @cache
 def get_spm_vocab(
     *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM

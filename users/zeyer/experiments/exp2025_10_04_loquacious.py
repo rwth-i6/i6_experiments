@@ -271,3 +271,5 @@ def py():
             aed_ctc_model=exp.get_last_fixed_epoch(),
             aux_ctc_layer=16,
         )
+
+    # TODO train LM on transcriptions
