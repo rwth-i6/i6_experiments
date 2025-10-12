@@ -182,13 +182,15 @@ def py():
 
     task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
 
-    # clean: 13kh
-    # medium: 2.5kh
-    train_epoch_split_per_subset = {"clean": 13, "medium": 2, "large": 25}
-    hours_per_subset = {"clean": 13_000, "medium": 2_500, "large": 25_000}
+    train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
+    hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
     for subset, total_k_hours in [
         ("clean", 4 * 13),  # 52kh in total, 4 full epochs
         ("clean", 100),  # 100kh in total, 7.7 full epochs
+        ("small", 25),  # 25kh in total, 100 full epochs
+        ("small", 50),  # 50kh in total, 200 full epochs
+        ("medium", 25),  # 25kh in total, 10 full epochs
+        ("medium", 50),  # 50kh in total, 20 full epochs
         ("medium", 100),  # 100kh in total, 25 full epochs
         ("large", 25),  # 25kh in total, 1 full epoch
         ("large", 50),  # 50kh in total, 2 full epochs
