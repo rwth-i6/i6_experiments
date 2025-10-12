@@ -43,14 +43,14 @@ def serialize_training(
     package = PACKAGE
 
     pytorch_model_import = PartialImport(
-        code_object_path=package + ".%s.Model" % network_module,
+        code_object_path=package + f".{network_module}.Model",
         unhashed_package_root=PACKAGE,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",
     )
-    pytorch_train_step = PartialImport(
-        code_object_path=package + ".%s.train_step" % train_step_module,
+    pytorch_train_step_import = PartialImport(
+        code_object_path=package + f".{train_step_module}.train_step",
         unhashed_package_root=PACKAGE,
         hashed_arguments=train_args,
         unhashed_arguments={},
@@ -61,7 +61,7 @@ def serialize_training(
         # i6_models,
         serialize_extern_data(instanciate_delayed(extern_data)),
         pytorch_model_import,
-        pytorch_train_step,
+        pytorch_train_step_import,
     ]
 
     if include_native_ops:

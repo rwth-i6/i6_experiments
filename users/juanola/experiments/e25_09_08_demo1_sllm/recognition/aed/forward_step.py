@@ -1,11 +1,9 @@
-__all__ = ["EncoderDecoderModel", "forward_step", "aed_recog_ctc_rescore_forward_step_v1"]
+__all__ = ["EncoderDecoderModel", "forward_step"]
 
 from abc import abstractmethod
 from typing import Generic, Optional
 
 import returnn.frontend as rf
-import torch
-import torch.nn.functional as F
 from returnn.tensor import Dim, TensorDict, batch_dim
 from torch import Tensor
 
@@ -43,7 +41,11 @@ def forward_step(
     sample_rate: Optional[int] = None,
     **kwargs,
 ):
-    """Runs full recognition on the given data."""
+    """
+    Runs full recognition on the given data.
+
+    CALLED FROM RETURNN.CONFIG!!
+    """
 
     assert beam_size > 0
 
@@ -74,69 +76,3 @@ def forward_step(
     seq_targets_rf = rf.convert_to_tensor(seq_targets, dims=[batch_dim, beam_dim, lens_dim], sparse_dim=vocab_dim)
     ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
     ctx.mark_as_output(seq_log_prob, "scores", dims=[batch_dim, beam_dim])
-
-
-def aed_recog_ctc_rescore_forward_step_v1(
-    *,
-    model: EncoderDecoderModel,
-    extern_data: TensorDict,
-    beam_size: int,
-    ctc_weight: float = 0.3,
-    max_tokens_per_sec: Optional[int] = None,
-    sample_rate: Optional[int] = None,
-    **kwargs,
-):
-    """Runs full recognition on the given data."""
-
-    assert beam_size > 0
-    assert 0 < ctc_weight <= 1, "ctc_weight must be in (0, 1]"
-
-    data = extern_data["data"].raw_tensor
-    seq_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
-
-    max_seq_len = seq_len
-    if max_tokens_per_sec is not None and sample_rate is not None:
-        assert max_tokens_per_sec > 0 and sample_rate > 0
-        max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
-
-    decoder_state, ctc_logits, ctc_logit_lens = model.forward_encoder_with_ctc(data, seq_len)
-    seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1(
-        model=model,
-        beam_size=beam_size,
-        batch_size=data.shape[0],
-        decoder_state=decoder_state,
-        device=data.device,
-        max_seq_len=max_seq_len,
-    )
-
-    ctc_logits_expanded = (
-        ctc_logits.unsqueeze(1)
-        .expand(-1, beam_size, -1, -1)
-        .reshape(-1, *ctc_logits.shape[1:])
-        .transpose(0, 1)
-        .to(dtype=torch.float32)
-    )
-    input_lengths_expanded = ctc_logit_lens.unsqueeze(1).expand(-1, beam_size).reshape(-1)
-    ctc_scores = -F.ctc_loss(
-        ctc_logits_expanded,
-        seq_targets.reshape(-1, seq_targets.shape[-1]),
-        input_lengths=input_lengths_expanded,
-        target_lengths=out_seq_len.reshape(-1),
-        blank=model.blank_idx,
-        reduction="none",
-        zero_infinity=True,
-    )
-    ctc_scores = ctc_scores.reshape(*seq_targets.shape[:2])
-    ctc_scores = ctc_scores / out_seq_len
-
-    fused_score = seq_log_prob + ctc_weight * ctc_scores
-
-    beam_dim = Dim(beam_size, name="beam")
-    vocab_dim = Dim(model.num_labels, name="vocab")
-    lens_data = rf.convert_to_tensor(out_seq_len, dims=[batch_dim, beam_dim])
-    lens_dim = Dim(lens_data, name="seq_len")
-
-    ctx = rf.get_run_ctx()
-    seq_targets_rf = rf.convert_to_tensor(seq_targets, dims=[batch_dim, beam_dim, lens_dim], sparse_dim=vocab_dim)
-    ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
-    ctx.mark_as_output(fused_score, "scores", dims=[batch_dim, beam_dim])

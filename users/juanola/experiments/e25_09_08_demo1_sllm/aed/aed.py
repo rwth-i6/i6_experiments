@@ -3,9 +3,8 @@ from functools import partial
 
 from sisyphus import tk
 
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm import learning_rate_configs
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm import optimizer_configs
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.aed import model_configs
+from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.aed import model_configs, optimizer_configs, \
+    learning_rate_configs
 from .tune_eval import build_base_report, eval_model
 from ..data.common import DatasetSettings, build_test_dataset
 from ..data.spm import build_spm_training_datasets
@@ -84,8 +83,8 @@ def aed_baseline():
             "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         }
-        network_module = "pytorch_networks.conformer_aed_v1"
-        train_step_module = "training.aed_ctc_train_step"
+        network_module = "pytorch_networks.conformer_aed_v1"  # TODO: important!
+        train_step_module = "training.aed_ctc_train_step"  # TODO: important!
         train_args = {
             "config": train_config,
             "network_module": network_module,

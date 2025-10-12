@@ -117,6 +117,9 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         - `VGG4LayerActFrontendV1` as convolutional frontend,
         - `ConformerRelPosEncoderV1` as encoder and
         - `TransformerDecoderV1` as decoder.
+
+    PARAMETER WARNING!! Linked to model_configs but refactoring will not see it!
+    Advice: don't rename parameters
     """
 
     def __init__(
@@ -156,23 +159,21 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         assert out_dim > 0
         assert len(aux_loss_layers) == len(set(aux_loss_layers))
         assert list(aux_loss_layers) == sorted(aux_loss_layers)
-
         assert not share_embedding or not logits_bias
+        assert 0 <= bos_idx < out_dim
+        assert 0 <= eos_idx < out_dim
+        assert bos_idx != eos_idx
 
         # positional embedding like RF
+        # TODO: move as parameters with defaults?
         rel_pos_clip = 16
         pos_emb_dropout = 0.1
         learnable_pos_emb = True
         with_linear_pos = False
         with_pos_bias = False
         separate_pos_emb_per_head = False
-
         # RF does not broadcast attention dropout masks
         attn_dropout_broadcast = None
-
-        assert 0 <= bos_idx < out_dim
-        assert 0 <= eos_idx < out_dim
-        assert bos_idx != eos_idx
 
         self.bos_idx = bos_idx
         self.eos_idx = eos_idx
@@ -180,7 +181,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
 
         if blank_idx is not None:
             # blank index is part of the vocabulary
-            assert blank_idx >= 0 and blank_idx < out_dim
+            assert 0 <= blank_idx < out_dim
             aux_out_dim = out_dim
             self.blank_idx = blank_idx
         else:
@@ -188,6 +189,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
             aux_out_dim = out_dim + 1
             self.blank_idx = out_dim
 
+        # FEATURE EXTRACTION
         if feature_extraction_config is None:
             mel_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
                 sample_rate=sampling_rate, win_size=25 / 1000, hop_size=10 / 1000, min_amp=1e-4, num_filters=n_mels
@@ -204,6 +206,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
             )
             self.mel_frontend = feature_extraction_class(mel_cfg)
 
+        # ENCODER
         frontend = ModuleFactoryV1(
             module_class=VGG4LayerActFrontendV1,
             cfg=VGG4LayerActFrontendV1Config(
@@ -261,6 +264,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         enc_cfg = ConformerRelPosEncoderV1Config(num_layers=num_enc_layers, frontend=frontend, block_cfg=block_cfg)
         self.encoder = ConformerRelPosEncoderV1(enc_cfg)
 
+        # DECODER
         dec_cfg = TransformerDecoderV1Config(
             block_cfg=TransformerDecoderBlockV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV2Config(
@@ -303,7 +307,8 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         )
         self.decoder = TransformerDecoderV1(dec_cfg)
 
-        self.specaug_args: _SpecAugArgs = {
+        # OTHER STUFF
+        self.spec_aug_args: _SpecAugArgs = {
             "time_min_num_masks": 1,
             "time_max_mask_per_n_frames": 100,
             "time_mask_max_size": 20,
@@ -312,8 +317,8 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
             "freq_mask_max_size": n_mels // 5,
         }
         if specaug_args is not None:
-            self.specaug_args.update(specaug_args)
-        self.specaug_start = specaug_start
+            self.spec_aug_args.update(specaug_args)
+        self.spec_aug_start = specaug_start
 
         self.out_aux_logits = nn.ModuleList(
             [nn.Linear(model_dim, aux_out_dim, bias=aux_logits_bias) for _ in range(len(aux_loss_layers))]
@@ -325,7 +330,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
             _apply_filter(self.decoder, _init_rf)
             _apply_filter(self.out_aux_logits, _init_rf)
 
-    def _apply_specaug(self, data: Tensor, data_len: Tensor) -> Tensor:
+    def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
         if not self.training:
             return data
 
@@ -335,7 +340,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         # `self.specaug_start` configures whether we use the standard i6_models
         # SpecAugment-by-length or the stepwise-scheduled RF implementation.
         #
-        # To use the i6_models implemenentation, `self.specaug_start` must be an
+        # To use the i6_models implementation, `self.specaug_start` must be an
         # integer. It then configures the first epoch that SpecAug will be applied
         # in. Starting SpecAug right in the first epoch leads to convergence
         # problems.
@@ -344,32 +349,32 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         # step indices. These represent the points at which the RF implementation
         # will increase the amount of regularization.
 
-        if isinstance(self.specaug_start, int):
-            if rf.get_run_ctx().epoch < self.specaug_start:
+        if isinstance(self.spec_aug_start, int):
+            if rf.get_run_ctx().epoch < self.spec_aug_start:
                 return data
-            return specaugment_v1_by_length(data, **self.specaug_args)
+            return specaugment_v1_by_length(data, **self.spec_aug_args)
 
         batch_dim = Dim(int(data.shape[0]), name="batch")
         data_len = rf.convert_to_tensor(data_len.cpu(), dims=[batch_dim])
         time_dim = Dim(data_len, name="time")
         feature_dim = Dim(int(data.shape[-1]), name="feature")
         data = rf.convert_to_tensor(data, dims=[batch_dim, time_dim, feature_dim], feature_dim=feature_dim)
-        data_w_specaug = rf.audio.specaugment(
+        data_w_spec_aug = rf.audio.specaugment(
             data,
             feature_dim=feature_dim,
             spatial_dim=time_dim,
             global_train_step_dependent=True,
-            steps=self.specaug_start,
-            max_consecutive_feature_dims=self.specaug_args["freq_mask_max_size"],
-            max_consecutive_spatial_dims=self.specaug_args["time_mask_max_size"],
-            num_spatial_mask_factor=self.specaug_args["time_max_mask_per_n_frames"],
+            steps=self.spec_aug_start,
+            max_consecutive_feature_dims=self.spec_aug_args["freq_mask_max_size"],
+            max_consecutive_spatial_dims=self.spec_aug_args["time_mask_max_size"],
+            num_spatial_mask_factor=self.spec_aug_args["time_max_mask_per_n_frames"],
         )
-        return data_w_specaug.raw_tensor
+        return data_w_spec_aug.raw_tensor
 
     def forward(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Tuple[Tensor, List[Tensor], Tensor, Tensor]:
         raw_audio = raw_audio.squeeze(dim=2).float()
         data, seq_lens = self.mel_frontend(raw_audio, raw_audio_lens)
-        data = self._apply_specaug(data, seq_lens)
+        data = self._apply_spec_aug(data, seq_lens)
 
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers)
@@ -377,13 +382,6 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
         return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
-
-    def decode_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
-        state = self.decoder.transform_encoder_output(
-            encoder_output, encoder_output_lens, self.decoder.get_initial_state()
-        )
-        dec_out, _ = self.decoder.forward(x, x_lens, state)
-        return dec_out
 
     def forward_ctc(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Tuple[List[Tensor], Tensor]:
         _, ctc_logits, ctc_len, _ = self.forward(raw_audio, raw_audio_lens)
@@ -400,6 +398,13 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         state = self.decoder.get_initial_state()
         state = self.decoder.transform_encoder_output(encoder_out.unsqueeze(1), lens.unsqueeze(1), state)
         return state, ctc_logits[-1], lens
+
+    def decode_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
+        state = self.decoder.transform_encoder_output(
+            encoder_output, encoder_output_lens, self.decoder.get_initial_state()
+        )
+        dec_out, _ = self.decoder.forward(x, x_lens, state)
+        return dec_out
 
     def step_decoder(
         self, labels: Tensor, state: TransformerDecoderV1State

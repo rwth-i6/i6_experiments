@@ -32,7 +32,7 @@ class AedCtcModel(Protocol):
     @abstractmethod
     def decode_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_mask: Tensor) -> Tensor:
         """
-        Forward the decoder for the entire sequence in `x`, discarding any intermediate state afterwards.
+        Forward the decoder for the entire sequence in `x`, discarding any intermediate state afterward.
 
         :param x: current sequence to be decoded
         :param x_lens: length of the seqs in x
@@ -52,6 +52,9 @@ def train_step(
     num_eos_symbols: int = 1,
     **_kwargs,
 ):
+    """
+    CALLED FROM RETURNN.CONFIG!!
+    """
     ctx = rf.get_run_ctx()
 
     assert aed_loss_scale > 0 or (
