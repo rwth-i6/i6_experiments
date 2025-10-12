@@ -68,7 +68,7 @@ def get_loquacious_hf_ogg(name: str = "large", *, quality: int = 3) -> Path:
         map_func=partial(_map_func_wav_to_ogg, ffmpeg_binary=ffmpeg_binary, quality_opts=["-q", str(quality)]),
         map_opts=_map_opts,
     )
-    job.rqmt.update({"cpu": 32, "time": 24, "mem": 32})
+    job.rqmt.update({"cpu": 16, "time": 24, "mem": 48})
     job.add_alias(f"{_alias_prefix}dataset_hf_{name}_q{quality}_ogg")
     tk.register_output(f"{_alias_prefix}dataset_hf_{name}_q{quality}_ogg", job.out_dir)
     return job.out_dir
