@@ -65,7 +65,12 @@ def train(
         elif "partition_epoch" in train_dataset_dict:
             train_epoch_split = train_dataset_dict["partition_epoch"]
     # Usually always apply MultiProcDataset. But some exceptions for now:
-    apply_multi_proc = train_dataset_dict["class"] not in {"LmDataset", "DistributeFilesDataset"}
+    apply_multi_proc = train_dataset_dict["class"] not in {
+        "LmDataset",
+        "DistributeFilesDataset",
+        "MultiProcDataset",
+        "HuggingFaceDataset",
+    }
     del train_dataset_dict
     del task
 
