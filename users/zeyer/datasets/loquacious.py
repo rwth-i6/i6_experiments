@@ -229,6 +229,7 @@ def get_loquacious_task_raw(
 def get_loquacious_task_raw_v2(
     *,
     vocab: str,
+    subset_name: str = "large",
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     train_seq_ordering: str = "laplace:.1000",
     multi_proc: int = 2,
@@ -250,7 +251,7 @@ def get_loquacious_task_raw_v2(
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
-    hf_data_dir = get_loquacious_hf_ogg()
+    hf_data_dir = get_loquacious_hf_ogg(name=subset_name)
 
     train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
     train_dataset = _make_hf_dataset_train_v2(
