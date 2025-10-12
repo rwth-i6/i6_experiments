@@ -77,3 +77,64 @@ def _load_en():
 
 def _filter_func_lang_en(example: Dict[str, Any]) -> bool:
     return example["transcription_language"] == "en"
+
+
+# TODO The rows contain long paragraphs. For most of our models, we probably need to split them into sentences.
+#   For that, need to use some model. E.g. https://huggingface.co/kredor/punctuate-all.
+
+
+def _demo():
+    from datasets import Dataset
+    from transformers import pipeline
+    import nltk
+
+    # Ensure the NLTK sentence splitter is downloaded
+    nltk.download("punkt", quiet=True)
+
+    # 1. Start with your unpunctuated dataset
+    original_dataset = Dataset.from_dict(
+        {
+            "text": [
+                "this is the first document it has two sentences",
+                "hugging face is a company based in new york city they are known for their transformers library",
+                "what is the weather like today in aachen",
+            ]
+        }
+    )
+
+    # 2. Load the punctuation restoration pipeline
+    # This model is lightweight and works well for English.
+    # It will run on CUDA if available, otherwise CPU.
+    punctuator = pipeline(
+        "token-classification",
+        model="kredor/punctuate-all-distilbert-base-cased",
+        aggregation_strategy="word",  # This makes processing the output much easier
+    )
+
+    # 3. Define the mapping function to restore punctuation and then split
+    def restore_and_split(examples):
+        # The pipeline can process a list of texts directly
+        punctuated_texts = punctuator(examples["text"])
+
+        # The output needs to be reconstructed into strings
+        reconstructed_texts = []
+        for result in punctuated_texts:
+            # Each 'result' is a list of words and their predicted punctuation
+            # e.g., [{'word': 'hello', 'entity_group': 'O'}, {'word': 'world', 'entity_group': '.'}]
+            full_text = "".join([item["word"] + item["entity_group"].replace("O", " ") for item in result]).strip()
+            reconstructed_texts.append(full_text)
+
+        # Now, split the newly punctuated texts into sentences
+        all_sentences = [sentence for text in reconstructed_texts for sentence in nltk.sent_tokenize(text)]
+
+        return {"sentence": all_sentences}
+
+    # 4. Apply the function using .map()
+    # We use a larger batch size because pipeline operations are faster on batches.
+    sentence_dataset = original_dataset.map(
+        restore_and_split,
+        batched=True,
+        batch_size=8,  # Adjust batch size based on your hardware (GPU memory)
+        remove_columns=original_dataset.column_names,
+    )
+    return sentence_dataset
