@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any
 import copy
 import functools
+from sisyphus import gs
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from .serialization_v2 import ReturnnConfigWithNewSerialization
@@ -198,6 +199,10 @@ def train(
     returnn_train_job.add_alias(prefix_name + "/train")
     if gpu_mem:
         returnn_train_job.rqmt["gpu_mem"] = gpu_mem
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        # Explicitly set TMPDIR, because DEFAULT_ENVIRONMENT_SET might not be applied (CLEANUP_ENVIRONMENT=False),
+        # but we really might want this, and Slurm might overwrite it otherwise.
+        returnn_train_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
     if env_updates:
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
