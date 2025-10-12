@@ -245,7 +245,7 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
-):
+) -> ASRModel:
     """
     :param training_name:
     :param train_job: output of training

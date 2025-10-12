@@ -24,7 +24,7 @@ class LabelScorer(Protocol, Generic[State]):
 
     All tensors in the state are expected to have shape [Batch, Beam, ...Features].
     The data is reprocessed during decoding when e.g. selecting beam backrefs.
-    To store beam-indepentent data like the encoder output, the Beam entry can also be set to 1.
+    To store beam-independent data like the encoder output, the Beam entry can also be set to 1.
     In that case the values are treated as broadcast over all beams and left untouched.
     """
 
