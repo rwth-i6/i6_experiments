@@ -498,7 +498,8 @@ def get_loquacious_text_only_dataset(
     train_ds = _make_hf_dataset_text_only(
         hf_data_dir=hf_data_dir,
         split="train",
-        use_distrib_files=True,
+        # Don't use_distrib_files, we only have 5 shard files, but we might want partition epoch 25.
+        # use_distrib_files=True,
         vocab=vocab,
         partition_epoch=train_epoch_split,
         seq_ordering=train_seq_ordering,
