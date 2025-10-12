@@ -257,17 +257,14 @@ def py():
     # medium: 2.5kh
     train_epoch_split_per_subset = {"clean": 13, "medium": 2}
     hours_per_subset = {"clean": 13_000, "medium": 2_500}
-    for subset, n_ep in [
+    for subset, total_k_hours in [
         ("clean", 100),  # 100kh in total
-        # ("clean", 100, 13),
-        # ("medium", 100, 2),  #
-        ("medium", 2 * 40),  # 100kh in total, 25 full epochs
+        ("medium", 100),  # 100kh in total, 25 full epochs
     ]:
         train_epoch_split = train_epoch_split_per_subset[subset]
-        name = (
-            f"base-v2-{subset}-nFullEp{n_ep // train_epoch_split}-nEp{n_ep}"
-            f"-totalHours{(n_ep / train_epoch_split) * hours_per_subset[subset] / 1000:.0f}k"
-        )
+        num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
+        n_ep = round(num_full_ep * train_epoch_split)
+        name = f"base-v2-{subset}-nFullEp{num_full_ep}-nEp{n_ep}-totalHours{total_k_hours}k"
         exp = aed_train_exp(
             name,
             config_96gb_bf16_accgrad1,
