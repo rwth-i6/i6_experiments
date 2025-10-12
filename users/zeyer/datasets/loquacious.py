@@ -48,12 +48,17 @@ def py():
     get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3")
     get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "dev", take_n=5_000, alias_name="dev_q3")
     get_train_corpus_text()
+    get_hf_text_only()
     get_train_corpus_text("medium")
     get_spm_vocab(dim="10k")
 
 
 @cache
 def get_loquacious_hf_ogg(name: str = "large", *, quality: int = 3) -> Path:
+    """
+    Get the LoquaciousSet HF dataset as OGG files, with the specified subset (name) and (Ogg) quality.
+    This is a DatasetDict with splits "train", "dev", "test".
+    """
     ffmpeg_binary = tools_paths.get_ffmpeg_binary()
 
     job = TransformAndMapHuggingFaceDatasetJob(
@@ -112,6 +117,21 @@ def _hf_dataset_transform_random_sorted_subset(
     ds = ds.select(permutation)
     ds = ds.sort(duration_key, reverse=True)
     return ds
+
+
+@cache
+def get_hf_text_only(name: str = "large") -> Path:
+    """
+    Remove the audio part, keep only text.
+    """
+    job = TransformAndMapHuggingFaceDatasetJob("speechbrain/LoquaciousSet", name, transform=_hf_dataset_remove_audio)
+    job.add_alias(f"{_alias_prefix}dataset_hf_text_only")
+    tk.register_output(f"{_alias_prefix}dataset_hf_text_only", job.out_dir)
+    return job.out_dir
+
+
+def _hf_dataset_remove_audio(ds: datasets.DatasetDict) -> datasets.DatasetDict:
+    return ds.remove_columns("audio")
 
 
 @cache
