@@ -232,6 +232,7 @@ def get_loquacious_task_raw_v2(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     train_seq_ordering: str = "laplace:.1000",
     multi_proc: int = 2,
+    train_epoch_split: int = 25,  # so one subepoch is approx 1000h
 ) -> Task:
     """
     v2: multiprocessing by default, subset of dev and devtrain, devtrain not via take_first_shard_subset.
@@ -251,7 +252,6 @@ def get_loquacious_task_raw_v2(
 
     hf_data_dir = get_loquacious_hf_ogg()
 
-    train_epoch_split = 25  # so one subepoch is approx 1000h
     train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
     train_dataset = _make_hf_dataset_train_v2(
         hf_data_dir=hf_data_dir,

@@ -181,7 +181,7 @@ def py():
     )
 
     task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
-    for n_ep in [25, 100]:  # get some results quick
+    for n_ep in [25, 50, 100, 150, 200, 250, 500]:
         name = f"base-v2-nEp{n_ep}"
         exp = aed_train_exp(
             name,
