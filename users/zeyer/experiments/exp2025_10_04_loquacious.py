@@ -255,11 +255,14 @@ def py():
 
     # clean: 13kh
     # medium: 2.5kh
-    train_epoch_split_per_subset = {"clean": 13, "medium": 2}
-    hours_per_subset = {"clean": 13_000, "medium": 2_500}
+    train_epoch_split_per_subset = {"clean": 13, "medium": 2, "large": 25}
+    hours_per_subset = {"clean": 13_000, "medium": 2_500, "large": 25_000}
     for subset, total_k_hours in [
         ("clean", 100),  # 100kh in total
         ("medium", 100),  # 100kh in total, 25 full epochs
+        ("large", 25),  # 25kh in total, 1 full epoch
+        ("large", 50),  # 50kh in total, 2 full epochs
+        ("large", 100),  # 100kh in total, 4 full epochs
     ]:
         train_epoch_split = train_epoch_split_per_subset[subset]
         num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
