@@ -490,9 +490,9 @@ def _returnn_forward_config_v2(
         v_.pop("vocab", None)  # not needed here
         out_templ = Tensor(k, **v_)
         assert out_templ.dims and out_templ.dims[0] == batch_dim
-        assert all(
-            dim.dimension is not None for dim in out_templ.dims[2:]
-        ), f"all except the first dim (after batch dim) must be static, got {out_templ}"
+        assert all(dim.dimension is not None for dim in out_templ.dims[2:]), (
+            f"all except the first dim (after batch dim) must be static, got {out_templ}"
+        )
         if k != "output" and len(out_templ.dims) >= 3 and out_templ.dim != out_templ.dims[-1].dimension:
             # Need new version because of new behavior when the out_templ.dim is not matching the last dim.
             __forward_config_v2_extra_version = max(__forward_config_v2_extra_version, 3)
@@ -502,9 +502,9 @@ def _returnn_forward_config_v2(
             config["backend"] = model_def.backend
         config["behavior_version"] = max(model_def.behavior_version, config.get("behavior_version", 0))
     else:
-        assert (
-            config and config.get("backend") and config.get("behavior_version")
-        ), f"config: {config}\nbackend: {config.get('backend')}, behavior_version: {config.get('behavior_version')}"
+        assert config and config.get("backend") and config.get("behavior_version"), (
+            f"config: {config}\nbackend: {config.get('backend')}, behavior_version: {config.get('behavior_version')}"
+        )
 
     if isinstance(model_def, ModelDefWithCfg):
         config["_model_def"] = model_def.model_def
