@@ -691,7 +691,7 @@ def model_recog_with_recomb(
             decoder_log_probs *= aed_scale
         else:
             decoder = None
-            decoder_state = 0.0
+            decoder_state = None
             decoder_log_probs = 0.0
 
         if labelwise_prior is not None:
@@ -804,7 +804,9 @@ def model_recog_with_recomb(
             else:
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
-        if decoder is not None and got_new_label_cpu.raw_tensor.sum().item() > 0:
+        if (
+            decoder is not None or lm is not None or labelwise_prior is not None
+        ) and got_new_label_cpu.raw_tensor.sum().item() > 0:
             (target_, decoder_state_, lm_state_, enc_), packed_new_label_dim, packed_new_label_dim_map = (
                 rf.nested.masked_select_nested(
                     (target, decoder_state, lm_state, enc if decoder is not None else None),
