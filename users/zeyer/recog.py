@@ -37,6 +37,10 @@ from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoin
 from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
+from i6_experiments.users.zeyer.returnn.global_startup_callback import (
+    maybe_serialize_global_startup_callback,
+    maybe_add_global_startup_callback_to_post_config,
+)
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -516,6 +520,7 @@ def search_config_v2(
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
+                    *maybe_serialize_global_startup_callback(config, post_config),
                     serialization.PythonModelineNonhashedCode,
                 ]
             )
@@ -643,6 +648,8 @@ def search_config_v3(
         if k in config or k in post_config:
             continue
         post_config[k] = v
+
+    maybe_add_global_startup_callback_to_post_config(config, post_config)
 
     return ReturnnConfigWithNewSerialization(config, post_config)
 

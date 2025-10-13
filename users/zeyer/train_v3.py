@@ -12,6 +12,7 @@ import copy
 from sisyphus import gs
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_serialize_global_startup_callback
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -182,6 +183,7 @@ def train(
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
+                    *maybe_serialize_global_startup_callback(config, post_config),
                     serialization.PythonModelineNonhashedCode,
                 ]
                 + list(epilog)

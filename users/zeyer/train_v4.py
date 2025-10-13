@@ -17,6 +17,7 @@ import functools
 from sisyphus import gs
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_add_global_startup_callback_to_post_config
 from .serialization_v2 import ReturnnConfigWithNewSerialization
 
 if TYPE_CHECKING:
@@ -184,6 +185,8 @@ def train(
         if k in returnn_train_config.config or k in returnn_train_config.post_config:
             continue
         returnn_train_config.post_config[k] = v
+
+    maybe_add_global_startup_callback_to_post_config(returnn_train_config.config, returnn_train_config.post_config)
 
     for k, v in dict(
         log_verbosity=5,
