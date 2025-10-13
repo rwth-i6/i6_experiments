@@ -140,9 +140,14 @@ def get_hf_dataset_custom_split(path: Path, sub_split: str) -> Path:
     assert sub_split in EvalSubSplits
     job = TransformAndMapHuggingFaceDatasetJob(
         path,
-        transform=partial(_hf_dataset_filter_subset, sub_split=sub_split),
+        transform=partial(_hf_dataset_transform_filter_subset, sub_split=sub_split),
     )
     return job.out_dir
+
+
+def _hf_dataset_transform_filter_subset(ds: datasets.Dataset, *, sub_split: str) -> datasets.Dataset:
+    ds = ds.filter(partial(_hf_dataset_filter_subset, sub_split=sub_split))
+    return ds
 
 
 def _hf_dataset_filter_subset(example: Dict[str, Any], *, sub_split: str) -> bool:
