@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict, Tuple
 
-from sisyphus import tk
+from sisyphus import tk, gs
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
@@ -103,6 +103,10 @@ def forward_to_hdf(
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        # Explicitly set TMPDIR, because DEFAULT_ENVIRONMENT_SET might not be applied (CLEANUP_ENVIRONMENT=False),
+        # but we really might want this, and Slurm might overwrite it otherwise.
+        forward_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
     if env_updates:
         for k, v in env_updates.items():
             forward_job.set_env(k, v)
@@ -600,7 +604,7 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         batch_size = int(batch_dim.get_dim_value())
         for batch_idx in range(batch_size):
             seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
-            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+            print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")

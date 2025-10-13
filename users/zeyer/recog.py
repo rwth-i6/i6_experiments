@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collecti
 import functools
 
 import sisyphus
-from sisyphus import tk
+from sisyphus import tk, gs
 from sisyphus import tools as sis_tools
 
 from i6_core.returnn import ReturnnConfig
@@ -313,6 +313,10 @@ def search_dataset(
         res = search_job.out_files[_v2_forward_out_filename]
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        # Explicitly set TMPDIR, because DEFAULT_ENVIRONMENT_SET might not be applied (CLEANUP_ENVIRONMENT=False),
+        # but we really might want this, and Slurm might overwrite it otherwise.
+        search_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
     if env_updates:
         for k, v in env_updates.items():
             search_job.set_env(k, v)
