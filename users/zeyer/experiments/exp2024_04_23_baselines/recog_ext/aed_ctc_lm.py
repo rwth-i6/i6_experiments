@@ -158,7 +158,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
                 aed_scale=aed_scale,
                 lm=lm,
                 lm_scale=lm_scale,
-                aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
+                rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
             )
