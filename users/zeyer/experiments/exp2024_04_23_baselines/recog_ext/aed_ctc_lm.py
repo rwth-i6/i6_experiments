@@ -52,6 +52,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     task: Task,
     aed_ctc_model: ModelWithCheckpoint,
     aux_ctc_layer: int,
+    lm: ModelWithCheckpoint,
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,  # default
@@ -90,7 +91,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
         base_config = dict_update_deep(base_config, extra_config)
 
     # Only use CTC for first search, no AED, no prior.
-    ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
+    ctc_model_only = get_aed_ctc_lm_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
     dataset = task.dev_dataset
     ctc_scores = search_dataset(
         dataset=dataset,
@@ -102,6 +103,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     aed_scores = aed_score(
         ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
     )
+    lm_scores = lm_score(ctc_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
 
     # Also register the CTC-only results. (Will not do search again, should be same hash.)
     res = recog_model(
@@ -124,12 +126,13 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     for f in task.recog_post_proc_funcs:  # BPE to words or so
         ctc_scores = f(ctc_scores)
         aed_scores = f(aed_scores)
+        lm_scores = f(lm_scores)
         ref = f(ref)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
     opt_scales_job = ScaleTuningJob(
-        scores={"ctc": ctc_scores.output, "aed": aed_scores.output},
+        scores={"ctc": ctc_scores.output, "aed": aed_scores.output, "lm": lm_scores.output},
         ref=ref.output,
         fixed_scales={"ctc": 1.0},
         evaluation="edit_distance",
@@ -139,6 +142,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
     # We use the real scales.
     aed_scale = opt_scales_job.out_real_scale_per_name["aed"]
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
 
     # Rescore CTC results with optimal scales. Like recog_model with lm_framewise_prior_rescore.
     # (Will not do search again, should be same hash.)
@@ -149,9 +153,11 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
         config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
-                aed_labelwise_prior_rescore,
+                aed_ctc_lm_labelwise_prior_rescore,
                 aed_model=aed_ctc_model,
                 aed_scale=aed_scale,
+                lm=lm,
+                lm_scale=lm_scale,
                 aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
@@ -161,7 +167,9 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     tk.register_output(f"{prefix}/rescore-res.txt", res.output)
 
     # Now do 1st-pass recog with optimal scales.
-    model = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=aed_scale)
+    model = get_aed_ctc_lm_and_labelwise_prior(
+        aed_ctc_model=aed_ctc_model, aed_scale=aed_scale, language_model=lm, lm_scale=lm_scale
+    )
     first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
     first_pass_search_rqmt.setdefault("time", 24)
     first_pass_search_rqmt.setdefault("mem", 50)

@@ -19,7 +19,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ae
     aed_ctc_timesync_recog_recomb_auto_scale,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_lm import (
-    aed_ctc_lm_timesync_recog_recomb_labelwise_prior_auto_scale,
+    aed_ctc_lm_timesync_recog_recomb_auto_scale,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
@@ -334,15 +334,15 @@ def py():
 
     # AED+CTC+LM decoding
 
-    if False:
-        # TODO prior does not work...
-        #   this is because get_ctc_prior_probs(..., task.train_dataset.copy_train_as_static(), ...):
-        #   copy_train_as_static not implemented.
-        #   but also, do we really want to do this on the full dataset?
-        aed_ctc_lm_timesync_recog_recomb_labelwise_prior_auto_scale(
-            prefix=prefix + "/aed/" + selected_asr[0] + "/aed+ctc+lm/" + selected_lm[0],
-            task=task_spm10k,
-            aed_ctc_model=selected_asr[1],
-            aux_ctc_layer=16,
-            lm=selected_lm[1],
-        )
+    # Note prior does not work yet...
+    #   this is because get_ctc_prior_probs(..., task.train_dataset.copy_train_as_static(), ...):
+    #   copy_train_as_static not implemented.
+    #   but also, do we really want to do this on the full dataset?
+
+    aed_ctc_lm_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + selected_asr[0] + "/aed+ctc+lm/" + selected_lm[0],
+        task=task_spm10k,
+        aed_ctc_model=selected_asr[1],
+        aux_ctc_layer=16,
+        lm=selected_lm[1],
+    )
