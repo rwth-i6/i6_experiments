@@ -89,6 +89,7 @@ def get_hf_random_sorted_subset(
     shuffle it, take N seqs, and sort it by (reversed) duration,
     and store it as new HF dataset.
     """
+    assert split in ("train", "dev", "test")
     job = TransformAndMapHuggingFaceDatasetJob(
         path,
         load_dataset_opts={"split": split},
@@ -117,6 +118,37 @@ def _hf_dataset_transform_random_sorted_subset(
     ds = ds.select(permutation)
     ds = ds.sort(duration_key, reverse=True)
     return ds
+
+
+_eval_split_filters = {
+    "voxpopuli": re.compile("PLENARY"),
+    "commonvoice": re.compile("common_voice"),
+    "librispeech": re.compile("^[0-9-]*$"),
+    "yodas": re.compile(".wav$"),
+}
+
+EvalSubSplits = list(_eval_split_filters.keys())
+DevSplits = [f"dev_{k}" for k in EvalSubSplits]
+TestSplits = [f"test_{k}" for k in EvalSubSplits]
+
+
+@cache
+def get_hf_dataset_custom_split(path: Path, sub_split: str) -> Path:
+    """
+    partition the dev/test set into eval subsets
+    """
+    assert sub_split in EvalSubSplits
+    job = TransformAndMapHuggingFaceDatasetJob(
+        path,
+        transform=partial(_hf_dataset_filter_subset, sub_split=sub_split),
+    )
+    return job.out_dir
+
+
+def _hf_dataset_filter_subset(example: Dict[str, Any], *, sub_split: str) -> bool:
+    matches = {k: bool(pat.search(example["id"])) for k, pat in _eval_split_filters.items()}
+    assert sum(matches.values()) <= 1, f"ambiguous {example['id']}: {matches}"
+    return matches[sub_split]
 
 
 @cache
@@ -294,7 +326,9 @@ def get_loquacious_task_raw_v2(
     )
     eval_datasets = {
         "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
+        **{k: _make_hf_dataset(hf_data_dir=hf_data_dir, split=k, vocab=vocab) for k in DevSplits},
         "test": _make_hf_dataset(hf_data_dir=hf_data_dir, split="test", vocab=vocab),
+        **{k: _make_hf_dataset(hf_data_dir=hf_data_dir, split=k, vocab=vocab) for k in TestSplits},
     }
     dev_dataset = eval_datasets["dev"]
 
@@ -401,7 +435,7 @@ def _make_hf_dataset_train_v2(
 def _make_hf_dataset(
     *,
     hf_data_dir: Path,
-    split: str,
+    split: Optional[str] = None,
     vocab: VocabConfig,
     seq_ordering: str = "sorted_reverse",
     partition_epoch: Optional[int] = None,
@@ -426,7 +460,15 @@ def _make_hf_dataset(
         if seq_ordering == "sorted_reverse":
             seq_ordering = "default"
     else:
-        hf_ds_opts = hf_data_dir.join_right(split)
+        if split in ("train", "dev", "test"):
+            hf_ds_opts = hf_data_dir.join_right(split)
+        elif "_" in split:
+            split1, split2 = split.split("_", 1)
+            assert split1 in ("dev", "test")
+            hf_ds_opts = get_hf_dataset_custom_split(hf_data_dir.join_right(split1), split2)
+        else:
+            assert split is None, f"invalid split {split!r}"
+            hf_ds_opts = hf_data_dir
         if take_first_shard_subset:
             hf_ds_opts = partial(_hf_dataset_dir_take_first_shard, hf_ds_opts)
 
