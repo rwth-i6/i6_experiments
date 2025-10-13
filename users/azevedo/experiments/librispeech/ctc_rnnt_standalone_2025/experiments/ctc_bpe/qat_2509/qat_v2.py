@@ -706,7 +706,7 @@ def bpe_lib_qat_comparisons():
             test_dataset_tuples=test_dataset_tuples,
             asr_model=asr_model,
             base_decoder_config=decoder_config_streaming,
-            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0, 2.1],
             prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
             decoder_module="search.decoder_module",
             debug=True,
@@ -821,7 +821,7 @@ def bpe_lib_qat_comparisons():
             test_dataset_tuples=test_dataset_tuples,
             asr_model=asr_model,
             base_decoder_config=decoder_config_streaming,
-            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0, 2.1],
             prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
             decoder_module="search.decoder_module",
             debug=True,
@@ -916,8 +916,8 @@ def bpe_lib_qat_comparisons():
             use_gpu=False,
         )
 
-
-        # mean abs norm streaming with moving average mhsa
+        #########################################################################################
+        # mean_abs_norm_streaming with moving average mhsa quantization
         network_module = "ctc.qat_2509.full_qat_v1_mean_abs_norm_streamable_v2"
         from ....pytorch_networks.ctc.qat_2509.full_qat_v1_streamable_cfg_v2 import (
             QuantModelTrainConfigV4 as QuantModelTrainConfigV4V2
@@ -1028,7 +1028,7 @@ def bpe_lib_qat_comparisons():
             test_dataset_tuples=test_dataset_tuples,
             asr_model=asr_model,
             base_decoder_config=decoder_config_streaming,
-            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+            lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0, 2.1],
             prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
             decoder_module="search.decoder_module",
             debug=True,
@@ -1142,7 +1142,7 @@ def bpe_lib_qat_comparisons():
         #     test_dataset_tuples=test_dataset_tuples,
         #     asr_model=asr_model,
         #     base_decoder_config=decoder_config_streaming,
-        #     lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+        #     lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0, 2.1],
         #     prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
         #     decoder_module="search.decoder_module",
         #     debug=True,
@@ -1257,7 +1257,7 @@ def bpe_lib_qat_comparisons():
         #     test_dataset_tuples=test_dataset_tuples,
         #     asr_model=asr_model,
         #     base_decoder_config=decoder_config_streaming,
-        #     lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+        #     lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0, 2.1],
         #     prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
         #     decoder_module="search.decoder_module",
         #     debug=True,
@@ -1372,7 +1372,7 @@ def bpe_lib_qat_comparisons():
         #     test_dataset_tuples=test_dataset_tuples,
         #     asr_model=asr_model,
         #     base_decoder_config=decoder_config_streaming,
-        #     lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0],
+        #     lm_scales=[0, 0.5, 0.7, 0.9, 1.4, 1.5, 1.6, 2.0, 2.1],
         #     prior_scales=[0, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0],
         #     decoder_module="search.decoder_module",
         #     debug=True,
