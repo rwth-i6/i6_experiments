@@ -28,7 +28,7 @@ from i6_experiments.users.zeyer.datasets.utils.vocab import (
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset
 from i6_experiments.users.zeyer.decoding.rescoring import combine_scores, rescore
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior, PriorRemoveLabelRenormJob
-from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
+from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_score
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -194,6 +194,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     task: Task,
     aed_ctc_model: ModelWithCheckpoint,
     aux_ctc_layer: int,
+    lm: ModelWithCheckpoint,
     labelwise_prior: Prior = NotSpecified,
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
@@ -258,7 +259,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         base_config = dict_update_deep(base_config, extra_config)
 
     # Only use CTC for first search, no AED, no prior.
-    ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
+    ctc_model_only = get_aed_ctc_lm_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
     dataset = task.dev_dataset
     ctc_scores = search_dataset(
         dataset=dataset,
@@ -271,6 +272,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     aed_scores = aed_score(
         ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
     )
+    lm_scores = lm_score(ctc_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
 
     # Also register the CTC-only results. (Will not do search again, should be same hash.)
     res = recog_model(
@@ -294,16 +296,22 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         ctc_scores = f(ctc_scores)
         prior_scores = f(prior_scores)
         aed_scores = f(aed_scores)
+        lm_scores = f(lm_scores)
         ref = f(ref)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
     opt_scales_job = ScaleTuningJob(
-        scores={"ctc": ctc_scores.output, "prior": prior_scores.output, "aed": aed_scores.output},
+        scores={
+            "ctc": ctc_scores.output,
+            "prior": prior_scores.output,
+            "aed": aed_scores.output,
+            "lm": lm_scores.output,
+        },
         ref=ref.output,
         fixed_scales={"ctc": 1.0},
         negative_scales={"prior"},
-        scale_relative_to={"prior": "aed"},
+        scale_relative_to={"prior": "lm"},
         evaluation="edit_distance",
     )
     opt_scales_job.rqmt["engine"] = "short"  # should be fine
@@ -314,6 +322,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     # (The DelayedBase logic on the Sis Variable should handle this.)
     prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
     aed_scale = opt_scales_job.out_real_scale_per_name["aed"]
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
 
     # Rescore CTC results with optimal scales. Like recog_model with lm_framewise_prior_rescore.
     # (Will not do search again, should be same hash.)
@@ -324,26 +333,30 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
         config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
-                aed_labelwise_prior_rescore,
+                aed_ctc_lm_labelwise_prior_rescore,
                 prior=labelwise_prior,
                 prior_scale=prior_scale,
                 aed_model=aed_ctc_model,
                 aed_scale=aed_scale,
-                aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
+                rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
+                lm=lm,
+                lm_scale=lm_scale,
             )
         ],
     )
     tk.register_output(f"{prefix}/rescore-res.txt", res.output)
 
     # Now do 1st-pass recog with optimal scales.
-    model = get_aed_ctc_and_labelwise_prior(
+    model = get_aed_ctc_lm_and_labelwise_prior(
         aed_ctc_model=aed_ctc_model,
         aed_scale=aed_scale,
         prior=labelwise_prior.file,
         prior_type=labelwise_prior.type,
         prior_scale=prior_scale,
+        language_model=lm,
+        lm_scale=lm_scale,
     )
     first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
     first_pass_search_rqmt.setdefault("time", 24)
@@ -458,7 +471,7 @@ aed_rescore_def: RescoreDef
 
 
 # like lm_labelwise_prior_rescore
-def aed_labelwise_prior_rescore(
+def aed_ctc_lm_labelwise_prior_rescore(
     res: RecogOutput,
     *,
     dataset: DatasetConfig,
@@ -467,11 +480,13 @@ def aed_labelwise_prior_rescore(
     orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     aed_model: ModelWithCheckpoint,
     aed_scale: Union[float, tk.Variable, DelayedBase],
-    aed_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
+    lm: ModelWithCheckpoint,
+    lm_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -488,11 +503,13 @@ def aed_labelwise_prior_rescore(
     :param orig_scale: scale for the original scores
     :param aed_model: AED model
     :param aed_scale: scale for the LM scores
-    :param aed_rescore_rqmt:
+    :param rescore_rqmt:
     :param vocab: for LM labels in res / raw_res_labels
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param prior:
     :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param lm:
+    :param lm_scale:
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
@@ -502,7 +519,7 @@ def aed_labelwise_prior_rescore(
         aed_model=aed_model,
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
-        rescore_rqmt=aed_rescore_rqmt,
+        rescore_rqmt=rescore_rqmt,
     )
     scores = [(orig_scale, res), (aed_scale, res_labels_aed_scores)]
     if prior and prior_scale:
@@ -510,6 +527,11 @@ def aed_labelwise_prior_rescore(
         scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
+    if lm and lm_scale:
+        res_labels_lm_scores = lm_score(
+            raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=rescore_rqmt
+        )
+        scores.append((lm_scale, res_labels_lm_scores))
     return combine_scores(scores)
 
 
