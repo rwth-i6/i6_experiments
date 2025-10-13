@@ -587,7 +587,7 @@ def search_config_v3(
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
 
     config_ = config
-    config = dict(
+    config: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
