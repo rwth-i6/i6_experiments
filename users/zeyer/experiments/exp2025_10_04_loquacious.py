@@ -346,3 +346,12 @@ def py():
         aux_ctc_layer=16,
         lm=selected_lm[1],
     )
+
+    aed_ctc_lm_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + selected_asr[0] + "/ctc+lm/" + selected_lm[0],
+        task=task_spm10k,
+        aed_ctc_model=selected_asr[1],
+        aed_scale=0.0,
+        aux_ctc_layer=16,
+        lm=selected_lm[1],
+    )
