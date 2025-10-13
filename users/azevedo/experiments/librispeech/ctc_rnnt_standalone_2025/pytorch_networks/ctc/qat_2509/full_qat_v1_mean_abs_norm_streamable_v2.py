@@ -24,7 +24,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .full_qat_v1_streamable_cfg import (
+from .full_qat_v1_streamable_cfg_v2 import (
     QuantModelTrainConfigV4,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
@@ -1238,7 +1238,7 @@ class Model(StreamableModule):
                     bit_prec_dot=self.train_config.weight_bit_prec,
                     bit_prec_A_v=self.train_config.weight_bit_prec,
                     bit_prec_W_o=self.train_config.weight_bit_prec,
-                    moving_average=self.train_config.moving_average,
+                    moving_average=self.train_config.mhsa_moving_average,
                     quantize_bias=self.train_config.quantize_bias,
                     observer_only_in_train=self.train_config.observer_only_in_train,
                 ),

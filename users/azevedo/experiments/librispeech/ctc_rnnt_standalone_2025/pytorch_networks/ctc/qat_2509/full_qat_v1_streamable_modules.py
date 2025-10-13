@@ -544,6 +544,7 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
         query = self.in_proj_in_quant(query)
         x = self.in_proj(query, self.in_proj_in_quant)
         x = self.in_proj_out_quant(x)
+        print(f"{self.in_proj_out_quant = }")
         hidden_dim = query.size(-1)
         query, key, value = x.unflatten(-1, (3, hidden_dim)).unsqueeze(0).transpose(0, -2).squeeze(-2).contiguous()
 
@@ -563,12 +564,16 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
 
         query = self.dot_in_quant(query)
         key = self.dot_in_quant(key)
+        print(f"{self.dot_in_quant = }")
         dot = torch.matmul(query, key)  # [B, D//H, T, T]
+        print(f"{query = }")
+        print(f"{key = }")
         dot = self.norm_in_quant(dot)
         norm = self.norm_in_quant(self.norm.to(device=dot.device))
-        print(dot)
-        print(f"{norm = }")
+        print(f"{dot = }")
         print(f"{self.norm_in_quant = }")
+        print(f"{norm = }")
+        print()
         dot = dot / norm
         dot = self.norm_out_quant(dot)
 
