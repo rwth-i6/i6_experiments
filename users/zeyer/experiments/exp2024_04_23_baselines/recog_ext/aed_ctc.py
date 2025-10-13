@@ -563,10 +563,8 @@ def get_aed_ctc_and_labelwise_prior(
         config = {}
 
     # Add prior.
-    if prior is not None:
-        assert prior_scale is not None
-    if prior_scale is not None:
-        assert prior is not None
+    if prior is not None or prior_scale is not None:
+        assert prior is not None and prior_scale is not None
         config.update({"labelwise_prior": {"type": prior_type, "file": prior, "scale": prior_scale}})
 
     config.update({"aed_scale": aed_scale})

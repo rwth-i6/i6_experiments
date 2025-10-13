@@ -811,7 +811,8 @@ def get_ctc_with_lm_and_labelwise_prior(
             "lm_scale": lm_scale,
         }
     )
-    config.setdefault("preload_from_files", {})["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+    config["preload_from_files"] = config["preload_from_files"].copy() if config.get("preload_from_files") else {}
+    config["preload_from_files"]["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
 
     combined_model_def = ctc_model_ext_def
     if ctc_model_def_ is not ctc_model_def:
