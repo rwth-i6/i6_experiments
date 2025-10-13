@@ -16,7 +16,6 @@ from i6_experiments.users.zeyer.model_interfaces import (
     ModelDef,
     ModelDefWithCfg,
     RecogDef,
-    RescoreDef,
 )
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection, RecogOutput
@@ -26,7 +25,7 @@ from i6_experiments.users.zeyer.datasets.utils.vocab import (
     ExtendVocabLabelsByNewLabelJob,
 )
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset
-from i6_experiments.users.zeyer.decoding.rescoring import combine_scores, rescore
+from i6_experiments.users.zeyer.decoding.rescoring import combine_scores
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior, PriorRemoveLabelRenormJob
 from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_score
 
@@ -40,7 +39,7 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx, _aed_model_def_blank_label
-from .aed_ctc import get_ctc_prior_probs
+from .aed_ctc import get_ctc_prior_probs, aed_score
 
 
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -395,87 +394,6 @@ def _get_vocab_opts_from_task(task: Task) -> Dict[str, Any]:
     extern_data_dict = dataset.get_extern_data()
     target_dict = extern_data_dict[dataset.get_default_target()]
     return target_dict["vocab"]
-
-
-# like lm_score
-def aed_score(
-    recog_output: RecogOutput,
-    *,
-    dataset: DatasetConfig,  # for encoder inputs (e.g. audio)
-    aed_model: ModelWithCheckpoint,
-    vocab: tk.Path,
-    vocab_opts_file: tk.Path,
-    rescore_rqmt: Optional[Dict[str, Any]] = None,
-) -> RecogOutput:
-    """
-    Scores the hyps with the LM.
-
-    :param recog_output:
-        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
-        i.e. the standard RETURNN search output with beam.
-        We ignore the scores here and just use the text of the hyps.
-    :param dataset: the orig data which was used to generate recog_output
-    :param aed_model: AED model
-    :param vocab: labels (line-based, maybe gzipped)
-    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
-    :param rescore_rqmt:
-    """
-    return rescore(
-        recog_output=recog_output,
-        dataset=dataset,
-        model=aed_model,
-        vocab=vocab,
-        vocab_opts_file=vocab_opts_file,
-        rescore_def=aed_rescore_def,
-        forward_rqmt=rescore_rqmt,
-    )
-
-
-# like lm_rescore_def
-# somewhat like aed_training...
-def aed_rescore_def(
-    *,
-    model: Model,
-    data: Tensor,
-    data_spatial_dim: Dim,
-    targets: Tensor,
-    targets_beam_dim: Dim,
-    targets_spatial_dim: Dim,
-    **_other,
-):
-    targets_beam_dim  # noqa  # unused here
-
-    if data.feature_dim and data.feature_dim.dimension == 1:
-        data = rf.squeeze(data, axis=data.feature_dim)
-    assert not data.feature_dim  # raw audio
-
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-
-    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
-    )
-    targets_w_eos, _ = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx, out_dims=[targets_w_eos_spatial_dim]
-    )
-
-    logits, _ = model.decoder(
-        input_labels,
-        spatial_dim=targets_w_eos_spatial_dim,
-        encoder=enc,
-        state=model.decoder.default_initial_state(batch_dims=targets.remaining_dims(targets_spatial_dim)),
-    )
-
-    assert not model.out_eos_separated  # joint distrib, std case
-    log_prob = rf.log_softmax(logits, axis=model.target_dim)
-    log_prob_targets = rf.gather(
-        log_prob, indices=targets_w_eos, axis=model.target_dim
-    )  # [batch,beam,targets_spatial_w_eos]
-    log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
-    assert log_prob_targets_seq.dims_set == set(targets.remaining_dims(targets_spatial_dim))
-    return log_prob_targets_seq
-
-
-aed_rescore_def: RescoreDef
 
 
 # like lm_labelwise_prior_rescore
