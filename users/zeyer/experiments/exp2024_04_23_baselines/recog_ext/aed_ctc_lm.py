@@ -544,7 +544,7 @@ def _aed_ctc_model_ctc_softmax_prior_returnn_forward(
     return ctc_label_prob, enc_spatial_dim
 
 
-def get_aed_ctc_and_labelwise_prior(
+def get_aed_ctc_lm_and_labelwise_prior(
     *,
     aed_ctc_model: ModelWithCheckpoint,
     prior: Optional[tk.Path] = None,
@@ -635,6 +635,12 @@ def aed_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim, orig_ctc_mode
     else:
         model.labelwise_prior = None
 
+    lm_model_def_dict = config.typed_value("_lm_model_def_dict", None)
+    if lm_model_def_dict:
+        model.lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
+    else:
+        model.lm = None
+
     return model
 
 
@@ -676,6 +682,7 @@ def model_recog_with_recomb(
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
     aed_scale = config.float("aed_scale", 1.0)
     ctc_scale = config.float("ctc_scale", 1.0)
+    lm_scale = config.typed_value("lm_scale", 0.0)
 
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
@@ -730,26 +737,53 @@ def model_recog_with_recomb(
     # noinspection PyUnresolvedReferences
     labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
 
-    if aed_scale or labelwise_prior is not None:
-        # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
-        decoder: Optional[TransformerDecoder] = model.decoder
+    if aed_scale or labelwise_prior is not None or lm_scale:
+        if aed_scale:
+            # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+            decoder: Optional[TransformerDecoder] = model.decoder
+            assert decoder is not None
+            decoder_state = decoder.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+            decoder_logits, decoder_state = decoder(
+                target,
+                encoder=enc,
+                spatial_dim=single_step_dim,
+                state=decoder_state,
+            )  # Batch, InBeam, Vocab / ...
+            decoder_log_probs = rf.log_softmax(decoder_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+            decoder_log_probs *= aed_scale
+        else:
+            decoder = None
+            decoder_state = 0.0
+            decoder_log_probs = 0.0
 
-        decoder_state = decoder.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-        decoder_logits, decoder_state = decoder(
-            target,
-            encoder=enc,
-            spatial_dim=single_step_dim,
-            state=decoder_state,
-        )  # Batch, InBeam, Vocab / ...
-        decoder_log_probs = rf.log_softmax(decoder_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-        decoder_log_probs *= aed_scale
         if labelwise_prior is not None:
             decoder_log_probs -= labelwise_prior  # prior scale already applied
 
-    else:  # aed_scale == 0 and no prior
+        if lm_scale:
+            # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+            # noinspection PyUnresolvedReferences
+            lm: Optional[TransformerDecoder] = model.lm
+            assert lm is not None
+
+            lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+            lm_logits, lm_state = lm(
+                target,
+                spatial_dim=single_step_dim,
+                state=lm_state,
+            )  # Batch, InBeam, Vocab / ...
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+            lm_log_probs *= lm_scale
+            decoder_log_probs += lm_log_probs
+        else:
+            lm = None
+            lm_state = None
+
+    else:  # aed_scale == 0 and no prior and lm_scale == 0
         decoder = None
         decoder_state = None
         decoder_log_probs = None
+        lm = None
+        lm_state = None
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -760,7 +794,7 @@ def model_recog_with_recomb(
 
         seq_log_prob = seq_log_prob + ctc_scale * ctc_label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
-        if decoder is not None:
+        if decoder_log_probs is not None:
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
@@ -783,9 +817,12 @@ def model_recog_with_recomb(
         seq_targets_wb.append(target_wb)
         seq_backrefs.append(backrefs)
 
-        if decoder is not None:
+        if decoder_log_probs is not None:
             decoder_log_probs = rf.gather(decoder_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+        if decoder_state is not None:
             decoder_state = rf.nested.gather_nested(decoder_state, indices=backrefs)
+        if lm_state is not None:
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
         seq_label = rf.nested.gather_nested(seq_label, indices=backrefs)
 
         prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
@@ -830,9 +867,9 @@ def model_recog_with_recomb(
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
         if decoder is not None and got_new_label_cpu.raw_tensor.sum().item() > 0:
-            (target_, decoder_state_, enc_), packed_new_label_dim, packed_new_label_dim_map = (
+            (target_, decoder_state_, lm_state_, enc_), packed_new_label_dim, packed_new_label_dim_map = (
                 rf.nested.masked_select_nested(
-                    (target, decoder_state, enc),
+                    (target, decoder_state, lm_state, enc if decoder is not None else None),
                     mask=got_new_label,
                     mask_cpu=got_new_label_cpu,
                     dims=batch_dims + [beam_dim],
@@ -841,20 +878,34 @@ def model_recog_with_recomb(
             # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
             assert packed_new_label_dim.get_dim_value() > 0
 
-            decoder_logits_, decoder_state_ = decoder(
-                target_,
-                encoder=enc_,
-                spatial_dim=single_step_dim,
-                state=decoder_state_,
-            )  # Flat_Batch_Beam, Vocab / ...
-            decoder_log_probs_ = rf.log_softmax(decoder_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-            decoder_log_probs_ *= aed_scale
+            if decoder is not None:
+                decoder_logits_, decoder_state_ = decoder(
+                    target_,
+                    encoder=enc_,
+                    spatial_dim=single_step_dim,
+                    state=decoder_state_,
+                )  # Flat_Batch_Beam, Vocab / ...
+                decoder_log_probs_ = rf.log_softmax(decoder_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                decoder_log_probs_ *= aed_scale
+            else:
+                decoder_log_probs_ = 0.0
+
             if labelwise_prior is not None:
                 decoder_log_probs_ -= labelwise_prior  # prior scale already applied
 
-            decoder_log_probs, decoder_state = rf.nested.masked_scatter_nested(
-                (decoder_log_probs_, decoder_state_),
-                (decoder_log_probs, decoder_state),
+            if lm is not None:
+                lm_logits_, lm_state_ = lm(
+                    target_,
+                    spatial_dim=single_step_dim,
+                    state=lm_state_,
+                )  # Flat_Batch_Beam, Vocab / ...
+                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ *= lm_scale
+                decoder_log_probs_ += lm_log_probs_
+
+            decoder_log_probs, decoder_state, lm_state = rf.nested.masked_scatter_nested(
+                (decoder_log_probs_, decoder_state_, lm_state_),
+                (decoder_log_probs, decoder_state, lm_state),
                 mask=got_new_label,
                 mask_cpu=got_new_label_cpu,
                 dims=batch_dims + [beam_dim],
@@ -862,7 +913,7 @@ def model_recog_with_recomb(
                 masked_select_dim_map=packed_new_label_dim_map,
             )  # Batch, Beam, Vocab / ...
 
-    if decoder is not None:
+    if decoder_log_probs is not None:
         # seq_log_prob, lm_log_probs: Batch, Beam
         # Add LM EOS score at the end.
         decoder_eos_score = rf.gather(decoder_log_probs, indices=model.eos_idx, axis=model.target_dim)
