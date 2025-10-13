@@ -46,7 +46,7 @@ from .aed_ctc import get_ctc_prior_probs
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
 # following further defaults from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023.recog_ext_with_lm,
 # now without prior
-def aed_ctc_timesync_recog_recomb_auto_scale(
+def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     *,
     prefix: str,
     task: Task,
@@ -188,7 +188,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
 
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
 # following further defaults from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023.recog_ext_with_lm
-def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
+def aed_ctc_lm_timesync_recog_recomb_labelwise_prior_auto_scale(
     *,
     prefix: str,
     task: Task,

@@ -18,6 +18,9 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
     aed_ctc_timesync_recog_recomb_auto_scale,
 )
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_lm import (
+    aed_ctc_lm_timesync_recog_recomb_labelwise_prior_auto_scale,
+)
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 
@@ -192,6 +195,7 @@ def py():
 
     train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
+    selected_asr = None
     for subset, total_k_hours in [
         ("clean", 4 * 13),  # 52kh in total, 4 full epochs
         ("clean", 100),  # 100kh in total, 7.7 full epochs
@@ -281,13 +285,18 @@ def py():
             aed_ctc_model=exp.get_last_fixed_epoch(),
             aux_ctc_layer=16,
         )
+        if subset == "large" and total_k_hours == 100:  # for now only this
+            selected_asr = (name, exp.get_last_fixed_epoch())
 
     # Language models on train large transcriptions
 
+    selected_lm = None
     for num_full_ep, split in [(4, 25), (5, 10), (10, 10)]:
         n_ep = round(num_full_ep * split)
-        train(
-            f"{prefix}/lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nFullEp{num_full_ep}-nEp{n_ep}-spm10k",
+        # orig name: trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp...-spm10k
+        name = f"trafo-n32-d1024-nFullEp{num_full_ep}-nEp{n_ep}-spm10k"
+        exp = train(
+            f"{prefix}/lm/{name}",
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
@@ -320,3 +329,15 @@ def py():
             ),
             train_def=lm_train_def,
         )
+        if num_full_ep == 4:
+            selected_lm = (name, exp.get_last_fixed_epoch())
+
+    # AED+CTC+LM decoding
+
+    aed_ctc_lm_timesync_recog_recomb_labelwise_prior_auto_scale(
+        prefix=prefix + "/aed/" + selected_asr[0] + "/aed+ctc+lm/" + selected_lm[0],
+        task=task_spm10k,
+        aed_ctc_model=selected_asr[1],
+        aux_ctc_layer=16,
+        lm=selected_lm[1],
+    )
