@@ -52,6 +52,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     aed_ctc_model: ModelWithCheckpoint,
     aux_ctc_layer: int,
     aed_scale: Union[float, Literal["auto"]] = "auto",
+    aed_scale_max: Optional[float] = None,
     lm: ModelWithCheckpoint,
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
@@ -144,12 +145,16 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
+    max_scales = {}
+    if aed_scale_max is not None:
+        max_scales["aed"] = aed_scale_max
     opt_scales_job = ScaleTuningJob(
         scores={
             "ctc": ctc_scores.output,
             **({"aed": aed_scores.output} if fixed_aed_scale is None else {}),
             "lm": lm_scores.output,
         },
+        **({"max_scales": max_scales} if max_scales else {}),
         ref=ref.output,
         fixed_scales={"ctc": 1.0},
         evaluation="edit_distance",
