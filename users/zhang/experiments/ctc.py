@@ -559,6 +559,7 @@ def recog_exp(
             params.pop("prior_weight", None)
             params.pop("lm_weight_tune", None)
             params.pop("prior_weight_tune", None)
+            params.pop("Nlist_configs", None)
             if TUNE_ON_GREEDY_N_LIST: # or first_pass_wo_lm: # First pass with Greedy(No lm)
                 params.update(update_config)
                 if search_config.get("network_config_kwargs", False):
@@ -805,6 +806,11 @@ def recog_exp(
 
         prior_tune_ls = [decoding_config["prior_weight"] + scale / 100 for scale in range(-30, 21, 5)] if not tune_config_updates.get("prior_tune_range") \
         else tune_config_updates["prior_tune_range"]
+
+        print(
+        f"{prefix} \n -> tune 1rd pass scales with rescoring!"  # defaults_lm {decoding_config['rescore_lmscale']} prior{decoding_config['rescore_priorscale']} "
+        f"\n lm_range:[{min(lm_tune_ls), max(lm_tune_ls)}]\n "
+        f"prior_range:[{min(prior_tune_ls), max(prior_tune_ls)}]")
         best_prior_scale = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",
                                                            update_config=copy.deepcopy(update_config), first_pass_name=alias_tune_name)
         tk.register_output(alias_tune_name + "/tune/priot_weight_tune_best", best_prior_scale)

@@ -339,7 +339,7 @@ def get_ES_old_trafo(epochs: list[int] = None, word_ppl: bool = False, only_tran
 
 def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
                  max_seqs: int = 400, bs_feat: int =20_000, n_ep: int = 100, max_seq_length_default_target: bool = False, #default 75
-                 dropout: float = 0.0, att_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, bpe_ratio: Optional[float | tk.Variable]=None)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+                 dropout: float = 0.0, att_dropout: float = 0.0, epochs: list[int] = None, word_ppl: bool = False, rope_ffgated: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
 
     # from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     # from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
@@ -358,45 +358,83 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
     #     }
     # )
     # -----------
-    train_prefix_name = f"trafo-n{num_layers}-embd128-d{model_dim}-bpe{vocab.dim}-drop{dropout}-gelu"
+
     lm_dataset = get_librispeech_lm_dataset(vocab=vocab, train_epoch_split=20)
 
-    deep_update = {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(bs_feat=bs_feat, n_ep=n_ep, batch_size_factor=1),
-                "max_seqs": max_seqs,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            }
-    if max_seq_length_default_target:
-        deep_update.update({"max_seq_length_default_target": None})
-    config_80gb = config_96gb_bf16_accgrad1.copy()
-    config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 60})
-    model_with_checkpoints = train(  # 12.79
-        f"lm/trafo-n{num_layers}-d{model_dim}-gelu-drop0-b{max_seqs}_{bs_feat//1000}k-bpe{vocab.dim}",
-        config=dict_update_deep(
-            config_80gb,
-            deep_update
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=lm_dataset,
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=num_layers,
-                    model_dim=model_dim,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=dropout,
-                    att_dropout=att_dropout,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # For test
-        # time_rqmt=2,
-    )
+    if rope_ffgated:
+        train_prefix_name = f"trafo-n{num_layers}-d{model_dim}-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0_1-b400_20k-bpe{vocab.dim}"
+        config_80gb = config_96gb_bf16_accgrad1.copy()
+        config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 96})
+        model_with_checkpoints = train(  # set up from albert. Use same similar network for Spainish task
+            f"lm/LBS/{train_prefix_name}",
+            config=dict_update_deep(
+                config_80gb,
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(10_000, 100, batch_size_factor=1),
+                    "max_seqs": 400,
+                    "optimizer.weight_decay": 5e-3,
+                    "calculate_exp_loss": True,
+                },
+            ),
+            train_dataset=lm_dataset,
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        TransformerDecoder,
+                        encoder_dim=None,
+                        num_layers=num_layers,
+                        model_dim=model_dim,
+                        pos_enc=None,
+                        norm=rf.build_dict(rf.RMSNorm),
+                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                        decoder_layer_opts=dict(
+                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                        dropout=0.1,
+                        att_dropout=0.1,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+    else:
+        train_prefix_name = f"trafo-n{num_layers}-embd128-d{model_dim}-bpe{vocab.dim}-drop{dropout}-gelu"
+        deep_update = {
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(bs_feat=bs_feat, n_ep=n_ep, batch_size_factor=1),
+                    "max_seqs": max_seqs,
+                    "optimizer.weight_decay": 1e-2,
+                    "calculate_exp_loss": True,
+                }
+        if max_seq_length_default_target:
+            deep_update.update({"max_seq_length_default_target": None})
+        config_80gb = config_96gb_bf16_accgrad1.copy()
+        config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 60})
+        model_with_checkpoints = train(  # 12.79
+            f"lm/trafo-n{num_layers}-d{model_dim}-gelu-drop0-b{max_seqs}_{bs_feat//1000}k-bpe{vocab.dim}",
+            config=dict_update_deep(
+                config_80gb,
+                deep_update
+            ),
+            post_config={"log_grad_norm": True},
+            train_dataset=lm_dataset,
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        TransformerDecoder,
+                        encoder_dim=None,
+                        num_layers=num_layers,
+                        model_dim=model_dim,
+                        ff_activation=rf.build_dict(rf.gelu),
+                        dropout=dropout,
+                        att_dropout=att_dropout,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+            # For test
+            # time_rqmt=2,
+        )
 
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
@@ -405,8 +443,8 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
         dataset_keys=["transcriptions-test-other", "transcriptions-dev-other","transcriptions-test-clean", "transcriptions-dev-clean"],
         epochs=epochs,
         same_seq=True,
-        word_ppl=word_ppl,
-        batch_size=10_000,
+        word_ppl=True,
+        batch_size=12_000,
     )
     print(f"------fixed epochs of trafo_lm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")
     # if ppls.

@@ -193,8 +193,8 @@ def get_lm_by_name(lm_name:str, task_name: str = "LBS", as_ckpt: bool = True) ->
         # print(build_ffnn_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=True, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name)[0])
         return build_ffnn_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=False, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name)[0][lm_name] # for now ES LMs getter does not depend on vocab
     elif "trafo" in lm_name:
-        num_layer, dim = parse_trafo_name(lm_name)
-        return build_trafo_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=False, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name, num_layers=num_layer, dim=dim)[0][lm_name]  # for now ES LMs getter does not depend on vocab
+        num_layer, dim, rope_ffgated = parse_trafo_name(lm_name)
+        return build_trafo_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=False, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name, num_layers=num_layer, dim=dim, rope_ffgated=rope_ffgated)[0][lm_name]  # for now ES LMs getter does not depend on vocab
 
 
 _Lm = namedtuple("Lm", ["name", "train_version", "setup"])
@@ -284,7 +284,8 @@ def build_trafo_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: b
     return lms, ppl_results, lm_types
 
 
-def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, old: bool = False, num_layers: int = 12, dim: int = 512) -> Tuple[Dict, Dict, Set[str]]:
+def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS",
+                    only_transcript: bool = False, old: bool = False, num_layers: int = 12, dim: int = 512, rope_ffgated: bool=False) -> Tuple[Dict, Dict, Set[str]]:
     if task_name == "ES":
         return build_trafo_ES_lms(as_ckpt=as_ckpt, word_ppl=word_ppl, only_best=only_best, task_name=task_name,only_transcript=only_transcript, old=old)
     else:
@@ -297,13 +298,15 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, onl
     dim = 512 if dim is None else dim
     config = {"num_layers": num_layers, "model_dim": dim, "dropout": 0.0, "class": "TransformerLm"}
     epochs = [50] if only_best else [20, 50] #20
+    if rope_ffgated:
+        epochs = [100] if only_best else [40,100]
     from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
     bpe_data = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=int(match.group(1)))
     bpe = Bpe(dim=184, codes=bpe_data.bpe_codes, vocab=bpe_data.bpe_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>")
     for checkpoint, ppl, epoch in get_trafo_lm(bpe, n_ep=50, bs_feat=10000, num_layers=config["num_layers"], word_ppl=word_ppl,
-                                               model_dim=config["model_dim"], max_seqs=200, max_seq_length_default_target=True, epochs=epochs):
-        name = f"trafo_n{num_layers}d{dim}_{epoch}_bpe{match.group(1)}"
+                                               model_dim=config["model_dim"], max_seqs=200, max_seq_length_default_target=True, epochs=epochs, rope_ffgated=rope_ffgated):
+        name = f"trafo_n{num_layers}d{dim}_{epoch}_bpe{match.group(1)}{'_rope_ffgated' if rope_ffgated else ''}"
         lms[name] = {
             "preload_from_files": {
                 "recog_lm": {
@@ -374,7 +377,7 @@ def parse_trafo_name(name: str):
     if not match:
         print(f"Warning: Use default trafo network setting for {name}")
         return None, None
-    return int(match.group(1)), int(match.group(2))
+    return int(match.group(1)), int(match.group(2)), "rope_ffgated" in name
 
 def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt: bool = False, word_ppl: bool = False,
                   only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, llmids_batch_sizes: Dict[str, int] = None) -> Tuple[Dict, Dict, Set[str]]:
@@ -403,8 +406,8 @@ def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt
             n_order, fraction, prune_thresh = parse_ngram_name(kind)
             builders.update({kind: functools.partial(build_ngram_lm,n_order=n_order, fraction=fraction, prune_thresh=prune_thresh)})
         elif kind.startswith("trafo") and "n" in kind and "d" in kind:
-            num_layer, dim = parse_trafo_name(kind)
-            builders.update({kind: functools.partial(build_trafo_lms, num_layers=num_layer, dim=dim)})
+            num_layer, dim, rope_ffgated = parse_trafo_name(kind)
+            builders.update({kind: functools.partial(build_trafo_lms, num_layers=num_layer, dim=dim, rope_ffgated=rope_ffgated)})
     # if word_ppl:
     #     bpe_ratio = None # This should be done in compute_ppl
     #     # from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt

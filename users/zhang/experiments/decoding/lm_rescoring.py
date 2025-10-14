@@ -1052,6 +1052,7 @@ def lm_am_framewise_prior_rescore(
     lm_rescore_def: RescoreDef,
     lm_scale: Union[float, tk.Variable, DelayedBase],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    res_for_lm: RecogOutput = None, # Removed unk, noise etc
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     vocab_to_word_func: Optional[Callable] = None,
@@ -1060,6 +1061,7 @@ def lm_am_framewise_prior_rescore(
     lm_vocab_to_word_func: Optional[Callable] = None,
     pre_func_for_lm: Callable = None,
     prior: Optional[Prior] = None,
+    search_label_present: bool = True,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
     alias_name: Optional[str] = None,
@@ -1127,10 +1129,14 @@ def lm_am_framewise_prior_rescore(
             if lm.get("prev_one_ctx", False):
                 if (lm.get("cheat_prev_ctx", False)
                         or "gt_res" in alias_name): # Keep the hash minimal
-                    assert gt_res is not None #In case this is already rescoring for GT
-                    lm["gt_res"] = gt_res
                     if "gt_res" in alias_name:
+                        if not lm.get("cheat_prev_ctx", False):
+                            assert gt_res is not None, "gt_res must be provided to score GT without cheating"
+                            lm["gt_res"] = gt_res
                         lm["batch_size"] = 1
+                    else:
+                        assert gt_res is not None #In case this is already rescoring for GT
+                        lm["gt_res"] = gt_res
                 else:
                     if not lm.get("cheat_prev_ctx", False):
                         lm["AM_prior_scores"] = [(scale, recog_out.output) for scale, recog_out in scores]
@@ -1165,6 +1171,7 @@ def lm_am_framewise_prior_rescore(
     res_labels_am_scores = rescore(
         config=config,
         recog_output=res,
+        recog_output_for_lm=res_for_lm,
         dataset=dataset,
         model=am,
         vocab=vocab,
@@ -1192,21 +1199,22 @@ def lm_am_framewise_prior_rescore(
     if prior and prior_scale:
         if search_labels_to_labels and raw_res_search_labels:
             res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
-        else:
-            from i6_experiments.users.zhang.experiments.decoding.prior_rescoring import prior_rescore_force_align_def
-            res_search_labels_prior_scores = rescore(
-                config=config,
-                recog_output=res,
-                dataset=dataset,
-                model=am,
-                vocab=vocab,
-                vocab_opts_file=vocab_opts_file,
-                rescore_def=prior_rescore_force_align_def,
-                forward_rqmt=am_rescore_rqmt,
-                prior=prior,
-                forward_alias_name=alias_name + "/Prior_rescoring",
-            )
-        res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
+            res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores) if search_label_present else res_search_labels_prior_scores
+
+        # else:
+        #     from i6_experiments.users.zhang.experiments.decoding.prior_rescoring import prior_rescore_force_align_def
+        #     res_labels_prior_scores = rescore(
+        #         config=config,
+        #         recog_output=res,
+        #         dataset=dataset,
+        #         model=am,
+        #         vocab=vocab,
+        #         vocab_opts_file=vocab_opts_file,
+        #         rescore_def=prior_rescore_force_align_def,
+        #         forward_rqmt=am_rescore_rqmt,
+        #         prior=prior,
+        #         forward_alias_name=alias_name + "/Prior_rescoring",
+        #     )
         if normalize_seq:
             res_labels_prior_scores = vocab_to_word_func(res_labels_prior_scores)
         scores.append((prior_scale * (-1), res_labels_prior_scores))

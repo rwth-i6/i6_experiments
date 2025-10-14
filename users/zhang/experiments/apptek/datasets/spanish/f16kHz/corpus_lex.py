@@ -157,7 +157,8 @@ segmenter_flow_artefact = (
 )
 rasr_artefact = (
     "rasr",
-    "streaming-rasr-2025-07-12_haotian"
+    "streaming-rasr-2025-07-12"
+    #"streaming-rasr-2025-07-12_haotian"
     #"streaming-rasr-2024-06-21",
 )
 
@@ -277,7 +278,7 @@ def _get_train_cv_corpus(namespace: str, corpus_key: str) -> tk.Path:
 
 @cache
 def _get_eval_corpus(
-    namespace: str, corpus_key: str, segmenter_type: SegmenterType, measure_type: WerMeasure, alias_prefix: str
+    namespace: str, corpus_key: str, segmenter_type: SegmenterType, measure_type: WerMeasure, alias_prefix: str, skip_non_speech: bool = True,
 ) -> EvalInfo:
     aar = AbstractArtefactRepository()
 
@@ -298,7 +299,7 @@ def _get_eval_corpus(
         audio_files = list(resample_job.out_files.values())
     else:
         raise ValueError(f"unknown sample rate {khz}")
-    full_corpus = StmToBlissCorpusJob(artefact["stm"], audio_files, skip_non_speech=True).out_bliss
+    full_corpus = StmToBlissCorpusJob(artefact["stm"], audio_files, skip_non_speech=skip_non_speech).out_bliss
     out_corpus_file = full_corpus
 
     segmenter_opts = segmenter_type.get_opts()
@@ -410,7 +411,7 @@ def get_corpora(
     }
     dev_corpora = {
         f"{corpus_ns}.{corpus}.{segmenter_type}.{measure_type}": _get_eval_corpus(
-            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix
+            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix, skip_non_speech=for_lm
         )
         for corpus_ns, corpus_list in (LM_dev_corpora_def.items() if for_lm else dev_corpora_def.items())
         for corpus in corpus_list
@@ -423,7 +424,7 @@ def get_corpora(
     _compute_merged_costa("dev", dev_corpora, alias_prefix)
     test_corpora = {
         f"{corpus_ns}.{corpus}.{segmenter_type}.{measure_type}": _get_eval_corpus(
-            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix
+            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix, skip_non_speech=for_lm
         )
         for corpus_ns, corpus_list in (LM_test_corpora_def.items() if for_lm else test_corpora_def.items())
         for corpus in corpus_list

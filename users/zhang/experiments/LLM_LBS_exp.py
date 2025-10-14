@@ -26,7 +26,7 @@ DEV_DATASET_KEYS = ["dev-other",
                     "dev-clean"
                     ]
 EVAL_DATASET_KEYS = ["test-other","dev-other",
-                     #"test-clean","dev-clean"
+                     "test-clean","dev-clean"
                      ]
 DEFAULT_PRIOR_WEIGHT = 0.3
 DEFAULT_LM_SCALE_DICT = {"Llama-3.1-8B": 1.0, "Qwen3-1.7B-Base": 1.0,
@@ -40,13 +40,13 @@ DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with
 # !! PLOT need to be set in main exp
 
 CHEAT_N_BEST = False
-TUNE_WITH_CHEAT = True and CHEAT_N_BEST
+TUNE_WITH_CHEAT = False and CHEAT_N_BEST
 TUNE_TWO_ROUND = True
 
 
-BEAM_SIZE = 1000
+BEAM_SIZE = 500
 TRAFO_BEAM = 300
-NBEST = 1000 # Use 100 for plot
+NBEST = 200 # Use 100 for plot
 
 TUNE_ON_GREEDY_N_LIST = False
 
@@ -62,6 +62,18 @@ CTX_LEN_LIMIT = 100
 TUNE_LLM_SCALE_EVERY_PASS = LLM_PREV_ONE_CTX and not CHEAT_CTX
 
 DIAGNOSE = True and not TUNE_LLM_SCALE_EVERY_PASS
+
+COMBINE_NLIST = False
+N_BEST_COMBINE_CONFIGS = [({'log_add': False, 'nbest': 200, 'beam_size': 200, 'beam_threshold': 1000000.0, 'lm_weight': 0.8,
+                            'use_logsoftmax': True, 'use_lm': True, 'use_lexicon': True,
+                            'lm_order': '4gram_word_official_LBS',
+                            'lm': tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/lm/kenlm/CreateBinaryLMJob.de9S4OxfBkxq/output/lm.bin"),
+                           'prior_weight': 0.2
+                            },
+                           {'preload_from_files': {},
+                            }
+                           )
+                          ]
 # --- Helpers for ctc_exp ---
 def get_encoder_model_config(encoder: str) -> Tuple[dict, Optional[callable]]:
     import returnn.frontend as rf
@@ -125,9 +137,9 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
     if "ffnn" in lmname:
         tune_hyperparameters = False #This control one pass tune
         decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else 150
-        decoding_config["lm_weight"] = 0.2
-        decoding_config["prior_weight"] = 0.15
-        tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
+        decoding_config["lm_weight"] = 0.5
+        #decoding_config["prior_weight"] = 0.15
+        #tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
         batch_size = 11_200_000
         search_rqmt.update({"gpu_mem": 11, "time":3})
 
@@ -136,9 +148,9 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
         decoding_config["beam_size"] = TRAFO_BEAM if encoder == "conformer" else 300
         decoding_config["nbest"] = min(300, decoding_config["beam_size"])
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
-        tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
-        batch_size = 1_600_000 if TRAFO_BEAM > 200 else 4_800_000
-        search_rqmt.update({"gpu_mem": 80})
+        #tune_config_updates["tune_range"] = [scale / 100 for scale in range(-15, 16, 5)]
+        batch_size = (800_000 if "n24" in lmname else 1_600_000) if TRAFO_BEAM > 250 else 4_800_000
+        search_rqmt.update({"gpu_mem": 141, "time": 8}  if "n24" in lmname and TRAFO_BEAM > 200 else {"gpu_mem":80})
 
 
     elif "gram" in lmname and "word" not in lmname:
@@ -169,6 +181,10 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
     p6 = f"rw{str(decoding_config['rescore_lmscale']).replace('.', '')}" if decoding_config.get("rescoring") else ""
     p7 = f"_tune" if tune_config_updates.get("tune_range_2") or tune_config_updates.get("prior_tune_range_2") else ""
     lm_hyperparamters_str = vocab + p0 + "_" + p3 + p4 + ("flash_light" if USE_flashlight_decoder and "word" in lmname else "")
+    if COMBINE_NLIST:
+        lm_hyperparamters_str += "combined_"
+        for dec_config, _ in N_BEST_COMBINE_CONFIGS:
+            lm_hyperparamters_str += f"{dec_config['lm_order']}_b{dec_config['beam_size']}_n{dec_config['nbest']}_"
     lm2_hyperparamters_str = "_" + p5 + "_" + p6 + p7
     alias_name = f"LBS-ctc-baseline_{encoder}_decodingWith_1st-{lmname}_{lm_hyperparamters_str}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}_2rd{lm2_hyperparamters_str}"
     first_pass_name = f"LBS-ctc-baseline_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}"
@@ -366,15 +382,17 @@ def ctc_exp(
                                default_prior=decoding_config["rescore_priorscale"], first_pass=False)
 
     if lm is not None:  # First pass with a LM, setting the tuning strategy
-        decoding_config["tune_with_rescoring"] = True and (lm_weight is None and prior_weight is None)  # Set to false if do one pass tuning
+        decoding_config["tune_with_rescoring"] = True and (lm_weight is None and prior_weight is None)  # Set to false if do one pass tuning, if weights directly given, just use them
         tune_hyperparameters = False and not decoding_config["tune_with_rescoring"] # 2 false -> no tuning
         #decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]  # Just safe guard, for now need them to be same
-        if all([decoding_config["tune_with_rescoring"], tune_hyperparameters]):
+        if any([decoding_config["tune_with_rescoring"], tune_hyperparameters]):
             set_tune_range_by_name(lmname, tune_config_updates,
                                    default_lm=decoding_config["lm_weight"],
                                    default_prior=decoding_config["prior_weight"],
                                    first_pass=True)
 
+    if COMBINE_NLIST:
+        decoding_config["Nlist_configs"] = N_BEST_COMBINE_CONFIGS
     if train:
         decoding_config = {
         "log_add": False,
@@ -474,30 +492,32 @@ def py():
     encoder = "conformer"
     train = False
     cuts = {"conformer": 65, "blstm":37}
-    greedy_first_pass = True
+    greedy_first_pass = False
     for vocab in ["bpe128",
                   #"bpe10k",
                   #"spm10k",
                   ]:
         word_ppl = False # Default
         # LM that do first pass,
-        lm_kinds = {#"ffnn",
+        lm_kinds = {"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
                     #"trafo_n24d1024",
-                    "4gram_word_official_LBS"
+                    #"trafo_n24d1280_rope_ffgated",
+                    #"4gram_word_official_LBS"
                     }
         lm_kinds_2 = {#"ngram", # LM that do second pass
                     #"word_ngram",
                     #"ffnn",
                     #"6gram",
                     #"trafo",
-                    #"LLM"
+                    #"4gram_word_official_LBS",
+                    "LLM"
                     }
         insert_spm10k_lm = False
         LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 80,  # 40 on 48gb,
                               "meta-llama/Llama-3.1-8B": 175,#120 + ctx 100 for 141g,# 70 for 80gb # batch 50 + ctx 200 -> 40GB peak
                                #"Qwen/Qwen3-0.6B-Base": 51,
-                          "Qwen/Qwen3-1.7B-Base": 80,  # 40 on 48gb# 80 + ctx 100 -> 79 peak
+                              "Qwen/Qwen3-1.7B-Base": 80,  # 40 on 48gb# 80 + ctx 100 -> 79 peak
                               # "Qwen/Qwen3-4B-Base":24,
                               #"Qwen/Qwen3-8B-Base":50,
                              "microsoft/phi-4": 150,#120 for 141g, 50 for 80gb, #(batch 42 + ctx 200 -> 47gb peak. batch 150 + ctx 100 -> 105/130gb peak)
@@ -554,6 +574,7 @@ def py():
                         wer_ppl_results_2[name_2] = (
                             ppl_results_2.get(name_2), *one_pass_res)
                         wer_results[one_pass_lm] = one_pass_res[-5]
+                        #print(wer_results[one_pass_lm])
                         two_pass_same_lm = True
                     print(name, name_2)
                     (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict, rescor_ppls,
@@ -631,10 +652,8 @@ def py():
             if (vocab, model_name, encoder) not in available:
                 train = True
             #wer_ppl_results = dict()
-            for lm_weight, prior_weight in [#(None,None), # Tune scale
-                                            #(0.6,0.3),# For FFNN,
-                                            (0.8,0.2),
-                                            ]:
+            scales = [(0.8,0.2)] if "4gram_word_official_LBS" in lm_kinds else [(None,None)]
+            for lm_weight, prior_weight in scales:
                 first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2, lm_weight=lm_weight, prior_weight=prior_weight)
 
             # if wer_ppl_results and not train:

@@ -282,7 +282,6 @@ class OracleWerJob(Job):
         same_hyp_count = 0
         unique_counts = 0
         gt_present_count = 0
-        N = 0
         with _smart_open(str(self.out_per_utt), "wt") as f_csv:
             f_csv.write(
                 "seq_tag,edits,S,D,I,ref_len,wer,"
@@ -420,6 +419,7 @@ class OracleWerJob(Job):
             "overall_wer": overall_wer,
             "N": N,
             "GT_coverage": coverage,
+            "abs_gaps_len": len(abs_gaps),
             "avg_unique_hyps": avg_unique_hyps,
             "total_edits": int(total_edits),
             "total_ref_words": int(total_ref_words),

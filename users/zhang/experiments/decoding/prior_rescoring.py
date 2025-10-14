@@ -15,7 +15,6 @@ from .rescoring import combine_scores
 import torch
 import gzip
 import numpy as np
-from torchaudio.functional import forced_align
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim
 
@@ -56,56 +55,6 @@ def prior_rescore(res: RecogOutput, *, prior: Prior, prior_scale: float, orig_sc
     scores = [(orig_scale, res), (-prior_scale, prior_score(res, prior=prior))]
     return combine_scores(scores)
 
-
-def _read_lines(path: str) -> List[str]:
-    """Read a line-based vocab file; supports plain text or .gz."""
-    if path.endswith(".gz"):
-        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
-            return [ln.rstrip("\n") for ln in f]
-    with open(path, "rt", encoding="utf-8", errors="replace") as f:
-        return [ln.rstrip("\n") for ln in f]
-
-def _numpy_loadtxt_path(p) -> np.ndarray:
-    """Load text floats via numpy.loadtxt from tk.Path or str."""
-    path = p.get_path() if hasattr(p, "get_path") else str(p)
-    return np.loadtxt(path)
-
-def _path_str(p) -> str:
-    return p.get_path() if hasattr(p, "get_path") else str(p)
-
-def _build_prior_log_for_model_vocab(
-    prior_vec: np.ndarray,
-    prior_vocab: List[str],
-    model_vocab: Optional[List[str]],
-    V_expected: int,
-) -> np.ndarray:
-    """
-    If model_vocab is provided, remap prior_vec (ordered by prior_vocab) to model indices.
-    Else, assert shapes match and return as-is.
-    """
-    if model_vocab is None:
-        if prior_vec.shape[0] != V_expected:
-            raise ValueError(
-                f"prior length {prior_vec.shape[0]} != model V {V_expected} and no model_vocab provided for remapping"
-            )
-        return prior_vec
-
-    if len(model_vocab) != V_expected:
-        raise ValueError(f"model_vocab length {len(model_vocab)} != V_expected {V_expected}")
-
-    prior_index = {tok: i for i, tok in enumerate(prior_vocab)}
-    remapped = np.full((V_expected,), fill_value=-1e30, dtype=np.float32)  # default very small log-prob
-    missing = []
-    for j, tok in enumerate(model_vocab):
-        i = prior_index.get(tok)
-        if i is None:
-            # Not found in prior vocab: keep default very small log-prob (acts like masked)
-            missing.append(tok)
-        else:
-            remapped[j] = prior_vec[i]
-    # You may log/inspect `missing` if needed.
-    return remapped
-
 def prior_rescore_force_align_def(
     *,
     model,
@@ -122,109 +71,139 @@ def prior_rescore_force_align_def(
     - Sums log-prior over aligned tokens (ignoring blanks and frames beyond input length).
     - Returns a RETURNN Tensor with dims (batch, targets_beam_dim).
     """
-    """RescoreDef API: CTC forced-align + prior rescoring (Prior provided via _other['prior'])."""
+    """RescoreDef API: CTC forced-align + frame-wise prior (includes blank)."""
+    import gzip
+    import numpy as np
+    import torch
     import returnn.frontend as rf
     from returnn.tensor import Tensor, Dim
-    from torchaudio.functional import forced_align
+    from torchaudio.functional import forced_align  # batch size must be 1 at the moment
 
-    # --- Forward model to get logits and encoder time dim ---
+    # ---------- helpers ----------
+    def _path_str(p):
+        return p.get_path() if hasattr(p, "get_path") else str(p)
+
+    def _read_lines(path: str):
+        if path.endswith(".gz"):
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+                return [ln.rstrip("\n") for ln in f]
+        with open(path, "rt", encoding="utf-8", errors="replace") as f:
+            return [ln.rstrip("\n") for ln in f]
+
+    def _numpy_loadtxt_path(p):
+        return np.loadtxt(_path_str(p))
+
+    def _remap_prior_to_model_vocab(prior_log_vec: np.ndarray, prior_vocab, model_vocab, V_expected: int) -> np.ndarray:
+        if model_vocab is None:
+            if prior_log_vec.shape[0] != V_expected:
+                raise ValueError(f"prior length {prior_log_vec.shape[0]} != model V {V_expected} and no model_vocab to remap")
+            return prior_log_vec
+        if len(model_vocab) != V_expected:
+            raise ValueError(f"model_vocab length {len(model_vocab)} != V {V_expected}")
+        prior_index = {tok: i for i, tok in enumerate(prior_vocab)}
+        remapped = np.full((V_expected,), fill_value=-1e30, dtype=np.float32)
+        for j, tok in enumerate(model_vocab):
+            i = prior_index.get(tok)
+            if i is not None:
+                remapped[j] = prior_log_vec[i]
+        return remapped
+
+    # ---------- model forward ----------
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
     assert logits.feature_dim is not None and enc_spatial_dim in logits.dims
-    log_probs = model.log_probs_wb_from_logits(logits)  # RETURNN Tensor
-    emissions: torch.Tensor = log_probs.raw_tensor  # (B,T,V), log-softmaxed
 
+    log_probs = model.log_probs_wb_from_logits(logits)  # RETURNN Tensor
+    emissions: torch.Tensor = log_probs.raw_tensor       # (B, T, V), **log-softmaxed**
     assert isinstance(emissions, torch.Tensor) and emissions.dim() == 3
     B, T, V = emissions.shape
     device = emissions.device
     dtype = emissions.dtype
 
-    # --- Input lengths from encoder spatial dim (RETURNN dyn size) ---
+    # encoder valid lengths per sample
     input_lengths_rt: Tensor = enc_spatial_dim.dyn_size_ext
     input_lengths: torch.Tensor = input_lengths_rt.raw_tensor  # (B,)
     assert input_lengths.shape == (B,)
 
-    # --- Load Prior from _other['prior'] ---
+    # ---------- load prior (frame-wise, including blank) ----------
     prior_obj = _other.get("prior", None)
     if prior_obj is None:
-        raise ValueError("Expected `_other['prior']` (Prior dataclass with fields file/type/vocab)")
+        raise ValueError("Expected `_other['prior']` (Prior dataclass with fields file/type/vocab).")
 
-    # Read numeric vector
-    prior_vec = _numpy_loadtxt_path(prior_obj.file).astype(np.float32)  # (len(prior_vocab),)
-    # Convert to log space if necessary
+    prior_vec = _numpy_loadtxt_path(prior_obj.file).astype(np.float32)  # (|prior_vocab|,)
     ptype = getattr(prior_obj, "type", "log_prob")
     if ptype == "log_prob":
         prior_log_vec = prior_vec
     elif ptype == "prob":
-        # Guard against zeros
         prior_log_vec = np.log(np.maximum(prior_vec, np.finfo(np.float32).tiny))
     else:
         raise ValueError(f"invalid prior.type {ptype!r}; expected 'log_prob' or 'prob'")
 
-    # Read prior vocab
-    prior_vocab_path = _path_str(prior_obj.vocab)
-    prior_vocab = _read_lines(prior_vocab_path)
-
+    prior_vocab = _read_lines(_path_str(prior_obj.vocab))
     if len(prior_vocab) != prior_log_vec.shape[0]:
-        raise ValueError(
-            f"prior vocab size {len(prior_vocab)} != prior vector length {prior_log_vec.shape[0]}"
-        )
+        raise ValueError(f"prior vocab size {len(prior_vocab)} != prior vector length {prior_log_vec.shape[0]}")
 
-    # Optional: model vocab for remapping (indices must match token IDs in logits/targets)
-    model_vocab: Optional[List[str]] = _other.get("model_vocab", None)
-    if model_vocab is not None and len(model_vocab) != V:
-        raise ValueError(f"model_vocab length {len(model_vocab)} != model V {V}")
-
-    prior_log_vec = _build_prior_log_for_model_vocab(prior_log_vec, prior_vocab, model_vocab, V)
-
-    # Torch tensor on correct device/dtype
+    model_vocab = _other.get("model_vocab", None)  # optional List[str] of length V
+    prior_log_vec = _remap_prior_to_model_vocab(prior_log_vec, prior_vocab, model_vocab, V)
     prior_log_t = torch.from_numpy(prior_log_vec).to(device=device, dtype=dtype)
 
-    # --- Prepare dims to return scores with (batch, beam) ---
+    blank_idx = int(model.blank_idx)
+
+    # ---------- set up dims for return ----------
     rem_dims = targets.remaining_dims(targets_spatial_dim)  # {batch_dim, targets_beam_dim}
     batch_dim = next(d for d in rem_dims if d is not targets_beam_dim)
     assert isinstance(batch_dim, Dim)
-    blank_idx = int(model.blank_idx)
 
-    # --- Loop over beam to avoid huge broadcasts ---
+    # ---------- scoring: loop over beam, then over batch (forced_align requires B=1) ----------
     per_beam_scores = []
     for beam_idx in range(targets_beam_dim.get_dim_value()):
-        # Slice one beam
+        # slice per-beam targets
+        #import pdb;pdb.set_trace()
         targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
         targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
         targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
         targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
         targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
 
-        tokens: torch.Tensor = targets_b.raw_tensor  # (B, Lc)
-        tokens_lengths: torch.Tensor = targets_b_spatial_dim.dyn_size_ext.raw_tensor  # (B,)
-        tokens = tokens.to(device=device, dtype=torch.long)
-        tokens_lengths = tokens_lengths.to(device=device, dtype=torch.long)
+        tokens_full: torch.Tensor = targets_b.raw_tensor                 # (B, Lc_max)
+        tokens_lens: torch.Tensor = targets_b_spatial_dim.dyn_size_ext.raw_tensor  # (B,)
+        tokens_full = tokens_full.to(device=device, dtype=torch.long)
+        tokens_lens = tokens_lens.to(device=device, dtype=torch.long)
 
-        # Forced alignment: best CTC path per sample (includes blanks)
-        with torch.no_grad():
-            alignment: torch.Tensor = forced_align(
-                emissions=emissions,  # (B, T, V), log-probs
-                tokens=tokens,  # (B, Lc)
-                input_lengths=input_lengths,  # (B,)
-                tokens_lengths=tokens_lengths,  # (B,)
-                blank=blank_idx,
-            )  # -> (B, T) long
+        beam_scores_list = []
+        for b in range(B):
+            T_b = int(input_lengths[b].item())
+            L_b = int(tokens_lens[b].item())
+            if T_b <= 0 or L_b <= 0:
+                beam_scores_list.append(torch.tensor(0.0, device=device, dtype=dtype))
+                continue
 
-        # Sum log-prior over aligned non-blank frames within valid encoder time
-        align_clamped = alignment.clamp_(0, V - 1)
-        aligned_prior = prior_log_t[align_clamped]  # (B, T)
-        non_blank = (alignment != blank_idx)
-        t_idx = torch.arange(T, device=device).unsqueeze(0)
-        valid_time = t_idx < input_lengths.unsqueeze(1)
+            # Slice per-sample emissions and tokens
+            emis_b = emissions[b, :T_b, :]                            # (T_b, V)
+            toks_b = tokens_full[b, :L_b]                             # (L_b,)
 
-        aligned_prior = torch.where(non_blank & valid_time, aligned_prior, torch.zeros_like(aligned_prior))
-        per_sample = aligned_prior.sum(dim=1)  # (B,)
-        per_beam_scores.append(per_sample)
+            with torch.no_grad():
+                align_b, _ = forced_align(
+                    log_probs=emis_b.unsqueeze(0),           # (1, T_b, V)
+                    targets=toks_b.unsqueeze(0),           # (1, L_b)
+                    input_lengths=torch.tensor([T_b], device=device),
+                    target_lengths=torch.tensor([L_b], device=device),
+                    blank=blank_idx,
+                )  # -> (1, T_b), long
 
-    scores_bt = torch.stack(per_beam_scores, dim=1)  # (B, beam)
+            align_b = align_b.squeeze(0)           # (T_b,)
+            # Frame-wise prior sum INCLUDING blanks
+            # score_b = sum_t log prior[ align_b[t] ]
+            score_b = prior_log_t[align_b].sum()   # scalar tensor
+            beam_scores_list.append(score_b)
 
-    # Wrap into RETURNN Tensor with dims (batch, beam)
+        # stack batch back: (B,)
+        per_beam_scores.append(torch.stack(beam_scores_list, dim=0))
+
+    # stack beams: (B, beam)
+    scores_bt = torch.stack(per_beam_scores, dim=1)
+
+    # ---------- wrap as RETURNN Tensor with dims (batch, beam) ----------
     scores = Tensor(
         "scores",
         dims=[batch_dim, targets_beam_dim],

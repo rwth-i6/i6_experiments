@@ -121,7 +121,7 @@ def iter_py_dict_items(stream: io.TextIOBase) -> Iterator[Tuple[str, List[Tuple[
 
     def _safe_eval_floaty_literals(text: str):
         # No builtins; only allow inf/nan names.
-        env = {"__builtins__": {}, "inf": float("inf"), "nan": float("nan")}
+        env = {"__builtins__": {}, "inf": float(1e30), "nan": float("nan")}
         return eval(text, env, {})
     while True:
         # Next significant: '}' (end) or a quoted key

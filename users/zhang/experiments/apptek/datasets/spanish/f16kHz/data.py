@@ -449,34 +449,40 @@ class EvalOggZip(DatasetConfig):
         }
 
 AVAILABLE_NBEST = {
-    "dev_conversation": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.GK76328ZVDPE/output/recognition.n-best.1",
-    "eval_voice_call-v2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.8iFMxstdSWkA/output/recognition.n-best.1",
-    "movies_tvshows": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.yobSzRP0Yx57/output/recognition.n-best.1",
-    "napoli": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.Adch0WcXbH0u/output/recognition.n-best.1",
-    "eval_callcenter_lt": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.xq4snNUkvFVO/output/recognition.n-best.1",
-    "mtp_eval_p1": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.mHXtp3P5l3zn/output/recognition.n-best.1",
-    "mtp_eval_p2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.CfpoktWhYsjp/output/recognition.n-best.1",
-    "mtp_eval_p3": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.rpwvPfiKvv5B/output/recognition.n-best.1",
-    "mtp_eval_p4": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.CsWxBC1dQIJ2/output/recognition.n-best.1",
+    "mtp_dev_heldout-v2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.1aMajLp4pxh3/output/recognition.res.1",
+    "common_voice_two_speakers-v1": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.B9h0VCvQDrKL/output/recognition.res.1",
+    "dev_conversation": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.GK76328ZVDPE/output/recognition.res.1",
+    "eval_voice_call-v2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.TZlV2LDMj9YH/output/recognition.res.1",
+    "movies_tvshows": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.meNIq27euq1T/output/recognition.res.1",
+    "napoli": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.9IqWQf5Qhj5r/output/recognition.res.1",
+    "eval_callcenter_lt": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.hxnOkkCauvRW/output/recognition.res.1",
+    "mtp_eval_p1": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.yqKcreqI1KtW/output/recognition.res.1",
+    "mtp_eval_p2": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.tImCQc0pjkhE/output/recognition.res.1",
+    "mtp_eval_p3": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.NhRrBALsTOMr/output/recognition.res.1",
+    "mtp_eval_p4": "/nas/models/asr/am/ES/16kHz/20250423-hwu-mbw-ctc-conformer/work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.1s67YARvbumn/output/recognition.res.1",
 }
 class NbestListDataset(DatasetConfig):
-    def __init__(self, spm: SentencePieceModel):
+    def __init__(self, spm: SentencePieceModel, replace_list: List[Tuple[str,str]] = None):
         self.spm = spm
+        self.replace_list = replace_list
 
     def _get_match_Nbest(self, name: str, N: int = 80):
         from i6_experiments.users.zhang.experiments.apptek.datasets.tools import ConvertNbestTextToDictJob
         assert N == 80, f"Only have N=80 for now, given is N={N}"
         for key, path in AVAILABLE_NBEST.items():
             if key in name:
-                return ConvertNbestTextToDictJob(in_text=tk.Path(path), nbest_size=N).out_nbest_dict
+                return ConvertNbestTextToDictJob(in_text=tk.Path(path), nbest_size=N, replace_list=self.replace_list).out_nbest_dict
         raise ValueError(f"Nbest key {name} not found in AVAILABLE_NBEST")
-    def get_dataset(self, key: str, *, tokenize: bool = True, N: int = 80) -> tk.Path:
+    def get_dataset(self, key: str, *, tokenize: bool = True, N: int = 80) -> Tuple[tk.Path,tk.Path]:
         assert "ref" in key, f"Only have Nbest for ref.seg for now, given: {key}"
         from i6_experiments.users.zhang.datasets.vocab import ApplySentencepieceToWordOutputJob
         Nbest = self._get_match_Nbest(key, N)
+        from i6_core.returnn.search import SearchRemoveLabelJob
+        Nbest_for_lm = SearchRemoveLabelJob(Nbest, remove_label={"<unk>","<noise>","▁mes"}).out_search_results
         if tokenize:
-            Nbest = ApplySentencepieceToWordOutputJob(search_py_output=Nbest,sentencepiece_model=self.spm.model_file,enable_unk=False).out_search_results
-        return Nbest
+            Nbest = ApplySentencepieceToWordOutputJob(search_py_output=Nbest,sentencepiece_model=self.spm.model_file,enable_unk=True).out_search_results
+            Nbest_for_lm = ApplySentencepieceToWordOutputJob(search_py_output=Nbest_for_lm,sentencepiece_model=self.spm.model_file,enable_unk=True).out_search_results
+        return Nbest, Nbest_for_lm
 
 NEED_FIX_OGG_ZIP_DATASET_NAME = ["test_set.ES_ES.f16kHz.eval_voice_call-v2",
                                  "test_set.ES_ES.f16kHz.eval_napoli_202210-v3",

@@ -355,10 +355,10 @@ class ConvertNbestTextToDictJob(Job):
     - truncate if > 80
     """
 
-    def __init__(self, in_text: tk.Path, nbest_size: int = 80):
+    def __init__(self, in_text: tk.Path, nbest_size: int = 80, replace_list: List[Tuple[str,str]] = None):
         self.in_text = in_text
         self.nbest_size = int(nbest_size)
-
+        self.replace_list = replace_list or []
         self.out_nbest_dict = self.output_path("out_nbest_dict.py")
 
     def tasks(self):
@@ -370,11 +370,14 @@ class ConvertNbestTextToDictJob(Job):
             return gzip.open(path, "rt", encoding="utf-8", errors="replace")
         return open(path, "rt", encoding="utf-8", errors="replace")
 
-    @staticmethod
-    def _normalize_hyp(tokens: List[str]) -> str:
+
+    def _normalize_hyp(self, tokens: List[str]) -> str:
         # Remove all <...> tokens, collapse whitespace.
+        # Replace tokens if given
         words = [t for t in tokens if not _SPECIAL_RE.fullmatch(t)]
         hyp = " ".join(words)
+        for src,tgt in self.replace_list:
+            hyp = hyp.replace(src, tgt)
         return " ".join(hyp.split())  # collapse any accidental multi-spaces
 
     @staticmethod

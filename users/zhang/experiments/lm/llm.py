@@ -212,6 +212,26 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
                 ppl_job.out_ppl)
     return llms, ppls
 
+def compute_llm_ppl_on(*, data: tk.Path, lm_cfg: dict, ctx_dict: tk.Path = None) -> tk.Path:
+    # lm_cfg = {"model_dir": model.out_hub_cache_dir, "batch_size": max(batch_size, 1),
+    #           "name": name, "prompt": prompt, "lm_type": "HuggingFaceLm"}
+    prev_one_ctx = lm_cfg.get("prev_one_ctx", False)
+    assert ctx_dict, "Should Provide ctx_dict for using prev_one_ctx"
+    ppl_job = HuggingFaceLmPerplexityJobV2(
+        model_dir=lm_cfg["model_dir"],
+        text_file=[data],
+        batch_size=lm_cfg["batch_size"],
+        lower_case=True,
+        add_eos_to_completion=True,
+        word_ppl=True,
+        prompt=lm_cfg.get("prompt", None),
+        eos_symbol="\n",
+        use_prev_context=prev_one_ctx,
+        context_len_limit=lm_cfg.get("ctx_len_limit", None),
+    )
+    return ppl_job.out_ppl
+
+
 """Compute perplexity for a HuggingFace Transformer LLM model on given text corpus."""
 class HuggingFaceLmPerplexityJob(Job):
     """Compute perplexity of a HuggingFace LM over a text corpus."""
@@ -421,7 +441,7 @@ class HuggingFaceLmPerplexityJobV2(Job):
     """Compute perplexity for a HuggingFace Transformer LLM model on given text dict corpus."""
 
     def __init__(self, *, model_dir: tk.Path, prompt: [List[str] | tk.Path] = None, text_file: List[tk.Path], batch_size: int = None,
-                 llm_name: str, lower_case:bool = False, context_len_limit: int = None, eos_symbol: str = "", word_ppl: bool = False,
+                 llm_name: str = None, lower_case:bool = False, context_len_limit: int = None, eos_symbol: str = "", word_ppl: bool = False,
                  add_eos_to_completion: bool = True, use_prev_context: bool = False, version:int = 10):
         super().__init__()
         self.model_dir = model_dir
@@ -867,9 +887,9 @@ class HuggingFaceLmPerplexityJobV2(Job):
         bpe_ppl = math.exp(-total_logprob / total_tokens)
         ppl = math.exp(-total_logprob / total_word_tokens) if self.word_ppl else bpe_ppl
         with open(self.out_ppl.get_path(), "w") as out_f:
-            out_f.write(f"Average bpe/word length ratio:: {total_tokens / total_word_tokens:.2f}\n")
-            out_f.write(f"Total word tokens:: {total_word_tokens}\n")
-            out_f.write(f"Total bpe tokens:: {total_tokens}\n")
+            out_f.write(f"Average bpe/word length ratio: {total_tokens / total_word_tokens:.2f}\n")
+            out_f.write(f"Total word tokens: {total_word_tokens}\n")
+            out_f.write(f"Total bpe tokens: {total_tokens}\n")
             out_f.write(f"bpe level: {bpe_ppl}\n")
             out_f.write(f"Perplexity: {ppl}\n")
 
@@ -1298,7 +1318,7 @@ def py():
     #tk.register_output("/tools/debugDummy_time", DummyJob().output)
 
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
-    LBS = False
+    LBS = True
     ES = True
     dev = False
     #ds_names = list(set(DEV_KEYS + TEST_KEYS))
@@ -1325,7 +1345,7 @@ def py():
                      "Qwen/Qwen2-1.5B",
                      "Qwen/Qwen2-7B",]
 
-    check_models = qwen2_models
+    #check_models = qwen2_models
 
     LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 40,  # 40*6,
                           "meta-llama/Llama-3.1-8B": 50,
@@ -1352,10 +1372,9 @@ def py():
     ppls_by_ds = {}
     #ctx_order = [0, 100, 300, 500, 700, 1000, 2000, 3000, 5000, 'unlimited']
     ctx_order = [0,
-                 #64,
-                 #128, 256, 512,
-                 #1024, 2048, 4096,
-                 ]
+                 64,
+                 128, 256, 512, 1024, 2048, 4096,
+                 ] if dev else [0,100,200]
     batch_sizes = [1, 10, 40]
     fix_random_ctx_numbers = {"LBS": [1,3,10], "ES": [3,8,30]}
     FIX_CTX_TEST = False
