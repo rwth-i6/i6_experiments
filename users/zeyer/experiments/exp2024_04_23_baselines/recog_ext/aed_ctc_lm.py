@@ -54,6 +54,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
     aed_scale: Union[float, Literal["auto"]] = "auto",
     aed_scale_max: Optional[float] = None,
     lm: ModelWithCheckpoint,
+    lm_scale_max: Optional[float] = None,
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,  # default
@@ -147,7 +148,10 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
 
     max_scales = {}
     if aed_scale_max is not None:
+        assert fixed_aed_scale is None
         max_scales["aed"] = aed_scale_max
+    if lm_scale_max is not None:
+        max_scales["lm"] = lm_scale_max
     opt_scales_job = ScaleTuningJob(
         scores={
             "ctc": ctc_scores.output,

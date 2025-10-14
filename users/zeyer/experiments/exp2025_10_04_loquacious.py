@@ -343,9 +343,10 @@ def py():
         prefix=prefix + "/aed/" + selected_asr[0] + "/aed+ctc+lm/" + selected_lm[0],
         task=task_spm10k,
         aed_ctc_model=selected_asr[1],
-        aed_scale_max=5.0,
+        aed_scale_max=10.0,
         aux_ctc_layer=16,
         lm=selected_lm[1],
+        lm_scale_max=5.0,
     )
 
     aed_ctc_lm_timesync_recog_recomb_auto_scale(
