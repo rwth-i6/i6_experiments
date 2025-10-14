@@ -19,8 +19,9 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
+from i6_experiments.users.zeyer.decoding.rescoring import rescore, RescoreDef
 
-from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
+from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq, RecogOutput
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
@@ -1101,6 +1102,87 @@ def _ctc_model_rescore(
         targets_beam_dim=targets_beam_dim,
         targets_spatial_dim=targets_spatial_dim,
     )
+
+
+# like lm_score
+def ctc_best_path_score(
+    recog_output: RecogOutput,
+    *,
+    dataset: DatasetConfig,  # for encoder inputs (e.g. audio)
+    aed_model: ModelWithCheckpoint,
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    :param recog_output:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+        We ignore the scores here and just use the text of the hyps.
+    :param dataset: the orig data which was used to generate recog_output
+    :param aed_model: AED model
+    :param vocab: labels (line-based, maybe gzipped)
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param rescore_rqmt:
+    """
+    return rescore(
+        recog_output=recog_output,
+        dataset=dataset,
+        model=aed_model,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=ctc_best_path_model_rescore_def,
+        forward_rqmt=rescore_rqmt,
+    )
+
+
+def ctc_best_path_model_rescore_def(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+) -> Tensor:
+    """
+    RescoreDef API
+
+    Also see :func:`ctc_model_rescore` above.
+    """
+    from returnn.tensor import Tensor, Dim
+    from i6_experiments.users.zeyer.nn_rf.fsa import best_path_ctc
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    data_batch_dims = data.remaining_dims(data_spatial_dim)
+
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+    assert logits.feature_dim  # we expect a feature dim
+    assert enc_spatial_dim in logits.dims
+    log_probs = model.log_probs_wb_from_logits(logits)
+    assert isinstance(log_probs, Tensor)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})
+
+    _, neg_log_prob = best_path_ctc(
+        logits=log_probs,
+        logits_normalized=True,
+        targets=targets,
+        input_spatial_dim=enc_spatial_dim,
+        targets_spatial_dim=targets_spatial_dim,
+        blank_index=model.blank_idx,
+    )
+    log_prob_targets_seq = -neg_log_prob
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
+
+
+ctc_best_path_model_rescore_def: RescoreDef
 
 
 def ctc_prior_full_sum_rescore(
