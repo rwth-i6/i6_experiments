@@ -538,14 +538,26 @@ def ctc_best_path_model_rescore_def(
     batch_dims = targets.remaining_dims(targets_spatial_dim)
     assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})
 
-    _, neg_log_prob = best_path_ctc(
-        logits=log_probs,
-        logits_normalized=True,
-        targets=targets,
-        input_spatial_dim=enc_spatial_dim,
-        targets_spatial_dim=targets_spatial_dim,
-        blank_index=model.blank_idx,
-    )
+    # Note: best_path_ctc might potentially allow broadcasting of the logits dim,
+    # but this is not yet implemented.
+    neg_log_prob_ = []
+    for beam_idx in range(targets_beam_dim.get_dim_value()):
+        targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
+        targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+        targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
+        _, neg_log_prob = best_path_ctc(
+            logits=log_probs,
+            logits_normalized=True,
+            targets=targets_b,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_b_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        neg_log_prob_.append(neg_log_prob)
+    neg_log_prob, _ = rf.stack(neg_log_prob_, out_dim=targets_beam_dim)
+
     log_prob_targets_seq = -neg_log_prob
     assert log_prob_targets_seq.dims_set == set(batch_dims)
     return log_prob_targets_seq
