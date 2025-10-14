@@ -43,8 +43,7 @@ from ..aed import (
     _aed_model_def_blank_idx,
     _aed_model_def_blank_label,
 )
-from ..ctc_recog_ext import ctc_best_path_score
-from .aed_ctc import get_ctc_prior_probs, aed_score
+from .aed_ctc import get_ctc_prior_probs, aed_score, ctc_best_path_score
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -109,6 +108,7 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
         fixed_aed_scale = None
     else:
         raise ValueError(f"invalid aed_scale {aed_scale!r} (type {type(aed_scale)})")
+    fixed_aed_scale_is_zero = isinstance(aed_scale, (int, float)) and aed_scale == 0.0
 
     # Only use CTC for first search, no AED, no prior.
     ctc_model_only = get_aed_ctc_lm_and_labelwise_prior(
@@ -122,21 +122,34 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
         config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
-    aed_hyps = search_dataset(
-        dataset=dataset,
-        model=aed_ctc_model,
-        recog_def=aed_model_recog,
-        config={**base_base_config, "beam_size": n_best_list_size},
-        keep_beam=True,
-    )
-    rescore_hyps = concat_hyps_recog_out([ctc_hyps, aed_hyps])
-    ctc_scores = ctc_best_path_score(
-        rescore_hyps,
-        dataset=dataset,
-        model=aed_ctc_model,  # TODO the model interface is wrong...
-        vocab=vocab_file,
-        vocab_opts_file=vocab_opts_file,
-    )
+    if not fixed_aed_scale_is_zero:
+        aed_hyps = search_dataset(
+            dataset=dataset,
+            model=aed_ctc_model,
+            recog_def=aed_model_recog,
+            config={**base_base_config, "beam_size": n_best_list_size},
+            keep_beam=True,
+        )
+        rescore_hyps = concat_hyps_recog_out([ctc_hyps, aed_hyps])
+        # for the CTC score, currently only for "max" recomb.
+        # "sum" is not so easy, as this is only a subset of actual paths.
+        # for "sum", we should not concat hyps, and take the original ctc_hyps scores...?
+        assert recomb_type == "max"
+        ctc_scores = ctc_best_path_score(
+            rescore_hyps,
+            dataset=dataset,
+            model=aed_ctc_model,
+            config={
+                **base_base_config,
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "aux_loss_layers": [aux_ctc_layer],
+            },
+            vocab=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+        )
+    else:  # fixed AED scale is zero
+        ctc_scores = ctc_hyps
+        rescore_hyps = ctc_hyps
     if fixed_aed_scale is None:
         aed_scores = aed_score(
             rescore_hyps, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
