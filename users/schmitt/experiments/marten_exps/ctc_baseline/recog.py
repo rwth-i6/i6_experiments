@@ -281,24 +281,21 @@ def generate_pseudo_labels(
     else:
       decoder_hyperparameters_pl = decoder_hyperparameters
 
-  if "preload_from_files" not in search_config:
-    search_config["preload_from_files"] = {}
-  search_config["preload_from_files"]["am"] = {
-    "filename": model.checkpoint,
-    "ignore_missing": True,
-    "init_for_train": True,
-    "checkpoint_key": "model" if "ReturnnTrainingJob" in model.checkpoint.path.get_path() else None,
-  }
+  if "ReturnnTrainingJob" in model.checkpoint.path.get_path():
+    prior_config = None
+  else:
+    search_config = copy.deepcopy(search_config)
+    if "preload_from_files" not in search_config:
+      search_config["preload_from_files"] = {}
 
-  if not isinstance(model.definition, ModelDefWithCfg):
-    model = ModelWithCheckpoint(
-      definition=ModelDefWithCfg(model.definition, config={}),
-      checkpoint=model.checkpoint,
-    )
-  model.definition.config["preload_from_files"] = {"am": search_config["preload_from_files"]["am"]}
-
-
-  model = ModelWithCheckpoint(definition=model.definition, checkpoint=None)
+    search_config["preload_from_files"]["am"] = {
+      "filename": model.checkpoint,
+      "ignore_missing": True,
+      "init_for_train": True,
+      "checkpoint_key": "model" if "ReturnnTrainingJob" in model.checkpoint.path.get_path() else None,
+    }
+    prior_config = {"preload_from_files": {"am": search_config["preload_from_files"]["am"]}}
+    model = ModelWithCheckpoint(definition=model.definition, checkpoint=None)
 
   pseudo_labels_ds = save_pseudo_labels[0]
   dev_dataset = next(iter(pseudo_labels_ds.values()))
@@ -339,6 +336,7 @@ def generate_pseudo_labels(
     cache_manager=cache_manager,
     get_prev=get_prev[1],
     return_beam=return_beam,
+    prior_config=prior_config,
   )
 
   extract_pseudo_labels_job = ExtractPseudoLabels(
@@ -419,6 +417,7 @@ class _RecogAndScoreFunc:
           cache_manager: bool = True,
           get_prev: bool = False,
           return_beam: bool = False,
+          prior_config: Optional[Dict[str, Any]] = None,
   ):
     # Note: When something is added here, remember to handle it in _sis_hash.
     self.prefix_name = prefix_name
@@ -427,6 +426,7 @@ class _RecogAndScoreFunc:
     self.model = model
     self.recog_def = recog_def
     self.search_config = search_config
+    self.prior_config = prior_config
     self.search_post_config = search_post_config
     self.recog_post_proc_funcs = recog_post_proc_funcs
     self.search_mem_rqmt = search_mem_rqmt
@@ -468,7 +468,8 @@ class _RecogAndScoreFunc:
           prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt_str}",
           num_shards=self.num_shards_prior,
           prior_from_max=self.prior_from_max,
-          cache_manager=self.cache_manager
+          cache_manager=self.cache_manager,
+          config=self.prior_config,
         )
         if isinstance(epoch_or_ckpt, int):
           tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
@@ -648,6 +649,7 @@ def compute_prior(
         num_shards: Optional[int] = None,
         prior_from_max: bool = False,
         cache_manager: bool = True,
+        config: Optional[Dict[str, Any]] = None,
 ) -> tk.Path:
   if num_shards is not None:
     prior_frames_res = []
@@ -655,7 +657,7 @@ def compute_prior(
     for i in range(num_shards):
       shard_prior_sum_job = ReturnnForwardJobV2(
         model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager and model.checkpoint is not None else model.checkpoint,
-        returnn_config=prior_config(dataset, model.definition, shard_index=i, num_shards=num_shards),
+        returnn_config=prior_config(dataset, model.definition, shard_index=i, num_shards=num_shards, config=config),
         output_files=["output_frames.npy", "output_probs.npy"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
@@ -673,7 +675,7 @@ def compute_prior(
   else:
     prior_job = ReturnnForwardJobV2(
       model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager and model.checkpoint is not None else model.checkpoint,
-      returnn_config=prior_config(dataset, model.definition),
+      returnn_config=prior_config(dataset, model.definition, config=config),
       output_files=["prior.txt"],
       returnn_python_exe=tools_paths.get_returnn_python_exe(),
       returnn_root=tools_paths.get_returnn_root(),
@@ -974,6 +976,7 @@ def prior_config(
         *,
         shard_index: Optional[int] = None,
         num_shards: Optional[int] = None,
+        config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
   # changing these does not change the hash
   post_config = dict(  # not hashed
@@ -1003,6 +1006,8 @@ def prior_config(
     returnn_config_dict.update(model_def.config)
     # not needed here
     returnn_config_dict.pop("recog_language_model", None)
+  if config is not None:
+    returnn_config_dict.update(config)
 
   extern_data_raw = dataset.get_extern_data()
   # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.

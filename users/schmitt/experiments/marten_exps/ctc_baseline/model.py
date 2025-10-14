@@ -361,6 +361,12 @@ class Wav2VecModel(rf.Module):
 
     w2v_config_file = w2v_opts["config_file"]
     wav2vec_config = transformers.Wav2Vec2Config.from_pretrained(w2v_config_file)
+    wav2vec_config.hidden_dropout = w2v_opts.get("hidden_dropout", 0.1)
+    wav2vec_config.attention_dropout = w2v_opts.get("att_dropout", 0.1)
+    wav2vec_config.layerdrop = w2v_opts.get("layer_dropout", 0.0)
+    wav2vec_config.mask_feature_prob = w2v_opts.get("mask_feature_prob", 0.0)
+    wav2vec_config.mask_feature_length = w2v_opts.get("mask_feature_length", 10)
+    wav2vec_config.mask_time_prob = w2v_opts.get("mask_time_prob", 0.05)
 
     # preprocessor_config = transformers.Wav2Vec2FeatureExtractor.from_pretrained(
     #   "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_10_ctc_usr/i6_core/returnn/training/ReturnnTrainingJob.L6t5ebVFPeDZ/work/wav2vec_config/preprocessor_config.json")
