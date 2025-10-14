@@ -25,12 +25,10 @@ from i6_experiments.users.zeyer.datasets.utils.vocab import (
     ExtendVocabLabelsByNewLabelJob,
 )
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset
+from i6_experiments.users.zeyer.decoding.concat_hyps import concat_hyps_recog_out
 from i6_experiments.users.zeyer.decoding.rescoring import combine_scores
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior, PriorRemoveLabelRenormJob
 from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_score
-
-if TYPE_CHECKING:
-    from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 from returnn.util.basic import NotSpecified
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -38,8 +36,18 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
-from ..aed import Model, _batch_size_factor, _aed_model_def_blank_idx, _aed_model_def_blank_label
+from ..aed import (
+    Model,
+    model_recog as aed_model_recog,
+    _batch_size_factor,
+    _aed_model_def_blank_idx,
+    _aed_model_def_blank_label,
+)
+from ..ctc_recog_ext import ctc_best_path_score
 from .aed_ctc import get_ctc_prior_probs, aed_score
+
+if TYPE_CHECKING:
+    from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 
 # like i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -82,9 +90,12 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
         # tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
 
     # For CTC-only and then also for joint AED+CTC+prior.
-    base_config = {
+    base_base_config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+    }
+    base_config = {
+        **base_base_config,
         "recog_recomb": recomb_type,
         "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
         "aux_loss_layers": [aux_ctc_layer],
@@ -104,20 +115,35 @@ def aed_ctc_lm_timesync_recog_recomb_auto_scale(
         aed_ctc_model=aed_ctc_model, aed_scale=fixed_aed_scale if fixed_aed_scale is not None else 0.0
     )
     dataset = task.dev_dataset
-    ctc_scores = search_dataset(
+    ctc_hyps = search_dataset(
         dataset=dataset,
         model=ctc_model_only,
         recog_def=model_recog_with_recomb,
         config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
+    aed_hyps = search_dataset(
+        dataset=dataset,
+        model=aed_ctc_model,
+        recog_def=aed_model_recog,
+        config={**base_base_config, "beam_size": n_best_list_size},
+        keep_beam=True,
+    )
+    rescore_hyps = concat_hyps_recog_out([ctc_hyps, aed_hyps])
+    ctc_scores = ctc_best_path_score(
+        rescore_hyps,
+        dataset=dataset,
+        model=aed_ctc_model,  # TODO the model interface is wrong...
+        vocab=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+    )
     if fixed_aed_scale is None:
         aed_scores = aed_score(
-            ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
+            rescore_hyps, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
         )
     else:
         aed_scores = None
-    lm_scores = lm_score(ctc_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    lm_scores = lm_score(rescore_hyps, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
 
     # Also register the CTC-only results. (Will not do search again, should be same hash.)
     res = recog_model(

@@ -1109,7 +1109,7 @@ def ctc_best_path_score(
     recog_output: RecogOutput,
     *,
     dataset: DatasetConfig,  # for encoder inputs (e.g. audio)
-    aed_model: ModelWithCheckpoint,
+    model: ModelWithCheckpoint,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
@@ -1122,7 +1122,7 @@ def ctc_best_path_score(
         i.e. the standard RETURNN search output with beam.
         We ignore the scores here and just use the text of the hyps.
     :param dataset: the orig data which was used to generate recog_output
-    :param aed_model: AED model
+    :param model: AED model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param rescore_rqmt:
@@ -1130,7 +1130,7 @@ def ctc_best_path_score(
     return rescore(
         recog_output=recog_output,
         dataset=dataset,
-        model=aed_model,
+        model=model,
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_def=ctc_best_path_model_rescore_def,
