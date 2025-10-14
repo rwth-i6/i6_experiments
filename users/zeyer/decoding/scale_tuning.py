@@ -2,7 +2,6 @@
 Job/code for scale tuning
 """
 
-
 from __future__ import annotations
 from typing import Optional, Dict, Set
 import subprocess
@@ -46,6 +45,8 @@ class ScaleTuningJob(Job):
             then we will return "prior_rel" as the scale, where prior_scale = lm_scale * prior_scale_rel.
             Also, the tuning itself will be done on the relative scale.
             This can make the tuning more stable.
+        :param max_scales: name -> max scale. if given, the scale will be limited to this value.
+            The default is 2.0.
         :param returnn_python_exe:
         :param returnn_root:
         """
