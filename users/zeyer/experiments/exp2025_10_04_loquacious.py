@@ -291,6 +291,7 @@ def py():
     # Language models on train large transcriptions
 
     selected_lm = None
+    lms = {}
     for num_full_ep, split in [(4, 25), (5, 10), (10, 10)]:
         n_ep = round(num_full_ep * split)
         # orig name: trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp...-spm10k
@@ -329,6 +330,7 @@ def py():
             ),
             train_def=lm_train_def,
         )
+        lms[name] = exp.get_last_fixed_epoch()
         if num_full_ep == 4:
             selected_lm = (name, exp.get_last_fixed_epoch())
 
@@ -339,6 +341,7 @@ def py():
     #   copy_train_as_static not implemented.
     #   but also, do we really want to do this on the full dataset?
 
+    # TODO do this for all LMs (or some selection of them)
     aed_ctc_lm_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + selected_asr[0] + "/aed+ctc+lm/" + selected_lm[0],
         task=task_spm10k,
@@ -349,11 +352,12 @@ def py():
         lm_scale_max=10.0,
     )
 
-    aed_ctc_lm_timesync_recog_recomb_auto_scale(
-        prefix=prefix + "/aed/" + selected_asr[0] + "/ctc+lm/" + selected_lm[0],
-        task=task_spm10k,
-        aed_ctc_model=selected_asr[1],
-        aed_scale=0.0,
-        aux_ctc_layer=16,
-        lm=selected_lm[1],
-    )
+    for lm_name, lm_model in lms.items():
+        aed_ctc_lm_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + selected_asr[0] + "/ctc+lm/" + lm_name,
+            task=task_spm10k,
+            aed_ctc_model=selected_asr[1],
+            aed_scale=0.0,
+            aux_ctc_layer=16,
+            lm=lm_model,
+        )
