@@ -533,6 +533,7 @@ def ctc_best_path_model_rescore_def(
             threshold=ctc_soft_collapse_threshold,
             reduce_type=ctc_soft_collapse_reduce_type,
         )
+    log_probs.feature_dim = model.wb_target_dim
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
     assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})
