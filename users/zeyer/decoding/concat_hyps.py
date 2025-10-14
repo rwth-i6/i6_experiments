@@ -8,6 +8,29 @@ from sisyphus import Job, Task, tk
 
 import i6_core.util as util
 
+from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+
+
+def concat_hyps(search_py_output: List[tk.Path]) -> tk.Path:
+    """
+    Concatenate N-best lists
+
+    :param search_py_output: search output file from RETURNN in python format (n-best list)
+    :param output_gzip: gzip the output
+    :return: path to concatenated output
+    """
+    job = SearchConcatHypsJob(search_py_output)
+    return job.out_search_results
+
+
+def concat_hyps_recog_out(search_py_output: List[RecogOutput]) -> RecogOutput:
+    """
+    Concatenate N-best lists
+    """
+    paths = [r.output for r in search_py_output]
+    out_path = concat_hyps(paths)
+    return RecogOutput(output=out_path)
+
 
 class SearchConcatHypsJob(Job):
     """
