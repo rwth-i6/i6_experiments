@@ -90,7 +90,7 @@ def main():
         elif job.startswith("i6_core/recognition/scoring/ScliteJob."):
             if args.verbosity >= 2:
                 print(
-                    f"* {corpus or '?'}: Found scoring. Aliases:",
+                    f"* {corpus or '?'}: Found scoring: {job}, aliases:",
                     " ".join(sis_common.get_job_aliases(job) or ["<None?>"]),
                 )
             scoring = job
@@ -98,7 +98,7 @@ def main():
         elif job.startswith("i6_core/returnn/forward/ReturnnForwardJobV2."):
             if args.verbosity >= 2:
                 print(
-                    f"* {corpus or '?'}: Found search. Aliases:",
+                    f"* {corpus or '?'}: Found search: {job}, aliases:",
                     " ".join(sis_common.get_job_aliases(job) or ["<None?>"]),
                 )
             search_per_corpus[corpus] = job
