@@ -64,6 +64,7 @@ def main():
     arg_parser.add_argument("--report-only-wer", action="store_true", help="only report WER summary")
     arg_parser.add_argument("--report-timings", action="store_true", help="report timings summary")
     arg_parser.add_argument("--verbosity", default=3, type=int, help="0-4, default 3")
+    arg_parser.add_argument("--corpora", nargs="*", help="if given, only report for these corpora")
     args = arg_parser.parse_args()
     job = sis_common.get_job_from_arg(args.job, set_setup_base_dir=True)
 
@@ -75,6 +76,8 @@ def main():
     while queue:
         job, corpus, scoring = queue.pop(0)
         if job in visited:
+            continue
+        if corpus is not None and args.corpora and corpus not in args.corpora:
             continue
         visited.add(job)
         if args.verbosity >= 3:
