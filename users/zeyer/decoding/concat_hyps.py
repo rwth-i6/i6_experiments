@@ -104,15 +104,11 @@ class ExtendSingleRefToHypsJob(Job):
         data: Dict[str, str] = eval(
             util.uopen(self.ref_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")}
         )
-        seq_tags: List[str] = list(data.keys())
-        seq_tags_set: Set[str] = set(seq_tags)
-        assert len(seq_tags) == len(seq_tags_set), "duplicate seq tags"
 
         with util.uopen(self.out_hyps, "wt") as out:
             out.write("{\n")
-            for seq_tag in seq_tags:
-                data_: str = data[seq_tag]
-                assert isinstance(data_, str)
+            for seq_tag, text in data.items():
+                assert isinstance(text, str)
                 # n-best list as [(score, text), ...]
-                out.write(f"{seq_tag!r}: [({self.score, data_})],\n")
+                out.write(f"{seq_tag!r}: [({self.score, text})],\n")
             out.write("}\n")
