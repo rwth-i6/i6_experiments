@@ -63,6 +63,7 @@ def main():
     arg_parser.add_argument("job", help="path to job, with or without 'work/' prefix")
     arg_parser.add_argument("--report-only-wer", action="store_true", help="only report WER summary")
     arg_parser.add_argument("--report-timings", action="store_true", help="report timings summary")
+    arg_parser.add_argument("--verbosity", default=3, type=int, help="0-4, default 3")
     args = arg_parser.parse_args()
     job = sis_common.get_job_from_arg(args.job, set_setup_base_dir=True)
 
@@ -76,24 +77,30 @@ def main():
         if job in visited:
             continue
         visited.add(job)
-        print(f"{corpus or '?'}: {job}")
+        if args.verbosity >= 3:
+            print(f"{corpus or '?'}: {job}")
         if "/JoinScoreResultsJob." in job:
-            _report_join_score_results_job(job)
+            if args.verbosity >= 2:
+                _report_join_score_results_job(job)
         elif job.startswith("i6_experiments/users/zeyer/recog/GetBestRecogTrainExp."):
             _report_get_best_recog_train_exp_job(job)
             for job_ in _get_best_recog_train_exp_job_deps(job):
                 queue.append((job_, corpus, scoring))
             continue  # do not follow all the other deps
         elif job.startswith("i6_core/recognition/scoring/ScliteJob."):
-            print(
-                f"* {corpus or '?'}: Found scoring. Aliases:", " ".join(sis_common.get_job_aliases(job) or ["<None?>"])
-            )
+            if args.verbosity >= 2:
+                print(
+                    f"* {corpus or '?'}: Found scoring. Aliases:",
+                    " ".join(sis_common.get_job_aliases(job) or ["<None?>"]),
+                )
             scoring = job
             scoring_per_corpus[corpus] = job
         elif job.startswith("i6_core/returnn/forward/ReturnnForwardJobV2."):
-            print(
-                f"* {corpus or '?'}: Found search. Aliases:", " ".join(sis_common.get_job_aliases(job) or ["<None?>"])
-            )
+            if args.verbosity >= 2:
+                print(
+                    f"* {corpus or '?'}: Found search. Aliases:",
+                    " ".join(sis_common.get_job_aliases(job) or ["<None?>"]),
+                )
             search_per_corpus[corpus] = job
             continue  # deps of this don't matter
         if not scoring:
@@ -108,7 +115,7 @@ def main():
 
     if args.report_only_wer:
         for corpus, sclite_job in scoring_per_corpus.items():
-            sclite_pra_report_wer_sub_del_ins(corpus or "?", sclite_job)
+            sclite_pra_report_wer_sub_del_ins(corpus or "?", sclite_job, verbosity=args.verbosity)
 
     else:
         for corpus, sclite_job in scoring_per_corpus.items():
@@ -149,9 +156,10 @@ def _get_best_recog_train_exp_job_deps(job: str) -> list[str]:
     return [dep]
 
 
-def sclite_pra_report_wer_sub_del_ins(prefix: str, sclite_job: str):
+def sclite_pra_report_wer_sub_del_ins(prefix: str, sclite_job: str, *, verbosity: int = 3):
     fn = sis_common.get_work_dir_prefix() + sclite_job + "/output/reports/sclite.pra"
-    print(f"({prefix}: read {fn})")
+    if verbosity >= 3:
+        print(f"({prefix}: read {fn})")
     with open(fn) as f:
         lines = f.read().splitlines()
     total_ref_num_token = 0
@@ -160,9 +168,6 @@ def sclite_pra_report_wer_sub_del_ins(prefix: str, sclite_job: str):
     total_num_del = 0
     total_num_ins = 0
     total_num_seqs = 0
-    total_broken_num_seqs = 0
-    total_broken_seq_len = 0
-    worst_seqs = []  # (num_err, cur_seq)
     cur_seq = []
     for line in lines:
         if not line.strip():
