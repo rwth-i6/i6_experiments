@@ -37,6 +37,8 @@ def model_recog_flashlight(
     import tracemalloc
     from dataclasses import dataclass
     import torch
+
+    # pip install flashlight-text
     from flashlight.lib.text.decoder import LM, LMState
     from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
     from returnn.config import get_global_config
