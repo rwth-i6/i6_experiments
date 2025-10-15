@@ -110,5 +110,5 @@ class ExtendSingleRefToHypsJob(Job):
             for seq_tag, text in data.items():
                 assert isinstance(text, str)
                 # n-best list as [(score, text), ...]
-                out.write(f"{seq_tag!r}: [({self.score, text})],\n")
+                out.write(f"{seq_tag!r}: [({self.score}, {text})],\n")
             out.write("}\n")
