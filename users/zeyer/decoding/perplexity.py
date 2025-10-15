@@ -11,7 +11,7 @@ import i6_core.util as util
 from i6_experiments.users.zeyer.datasets.task import RecogOutput
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 
-from .lm_rescoring import lm_score
+from .lm_rescoring import lm_score, ngram_score
 from .concat_hyps import ExtendSingleRefToHypsJob
 
 
@@ -42,6 +42,31 @@ def get_lm_perplexity(
     return CalcPerplexityFromScoresJob(scored.output).out_perplexity
 
 
+def get_ngram_perplexity(
+    ref: RecogOutput,
+    *,
+    lm: Path,
+    vocab: Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+    label_post_process_funcs: Optional[Sequence[Callable]] = None,
+) -> Variable:
+    """
+    Calculates perplexity of the ref with the LM.
+
+    :param ref: The format is: {"<seq_tag>": "<text>", ...}.
+    :param lm: language model
+    :param vocab: labels (line-based, maybe gzipped)
+    :param rescore_rqmt:
+    :param label_post_process_funcs:
+    :return: perplexity
+    """
+    scored = ngram_score_single(ref, lm=lm, vocab=vocab, rescore_rqmt=rescore_rqmt)
+    if label_post_process_funcs is not None:
+        for f in label_post_process_funcs:
+            scored = f(scored)
+    return CalcPerplexityFromScoresJob(scored.output).out_perplexity
+
+
 def lm_score_single(
     ref: RecogOutput,
     *,
@@ -61,6 +86,25 @@ def lm_score_single(
     """
     ref_as_hyps = RecogOutput(ExtendSingleRefToHypsJob(ref.output).out_hyps)
     return lm_score(ref_as_hyps, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=rescore_rqmt)
+
+
+def ngram_score_single(
+    ref: RecogOutput,
+    *,
+    lm: Path,
+    vocab: Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    :param ref: The format is: {"<seq_tag>": "<text>", ...}.
+    :param lm: language model
+    :param vocab: labels (line-based, maybe gzipped)
+    :param rescore_rqmt:
+    """
+    ref_as_hyps = RecogOutput(ExtendSingleRefToHypsJob(ref.output).out_hyps)
+    return ngram_score(ref_as_hyps, lm=lm, vocab=vocab, rescore_rqmt=rescore_rqmt)
 
 
 class CalcPerplexityFromScoresJob(Job):
