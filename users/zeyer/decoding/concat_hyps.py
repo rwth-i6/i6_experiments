@@ -86,6 +86,8 @@ class ExtendSingleRefToHypsJob(Job):
     such that you get a single M-best list, M=sum(each N).
     """
 
+    __sis_version__ = 2
+
     def __init__(self, ref_py_output: tk.Path, *, output_gzip: bool = True, score: float = 0.0):
         """
         :param ref_py_output: search output file from RETURNN in python format (single hyp per seq)
