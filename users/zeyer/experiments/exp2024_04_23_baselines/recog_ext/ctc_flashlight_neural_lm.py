@@ -323,9 +323,9 @@ def model_recog_flashlight(
             f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
             f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
         )
-        assert all(
-            len(hyp) == seq_len for hyp in hyps_per_batch
-        ), f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
+        assert all(len(hyp) == seq_len for hyp in hyps_per_batch), (
+            f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
+        )
         if len(results) >= n_best:
             hyps_per_batch = hyps_per_batch[:n_best]
             scores_per_batch = scores_per_batch[:n_best]
