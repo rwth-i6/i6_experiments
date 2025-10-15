@@ -78,3 +78,41 @@ class SearchConcatHypsJob(Job):
                     out.write(f"{d__!r},\n")
                 out.write("],\n")
             out.write("}\n")
+
+
+class ExtendSingleRefToHypsJob(Job):
+    """
+    Takes a number of files, each with some N-best list of hyps, and concatenates them,
+    such that you get a single M-best list, M=sum(each N).
+    """
+
+    def __init__(self, ref_py_output: tk.Path, *, output_gzip: bool = True, score: float = 0.0):
+        """
+        :param ref_py_output: search output file from RETURNN in python format (single hyp per seq)
+        :param output_gzip: gzip the output
+        """
+        self.ref_py_output = ref_py_output
+        self.score = score
+        self.out_hyps = self.output_path("hyps.py" + (".gz" if output_gzip else ""))
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        data: Dict[str, str] = eval(
+            util.uopen(self.ref_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")}
+        )
+        seq_tags: List[str] = list(data.keys())
+        seq_tags_set: Set[str] = set(seq_tags)
+        assert len(seq_tags) == len(seq_tags_set), "duplicate seq tags"
+
+        with util.uopen(self.out_hyps, "wt") as out:
+            out.write("{\n")
+            for seq_tag in seq_tags:
+                data_: str = data[seq_tag]
+                assert isinstance(data_, str)
+                # n-best list as [(score, text), ...]
+                out.write(f"{seq_tag!r}: [({self.score, data_})],\n")
+            out.write("}\n")
