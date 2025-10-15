@@ -4,6 +4,7 @@ Some Loquacious baselines
 
 from __future__ import annotations
 
+from sisyphus import tk, Path
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
@@ -40,6 +41,17 @@ from returnn.frontend.encoder.conformer import (
 )
 
 __setup_root_prefix__ = "exp2025_10_04_loquacious"
+
+
+_public_vocab_word_list = Path(
+    "/hpcwork/p0023999/az668407/loquacious/LoquaciousAdditionalResources/loquacious-vocab.txt",
+    hash_overwrite="loquacious-2025-public-vocab-word-list",
+)
+
+_public_4gram_lm = Path(
+    "/hpcwork/p0023999/az668407/loquacious/LoquaciousAdditionalResources/4gram-pruned-test2.arpa.gz",
+    hash_overwrite="loquacious-2025-public-4gram-lm",
+)
 
 
 def py():
@@ -361,3 +373,11 @@ def py():
         lm=selected_lm[1],
         lm_scale_max=10.0,
     )
+
+    from i6_experiments.users.zeyer.decoding.perplexity import get_ngram_perplexities_for_task_evals
+
+    perplexities_4gram = get_ngram_perplexities_for_task_evals(
+        task_spm10k, label_level="word", lm=_public_4gram_lm, vocab=_public_vocab_word_list
+    )
+    for name, ppl in perplexities_4gram.items():
+        tk.register_output(prefix + "/lm/4gram/ppl/" + name, ppl)

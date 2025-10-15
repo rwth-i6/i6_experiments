@@ -2,17 +2,20 @@
 Calculates perplexities
 """
 
-from typing import Optional, Any, Callable, Sequence, Dict, List, Tuple
+from typing import TYPE_CHECKING, Optional, Any, Callable, Sequence, Literal, Dict, List, Tuple
 from sisyphus import Job, Path, Task
 from sisyphus.job_path import Variable
 
 import i6_core.util as util
 
-from i6_experiments.users.zeyer.datasets.task import RecogOutput
+from i6_experiments.users.zeyer.datasets.task import RecogOutput, Task as DatasetsTask
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 
 from .lm_rescoring import lm_score, ngram_score
 from .concat_hyps import ExtendSingleRefToHypsJob
+
+if TYPE_CHECKING:
+    from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 
 def get_lm_perplexity(
@@ -22,7 +25,7 @@ def get_lm_perplexity(
     vocab: Path,
     vocab_opts_file: Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
-    label_post_process_funcs: Optional[Sequence[Callable]] = None,
+    label_post_process_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> Variable:
     """
     Calculates perplexity of the ref with the LM.
@@ -36,10 +39,30 @@ def get_lm_perplexity(
     :return: perplexity
     """
     scored = lm_score_single(ref, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=rescore_rqmt)
-    if label_post_process_funcs is not None:
-        for f in label_post_process_funcs:
-            scored = f(scored)
+    for f in label_post_process_funcs:
+        scored = f(scored)
     return CalcPerplexityFromScoresJob(scored.output).out_perplexity
+
+
+def get_ngram_perplexities_for_task_evals(
+    task: DatasetsTask, *, lm: Path, vocab: Path, label_level: Literal["task", "word"]
+):
+    """
+    Returns a function that can be used in task evals to compute ngram perplexity.
+    """
+    refs = get_refs_from_task_eval_datasets(
+        task, post_proc_funcs=task.recog_post_proc_funcs if label_level == "word" else ()
+    )
+    perplexities = {
+        name: get_ngram_perplexity(
+            ref,
+            lm=lm,
+            vocab=vocab,
+            label_post_process_funcs=task.recog_post_proc_funcs if label_level == "task" else (),
+        )
+        for name, ref in refs.items()
+    }
+    return perplexities
 
 
 def get_ngram_perplexity(
@@ -48,7 +71,7 @@ def get_ngram_perplexity(
     lm: Path,
     vocab: Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
-    label_post_process_funcs: Optional[Sequence[Callable]] = None,
+    label_post_process_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> Variable:
     """
     Calculates perplexity of the ref with the LM.
@@ -61,9 +84,8 @@ def get_ngram_perplexity(
     :return: perplexity
     """
     scored = ngram_score_single(ref, lm=lm, vocab=vocab, rescore_rqmt=rescore_rqmt)
-    if label_post_process_funcs is not None:
-        for f in label_post_process_funcs:
-            scored = f(scored)
+    for f in label_post_process_funcs:
+        scored = f(scored)
     return CalcPerplexityFromScoresJob(scored.output).out_perplexity
 
 
@@ -149,3 +171,24 @@ class CalcPerplexityFromScoresJob(Job):
         self.out_total_score.set(float(total_score))
         self.num_labels.set(num_labels)
         self.out_perplexity.set(float(perplexity))
+
+
+def get_refs_from_task_eval_datasets(
+    task: DatasetsTask, *, post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
+) -> Dict[str, RecogOutput]:
+    return {name: get_refs_from_dataset(ds, post_proc_funcs=post_proc_funcs) for name, ds in task.eval_datasets.items()}
+
+
+def get_refs_from_dataset(
+    dataset: DatasetConfig, *, post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
+) -> RecogOutput:
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+    for f in post_proc_funcs:
+        ref = f(ref)
+    return ref
