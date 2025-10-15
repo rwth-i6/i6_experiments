@@ -54,7 +54,7 @@ _setup()
 
 
 from sisyphus import tk
-from . import sis_common
+from i6_experiments.users.zeyer.sis_tools import sis_common
 from i6_experiments.users.zeyer.utils.job_file_open import read_job_file
 
 
@@ -188,14 +188,14 @@ def sclite_pra_report_worst_seqs(
                 total_broken_num_seqs += 1
                 total_broken_seq_len += ref_num_token
     print(
-        f"{prefix}: WER: {total_num_err / total_ref_num_token * 100.:.2f}%"
-        f" (sub: {total_num_sub / total_ref_num_token * 100.:.2f}%,"
-        f" del {total_num_del / total_ref_num_token * 100.:.2f}%,"
-        f" ins {total_num_ins / total_ref_num_token * 100.:.2f}%)"
+        f"{prefix}: WER: {total_num_err / total_ref_num_token * 100.0:.2f}%"
+        f" (sub: {total_num_sub / total_ref_num_token * 100.0:.2f}%,"
+        f" del {total_num_del / total_ref_num_token * 100.0:.2f}%,"
+        f" ins {total_num_ins / total_ref_num_token * 100.0:.2f}%)"
     )
     print(
-        f"{prefix}: num broken (>={broken_seq_threshold_rel*100.:.0f}% WER, >={broken_seq_threshold_abs} errs) seqs:"
-        f" {total_broken_num_seqs}/{total_num_seqs} = {total_broken_num_seqs/total_num_seqs*100.:.1f}%,"
+        f"{prefix}: num broken (>={broken_seq_threshold_rel * 100.0:.0f}% WER, >={broken_seq_threshold_abs} errs) seqs:"
+        f" {total_broken_num_seqs}/{total_num_seqs} = {total_broken_num_seqs / total_num_seqs * 100.0:.1f}%,"
         f" avg seq len: {total_broken_seq_len / total_broken_num_seqs if total_broken_num_seqs else 0:.1f} words"
     )
     print(f"{prefix}: worst {len(worst_seqs)} seqs:")
