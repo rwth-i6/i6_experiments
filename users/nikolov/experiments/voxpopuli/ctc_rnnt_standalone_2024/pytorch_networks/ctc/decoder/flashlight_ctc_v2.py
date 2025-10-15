@@ -76,28 +76,28 @@ def forward_init_hook(run_ctx, **kwargs):
     labels = vocab.labels
 
     run_ctx.ctc_decoder = ctc_decoder(
-        lexicon=config.lexicon,
-        lm=lm,
-        lm_weight=config.lm_weight,
+        lexicon=None,
+        #lm=lm,
+        #lm_weight=config.lm_weight,
         tokens=labels + ["[blank]"],
         blank_token="[blank]",
         sil_token="[blank]",
-        unk_word="[unknown]",
+        unk_word="UNK",
         nbest=1,
         beam_size=config.beam_size,
         beam_size_token=config.beam_size_token,
         beam_threshold=config.beam_threshold,
-        sil_score=config.sil_score,
-        word_score=config.word_score,
+        #sil_score=config.sil_score,
+        #word_score=config.word_score,
     )
     run_ctx.labels = labels
     run_ctx.blank_log_penalty = config.blank_log_penalty
 
-    if config.prior_file:
-        run_ctx.prior = np.loadtxt(config.prior_file, dtype="float32")
-        run_ctx.prior_scale = config.prior_scale
-    else:
-        run_ctx.prior = None
+#    if config.prior_file:
+#        run_ctx.prior = np.loadtxt(config.prior_file, dtype="float32")
+#        run_ctx.prior_scale = config.prior_scale
+#    else:
+    run_ctx.prior = None
 
     if config.use_torch_compile:
         options = config.torch_compile_options or {}
@@ -132,8 +132,8 @@ def forward_finish_hook(run_ctx, **kwargs):
 def forward_step(*, model, data, run_ctx, **kwargs):
     import torch
 
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
+    raw_audio = data["data"]  # [B, T', F]
+    raw_audio_len = data["data:size1"]  # [B]
 
     if run_ctx.print_rtf:
         audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000

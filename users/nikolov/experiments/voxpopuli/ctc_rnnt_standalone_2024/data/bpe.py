@@ -11,6 +11,7 @@ from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import BpeDatastream
 
 from .common import DatasetSettings, TrainingDatasets, build_training_datasets
+from ..train_util import TrainingDatasetSettings
 from ..default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, SUBWORD_NMT_REPO
 
 
@@ -75,32 +76,24 @@ def get_text_lexicon(prefix: str, librispeech_key: str, bpe_size: int) -> tk.Pat
 
 
 def build_bpe_training_datasets(
-    prefix: str,
-    librispeech_key: str,
-    bpe_size: int,
-    settings: DatasetSettings,
-    use_postfix: bool,
+        bpe_size: int,
+        settings: TrainingDatasetSettings,
 ) -> TrainingDatasets:
     """
-
-    :param librispeech_key: which librispeech corpus to use for bpe training
-    :param bpe_size: number of BPE splits
     :param settings: configuration object for the dataset pipeline
-    :param use_postfix: True for RNN-T or Attention, False for CTC
     """
-    label_datastream = get_bpe_datastream(
-        librispeech_key=librispeech_key, bpe_size=bpe_size, is_recog=False, use_postfix=use_postfix
-    )
+    label_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False)
 
-    ogg_zip_dict = get_ogg_zip_dict(prefix, returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
-    train_ogg = ogg_zip_dict[librispeech_key]
-    dev_clean_ogg = ogg_zip_dict["dev-clean"]
-    dev_other_ogg = ogg_zip_dict["dev-other"]
+    ogg_zip_dict = get_ogg_zip_dict(
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT
+    )
+    train_ogg = ogg_zip_dict["train"]
+    dev_ogg = ogg_zip_dict["dev"]
 
     return build_training_datasets(
-        train_ogg=train_ogg,
-        dev_clean_ogg=dev_clean_ogg,
-        dev_other_ogg=dev_other_ogg,
         settings=settings,
-        label_datastream=label_datastream,
+        train_ogg=train_ogg,
+        dev_ogg=dev_ogg,
+        label_datastream=label_datastream
     )

@@ -1,24 +1,20 @@
-"""
-Contains the serializers for the ReturnnConfig epilog which write the model import and task functions import
-including serializing their parameters.
-"""
-from typing import Any, Dict, Optional
-
-from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
-from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
-
-from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH
-
 import copy
 from sisyphus import tk
+from typing import Any, Dict, Optional
 
 from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.setups.returnn_pytorch.serialization import (
     Collection as TorchCollection,
 )
+from i6_experiments.common.setups.serialization import ExternalImport
 
+#from ..import PACKAGE
+
+from i6_experiments.common.setups.serialization import Import, PartialImport
+from ..ctc_rnnt_standalone_2024.default_tools import I6_MODELS_REPO_PATH
+
+PACKAGE = "i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024"
 
 
 def get_pytorch_serializer_v3(
@@ -43,7 +39,6 @@ def get_pytorch_serializer_v3(
     :param kwargs:
     :return:
     """
-    PACKAGE = "i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024"
     package = PACKAGE + ".pytorch_networks"
 
     pytorch_model_import = PartialImport(
@@ -62,17 +57,12 @@ def get_pytorch_serializer_v3(
     #     commit="1e94a4d9d1aa48fe3ac7f60de2cd7bd3fea19c3e",
     #     checkout_folder_name="i6_models"
     # ).out_repository
-    i6_models_repo = tk.Path("/u/kaloyan.nikolov/experiments/multilang_0325/recipe/i6_models_repo")
+    i6_models_repo = tk.Path("/u/rossenbach/experiments/tts_asr_2023_pycharm/i6_models")
     i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
     i6_models = ExternalImport(import_path=i6_models_repo)
-    #noreturnn_path = tk.Path("/u/rossenbach/src/NoReturnn")
-    noreturnn_path = tk.Path("/u/kaloyan.nikolov/git/returnn")
-
-    noreturnn = ExternalImport(import_path=noreturnn_path)
 
     serializer_objects = [
         i6_models,
-        noreturnn,
         pytorch_model_import,
         pytorch_train_step,
     ]
@@ -123,51 +113,6 @@ def get_pytorch_serializer_v3(
     )
 
     return serializer
-
-
-def serialize_training(
-    network_module: str,
-    net_args: Dict[str, Any],
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
-    debug: bool = False,
-) -> Collection:
-    """
-    Helper function to create the serialization collection
-
-    :param network_module: path to the pytorch config file containing Model
-    :param net_args: arguments for the model
-    :param unhashed_net_args: as above but not hashed
-    :param debug: run training in debug mode: linking from recipe instead of copy
-    :return: Collection object to be added to the ReturnnConfig epilog
-    """
-    package = PACKAGE + ".pytorch_networks"
-
-    pytorch_model_import = PartialImport(
-        code_object_path=package + ".%s.Model" % network_module,
-        unhashed_package_root=PACKAGE,
-        hashed_arguments=net_args,
-        unhashed_arguments=unhashed_net_args or {},
-        import_as="get_model",
-    )
-    pytorch_train_step = Import(
-        code_object_path=package + ".%s.train_step" % network_module, unhashed_package_root=PACKAGE
-    )
-    i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
-
-    serializer_objects = [
-        i6_models,
-        pytorch_model_import,
-        pytorch_train_step,
-    ]
-    serializer = Collection(
-        serializer_objects=serializer_objects,
-        make_local_package_copy=not debug,
-        packages={
-            package,
-        },
-    )
-    return serializer
-
 
 def serialize_forward(
     network_module: str,
@@ -232,7 +177,7 @@ def serialize_forward(
     )
     serializer_objects.extend([forward_step, init_hook, finish_hook])
 
-    serializer = Collection(
+    serializer = TorchCollection(
         serializer_objects=serializer_objects,
         make_local_package_copy=not debug,
         packages={

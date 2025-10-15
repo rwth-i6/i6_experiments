@@ -65,9 +65,8 @@ def get_pytorch_serializer_v3(
     i6_models_repo = tk.Path("/u/kaloyan.nikolov/experiments/multilang_0325/recipe/i6_models_repo")
     i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
     i6_models = ExternalImport(import_path=i6_models_repo)
-    #noreturnn_path = tk.Path("/u/rossenbach/src/NoReturnn")
-    noreturnn_path = tk.Path("/u/kaloyan.nikolov/git/returnn")
-
+    noreturnn_path = tk.Path("/u/rossenbach/src/NoReturnn")
+    
     noreturnn = ExternalImport(import_path=noreturnn_path)
 
     serializer_objects = [

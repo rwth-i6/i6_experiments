@@ -174,8 +174,8 @@ def forward_finish_hook(run_ctx, **kwargs):
 def forward_step(*, model, data, run_ctx, **kwargs):
     import torch
 
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
+    raw_audio = data["data"]  # [B, T', F]
+    raw_audio_len = data["data:size1"]  # [B]
 
     if run_ctx.print_rtf:
         audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000

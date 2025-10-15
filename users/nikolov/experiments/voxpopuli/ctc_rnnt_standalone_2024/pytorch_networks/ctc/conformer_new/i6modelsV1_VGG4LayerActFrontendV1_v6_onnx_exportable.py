@@ -22,9 +22,15 @@ from i6_models.parts.conformer.mhsa import ConformerMHSAV2Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 
-from returnn.torch.context import get_run_ctx
+#from returnn.torch.context import get_run_ctx
+import returnn.torch as rnn
 
-from .i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import ModelConfig
+from .i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import (
+        SpecaugConfig,
+        VGG4LayerActFrontendV1Config_mod,
+        ModelConfig,
+        LogMelFeatureExtractionV1Config,
+    )
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -81,7 +87,7 @@ class LogMelFeatureExtractionV1OnnxExportable(nn.Module):
         power_spectrum = (
             torch.sum(
                 torch.stft(
-                    raw_audio,
+                    raw_audio.float(),
                     n_fft=self.n_fft,
                     hop_length=self.hop_length,
                     win_length=self.win_length,
@@ -107,12 +113,14 @@ class LogMelFeatureExtractionV1OnnxExportable(nn.Module):
         return feature_data, length.int()
 
 
+
 class Model(torch.nn.Module):
     def __init__(self, model_config_dict, **kwargs):
         super().__init__()
         self.cfg = ModelConfig.from_dict(model_config_dict)
         frontend_config = self.cfg.frontend_config
         conformer_size = self.cfg.conformer_size
+        #self.run_ctx = kwargs.get("run_ctx", None)
         conformer_config = ConformerEncoderV2Config(
             num_layers=self.cfg.num_layers,
             frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
@@ -128,6 +136,7 @@ class Model(torch.nn.Module):
                     num_att_heads=self.cfg.num_heads,
                     att_weights_dropout=self.cfg.att_weights_dropout,
                     dropout=self.cfg.mhsa_dropout,
+                    dropout_broadcast_axes=None,
                 ),
                 conv_cfg=ConformerConvolutionV1Config(
                     channels=conformer_size, 
@@ -155,7 +164,7 @@ class Model(torch.nn.Module):
             raw_audio_len: torch.Tensor,
     ):
         """
-        :param raw_audio: Audio samples as [B, T, 1]
+        :param raw_audio: Audio samples as [B, T, 1]#
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
@@ -164,8 +173,8 @@ class Model(torch.nn.Module):
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
 
-            run_ctx = get_run_ctx()
-            if self.training and run_ctx.epoch >= self.specaug_start_epoch:
+            
+            if self.training and rnn.context.get_run_ctx().epoch >= self.specaug_start_epoch:
                 audio_features_masked_2 = specaugment_v1_by_length(
                     audio_features,
                     time_min_num_masks=2,  # TODO: make configurable
@@ -191,13 +200,17 @@ class Model(torch.nn.Module):
         return log_probs, torch.sum(out_mask, dim=1)
 
 
-def train_step(*, model: Model, data, run_ctx, **kwargs):
 
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
-
-    labels = data["labels"]  # [B, N] (sparse)
-    labels_len = data["labels:size1"]  # [B, N]
+def train_step(*, model: ModelConfig, **kwargs):
+    if kwargs.get("extern_data", None):
+        data = kwargs.get("extern_data", None)
+    else:
+        data = kwargs.get("data", None)
+        
+    raw_audio = data["data"]  # [B, T', F]
+    raw_audio_len = data["data:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
+    labels = data["targets"]  # [B, N] (sparse)
+    labels_len = data["targets:size1"]  # [B, N]
 
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,
@@ -214,7 +227,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         zero_infinity=True,
     )
     num_phonemes = torch.sum(labels_len)
-    run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
+    rnn.context.get_run_ctx().mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_phonemes)
 
 
 def prior_init_hook(run_ctx, **kwargs):
@@ -235,9 +248,9 @@ def prior_finish_hook(run_ctx, **kwargs):
     print("Saved prior in prior.txt in +log space.")
 
 
-def prior_step(*, model: Model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
+def prior_step(*, model: Model, data, run_ctx, **kwargs):        
+    raw_audio = data["data"]  # [B, T', F]
+    raw_audio_len = data["data:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
 
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,
@@ -250,3 +263,62 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
+
+def get_model_config(vocab_size_without_blank: int, network_args: dict) -> ModelConfig:
+
+    fe_config = LogMelFeatureExtractionV1Config(
+        sample_rate=16000,
+        win_size=0.025,
+        hop_size=0.01,
+        f_min=60,
+        f_max=7600,
+        min_amp=1e-10,
+        num_filters=80,
+        center=True,
+    )
+
+    specaug_config = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=8,
+        num_repeat_feat=5,
+    )
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(1, 2),
+        pool1_stride=None,
+        pool1_padding=None,
+        pool2_kernel_size=(1, 2),
+        pool2_stride=(4, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+    model_config = ModelConfig(
+    feature_extraction_config=fe_config,
+    frontend_config=frontend_config,
+    specaug_config=specaug_config,
+    label_target_size=vocab_size_without_blank,
+    conformer_size=512,
+    num_layers=12,
+    num_heads=8,
+    ff_dim=2048,
+    att_weights_dropout=0.1,
+    conv_dropout=0.1,
+    ff_dropout=0.1,
+    mhsa_dropout=0.1,
+    conv_kernel_size=31,
+    final_dropout=0.1,
+    specauc_start_epoch=1,
+    module_list=["ff", "conv", "mhsa", "ff"],
+    module_scales=[0.5, 1.0, 1.0, 0.5],
+    )
+
+    return model_config
