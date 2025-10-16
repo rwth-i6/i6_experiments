@@ -374,8 +374,15 @@ def py():
         lm_scale_max=10.0,
     )
 
-    from i6_experiments.users.zeyer.decoding.perplexity import get_ngram_perplexities_for_task_evals
+    from i6_experiments.users.zeyer.decoding.perplexity import (
+        get_ngram_perplexities_for_task_evals,
+        get_lm_perplexities_for_task_evals,
+    )
 
     perplexities_4gram = get_ngram_perplexities_for_task_evals(task_spm10k, label_level="word", lm=_public_4gram_lm)
     for name, ppl in perplexities_4gram.items():
-        tk.register_output(prefix + "/lm/4gram/ppl/" + name, ppl)
+        tk.register_output(f"{prefix}/lm/4gram/ppl/{name}", ppl)
+
+    perplexities_nlm = get_lm_perplexities_for_task_evals(task_spm10k, label_level="task", lm=selected_lm[1])
+    for name, ppl in perplexities_nlm.items():
+        tk.register_output(f"{prefix}/lm/{selected_lm[0]}/ppl/{name}", ppl)

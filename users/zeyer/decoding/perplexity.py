@@ -11,12 +11,50 @@ import i6_core.util as util
 
 from i6_experiments.users.zeyer.datasets.task import RecogOutput, Task as DatasetsTask
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob, ExtractVocabSpecialLabelsJob
 
 from .lm_rescoring import lm_score, ngram_score_v2
 from .concat_hyps import ExtendSingleRefToHypsJob
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
+
+
+def get_lm_perplexities_for_task_evals(
+    task: DatasetsTask,
+    *,
+    lm: ModelWithCheckpoint,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+    label_level: Literal["task", "word"],
+):
+    """
+    Returns a function that can be used in task evals to compute LM perplexity.
+    """
+    vocab_file = ExtractVocabLabelsJob(_get_vocab_opts_from_task(task)).out_vocab
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(_get_vocab_opts_from_task(task)).out_vocab_special_labels_dict
+
+    refs = get_refs_from_task_eval_datasets(
+        task, post_proc_funcs=task.recog_post_proc_funcs if label_level == "word" else ()
+    )
+    perplexities = {
+        name: get_lm_perplexity(
+            ref,
+            lm=lm,
+            vocab=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            rescore_rqmt=rescore_rqmt,
+            label_post_process_funcs=task.recog_post_proc_funcs if label_level == "task" else (),
+        )
+        for name, ref in refs.items()
+    }
+    return perplexities
+
+
+def _get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
+    dataset = task.dev_dataset
+    extern_data_dict = dataset.get_extern_data()
+    target_dict = extern_data_dict[dataset.get_default_target()]
+    return target_dict["vocab"]
 
 
 def get_lm_perplexity(
