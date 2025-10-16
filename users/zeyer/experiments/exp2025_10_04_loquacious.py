@@ -395,7 +395,6 @@ def py():
         prefix=f"{prefix}/aed/{selected_asr[0]}/aed+ctc+lm/4gram",
         task=task_spm10k,
         ctc_model=selected_asr[1],
-        framewise_prior=...,  # TODO framewise prior...
         ngram_language_model=_public_4gram_lm,
         ctc_decoder_opts={},  # TODO good settings?
     )
