@@ -282,6 +282,48 @@ def lm_am_labelwise_prior_ngram_rescore(
     return combine_scores(scores)
 
 
+def ngram_lm_framewise_prior_rescore(
+    res: RecogOutput,
+    *,
+    dataset: DatasetConfig,
+    raw_res_search_labels: RecogOutput,
+    raw_res_labels: RecogOutput,
+    orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
+    ngram_language_model: tk.Path,
+    lm_scale: Union[float, tk.Variable, DelayedBase],
+    prior: Optional[Prior] = None,
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+) -> RecogOutput:
+    """
+    With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
+
+    :param res:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
+    :param raw_res_search_labels:
+    :param raw_res_labels:
+    :param orig_scale: scale for the original scores
+    :param ngram_language_model: language model
+    :param lm_scale: scale for the LM scores
+    :param prior:
+    :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param search_labels_to_labels: function to convert the search labels to the labels
+    """
+    dataset  # noqa  # unused here
+    res_labels_lm_scores = ngram_score_v2(raw_res_labels, lm=ngram_language_model)
+    scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
+    if prior and prior_scale:
+        assert search_labels_to_labels
+        res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
+        res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
+    else:
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
+    return combine_scores(scores)
+
+
 def lm_score(
     recog_output: RecogOutput,
     *,
