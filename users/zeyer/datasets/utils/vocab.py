@@ -2,7 +2,6 @@
 Vocab utils
 """
 
-
 from __future__ import annotations
 from typing import Optional, Any, Dict
 from sisyphus import Job, Task, tk
@@ -160,3 +159,59 @@ class ExtendVocabLabelsByNewLabelJob(Job):
         with util.uopen(self.out_vocab.get_path(), "wt") as f:
             for label in labels:
                 f.write(label + "\n")
+
+
+class ExtractLineBasedLexiconJob(Job):
+    """
+    Takes any RETURNN vocabulary, and a list of words, and maps each word to its labels.
+
+    The format is so that TorchAudio/Flashlight can use it.
+    """
+
+    def __init__(self, *, vocab_opts: Dict[str, Any], word_list: tk.Path, returnn_root: Optional[tk.Path] = None):
+        """
+        :param vocab_opts:
+        :param word_list:
+        :param returnn_root: path, optional, the RETURNN root dir.
+        """
+        self.vocab_opts = vocab_opts
+        self.word_list = word_list
+        self.returnn_root = returnn_root
+
+        self.out_lexicon = self.output_path("lexicon.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import sys
+        import os
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(1, returnn_root.get_path())
+
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        vocab = self.vocab_opts
+        vocab = util.instanciate_delayed(vocab)
+        print("RETURNN vocab opts:", vocab)
+        vocab = Vocabulary.create_vocab(**vocab)
+        print("Vocab:", vocab)
+        print("num labels:", vocab.num_labels)
+        assert vocab.num_labels == len(vocab.labels)
+
+        word_list = util.uopen(self.word_list.get_path(), "rt").read().splitlines()
+
+        with util.uopen(self.out_lexicon.get_path(), "wt") as f:
+            for word in word_list:
+                assert " " not in word
+                labels = vocab.get_seq(word)
+                assert all(" " not in vocab.labels[label_id] for label_id in labels)
+                label_str = " ".join(vocab.labels[label_id] for label_id in labels)
+                f.write(f"{word} {label_str}\n")
