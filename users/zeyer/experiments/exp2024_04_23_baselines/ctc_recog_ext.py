@@ -833,6 +833,46 @@ def get_ctc_with_lm_and_labelwise_prior(
     )
 
 
+def get_ctc_with_ngram_lm_and_framewise_prior(
+    *,
+    ctc_model: ModelWithCheckpoint,
+    prior: Optional[tk.Path] = None,
+    prior_type: str = "prob",
+    prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
+    ngram_language_model: tk.Path,
+    lm_scale: Union[float, tk.Variable],
+) -> ModelWithCheckpoint:
+    """Combined CTC model with LM and prior"""
+    # Keep CTC model config as-is, extend below for prior and LM.
+    ctc_model_def = ctc_model.definition
+    if isinstance(ctc_model_def, ModelDefWithCfg):
+        config: Dict[str, Any] = ctc_model_def.config.copy()
+    else:
+        config = {}
+
+    # Add prior.
+    # Then the CTC Model log_probs_wb_from_logits will include the prior.
+    if prior is not None:
+        assert prior_scale is not None
+    if prior_scale is not None:
+        assert prior is not None
+        config.update(
+            {
+                "ctc_prior_type": "static",
+                "ctc_prior_scale": prior_scale,
+                "static_prior": {"type": prior_type, "file": prior},
+            }
+        )
+
+    # Add LM.
+    config.update({"lm_scale": lm_scale, "lm_ngram_file": ngram_language_model})
+
+    return ModelWithCheckpoint(
+        definition=ModelDefWithCfg(model_def=ctc_model_ext_def, config=config),
+        checkpoint=ctc_model.checkpoint,
+    )
+
+
 def ctc_model_ext_def(
     *, epoch: int, in_dim: Dim, target_dim: Dim, orig_ctc_model_def: ModelDef = ctc_model_def
 ) -> Model:
@@ -843,7 +883,16 @@ def ctc_model_ext_def(
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
 
-    lm = rf.build_from_dict(config.typed_value("_lm_model_def_dict"), vocab_dim=target_dim)
+    lm_model_def_dict = config.typed_value("_lm_model_def_dict", None)
+    lm_ngram_file = config.typed_value("lm_ngram_file", None)
+    if lm_model_def_dict:
+        lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
+    elif lm_ngram_file:
+        import kenlm
+
+        lm = kenlm.LanguageModel(lm_ngram_file)
+    else:
+        raise ValueError("no LM specified")
     lm_scale = config.typed_value("lm_scale", None)
     assert isinstance(lm_scale, (int, float))
 
