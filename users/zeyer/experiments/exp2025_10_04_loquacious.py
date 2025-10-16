@@ -376,8 +376,6 @@ def py():
 
     from i6_experiments.users.zeyer.decoding.perplexity import get_ngram_perplexities_for_task_evals
 
-    perplexities_4gram = get_ngram_perplexities_for_task_evals(
-        task_spm10k, label_level="word", lm=_public_4gram_lm, vocab=_public_vocab_word_list
-    )
+    perplexities_4gram = get_ngram_perplexities_for_task_evals(task_spm10k, label_level="word", lm=_public_4gram_lm)
     for name, ppl in perplexities_4gram.items():
         tk.register_output(prefix + "/lm/4gram/ppl/" + name, ppl)

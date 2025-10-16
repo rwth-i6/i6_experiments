@@ -12,7 +12,7 @@ import i6_core.util as util
 from i6_experiments.users.zeyer.datasets.task import RecogOutput, Task as DatasetsTask
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 
-from .lm_rescoring import lm_score, ngram_score
+from .lm_rescoring import lm_score, ngram_score_v2
 from .concat_hyps import ExtendSingleRefToHypsJob
 
 if TYPE_CHECKING:
@@ -45,9 +45,7 @@ def get_lm_perplexity(
     return CalcPerplexityFromScoresJob(scored.output).out_perplexity
 
 
-def get_ngram_perplexities_for_task_evals(
-    task: DatasetsTask, *, lm: Path, vocab: Path, label_level: Literal["task", "word"]
-):
+def get_ngram_perplexities_for_task_evals(task: DatasetsTask, *, lm: Path, label_level: Literal["task", "word"]):
     """
     Returns a function that can be used in task evals to compute ngram perplexity.
     """
@@ -58,7 +56,6 @@ def get_ngram_perplexities_for_task_evals(
         name: get_ngram_perplexity(
             ref,
             lm=lm,
-            vocab=vocab,
             label_post_process_funcs=task.recog_post_proc_funcs if label_level == "task" else (),
         )
         for name, ref in refs.items()
@@ -70,7 +67,6 @@ def get_ngram_perplexity(
     ref: RecogOutput,
     *,
     lm: Path,
-    vocab: Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
     label_post_process_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> Variable:
@@ -84,7 +80,7 @@ def get_ngram_perplexity(
     :param label_post_process_funcs:
     :return: perplexity
     """
-    scored = ngram_score_single(ref, lm=lm, vocab=vocab, rescore_rqmt=rescore_rqmt)
+    scored = ngram_score_single(ref, lm=lm, rescore_rqmt=rescore_rqmt)
     for f in label_post_process_funcs:
         scored = f(scored)
     return CalcPerplexityFromScoresJob(scored.output).out_perplexity
@@ -115,7 +111,6 @@ def ngram_score_single(
     ref: RecogOutput,
     *,
     lm: Path,
-    vocab: Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
@@ -127,7 +122,7 @@ def ngram_score_single(
     :param rescore_rqmt:
     """
     ref_as_hyps = RecogOutput(ExtendSingleRefToHypsJob(ref.output).out_hyps)
-    return ngram_score(ref_as_hyps, lm=lm, vocab=vocab, rescore_rqmt=rescore_rqmt)
+    return ngram_score_v2(ref_as_hyps, lm=lm, rescore_rqmt=rescore_rqmt)
 
 
 class CalcPerplexityFromScoresJob(Job):

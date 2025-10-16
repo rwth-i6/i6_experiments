@@ -369,7 +369,6 @@ def ngram_score(
         We ignore the scores here and just use the text of the hyps.
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
-    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param rescore_rqmt:
     """
     return rescore(
@@ -378,6 +377,38 @@ def ngram_score(
             definition=ModelDefWithCfg(model_def=ngram_model_def, config={"_lm_file": lm}), checkpoint=None
         ),
         vocab=vocab,
+        rescore_def=ngram_rescore_def,
+        forward_rqmt=rescore_rqmt,
+        forward_device="cpu",
+    )
+
+
+def ngram_score_v2(
+    recog_output: RecogOutput,
+    *,
+    lm: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    v2: use byte-based vocab internally, does not need a vocab file.
+    We pass the raw text directly to KenLM anyway.
+    The words are written out in the ARPA file (or LM binary).
+
+    :param recog_output:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+        We ignore the scores here and just use the text of the hyps.
+    :param lm: language model
+    :param rescore_rqmt:
+    """
+    return rescore(
+        recog_output=recog_output,
+        model=ModelWithCheckpoint(
+            definition=ModelDefWithCfg(model_def=ngram_model_def, config={"_lm_file": lm}), checkpoint=None
+        ),
+        vocab_opts={"class": "Utf8ByteTargets"},
         rescore_def=ngram_rescore_def,
         forward_rqmt=rescore_rqmt,
         forward_device="cpu",
