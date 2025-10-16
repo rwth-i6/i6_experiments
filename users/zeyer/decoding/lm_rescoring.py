@@ -387,7 +387,12 @@ def ngram_score(
 def ngram_model_def(**_other):
     import torch
     from returnn.config import get_global_config
-    import kenlm  # pip install kenlm
+
+    # pip install kenlm, or:
+    # pip install git+https://github.com/kpu/kenlm.git
+    # (note: make sure that CPATH is correct, does not point to some different Python version.
+    # on RWTH HPC, `module load Python/3.12` or so will influence this)
+    import kenlm
 
     config = get_global_config()
 
