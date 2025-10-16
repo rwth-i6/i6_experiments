@@ -130,7 +130,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
                 ngram_lm_framewise_prior_rescore,
                 prior=framewise_prior,
                 prior_scale=prior_scale,
-                ngram_lm=ngram_language_model,
+                ngram_language_model=ngram_language_model,
                 lm_scale=lm_scale,
             )
         ],
