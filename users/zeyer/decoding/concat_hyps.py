@@ -86,7 +86,7 @@ class ExtendSingleRefToHypsJob(Job):
     such that you get a single M-best list, M=sum(each N).
     """
 
-    __sis_version__ = 2
+    __sis_version__ = 3
 
     def __init__(self, ref_py_output: tk.Path, *, output_gzip: bool = True, score: float = 0.0):
         """
