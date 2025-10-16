@@ -198,7 +198,9 @@ def model_recog_torchaudio(
     from torchaudio.models.decoder import CTCDecoder
 
     config = get_global_config()
-    n_best = config.int("n_best", 1)
+    ctc_decoder_opts = config.typed_value("ctc_decoder_opts", None)
+    assert isinstance(ctc_decoder_opts, dict)  # e.g. lexicon, nbest, beam_size, etc, see below
+    n_best = config.int("n_best", ctc_decoder_opts.get("nbest", 1))
 
     # Eager-mode implementation of beam search using TorchAudio/Flashlight.
 
