@@ -22,6 +22,10 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ae
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_lm import (
     aed_ctc_lm_timesync_recog_recomb_auto_scale,
 )
+from i6_experiments.users.zeyer.decoding.perplexity import (
+    get_ngram_perplexities_for_task_evals,
+    get_lm_perplexities_for_task_evals,
+)
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 
@@ -344,6 +348,12 @@ def py():
         )
         lms[name] = exp.get_last_fixed_epoch()
 
+        perplexities_nlm = get_lm_perplexities_for_task_evals(
+            task_spm10k, label_level="task", lm=exp.get_last_fixed_epoch()
+        )
+        for eval_set_name, ppl in perplexities_nlm.items():
+            tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
+
         aed_ctc_lm_timesync_recog_recomb_auto_scale(
             prefix=prefix + "/aed/" + selected_asr[0] + "/ctc+lm/" + name,
             task=task_spm10k,
@@ -374,15 +384,6 @@ def py():
         lm_scale_max=10.0,
     )
 
-    from i6_experiments.users.zeyer.decoding.perplexity import (
-        get_ngram_perplexities_for_task_evals,
-        get_lm_perplexities_for_task_evals,
-    )
-
     perplexities_4gram = get_ngram_perplexities_for_task_evals(task_spm10k, label_level="word", lm=_public_4gram_lm)
-    for name, ppl in perplexities_4gram.items():
-        tk.register_output(f"{prefix}/lm/4gram/ppl/{name}", ppl)
-
-    perplexities_nlm = get_lm_perplexities_for_task_evals(task_spm10k, label_level="task", lm=selected_lm[1])
-    for name, ppl in perplexities_nlm.items():
-        tk.register_output(f"{prefix}/lm/{selected_lm[0]}/ppl/{name}", ppl)
+    for eval_set_name, ppl in perplexities_4gram.items():
+        tk.register_output(f"{prefix}/lm/4gram/ppl/{eval_set_name}", ppl)
