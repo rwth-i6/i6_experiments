@@ -52,7 +52,7 @@ def model_recog(
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -61,7 +61,6 @@ def model_recog(
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
     # The label log probs include the AM and the (scaled) prior.
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,

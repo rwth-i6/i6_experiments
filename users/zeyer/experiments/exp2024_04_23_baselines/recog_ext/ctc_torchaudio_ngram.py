@@ -80,7 +80,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         dataset=dataset,
         model=ctc_model,
         recog_def=model_recog_ctc_only,
-        config={**base_base_config, "beam_size": n_best_list_size},
+        config={**base_base_config, "recog_version": 9, "beam_size": n_best_list_size},
         keep_alignment_frames=True,
         keep_beam=True,
     )
@@ -128,7 +128,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         task=task,
         model=ctc_model,
         recog_def=model_recog_ctc_only,
-        config={**base_base_config, "beam_size": n_best_list_size},
+        config={**base_base_config, "recog_version": 9, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 ngram_lm_framewise_prior_rescore,
