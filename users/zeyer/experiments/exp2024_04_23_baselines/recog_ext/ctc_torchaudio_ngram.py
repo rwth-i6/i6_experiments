@@ -3,11 +3,12 @@ TorchAudio (internally using Flashlight) for CTC with ngram LM
 """
 
 from __future__ import annotations
-from typing import Any, Tuple, List, Dict
+from typing import Optional, Any, Tuple, List, Dict
 import functools
 
 from sisyphus import tk
 
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, RecogDef
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
@@ -34,6 +35,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     ngram_language_model: tk.Path,
     n_best_list_size: int = 64,
     ctc_decoder_opts: Dict[str, Any],
+    extra_config: Optional[Dict[str, Any]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -47,13 +49,15 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
     }
+    if extra_config:
+        base_base_config = dict_update_deep(base_base_config, extra_config)
 
     if framewise_prior is NotSpecified:
         prior = get_ctc_prior_probs(
             ctc_model,
             task.dev_dataset,  # TODO is this ok?
             config={
-                "behavior_version": 24,
+                **base_base_config,
                 "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
                 "max_seqs": 2000,
             },

@@ -395,6 +395,7 @@ def py():
         prefix=f"{prefix}/aed/{selected_asr[0]}/aed+ctc+lm/4gram",
         task=task_spm10k,
         ctc_model=selected_asr[1],
+        extra_config={"aux_loss_layers": [16]},
         ngram_language_model=_public_4gram_lm,
         ctc_decoder_opts={},  # TODO good settings?
     )
