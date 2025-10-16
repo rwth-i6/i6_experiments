@@ -1097,15 +1097,7 @@ def _ctc_model_softmax_prior_returnn_forward(
     source: Tensor, /, in_spatial_dim: Dim, model: Model
 ) -> Tuple[Tensor, Dim]:
     """ForwardDef API"""
-    import returnn.frontend as rf
-    from returnn.tensor import Tensor, Dim
-
-    logits, enc, enc_spatial_dim = model(source, in_spatial_dim=in_spatial_dim)
-    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
-    assert logits.feature_dim  # we expect a feature dim
-    assert enc_spatial_dim in logits.dims
-    log_probs = model.log_probs_wb_from_logits(logits)
-    assert isinstance(log_probs, Tensor)
+    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(source, in_spatial_dim=in_spatial_dim)
     probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
     return probs, enc_spatial_dim
 
@@ -1120,15 +1112,7 @@ def ctc_model_rescore(
     targets_spatial_dim: Dim,
 ) -> Tensor:
     """RescoreDef API"""
-    import returnn.frontend as rf
-    from returnn.tensor import Tensor, Dim
-
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
-    assert logits.feature_dim  # we expect a feature dim
-    assert enc_spatial_dim in logits.dims
-    log_probs = model.log_probs_wb_from_logits(logits)
-    assert isinstance(log_probs, Tensor)
+    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
 
@@ -1226,19 +1210,13 @@ def ctc_best_path_model_rescore_def(
 
     Also see :func:`ctc_model_rescore` above.
     """
-    from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.nn_rf.fsa import best_path_ctc
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     data_batch_dims = data.remaining_dims(data_spatial_dim)
 
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
-    assert logits.feature_dim  # we expect a feature dim
-    assert enc_spatial_dim in logits.dims
-    log_probs = model.log_probs_wb_from_logits(logits)
-    assert isinstance(log_probs, Tensor)
+    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
     assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})

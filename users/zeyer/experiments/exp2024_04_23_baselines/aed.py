@@ -1062,17 +1062,41 @@ class Model(rf.Module):
 
             self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
 
+        self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
+        self.ctc_framewise_prior_scale = config.float("ctc_prior_scale", 0.0)
+        self.ctc_framewise_prior_type = config.value("ctc_prior_type", "batch")
+        # framewise prior for CTC
+        ctc_framewise_static_prior = config.typed_value("static_prior")
+        self.ctc_framewise_static_prior = None  # in log prob, if set
+        if ctc_framewise_static_prior:
+            assert isinstance(ctc_framewise_static_prior, dict)
+            assert set(ctc_framewise_static_prior.keys()) == {"file", "type"}
+            v = numpy.loadtxt(ctc_framewise_static_prior["file"])
+            # The `type` is about what is stored in the file.
+            # We always store it in log prob here, so we potentially need to convert it.
+            if ctc_framewise_static_prior["type"] == "log_prob":
+                pass  # already log prob
+            elif ctc_framewise_static_prior["type"] == "prob":
+                v = numpy.log(v)
+            else:
+                raise ValueError(f"invalid static_prior type {ctc_framewise_static_prior['type']!r}")
+            self.ctc_framewise_static_prior = rf.Parameter(
+                rf.convert_to_tensor(v, dims=[self.wb_target_dim], dtype=rf.get_default_float_dtype()),
+                auxiliary=True,
+                non_critical_for_restore=True,
+            )
+
         from i6_experiments.users.zeyer.nn_rf.variational_noise import maybe_apply_variational_noise_from_config
 
         maybe_apply_variational_noise_from_config(self, config)
 
-    def encode(
+    def encode_no_transform(
         self,
         source: Tensor,
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
-    ) -> Tuple[rf.State, Dim]:
+    ) -> Tuple[Tensor, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
             source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
@@ -1100,7 +1124,66 @@ class Model(rf.Module):
         )
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
+        return enc, enc_spatial_dim
+
+    def encode(
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+    ) -> Tuple[rf.State, Dim]:
+        enc, enc_spatial_dim = self.encode_no_transform(
+            source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+        )
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
+
+    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Tensor, Dim]:
+        """
+        :param source: [B*, in_spatial_dim, in_dim]
+        :param in_spatial_dim:
+        :return: log_probs [B*, enc_spatial_dim', wb_target_dim], enc, enc_spatial_dim
+        """
+        from returnn.config import get_global_config
+        from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
+
+        config = get_global_config()
+        ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
+        ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
+
+        if source.feature_dim and source.feature_dim.dimension == 1:
+            source = rf.squeeze(source, axis=source.feature_dim)
+
+        enc_collected_outputs = {}
+        enc, enc_spatial_dim = self.encode_no_transform(
+            source, in_spatial_dim=in_spatial_dim, collected_outputs=enc_collected_outputs
+        )
+
+        ctc_layer_idx = self.enc_aux_logits[-1]
+        linear = getattr(self, f"enc_aux_logits_{ctc_layer_idx}")
+        logits = linear(enc_collected_outputs[str(ctc_layer_idx - 1)])
+        log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)  # Batch, Spatial, VocabWB
+        if ctc_soft_collapse_threshold is not None:
+            log_probs, enc_spatial_dim = soft_collapse_repeated(
+                log_probs,
+                spatial_dim=enc_spatial_dim,
+                classes_dim=self.wb_target_dim,
+                threshold=ctc_soft_collapse_threshold,
+                reduce_type=ctc_soft_collapse_reduce_type,
+            )
+        log_probs.feature_dim = self.wb_target_dim
+
+        if self.ctc_am_scale != 1:
+            log_probs = log_probs * self.ctc_am_scale
+        if self.ctc_framewise_prior_scale:
+            if self.ctc_framewise_prior_type == "static":
+                log_prob_prior = self.ctc_framewise_static_prior
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            else:
+                raise NotImplementedError(f"ctc_framewise_prior_type {self.ctc_framewise_prior_type!r}")
+            log_probs -= log_prob_prior * self.ctc_framewise_prior_scale
+
+        return log_probs, enc, enc_spatial_dim
 
 
 def log_probs_with_eos_separated(logits: Tensor, *, target_dim: Dim, eos_idx: int) -> Tensor:

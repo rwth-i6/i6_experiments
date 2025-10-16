@@ -506,34 +506,13 @@ def ctc_best_path_model_rescore_def(
     """
     RescoreDef API
     """
-    from returnn.config import get_global_config
     from i6_experiments.users.zeyer.nn_rf.fsa import best_path_ctc
-    from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
-
-    config = get_global_config()
-    ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
-    ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     data_batch_dims = data.remaining_dims(data_spatial_dim)
 
-    enc_collected_outputs = {}
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
-
-    ctc_layer_idx = model.enc_aux_logits[-1]
-    linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
-    logits = linear(enc_collected_outputs[str(ctc_layer_idx - 1)])
-    log_probs = rf.log_softmax(logits, axis=model.wb_target_dim)  # Batch, Spatial, VocabWB
-    if ctc_soft_collapse_threshold is not None:
-        log_probs, enc_spatial_dim = soft_collapse_repeated(
-            log_probs,
-            spatial_dim=enc_spatial_dim,
-            classes_dim=model.wb_target_dim,
-            threshold=ctc_soft_collapse_threshold,
-            reduce_type=ctc_soft_collapse_reduce_type,
-        )
-    log_probs.feature_dim = model.wb_target_dim
+    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
     assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})

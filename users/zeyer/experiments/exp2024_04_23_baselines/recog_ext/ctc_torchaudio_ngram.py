@@ -230,11 +230,10 @@ def model_recog_torchaudio(
     decoder: CTCDecoder = model.decoder
 
     assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    assert label_log_prob.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
 
     # The label log probs include the AM and the (scaled) prior.
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
