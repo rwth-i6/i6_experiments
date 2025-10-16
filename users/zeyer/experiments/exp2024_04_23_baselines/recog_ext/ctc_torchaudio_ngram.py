@@ -15,7 +15,11 @@ from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollect
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
 from i6_experiments.users.zeyer.decoding.lm_rescoring import ngram_lm_framewise_prior_rescore, ngram_score_v2
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior
-from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob, ExtendVocabLabelsByNewLabelJob
+from i6_experiments.users.zeyer.datasets.utils.vocab import (
+    ExtractVocabLabelsJob,
+    ExtendVocabLabelsByNewLabelJob,
+    ExtractLineBasedLexiconJob,
+)
 
 from ..ctc import Model, _ctc_model_def_blank_idx
 from .ctc import model_recog as model_recog_ctc_only
@@ -33,6 +37,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     ctc_model: ModelWithCheckpoint,
     framewise_prior: Prior = NotSpecified,
     ngram_language_model: tk.Path,
+    lm_word_list: Optional[tk.Path] = None,
     n_best_list_size: int = 64,
     ctc_decoder_opts: Dict[str, Any],
     extra_config: Optional[Dict[str, Any]] = None,
@@ -44,6 +49,13 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog``) with those scales.
     """
+
+    ctc_decoder_opts = ctc_decoder_opts.copy()
+    if "lexicon" not in ctc_decoder_opts:
+        assert lm_word_list is not None, "lm_word_list must be given if no lexicon is given"
+        ctc_decoder_opts["lexicon"] = ExtractLineBasedLexiconJob(
+            vocab_opts=_get_vocab_opts_from_task(task), word_list=lm_word_list
+        ).out_lexicon
 
     base_base_config = {
         "behavior_version": 24,  # should make it independent from batch size

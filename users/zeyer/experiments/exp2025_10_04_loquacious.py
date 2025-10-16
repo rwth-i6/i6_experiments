@@ -397,5 +397,6 @@ def py():
         ctc_model=selected_asr[1],
         extra_config={"aux_loss_layers": [16]},
         ngram_language_model=_public_4gram_lm,
+        lm_word_list=_public_vocab_word_list,
         ctc_decoder_opts={},  # TODO good settings?
     )
