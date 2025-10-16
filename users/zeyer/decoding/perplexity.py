@@ -2,6 +2,7 @@
 Calculates perplexities
 """
 
+from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Any, Callable, Sequence, Literal, Dict, List, Tuple
 from sisyphus import Job, Path, Task
 from sisyphus.job_path import Variable
