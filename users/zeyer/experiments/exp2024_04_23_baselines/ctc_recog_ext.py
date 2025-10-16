@@ -841,6 +841,7 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
     prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
     ngram_language_model: tk.Path,
     lm_scale: Union[float, tk.Variable],
+    ctc_decoder_opts: Dict[str, Any],  # for torchaudio.models.decoder.ctc_decoder, lexicon, nbest, beam_size, etc.
 ) -> ModelWithCheckpoint:
     """Combined CTC model with LM and prior"""
     # Keep CTC model config as-is, extend below for prior and LM.
@@ -865,7 +866,7 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
         )
 
     # Add LM.
-    config.update({"lm_scale": lm_scale, "lm_ngram_file": ngram_language_model})
+    config.update({"lm_scale": lm_scale, "lm_ngram_file": ngram_language_model, "ctc_decoder_opts": ctc_decoder_opts})
 
     return ModelWithCheckpoint(
         definition=ModelDefWithCfg(model_def=ctc_model_ext_def, config=config),
@@ -883,23 +884,47 @@ def ctc_model_ext_def(
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
 
+    # (framewise) ctc_prior_type / static_prior handled by orig_ctc_model_def.
+    model: Model = orig_ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+
+    lm_scale = config.typed_value("lm_scale", None)
+    assert isinstance(lm_scale, (int, float))
     lm_model_def_dict = config.typed_value("_lm_model_def_dict", None)
     lm_ngram_file = config.typed_value("lm_ngram_file", None)
     if lm_model_def_dict:
         lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
+        model.lm = lm
+        model.lm_scale = lm_scale
     elif lm_ngram_file:
-        import kenlm
+        ctc_decoder_opts = config.typed_value("ctc_decoder_opts", None)
+        assert isinstance(ctc_decoder_opts, dict)  # e.g. lexicon, nbest, beam_size, etc, see below
 
-        lm = kenlm.LanguageModel(lm_ngram_file)
+        from torchaudio.models.decoder import ctc_decoder
+
+        assert target_dim.vocab
+        assert model.blank_idx is not None
+        wb_target_dim = model.wb_target_dim
+        assert wb_target_dim.vocab
+        blank_token = wb_target_dim.vocab.labels[model.blank_idx]
+
+        model.decoder = ctc_decoder(
+            lm=lm_ngram_file,
+            lm_weight=lm_scale,
+            tokens=wb_target_dim.vocab.labels,
+            blank_token=blank_token,
+            sil_token=blank_token,
+            **ctc_decoder_opts,
+            # lexicon=self.lexicon,
+            # nbest=self.n_best,
+            # beam_size=self.beam_size,
+            # beam_size_token=self.beam_size_token,
+            # beam_threshold=self.beam_threshold,
+            # sil_score=self.sil_score,
+            # word_score=self.word_score,
+        )
+
     else:
         raise ValueError("no LM specified")
-    lm_scale = config.typed_value("lm_scale", None)
-    assert isinstance(lm_scale, (int, float))
-
-    # (framewise) ctc_prior_type / static_prior handled by ctc_model_def.
-    model = orig_ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
-    model.lm = lm
-    model.lm_scale = lm_scale
 
     labelwise_prior = config.typed_value("labelwise_prior", None)
     if labelwise_prior:
