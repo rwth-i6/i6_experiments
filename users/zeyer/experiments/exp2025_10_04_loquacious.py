@@ -28,12 +28,8 @@ from i6_experiments.users.zeyer.decoding.perplexity import (
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
-from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
-    get_ctc_with_ngram_lm_and_framewise_prior,
-)
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_torchaudio_ngram import (
-    model_recog_torchaudio,
+    ctc_recog_ngram_lm_framewise_prior_auto_scale,
 )
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
@@ -395,18 +391,11 @@ def py():
     for eval_set_name, ppl in perplexities_4gram.items():
         tk.register_output(f"{prefix}/lm/4gram/ppl/{eval_set_name}", ppl)
 
-    model_ext = get_ctc_with_ngram_lm_and_framewise_prior(
-        ctc_model=selected_asr[1],
-        ngram_language_model=_public_4gram_lm,
-        # TODO prior...
-    )
-    res = recog_model(
+    ctc_recog_ngram_lm_framewise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{selected_asr[0]}/aed+ctc+lm/4gram",
         task=task_spm10k,
-        model=model_ext,
-        recog_def=model_recog_torchaudio,
-        search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
-    )
-    tk.register_output(
-        f"{prefix}/recog-ngram-lmScale{lm_scale}-priorScale{prior_scale}",
-        res.output,
+        ctc_model=selected_asr[1],
+        framewise_prior=...,  # TODO framewise prior...
+        ngram_language_model=_public_4gram_lm,
+        ctc_decoder_opts={},  # TODO good settings?
     )

@@ -34,8 +34,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     ctc_model: ModelWithCheckpoint,
     framewise_prior: Prior,
     ngram_language_model: tk.Path,
-    n_best_list_size: int,
-    first_pass_recog_beam_size: int,
+    n_best_list_size: int = 64,
     ctc_decoder_opts: Dict[str, Any],
 ) -> ScoreResultCollection:
     """
@@ -131,14 +130,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         task=task,
         model=model,
         recog_def=model_recog_torchaudio,
-        config={
-            **base_base_config,
-            "beam_size": first_pass_recog_beam_size,
-            # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
-            # So when the beam size is larger, reduce batch size.
-            # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
-            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)),
-        },
+        config={**base_base_config, "batch_size": int(20_000 * ctc_model.definition.batch_size_factor)},
         search_rqmt={"time": 24},
         name=f"{prefix}/recog-opt-1stpass",
     )
