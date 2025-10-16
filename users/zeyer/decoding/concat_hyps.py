@@ -86,6 +86,8 @@ class ExtendSingleRefToHypsJob(Job):
     such that you get a single M-best list, M=sum(each N).
     """
 
+    __sis_version__ = 2
+
     def __init__(self, ref_py_output: tk.Path, *, output_gzip: bool = True, score: float = 0.0):
         """
         :param ref_py_output: search output file from RETURNN in python format (single hyp per seq)
@@ -104,11 +106,12 @@ class ExtendSingleRefToHypsJob(Job):
         data: Dict[str, str] = eval(
             util.uopen(self.ref_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")}
         )
+        score_repr = repr(self.score)
 
         with util.uopen(self.out_hyps, "wt") as out:
             out.write("{\n")
             for seq_tag, text in data.items():
                 assert isinstance(text, str)
                 # n-best list as [(score, text), ...]
-                out.write(f"{seq_tag!r}: [({self.score}, {text})],\n")
+                out.write(f"{seq_tag!r}: [({score_repr}, {text!r})],\n")
             out.write("}\n")
