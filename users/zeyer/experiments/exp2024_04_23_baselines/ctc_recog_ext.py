@@ -845,9 +845,9 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
 ) -> ModelWithCheckpoint:
     """Combined CTC model with LM and prior"""
     # Keep CTC model config as-is, extend below for prior and LM.
-    ctc_model_def = ctc_model.definition
-    if isinstance(ctc_model_def, ModelDefWithCfg):
-        config: Dict[str, Any] = ctc_model_def.config.copy()
+    ctc_model_def_ = ctc_model.definition
+    if isinstance(ctc_model_def_, ModelDefWithCfg):
+        config: Dict[str, Any] = ctc_model_def_.config.copy()
     else:
         config = {}
 
@@ -868,8 +868,19 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
     # Add LM.
     config.update({"lm_scale": lm_scale, "lm_ngram_file": ngram_language_model, "ctc_decoder_opts": ctc_decoder_opts})
 
+    # Use functools.partial to bind orig_ctc_model_def.
+    # Need to make it a proper ModelDef.
+    # noinspection PyTypeChecker
+    ctc_model_ext_def_: ModelDef = functools.partial(ctc_model_ext_def, orig_ctc_model_def=ctc_model_def_)
+    # Make it a proper ModelDef
+    ctc_model_ext_def_.behavior_version = max(ctc_model_ext_def.behavior_version, ctc_model_def_.behavior_version)
+    ctc_model_ext_def_.backend = ctc_model_def_.backend
+    ctc_model_ext_def_.batch_size_factor = ctc_model_def_.batch_size_factor
+    # Need new recog serialization for the partial.
+    config["__serialization_version"] = max(2, config.get("__serialization_version", 0))
+
     return ModelWithCheckpoint(
-        definition=ModelDefWithCfg(model_def=ctc_model_ext_def, config=config),
+        definition=ModelDefWithCfg(model_def=ctc_model_ext_def_, config=config),
         checkpoint=ctc_model.checkpoint,
     )
 
