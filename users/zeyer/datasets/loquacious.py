@@ -355,7 +355,7 @@ def get_loquacious_task_raw_v2(
 def get_loquacious_train_subset_dataset(
     *, vocab: str, num_seqs: int = 100_000, multi_proc: int = 2
 ) -> DatasetConfigStatic:
-    hf_data_dir = get_loquacious_hf_ogg(name="train")
+    hf_data_dir = get_loquacious_hf_ogg(name="large")
     multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
     vocab_: VocabConfig = get_vocab_by_str(vocab)
 
