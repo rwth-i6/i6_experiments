@@ -6,9 +6,6 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Typ
 import torch
 from torch import Tensor, nn
 
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.recognition.aed import EncoderDecoderModel
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.recognition.torchaudio_ctc import CtcModel
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.training.aed_ctc_train_step import AedCtcModel
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import (
     ConformerConvolutionV2Config,
     ConformerMHSARelPosV1,
@@ -31,10 +28,17 @@ from i6_models.parts.decoder import CrossAttentionV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.masked_norm import MaskedBatchNorm1dV1
 from i6_models.primitives.feature_extraction import (
+    LogMelFeatureExtractionV1,
+    LogMelFeatureExtractionV1Config,
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from i6_models.primitives.specaugment import specaugment_v1_by_length
+
+from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognition.aed import EncoderDecoderModel
+from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognition.torchaudio_ctc import CtcModel
+from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.training.aed_ctc_train_step import AedCtcModel
+
 
 
 def _relu_sq(x):

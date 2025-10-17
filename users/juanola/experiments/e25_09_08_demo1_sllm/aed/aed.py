@@ -65,7 +65,7 @@ def aed_baseline():
     # Build network, train, eval, report for each configuration in model_configs
     for model_config, model_alias in [
         # (copy.deepcopy(model_configs.v1), "v1"),  # did not converge
-        (copy.deepcopy(model_configs.v2), "v2"),
+        #(copy.deepcopy(model_configs.v2), "v2"),
         (copy.deepcopy(model_configs.v3), "v3"),
     ]:
         # MODEL TRAINING

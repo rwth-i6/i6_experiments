@@ -1,4 +1,4 @@
-from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.extra_code.optimizer import \
+from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.aed.optimizer import \
     conformer_aed_weight_decay_blacklist_v2
 
 v1 = {
