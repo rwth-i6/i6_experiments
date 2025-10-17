@@ -396,19 +396,13 @@ def py():
 
     for subset, total_k_hours in [("small", 25), ("large", 100)]:
         name, am = ams[(subset, total_k_hours)]
-        for prior_dataset_num_seqs in [0, 100_000]:
-            ctc_recog_ngram_lm_framewise_prior_auto_scale(
-                prefix=f"{prefix}/aed/{name}/ctc+lm/4gram"
-                + (f"-prior{prior_dataset_num_seqs}" if prior_dataset_num_seqs else ""),
-                task=task_spm10k,
-                ctc_model=am,
-                extra_config={"aux_loss_layers": [16]},
-                framewise_prior_dataset=get_loquacious_train_subset_dataset(
-                    vocab="spm10k", num_seqs=prior_dataset_num_seqs
-                )
-                if prior_dataset_num_seqs
-                else None,
-                ngram_language_model=_public_4gram_lm,
-                lm_word_list=_public_vocab_word_list,
-                ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
-            )
+        ctc_recog_ngram_lm_framewise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm/4gram",
+            task=task_spm10k,
+            ctc_model=am,
+            extra_config={"aux_loss_layers": [16]},
+            framewise_prior_dataset=get_loquacious_train_subset_dataset(vocab="spm10k"),
+            ngram_language_model=_public_4gram_lm,
+            lm_word_list=_public_vocab_word_list,
+            ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
+        )
