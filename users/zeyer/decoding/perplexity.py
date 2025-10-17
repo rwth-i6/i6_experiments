@@ -113,7 +113,6 @@ def get_ngram_perplexity(
 
     :param ref: The format is: {"<seq_tag>": "<text>", ...}.
     :param lm: language model
-    :param vocab: labels (line-based, maybe gzipped)
     :param rescore_rqmt:
     :param label_post_process_funcs:
     :return: perplexity
