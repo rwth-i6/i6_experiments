@@ -73,6 +73,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     if framewise_prior is NotSpecified:
         framewise_prior = get_ctc_prior(
             ctc_model=ctc_model,
+            extra_config=extra_config,
             task=task,
             framewise_prior_dataset=framewise_prior_dataset or task.dev_dataset,
             blank_label=blank_label,
