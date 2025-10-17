@@ -33,7 +33,7 @@ However, to keep it generic, we don't do this here.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict
+from typing import TYPE_CHECKING, Optional, Union, Any, Literal, Callable, Dict, List
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedBase
@@ -42,6 +42,7 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 from .rescoring import combine_scores, rescore
 from .prior_rescoring import prior_score, Prior
+from .concat_hyps import ReplaceHypsJob
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -290,6 +291,10 @@ def ngram_lm_framewise_prior_rescore(
     raw_res_labels: RecogOutput,
     orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     ngram_language_model: tk.Path,
+    lm_label_level: Literal["word", "task"] = "word",
+    labels_to_words: Union[
+        None, List[Callable[[RecogOutput], RecogOutput]], Callable[[RecogOutput], RecogOutput]
+    ] = None,
     lm_scale: Union[float, tk.Variable, DelayedBase],
     prior: Optional[Prior] = None,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
@@ -306,17 +311,42 @@ def ngram_lm_framewise_prior_rescore(
     :param raw_res_labels:
     :param orig_scale: scale for the original scores
     :param ngram_language_model: language model
+    :param lm_label_level: "word" or "task"
+    :param labels_to_words: function to convert the labels to words (only needed if lm_label_level=="word")
     :param lm_scale: scale for the LM scores
     :param prior:
     :param prior_scale: scale for the prior scores. this is used as the negative weight
-    :param search_labels_to_labels: function to convert the search labels to the labels
+    :param search_labels_to_labels: function to convert the search labels to the labels.
+        (search labels are potentially with blanks, labels are without blanks;
+         but labels are usually still on subword level)
     """
     dataset  # noqa  # unused here
-    res_labels_lm_scores = ngram_score_v2(raw_res_labels, lm=ngram_language_model)
+    if lm_label_level == "word":
+        assert labels_to_words is not None
+        if isinstance(labels_to_words, list):
+            lm_labels = raw_res_labels
+            for f in labels_to_words:
+                lm_labels = f(lm_labels)
+        else:
+            assert callable(labels_to_words)
+            lm_labels = labels_to_words(raw_res_labels)
+    elif lm_label_level == "task":
+        lm_labels = raw_res_labels
+    else:
+        raise ValueError(f"invalid lm_label_level: {lm_label_level!r}")
+    res_labels_lm_scores = ngram_score_v2(lm_labels, lm=ngram_language_model)
+    if lm_label_level == "word":
+        # Need to have consistent hyps for combine_scores
+        res_labels_lm_scores = RecogOutput(
+            output=ReplaceHypsJob(
+                res_labels_lm_scores.output, new_hyps_py_output=raw_res_labels.output
+            ).out_search_results
+        )
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         assert search_labels_to_labels
         res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
+        # Need to have consistent hyps for combine_scores
         res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
         scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:

@@ -3,7 +3,7 @@ TorchAudio (internally using Flashlight) for CTC with ngram LM
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Tuple, List, Dict
+from typing import Optional, Any, Literal, Tuple, List, Dict
 import functools
 
 from sisyphus import tk
@@ -33,6 +33,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     framewise_prior: Prior = NotSpecified,
     framewise_prior_dataset: Optional[DatasetConfig] = None,
     ngram_language_model: tk.Path,
+    lm_label_level: Literal["word", "task"] = "word",
     lm_word_list: Optional[tk.Path] = None,
     n_best_list_size: int = 64,
     ctc_decoder_opts: Dict[str, Any],
@@ -59,6 +60,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
 
     ctc_decoder_opts = ctc_decoder_opts.copy()
     if "lexicon" not in ctc_decoder_opts:
+        assert lm_label_level == "word"  # not implemented yet otherwise...
         assert lm_word_list is not None, "lm_word_list must be given if no lexicon is given"
         ctc_decoder_opts["lexicon"] = get_lexicon_from_task(task, lm_word_list=lm_word_list)
 
@@ -118,6 +120,8 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         prior_scores = f(prior_scores)
         ref = f(ref)
 
+    assert lm_label_level == "word"  # not implemented yet otherwise...
+    # Compute LM scores on the N-best list on word-level.
     lm_scores = ngram_score_v2(asr_scores, lm=ngram_language_model)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
@@ -151,6 +155,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
                 prior=framewise_prior,
                 prior_scale=prior_scale,
                 ngram_language_model=ngram_language_model,
+                lm_label_level=lm_label_level,
                 lm_scale=lm_scale,
             )
         ],
