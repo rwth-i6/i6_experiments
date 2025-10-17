@@ -398,5 +398,9 @@ def py():
         extra_config={"aux_loss_layers": [16]},
         ngram_language_model=_public_4gram_lm,
         lm_word_list=_public_vocab_word_list,
-        ctc_decoder_opts={},  # TODO good settings?
+        ctc_decoder_opts={
+            # "beam_size": 1024,
+            # "beam_size_token": 16,
+            # "beam_threshold": 14,
+        },  # TODO good settings?
     )
