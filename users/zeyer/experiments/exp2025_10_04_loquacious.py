@@ -430,6 +430,9 @@ def py():
                     lm_scale=lm_scale,
                     ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
                 )
+                prefix_ = (
+                    f"{prefix}/aed/{name}/ctc+lm/4gram-fixedScales/recog-1stpass-res-lm{lm_scale}-prior{prior_scale}"
+                )
                 res = recog_model(
                     task=task_spm10k,
                     model=model,
@@ -441,9 +444,6 @@ def py():
                         "batch_size": int(20_000 * am.definition.batch_size_factor),
                     },
                     search_rqmt={"time": 24, "mem": 32},
-                    name=f"{prefix}/recog-opt-1stpass",
+                    name=prefix_,
                 )
-                tk.register_output(
-                    f"{prefix}/aed/{name}/ctc+lm/4gram-fixedScales/recog-1stpass-res-lm{lm_scale}-prior{prior_scale}.txt",
-                    res.output,
-                )
+                tk.register_output(prefix_ + ".txt", res.output)
