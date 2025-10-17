@@ -278,7 +278,9 @@ def model_recog_torchaudio(
         # These are also additional frames which don't correspond to the input frames?
         # When removing those two frames, the len of tokens (align labels) matches the emission frames
         # (as it should be).
-        assert all(result.tokens[0] == -1 and result.tokens[-1] == -1 for result in results)
+        assert all(all(result.tokens[i] in {-1, model.blank_idx} for i in [0, -1]) for result in results), [
+            (result.tokens[0], result.tokens[-1]) for result in results
+        ]
         hyps_per_batch = [result.tokens[1:-1] for result in results]
         scores_per_batch = [result.score for result in results]
         print(
