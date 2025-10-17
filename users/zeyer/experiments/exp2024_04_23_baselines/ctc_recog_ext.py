@@ -5,7 +5,7 @@ CTC recognition with LM
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Dict
+from typing import Optional, Union, Any, Tuple, Dict
 import functools
 import numpy as np
 
@@ -21,6 +21,7 @@ from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
 from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_w_blank_file_from_task
 from i6_experiments.users.zeyer.decoding.rescoring import rescore, RescoreDef
+from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq, RecogOutput
@@ -28,9 +29,6 @@ from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_stati
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
-
-if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
 
 
 _ctc_model_name = (
