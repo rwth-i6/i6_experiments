@@ -273,7 +273,7 @@ def model_recog_torchaudio(
         emissions_ptr = label_log_prob_raw.data_ptr() + float_bytes * batch_idx * label_log_prob_raw.stride(0)
         seq_len = enc_spatial_dim.dyn_size[batch_idx]
         assert seq_len <= max_seq_len
-        results = decoder(emissions_ptr, seq_len, model.wb_target_dim.dimension)
+        results = decoder.decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
         # I get -1 (silence label?) at the beginning and end in the tokens? Filter those away.
         # These are also additional frames which don't correspond to the input frames?
         # When removing those two frames, the len of tokens (align labels) matches the emission frames
