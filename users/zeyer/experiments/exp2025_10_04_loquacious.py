@@ -215,6 +215,7 @@ def py():
     train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
     selected_asr = None
+    ams = {}
     for subset, total_k_hours in [
         ("clean", 4 * 13),  # 52kh in total, 4 full epochs
         ("clean", 100),  # 100kh in total, 7.7 full epochs
@@ -298,6 +299,7 @@ def py():
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
+        ams[(subset, total_k_hours)] = (name, exp.get_last_fixed_epoch())
         aed_ctc_timesync_recog_recomb_auto_scale(
             prefix=prefix + "/aed/" + name + "/aed+ctc",
             task=task_spm10k,
@@ -391,16 +393,14 @@ def py():
     for eval_set_name, ppl in perplexities_4gram.items():
         tk.register_output(f"{prefix}/lm/4gram/ppl/{eval_set_name}", ppl)
 
-    ctc_recog_ngram_lm_framewise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{selected_asr[0]}/aed+ctc+lm/4gram",
-        task=task_spm10k,
-        ctc_model=selected_asr[1],
-        extra_config={"aux_loss_layers": [16]},
-        ngram_language_model=_public_4gram_lm,
-        lm_word_list=_public_vocab_word_list,
-        ctc_decoder_opts={
-            "beam_size": 1024,
-            "beam_size_token": 16,
-            "beam_threshold": 14,
-        },  # TODO good settings?
-    )
+    for subset, total_k_hours in [("small", 25), ("large", 100)]:
+        name, am = ams[(subset, total_k_hours)]
+        ctc_recog_ngram_lm_framewise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm/4gram",
+            task=task_spm10k,
+            ctc_model=am,
+            extra_config={"aux_loss_layers": [16]},
+            ngram_language_model=_public_4gram_lm,
+            lm_word_list=_public_vocab_word_list,
+            ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
+        )
