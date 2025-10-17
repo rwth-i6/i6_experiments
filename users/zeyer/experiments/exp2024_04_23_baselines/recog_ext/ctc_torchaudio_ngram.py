@@ -103,7 +103,6 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     prior_scores = prior_score(asr_scores, prior=framewise_prior)
     asr_scores = ctc_alignment_to_label_seq(asr_scores, blank_label=blank_label)
     prior_scores = ctc_alignment_to_label_seq(prior_scores, blank_label=blank_label)
-    lm_scores = ngram_score_v2(asr_scores, lm=ngram_language_model)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
@@ -117,8 +116,9 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     for f in task.recog_post_proc_funcs:  # BPE to words or so
         asr_scores = f(asr_scores)
         prior_scores = f(prior_scores)
-        lm_scores = f(lm_scores)
         ref = f(ref)
+
+    lm_scores = ngram_score_v2(asr_scores, lm=ngram_language_model)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
