@@ -36,6 +36,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ct
     ctc_recog_ngram_lm_framewise_prior_auto_scale,
     model_recog_torchaudio,
     get_ctc_with_ngram_lm_and_framewise_prior,
+    get_lexicon_from_task,
 )
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
@@ -400,6 +401,7 @@ def py():
     for eval_set_name, ppl in perplexities_4gram.items():
         tk.register_output(f"{prefix}/lm/4gram/ppl/{eval_set_name}", ppl)
 
+    lexicon = get_lexicon_from_task(task_spm10k, lm_word_list=_public_vocab_word_list)
     for subset, total_k_hours in [("small", 25), ("large", 100)]:
         name, am = ams[(subset, total_k_hours)]
         ctc_recog_ngram_lm_framewise_prior_auto_scale(
@@ -428,7 +430,12 @@ def py():
                     prior_scale=prior_scale,
                     ngram_language_model=_public_4gram_lm,
                     lm_scale=lm_scale,
-                    ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
+                    ctc_decoder_opts={
+                        "lexicon": lexicon,
+                        "beam_size": 1024,
+                        "beam_size_token": 16,
+                        "beam_threshold": 14,
+                    },
                 )
                 prefix_ = (
                     f"{prefix}/aed/{name}/ctc+lm/4gram-fixedScales/recog-1stpass-res-lm{lm_scale}-prior{prior_scale}"

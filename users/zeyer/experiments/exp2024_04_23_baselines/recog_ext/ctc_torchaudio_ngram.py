@@ -55,9 +55,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     ctc_decoder_opts = ctc_decoder_opts.copy()
     if "lexicon" not in ctc_decoder_opts:
         assert lm_word_list is not None, "lm_word_list must be given if no lexicon is given"
-        ctc_decoder_opts["lexicon"] = ExtractLineBasedLexiconJob(
-            vocab_opts=get_vocab_opts_from_task(task), word_list=lm_word_list
-        ).out_lexicon
+        ctc_decoder_opts["lexicon"] = get_lexicon_from_task(task, lm_word_list=lm_word_list)
 
     base_base_config = {
         "behavior_version": 24,  # should make it independent from batch size
@@ -174,6 +172,10 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
     return res
+
+
+def get_lexicon_from_task(task: Task, *, lm_word_list: tk.Path) -> tk.Path:
+    return ExtractLineBasedLexiconJob(vocab_opts=get_vocab_opts_from_task(task), word_list=lm_word_list).out_lexicon
 
 
 def model_recog_torchaudio(
