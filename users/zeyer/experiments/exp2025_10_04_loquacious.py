@@ -36,6 +36,7 @@ from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw,
     get_loquacious_task_raw_v2,
     get_loquacious_text_only_dataset,
+    get_loquacious_train_subset_dataset,
 )
 
 import returnn.frontend as rf
@@ -400,6 +401,7 @@ def py():
             task=task_spm10k,
             ctc_model=am,
             extra_config={"aux_loss_layers": [16]},
+            framewise_prior_dataset=get_loquacious_train_subset_dataset(vocab="spm10k"),
             ngram_language_model=_public_4gram_lm,
             lm_word_list=_public_vocab_word_list,
             ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},

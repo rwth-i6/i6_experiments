@@ -10,7 +10,7 @@ from sisyphus import tk
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, RecogDef
-from i6_experiments.users.zeyer.datasets.task import Task
+from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
 from i6_experiments.users.zeyer.decoding.lm_rescoring import ngram_lm_framewise_prior_rescore, ngram_score_v2
@@ -36,6 +36,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     task: Task,
     ctc_model: ModelWithCheckpoint,
     framewise_prior: Prior = NotSpecified,
+    framewise_prior_dataset: Optional[DatasetConfig] = None,
     ngram_language_model: tk.Path,
     lm_word_list: Optional[tk.Path] = None,
     n_best_list_size: int = 64,
@@ -67,7 +68,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     if framewise_prior is NotSpecified:
         prior = get_ctc_prior_probs(
             ctc_model,
-            task.dev_dataset,  # TODO is this ok?
+            framewise_prior_dataset or task.dev_dataset,  # TODO is this ok?
             config={
                 **base_base_config,
                 "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
