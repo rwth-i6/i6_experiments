@@ -1056,22 +1056,16 @@ def get_ctc_prior(
 
         blank_idx = _ctc_model_def_blank_idx
 
-    base_base_config = {
+    config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+        "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
+        "max_seqs": 2000,
     }
     if extra_config:
-        base_base_config = dict_update_deep(base_base_config, extra_config)
+        config = dict_update_deep(config, extra_config)
 
-    prior = get_ctc_prior_probs(
-        ctc_model,
-        framewise_prior_dataset,
-        config={
-            **base_base_config,
-            "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
-            "max_seqs": 2000,
-        },
-    )
+    prior = get_ctc_prior_probs(ctc_model, framewise_prior_dataset, config=config)
 
     if vocab_w_blank_file is None:
         assert task
