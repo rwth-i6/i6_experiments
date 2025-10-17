@@ -15,16 +15,10 @@ from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollect
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
 from i6_experiments.users.zeyer.decoding.lm_rescoring import ngram_lm_framewise_prior_rescore, ngram_score_v2
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior
-from i6_experiments.users.zeyer.datasets.utils.vocab import (
-    ExtractVocabLabelsJob,
-    ExtendVocabLabelsByNewLabelJob,
-    ExtractLineBasedLexiconJob,
-    get_vocab_opts_from_task,
-)
+from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractLineBasedLexiconJob, get_vocab_opts_from_task
 
-from ..ctc import Model, _ctc_model_def_blank_idx
-from .ctc import model_recog as model_recog_ctc_only
-from ..ctc_recog_ext import get_ctc_with_ngram_lm_and_framewise_prior, get_ctc_prior_probs
+from ..ctc import Model
+from ..ctc_recog_ext import get_ctc_with_ngram_lm_and_framewise_prior, get_ctc_prior
 
 from returnn.util.basic import NotSpecified
 from returnn.tensor import Tensor, Dim, batch_dim
@@ -43,6 +37,8 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     n_best_list_size: int = 64,
     ctc_decoder_opts: Dict[str, Any],
     extra_config: Optional[Dict[str, Any]] = None,
+    blank_label: Optional[str] = None,
+    blank_idx: Optional[int] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -51,55 +47,61 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog``) with those scales.
     """
+    if blank_label is None:
+        from ..ctc import model_recog as model_recog_ctc_only
+
+        blank_label = model_recog_ctc_only.output_blank_label
+
+    if blank_idx is None:
+        from ..ctc import _ctc_model_def_blank_idx
+
+        blank_idx = _ctc_model_def_blank_idx
 
     ctc_decoder_opts = ctc_decoder_opts.copy()
     if "lexicon" not in ctc_decoder_opts:
         assert lm_word_list is not None, "lm_word_list must be given if no lexicon is given"
         ctc_decoder_opts["lexicon"] = get_lexicon_from_task(task, lm_word_list=lm_word_list)
 
-    base_base_config = {
+    config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+        "batch_size": int(20_000 * ctc_model.definition.batch_size_factor),
     }
     if extra_config:
-        base_base_config = dict_update_deep(base_base_config, extra_config)
+        config = dict_update_deep(config, extra_config)
 
     if framewise_prior is NotSpecified:
-        prior = get_ctc_prior_probs(
-            ctc_model,
-            framewise_prior_dataset or task.dev_dataset,  # TODO is this ok?
-            config={
-                **base_base_config,
-                "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
-                "max_seqs": 2000,
-            },
+        framewise_prior = get_ctc_prior(
+            ctc_model=ctc_model,
+            task=task,
+            framewise_prior_dataset=framewise_prior_dataset or task.dev_dataset,
+            blank_label=blank_label,
+            blank_idx=blank_idx,
         )
-        prior.creator.add_alias(f"{prefix}/prior")
-        tk.register_output(f"{prefix}/prior.txt", prior)
+        framewise_prior.file.creator.add_alias(f"{prefix}/framewise-prior")
+        tk.register_output(f"{prefix}/framewise-prior.txt", framewise_prior.file)
 
-        vocab_file = ExtractVocabLabelsJob(get_vocab_opts_from_task(task)).out_vocab
-        tk.register_output(f"{prefix}/vocab.txt.gz", vocab_file)
-        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
-            vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
-        ).out_vocab
-        tk.register_output(f"{prefix}/vocab_with_blank.txt.gz", vocab_file)
-
-        framewise_prior = Prior(file=prior, type="prob", vocab=vocab_w_blank_file)
+    ctc_decoder_opts_no_lm = ctc_decoder_opts.copy()
+    ctc_decoder_opts_no_lm["nbest"] = n_best_list_size
+    ctc_decoder_opts_no_lm["beam_size"] = max(n_best_list_size, ctc_decoder_opts_no_lm.get("beam_size", 50))
+    model_no_lm = get_ctc_with_ngram_lm_and_framewise_prior(
+        ctc_model=ctc_model, lm_scale=0, ctc_decoder_opts=ctc_decoder_opts_no_lm
+    )
 
     # see recog_model, lm_labelwise_prior_rescore
     dataset = task.dev_dataset
     asr_scores = search_dataset(
         dataset=dataset,
-        model=ctc_model,
-        recog_def=model_recog_ctc_only,
-        config={**base_base_config, "recog_version": 9, "beam_size": n_best_list_size},
+        model=model_no_lm,
+        recog_def=model_recog_torchaudio,
+        config=config,
+        search_rqmt={"time": 3, "mem": 12},
         keep_alignment_frames=True,
         keep_beam=True,
     )
     prior_scores = prior_score(asr_scores, prior=framewise_prior)
-    if model_recog_ctc_only.output_blank_label:
-        asr_scores = ctc_alignment_to_label_seq(asr_scores, blank_label=model_recog_ctc_only.output_blank_label)
-        prior_scores = ctc_alignment_to_label_seq(prior_scores, blank_label=model_recog_ctc_only.output_blank_label)
+    asr_scores = ctc_alignment_to_label_seq(asr_scores, blank_label=blank_label)
+    prior_scores = ctc_alignment_to_label_seq(prior_scores, blank_label=blank_label)
     lm_scores = ngram_score_v2(asr_scores, lm=ngram_language_model)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
@@ -138,9 +140,10 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
     res = recog_model(
         task=task,
-        model=ctc_model,
-        recog_def=model_recog_ctc_only,
-        config={**base_base_config, "recog_version": 9, "beam_size": n_best_list_size},
+        model=model_no_lm,
+        recog_def=model_recog_torchaudio,
+        config=config,
+        search_rqmt={"time": 3, "mem": 12},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 ngram_lm_framewise_prior_rescore,
@@ -153,7 +156,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/rescore-res.txt", res.output)
 
-    model = get_ctc_with_ngram_lm_and_framewise_prior(
+    model_with_lm = get_ctc_with_ngram_lm_and_framewise_prior(
         ctc_model=ctc_model,
         prior=framewise_prior.file,
         prior_type=framewise_prior.type,
@@ -164,9 +167,9 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     )
     res = recog_model(
         task=task,
-        model=model,
+        model=model_with_lm,
         recog_def=model_recog_torchaudio,
-        config={**base_base_config, "batch_size": int(20_000 * ctc_model.definition.batch_size_factor)},
+        config=config,
         search_rqmt={"time": 24, "mem": 32},
         name=f"{prefix}/recog-opt-1stpass",
     )

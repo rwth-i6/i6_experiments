@@ -839,7 +839,7 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
     prior: Optional[tk.Path] = None,
     prior_type: str = "prob",
     prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
-    ngram_language_model: tk.Path,
+    ngram_language_model: Optional[tk.Path] = None,
     lm_scale: Union[float, tk.Variable],
     ctc_decoder_opts: Dict[str, Any],  # for torchaudio.models.decoder.ctc_decoder, lexicon, nbest, beam_size, etc.
 ) -> ModelWithCheckpoint:
@@ -866,6 +866,9 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
         )
 
     # Add LM.
+    if lm_scale:
+        assert ngram_language_model is not None
+    assert isinstance(ctc_decoder_opts, dict)
     config.update({"lm_scale": lm_scale, "lm_ngram_file": ngram_language_model, "ctc_decoder_opts": ctc_decoder_opts})
 
     # Use functools.partial to bind orig_ctc_model_def.
@@ -900,14 +903,13 @@ def ctc_model_ext_def(
 
     lm_scale = config.typed_value("lm_scale", None)
     assert isinstance(lm_scale, (int, float))
+    model.lm_scale = lm_scale
     lm_model_def_dict = config.typed_value("_lm_model_def_dict", None)
     lm_ngram_file = config.typed_value("lm_ngram_file", None)
+    ctc_decoder_opts = config.typed_value("ctc_decoder_opts", None)
     if lm_model_def_dict:
-        lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
-        model.lm = lm
-        model.lm_scale = lm_scale
-    elif lm_ngram_file:
-        ctc_decoder_opts = config.typed_value("ctc_decoder_opts", None)
+        model.lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
+    elif lm_ngram_file or ctc_decoder_opts is not None:
         assert isinstance(ctc_decoder_opts, dict)  # e.g. lexicon, nbest, beam_size, etc, see below
 
         from torchaudio.models.decoder import ctc_decoder
@@ -1041,8 +1043,18 @@ def get_ctc_prior(
     framewise_prior_dataset: DatasetConfig,
     vocab_w_blank_file: Optional[tk.Path] = None,
     task: Optional[Task] = None,
+    blank_label: Optional[str] = None,
+    blank_idx: Optional[int] = None,
 ) -> Prior:
-    from .ctc import model_recog as model_recog_ctc_only, _ctc_model_def_blank_idx
+    if blank_label is None:
+        from .ctc import model_recog as model_recog_ctc_only
+
+        blank_label = model_recog_ctc_only.output_blank_label
+
+    if blank_idx is None:
+        from .ctc import _ctc_model_def_blank_idx
+
+        blank_idx = _ctc_model_def_blank_idx
 
     base_base_config = {
         "behavior_version": 24,  # should make it independent from batch size
@@ -1063,9 +1075,7 @@ def get_ctc_prior(
 
     if vocab_w_blank_file is None:
         assert task
-        vocab_w_blank_file = get_vocab_w_blank_file_from_task(
-            task, blank_label=model_recog_ctc_only.output_blank_label, blank_idx=_ctc_model_def_blank_idx
-        )
+        vocab_w_blank_file = get_vocab_w_blank_file_from_task(task, blank_label=blank_label, blank_idx=blank_idx)
 
     return Prior(file=prior, type="prob", vocab=vocab_w_blank_file)
 
