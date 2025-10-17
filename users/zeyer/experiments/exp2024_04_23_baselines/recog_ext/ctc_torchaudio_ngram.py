@@ -167,7 +167,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         model=model,
         recog_def=model_recog_torchaudio,
         config={**base_base_config, "batch_size": int(20_000 * ctc_model.definition.batch_size_factor)},
-        search_rqmt={"time": 24},
+        search_rqmt={"time": 24, "mem": 32},
         name=f"{prefix}/recog-opt-1stpass",
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
