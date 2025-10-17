@@ -156,6 +156,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
                 prior_scale=prior_scale,
                 ngram_language_model=ngram_language_model,
                 lm_label_level=lm_label_level,
+                labels_to_words=task.recog_post_proc_funcs,
                 lm_scale=lm_scale,
             )
         ],
