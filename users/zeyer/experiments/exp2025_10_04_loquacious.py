@@ -16,6 +16,9 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
     _get_cfg_lrlin_oclr_by_bs_nep_v4,
     _batch_size_factor,
 )
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+    get_ctc_prior,
+)
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
     aed_ctc_timesync_recog_recomb_auto_scale,
 )
@@ -28,8 +31,11 @@ from i6_experiments.users.zeyer.decoding.perplexity import (
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
+from i6_experiments.users.zeyer.recog import recog_model
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_torchaudio_ngram import (
     ctc_recog_ngram_lm_framewise_prior_auto_scale,
+    model_recog_torchaudio,
+    get_ctc_with_ngram_lm_and_framewise_prior,
 )
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
@@ -406,3 +412,38 @@ def py():
             lm_word_list=_public_vocab_word_list,
             ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
         )
+
+        if subset == "small":
+            framewise_prior = get_ctc_prior(
+                ctc_model=am,
+                extra_config={"aux_loss_layers": [16]},
+                task=task_spm10k,
+                framewise_prior_dataset=get_loquacious_train_subset_dataset(vocab="spm10k"),
+            )
+            for lm_scale, prior_scale in [(1.0, 0.1), (1.0, 0.5), (1.0, 1.0), (0.5, 0.25), (2.0, 1.0)]:
+                model = get_ctc_with_ngram_lm_and_framewise_prior(
+                    ctc_model=am,
+                    prior=framewise_prior.file,
+                    prior_type=framewise_prior.type,
+                    prior_scale=prior_scale,
+                    ngram_language_model=_public_4gram_lm,
+                    lm_scale=lm_scale,
+                    ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
+                )
+                res = recog_model(
+                    task=task_spm10k,
+                    model=model,
+                    recog_def=model_recog_torchaudio,
+                    config={
+                        "behavior_version": 24,  # should make it independent from batch size
+                        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+                        "aux_loss_layers": [16],
+                        "batch_size": int(20_000 * am.definition.batch_size_factor),
+                    },
+                    search_rqmt={"time": 24, "mem": 32},
+                    name=f"{prefix}/recog-opt-1stpass",
+                )
+                tk.register_output(
+                    f"{prefix}/aed/{name}/ctc+lm/4gram-fixedScales/recog-1stpass-res-lm{lm_scale}-prior{prior_scale}.txt",
+                    res.output,
+                )

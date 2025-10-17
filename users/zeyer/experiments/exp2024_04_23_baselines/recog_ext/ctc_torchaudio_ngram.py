@@ -19,6 +19,7 @@ from i6_experiments.users.zeyer.datasets.utils.vocab import (
     ExtractVocabLabelsJob,
     ExtendVocabLabelsByNewLabelJob,
     ExtractLineBasedLexiconJob,
+    get_vocab_opts_from_task,
 )
 
 from ..ctc import Model, _ctc_model_def_blank_idx
@@ -55,7 +56,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     if "lexicon" not in ctc_decoder_opts:
         assert lm_word_list is not None, "lm_word_list must be given if no lexicon is given"
         ctc_decoder_opts["lexicon"] = ExtractLineBasedLexiconJob(
-            vocab_opts=_get_vocab_opts_from_task(task), word_list=lm_word_list
+            vocab_opts=get_vocab_opts_from_task(task), word_list=lm_word_list
         ).out_lexicon
 
     base_base_config = {
@@ -78,7 +79,7 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
         prior.creator.add_alias(f"{prefix}/prior")
         tk.register_output(f"{prefix}/prior.txt", prior)
 
-        vocab_file = ExtractVocabLabelsJob(_get_vocab_opts_from_task(task)).out_vocab
+        vocab_file = ExtractVocabLabelsJob(get_vocab_opts_from_task(task)).out_vocab
         tk.register_output(f"{prefix}/vocab.txt.gz", vocab_file)
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
             vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
@@ -173,13 +174,6 @@ def ctc_recog_ngram_lm_framewise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
     return res
-
-
-def _get_vocab_opts_from_task(task: Task) -> Dict[str, Any]:
-    dataset = task.dev_dataset
-    extern_data_dict = dataset.get_extern_data()
-    target_dict = extern_data_dict[dataset.get_default_target()]
-    return target_dict["vocab"]
 
 
 def model_recog_torchaudio(

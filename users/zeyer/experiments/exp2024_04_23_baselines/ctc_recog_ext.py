@@ -19,8 +19,10 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
+from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_w_blank_file_from_task
 from i6_experiments.users.zeyer.decoding.rescoring import rescore, RescoreDef
 
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq, RecogOutput
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
@@ -1032,6 +1034,42 @@ model_recog_flashlight: RecogDef[Model]
 model_recog_flashlight.output_with_beam = True
 model_recog_flashlight.output_blank_label = "<blank>"
 model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
+
+def get_ctc_prior(
+    *,
+    ctc_model: ModelWithCheckpoint,
+    extra_config: Optional[Dict[str, Any]] = None,
+    framewise_prior_dataset: DatasetConfig,
+    vocab_w_blank_file: Optional[tk.Path] = None,
+    task: Optional[Task] = None,
+) -> Prior:
+    from .ctc import model_recog as model_recog_ctc_only, _ctc_model_def_blank_idx
+
+    base_base_config = {
+        "behavior_version": 24,  # should make it independent from batch size
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+    }
+    if extra_config:
+        base_base_config = dict_update_deep(base_base_config, extra_config)
+
+    prior = get_ctc_prior_probs(
+        ctc_model,
+        framewise_prior_dataset,
+        config={
+            **base_base_config,
+            "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
+            "max_seqs": 2000,
+        },
+    )
+
+    if vocab_w_blank_file is None:
+        assert task
+        vocab_w_blank_file = get_vocab_w_blank_file_from_task(
+            task, blank_label=model_recog_ctc_only.output_blank_label, blank_idx=_ctc_model_def_blank_idx
+        )
+
+    return Prior(file=prior, type="prob", vocab=vocab_w_blank_file)
 
 
 def get_ctc_prior_probs(

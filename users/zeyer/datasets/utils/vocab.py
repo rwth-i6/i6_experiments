@@ -7,6 +7,23 @@ from typing import Optional, Any, Dict
 from sisyphus import Job, Task, tk
 from i6_core import util
 
+from i6_experiments.users.zeyer.datasets.task import Task as DatasetsTask
+
+
+def get_vocab_w_blank_file_from_task(task: DatasetsTask, *, blank_label: str, blank_idx: int) -> tk.Path:
+    vocab_file = ExtractVocabLabelsJob(get_vocab_opts_from_task(task)).out_vocab
+    vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+        vocab=vocab_file, new_label=blank_label, new_label_idx=blank_idx
+    ).out_vocab
+    return vocab_w_blank_file
+
+
+def get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
+    dataset = task.dev_dataset
+    extern_data_dict = dataset.get_extern_data()
+    target_dict = extern_data_dict[dataset.get_default_target()]
+    return target_dict["vocab"]
+
 
 class ExtractVocabLabelsJob(Job):
     """
