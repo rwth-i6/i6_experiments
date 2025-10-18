@@ -422,7 +422,18 @@ def py():
                 task=task_spm10k,
                 framewise_prior_dataset=get_loquacious_train_subset_dataset(vocab="spm10k"),
             )
-            for lm_scale, prior_scale in [(1.0, 0.1), (1.0, 0.5), (1.0, 1.0), (0.5, 0.25), (2.0, 1.0)]:
+            for lm_scale, prior_scale in [
+                (0.5, 0.1),
+                (0.5, 0.25),
+                (0.5, 0.5),
+                (1.0, 0.1),
+                (1.0, 0.5),
+                (1.0, 1.0),
+                (2.0, 0.3),
+                (2.0, 0.5),
+                (2.0, 1.0),
+                (2.0, 1.5),
+            ]:
                 model = get_ctc_with_ngram_lm_and_framewise_prior(
                     ctc_model=am,
                     prior=framewise_prior.file,
