@@ -314,7 +314,7 @@ def py():
             aed_ctc_model=exp.get_last_fixed_epoch(),
             aux_ctc_layer=16,
         )
-        if subset == "large" and total_k_hours == 100:  # for now only this
+        if subset == "large" and total_k_hours == 200:  # for now only this
             selected_asr = (name, exp.get_last_fixed_epoch())
 
     # Language models on train large transcriptions
