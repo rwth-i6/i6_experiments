@@ -402,8 +402,25 @@ def py():
         tk.register_output(f"{prefix}/lm/4gram/ppl/{eval_set_name}", ppl)
 
     lexicon = get_lexicon_from_task(task_spm10k, lm_word_list=_public_vocab_word_list)
-    for subset, total_k_hours in [("small", 25), ("large", 100)]:
+    for subset, total_k_hours in [
+        ("small", 25),
+        ("large", 100),
+        ("large", 150),
+        ("large", 200),
+        ("large", 250),
+        ("large", 500),
+    ]:
         name, am = ams[(subset, total_k_hours)]
+
+        aed_ctc_lm_timesync_recog_recomb_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm/{selected_lm[0]}",
+            task=task_spm10k,
+            aed_ctc_model=am,
+            aed_scale=0.0,
+            aux_ctc_layer=16,
+            lm=selected_lm[1],
+        )
+
         ctc_recog_ngram_lm_framewise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm/4gram",
             task=task_spm10k,
