@@ -549,7 +549,7 @@ def _make_hf_dataset(
 def get_loquacious_text_only_dataset(
     *,
     vocab: str,
-    train_epoch_split: Optional[int] = None,
+    train_epoch_split: Optional[int] = 10,
     train_seq_ordering: str = "laplace:.1000",
     multi_proc: int = 2,
     # dev has 7759. take 5000 just for a nicer number.
