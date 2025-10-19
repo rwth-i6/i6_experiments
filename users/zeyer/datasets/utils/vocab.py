@@ -55,6 +55,10 @@ def update_vocab_opts_in_dataset_dict(
         assert dataset_dict["data_format"][data_key]["vocab"]
         dataset_dict["data_format"][data_key]["vocab"] = new_vocab_opts
         return dataset_dict
+    elif cls_name == "MultiProcDataset":
+        sub_ds_dict = dataset_dict["dataset"]
+        dataset_dict["dataset"] = update_vocab_opts_in_dataset_dict(sub_ds_dict, new_vocab_opts, data_key=data_key)
+        return dataset_dict
     elif cls_name == "DistributeFilesDataset":
         f = dataset_dict["get_sub_epoch_dataset"]
         assert isinstance(f, functools.partial)
