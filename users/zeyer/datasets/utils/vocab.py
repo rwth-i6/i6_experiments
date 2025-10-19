@@ -49,6 +49,12 @@ def update_vocab_opts_in_dataset_dict(
     elif cls_name == "LmDataset":
         dataset_dict["orth_vocab"] = new_vocab_opts
         return dataset_dict
+    elif cls_name == "HuggingFaceDataset":
+        dataset_dict["data_format"] = dataset_dict["data_format"].copy()
+        dataset_dict["data_format"][data_key] = dataset_dict["data_format"][data_key].copy()
+        assert dataset_dict["data_format"][data_key]["vocab"]
+        dataset_dict["data_format"][data_key]["vocab"] = new_vocab_opts
+        return dataset_dict
     elif cls_name == "DistributeFilesDataset":
         f = dataset_dict["get_sub_epoch_dataset"]
         assert isinstance(f, functools.partial)
