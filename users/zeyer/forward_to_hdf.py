@@ -451,7 +451,7 @@ def _returnn_forward_config_v2(
     Create config for collecting stats.
     """
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
-    from returnn.tensor import Tensor, batch_dim
+    from returnn.tensor import Tensor, Dim, batch_dim
 
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
     if not forward_def and not forward_step:
@@ -487,6 +487,16 @@ def _returnn_forward_config_v2(
     model_outputs: Dict[str, Dict[str, Any]] = config["model_outputs"]
     for k, v in model_outputs.items():
         v_ = v.copy()
+        if (
+            v_.get("sparse", False)
+            and v_.get("dim", None) is None
+            and v_.get("sparse_dim", None) is None
+            and v_.get("vocab")
+        ):
+            # Special case. Sparse specified, with vocab which would infer the dim,
+            # but we don't want to load the vocab here.
+            # Workaround:
+            v_["sparse_dim"] = Dim(None, name="unknown_sparse_dim")
         v_.pop("vocab", None)  # not needed here
         out_templ = Tensor(k, **v_)
         assert out_templ.dims and out_templ.dims[0] == batch_dim
