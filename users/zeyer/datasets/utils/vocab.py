@@ -25,6 +25,33 @@ def get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
     return target_dict["vocab"]
 
 
+def get_vocab_opts_from_dataset_dict(dataset_dict: Dict[str, Any], data_key: str = "classes") -> Dict[str, Any]:
+    cls_name = dataset_dict["class"]
+    if cls_name == "OggZipDataset":
+        assert data_key == "classes"
+        return dataset_dict["targets"]
+    elif cls_name == "LmDataset":
+        return dataset_dict["orth_vocab"]
+    else:
+        raise NotImplementedError(f"Cannot get vocab opts from dataset dict of class {cls_name!r} in {dataset_dict}")
+
+
+def update_vocab_opts_in_dataset_dict(
+    dataset_dict: Dict[str, Any], new_vocab_opts: Dict[str, Any], data_key: str = "classes"
+) -> Dict[str, Any]:
+    dataset_dict = dataset_dict.copy()
+    cls_name = dataset_dict["class"]
+    if cls_name == "OggZipDataset":
+        assert data_key == "classes"
+        dataset_dict["targets"] = new_vocab_opts
+        return dataset_dict
+    elif cls_name == "LmDataset":
+        dataset_dict["orth_vocab"] = new_vocab_opts
+        return dataset_dict
+    else:
+        raise NotImplementedError(f"Cannot update vocab opts in dataset dict of class {cls_name!r} in {dataset_dict}")
+
+
 class ExtractVocabLabelsJob(Job):
     """
     Takes any RETURNN vocabulary, and extracts all labels from it.
