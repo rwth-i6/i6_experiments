@@ -3,7 +3,8 @@ Vocab utils
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Tuple
+import functools
 from sisyphus import Job, Task, tk
 from i6_core import util
 
@@ -48,8 +49,34 @@ def update_vocab_opts_in_dataset_dict(
     elif cls_name == "LmDataset":
         dataset_dict["orth_vocab"] = new_vocab_opts
         return dataset_dict
+    elif cls_name == "DistributeFilesDataset":
+        f = dataset_dict["get_sub_epoch_dataset"]
+        assert isinstance(f, functools.partial)
+        new_kwargs = f.keywords.copy()
+        k, sub_ds_dict = _find_relevant_ds_dict_in_arbitrary_kwargs(new_kwargs)
+        new_kwargs[k] = update_vocab_opts_in_dataset_dict(sub_ds_dict, new_vocab_opts, data_key=data_key)
+        dataset_dict["get_sub_epoch_dataset"] = functools.partial(f.func, *f.args, **new_kwargs)
+        return dataset_dict
     else:
-        raise NotImplementedError(f"Cannot update vocab opts in dataset dict of class {cls_name!r} in {dataset_dict}")
+        raise NotImplementedError(
+            f"Cannot update vocab opts in dataset dict of class {cls_name!r}"
+            f" in {dataset_dict} for data key {data_key!r}"
+        )
+
+
+def _find_relevant_ds_dict_in_arbitrary_kwargs(kwargs: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    prev_k = None
+    ds_dict = None
+    for k, v in kwargs.items():
+        if isinstance(v, dict) and "class" in v:
+            assert ds_dict is None, (
+                f"Found multiple dataset dicts in kwargs {kwargs}, prev key {prev_k}, current key {k}"
+            )
+            prev_k = k
+            ds_dict = v
+    if ds_dict:
+        return prev_k, ds_dict
+    raise ValueError(f"Cannot find relevant dataset dict in kwargs {kwargs}")
 
 
 class ExtractVocabLabelsJob(Job):
