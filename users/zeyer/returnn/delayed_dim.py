@@ -4,7 +4,6 @@ e.g. because it depends on a vocab that we don't want to load in the Sis manager
 """
 
 from __future__ import annotations
-from typing import Any, Dict
 from returnn.tensor import Dim
 import functools
 
