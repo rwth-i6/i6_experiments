@@ -42,9 +42,9 @@ def pop_from_config(
     Returns the updated config dict (with key removed) and the merged value.
     """
     if not config:
-        return prev
+        return config, prev
     if key not in config:
-        return prev
+        return config, prev
     config = config.copy()
     value = config.pop(key)
     return config, merge_option(prev, value)
