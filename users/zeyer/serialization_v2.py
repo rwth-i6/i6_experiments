@@ -46,6 +46,7 @@ from typing import Optional, Union, Any, Sequence, Collection, Dict, List, Tuple
 import types
 from types import FunctionType, BuiltinFunctionType, MethodType, ModuleType
 from dataclasses import dataclass
+from contextlib import contextmanager
 import subprocess
 
 from returnn.tensor import Dim, batch_dim, single_step_dim
@@ -71,10 +72,32 @@ def serialize_config(
     )
     for path in extra_sys_paths:
         serializer.add_sys_path(path, recursive=False)
-    serializer.work_queue()
-    if inlining:
-        serializer.work_inlining()
+    with _set_in_serialize_config_ctx():
+        serializer.work_queue()
+        if inlining:
+            serializer.work_inlining()
     return SerializedConfig(code_list=list(serializer.assignments_dict_by_idx.values()))
+
+
+_in_serialize_config_flag = False
+
+
+def in_serialize_config() -> bool:
+    """
+    Whether we are currently inside a serialize_config call.
+    """
+    return _in_serialize_config_flag
+
+
+@contextmanager
+def _set_in_serialize_config_ctx(value: bool = True):
+    global _in_serialize_config_flag
+    old_value = _in_serialize_config_flag
+    _in_serialize_config_flag = value
+    try:
+        yield
+    finally:
+        _in_serialize_config_flag = old_value
 
 
 class SisPathHandling(enum.Enum):
@@ -689,7 +712,7 @@ class _Serializer:
                 raise SerializationError(
                     f"cannot handle {value!r} (type {type(value).__name__}) as global,"
                     f" qualname {qualname} not found,"
-                    f" no {'.'.join(qualname_parts[:i + 1])} in module {mod_name}"
+                    f" no {'.'.join(qualname_parts[: i + 1])} in module {mod_name}"
                 )
             obj.append(getattr(obj[-1], qualname_parts[i]))
         if obj[-1] is not value:
