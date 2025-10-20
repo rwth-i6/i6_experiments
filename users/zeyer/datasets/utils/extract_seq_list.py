@@ -12,12 +12,15 @@ class ExtractSeqListJob(Job):
     Takes any dataset dict, and extracts all seq tags from it.
     """
 
+    __sis_hash_exclude__ = {"gzip_output": False}
+
     def __init__(
         self,
         *,
         returnn_dataset: Dict[str, Any],  # to get all seq tags
         returnn_dataset_ext_non_hashed: Optional[Dict[str, Any]] = None,
         returnn_root: Optional[tk.Path] = None,
+        gzip_output: bool = False,
     ):
         """
         :param returnn_dataset: dict, the dataset dict, as used in RETURNN.
@@ -28,7 +31,7 @@ class ExtractSeqListJob(Job):
         self.returnn_dataset_ext_non_hashed = returnn_dataset_ext_non_hashed
         self.returnn_root = returnn_root
 
-        self.out_seq_list = self.output_path("out_seq_list.txt")
+        self.out_seq_list = self.output_path("out_seq_list.txt" + (".gz" if gzip_output else ""))
 
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
 
