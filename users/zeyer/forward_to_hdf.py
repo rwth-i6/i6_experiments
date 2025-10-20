@@ -23,6 +23,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardRFDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
+from i6_experiments.users.zeyer.returnn.config import pop_from_config_post_config
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
@@ -80,11 +81,12 @@ def forward_to_hdf(
     :return: HDF file path
     """
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
-    env_updates = None
-    if (config and config.get("__env_updates")) or (forward_post_config and forward_post_config.get("__env_updates")):
-        env_updates = (config and config.pop("__env_updates", None)) or (
-            forward_post_config and forward_post_config.pop("__env_updates", None)
-        )
+    config, forward_post_config, env_updates = pop_from_config_post_config(
+        config, forward_post_config, key="__env_updates"
+    )
+    config, forward_post_config, forward_rqmt = pop_from_config_post_config(
+        config, forward_post_config, key="__rqmt_updates", prev=forward_rqmt
+    )
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint.path if model else None,
         returnn_config=(_returnn_forward_config_v2 if _config_v2 else _returnn_forward_config)(
