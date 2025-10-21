@@ -166,6 +166,10 @@ def py():
                     ),
                     num_heads=8,
                 ),
+                chunk_stride=120,
+                chunk_history=2,
+                input_chunk_size_dim=210,
+                end_chunk_size_dim=20,
             ),
             # Default AED decoder size: 6 layers, 512 dim
             "dec_build_dict": rf.build_dict(
