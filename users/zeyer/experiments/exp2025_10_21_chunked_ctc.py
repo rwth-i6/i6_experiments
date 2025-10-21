@@ -619,6 +619,14 @@ def _mem_chunks(
     out_spatial_dim: Optional[Dim] = None,
 ) -> Tuple[Tensor, Dim]:
     """
+    Concat the prev chunks to the current chunk, i.e. add history / memory.
+
+    :param source: (batch..., chunked_time, spatial_dim=chunk_size, feat)
+    :param spatial_dim: chunk size / window size
+    :param chunked_time_dim: the chunks
+    :param mem_size: how many previous chunks to concat
+    :param end_chunk_size_dim: ...?
+    :param out_spatial_dim: if given, use this as output spatial dim
     :return: concatenated prev chunks, concatenated spatial dim
     """
     concats = []
