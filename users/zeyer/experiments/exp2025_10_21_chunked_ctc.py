@@ -408,7 +408,7 @@ class ChunkedConformerEncoder(rf.Module):
     def __init__(
         self,
         in_dim: Dim,
-        out_dim: Dim = Dim(512, name="conformer-enc-default-out-dim"),
+        out_dim: Union[int, Dim] = Dim(512, name="conformer-enc-default-out-dim"),
         *,
         num_layers: int,
         input_layer: Union[ConformerConvSubsample, ISeqDownsamplingEncoder, rf.Module, Any],
@@ -449,15 +449,17 @@ class ChunkedConformerEncoder(rf.Module):
         """
         super().__init__()
 
-        self.in_dim = in_dim
-        self.out_dim = out_dim
-        self.dropout = dropout
-        self.dropout_broadcast = rf.dropout_broadcast_default()
-
+        if isinstance(out_dim, int):
+            out_dim = Dim(out_dim, name="model")
         if isinstance(input_chunk_size_dim, int):
             input_chunk_size_dim = Dim(input_chunk_size_dim, name="input_chunk_size")
         if isinstance(end_chunk_size_dim, int):
             end_chunk_size_dim = Dim(end_chunk_size_dim, name="end_chunk_size")
+
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.dropout = dropout
+        self.dropout_broadcast = rf.dropout_broadcast_default()
 
         self.input_chunk_size_dim = input_chunk_size_dim
         self.chunk_stride = chunk_stride
