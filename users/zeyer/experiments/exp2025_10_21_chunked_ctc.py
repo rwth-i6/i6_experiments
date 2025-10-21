@@ -497,36 +497,36 @@ class ChunkedConformerEncoder(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Dim]:
         """forward"""
-        if self.input_layer:
-            x_subsample, enc_spatial_dim = self.input_layer(source, in_spatial_dim=in_spatial_dim)
-        else:
-            x_subsample, enc_spatial_dim = source, in_spatial_dim
-        x_linear = self.input_projection(x_subsample)
-
         # Chunk
         source, chunked_time_dim = rf.window(
             source,
-            spatial_dim=enc_spatial_dim,
+            spatial_dim=in_spatial_dim,
             window_dim=self.input_chunk_size_dim,
             window_left=0,
             stride=self.chunk_stride,
         )
 
+        if self.input_layer:
+            x_subsample, chunk_size_dim = self.input_layer(source, in_spatial_dim=self.input_chunk_size_dim)
+        else:
+            x_subsample, chunk_size_dim = source, self.input_chunk_size_dim
+        x_linear = self.input_projection(x_subsample)
+
         x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
         x = self.layers(
             x,
-            spatial_dim=self.input_chunk_size_dim,
+            spatial_dim=chunk_size_dim,
             chunked_time_dim=chunked_time_dim,
             collected_outputs=collected_outputs,
         )
 
         # Unchunk
-        x, _ = rf.slice(x, axis=self.input_chunk_size_dim, size=self.end_chunk_size_dim)
+        x, _ = rf.slice(x, axis=chunk_size_dim, size=self.end_chunk_size_dim)
         x, out_spatial_dim_ = rf.merge_dims(x, dims=(chunked_time_dim, self.end_chunk_size_dim))
 
         if collected_outputs:
             for k, v in list(collected_outputs.items()):
-                v, _ = rf.slice(v, axis=self.input_chunk_size_dim, size=self.end_chunk_size_dim)
+                v, _ = rf.slice(v, axis=chunk_size_dim, size=self.end_chunk_size_dim)
                 v, _ = rf.merge_dims(v, dims=(chunked_time_dim, self.end_chunk_size_dim), out_dim=out_spatial_dim_)
                 collected_outputs[k] = v
 
