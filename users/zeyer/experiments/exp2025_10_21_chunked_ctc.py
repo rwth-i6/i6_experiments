@@ -42,6 +42,8 @@ from returnn.frontend.encoder.conformer import (
     ConformerEncoderLayer,
     ConformerConvSubsample,
     ConformerPositionwiseFeedForward,
+    make_ff,
+    make_norm,
 )
 
 __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
@@ -285,8 +287,9 @@ class ChunkedConformerEncoderLayer(rf.Module):
         *,
         chunk_history: int,
         end_chunk_size_dim: Dim,
+        ff: Union[type, Dict[str, Any], rf.Module] = NotSpecified,
         ff_dim: Dim = NotSpecified,
-        ff_activation: Callable[[Tensor], Tensor] = rf.swish,
+        ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
         dropout: float = 0.1,
         conv_kernel_size: int = 32,
         conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
@@ -295,6 +298,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
         self_att: Optional[Union[rf.RelPosSelfAttention, rf.Module, type, Any]] = None,
         self_att_opts: Optional[Dict[str, Any]] = None,
         att_dropout: float = 0.1,
+        norm: Union[type, Dict[str, Any], rf.Module, Callable] = rf.LayerNorm,
     ):
         """
         :param out_dim: the output feature dimension
@@ -323,17 +327,11 @@ class ChunkedConformerEncoderLayer(rf.Module):
         self.chunk_history = chunk_history
         self.end_chunk_size_dim = end_chunk_size_dim
 
-        if ff_dim is None:
-            ff_dim = 4 * out_dim
-        self.ffn1 = ConformerPositionwiseFeedForward(
-            out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, activation=ff_activation
-        )
-        self.ffn1_layer_norm = rf.LayerNorm(out_dim)
+        self.ffn1 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
+        self.ffn1_layer_norm = make_norm(norm, out_dim)
 
-        self.ffn2 = ConformerPositionwiseFeedForward(
-            out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, activation=ff_activation
-        )
-        self.ffn2_layer_norm = rf.LayerNorm(out_dim)
+        self.ffn2 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
+        self.ffn2_layer_norm = make_norm(norm, out_dim)
 
         if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
             conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
@@ -411,16 +409,16 @@ class ChunkedConformerEncoder(rf.Module):
         out_dim: Union[int, Dim] = Dim(512, name="conformer-enc-default-out-dim"),
         *,
         num_layers: int,
-        input_layer: Union[ConformerConvSubsample, ISeqDownsamplingEncoder, rf.Module, Any],
+        input_layer: Optional[Union[ConformerConvSubsample, ISeqDownsamplingEncoder, rf.Module, Any]],
         input_dropout: float = 0.1,
         ff_dim: Dim = NotSpecified,
-        ff_activation: Callable[[Tensor], Tensor] = rf.swish,
+        ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
         dropout: float = 0.1,
         conv_kernel_size: int = 32,
         conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
         num_heads: int = 4,
         att_dropout: float = 0.1,
-        encoder_layer: Optional[Union[ChunkedConformerEncoderLayer, rf.Module, type, Any]] = None,
+        encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
         input_chunk_size_dim: Union[int, Dim],
         chunk_stride: int,
