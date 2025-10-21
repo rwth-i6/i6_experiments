@@ -508,11 +508,16 @@ class ChunkedConformerEncoder(rf.Module):
             chunked_time_dim=chunked_time_dim,
             collected_outputs=collected_outputs,
         )
-        # TODO transform/unchunk collected outputs...
 
         # Unchunk
         x, _ = rf.slice(x, axis=self.input_chunk_size_dim, size=self.end_chunk_size_dim)
         x, out_spatial_dim_ = rf.merge_dims(x, dims=(chunked_time_dim, self.end_chunk_size_dim))
+
+        if collected_outputs:
+            for k, v in list(collected_outputs.items()):
+                v, _ = rf.slice(v, axis=self.input_chunk_size_dim, size=self.end_chunk_size_dim)
+                v, _ = rf.merge_dims(v, dims=(chunked_time_dim, self.end_chunk_size_dim), out_dim=out_spatial_dim_)
+                collected_outputs[k] = v
 
         return x, out_spatial_dim_
 
