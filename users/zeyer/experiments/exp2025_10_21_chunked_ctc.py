@@ -66,7 +66,7 @@ def py():
                 "behavior_version": 24,
                 "__serialization_version": 2,
                 "enc_build_dict": rf.build_dict(
-                    ChunkedConformerEncoder,
+                    ConformerEncoder,
                     input_layer=rf.build_dict(
                         ConformerConvSubsample,
                         out_dims=[32, 64, 64],
@@ -77,7 +77,7 @@ def py():
                     num_layers=16,
                     out_dim=1024,
                     encoder_layer=rf.build_dict(
-                        ChunkedConformerEncoderLayer,
+                        ConformerEncoderLayer,
                         ff=rf.build_dict(
                             ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
                         ),
@@ -142,7 +142,7 @@ def py():
             "behavior_version": 24,
             "__serialization_version": 2,
             "enc_build_dict": rf.build_dict(
-                ConformerEncoder,
+                ChunkedConformerEncoder,
                 input_layer=rf.build_dict(
                     ConformerConvSubsample,
                     out_dims=[32, 64, 64],
@@ -153,7 +153,7 @@ def py():
                 num_layers=16,
                 out_dim=1024,
                 encoder_layer=rf.build_dict(
-                    ConformerEncoderLayer,
+                    ChunkedConformerEncoderLayer,
                     ff=rf.build_dict(
                         ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
                     ),
