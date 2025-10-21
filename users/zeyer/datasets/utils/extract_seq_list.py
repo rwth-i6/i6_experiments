@@ -12,7 +12,7 @@ class ExtractSeqListJob(Job):
     Takes any dataset dict, and extracts all seq tags from it.
     """
 
-    __sis_hash_exclude__ = {"gzip_output": False}
+    __sis_hash_exclude__ = {"gzip_output": False, "iterate": False}
 
     def __init__(
         self,
@@ -20,16 +20,22 @@ class ExtractSeqListJob(Job):
         returnn_dataset: Dict[str, Any],  # to get all seq tags
         returnn_dataset_ext_non_hashed: Optional[Dict[str, Any]] = None,
         returnn_root: Optional[tk.Path] = None,
+        iterate: bool = False,
         gzip_output: bool = False,
     ):
         """
         :param returnn_dataset: dict, the dataset dict, as used in RETURNN.
         :param returnn_dataset_ext_non_hashed: optional addition to the dataset dict but non-hashed
         :param returnn_root: path, optional, the RETURNN root dir.
+        :param iterate: whether to iterate over the dataset (might be needed for some datasets),
+            instead of using ``get_all_tags``.
+        :param gzip_output: whether to gzip the output seq list file.
         """
         self.returnn_dataset = returnn_dataset
         self.returnn_dataset_ext_non_hashed = returnn_dataset_ext_non_hashed
         self.returnn_root = returnn_root
+
+        self.iterate = iterate
 
         self.out_seq_list = self.output_path("out_seq_list.txt" + (".gz" if gzip_output else ""))
 
@@ -85,12 +91,36 @@ class ExtractSeqListJob(Job):
             num_seqs = dataset.get_total_num_seqs()
         except Exception:  # might not work for all datasets
             num_seqs = None
+
+        if self.iterate:
+            dataset.init_seq_order(epoch=1)
+            # noinspection PyBroadException
+            try:
+                num_seqs_ = dataset.num_seqs
+            except Exception:  # might not work for all datasets
+                num_seqs_ = None
+            if num_seqs is None:
+                num_seqs = num_seqs_
+            else:
+                assert num_seqs == num_seqs_, f"{num_seqs} total vs {num_seqs_} iter num seqs"
+
+        # noinspection PyShadowingNames
+        def _iterate_seq_tags():
+            if self.iterate:
+                seq_idx = 0
+                while dataset.is_less_than_num_seqs(seq_idx):
+                    seq_tag = dataset.get_tag(seq_idx)
+                    yield seq_idx, seq_tag
+                    seq_idx += 1
+            else:
+                yield from enumerate(dataset.get_all_tags())
+
         start_time = time.monotonic()
 
         with tempfile.NamedTemporaryFile(suffix="." + os.path.basename(self.out_seq_list.get_path())) as tmp_file:
             print("Using temp file:", tmp_file.name)
             with util.uopen(tmp_file.name, "wt") as f:
-                for seq_idx, seq_tag in enumerate(dataset.get_all_tags()):
+                for seq_idx, seq_tag in _iterate_seq_tags():
                     print(seq_tag, file=f)
 
                     if seq_idx % 100 == 0:
