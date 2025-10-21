@@ -563,8 +563,12 @@ class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
         q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
         q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
 
-        # TODO actually wrong...! but wrong just like in orig cfg? should be end_chunk_size_dim?
-        query_offset = self.chunk_history * axis.dimension
+        # NOTE: This changed from the earlier RF/TF implementation.
+        query_offset = self.chunk_history * (
+            self.end_chunk_size_dim.dimension
+            if self.end_chunk_size_dim.is_static()
+            else self.end_chunk_size_dim.get_size_tensor(device=source.device)
+        )
 
         if self.learned_pos_emb is not None:
             pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(
