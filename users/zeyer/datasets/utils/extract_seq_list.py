@@ -71,9 +71,12 @@ class ExtractSeqListJob(Job):
         from returnn.datasets import init_dataset
         from returnn.log import log
         from returnn.util.basic import hms
+        from returnn.util.watch_memory import watch_memory
 
         config = Config()
         set_global_config(config)
+
+        watch_memory()
 
         if not config.has("log_verbosity"):
             config.typed_dict["log_verbosity"] = 4
