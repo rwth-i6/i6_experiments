@@ -1,5 +1,12 @@
 """
-Some Loquacious baselines
+Chunked CTC / Conformer.
+
+For earlier code and some reference, see:
+i6_experiments/users/zeyer/experiments/exp2023_04_25_rf/chunked_conformer.py
+i6_experiments/users/zeyer/experiments/exp2023_04_25_rf/chunked_ctc.py
+i6_experiments/users/zeyer/experiments/exp2023_04_25_rf/chunked_aed_import.py
+
+Chunked Attention-based Encoder-Decoder Model for Streaming Speech Recognition, https://arxiv.org/abs/2309.08436
 """
 
 from __future__ import annotations
