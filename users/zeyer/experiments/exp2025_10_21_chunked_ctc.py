@@ -411,6 +411,8 @@ class ChunkedConformerEncoder(rf.Module):
         att_dropout: float = 0.1,
         encoder_layer: Optional[Union[ChunkedConformerEncoderLayer, rf.Module, type, Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
+        input_chunk_size_dim: Dim,
+        chunk_stride: int,
         chunk_history: int,
         end_chunk_size_dim: Dim,
     ):
@@ -429,6 +431,8 @@ class ChunkedConformerEncoder(rf.Module):
         :param att_dropout: attention dropout value
         :param encoder_layer: an instance of :class:`ConformerEncoderLayer` or similar
         :param encoder_layer_opts: options for the encoder layer
+        :param input_chunk_size_dim:
+        :param chunk_stride:
         :param chunk_history:
         :param end_chunk_size_dim:
         """
@@ -438,6 +442,11 @@ class ChunkedConformerEncoder(rf.Module):
         self.out_dim = out_dim
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
+
+        self.input_chunk_size_dim = input_chunk_size_dim
+        self.chunk_stride = chunk_stride
+        self.chunk_history = chunk_history
+        self.end_chunk_size_dim = end_chunk_size_dim
 
         self.input_layer = input_layer
         self.input_projection = rf.Linear(
@@ -474,20 +483,38 @@ class ChunkedConformerEncoder(rf.Module):
         source: Tensor,
         *,
         in_spatial_dim: Dim,
-        chunked_time_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Dim]:
         """forward"""
         if self.input_layer:
-            x_subsample, out_spatial_dim = self.input_layer(source, in_spatial_dim=in_spatial_dim)
+            x_subsample, enc_spatial_dim = self.input_layer(source, in_spatial_dim=in_spatial_dim)
         else:
-            x_subsample, out_spatial_dim = source, in_spatial_dim
+            x_subsample, enc_spatial_dim = source, in_spatial_dim
         x_linear = self.input_projection(x_subsample)
+
+        # Chunk
+        source, chunked_time_dim = rf.window(
+            source,
+            spatial_dim=enc_spatial_dim,
+            window_dim=self.input_chunk_size_dim,
+            window_left=0,
+            stride=self.chunk_stride,
+        )
+
         x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
         x = self.layers(
-            x, spatial_dim=out_spatial_dim, chunked_time_dim=chunked_time_dim, collected_outputs=collected_outputs
+            x,
+            spatial_dim=self.input_chunk_size_dim,
+            chunked_time_dim=chunked_time_dim,
+            collected_outputs=collected_outputs,
         )
-        return x, out_spatial_dim
+        # TODO transform/unchunk collected outputs...
+
+        # Unchunk
+        x, _ = rf.slice(x, axis=self.input_chunk_size_dim, size=self.end_chunk_size_dim)
+        x, out_spatial_dim_ = rf.merge_dims(x, dims=(chunked_time_dim, self.end_chunk_size_dim))
+
+        return x, out_spatial_dim_
 
 
 class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
