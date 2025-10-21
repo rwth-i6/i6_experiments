@@ -418,10 +418,10 @@ class ChunkedConformerEncoder(rf.Module):
         att_dropout: float = 0.1,
         encoder_layer: Optional[Union[ChunkedConformerEncoderLayer, rf.Module, type, Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
-        input_chunk_size_dim: Dim,
+        input_chunk_size_dim: Union[int, Dim],
         chunk_stride: int,
         chunk_history: int,
-        end_chunk_size_dim: Dim,
+        end_chunk_size_dim: Union[int, Dim],
     ):
         """
         :param out_dim: the output feature dimension
@@ -449,6 +449,11 @@ class ChunkedConformerEncoder(rf.Module):
         self.out_dim = out_dim
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
+
+        if isinstance(input_chunk_size_dim, int):
+            input_chunk_size_dim = Dim(input_chunk_size_dim, name="input_chunk_size")
+        if isinstance(end_chunk_size_dim, int):
+            end_chunk_size_dim = Dim(end_chunk_size_dim, name="end_chunk_size")
 
         self.input_chunk_size_dim = input_chunk_size_dim
         self.chunk_stride = chunk_stride
