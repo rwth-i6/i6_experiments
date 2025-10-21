@@ -189,7 +189,7 @@ def py():
         },
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=0.5),
-            "batch_size": 100_000 * _batch_size_factor,
+            "batch_size": 50_000 * _batch_size_factor,  # 100_000 * _batch_size_factor,
             "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 1,
             # "__train_audio_preprocess": speed_pert_librosa_config,
