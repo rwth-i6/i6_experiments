@@ -448,6 +448,10 @@ class ChunkedConformerEncoder(rf.Module):
         self.chunk_history = chunk_history
         self.end_chunk_size_dim = end_chunk_size_dim
 
+        if isinstance(input_layer, dict):
+            input_layer = rf.build_from_dict(input_layer, in_dim)
+            input_layer: ConformerConvSubsample  # maybe not true, but assume for some attribs
+
         self.input_layer = input_layer
         self.input_projection = rf.Linear(
             self.input_layer.out_dim if self.input_layer else self.in_dim, self.out_dim, with_bias=False
