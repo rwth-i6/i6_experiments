@@ -176,6 +176,8 @@ class ReturnnDatasetToTextLinesJob(Job):
     Takes any dataset dict, and extracts all data from it, via serialization.
     """
 
+    __sis_hash_exclude__ = {"seq_list_verify_only": False}
+
     def __init__(
         self,
         *,
@@ -184,6 +186,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         returnn_root: Optional[tk.Path] = None,
         multi_proc_dataset_opts: Optional[Dict[str, Any]] = None,
         seq_list: Optional[tk.Path] = None,
+        seq_list_verify_only: bool = False,
         data_key: str,
         vocab: Optional[Dict[str, Any]] = None,
         raw_replacement_list: Sequence[Tuple[str, str]] = (),
@@ -196,6 +199,9 @@ class ReturnnDatasetToTextLinesJob(Job):
         :param multi_proc_dataset_opts: dict, optional. if given, wraps the dataset in :class:`MultiProcDataset`.
             This is not hashed.
         :param seq_list: path, optional, a list of seq tags to process. If given, this also defines the order.
+            Or with seq_list_verify_only, only for verification, not passed to init_seq_order.
+        :param seq_list_verify_only: bool, if true, seq_list is only used for verification of the order,
+            but not passed to init_seq_order.
         :param data_key: str, the data key to serialize.
         :param vocab: dict, optional, the vocab dict, as used in RETURNN.
             If given, it uses :func:`Vocabulary.get_seq_labels`.
@@ -209,6 +215,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         self.returnn_root = returnn_root
         self.multi_proc_dataset_opts = multi_proc_dataset_opts
         self.seq_list = seq_list
+        self.seq_list_verify_only = seq_list_verify_only
         self.data_key = data_key
         self.vocab = vocab
         self.raw_replacement_list = raw_replacement_list
@@ -271,7 +278,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         print("RETURNN dataset dict:", dataset_dict)
         assert isinstance(dataset_dict, dict)
         dataset = init_dataset(dataset_dict)
-        dataset.init_seq_order(epoch=1, seq_list=seq_list)
+        dataset.init_seq_order(epoch=1, seq_list=seq_list if not self.seq_list_verify_only else None)
 
         if self.vocab:
             vocab = self.vocab
