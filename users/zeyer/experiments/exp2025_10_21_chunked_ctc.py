@@ -527,6 +527,7 @@ class ChunkedConformerEncoder(rf.Module):
             window_dim=self.input_chunk_size_dim,
             window_left=0,
             stride=self.chunk_stride,
+            pad_value=0.0,
         )
 
         if self.input_layer:
