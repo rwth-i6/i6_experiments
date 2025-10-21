@@ -112,6 +112,7 @@ class ExtractSeqListJob(Job):
             if self.iterate:
                 seq_idx = 0
                 while dataset.is_less_than_num_seqs(seq_idx):
+                    dataset.load_seqs(seq_idx, seq_idx + 1)
                     seq_tag = dataset.get_tag(seq_idx)
                     yield seq_idx, seq_tag
                     seq_idx += 1
