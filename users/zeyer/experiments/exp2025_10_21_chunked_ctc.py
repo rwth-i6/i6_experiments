@@ -476,9 +476,11 @@ class ChunkedConformerEncoder(rf.Module):
         )
         self.input_dropout = input_dropout
 
-        if not encoder_layer or isinstance(encoder_layer, type):
+        if not encoder_layer or isinstance(encoder_layer, (dict, type)):
             encoder_layer_opts_ = dict(
                 out_dim=out_dim,
+                chunk_history=self.chunk_history,
+                end_chunk_size_dim=self.end_chunk_size_dim,
                 ff_dim=ff_dim,
                 ff_activation=ff_activation,
                 dropout=dropout,
@@ -486,17 +488,29 @@ class ChunkedConformerEncoder(rf.Module):
                 conv_norm=conv_norm,
                 num_heads=num_heads,
                 att_dropout=att_dropout,
-                chunk_history=chunk_history,
-                end_chunk_size_dim=end_chunk_size_dim,
             )
+            encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if v is not NotSpecified}
             if encoder_layer_opts:
                 encoder_layer_opts_.update(encoder_layer_opts)
             if not encoder_layer:
                 encoder_layer = ChunkedConformerEncoderLayer(**encoder_layer_opts_)
             elif isinstance(encoder_layer, type):
                 encoder_layer = encoder_layer(**encoder_layer_opts_)
+            elif isinstance(encoder_layer, dict):
+                # Note: Reuse all the encoder_layer_opts_.
+                # If this does not make sense for the specific encoder_layer class here,
+                # we would suggest to use a different ConformerEncoder class.
+                # (The alternative, to not reuse encoder_layer_opts_ here,
+                #  would probably be more confusing, as those options are all ignored then.
+                #  It's also not clear what args to pass then and what not.)
+                # (Maybe we should do a ConformerEncoderV2 if this is confusing here...)
+                encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if k not in encoder_layer}
+                encoder_layer = rf.build_from_dict(encoder_layer, **encoder_layer_opts_)
             else:
                 raise TypeError(f"unexpected encoder_layer {encoder_layer!r}")
+        else:
+            if not callable(encoder_layer):
+                raise TypeError(f"{self}: invalid non-callable encoder_layer {encoder_layer!r}")
 
         self.layers = rf.Sequential(_copy.deepcopy(encoder_layer) for _ in range(num_layers))
 
