@@ -70,8 +70,10 @@ class ExtractSeqListJob(Job):
         from returnn.config import set_global_config, Config
         from returnn.datasets import init_dataset
         from returnn.log import log
-        from returnn.util.basic import hms
+        from returnn.util.basic import hms, describe_returnn_version
         from returnn.util.watch_memory import watch_memory
+
+        print("RETURNN version:", describe_returnn_version())
 
         config = Config()
         set_global_config(config)

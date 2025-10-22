@@ -85,7 +85,9 @@ class ReturnnDatasetToTextDictJob(Job):
         from returnn.datasets import init_dataset
         from returnn.datasets.util.vocabulary import Vocabulary
         from returnn.log import log
-        from returnn.util.basic import hms
+        from returnn.util.basic import hms, describe_returnn_version
+
+        print("RETURNN version:", describe_returnn_version())
 
         config = Config()
         set_global_config(config)
@@ -256,7 +258,9 @@ class ReturnnDatasetToTextLinesJob(Job):
         from returnn.datasets import init_dataset
         from returnn.datasets.util.vocabulary import Vocabulary
         from returnn.log import log
-        from returnn.util.basic import hms
+        from returnn.util.basic import hms, describe_returnn_version
+
+        print("RETURNN version:", describe_returnn_version())
 
         config = Config()
         set_global_config(config)
