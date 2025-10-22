@@ -14,6 +14,16 @@ This implementation is slightly different from the earlier RF/TF implementation:
   The chunking is done inside the module.
   That makes it simpler to switch out the module.
 - Self-att query_offset is fixed. (See comment in code.)
+
+The configuration options here, as before:
+
+- input_chunk_size_dim: on input (10ms) level. chunk size (including right context). default: 210
+- chunk_stride: on input (10ms) level. chunk stride. default: 120
+- end_chunk_size_dim: on encoder (60ms) level. chunk size excluding right context.
+  The right context is cut off for AED cross-att and when adding history (left) context.
+  default: 20
+- chunk_history: num prev chunks to add for history context. default: 2
+
 """
 
 from __future__ import annotations
