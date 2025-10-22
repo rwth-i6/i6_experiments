@@ -1,3 +1,21 @@
+"""
+Chunked Conformer.
+
+For earlier code and some reference, see:
+i6_experiments/users/zeyer/experiments/exp2023_04_25_rf/chunked_conformer.py
+i6_experiments/users/zeyer/experiments/exp2023_04_25_rf/chunked_ctc.py
+i6_experiments/users/zeyer/experiments/exp2023_04_25_rf/chunked_aed_import.py
+
+Chunked Attention-based Encoder-Decoder Model for Streaming Speech Recognition, https://arxiv.org/abs/2309.08436
+
+This implementation is slightly different from the earlier RF/TF implementation:
+
+- Now it is compatible to rf.encoder.conformer.ConformerEncoder.
+  The chunking is done inside the module.
+  That makes it simpler to switch out the module.
+- Self-att query_offset is fixed. (See comment in code.)
+"""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional, Tuple, Union
