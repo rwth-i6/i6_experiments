@@ -12,12 +12,18 @@ import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Union, Any, Sequence, Tuple, Dict
 
+from sisyphus import tk
+
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from i6_experiments.users.zeyer.decoding.perplexity import get_lm_perplexities_for_task_evals
+
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 
 from .configs import config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4
@@ -550,6 +556,12 @@ def py():
         ),
         train_def=lm_train_def,
     )
+
+
+def lm_eval(*, prefix: str, task: Task, lm: ModelWithCheckpoints):
+    perplexities = get_lm_perplexities_for_task_evals(task, label_level="task", lm=lm.get_last_fixed_epoch())
+    for eval_set_name, ppl in perplexities.items():
+        tk.register_output(f"{prefix}/ppl/{eval_set_name}", ppl)
 
 
 def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:

@@ -12,9 +12,9 @@ from .configs import (
     _get_cfg_lrlin_oclr_by_bs_nep_v3,
     _get_cfg_lrlin_oclr_by_bs_nep_v4,
 )
-from .lm import lm_train_def, lm_model_def
+from .lm import lm_train_def, lm_model_def, lm_eval
 
-from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
+from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset, get_librispeech_task_text_only
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 
 import returnn.frontend as rf
@@ -23,6 +23,8 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 
 def py():
     # ----- LM experiments -----
+
+    task_spm10k = get_librispeech_task_text_only(vocab="spm10k")
 
     # Note: We had the batch_size wrong initially with batch size factor.
     # I think 20k without factor is reasonable with bf16 AMP.
@@ -58,8 +60,9 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(  # 33.9 (!!)
-        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+    name = "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k"
+    exp = train(  # 33.9 (!!)
+        name,
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -89,6 +92,7 @@ def py():
         ),
         train_def=lm_train_def,
     )
+    lm_eval(prefix=name, task=task_spm10k, lm=exp)
 
     for n_ep in [100, 200, 300, 400]:
         train(
