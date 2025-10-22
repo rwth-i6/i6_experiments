@@ -298,6 +298,13 @@ class ReturnnDatasetToTextLinesJob(Job):
             num_seqs = dataset.num_seqs
         except Exception:  # might not work for all datasets
             num_seqs = None
+
+        if seq_list is not None:
+            if num_seqs is None:
+                num_seqs = len(seq_list)
+            else:
+                assert num_seqs == len(seq_list), f"num_seqs mismatch: dataset {num_seqs} vs seq_list {len(seq_list)}"
+
         start_time = time.monotonic()
 
         with tempfile.NamedTemporaryFile(suffix="." + os.path.basename(self.out_txt.get_path())) as tmp_file:
