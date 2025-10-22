@@ -607,6 +607,7 @@ def _get_eos_idx(target_dim: Dim) -> int:
 def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
+    from returnn.util.collect_outputs_dict import CollectOutputsDict
 
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers") or ()
@@ -639,7 +640,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     else:
         ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
 
-    collected_outputs = {}
+    collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(layer_idx - 1) for layer_idx in aux_loss_layers])
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     for i, layer_idx in enumerate(aux_loss_layers):
         if layer_idx > len(model.encoder.layers):
