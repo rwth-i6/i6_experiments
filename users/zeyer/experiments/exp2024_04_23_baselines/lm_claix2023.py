@@ -162,7 +162,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    # More dropout (specifically for longer training).
+    # More dropout (specifically for longer training). 33.35. (baseline: 34.39)
     train(
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp200-spm10k",
         config=dict_update_deep(
