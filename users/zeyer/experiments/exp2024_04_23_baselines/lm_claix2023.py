@@ -195,8 +195,9 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(  # 32.88 (!!)
-        "lm/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+    name = "lm/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k"
+    exp = train(  # 32.88 (!!)
+        name,
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -226,6 +227,7 @@ def py():
         ),
         train_def=lm_train_def,
     )
+    lm_eval(prefix=name, task=task_spm10k, lm=exp)
 
     # online_shuffle_batches 100, laplace 100k
     # train(  # 38.28
