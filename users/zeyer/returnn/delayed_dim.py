@@ -10,7 +10,15 @@ import functools
 
 class DelayedReduceDim:
     """
+    This is a Dim where the dim is only computed when it is first accessed,
+    e.g. because it depends on a vocab that we don't want to load in the Sis manager.
+
     This is for pickle / serialization_v2.
+
+    Note: We don't use Sisyphus DelayedBase here,
+    because this would be run in a separate create_files Sisyphus job task (see ReturnnTrainingJob)
+    where we don't want to load the vocab yet.
+    CodeWrapper also does not really work properly in many cases.
     """
 
     def __init__(self, *args, **kwargs):
@@ -32,6 +40,8 @@ class DelayedReduceDim:
         from i6_experiments.users.zeyer import serialization_v2
 
         if serialization_v2.in_serialize_config():
+            # This is usually run in a separate create_files Sisyphus job task (see ReturnnTrainingJob).
+            # But the actual reduce code in that case is run when the config is loaded.
             return functools.partial(Dim, *self.args, **self.kwargs), ()
 
         # Generic fallback: Serialize as-is (as DelayedReduceDim).
