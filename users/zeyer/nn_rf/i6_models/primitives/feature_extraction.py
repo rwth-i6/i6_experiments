@@ -32,7 +32,6 @@ class RasrCompatibleLogMelFeatureExtractionV1(rf.Module):
         out_raw, out_length_raw = self._torch_mod(
             raw_audio.raw_tensor, in_spatial_dim.get_size_tensor(device="cpu").copy_compatible_to_dims_raw(batch_dims)
         )
-        out_spatial_dim = Dim(rf.convert_to_tensor(out_length_raw), name="time")
+        out_spatial_dim = Dim(rf.convert_to_tensor(out_length_raw, dims=batch_dims), name="time")
         out = rf.convert_to_tensor(out_raw, dims=batch_dims + [out_spatial_dim, out_dim])
         return out, out_spatial_dim
-
