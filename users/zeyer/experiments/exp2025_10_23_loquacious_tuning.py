@@ -40,20 +40,17 @@ def train(name: str, config: Dict[str, Any]):
     prefix = get_setup_prefix_for_module(__name__)
     task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
 
-    train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
-    hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
-    subset = config.pop("subset", "large")
-    total_k_hours = config.pop("total_k_hours", 100)  # 100kh in total, 4 full epochs
+
+_base_config = {
+    # ("large", 100),  # 100kh in total, 4 full epochs
     # ("large", 150),  # 150kh in total, 6 full epochs
     # ("large", 200),  # 200kh in total, 8 full epochs
     # ("large", 250),  # 250kh in total, 10 full epochs
     # ("large", 500),  # 500kh in total, 20 full epochs
-
-    train_epoch_split = train_epoch_split_per_subset[subset]
-    num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
-    n_ep = round(num_full_ep * train_epoch_split)
-
-    model_config = {
+    "subset": "large",
+    "total_k_hours": 100,
+    "vocab": "spm10k",
+    "model": {
         "behavior_version": 24,
         "__serialization_version": 2,
         "enc_build_dict": rf.build_dict(
@@ -88,14 +85,11 @@ def train(name: str, config: Dict[str, Any]):
             # att_dropout=0.0,
         ),
         "feature_batch_norm": True,
-    }
-    model_config = dict_update_deep(model_config, config.pop("model", None))
-
-    train_config = configs.config_96gb_bf16_accgrad1.copy()
-    train_config = dict_update_deep(
-        train_config,
+    },
+    "train_update_func_from_n_ep": lambda n_ep: {"train": configs._get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=0.5)},
+    "train": dict_update_deep(
+        configs.config_96gb_bf16_accgrad1,
         {
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=0.5),
             "batch_size": 100_000 * configs._batch_size_factor,
             "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 1,
@@ -109,29 +103,43 @@ def train(name: str, config: Dict[str, Any]):
             # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
-    )
-    train_config = dict_update_deep(train_config, config.pop("train", None))
-
-    post_config = dict_update_deep(
+    ),
+    "train_post": dict_update_deep(
         configs.post_config, {"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}}
-    )
-    post_config = dict_update_deep(post_config, config.pop("train_post", None))
+    ),
+    "train_vocab_opts": {"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    "dataset_train_opts": {"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    "env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+}
+
+
+def train(name: str, config: Dict[str, Any]):
+    prefix = get_setup_prefix_for_module(__name__)
+    task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
+
+    config = dict_update_deep(_base_config.copy(), config.copy())
+
+    train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
+    hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
+    subset = config.pop("subset")
+    total_k_hours = config.pop("total_k_hours")
+    train_epoch_split = train_epoch_split_per_subset[subset]
+    num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
+    n_ep = round(num_full_ep * train_epoch_split)
+
+    train_update_func_from_n_ep = config.pop("train_update_func_from_n_ep")
+    if train_update_func_from_n_ep:
+        config = dict_update_deep(config, train_update_func_from_n_ep(n_ep))
+
+    model_config = config.pop("model")
+    train_config = config.pop("train")
+    post_config = config.pop("train_post")
 
     vocab = config.pop("vocab", "spm10k")
 
-    train_vocab_opts = {"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
-    if "train_vocab_opts" in config:
-        train_vocab_opts_updates = config.pop("train_vocab_opts")
-        if train_vocab_opts_updates is None:
-            train_vocab_opts = None
-        else:
-            train_vocab_opts = dict_update_deep(train_vocab_opts, train_vocab_opts_updates)
-
-    dataset_train_opts = {"train_epoch_split": 1, "train_epoch_wise_filter": None}
-    dataset_train_opts = dict_update_deep(dataset_train_opts, config.pop("dataset_train_opts", None))
-
-    env_updates = {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
-    env_updates = dict_update_deep(env_updates, config.pop("env_updates", None))
+    train_vocab_opts = config.pop("train_vocab_opts")
+    dataset_train_opts = config.pop("dataset_train_opts")
+    env_updates = config.pop("env_updates")
 
     assert not config
 
