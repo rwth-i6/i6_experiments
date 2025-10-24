@@ -71,7 +71,7 @@ def serialize_config(
         config=config, post_config=post_config, known_modules=known_modules, sis_path_handling=sis_path_handling
     )
     for path in extra_sys_paths:
-        serializer.add_sys_path(path, recursive=False)
+        serializer.add_sys_path(path, recursive=False, code_comment="# extra sys.path\n")
     with _set_in_serialize_config_ctx():
         serializer.work_queue()
         if inlining:
@@ -771,10 +771,10 @@ class _Serializer:
         if not hasattr(mod, "__file__"):
             return  # assume builtin module or so
         mod_path = _get_module_path_from_module(mod)
-        self.add_sys_path(mod_path)
+        self.add_sys_path(mod_path, code_comment=f"# for module {mod_name}\n")
         self.known_modules.add(mod_name)
 
-    def add_sys_path(self, path: str, *, recursive: bool = True):
+    def add_sys_path(self, path: str, *, recursive: bool = True, code_comment: str = ""):
         """
         Add an entry to sys.path if it is not already there.
         """
@@ -806,10 +806,14 @@ class _Serializer:
             self._next_sys_path_insert_idx += 1
         if insert_idx is not None:
             code = PyCode(
-                py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n"
+                py_name=None,
+                value=None,
+                py_code=f"{code_comment}{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n",
             )
         else:
-            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.append({path!r})\n")
+            code = PyCode(
+                py_name=None, value=None, py_code=f"{code_comment}{sys_s.py_inline()}.path.append({path!r})\n"
+            )
         code.idx = self._next_assignment_idx
         self._next_assignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code
