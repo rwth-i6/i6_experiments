@@ -149,7 +149,7 @@ def train(name: str, config: Dict[str, Any]):
     post_config = config.pop("train_post")
 
     vocab = config.pop("vocab", "spm10k")
-    task = get_loquacious_task_raw_v2(vocab=vocab)
+    task = get_loquacious_task_raw_v2(vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split)
 
     train_vocab_opts = config.pop("train_vocab_opts")
     dataset_train_opts = config.pop("dataset_train_opts")
