@@ -21,6 +21,8 @@ The configuration options here, as before:
 - chunk_stride: on input (10ms) level. chunk stride. default: 120
 - end_chunk_size_dim: on encoder (60ms) level. chunk size excluding right context.
   The right context is cut off for AED cross-att and when adding history (left) context.
+  Because this is also used for the history context (concat prev chunks),
+  it should match the chunk_stride (which is on input level though, before downsampling).
   default: 20
 - chunk_history: num prev chunks to add for history context. default: 2
 
