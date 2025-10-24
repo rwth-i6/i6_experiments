@@ -521,10 +521,9 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
+    # real input is raw audio, internally it does logmel
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
-    # real input is raw audio, internally it does logmel
-    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
     enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
     if enc_conformer_layer:
@@ -547,11 +546,13 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             num_heads=8,
         )
 
+    feature_extraction = config.typed_value("feature_extraction", None)
+
     blank_idx = _aed_model_def_blank_idx
     if blank_idx < 0:
         blank_idx = target_dim.dimension + 1 + blank_idx
     return Model(
-        in_dim,
+        feature_extraction=feature_extraction,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=config.int("num_enc_layers", 12),
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
@@ -895,8 +896,8 @@ class Model(rf.Module):
 
     def __init__(
         self,
-        in_dim: Dim,
         *,
+        feature_extraction: Optional[Dict[str, Any]] = None,
         num_enc_layers: int = 12,
         num_dec_layers: int = 6,
         target_dim: Dim,
@@ -935,6 +936,16 @@ class Model(rf.Module):
             dec_sequential = functools.partial(SequentialLayerDrop, layer_drop=dec_layer_drop)
         else:
             dec_sequential = rf.Sequential
+
+        if not feature_extraction:
+            feat_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+            feature_extraction = rf.build_dict(
+                rf.Functional,
+                func=functools.partial(rf.audio.log_mel_filterbank_from_raw, sampling_rate=16_000, out_dim=feat_dim),
+                attribs={"out_dim": feat_dim},
+            )
+        self.feature_extraction = rf.build_from_dict(feature_extraction)
+        in_dim = self.feature_extraction.out_dim
 
         self.in_dim = in_dim
         if enc_build_dict:
