@@ -5,6 +5,7 @@ V2:
 - Support both online and offline mode.
 - Support different kinds of overlap handling:
   concat, average, ...
+- Fix masking within chunks.
 
 Earlier configuration options:
 
@@ -12,22 +13,26 @@ Earlier configuration options:
 - chunk_stride: on input (10ms) level. chunk stride. default: 120
 - end_chunk_size_dim: on encoder (60ms) level. chunk size excluding right context.
   The right context is cut off for AED cross-att and when adding history (left) context.
+  Because this is also used for the history context (concat prev chunks),
+  it should match the chunk_stride (which is on input level though, before downsampling).
   default: 20
 - chunk_history: num prev chunks to add for history context. default: 2
 
 New configuration options:
 
-TODO do we want this? how?
+TODO do this:
 
-- input_chunk_size_dim: on input (10ms) level. chunk size (including right context). default: 210
-- chunk_stride: on input (10ms) level. chunk stride. default: 120
-- end_chunk_size_dim: on encoder (60ms) level. chunk size excluding right context.
+- input_chunk_stride: on input (10ms) level. chunk stride. default: 120
+- enc_right_chunk_size: on encoder (60ms) level. chunk size right context size.
   The right context is cut off for AED cross-att and when adding history (left) context.
   default: 20
-- chunk_history: num prev chunks to add for history context. default: 2
+- enc_left_chunk_size: on encoder (60ms) level. chunk size left context size.
+  This is used for the history context (concat prev chunks).
+  default: 40
 
 TODO make it support both offline and online mode
 TODO diff kinds of overlap handling: concat, average, ...
+TODO fix masking within chunks. set right window dim
 """
 
 from __future__ import annotations
