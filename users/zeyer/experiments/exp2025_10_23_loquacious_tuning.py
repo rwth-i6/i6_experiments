@@ -129,7 +129,6 @@ _base_config = {
 
 def train(name: str, config: Dict[str, Any]):
     prefix = get_setup_prefix_for_module(__name__)
-    task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
 
     config = dict_update_deep(_base_config.copy(), config.copy())
 
@@ -150,6 +149,7 @@ def train(name: str, config: Dict[str, Any]):
     post_config = config.pop("train_post")
 
     vocab = config.pop("vocab", "spm10k")
+    task = get_loquacious_task_raw_v2(vocab=vocab)
 
     train_vocab_opts = config.pop("train_vocab_opts")
     dataset_train_opts = config.pop("dataset_train_opts")
@@ -161,7 +161,7 @@ def train(name: str, config: Dict[str, Any]):
         name,
         train_config,
         prefix=prefix + "/aed/",
-        task=get_loquacious_task_raw_v2(vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split),
+        task=task,
         model_config=model_config,
         post_config_updates=post_config,
         vocab=vocab,
@@ -171,7 +171,7 @@ def train(name: str, config: Dict[str, Any]):
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
-        task=task_spm10k,
+        task=task,
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
