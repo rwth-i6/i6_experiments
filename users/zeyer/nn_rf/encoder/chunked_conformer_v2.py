@@ -47,6 +47,7 @@ from returnn.frontend.encoder.conformer import (
     make_ff,
     make_norm,
 )
+from returnn.frontend.gradient import gradient_checkpoint_scope
 
 
 class ChunkedConformerConvBlock(rf.Module):
@@ -489,10 +490,11 @@ def _mem_chunks(
     :param out_spatial_dim: if given, use this as output spatial dim
     :return: concatenated prev chunks, concatenated spatial dim
     """
-    concats = []
-    source_sliced, _ = rf.slice(source, axis=spatial_dim, size=end_chunk_size_dim)
-    for shift_amount in range(mem_size, 0, -1):
-        shifted = rf.shift_right(source_sliced, axis=chunked_time_dim, amount=shift_amount, pad_value=0.0)
-        concats.append((shifted, end_chunk_size_dim))
-    concats.append((source, spatial_dim))
-    return rf.concat(*concats, out_dim=out_spatial_dim)
+    with gradient_checkpoint_scope():
+        concats = []
+        source_sliced, _ = rf.slice(source, axis=spatial_dim, size=end_chunk_size_dim)
+        for shift_amount in range(mem_size, 0, -1):
+            shifted = rf.shift_right(source_sliced, axis=chunked_time_dim, amount=shift_amount, pad_value=0.0)
+            concats.append((shifted, end_chunk_size_dim))
+        concats.append((source, spatial_dim))
+        return rf.concat(*concats, out_dim=out_spatial_dim)
