@@ -47,15 +47,15 @@ def py():
 
     downsampling = 6
 
-    for prev_n, center_size, right_size, bs in [(2, 20, 15, 50_000)]:
+    for left_n, center_size, right_size, bs in [(2, 20, 15, 50_000)]:
         train(
-            f"chunked-L{prev_n * center_size}-C{center_size}-R{right_size}",
+            f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}",
             {
                 "model.enc_build_dict": rf.build_dict(
                     ChunkedConformerEncoder,
                     encoder_layer=rf.build_dict(ChunkedConformerEncoderLayer),
                     chunk_stride=center_size * downsampling,
-                    chunk_history=prev_n,
+                    chunk_history=left_n,
                     input_chunk_size_dim=(center_size + right_size) * downsampling,
                     end_chunk_size_dim=center_size,
                 ),
