@@ -55,7 +55,8 @@ def py():
                 chunk_history=2,
                 input_chunk_size_dim=210,
                 end_chunk_size_dim=20,
-            )
+            ),
+            "train.batch_size": 50_000 * configs._batch_size_factor,
         },
     )
 
