@@ -1053,7 +1053,7 @@ class Model(rf.Module):
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
             "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
             "max_consecutive_feature_dims": config.typed_value("specaugment_max_consecutive_feature_dims")
-            or (_log_mel_feature_dim // 5),
+            or (in_dim.dimension // 5),
             "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
         }
 
