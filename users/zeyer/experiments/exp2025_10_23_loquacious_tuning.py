@@ -4,16 +4,15 @@ Some Loquacious baselines
 
 from __future__ import annotations
 
+from typing import Dict, Any
+
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as aed_train_exp,
     _raw_sample_rate,
 )
-from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
-    config_96gb_bf16_accgrad1,
-    _get_cfg_lrlin_oclr_by_bs_nep_v4,
-    _batch_size_factor,
-)
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
     aed_ctc_timesync_recog_recomb_auto_scale,
 )
@@ -33,17 +32,18 @@ __setup_root_prefix__ = "exp2025_10_23_loquacious_tuning"
 
 
 def py():
-    train()
+    train("base", {})
 
 
-def train():
+def train(name: str, config: Dict[str, Any]):
+    config = config.copy()
     prefix = get_setup_prefix_for_module(__name__)
     task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
 
     train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
-    subset = "large"
-    total_k_hours = 100  # 100kh in total, 4 full epochs
+    subset = config.pop("subset", "large")
+    total_k_hours = config.pop("total_k_hours", 100)  # 100kh in total, 4 full epochs
     # ("large", 150),  # 150kh in total, 6 full epochs
     # ("large", 200),  # 200kh in total, 8 full epochs
     # ("large", 250),  # 250kh in total, 10 full epochs
@@ -52,51 +52,51 @@ def train():
     train_epoch_split = train_epoch_split_per_subset[subset]
     num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
     n_ep = round(num_full_ep * train_epoch_split)
-    name = f"base-v2-{subset}-nFullEp{num_full_ep:.1f}-nEp{n_ep}-totalHours{total_k_hours}k"
-    exp = aed_train_exp(
-        name,
-        config_96gb_bf16_accgrad1,
-        prefix=prefix + "/aed/",
-        task=get_loquacious_task_raw_v2(vocab="spm10k", subset_name=subset, train_epoch_split=train_epoch_split),
-        model_config={
-            "behavior_version": 24,
-            "__serialization_version": 2,
-            "enc_build_dict": rf.build_dict(
-                ConformerEncoder,
-                input_layer=rf.build_dict(
-                    ConformerConvSubsample,
-                    out_dims=[32, 64, 64],
-                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                    pool_sizes=[(1, 2)],
-                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
-                ),
-                num_layers=16,
-                out_dim=1024,
-                encoder_layer=rf.build_dict(
-                    ConformerEncoderLayer,
-                    ff=rf.build_dict(
-                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                    ),
-                    num_heads=8,
-                ),
+
+    model_config = {
+        "behavior_version": 24,
+        "__serialization_version": 2,
+        "enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
             ),
-            # Default AED decoder size: 6 layers, 512 dim
-            "dec_build_dict": rf.build_dict(
-                TransformerDecoder,
-                num_layers=6,
-                model_dim=1024,
-                norm=rf.build_dict(rf.RMSNorm),
-                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-                # When only trained on LS ASR data, keep the default dropout?
-                # dropout=0.0,
-                # att_dropout=0.0,
+            num_layers=16,
+            out_dim=1024,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
             ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=0.5),
-            "batch_size": 100_000 * _batch_size_factor,
+        ),
+        # Default AED decoder size: 6 layers, 512 dim
+        "dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=6,
+            model_dim=1024,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+            # When only trained on LS ASR data, keep the default dropout?
+            # dropout=0.0,
+            # att_dropout=0.0,
+        ),
+        "feature_batch_norm": True,
+    }
+    model_config = dict_update_deep(model_config, config.pop("model", None))
+
+    train_config = configs.config_96gb_bf16_accgrad1.copy()
+    train_config = dict_update_deep(
+        train_config,
+        {
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=0.5),
+            "batch_size": 100_000 * configs._batch_size_factor,
             "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 1,
             # "__train_audio_preprocess": speed_pert_librosa_config,
@@ -109,12 +109,43 @@ def train():
             # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        # train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    train_config = dict_update_deep(train_config, config.pop("train", None))
+
+    post_config = dict_update_deep(
+        configs.post_config, {"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}}
+    )
+    post_config = dict_update_deep(post_config, config.pop("train_post", None))
+
+    vocab = config.pop("vocab", "spm10k")
+
+    train_vocab_opts = {"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
+    if "train_vocab_opts" in config:
+        train_vocab_opts_updates = config.pop("train_vocab_opts")
+        if train_vocab_opts_updates is None:
+            train_vocab_opts = None
+        else:
+            train_vocab_opts = dict_update_deep(train_vocab_opts, train_vocab_opts_updates)
+
+    dataset_train_opts = {"train_epoch_split": 1, "train_epoch_wise_filter": None}
+    dataset_train_opts = dict_update_deep(dataset_train_opts, config.pop("dataset_train_opts", None))
+
+    env_updates = {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
+    env_updates = dict_update_deep(env_updates, config.pop("env_updates", None))
+
+    assert not config
+
+    exp = aed_train_exp(
+        name,
+        train_config,
+        prefix=prefix + "/aed/",
+        task=get_loquacious_task_raw_v2(vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split),
+        model_config=model_config,
+        post_config_updates=post_config,
+        vocab=vocab,
+        train_vocab_opts=train_vocab_opts,
+        dataset_train_opts=dataset_train_opts,
+        env_updates=env_updates,
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
