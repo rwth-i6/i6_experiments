@@ -45,20 +45,23 @@ __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
 def py():
     train("base", {})
 
-    train(
-        "chunked",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoder,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayer),
-                chunk_stride=120,
-                chunk_history=2,
-                input_chunk_size_dim=210,
-                end_chunk_size_dim=20,
-            ),
-            "train.batch_size": 50_000 * configs._batch_size_factor,
-        },
-    )
+    downsampling = 6
+
+    for prev_n, center_size, right_size, bs in [(2, 20, 15, 50_000)]:
+        train(
+            f"chunked-L{prev_n * center_size}-C{center_size}-R{right_size}",
+            {
+                "model.enc_build_dict": rf.build_dict(
+                    ChunkedConformerEncoder,
+                    encoder_layer=rf.build_dict(ChunkedConformerEncoderLayer),
+                    chunk_stride=center_size * downsampling,
+                    chunk_history=prev_n,
+                    input_chunk_size_dim=(center_size + right_size) * downsampling,
+                    end_chunk_size_dim=center_size,
+                ),
+                "train.batch_size": bs * configs._batch_size_factor,
+            },
+        )
 
 
 _base_config = {
