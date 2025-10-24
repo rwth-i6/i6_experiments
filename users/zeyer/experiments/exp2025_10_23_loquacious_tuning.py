@@ -33,7 +33,7 @@ __setup_root_prefix__ = "exp2025_10_23_loquacious_tuning"
 
 def py():
     train("base", {})
-    train("dec-l12", {"model.dec_build_dict.num_layers": 12})
+    train("dec-l12", {"model.dec_build_dict.num_layers": 12, "train.dec_aux_loss_layers": [6]})
 
     from i6_experiments.users.zeyer.nn_rf.i6_models.primitives.feature_extraction import (
         RasrCompatibleLogMelFeatureExtractionV1,
