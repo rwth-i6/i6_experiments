@@ -34,11 +34,24 @@ __setup_root_prefix__ = "exp2025_10_23_loquacious_tuning"
 def py():
     train("base", {})
 
+    from i6_experiments.users.zeyer.nn_rf.i6_models.primitives.feature_extraction import (
+        RasrCompatibleLogMelFeatureExtractionV1,
+    )
 
-def train(name: str, config: Dict[str, Any]):
-    config = config.copy()
-    prefix = get_setup_prefix_for_module(__name__)
-    task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
+    train(
+        "rasr-features",
+        {
+            "model.feature_extraction": rf.build_dict(
+                RasrCompatibleLogMelFeatureExtractionV1,
+                sample_rate=16000,
+                win_size=0.025,
+                hop_size=0.01,
+                min_amp=1.175494e-38,
+                num_filters=80,
+                alpha=0.97,
+            )
+        },
+    )
 
 
 _base_config = {
