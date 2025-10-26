@@ -55,7 +55,7 @@ def py():
         # fixing total chunk size to 40, fixing left ctx to 40, varying center/right
         (4, 10, 30, 25_000),
         (2, 20, 20, 50_000),
-        (1, 40, 0, 100_000),
+        (1, 40, 0, 75_000),
         # fixing total chunk size to 40, fixing right ctx to 0, varying left
         (1, 40, 0, 75_000),
         (2, 40, 0, 75_000),
