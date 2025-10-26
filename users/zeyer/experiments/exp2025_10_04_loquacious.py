@@ -239,6 +239,7 @@ def py():
         ("large", 200),  # 200kh in total, 8 full epochs
         ("large", 250),  # 250kh in total, 10 full epochs
         ("large", 500),  # 500kh in total, 20 full epochs
+        ("large", 1000),  # 1Mh in total, 40 full epochs
     ]:
         train_epoch_split = train_epoch_split_per_subset[subset]
         num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
