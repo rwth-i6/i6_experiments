@@ -77,7 +77,7 @@ def aed_baseline():
         sampling_rate = model_config["sampling_rate"]
 
         network_module = (
-            "pytorch_networks.conformer_aed_v1"
+            "conformer_aed_v1"
         )
         train_config = {
             **optimizer_configs.v1,

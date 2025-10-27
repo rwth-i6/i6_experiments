@@ -25,20 +25,16 @@ def eval_model(
     decoder_config: DecoderConfig,
     dev_dataset_tuples: Dict[str, Any],
     checkpoints: List[str],
-    beam_sizes: Optional[List[int]],
     result_dict: Optional[Dict[str, Any]] = None,
     lm_scales: Optional[List[float]] = None,
-    ilm_scales: Optional[List[float]] = None,
+    prior_scales: Optional[List[float]] = None,
     specific_epoch: Optional[Union[int, List]] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
     loss_name: str = "dev_loss_ce",
     use_gpu: bool = False,
     extra_forward_config: Optional[dict[str, Any]] = None,
-    run_best_4: bool = True,
-    run_best: bool = True,
     run_test: bool = False,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
-    prior_args: Optional[Dict[str, Any]] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -46,8 +42,8 @@ def eval_model(
         specific_epoch = [specific_epoch]
     if lm_scales is None:
         lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
-    if ilm_scales is None:
-        ilm_scales = [0.7, 0.9]
+    if prior_scales is None:
+        prior_scales = [0.7, 0.9]
     if result_dict is None:
         result_dict = {}
     debug = train_args.get("debug", False)
@@ -71,7 +67,7 @@ def eval_model(
             loss_name=loss_name,
             base_decoder_config=decoder_config,
             lm_scales=lm_scales,
-            ilm_scales=ilm_scales,
+            prior_scales=prior_scales,
             checkpoints=checkpoints,
             dev_dataset_tuples=dev_dataset_tuples,
             decoder_module=decoder_module,
@@ -80,8 +76,7 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
-            vocab_opts=train_data.train.dataset.target_options,
-            beam_sizes=beam_sizes,
+            vocab_opts=train_data.train.dataset.target_options
         )
         result_dict.update(res)
     # if run_best_4 is True:
@@ -152,10 +147,9 @@ def tune_and_evaluate_helper(
     base_decoder_config: DecoderConfig,
     checkpoints: List[str],
     lm_scales: List[float],
-    ilm_scales: List[float],
+    prior_scales: List[float],
     dev_dataset_tuples: Dict[str, Any],
     vocab_opts: Dict,
-    beam_sizes: Optional[List[int]],
     quant_str: Optional[str] = None,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     quant_args: Optional[Any] = None,
@@ -198,37 +192,30 @@ def tune_and_evaluate_helper(
             get_best_averaged_checkpoint=get_best_averaged_checkpoint,
         )
         for lm_weight in lm_scales:
-            for ilm_scale in ilm_scales:
-                for beam_size in beam_sizes:
-                    if extra_forward_config is None:
-                        extra_forward_config_ = {}
-                    else:
-                        extra_forward_config_ = copy.deepcopy(extra_forward_config)
-                    if beam_size == 16:
-                        extra_forward_config_["batch_size"] = 10_000 * 160
-                    elif beam_size >= 32:
-                        extra_forward_config_["batch_size"] = 5_000 * 160
-
-                    decoder_config = copy.deepcopy(base_decoder_config)
-                    decoder_config.lm_scale = lm_weight
-                    decoder_config.ilm_scale = ilm_scale
-                    decoder_config.beam_size = beam_size
-                    search_name = f"{training_name}/{str(checkpoint)}/search_beam{beam_size}_lm{lm_weight:.1f}_ilm{ilm_scale:.1f}"
-                    search_jobs, wers, ctms = search(
-                        search_name,
-                        forward_config=extra_forward_config_ or {},
-                        asr_model=asr_model,
-                        decoder_module=decoder_module,
-                        decoder_args=asdict(decoder_config),
-                        test_dataset_tuples=dev_dataset_tuples,
-                        use_gpu=use_gpu,
-                        debug=debug,
-                        vocab_opts=vocab_opts,
-                        **default_returnn,
-                    )
-                    tune_parameters.append((lm_weight, ilm_scale, beam_size, asr_model.checkpoint.path))
-                    tune_values_dev.append((wers[search_name + "/dev.short"]))
-                    report_values.update(wers)
+            for prior_scale in prior_scales:
+                decoder_config = copy.deepcopy(base_decoder_config)
+                decoder_config.lm_weight = lm_weight
+                decoder_config.prior_scale = prior_scale
+                search_name = f"{training_name}/{str(checkpoint)}/search_lm{lm_weight:.1f}_prior{prior_scale:.1f}"
+                search_jobs, wers, ctms = search(
+                    search_name,
+                    forward_config=extra_forward_config or {},
+                    asr_model=asr_model,
+                    decoder_module=decoder_module,
+                    decoder_args=asdict(decoder_config),
+                    test_dataset_tuples=dev_dataset_tuples,
+                    use_gpu=use_gpu,
+                    debug=debug,
+                    vocab_opts=vocab_opts,
+                    **default_returnn,
+                )
+                tune_parameters.append((
+                    lm_weight,
+                    prior_scale,
+                    asr_model.checkpoint.path if asr_model.checkpoint is not None else None
+                ))
+                tune_values_dev.append((wers[search_name + "/dev.short"]))
+                report_values.update(wers)
 
     """
     IMPORTANT! We treat all dev and test datasets as "test" datasets, as the LM tuning is done on dev.all.short
@@ -238,47 +225,53 @@ def tune_and_evaluate_helper(
         "dev": {},
         "test": {},
     }
+    test_tuples = []
     for type in ["dev", "test"]:
-        test_tuples = [
+        test_tuples += [
             (f"{type}.commonvoice", tune_values_dev),
             (f"{type}.librispeech", tune_values_dev),
             (f"{type}.voxpopuli", tune_values_dev),
             (f"{type}.yodas", tune_values_dev),
         ]
-        for key, tune_values in test_tuples:
-            pick_optimal_params_job = GetOptimalParametersAsVariableJob(
-                parameters=tune_parameters, values=tune_values, mode="minimize"
+    # maybe also do recog on train setcj 
+    for key in test_dataset_tuples:
+        if key.startswith("train."):
+            test_tuples.append((key, tune_values_dev))
 
-            )
-            pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
-            decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_scale = pick_optimal_params_job.out_optimal_parameters[0]
-            decoder_config.ilm_scale = pick_optimal_params_job.out_optimal_parameters[1]
-            decoder_config.beam_size = pick_optimal_params_job.out_optimal_parameters[2]
-            asr_model_checkpoint = pick_optimal_params_job.out_optimal_parameters[3]
-            asr_model = prepare_asr_model(
-                training_name + f"/{checkpoint}",
-                train_job,
-                train_args if prior_args is None else prior_args,
-                with_prior=False,  # True,
-                datasets=train_data,
-                checkpoint=asr_model_checkpoint,
-            )
-            search_jobs, wers, ctms = search(
-                training_name,
-                forward_config=extra_forward_config if extra_forward_config else {},
-                asr_model=asr_model,
-                decoder_module=decoder_module,
-                decoder_args=asdict(decoder_config),
-                test_dataset_tuples={key: test_dataset_tuples[key]},
-                use_gpu=use_gpu,
-                vocab_opts=vocab_opts,
-                debug=debug,
-                **default_returnn,
-            )
+    for key, tune_values in test_tuples:
+        pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+            parameters=tune_parameters, values=tune_values, mode="minimize"
 
-            all_ctms[type].update(ctms)
-            report_values[f"{training_name}/{key}"] = wers[f"{training_name}/{key}"]
+        )
+        pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
+        decoder_config = copy.deepcopy(base_decoder_config)
+        decoder_config.lm_scale = pick_optimal_params_job.out_optimal_parameters[0]
+        decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+        asr_model_checkpoint = pick_optimal_params_job.out_optimal_parameters[2]
+        asr_model = prepare_asr_model(
+            training_name + f"/{checkpoint}",
+            train_job,
+            train_args if prior_args is None else prior_args,
+            with_prior=False,  # True,
+            datasets=train_data,
+            checkpoint=asr_model_checkpoint,
+        )
+        search_jobs, wers, ctms = search(
+            training_name,
+            forward_config=extra_forward_config if extra_forward_config else {},
+            asr_model=asr_model,
+            decoder_module=decoder_module,
+            decoder_args=asdict(decoder_config),
+            test_dataset_tuples={key: test_dataset_tuples[key]},
+            use_gpu=use_gpu,
+            vocab_opts=vocab_opts,
+            debug=debug,
+            **default_returnn,
+        )
+
+        if not key.startswith("train."):
+            all_ctms[key.split(".")[0]].update(ctms)
+        report_values[f"{training_name}/{key}"] = wers[f"{training_name}/{key}"]
     wers = evaluate_all(prefix_name=training_name, dev_ctms=all_ctms["dev"], test_ctms=all_ctms["test"])
     report_values.update(wers)
 

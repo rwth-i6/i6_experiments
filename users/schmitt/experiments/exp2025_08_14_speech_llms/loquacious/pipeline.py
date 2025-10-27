@@ -16,7 +16,7 @@ from i6_core.recognition.scoring import ScliteJob
 from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import SearchWordsToCTMJob
-from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpointsJob, GetBestPtCheckpointJob
+from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpointsJob, GetBestPtCheckpointJob, PtCheckpoint
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
@@ -77,7 +77,7 @@ def search_single(
 
     words = SearchOutputRawReplaceJob(
       search_job.out_files["search_out.py.gz"],
-      [("@@", "")],
+      [("@@ ", "")],
       output_gzip=True
     ).out_search_results
 
@@ -123,7 +123,7 @@ def search(
     :param use_gpu: run search with GPU
     """
     if asr_model.prior_file is not None:
-        decoder_args["config"]["prior_file"] = asr_model.prior_file
+        decoder_args["prior_file"] = asr_model.prior_file
 
     returnn_search_config = get_forward_config(
         network_module=asr_model.network_module,
@@ -173,13 +173,19 @@ def evaluate_all(prefix_name: str, dev_ctms: Dict[str, tk.Path], test_ctms: dict
     dev_ctm_all = PipelineJob(list(dev_ctms.values()), [], zip_output=False, mini_task=True).out
     test_ctm_all = PipelineJob(list(test_ctms.values()), [], zip_output=False, mini_task=True).out
 
+    wers = {}
+
     dev_sclite_job = ScliteJob(ref=dev_stm, hyp=dev_ctm_all, sort_files=True, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
     tk.register_output(prefix_name + "/dev.all/sclite/wer", dev_sclite_job.out_wer)
     tk.register_output(prefix_name + "/dev.all/sclite/report", dev_sclite_job.out_report_dir)
+    wers[f"{prefix_name}/dev.all"] = dev_sclite_job.out_wer
 
     test_sclite_job = ScliteJob(ref=test_stm, hyp=test_ctm_all, sort_files=True, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
     tk.register_output(prefix_name + "/test.all/sclite/wer", test_sclite_job.out_wer)
     tk.register_output(prefix_name + "/test.all/sclite/report", test_sclite_job.out_report_dir)
+    wers[f"{prefix_name}/test.all"] = test_sclite_job.out_wer
+
+    return wers
 
 
 @tk.block()
@@ -220,7 +226,7 @@ def compute_prior(
     return search_job.out_files["prior.txt"]
 
 
-def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root, gpu_mem: int = 11):
     """
     :param training_name:
     :param datasets:
@@ -247,12 +253,15 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
         default_rqmt.update({
             "distributed_launch_cmd": "torchrun",
             "horovod_num_processes": num_gpus,
-            "mem_rqmt": 20
+            "mem_rqmt": 24
         })
 
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
 
     train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    if gpu_mem != 11:
+        train_job.rqmt["gpu_mem"] = gpu_mem
+
     train_job.add_alias(training_name + "/training")
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job
@@ -268,6 +277,7 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
+    checkpoint: Optional[PtCheckpoint] = None,
 ):
     """
     :param training_name:
@@ -279,50 +289,54 @@ def prepare_asr_model(
     :param get_best_averaged_checkpoint: return the average with (n checkpoints, loss-key), n checkpoints can be 1
     :param get_last_averaged_checkpoint: return the average of the last n checkpoints
     :param prior_config: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
+    :param checkpoint: instead of using train_job, use this specific checkpoint
     :return:
     """
 
-    params = [get_specific_checkpoint, get_last_averaged_checkpoint, get_best_averaged_checkpoint]
+    params = [get_specific_checkpoint, get_last_averaged_checkpoint, get_best_averaged_checkpoint, checkpoint]
     assert sum([p is not None for p in params]) == 1
     assert not with_prior or datasets is not None
 
-    if get_best_averaged_checkpoint is not None:
-        num_checkpoints, loss_key = get_best_averaged_checkpoint
-        checkpoints = []
-        for index in range(num_checkpoints):
-            best_job = GetBestPtCheckpointJob(
-                train_job.out_model_dir,
-                train_job.out_learning_rates,
-                key=loss_key,
-                index=index,
-            )
-            best_job.add_alias(training_name + f"/get_best_job_{index}")
-            checkpoints.append(best_job.out_checkpoint)
-        if num_checkpoints > 1:
-            # perform averaging
+    if checkpoint is None and train_job is not None:
+        if get_best_averaged_checkpoint is not None:
+            num_checkpoints, loss_key = get_best_averaged_checkpoint
+            checkpoints = []
+            for index in range(num_checkpoints):
+                best_job = GetBestPtCheckpointJob(
+                    train_job.out_model_dir,
+                    train_job.out_learning_rates,
+                    key=loss_key,
+                    index=index,
+                )
+                best_job.add_alias(training_name + f"/get_best_job_{index}")
+                checkpoints.append(best_job.out_checkpoint)
+            if num_checkpoints > 1:
+                # perform averaging
+                avg = AverageTorchCheckpointsJob(
+                    checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT
+                )
+                avg.rqmt["mem"] = 8
+                checkpoint = avg.out_checkpoint
+                training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
+            else:
+                # we only have one
+                checkpoint = checkpoints[0]
+                training_name = training_name + "/best_cpkt"
+        elif get_last_averaged_checkpoint is not None:
+            assert get_last_averaged_checkpoint >= 2, "For the single last checkpoint use get_specific_checkpoint instead"
+            num_checkpoints = len(train_job.out_checkpoints)
             avg = AverageTorchCheckpointsJob(
-                checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT
+                checkpoints=[train_job.out_checkpoints[num_checkpoints - i] for i in range(get_last_averaged_checkpoint)],
+                returnn_python_exe=RETURNN_EXE,
+                returnn_root=RETURNN_ROOT,
             )
-            avg.rqmt["mem"] = 8
             checkpoint = avg.out_checkpoint
-            training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
+            training_name = training_name + "/avg_last_%i_cpkt" % num_checkpoints
         else:
-            # we only have one
-            checkpoint = checkpoints[0]
-            training_name = training_name + "/best_cpkt"
-    elif get_last_averaged_checkpoint is not None:
-        assert get_last_averaged_checkpoint >= 2, "For the single last checkpoint use get_specific_checkpoint instead"
-        num_checkpoints = len(train_job.out_checkpoints)
-        avg = AverageTorchCheckpointsJob(
-            checkpoints=[train_job.out_checkpoints[num_checkpoints - i] for i in range(get_last_averaged_checkpoint)],
-            returnn_python_exe=RETURNN_EXE,
-            returnn_root=RETURNN_ROOT,
-        )
-        checkpoint = avg.out_checkpoint
-        training_name = training_name + "/avg_last_%i_cpkt" % num_checkpoints
-    else:
-        checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
-        training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
+            checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
+            training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
+    elif train_job is None:
+        checkpoint = None
 
     prior_file = None
     if with_prior:

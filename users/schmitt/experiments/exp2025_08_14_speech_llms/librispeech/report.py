@@ -144,8 +144,9 @@ def baseline_report_format(report: _Report_Type) -> str:
 
 
 def generate_report(results, exp_name, report_template=baseline_report_format):
-    report = GenerateReportStringJob(report_values=results, report_template=report_template)
-    report.add_alias(f"report/report/{exp_name}")
+    report = GenerateReportStringJob(report_values=results, report_template=report_template, compress=False)
+    report.add_alias(f"report/{exp_name}")
+    tk.register_output("report/" + exp_name, report.out_report)
     # mail = MailJob(report.out_report, send_contents=True, subject=exp_name)
     # mail.add_alias(f"report/mail/{exp_name}")
     # tk.register_output("mail/" + exp_name, mail.out_status)

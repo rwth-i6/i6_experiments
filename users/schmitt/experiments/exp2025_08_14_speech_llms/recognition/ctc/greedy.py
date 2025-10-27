@@ -1,4 +1,4 @@
-__all__ = ["State", "LabelScorer", "beam_search_v1"]
+__all__ = ["State", "LabelScorer", "greedy_decoding_v1"]
 
 from abc import abstractmethod
 from functools import partial
@@ -65,147 +65,22 @@ class DecoderConfig:
     sample_rate: int
 
     def __str__(self) -> str:
-        return f"beam-{self.beam_size}"
-
-
-@dataclass
-class DecoderWithLmConfig(DecoderConfig):
-    lm_scale: float
-
-    def __str__(self) -> str:
-        return f"beam-{self.beam_size}-lmw-{self.lm_scale}-ilmw-{0.0}"
-
-
-@dataclass
-class DecoderWithLmAndIlmConfig(DecoderWithLmConfig):
-    ilm_scale: float
-    ilm_type: str = "zero_att"  # only supported type so far
-
-    def __post_init__(self):
-        assert self.ilm_type == "zero_att"
-
-    def __str__(self) -> str:
-        return f"beam-{self.beam_size}-lmw-{self.lm_scale}-ilmw-{self.ilm_scale}"
-
-
-def _batch_gather(values: Tensor, *, indices: Tensor, batch_dim: int = 0, index_dim: int = 1) -> Tensor:
-    """
-    torch.gather, but with support for an additional leading batch dim.
-
-    :param values: shape [Batch,Indices,ValuesDims...], e.g. [Batch,InBeam,...]
-    :param indices: shape [Batch,IndicesDims...] -> Indices, e.g. [Batch,OutBeam] -> InBeam
-    :param batch_dim: in values. in indices, batch is assumed first.
-    :param index_dim: in values. must be >batch_dim (not implemented otherwise).
-        in indices, index dims are expected after batch.
-    :return: shape [Batch,IndicesDims...,ValuesDims...], e.g. [Batch,OutBeam,...],
-        if batch_dim=0 and index_dim=1.
-        Batch and index dim stays at the same place, index dim is replaced by indices dims from indices.
-    """
-    # Derived from returnn.torch.frontend._backend.TorchBackend.gather.
-    # Case indices.dims_set.intersection(source.dims_set - {axis}).
-    # We cannot use index_select in this case. Need to fallback to gather.
-    assert indices.shape[0] == values.shape[batch_dim] and batch_dim < index_dim
-    num_index_own_dims = indices.ndim - 1
-    if num_index_own_dims == 1:
-        indices_flat = indices  # good, [Batch,IndexDim]
-    elif num_index_own_dims == 0:
-        indices_flat = indices[:, None]  # [Batch,IndexDim=1]
-    else:
-        indices_flat = indices.flatten(1)  # [Batch,FlatIndexDim]
-    indices_flat_bc = indices_flat.reshape(
-        [
-            indices_flat.shape[0] if i == batch_dim else (indices_flat.shape[1] if i == index_dim else 1)
-            for i, d in enumerate(values.shape)
-        ]
-    )  # batch_dim=0, index_dim=1 -> [Batch,IndexDim,1s...].
-    indices_flat_exp = indices_flat_bc.expand(
-        [
-            indices_flat.shape[0] if i == batch_dim else (indices_flat.shape[1] if i == index_dim else d)
-            for i, d in enumerate(values.shape)
-        ]
-    )  # batch_dim=0, index_dim=1 -> [Batch,IndexDim,ValuesDims...]
-    out = torch.gather(values, dim=index_dim, index=indices_flat_exp.type(torch.int64))
-    if num_index_own_dims == 1:
-        pass  # nothing to do
-    elif num_index_own_dims == 0:
-        out = out.squeeze(index_dim)
-    else:
-        out = out.unflatten(index_dim, indices.shape[1:])
-    if batch_dim == 0 and index_dim == 1:
-        assert out.shape == indices.shape + values.shape[2:]
-    return out
+        return f"beam-{self.beam_size}-lmw-{0.0}-ilmw-{0.0}"
 
 
 _T = TypeVar("T")
-
-
-def _gather_backrefs(state: _T, *, backrefs: Tensor, beam_size: int) -> _T:
-    """
-    Specialized gather for backrefs, respecting broadcasted data in the decoder state.
-
-    :param state: recurrent decoder state
-    :param backrefs: backref indices
-    :param beam_size: beam size for asserting state shapes
-    """
-
-    if not isinstance(state, Tensor) or state.ndim == 0:
-        return state
-    assert state.ndim >= 2, "need at least batch and beam dims"
-    assert state.shape[1] == 1 or state.shape[1] == beam_size, (
-        f"Beam dim must either be 1 or beam_size ({beam_size}) but is {state.shape[1]}"
-    )
-    if state.shape[1] == 1:
-        # this happens in the first step, where the initial beam is 1
-        # in this case, we expand the state to the full beam size
-        # we need to do this for the LM states, since we combine the batch and beam dim there, so we cannot
-        # use broadcasting as for the AED model, where batch and beam dim are separate
-        return state.expand(-1, beam_size, *[-1] * (state.ndim - 2))  # expand broadcast dim
-        # return state  # broadcast, e.g. encoder state in [B,1,T,F]
-    assert backrefs.ndim == 2, "need at least batch and beam dims in backrefs"
-    return _batch_gather(state, indices=backrefs, index_dim=1)
-
-
-def _top_k_nd(source: Tensor, *, k: int, dim: Sequence[int], sorted: bool = True) -> Tuple[Tensor, List[Tensor]]:
-    """
-    torch.top_k, but with support for search over multiple dimensions.
-
-    :param source: [Batch...,SourceDims...]
-    :param k: how many
-    :param dim: axes of SourceDims, multiple dims to search in
-    :param sorted: sorted output, see :func:`torch.topk`
-    :return: values [Batch...,k], list of indices per dim, each [Batch...,k]
-    """
-    # Derived from returnn.torch.frontend._backend.TorchBackend.top_k.
-    # Move axis to the end, in the right order.
-    dim = [(d + source.ndim) % source.ndim for d in dim]
-    source = source.permute([d for d in range(source.ndim) if d not in dim] + list(dim))
-    source_flat = source.flatten(start_dim=source.ndim - len(dim))
-    values, indices = torch.topk(source_flat, k=k, dim=-1, largest=True, sorted=sorted)
-    indices_out = []
-    for i in reversed(list(range(len(dim)))):
-        a_dim = source.shape[source.ndim - len(dim) + i]
-        indices_out_ = indices % a_dim
-        indices = indices // a_dim
-        indices_out.insert(0, indices_out_)
-    return values, indices_out
 
 
 # when using torch.no_grad here, it leads to an error when running ./sis m:
 # TypeError: no_grad.__init__() takes 1 positional argument but 2 were given
 # -> use context manager instead (see below)
 #  @torch.no_grad
-def beam_search_v1(
+def greedy_decoding_v1(
     *,
     model: LabelScorer,
-    beam_size: int,
     batch_size: int,
-    decoder_state: State,
     device: torch.device,
-    length_norm_exponent: float = 1.0,
     max_seq_len: Tensor,
-    lm_scale: float = 0.0,
-    ilm_scale: float = 0.0,
-    ilm_decoder_state: Optional[State] = None,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     Eager-mode implementation of beam search.
@@ -221,27 +96,10 @@ def beam_search_v1(
     """
 
     with torch.no_grad():
-        assert beam_size > 0
         assert batch_size > 0
         assert (max_seq_len > 0).all()
-        assert ilm_scale == 0.0 or ilm_decoder_state is not None, "ilm_scale > 0 requires an ILM decoder state"
 
-        # First step uses beam=1, since the start state is the same for all beams, and multiple
-        # beams containing the same contents cause issues in top-k search.
-        initial_beam = 1
-        target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32, device=device)  # Batch, Beam
-        ended = torch.full([batch_size, initial_beam], False, device=device)  # Batch, Beam
-        seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # Batch, Beam
-        out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # Batch, Beam
-        lm_cache = None
-
-        ended_default = F.one_hot(torch.tensor(model.eos_idx, device=device), num_classes=model.num_labels)
-        ended_default = torch.where(ended_default.bool(), 0.0, -1e30)
-
-        seq_targets = []
-        seq_backrefs = []
-        label_log_probs = []
-        step = torch.tensor(0, device=device, dtype=torch.int32)
+        seq_log_prob = torch.full([batch_size], 0.0, dtype=torch.float32, device=device)  # Batch, Beam
 
         while True:
             logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)

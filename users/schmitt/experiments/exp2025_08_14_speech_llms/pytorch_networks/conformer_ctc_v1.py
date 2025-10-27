@@ -35,9 +35,7 @@ from i6_models.primitives.feature_extraction import (
 )
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
-from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognition.aed import EncoderDecoderModel
-from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognition.torchaudio_ctc import CtcModel
-from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.training.aed_ctc_train_step import AedCtcModel
+from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognition.ctc.forward_step import CtcModel
 
 from .. import PACKAGE
 
@@ -112,7 +110,7 @@ class _SpecAugArgs(TypedDict):
     freq_mask_max_size: int
 
 
-class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
+class Model(nn.Module, CtcModel):
     """
     Conformer encoder + Transformer decoder AED + CTC model
     similar to the RETURNN frontend implementation but using primitives from i6_models.
@@ -134,15 +132,10 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         # Model Size/Structure
         n_mels: int = 80,
         model_dim: int,
-        out_dim: int,
+        out_dim_wo_blank: int,
         num_heads: int,
         num_enc_layers: int,
-        num_dec_layers: int,
         aux_loss_layers: Sequence[int],
-        # vocab
-        bos_idx: int,
-        eos_idx: int,
-        blank_idx: Optional[int] = None,
         # RF Defaults
         dropout: float = 0.1,
         dropout_broadcast_axes: Optional[Literal["B", "BT", "T"]] = "BT",
@@ -150,7 +143,6 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         specaug_args: Optional[Dict[str, int]] = None,
         use_rf_init: bool = True,
         logits_bias: bool = False,
-        share_embedding: bool = True,
         aux_logits_bias: bool = False,
         feature_extraction_config: Optional[Dict[str, Any]] = None,
         lm_opts: Optional[Dict[str, Any]] = None,
@@ -159,11 +151,9 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         super().__init__()
 
         assert model_dim > 0
-        assert out_dim > 0
+        assert out_dim_wo_blank > 0
         assert len(aux_loss_layers) == len(set(aux_loss_layers))
         assert list(aux_loss_layers) == sorted(aux_loss_layers)
-
-        assert not share_embedding or not logits_bias
 
         # positional embedding like RF
         rel_pos_clip = 16
@@ -176,23 +166,11 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         # RF does not broadcast attention dropout masks
         attn_dropout_broadcast = None
 
-        assert 0 <= bos_idx < out_dim
-        assert 0 <= eos_idx < out_dim
-        assert bos_idx != eos_idx
+        self.num_labels = out_dim_wo_blank
 
-        self.bos_idx = bos_idx
-        self.eos_idx = eos_idx
-        self.num_labels = out_dim
-
-        if blank_idx is not None:
-            # blank index is part of the vocabulary
-            assert blank_idx >= 0 and blank_idx < out_dim
-            aux_out_dim = out_dim
-            self.blank_idx = blank_idx
-        else:
-            # blank index is not part of the vocabulary, make space for it
-            aux_out_dim = out_dim + 1
-            self.blank_idx = out_dim
+        # blank index is not part of the vocabulary, make space for it
+        self.out_dim_w_blank = out_dim_wo_blank + 1
+        self.blank_idx = out_dim_wo_blank
 
         if feature_extraction_config is None:
             mel_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
@@ -267,48 +245,6 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         enc_cfg = ConformerRelPosEncoderV1Config(num_layers=num_enc_layers, frontend=frontend, block_cfg=block_cfg)
         self.encoder = ConformerRelPosEncoderV1(enc_cfg)
 
-        dec_cfg = TransformerDecoderV1Config(
-            block_cfg=TransformerDecoderBlockV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardV2Config(
-                    input_dim=model_dim,
-                    hidden_dim=model_dim * 4,
-                    dropout=dropout,
-                    activation=nn.functional.relu,
-                    dropout_broadcast_axes=dropout_broadcast_axes,
-                ),
-                mhsa_cfg=CausalSelfAttentionV1Config(
-                    att_dropout=dropout,
-                    att_dropout_broadcast_axes=attn_dropout_broadcast,
-                    dropout=dropout,
-                    dropout_broadcast_axes=dropout_broadcast_axes,
-                    model_dim=model_dim,
-                    key_dim_total=model_dim,
-                    value_dim_total=model_dim,
-                    num_heads=num_heads,
-                    with_bias=True,
-                ),
-                cross_cfg=CrossAttentionV1Config(
-                    att_dropout=dropout,
-                    att_dropout_broadcast_axes=attn_dropout_broadcast,
-                    dropout=dropout,
-                    dropout_broadcast_axes=dropout_broadcast_axes,
-                    encoder_dim=model_dim,
-                    model_dim=model_dim,
-                    key_dim_total=model_dim,
-                    value_dim_total=model_dim,
-                    num_heads=num_heads,
-                    with_bias=True,
-                ),
-            ),
-            input_dropout=dropout,
-            input_embedding_scale=None,
-            num_blocks=num_dec_layers,
-            num_output=out_dim,
-            logits_bias=logits_bias,
-            share_embedding=share_embedding,
-        )
-        self.decoder = TransformerDecoderV1(dec_cfg)
-
         self.specaug_args: _SpecAugArgs = {
             "time_min_num_masks": 1,
             "time_max_mask_per_n_frames": 100,
@@ -322,13 +258,13 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         self.specaug_start = specaug_start
 
         self.out_aux_logits = nn.ModuleList(
-            [nn.Linear(model_dim, aux_out_dim, bias=aux_logits_bias) for _ in range(len(aux_loss_layers))]
+            [nn.Linear(model_dim, self.out_dim_w_blank, bias=aux_logits_bias) for _ in range(len(aux_loss_layers))]
         )
+        self.out_logits = nn.Linear(model_dim, self.out_dim_w_blank, bias=logits_bias)
         self._out_fetch_layers = sorted(v - 1 for v in {*aux_loss_layers, enc_cfg.num_layers})
 
         if use_rf_init:
             _apply_filter(self.encoder, _init_rf)
-            _apply_filter(self.decoder, _init_rf)
             _apply_filter(self.out_aux_logits, _init_rf)
 
         self.external_lm = None
@@ -392,38 +328,6 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         assert len(self.out_aux_logits) <= len(encoder_outputs)
         out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
-        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
 
-    def decode_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
-        state = self.decoder.transform_encoder_output(
-            encoder_output, encoder_output_lens, self.decoder.get_initial_state()
-        )
-        dec_out, _ = self.decoder.forward(x, x_lens, state)
-        return dec_out
-
-    def forward_ctc(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Tuple[List[Tensor], Tensor]:
-        _, ctc_logits, ctc_len, _ = self.forward(raw_audio, raw_audio_lens)
-        return ctc_logits, ctc_len
-
-    def forward_encoder(
-            self, raw_audio: Tensor, raw_audio_lens: Tensor
-    ) -> Tuple[TransformerDecoderV1State, Tensor, Tensor, Tensor]:
-        state, ctc_logits, lens, encoder_out = self.forward_encoder_with_ctc(raw_audio, raw_audio_lens)
-        return state, ctc_logits, lens, encoder_out
-
-    def forward_encoder_with_ctc(
-        self, raw_audio: Tensor, raw_audio_lens: Tensor
-    ) -> Tuple[TransformerDecoderV1State, Tensor, Tensor, Tensor]:
-        encoder_out, ctc_logits, lens, _ = self.forward(raw_audio, raw_audio_lens)
-        state = self.decoder.get_initial_state()
-        state = self.decoder.transform_encoder_output(encoder_out.unsqueeze(1), lens.unsqueeze(1), state)
-        return state, ctc_logits[-1], lens, encoder_out
-
-    def step_decoder(
-        self, labels: Tensor, state: TransformerDecoderV1State
-    ) -> Tuple[Tensor, TransformerDecoderV1State]:
-        return self.decoder.forward(
-            labels,
-            torch.full(labels.shape[:-1], 1, device=labels.device, dtype=torch.int32),
-            state,
-        )
+        out_logits = self.out_logits(encoder_outputs[-1])
+        return out_logits, out_aux_logits, out_seq_lens, out_mask

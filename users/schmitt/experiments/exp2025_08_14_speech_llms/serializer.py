@@ -47,7 +47,7 @@ def serialize_training(
     package = PACKAGE
 
     pytorch_model_import = PartialImport(
-        code_object_path=package + ".%s.Model" % network_module,
+        code_object_path=package + ".pytorch_networks.%s.Model" % network_module,
         unhashed_package_root=PACKAGE,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
@@ -115,7 +115,7 @@ def serialize_forward(
     package = PACKAGE  # + ".pytorch_networks"
 
     pytorch_model_import = PartialImport(
-        code_object_path=package + ".%s.Model" % network_module,
+        code_object_path=package + ".pytorch_networks.%s.Model" % network_module,
         unhashed_package_root=PACKAGE,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
@@ -141,11 +141,12 @@ def serialize_forward(
         code_object_path=package + ".%s.%s_step" % (forward_module, forward_step_name),
         unhashed_package_root=PACKAGE,
         import_as="forward_step",
-        hashed_arguments={
-            "beam_size": 12,
-            "max_tokens_per_sec": 20,
-            "sample_rate": 16_000,
-        },
+        hashed_arguments=forward_init_args,
+        # {
+        #     "beam_size": 12,
+        #     "max_tokens_per_sec": 20,
+        #     "sample_rate": 16_000,
+        # },
         unhashed_arguments={},
     )
 
@@ -157,24 +158,12 @@ def serialize_forward(
         vocab_file = vocab_opts["vocab_file"]
 
     callback = PartialImport(
-        code_object_path=f"{package}.recognition.aed.callback.RecognitionToTextDictCallback",
+        code_object_path=f"{package}.{forward_module}.callback.RecognitionToTextDictCallback",
         import_as="forward_callback",
         hashed_arguments={"vocab": vocab_file},
         unhashed_arguments={},
         unhashed_package_root=None,
     )
-    # init_hook = PartialImport(
-    #     code_object_path=package + ".%s.%s_init_hook" % (forward_module, forward_step_name),
-    #     unhashed_package_root=PACKAGE,
-    #     hashed_arguments=forward_init_args or {},
-    #     unhashed_arguments=unhashed_forward_init_args or {},
-    #     import_as="forward_init_hook",
-    # )
-    # finish_hook = Import(
-    #     code_object_path=package + ".%s.%s_finish_hook" % (forward_module, forward_step_name),
-    #     unhashed_package_root=PACKAGE,
-    #     import_as="forward_finish_hook",
-    # )
     serializer_objects.extend([forward_step, callback])
 
     serializer = Collection(

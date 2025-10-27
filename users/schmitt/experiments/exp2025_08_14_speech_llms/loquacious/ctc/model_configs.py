@@ -1,36 +1,13 @@
 from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 
-
-# TODO: fix out_dim!!!!
-v1 = {
-    "aux_loss_layers": (4, 8),
-    "num_enc_layers": 12,
-    "num_dec_layers": 6,
-    "num_heads": 8,
-    "model_dim": 512,
-    "out_dim": 10_240,
-    "sampling_rate": 16_000,
-    "share_embedding": True,
-    "specaug_start": (5_000, 15_000, 25_000),
-    "use_rf_init": True,
-    "bos_idx": 1,
-    "eos_idx": 0,
-    "network_module": "conformer_aed_v1",
-}
-
 v2 = {
     "aux_loss_layers": (4, 8),
     "num_enc_layers": 12,
-    "num_dec_layers": 6,
     "num_heads": 8,
     "model_dim": 512,
-    "out_dim": 10_240,
     "sampling_rate": 16_000,
-    "share_embedding": True,
     "specaug_start": (5_000, 15_000, 25_000),
     "use_rf_init": True,
-    "bos_idx": 1,
-    "eos_idx": 0,
     "feature_extraction_config": {
         "class": "LogMelFeatureExtractionV1",
         "win_size": 0.025,
@@ -41,7 +18,7 @@ v2 = {
         "num_filters": 80,
         "center": False,
     },
-    "network_module": "conformer_aed_v1",
+    "network_module": "conformer_ctc_v1",
 }
 
 v3 = dict_update_deep(

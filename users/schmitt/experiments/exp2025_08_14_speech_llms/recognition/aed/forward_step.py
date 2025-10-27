@@ -1,13 +1,14 @@
 __all__ = ["EncoderDecoderModel", "forward_step", "aed_recog_ctc_rescore_forward_step_v1"]
 
 from abc import abstractmethod
-from typing import Generic, Optional
+from typing import Generic, Optional, Dict, Tuple
 
 import torch
 from torch import Tensor
 import torch.nn.functional as F
 
 from .beam_search import LabelScorer, State, beam_search_v1
+from ... import PACKAGE
 import returnn.frontend as rf
 from returnn.tensor import Dim, TensorDict, batch_dim
 
@@ -22,7 +23,7 @@ class EncoderDecoderModel(LabelScorer[State], Generic[State]):
     """
 
     @abstractmethod
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> State:
+    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Tuple[State, Tensor, Tensor, Tensor]:
         """
         Forward the raw audio data through the encoder and initialize decoder state from it.
 
@@ -41,11 +42,14 @@ def forward_step(
     beam_size: int,
     max_tokens_per_sec: Optional[int] = None,
     sample_rate: Optional[int] = None,
+    lm_scale: float = 0.0,
+    ilm_scale: float = 0.0,
     **kwargs,
 ):
     """Runs full recognition on the given data."""
-
     assert beam_size > 0
+
+    assert lm_scale == 0.0 or model.external_lm is not None, "lm_scale > 0 requires an external LM in the model"
 
     data = extern_data["data"].raw_tensor
     seq_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
@@ -55,7 +59,17 @@ def forward_step(
         assert max_tokens_per_sec > 0 and sample_rate > 0
         max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
 
-    decoder_state = model.forward_encoder(data, seq_len)
+    decoder_state, _, enc_lens, enc_out = model.forward_encoder(data, seq_len)
+    if ilm_scale != 0.0:
+        ilm_decoder_state = model.decoder.get_initial_state()
+        ilm_decoder_state = model.decoder.transform_encoder_output(
+            torch.zeros_like(enc_out).unsqueeze(1),
+            enc_lens.unsqueeze(1),
+            ilm_decoder_state
+        )
+    else:
+        ilm_decoder_state = None
+
     seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1(
         model=model,
         beam_size=beam_size,
@@ -63,6 +77,9 @@ def forward_step(
         decoder_state=decoder_state,
         device=data.device,
         max_seq_len=max_seq_len,
+        lm_scale=lm_scale,
+        ilm_scale=ilm_scale,
+        ilm_decoder_state=ilm_decoder_state,
     )
 
     beam_dim = Dim(beam_size, name="beam")
