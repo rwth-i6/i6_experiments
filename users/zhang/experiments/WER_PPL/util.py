@@ -63,12 +63,19 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.aggregated = aggregated
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
-        yield Task("export_metric_matrix", mini_task=True)
-        yield Task("export_dataset_tables", mini_task=True)
-        yield Task("export_metric_averages", mini_task=True)
-        yield Task("plots", mini_task=True)
+        # yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
+        # yield Task("export_metric_matrix", mini_task=True)
+        # yield Task("export_dataset_tables", mini_task=True)
+        # yield Task("export_metric_averages", mini_task=True)
+        # yield Task("plots", mini_task=True)
+        yield Task("run", mini_task=True)
 
+    def run(self):
+        self.create_table()
+        self.export_metric_matrix()
+        self.export_dataset_tables()
+        self.export_metric_averages()
+        self.plots()
 
     @staticmethod
     def find_relevant_key(dict, key):

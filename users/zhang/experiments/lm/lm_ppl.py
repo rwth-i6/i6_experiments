@@ -262,7 +262,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
     print(ppls)
     for epoch in check_epochs:
-        tk.register_output(f"ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
+        tk.register_output(f"test/ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
     return ppls
 
 def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab: [str | VocabConfig] = "bpe128", task_name: str = "LBS", **kwargs_unused):

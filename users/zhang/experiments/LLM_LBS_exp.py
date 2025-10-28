@@ -45,7 +45,7 @@ TUNE_TWO_ROUND = True
 
 
 BEAM_SIZE = 500
-TRAFO_BEAM = 300
+TRAFO_BEAM = 200
 NBEST = 200 # Use 100 for plot
 
 TUNE_ON_GREEDY_N_LIST = False
@@ -53,17 +53,19 @@ TUNE_ON_GREEDY_N_LIST = False
 LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
-LLM_FXIED_CTX_SIZE = 8
+LLM_FXIED_CTX_SIZE = 3
 
 LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
 CHEAT_CTX = False and LLM_PREV_ONE_CTX
-CTX_LEN_LIMIT = 100
+CTX_LEN_LIMIT = 60
 
 TUNE_LLM_SCALE_EVERY_PASS = LLM_PREV_ONE_CTX and not CHEAT_CTX
 
-DIAGNOSE = True and not TUNE_LLM_SCALE_EVERY_PASS
+DIAGNOSE = False and not TUNE_LLM_SCALE_EVERY_PASS
 
 COMBINE_NLIST = False
+TUNE_WITH_ORIG_NBEST = False and COMBINE_NLIST
+
 N_BEST_COMBINE_CONFIGS = [({'log_add': False, 'nbest': 200, 'beam_size': 200, 'beam_threshold': 1000000.0, 'lm_weight': 0.8,
                             'use_logsoftmax': True, 'use_lm': True, 'use_lexicon': True,
                             'lm_order': '4gram_word_official_LBS',
@@ -393,6 +395,7 @@ def ctc_exp(
 
     if COMBINE_NLIST:
         decoding_config["Nlist_configs"] = N_BEST_COMBINE_CONFIGS
+        decoding_config["tune_with_orig_Nbest"] = TUNE_WITH_ORIG_NBEST
     if train:
         decoding_config = {
         "log_add": False,
@@ -497,7 +500,7 @@ def py():
                   #"bpe10k",
                   #"spm10k",
                   ]:
-        word_ppl = False # Default
+        word_ppl = True # Default
         # LM that do first pass,
         lm_kinds = {"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
@@ -515,12 +518,12 @@ def py():
                     }
         insert_spm10k_lm = False
         LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 80,  # 40 on 48gb,
-                              "meta-llama/Llama-3.1-8B": 175,#120 + ctx 100 for 141g,# 70 for 80gb # batch 50 + ctx 200 -> 40GB peak
+                              #"meta-llama/Llama-3.1-8B": 180,#120 + ctx 100 for 141g,# 70 for 80gb # batch 50 + ctx 200 -> 40GB peak
                                #"Qwen/Qwen3-0.6B-Base": 51,
                               "Qwen/Qwen3-1.7B-Base": 80,  # 40 on 48gb# 80 + ctx 100 -> 79 peak
                               # "Qwen/Qwen3-4B-Base":24,
                               #"Qwen/Qwen3-8B-Base":50,
-                             "microsoft/phi-4": 150,#120 for 141g, 50 for 80gb, #(batch 42 + ctx 200 -> 47gb peak. batch 150 + ctx 100 -> 105/130gb peak)
+                             #"microsoft/phi-4": 160,#120 for 141g, 50 for 80gb, #(batch 42 + ctx 200 -> 47gb peak. batch 150 + ctx 100 -> 105/130gb peak)
                               # "mistralai/Mistral-7B-v0.3": 4,
                               }  # Keys of this determines which LLM will be built by lm_getter
 
@@ -633,7 +636,7 @@ def py():
                                                            search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
                                                            eval_dataset_keys=EVAL_DATASET_KEYS)
                     gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
-                    llm_related_name_ext = f"{'cheat_ctx' if CHEAT_CTX else ''}" + f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                    llm_related_name_ext = f"{'cheat_ctx' if CHEAT_CTX else ''}" + f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"rdm_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                         f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                     alias_prefix = (
                             f"LBS_wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder

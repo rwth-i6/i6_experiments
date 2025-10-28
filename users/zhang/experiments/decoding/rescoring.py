@@ -555,6 +555,9 @@ class RescoreSearchErrorJob(Job):
 
     def run(self):
         """run"""
+        def _normalize_text(text):
+            return text
+            #return ' '.join([word for word in text.split() if "<" not in word and word != "▁"])
         n_lists = eval(util.uopen(self.combined_search_py_output, "rt").read(),
                        {"nan": float("nan"), "inf": float("inf")})  # {seq_tag:[(score, hyp)]}
         gts = eval(util.uopen(self.combined_gt_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
@@ -576,7 +579,7 @@ class RescoreSearchErrorJob(Job):
 
                 gt_score, gt = gts[seq_tag][0]
                 gt = " ".join(gt.split()).strip()
-                hyps = [" ".join(x[1].split()).strip() for x in n_lists[seq_tag]]
+                hyps = [" ".join(_normalize_text(x[1]).split()).strip() for x in n_lists[seq_tag]]
                 targets_search_str = "["
                 gt_count = 0
                 for hyp in hyps:
@@ -623,7 +626,7 @@ class RescoreSearchErrorJob(Job):
                         "Search error!" if is_search_error else "No search error!",
                     )
                     f.write(log_txt)
-                out.write("}\n")
+            out.write("}\n")
         with open("search_errors_log", "a") as f:
             log_txt = "\n\n\tGT presents: %s\n\tNum_seq: %f\n\t" % (
                 gt_present_num,
@@ -646,7 +649,7 @@ class RescoreSearchErrorJob(Job):
             # "OOV: %.2f%%" % ((num_oov / num_words) * 100) + "\n")
         import json
         with open(self.out_missing_gt_dict.get_path(), "w+") as f:
-            json.dump(missing_gt_dict, f, indent=2)
+            json.dump(missing_gt_dict, f, indent=2, ensure_ascii=False)
 
 
 def rescore(
@@ -813,10 +816,15 @@ def _returnn_rescore_config(
                 "class": "MetaDataset",
                 "datasets": {
                     "orig_data": orig_data,
-                    "hyps": forward_data,
+                    "hyps": {"class": "TextDictDataset",
+                             "filename": recog_output.output,
+                             "vocab": vocab_opts,
+                             "seq_ordering": "default"
+                    },
                     "hyps_lm": {"class": "TextDictDataset",
-                        "filename": recog_output_for_lm.output,
-                        "vocab": vocab_opts
+                                "filename": recog_output_for_lm.output,
+                                "vocab": vocab_opts,
+                                "seq_ordering": "default",
                     }
                 },
                 "data_map": {
@@ -826,7 +834,7 @@ def _returnn_rescore_config(
                     "data_flat_lm": ("hyps_lm", "data_flat"),
                     "data_seq_lens_lm": ("hyps_lm", "data_seq_lens"),
                 },
-                "seq_order_control_dataset": "hyps",
+                "seq_order_control_dataset": "default",
             }
         else:
             forward_data = {

@@ -478,7 +478,7 @@ class NbestListDataset(DatasetConfig):
         from i6_experiments.users.zhang.datasets.vocab import ApplySentencepieceToWordOutputJob
         Nbest = self._get_match_Nbest(key, N)
         from i6_core.returnn.search import SearchRemoveLabelJob
-        Nbest_for_lm = SearchRemoveLabelJob(Nbest, remove_label={"<unk>","<noise>","▁mes"}).out_search_results
+        Nbest_for_lm = SearchRemoveLabelJob(Nbest, remove_label={"<unk>","<sep>","▁mes"}).out_search_results
         if tokenize:
             Nbest = ApplySentencepieceToWordOutputJob(search_py_output=Nbest,sentencepiece_model=self.spm.model_file,enable_unk=True).out_search_results
             Nbest_for_lm = ApplySentencepieceToWordOutputJob(search_py_output=Nbest_for_lm,sentencepiece_model=self.spm.model_file,enable_unk=True).out_search_results
@@ -690,6 +690,9 @@ def _get_corpus_text_dict(corpus_file: tk.Path, key: str) -> tk.Path:
 
 @cache
 def _get_corpus_text(corpus_file: tk.Path, key: str) -> tk.Path:
+    if any(infix in key for infix in ["dev_conversation",
+                                    "common_voice_two_speakers"]):  # Actually this should be done right after the creation of corpus
+        corpus_file = BlissStripOrthPunctJob(corpus_file).out_corpus
     corpus_text_dict = _get_corpus_text_dict(corpus_file, key)
     job = TextDictToTextLinesJob(corpus_text_dict, gzip=True)
     job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")

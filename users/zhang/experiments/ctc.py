@@ -283,6 +283,7 @@ def train_exp(
     recog: bool = False,
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
+    dev_dataset_keys_for_first_pass_tune: Sequence[str] = None,
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str,Any]], Optional[Dict[str,Any]]]:
 
@@ -383,6 +384,7 @@ def train_exp(
         recog_epoch=recog_epoch,
         batch_size=batch_size,
         dev_dataset_keys=dev_dataset_keys,
+        dev_dataset_keys_for_first_pass_tune=dev_dataset_keys_for_first_pass_tune,
         eval_dataset_keys=eval_dataset_keys,
     )
 
@@ -488,6 +490,7 @@ def recog_exp(
     search_rqmt: dict = None,
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
+    dev_dataset_keys_for_first_pass_tune: Sequence[str] = None,
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str, Any]], Optional[Dict[str, tk.Path]]]:
     """
@@ -530,6 +533,7 @@ def recog_exp(
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
     tune_with_cheat = decoding_config.pop("cheat_tune", False)
+    tune_with_orig_nbest = decoding_config.pop("tune_with_orig_Nbest",False)
     base_one_pass_for_tune_setting = decoding_config.pop("base_one_pass", None)
     diagnose = decoding_config.pop("diagnose", False)
     two_round_tune = decoding_config.pop("two_round_tune", False)
@@ -542,16 +546,21 @@ def recog_exp(
     def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, *,
                                              update_config: dict = {},
                                              first_pass_name: str = None, tune_with_cheat: bool = False,
-                                             diagonise: bool = False):
+                                             diagonise: bool = False, tune_first_pass: bool=False):
         original_params = decoding_config
         params = copy.deepcopy(original_params)
         datasets = dev_dataset_keys if not diagonise else list(set(dev_dataset_keys + eval_dataset_keys))
+        datasets = dev_dataset_keys_for_first_pass_tune if tune_first_pass and dev_dataset_keys_for_first_pass_tune is not None else datasets
         # This is necessary for reducing to minimal hash:
         if not tune_with_cheat:
             params.pop("cheat", None)
         params.pop("check_search_error_rescore", None)
         params.pop("tune_range_2", None)
         params.pop("tune_range", None)
+        if tune_with_orig_nbest:
+            params.pop("Nlist_configs", None)
+            params.pop("Nbest_dataset", None)
+            params.pop("combine_with_given_Nlist",None)
         search_config_copy = None
         #first_pass_wo_lm = not decoding_config.get("use_lm", False)
         if update_config:
@@ -560,6 +569,8 @@ def recog_exp(
             params.pop("lm_weight_tune", None)
             params.pop("prior_weight_tune", None)
             params.pop("Nlist_configs", None)
+            params.pop("Nbest_dataset", None)
+            params.pop("combine_with_given_Nlist",None)
             if TUNE_ON_GREEDY_N_LIST: # or first_pass_wo_lm: # First pass with Greedy(No lm)
                 params.update(update_config)
                 if search_config.get("network_config_kwargs", False):
@@ -797,7 +808,7 @@ def recog_exp(
         alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + f"b{update_config['beam_size']}n{update_config['nbest']}" + f"{'NoLM' if TUNE_ON_GREEDY_N_LIST else lm_name_for_tuning}" + f"_tune_scale-{first_pass_lmname}"
         best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls,
                                                                            "rescore_lmscale", update_config=copy.deepcopy(update_config),
-                                                                           first_pass_name=alias_tune_name)
+                                                                           first_pass_name=alias_tune_name, tune_first_pass=True)
         tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best", best_lm_scale)
         decoding_config["lm_weight"] = best_lm_scale
 
@@ -812,7 +823,7 @@ def recog_exp(
         f"\n lm_range:[{min(lm_tune_ls), max(lm_tune_ls)}]\n "
         f"prior_range:[{min(prior_tune_ls), max(prior_tune_ls)}]")
         best_prior_scale = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",
-                                                           update_config=copy.deepcopy(update_config), first_pass_name=alias_tune_name)
+                                                           update_config=copy.deepcopy(update_config), first_pass_name=alias_tune_name, tune_first_pass=True)
         tk.register_output(alias_tune_name + "/tune/priot_weight_tune_best", best_prior_scale)
         decoding_config["prior_weight"] = best_prior_scale
 
@@ -826,7 +837,7 @@ def recog_exp(
 
             best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
                                                                       update_config=copy.deepcopy(update_config),
-                                                                      first_pass_name=alias_tune_name + "_second_tune")
+                                                                      first_pass_name=alias_tune_name + "_second_tune", tune_first_pass=True)
             tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best_1", best_lm_scale)
             #decoding_config["lm_weight_tune"] = best_lm_tune_1 + best_lm_tune# This is the total offset to best_lm_scale
             decoding_config["lm_weight"] = best_lm_scale
@@ -3644,41 +3655,6 @@ def decode_nn(
         if isinstance(hyp_params["lm_weight"], tk.Variable):
             hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
         print(f"LM weight: {hyp_params['lm_weight']}")
-    # prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    # lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-
-    # if prior_weight_tune is not None:
-    #     if isinstance(prior_weight_tune, float):
-    #         pass
-    #     elif isinstance(prior_weight_tune, tk.Path) or isinstance(prior_weight_tune, str):
-    #         prior_weight_tune = json.load(open(prior_weight_tune))
-    #         prior_weight_tune = prior_weight_tune["best_tune"]
-    #     else:
-    #         assert isinstance(prior_weight_tune, tk.Variable)
-    #         prior_weight_tune: tk.Variable
-    #         prior_weight_tune = prior_weight_tune.get()
-    #     assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-    #     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    #     if isinstance(prior_weight, tk.Variable):
-    #         prior_weight = prior_weight.get()
-    #     print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-    #     prior_weight += prior_weight_tune
-    # if lm_weight_tune is not None:
-    #     if isinstance(prior_weight_tune, float):
-    #         pass
-    #     elif isinstance(lm_weight_tune, tk.Path) or isinstance(lm_weight_tune, str):
-    #         lm_weight_tune = json.load(open(lm_weight_tune))
-    #         lm_weight_tune = lm_weight_tune["best_tune"]
-    #     else:
-    #         assert isinstance(lm_weight_tune, tk.Variable)
-    #         lm_weight_tune: tk.Variable
-    #         lm_weight_tune = lm_weight_tune.get()
-    #     assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-    #     old_lm_weight = hyp_params.get("lm_weight", 0.0)
-    #     if isinstance(old_lm_weight, tk.Variable):
-    #         old_lm_weight = old_lm_weight.get()
-    #     print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-    #     hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
 
     dev_s = rf.get_default_device()

@@ -266,6 +266,7 @@ def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcri
         batch_size=10_000,
         rqmt={"gpu_mem": 48, "time": 2},
     )
+    print(ppls)
     if epochs:
         for epoch in epochs:
             #assert epoch in model_with_checkpoints.fixed_epochs
@@ -444,7 +445,8 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
         epochs=epochs,
         same_seq=True,
         word_ppl=True,
-        batch_size=12_000,
+        batch_size=11_200,
+        rqmt={"gpu_mem": 48, "time": 1},
     )
     print(f"------fixed epochs of trafo_lm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")
     # if ppls.

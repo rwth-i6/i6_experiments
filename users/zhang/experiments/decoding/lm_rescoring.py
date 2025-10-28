@@ -42,13 +42,24 @@ class LMScorer(abc.ABC):
     """
     Abstract interface for language model scorers.
     """
+    model_dir: Union[tk.Path, str] = None
+    batch_size: int = 1
+    eos_symbol: str = "\n"
+    lower_case: bool = False
+    get_raw_text_func: Callable[[str],str] = lambda text: text
+    ctx_len_limit: int = None
+    prev_one_ctx: bool = False
+    gt_res: tk.Path = None
+    am_prior_scores: List[tk.Path] = None
+    lm_scale: float = None
+    empty_score: float = -1e30
 
     @abc.abstractmethod
     def score(self, sequence: str) -> float:
         """Compute score or log-probability for a single token sequence."""
         pass
 
-    def update_prompt(self, new_prompt: str, raw_text: bool = False):
+    def update_prompt(self, new_prompt: str, is_raw_text: bool = False):
         pass
 
     def clear_prompt(self):
@@ -89,22 +100,20 @@ class ScorerFactory:
         model_cls = cls.registry[lm_type]
         return model_cls.from_config(cfg)
 
-# TODO: this is not going to work straightforward for RETURNN models, the returnn engine need configured for any returnn models.
-#  But it is possible to be rewritten as a rescor_def that goes to forwardJob
-# Can also be a downstream job that take the top1 of reordered n-best list. Just use a dummy LM_scorer
 class LmRescoringJob(Job):
     """
     Generic rescoring job that uses any LMScorer. The LM must implement the interface
-    return new scores with given hyps
-    Takes input: recog_out_file and lm_config.
+    return new scores with given hyps.
+    ! Use simple handling of batch: only process batch inside an N-best list, where same context shared among all hyps
+    -> (Any batch_size > N is effectively same as using batch size = N)
+    Takes input: recog_out_file (py_dict: {seq_tag: [(score_1,hyp1),...]}) and lm_config.
     """
     def __init__(self, *, lm_cfg: dict, recog_out_file: tk.Path, version:int = 0):
         super().__init__()
-        #self.name = f"HFLM-RESCO-{llm_name}"
         self.scorer = None
         self.lm_cfg = lm_cfg
         self.n_best_file = recog_out_file
-        self.out_file = self.output_path(_v2_forward_out_filename)
+        self.out_file = self.output_path("output.py.gz")
         self.rqmt = {"time": 4, "cpu": 3, "mem": 8, "gpu": 1, "gpu_mem": 24}
 
     def tasks(self):
@@ -116,8 +125,8 @@ class LmRescoringJob(Job):
         import i6_core.util as cutil
 
         self.scorer: LMScorer = ScorerFactory.build(self.lm_cfg)
-        prev_one_ctx = self.lm_cfg.get("prev_one_ctx",False)
-        gt_res = self.lm_cfg.get("gt_res",None)
+        prev_one_ctx = self.scorer.prev_one_ctx #self.lm_cfg.get("prev_one_ctx",False)
+        gt_res = self.scorer.gt_res # Use this to provide reference (Ground Truth) as context
         if gt_res is not None: # No need to reorder, only need it as a look up
             gt_rec = eval(cutil.uopen(gt_res, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
             some_key = next(iter(gt_rec))
@@ -125,11 +134,13 @@ class LmRescoringJob(Job):
         else:
             gt_rec = None
 
-        am_prior_scores = self.lm_cfg.get("AM_prior_scores",None)
+        # For LLM rescoring with hypothesis context, am and prior scores are needed
+        am_prior_scores = self.scorer.am_prior_scores # Should be list of same N-bests (py_dict) with corresponding scores
         other_scores_hyps = None
         lm_scale = None
         if am_prior_scores is not None:
-            lm_scale = self.lm_cfg["lm_scale"]
+            lm_scale = self.scorer.lm_scale
+            assert lm_scale
             if isinstance(lm_scale, tk.Variable):
                 lm_scale = float(lm_scale.get())
             other_scores_hyps = list()
@@ -170,20 +181,6 @@ class LmRescoringJob(Job):
             d_rec = sort_dict_by_record(d_rec)
         last_record = None
         PRINTED = False
-
-        # def combine_scores(seq_tag, lm_scores, hyps, other_scores_hyps):
-        #     combined_scores = list()
-        #     def get_score_by_hyp(hyp, scores_hyps):
-        #         for score, hyp_ in scores_hyps[seq_tag]:
-        #             if hyp_ == hyp:
-        #                 return score
-        #         assert False, f"No matching found \n\t'{hyp}'\n in {scores_hyps[seq_tag]}"
-        #     for lm_score, hyp in zip(lm_scores, hyps):
-        #         lm_score *= lm_scale
-        #         for scale, scores_hyps in other_scores_hyps:
-        #             lm_score += scale*get_score_by_hyp(hyp, scores_hyps)
-        #         combined_scores.append(lm_score)
-        #     return combined_scores
 
         def combine_scores(seq_tag, lm_scores, hyps, other_scores_hyps, lm_scale):
             """
@@ -243,12 +240,12 @@ class LmRescoringJob(Job):
                     print(f"Clear context for record {last_record}")
             lm_scores = self.scorer.batch_score(hyps)
             if prev_one_ctx:
-                if other_scores_hyps is not None:
-                    #Naming misleading, the score now contains not only lm_score, but weighted sum of LM/AM/Prior
+                if other_scores_hyps is not None: # Use hypothesis as context
+                    #Naming misleading, the score now contains not only lm_score, but already weighted sum of LM/AM/Prior
                     lm_scores = combine_scores(seq_tag, lm_scores, hyps, other_scores_hyps, lm_scale)
                 else:
-                    if not PRINTED:
-                        print(f"\n\n[Warning]: Using LLM clue only for determine top1 hyp as context\n\n")
+                    if not PRINTED and gt_rec is None:
+                        print(f"\n\n[Warning]: Using LLM-clue-only for determining top1 hyp as context\n\n")
                         PRINTED = True
             # reorder and select top
             if lines_seen % log_every == 0:
@@ -261,17 +258,15 @@ class LmRescoringJob(Job):
                 self.scorer: HuggingFaceLmScorer
                 reorder = list(zip(lm_scores, hyps))
                 if gt_rec is not None:
-                    #_, recog_seq = gt_rec[seq_tag][0]
                     recog_seq = _get_gt_seq(gt_rec,seq_tag)
                     print(f"\nReference for {seq_tag}: {recog_seq}")
-                    raw_text = "@@" not in recog_seq and "▁" not in recog_seq
-                    self.scorer.update_prompt(recog_seq, raw_text=raw_text)
+                    raw_text = "@@" not in recog_seq and "▁" not in recog_seq # !! Non exaustive
+                    self.scorer.update_prompt(recog_seq, is_raw_text=raw_text)
                     try:
                         print(f"As prompt: [{self.scorer.prompt_buffer[-1]}]")
                     except IndexError:
                         pass
                 else:
-                    #reorder.sort(key=lambda x: x[0], reverse=True)
                     reorder.sort(
                         key=lambda x: float(x[0].item() if hasattr(x[0], "item")
                                             else x[0].get() if hasattr(x[0], "get")
@@ -298,12 +293,18 @@ class LmRescoringJob(Job):
         out_file.write("}\n")
         out_file.close()
 
+    @classmethod
+    def hash(cls, parsed_args):
+        """delete some irrelevant args in lm_cfg from the hashing"""
+        irrelevant_keys = ["batch_size", "name", "cheat_prev_ctx"]
+        d = {k: v for k, v in parsed_args.items() if k != "lm_cfg"}
+        d["lm_cfg"] = {k: v for k,v in parsed_args["lm_cfg"].items() if k not in irrelevant_keys}
+        return super().hash(d)
 
-def raw_text_from_bpe_seq(seq:list):
-    return " ".join(seq).replace("@@ ","").replace(" <s>", "")
 
-_v2_forward_out_filename = "output.py.gz"
-_v2_forward_ext_out_filename = "output_ext.py.gz"
+def raw_text_from_bpe_seq(seq:str):
+    return seq.replace("@@ ","").replace(" <s>", "")
+
 
 @ScorerFactory.register("Dummy")
 class DummyLmScorer(LMScorer):
@@ -329,34 +330,40 @@ class DummyLmScorer(LMScorer):
 
 @ScorerFactory.register("HuggingFaceLm")
 class HuggingFaceLmScorer(LMScorer):
+    """Interface to configure and get LM_score (batch_score) from HuggingFace LLM.
+    Note: For empty '' hyp, will Assign a prescribed score (e.g default -1e30)
+    Actual batch is limited by caller-LmRescoringJob
+    Config args see from_config
+    """
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> 'HuggingFaceLmScorer':
-        model_dir = cfg["model_dir"]
-        batch_size = cfg.get("batch_size", 1)
-        prompt = cfg.get("prompt", None)
-        eos_symbol = cfg.get("eos_symbol", "")
-        lower_case = cfg.get("lower_case", False)
-        get_raw_text_func = cfg.get("get_raw_text_func", raw_text_from_bpe_seq)
-        context_len_limit = cfg.get("ctx_len_limit", None)
-        # dummy init
+        """dummy init"""
         instance = cls()
-        instance.get_raw_text = get_raw_text_func
-        instance.batch_size = batch_size
-        instance.model_dir = model_dir
-        instance.context_len_limit = context_len_limit
 
+        instance.model_dir = cfg["model_dir"]
+        instance.batch_size = cfg.get("batch_size", 1)
+        instance.eos_symbol = cfg.get("eos_symbol", "")
+        instance.lower_case = cfg.get("lower_case", False)
+        instance.get_raw_text_func = cfg.get("get_raw_text_func", raw_text_from_bpe_seq)
+        instance.ctx_len_limit = cfg.get("ctx_len_limit", None)
+
+        # These will be used by LmRescoringJob
+        instance.prev_one_ctx = cfg.get("prev_one_ctx", False) # If use previous hypothesis as context
+        instance.gt_res = cfg.get("gt_res", None)
+        instance.am_prior_scores = cfg.get("AM_prior_scores", None)
+        instance.lm_scale = cfg.get("lm_scale", None)
+
+        prompt = cfg.get("prompt", None)
         instance.prompt_buffer = []
-        instance.delimiter = " " if not eos_symbol else (eos_symbol + " ")  # Not sure
+        instance.delimiter = " " if not instance.eos_symbol else (instance.eos_symbol + " ")  # Used to join sequences
         instance.prompt = None
-        if isinstance(prompt, tk.Path):
+        if isinstance(prompt, tk.Path): # Given is fixed context that will be used for every hyp
             with open(prompt.get_path(), "r", encoding="utf-8") as f:
                 prompt = [line.strip() for line in f.readlines()]
         if prompt:
-            prompt +=  [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
-            instance.prompt = instance.delimiter.join(prompt) # TODO:
+            prompt +=  [""]  # So that for last prompt(or only one prompt) it also has eos
+            instance.prompt = instance.delimiter.join(prompt)
 
-        instance.lower_case = lower_case
-        instance.eos_symbol = eos_symbol
         print(f"Interpreter:{os.path.realpath(sys.executable)}")
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import time, torch
@@ -367,6 +374,10 @@ class HuggingFaceLmScorer(LMScorer):
         instance.tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
         if instance.tokenizer.pad_token is None:
             instance.tokenizer.pad_token = instance.tokenizer.eos_token
+        if getattr(instance.tokenizer, "bos_token_id", None) is None:
+            instance.tokenizer.bos_token_id = instance.tokenizer.eos_token_id
+            print(f"Warning: Will use eos as bos if not using prompt")
+
         print(f"\nTokenizer_max_length:{instance.tokenizer.model_max_length}\n")
 
         # Prefer bfloat16 on Ampere+ (A6000, A40, A100, 4090, etc.); otherwise fall back to fp16.
@@ -379,37 +390,32 @@ class HuggingFaceLmScorer(LMScorer):
             torch_dtype=dtype,  # load directly in low precision
             device_map={"": 0},  # put the whole model on cuda:0 (single GPU)
             low_cpu_mem_usage=True,  # stream weights, smaller CPU peak
-            attn_implementation="flash_attention_2",   #"sdpa flash_attention_2",# faster runtime; f
+            attn_implementation="flash_attention_2",   #"sdpa" or "flash_attention_2"
         )
         instance.model.eval()
         print(getattr(instance.model, "_attn_implementation", None) or getattr(instance.model.config, "_attn_implementation", None))
         print("Model loaded ✓")
         instance.device = torch.device(device_str)
-        #instance.model.to(instance.device)
 
-        print(f"({time.time() - start_time} secs)")
-        #instance.n_best_file = recog_out_file
-        #instance.batch_size = {"Llama-3.2-1B": 8, "Llama-3.1-8B": 3}.get(llm_name,1) if batch_size is None else batch_size
-        #instance.lower_case = lower_case
-        #instance.eos_symbol = eos_symbol
+        print(f"(loading elapsed {time.time() - start_time} secs)")
         return instance
 
     def _ctx_over_limit(self):
-        if self.context_len_limit is None:
+        if self.ctx_len_limit is None:
             return False
-        return len(self.delimiter.join(self.prompt_buffer + [""]).split()) >= self.context_len_limit
+        return len(self.delimiter.join(self.prompt_buffer + [""]).split()) >= self.ctx_len_limit
 
-    def _preprocess_text(self, text, raw_text: bool = False):
-        if not raw_text:
-            text = self.get_raw_text(text.split())
+    def _preprocess_text(self, text, is_raw_text: bool = False):
+        if not is_raw_text:
+            text = self.get_raw_text_func(text)
         return text.lower() if self.lower_case else text
 
-    def update_prompt(self, new_prompt: str, raw_text: bool = False):
-        self.prompt_buffer += [self._preprocess_text(new_prompt, raw_text)]
+    def update_prompt(self, new_prompt: str, is_raw_text: bool = False):
+        self.prompt_buffer += [self._preprocess_text(new_prompt, is_raw_text)]
         while self._ctx_over_limit():
             self.prompt_buffer.pop(0)
         self.prompt = self.prompt_buffer.copy()
-        self.prompt += [""]  # +[""] So that for last prompt(or only one prompt) it also has eos
+        self.prompt += [""]  # So that for last prompt(or only one prompt) it also has eos
         self.prompt = self.delimiter.join(self.prompt)
 
     def clear_prompt(self):
@@ -440,12 +446,23 @@ class HuggingFaceLmScorer(LMScorer):
         def _process_batch(batch_lines, batch_prompt, scores_buffer):
             enc_hyp = self.tokenizer(
                 batch_lines,
-                return_tensors="pt",
-                padding=True,
+                return_tensors=None,
+                padding=False,
                 truncation=True,
                 max_length=self.tokenizer.model_max_length,
                 add_special_tokens=False if self.prompt else True,
             )
+            bos_id = getattr(self.tokenizer, "bos_token_id", None)
+            assert bos_id is not None
+            # Add BOS manually if not there
+            examples = []
+            for hyp_ids in enc_hyp["input_ids"]:
+                if bos_id not in hyp_ids and not self.prompt:
+                    examples.append({"input_ids": [bos_id]+hyp_ids})
+                else:
+                    examples.append({"input_ids": hyp_ids})
+            enc_hyp = self.tokenizer.pad(examples, return_tensors="pt")
+
             hyp_input_ids = enc_hyp["input_ids"].to(self.device)
 
             # Prepare inputs
@@ -453,7 +470,7 @@ class HuggingFaceLmScorer(LMScorer):
                 enc_prompt = self.tokenizer(
                     batch_prompt,
                     return_tensors="pt",
-                    padding=True, # No need to pad actually, since all prompts are same
+                    padding=True, # No need to pad actually, since prompts are always same inside a batch (Batch do not across different N best list)
                     truncation=True,
                     max_length=self.tokenizer.model_max_length,
                 )
@@ -482,6 +499,7 @@ class HuggingFaceLmScorer(LMScorer):
 
         def safe_process_batch(batch_lines, batch_prompt, scores_buffer):
             """
+            Try to handle CUDA OOM by reducing batch size:
             Returns (total_nll: torch.Tensor on device, total_tok_count: int).
             Falls back by halving the batch on CUDA OOM until batch size = 1.
             """
@@ -518,25 +536,20 @@ class HuggingFaceLmScorer(LMScorer):
 
         batch_lines, batch_prompt, scores_buffer = [], [], []
         # Iterate records
-        #print(f"\nUsing context:{self.prompt}")
-        for hyp in sequence: # Warning: Assumed hyps all from same N best list
-            hyp = self.get_raw_text(hyp.split())
+        for hyp in sequence: # Note: Assuming hyps all from a same N best list
+            hyp = self.get_raw_text_func(hyp)
             line = hyp.strip().lower() if self.lower_case else hyp.strip()
             if not line: # Encounter an empty hyp
-                if len(batch_lines)>0: # Process accumulated batch and append -1e30 as score for empty
+                if len(batch_lines)>0: # Process accumulated batch and append certain score for empty
                     safe_process_batch(batch_lines, batch_prompt, scores_buffer)
                     batch_lines, batch_prompt = [], []
-                scores_buffer.append(-1e30)
+                scores_buffer.append(self.empty_score)
                 continue
             eos_symbol = (" " + self.tokenizer.eos_token) if self.eos_symbol == "eos" else self.eos_symbol
             batch_lines.append(line + eos_symbol)
             if self.prompt:
                 batch_prompt.append(self.prompt.lower() if self.lower_case else self.prompt)
             if len(batch_lines) == self.batch_size:
-                if len(batch_prompt)>1:
-                    # Safeguard to use same prompt across whole N best list
-                    if batch_prompt[0] == batch_prompt[1]:
-                        batch_prompt = [batch_prompt[0]] * len(batch_lines)
                 safe_process_batch(batch_lines, batch_prompt, scores_buffer)
                 batch_lines, batch_prompt = [], []
             # leftover
@@ -548,209 +561,6 @@ class HuggingFaceLmScorer(LMScorer):
     def finish(self):
         # cleanup
         del self.model, self.tokenizer
-        torch.cuda.empty_cache()
-        import gc; gc.collect()
-        print("Finished and cleaned up.")
-
-
-'''RETURNN models, LMScorer Implementations
-for rescoring seems not necessary but might be used to simplify the code in recog_def'''
-@ScorerFactory.register("FeedForward")
-class FeedForwardLmScorer(LMScorer):
-    @classmethod
-    def from_config(cls, cfg: Dict[str, Any]) -> 'FeedForwardLmScorer':
-        lm_config = cfg["lm_config"]
-        ckpt_file = cfg["filepath"]
-        batch_size = cfg.get("batch_size", 1)
-        weight = cfg.get("weight", 1)
-        # dummy init
-        instance = cls()
-        device_str = "cuda" if torch.cuda.is_available() else "cpu"
-        instance.device = torch.device(device_str)
-        instance.batch_size = batch_size
-        instance.scale = weight
-        from i6_experiments.users.zhang.experiments.lm.ffnn import FeedForwardLm
-        instance.model = FeedForwardLm(**lm_config)
-        checkpoint_state = torch.load(ckpt_file, map_location=instance.device)
-        instance.model.load_state_dict(
-            checkpoint_state, strict=False
-        )
-        instance.model.eval()
-        instance.model.to(instance.device)
-        #instance.n_best_file = recog_out_file
-        #instance.batch_size = {"Llama-3.2-1B": 8, "Llama-3.1-8B": 3}.get(llm_name,1) if batch_size is None else batch_size
-        #instance.lower_case = lower_case
-        #instance.eos_symbol = eos_symbol
-        return instance
-
-    def score(self, sequence: str) -> float:
-        pass
-
-    def batch_score(self, sequence: Tensor) -> Tensor:
-        # Given a list of sequences for scoring, return a list of LM score
-        # Batching depends on initialised LM_scorer
-
-        # Helper to process a batch of lines
-        def _process_batch(targets: Tensor, targets_spatial_dim: Dim, scores_buffer):
-            vocab = self.model.vocab_dim.vocab
-            assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
-
-            targets_w_bos, (targets_w_eos_spatial_dim,) = rf.pad(
-                targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
-            )
-            targets_w_eos, _ = rf.pad(
-                targets,
-                axes=[targets_spatial_dim],
-                padding=[(0, 1)],
-                value=vocab.eos_label_id,
-                out_dims=[targets_w_eos_spatial_dim],
-            )
-            batch_dims = targets.remaining_dims(targets_spatial_dim)
-
-            logits, _ = self.model(
-                targets,
-                spatial_dim=targets_spatial_dim,
-                out_spatial_dim=targets_w_eos_spatial_dim,
-                state=self.model.default_initial_state(batch_dims=batch_dims),
-            )
-            # import pdb; pdb.set_trace()
-            log_prob = rf.log_softmax(logits, axis=self.model.vocab_dim)
-            log_prob_targets = rf.gather(log_prob, indices=targets_w_eos,
-                                         axis=self.model.vocab_dim)  # Why before it is indices = targets_w_eos?
-            log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
-            assert log_prob_targets_seq.dims_set == set(batch_dims)
-
-            scores_buffer.extend(log_prob_targets_seq.raw_tensor.tolist())
-
-        # Helper to prepare a batch input for returnn usage
-        def _prepare_batch(batch_lines, lengths):
-            from torch.nn.utils.rnn import pad_sequence
-            padded_lines = pad_sequence(batch_lines, batch_first=True, padding_value=self.model.eos_idx).to(self.device)
-            enc_dyn_lengths = rf.Tensor(
-                name="data_dyn_lengths",
-                dims=[batch_dim],
-                dtype="int32",
-                raw_tensor=torch.tensor(lengths).to(self.device),
-            )
-            data_spatial_dim = Dim(name="data_seq", dimension=enc_dyn_lengths, kind=Dim.Types.Spatial)
-            hyps_r = rf.convert_to_tensor(padded_lines, dims=(batch_dim, data_spatial_dim), )
-            return hyps_r, data_spatial_dim
-
-        batch_lines, batch_prompt, scores_buffer, lengths = [], [], [], []
-        # Iterate records
-        for hyp in sequence:
-            batch_lines.append([torch.tensor(self.model.target_dim.vocab.label_to_id(label)) for label in hyp.split()])
-            lengths.append(len(hyp.split()))
-            if len(batch_lines) == self.batch_size:
-                hyps_r, data_spatial_dim = _prepare_batch(batch_lines, lengths)
-                _process_batch(hyps_r, data_spatial_dim, scores_buffer)
-                batch_lines, batch_prompt = [], []
-
-            # leftover
-        if batch_lines:
-            hyps_r, data_spatial_dim = _prepare_batch(batch_lines, lengths)
-            _process_batch(hyps_r, data_spatial_dim, scores_buffer)
-        return scores_buffer
-
-
-    def finish(self):
-        # cleanup
-        del self.model
-        torch.cuda.empty_cache()
-        import gc; gc.collect()
-        print("Finished and cleaned up.")
-
-
-@ScorerFactory.register("Transformer")
-class TransformerLmScorer(LMScorer): #TODO: for returnn model, the difference is minor and may not need a separate class
-    @classmethod
-    def from_config(cls, cfg: Dict[str, Any]) -> 'TransformerLmScorer':
-        model_dir = cfg["model_dir"]
-        lm_config = cfg["lm_config"]
-        ckpt_file = cfg["filename"]
-        batch_size = cfg.get("batch_size", 1)
-        weight = cfg.get("weight", 1)
-        # dummy init
-        instance = cls()
-        device_str = "cuda" if torch.cuda.is_available() else "cpu"
-        instance.device = torch.device(device_str)
-        instance.batch_size = batch_size
-        instance.model_dir = model_dir
-        instance.scale = weight
-        from returnn.frontend.decoder.transformer import TransformerDecoder
-        instance.model = TransformerDecoder(**lm_config)
-        checkpoint_state = torch.load(ckpt_file, map_location=instance.device)
-        instance.model.load_state_dict(
-            checkpoint_state, strict=False
-        )
-        instance.model.eval()
-        instance.model.to(instance.device)
-        #instance.n_best_file = recog_out_file
-        #instance.batch_size = {"Llama-3.2-1B": 8, "Llama-3.1-8B": 3}.get(llm_name,1) if batch_size is None else batch_size
-        #instance.lower_case = lower_case
-        #instance.eos_symbol = eos_symbol
-        return instance
-
-    def score(self, sequence: str) -> float:
-        pass
-
-    def batch_score(self, sequence: Tensor) -> Tensor:
-        # Given a list of sequences for scoring, return a list of LM score
-        # Batching depends on initialised LM_scorer
-
-        # Helper to process a batch of lines
-        def _process_batch(targets, targets_spatial_dim, scores_buffer):
-            vocab = self.model.vocab_dim.vocab
-            assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
-
-            targets_w_bos, (targets_w_eos_spatial_dim,) = rf.pad(
-                targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
-            )
-            targets_w_eos, _ = rf.pad(
-                targets,
-                axes=[targets_spatial_dim],
-                padding=[(0, 1)],
-                value=vocab.eos_label_id,
-                out_dims=[targets_w_eos_spatial_dim],
-            )
-            batch_dims = targets.remaining_dims(targets_spatial_dim)
-            logits, _ = self.model(
-                    targets_w_bos,
-                    spatial_dim=targets_w_eos_spatial_dim,
-                    state=self.model.default_initial_state(batch_dims=batch_dims),
-                )
-                # import pdb;pdb.set_trace()
-                # logits, pack_dim = rf.pack_padded(
-                #     logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
-                # )
-                #  We need to mask out the padding..? Yeah, but before feeds to the model..? Isnt it already specified in w_eos_spatial_dim?
-                # Transformerdecoder seems already use causal attention by default.
-
-            # import pdb; pdb.set_trace()
-            log_prob = rf.log_softmax(logits, axis=self.model.vocab_dim)
-            log_prob_targets = rf.gather(log_prob, indices=targets_w_eos,
-                                         axis=self.model.vocab_dim)  # Why before it is indices = targets_w_eos?
-            log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
-            assert log_prob_targets_seq.dims_set == set(batch_dims)
-            scores_buffer.extend(log_prob_targets_seq.raw_tensor.tolist())
-
-        batch_lines, batch_prompt, scores_buffer = [], [], []
-        # Iterate records
-        for hyp in sequence:
-            batch_lines.append(hyp)
-            if len(batch_lines) == self.batch_size:
-                _process_batch(batch_lines, batch_prompt, scores_buffer)
-                batch_lines, batch_prompt = [], []
-
-            # leftover
-        if batch_lines:
-            _process_batch(batch_lines, batch_prompt, scores_buffer)
-        return scores_buffer
-
-
-    def finish(self):
-        # cleanup
-        del self.model
         torch.cuda.empty_cache()
         import gc; gc.collect()
         print("Finished and cleaned up.")
@@ -845,6 +655,7 @@ def ngram_score(
     rescore_rqmt: Optional[Dict[str, Any]] = None,
     alias_name: Optional[str] = None,
     to_word_func: Optional[Callable] = None, #For word LM
+    recog_output_for_lm: Optional[RecogOutput] = None,
 ) -> RecogOutput:
     """
     Scores the hyps with the LM.
@@ -958,6 +769,7 @@ def lm_score(
     config: Optional[Dict[str, Any]] = None,  # additional config for RETURNN
     rescore_rqmt: Optional[Dict[str, Any]] = None,
     to_word_func: Optional[Callable] = None, #For word LM
+    recog_output_for_lm: Optional[RecogOutput] = None,
     alias_name: Optional[str] = None,
 ) -> RecogOutput:
     """
@@ -988,11 +800,12 @@ def HF_lm_score(
     recog_output: RecogOutput,
     *,
     lm: Dict[str, Any],
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
     lm_rescore_def: RescoreDef,
     vocab: tk.Path,
     config: Optional[Dict[str, Any]] = None, # additional config for RETURNN
     vocab_opts_file: tk.Path,
-    rescore_rqmt: Optional[Dict[str, Any]] = None,
+    recog_output_for_lm: Optional[RecogOutput] = None,
     to_word_func: Optional[Callable] = None,  # For word LM
     alias_name: Optional[str] = None,
 ) -> RecogOutput:
@@ -1008,7 +821,7 @@ def HF_lm_score(
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param rescore_rqmt:
     """
-    lm_rescore_def, vocab, vocab_opts_file # noqa
+    lm_rescore_def, vocab, vocab_opts_file, config, recog_output_for_lm, to_word_func # noqa
     resco_job = LmRescoringJob(
         recog_out_file=recog_output.output,
         lm_cfg=lm,
@@ -1091,6 +904,218 @@ def lm_am_framewise_prior_rescore(
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     raw_res_labels  # noqa  # unused here
+    IGNORE_SEARCH_LABEL = False
+    if isinstance(lm,dict):
+        import copy
+        lm = copy.deepcopy(lm)
+    lm_vocab = lm_vocab or vocab
+    lm_vocab_opts_file = lm_vocab_opts_file or vocab_opts_file
+    lm_vocab_to_word_func = lm_vocab_to_word_func or vocab_to_word_func
+    normalize_seq = lm_vocab_to_word_func != vocab_to_word_func
+    score_combined_by_lm_rescoring = False
+    def determine_lm_scorer(lm, scores, lm_scale):
+        nonlocal gt_res, score_combined_by_lm_rescoring
+        if isinstance(lm, ModelWithCheckpoint): # RETURNN LM
+            lm_scorer = lm_score
+        elif isinstance(lm, tk.Path): # assert use ngram lm here
+            lm_scorer = ngram_score
+        # elif lm is None or lm_scale == 0:
+        #     if lm is not None: # This only for float case of the scale
+        #         print(f"\nScale for {lm} is set to 0, not likely a tuned value! Use Dummy rescorer, set prior scale to 0 too\n")
+        #     lm = {"lm_type": "Dummy"}
+        #     prior_scale = 0.0
+        #     lm_scorer = HF_lm_score
+        else:
+            assert isinstance(lm, dict)
+            lm_scorer = HF_lm_score
+
+            if "common_voice_two_speakers" in dataset.get_main_name():
+                if "ref" in dataset.get_main_name():
+                    lm.pop("prev_one_ctx", None)
+                    lm.pop("ctx_len_limit", None)
+                else:
+                    if lm.get("prev_one_ctx", False):
+                        lm["ctx_len_limit"] = 50 # Keep minimal hash, 50 is far more than enough for this dataset
+
+
+            if lm.get("prev_one_ctx", False):
+                if (lm.get("cheat_prev_ctx", False)
+                        or "gt_res" in alias_name): # Keep the hash minimal
+                    if "gt_res" in alias_name:
+                        if not lm.get("cheat_prev_ctx", False):
+                            assert gt_res is not None, "gt_res must be provided to score GT without cheating"
+                            lm["gt_res"] = gt_res
+                        lm["batch_size"] = 1
+                    else:
+                        assert gt_res is not None #In case this is already rescoring for GT
+                        lm["gt_res"] = gt_res
+                else:
+                    if not lm.get("cheat_prev_ctx", False):
+                        lm["AM_prior_scores"] = [(scale, recog_out.output) for scale, recog_out in scores]
+                        lm["lm_scale"] = lm_scale
+                        score_combined_by_lm_rescoring = True
+        return lm_scorer, lm
+
+    def get_generic_alias_name(alias):
+        # parts = alias.strip().split("/")
+        # if len(parts) >= 2:
+        #     return "/".join(parts[:2] + [parts[-1]])
+        # else:
+        #     return alias
+        return alias
+    if any(name in alias_name for name in ["conversation", "mtp_dev_heldout"]):
+        orig_time_rqmt = lm_rescore_rqmt.get("time", None)
+        if orig_time_rqmt is not None:
+            lm_rescore_rqmt["time"] = orig_time_rqmt + 4
+    alias_name = get_generic_alias_name(alias_name)
+    to_word_func = None
+    if "word" in alias_name:
+        if "bpe" in alias_name:
+            from i6_experiments.users.zhang.datasets.utils import raw_text_bpe_to_word
+            to_word_func = raw_text_bpe_to_word
+            #to_word_func = lambda x: x.replace("@@ ", "") # This need to be serialized
+        elif "spm" in alias_name:
+            from i6_experiments.users.zhang.datasets.utils import raw_text_spm_to_word
+            to_word_func = raw_text_spm_to_word
+            #to_word_func = lambda x: x.replace(" ", "").replace ("▁", " ")
+        else:
+            raise ValueError(f"Could not determine to_word_func from alias:\n -> {alias_name}")
+    scores = []
+    res_labels_am_scores = rescore(
+        config=config,
+        recog_output=res,
+        dataset=dataset,
+        model=am,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=am_rescore_def,
+        forward_rqmt=am_rescore_rqmt,
+        forward_alias_name=alias_name + "/AMrescoring",
+    )
+    if normalize_seq:
+        #print(f"Normalize the am lm out text! --> {alias_name}")
+        res_labels_am_scores = vocab_to_word_func(res_labels_am_scores)
+    scores.append((am_scale, res_labels_am_scores))
+
+    # if lm is None or lm_scale == 0:
+        # if lm is not None:  # This only for float case of the scale
+        #     print(f"\nScale for {lm} is set to 0, not likely a tuned value! Use Dummy rescorer, set prior scale to 0 too\n")
+    am_only_res = False
+    if (lm is None or
+            (isinstance(lm_scale, float) and not lm_scale > 0.0)):# Before this branch is absent and got some number without LM but with prior.. ?
+        lm = {"lm_type": "Dummy"}
+        prior_scale = 0.0
+        lm_scale = 0.0
+        am_only_res = True
+
+    if prior and prior_scale:
+        if IGNORE_SEARCH_LABEL or not search_label_present:
+            res_labels_prior_scores = prior_score(res, prior=prior)
+        else:
+            assert search_labels_to_labels and raw_res_search_labels
+            res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
+            res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
+
+        # else:
+        #     from i6_experiments.users.zhang.experiments.decoding.prior_rescoring import prior_rescore_force_align_def
+        #     res_labels_prior_scores = rescore(
+        #         config=config,
+        #         recog_output=res,
+        #         dataset=dataset,
+        #         model=am,
+        #         vocab=vocab,
+        #         vocab_opts_file=vocab_opts_file,
+        #         rescore_def=prior_rescore_force_align_def,
+        #         forward_rqmt=am_rescore_rqmt,
+        #         prior=prior,
+        #         forward_alias_name=alias_name + "/Prior_rescoring",
+        #     )
+        if normalize_seq:
+            res_labels_prior_scores = vocab_to_word_func(res_labels_prior_scores)
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
+    else:
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
+
+    lm_scorer, lm = determine_lm_scorer(lm, scores, lm_scale)
+    # if isinstance(lm, dict):
+    #     if lm.get("lm_type", "Dummy") == "HuggingFaceLm":
+    #         lm["AM_priors_scores"] = scores
+    res_labels_lm_scores = lm_scorer(
+        pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
+        config=config_lm,
+        recog_output_for_lm=res_for_lm,
+        alias_name=alias_name + "/LMrescoring", to_word_func=to_word_func,
+    )
+
+    if normalize_seq:
+        #print(f"Normalize the am lm out text! --> {alias_name}")
+        res_labels_lm_scores = lm_vocab_to_word_func(res_labels_lm_scores)
+    # Reorder scores to keep hash
+    scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)] + ([scores[-1]] if len(scores) > 1 else [])
+    #combine_scores_alias = alias_name + f"/combine{f'pr{prior_scale}'.replace('.','_') + f'_lm{lm_scale}'.replace('.','_')}"
+    if am_only_res:
+        res = res_labels_am_scores
+    else:
+        res = combine_scores(scores) if not score_combined_by_lm_rescoring else res_labels_lm_scores
+    return res, res_labels_lm_scores, res_labels_am_scores#, combine_scores_alias)
+
+# This is almost same as framewise version, so
+def lm_am_labelwise_prior_rescore(
+    res: RecogOutput,
+    *,
+    config: Optional[Dict[str, Any]] = None, # additional config for RETURNN
+    config_lm: Optional[Dict[str, Any]] = None,  # additional config for RETURNN
+    dataset: DatasetConfig,
+    raw_res_search_labels: RecogOutput,
+    raw_res_labels: RecogOutput,
+    gt_res: Optional[tk.Path] = None,
+    am: Optional[ModelWithCheckpoint] = None,
+    am_rescore_def: Optional[RescoreDef] = None,
+    am_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    am_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
+    lm: Optional[ModelWithCheckpoint, dict],
+    lm_rescore_def: RescoreDef,
+    lm_scale: Union[float, tk.Variable, DelayedBase],
+    lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    res_for_lm: RecogOutput = None, # Removed unk, noise etc
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    vocab_to_word_func: Optional[Callable] = None,
+    lm_vocab: tk.Path = None,
+    lm_vocab_opts_file: tk.Path = None,
+    lm_vocab_to_word_func: Optional[Callable] = None,
+    pre_func_for_lm: Callable = None,
+    prior: Optional[Prior] = None,
+    search_label_present: bool = True,
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+    alias_name: Optional[str] = None,
+) -> tuple[RecogOutput, RecogOutput | Any, RecogOutput | Any]:
+    """
+    With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
+
+    If you also want to combine a prior, e.g. for CTC, you might want to use :func:`prior_rescore` first.
+
+    :param res:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
+    :param raw_res_search_labels:
+    :param raw_res_labels:
+    :param am:
+    :param am_rescore_def:
+    :param am_rescore_rqmt:
+    :param am_scale: scale for the new AM scores
+    :param lm: language model, if a Dict is given-> external model like HF
+    :param lm_scale: scale for the LM scores
+    :param lm_rescore_rqmt:
+    :param vocab: for LM labels in res / raw_res_labels
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param prior:
+    :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param search_labels_to_labels: function to convert the search labels to the labels
+    """
+    raw_res_labels, raw_res_search_labels  # noqa  # unused here
     if isinstance(lm,dict):
         import copy
         lm = copy.deepcopy(lm)
@@ -1171,7 +1196,6 @@ def lm_am_framewise_prior_rescore(
     res_labels_am_scores = rescore(
         config=config,
         recog_output=res,
-        recog_output_for_lm=res_for_lm,
         dataset=dataset,
         model=am,
         vocab=vocab,
@@ -1197,24 +1221,7 @@ def lm_am_framewise_prior_rescore(
         am_only_res = True
 
     if prior and prior_scale:
-        if search_labels_to_labels and raw_res_search_labels:
-            res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
-            res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores) if search_label_present else res_search_labels_prior_scores
-
-        # else:
-        #     from i6_experiments.users.zhang.experiments.decoding.prior_rescoring import prior_rescore_force_align_def
-        #     res_labels_prior_scores = rescore(
-        #         config=config,
-        #         recog_output=res,
-        #         dataset=dataset,
-        #         model=am,
-        #         vocab=vocab,
-        #         vocab_opts_file=vocab_opts_file,
-        #         rescore_def=prior_rescore_force_align_def,
-        #         forward_rqmt=am_rescore_rqmt,
-        #         prior=prior,
-        #         forward_alias_name=alias_name + "/Prior_rescoring",
-        #     )
+        res_labels_prior_scores = prior_score(res, prior=prior)
         if normalize_seq:
             res_labels_prior_scores = vocab_to_word_func(res_labels_prior_scores)
         scores.append((prior_scale * (-1), res_labels_prior_scores))
@@ -1228,6 +1235,7 @@ def lm_am_framewise_prior_rescore(
     res_labels_lm_scores = lm_scorer(
         pre_func_for_lm(res), lm=lm, lm_rescore_def=lm_rescore_def ,vocab=lm_vocab, vocab_opts_file=lm_vocab_opts_file, rescore_rqmt=lm_rescore_rqmt,
         config=config_lm,
+        recog_output_for_lm=res_for_lm,
         alias_name=alias_name + "/LMrescoring", to_word_func=to_word_func,
     )
 

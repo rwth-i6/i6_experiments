@@ -29,18 +29,29 @@ CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
 USE_flashlight_decoder = False
 from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import seg_key
 #seg_key = "ref" #aptk_leg ref
+PLOT = True
+EXCLUDE_LIST = ["napoli", "callcenter", "voice_call", "tvshows", "mtp_eval-v2"]
 
 DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key]# or seg_key == "ref"] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
+DEV_DATASET_KEYS_FIRST_PASS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key]
 EVAL_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key] #+ DEV_DATASET_KEYS + ["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
+EVAL_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if not any(exclude in key for exclude in EXCLUDE_LIST)] if PLOT else EVAL_DATASET_KEYS
 
-USE_GIVEN_NBEST = True
-if USE_GIVEN_NBEST:
+USE_GIVEN_NBEST = False
+COMBINE_NLIST = False and USE_GIVEN_NBEST
+TUNE_WITH_ORIG_NBEST = True# and COMBINE_NLIST
+if USE_GIVEN_NBEST :
+    assert seg_key == "ref"
     UNAVAILABE = ["mtp_eval-v2", "voice_call-v3"] #"common_voice",
-    DEV_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key and "conversation" not in key]  # or seg_key == "ref"] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
+    if TUNE_WITH_ORIG_NBEST:
+        DEV_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key] + [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"]
+    else:
+        DEV_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS
+                            if "callhome" not in key and "conversation" not in key]  # or seg_key == "ref"] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
     EVAL_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if
                          all(infix not in key for infix in UNAVAILABE)]  # + DEV_DATASET_KEYS + ["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
     #EVAL_DATASET_KEYS = [key for key in EVAL_DATASET_KEYS if "tvshow" in key or "napoli" in key] #or "voice_call" in key
-AGGREGATED_WER = True and not USE_GIVEN_NBEST
+AGGREGATED_WER = False and not USE_GIVEN_NBEST
 
 DEFAULT_PRIOR_WEIGHT = 0.3
 DEFAULT_LM_SCALE_DICT = {"Llama-3.1-8B": 0.35, "Qwen3-1.7B-Base": 0.3, "phi-4": 0.45, "Llama-3.2-1B": 0.3}
@@ -54,11 +65,11 @@ DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with
 trans_only_LM = False
 
 CHEAT_N_BEST = False and seg_key == "ref"
-TUNE_WITH_CHEAT = True and CHEAT_N_BEST
+TUNE_WITH_CHEAT = False and CHEAT_N_BEST
 TUNE_TWO_ROUND = True
 
 BEAM_SIZE = 300
-FFNN_BEAM_SIZE = 500
+FFNN_BEAM_SIZE = 300
 NBEST = 100 # Use 100 for plot
 
 
@@ -73,7 +84,7 @@ LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 8
 #----------unused-----------------
 
-LLM_PREV_ONE_CTX = False and not LLM_FXIED_CTX
+LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
 CHEAT_CTX = True and LLM_PREV_ONE_CTX and seg_key == "ref"
 CTX_LEN_LIMIT = 100
 
@@ -331,14 +342,20 @@ def ctc_exp(
                                default_lm=decoding_config["rescore_lmscale"],
                                default_prior=decoding_config["rescore_priorscale"], first_pass=False)
 
+    decoding_config["tune_with_orig_Nbest"] = TUNE_WITH_ORIG_NBEST
+    if USE_GIVEN_NBEST:
+        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import NbestListDataset
+        assert vocab_config is not None
+        decoding_config["Nbest_dataset"] = NbestListDataset(spm=vocab_config, replace_list=[("[unknown]","<unk>"), ("[noise]", "<sep>"), ("[music]", "▁mes")])
+        decoding_config["combine_with_given_Nlist"] = COMBINE_NLIST
+        decoding_config["diagnose"] = DIAGNOSE and not decoding_config["tune_with_orig_Nbest"]
     if lm is not None:  # First pass with a LM, tuned it with rescoring
-        decoding_config["tune_with_rescoring"] = True and not USE_GIVEN_NBEST  # Set to false if do one pass tuning
+        decoding_config["tune_with_rescoring"] = True# and not (USE_GIVEN_NBEST and not COMBINE_NLIST) # Set to false if do one pass tuning
         #decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]  # Just safe guard, for now need them to be same
         set_tune_range_by_name(lmname, tune_config_updates,
                                default_lm=decoding_config["lm_weight"],
                                default_prior=decoding_config["prior_weight"],
                                first_pass=True)
-
     if train:
         decoding_config = {
         "log_add": False,
@@ -355,10 +372,6 @@ def ctc_exp(
         alias_name, first_pass_name = build_alias_name(
             lmname, decoding_config, tune_config_updates, vocab, encoder, with_prior, prior_from_max, empirical_prior
         )
-    if USE_GIVEN_NBEST:
-        from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import NbestListDataset
-        assert vocab_config is not None
-        decoding_config["Nbest_dataset"] = NbestListDataset(spm=vocab_config, replace_list=[("[unknown]","<unk>"), ("[noise]", "<sep>"), ("[music]", "▁mes")])
     print(alias_name)
     # ---- Search memory requirement ----
     search_mem_rqmt = 16 if vocab == "bpe10k" or vocab == "spm10k" else 6
@@ -416,6 +429,7 @@ def ctc_exp(
             recog=recog,
             batch_size=batch_size,
             dev_dataset_keys=DEV_DATASET_KEYS,
+            dev_dataset_keys_for_first_pass_tune = DEV_DATASET_KEYS_FIRST_PASS,
             eval_dataset_keys=EVAL_DATASET_KEYS,
         )[1:],
         f"{p0}{p3}_{p3_}{p4}{p6}",  # add param string as needed
@@ -428,7 +442,7 @@ def ctc_exp(
 PRIOR_PATH = {("spm10k", "ctc", "conformer"): tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/data/ES/prior/ctc_mbw_16kHz_spm10k.txt"),
               }
 
-from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import GetOutPutsJob
+from i6_experiments.users.zhang.utils.report import GetOutPutsJob
 def py():
     # ! Note: for now when use rescoring, in first pass prior will not be considered, especially by greedy case
     # Beware that when do rescoring and use first pass lm, prior will be counted twice
@@ -466,21 +480,21 @@ def py():
                     #"trafo", #nn has better result on second pass for cfm
                     }
         lm_kinds_2 = {#"ngram", # Ngrams with varies PPLs
-                    "4gram",
+                    #"4gram",
                     #"word_ngram",
-                    #"ffnn",
+                    "ffnn",
                     #"trafo",
                     #"LLM"
                     }
         #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
         reduce_offset = max(0,10*(CTX_LEN_LIMIT//100 - 1)) if LLM_PREV_ONE_CTX else -20
         LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 40 - reduce_offset,  # 40*6,
-                              "meta-llama/Llama-3.1-8B": 40 - reduce_offset,#base 80 for 141 40 for 80
+                              #"meta-llama/Llama-3.1-8B": 40 - reduce_offset,#base 80 for 141 40 for 80
                               # "Qwen/Qwen3-0.6B-Base": 51,
                               "Qwen/Qwen3-1.7B-Base": 40 - reduce_offset,  # 40*6,#15 has peak 19GB on 48G, so can be at least doubled
                               # "Qwen/Qwen3-4B-Base":40,
                               #"Qwen/Qwen3-8B-Base":40,
-                             "microsoft/phi-4": 40 - reduce_offset,# base 80 for 141 40 for 80
+                             #"microsoft/phi-4": 40 - reduce_offset,# base 80 for 141 40 for 80
                               # "mistralai/Mistral-7B-v0.3": 4,
                               }  # Keys of this determines which LLM will be built by lm_getter
 
@@ -496,7 +510,7 @@ def py():
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, only_best=True, only_transcript=trans_only_LM,
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, only_best=not PLOT, only_transcript=trans_only_LM,
                                                      task_name="ES", llmids_batch_sizes=LLM_and_Batch_size)
         rescor_lms.update({"NoLM": None})
 
@@ -707,7 +721,7 @@ def py():
                     llm_related_name_ext = f"{'cheat_ctx' if CHEAT_CTX else ''}" + f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                         f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                     alias_prefix = (
-                            f"ES_wer_ppl/{seg_key}_{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
+                            f"ES_wer_ppl/{seg_key}_{f'1st_pass_{name}'}{'givenNbest' if USE_GIVEN_NBEST else ''}{'combined' if COMBINE_NLIST else ''}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
                             + ("n_best_cheat" if CHEAT_N_BEST else "")
                             + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
                     summaryjob.add_alias(alias_prefix+"/summary_job")

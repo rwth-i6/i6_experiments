@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 #-----------------------------------------
 import torch
 from typing import Optional, Union, List, Any
@@ -43,13 +45,6 @@ default_rqmt = [("mem", 12),("time", 1)]
 
 SRILM_PATH_APPTEK = tk.Path("/nas/models/asr/hzhang/tools/srilm-1.7.3/bin/i686-m64/")
 SRILM_PATH_APPTEK.hash_overwrite = "APPTEK_SPAINISH_DEFAULT_SRILM_PATH"
-def py():
-    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
-    _, spm, _ = get_model_and_vocab()
-    vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
-    task_name = "ES"
-    for N_order in [4,5,6]:
-        get_count_based_n_gram(vocab_config, N_order,task_name=task_name, word_ppl=True, only_transcription=True)
 
 
 def get_count_based_n_gram(vocab: [str | VocabConfig], N_order: int, prune_thresh: Optional[float]=None, task_name: str = "LBS", train_fraction: float = None, word_ppl: bool =False, only_transcription: bool = False, eval_keys: set = None) -> \
@@ -84,7 +79,7 @@ tuple[Path, dict[str | Any, Path | Any]]:
             eval_lm_data_dict[key] = get_lm_eval_text(key=key)
     else:
         raise ValueError("Unknown task name {}".format(task_name))
-
+    orig_eval_lm_data_dict = copy.deepcopy(eval_lm_data_dict)
     if train_fraction and train_fraction < 1.0:
         lm_data = ReduceCorpusByTokenFractionJob(lm_data, target_fraction=train_fraction).out
     if re.match("^bpe[0-9]+.*$", vocab_str):
@@ -172,7 +167,7 @@ tuple[Path, dict[str | Any, Path | Any]]:
             assert vocab == "word", "vocab must be SentencePieceModel or SentencePieceModel, or word"
             apply_job = None
         if apply_job:
-            ratio = GetSubwordRatioJob(lm_eval_data, vocab, get_returnn_subword_nmt(),apply_job=apply_job).out_ratio
+            ratio = GetSubwordRatioJob(orig_eval_lm_data_dict[k], vocab, get_returnn_subword_nmt(),apply_job=apply_job).out_ratio
             tk.register_output(f"{task_name}_{k}_{vocab_str}_ratio", ratio)
         else:
             ratio = 1
@@ -726,12 +721,163 @@ class KenLMplzJob(Job):
         del parsed_args["time"]
         return super().hash(parsed_args)
 
-def py():
-    # from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, \
-    #     NETWORK_CONFIG_KWARGS
-    from i6_experiments.users.zhang.experiments.lm.trafo import get_ES_trafo
-    # _, spm, _ = get_model_and_vocab(fine_tuned_model=True)
-    # vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+def ngram_prune_exp():
+    ngrams = {"6gram", "6gram_pr1_3e-8", "6gram_pr6_7e-8",
+              "4gram_fr03_pr1_0e-7", "4gram_pr3_0e-7",
+              "5gram_fr08_pr1_0e-6",
+              "5gram_fr06_pr3_0e-6", "5gram_pr3_0e-6",
+              "6gram_fr06_pr1_0e-5", "5gram_fr06_pr1_0e-5",
+              "5gram_pr1_0e-5",
+              "6gram_pr3_0e-5",  # "6gram_fr06_pr3_0e-5",
+              "5gram_fr06_pr3_0e-5", "5gram_fr08_pr3_0e-5",
+              "5gram_pr3_0e-5",
+              "6gram_pr5_0e-2", "6gram_fr01_pr5_0e-2", "2gram_fr01_pr5_0e-2",
+              "2gram_fr03_pr1_0e-3", "3gram_fr06_pr1_0e-3", "3gram_pr1_0e-3"
+              }
 
-    #get_count_based_n_gram(vocab=vocab_config, N_order=4, task_name="ES", word_ppl=True)
+    def parse_ngram_name(name: str):
+        """
+        Parse ngram LM name strings like:
+          '2gram_spm10k_fr01_pr5_0e-2'
+          '6gram_spm10k_fr0.3_pr1_3e-8'
+          '4gram_spm10k_pr5_3e-7'
+        Returns (n_order:int, fraction:float|None, prune_thresh:float|None)
+        """
+
+        # n-order
+        m = re.search(r'(\d+)gram', name)
+        n_order = int(m.group(1)) if m else None
+
+        fraction = None
+        # stop before _pr or end of string
+        m = re.search(r'fr([0-9.]+?)(?=_pr|$)', name)
+        if m:
+            raw = m.group(1)
+            if '.' in raw:
+                fraction = float(raw)
+            else:
+                if raw == '10':
+                    fraction = 1.0
+                elif raw.startswith('0') and len(raw) > 1:
+                    fraction = float('0.' + raw[1:])
+                else:
+                    fraction = float(raw)
+
+        prune_thresh = None
+        m = re.search(r'pr([0-9._eE+-]+)', name)
+        if m:
+            prune_str = m.group(1).replace('_', '.')
+            prune_thresh = float(prune_str)
+
+        return n_order, fraction, prune_thresh
+    # from i6_experiments.users.zhang.datasets.librispeech import get_train_corpus_text, get_test_corpus_text
+    # from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+    # vocab = "bpe128"
+    # for key in ["dev-clean",
+    #                     "dev-other",
+    #                     "test-clean",
+    #                     "test-other",
+    #                     "train",
+    #                     ]:
+    #     if key == "train":
+    #         getter = get_train_corpus_text()
+    #     else:
+    #         getter = get_test_corpus_text([key])
+    #     #bpe_ratio = GetBpeRatioJob(getter, vocab, get_returnn_subword_nmt()).out_ratio
+    #     #tk.register_output(f"test/LBS/bpe_ratio/{vocab}/{key}_bpe_ratio", bpe_ratio)
+
+    from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
+    from i6_experiments.users.zhang.experiments.lm_getter import build_ngram_lm, AggregateDictJob
+    EXCLUDE_LIST = ["napoli", "callcenter", "voice_call", "tvshows", "mtp_eval-v2"]
+    EVAL_DATASET_KEYS = set([f"{key}" for key in TEST_KEYS if
+                         not any(exclude in key for exclude in EXCLUDE_LIST)])
+    _, spm, _ = get_model_and_vocab(fine_tuned_model=True)
+
+    # for k, v in spm["vocabulary"].items():
+    #     print(f"{k}: {v}")
+    # print(f"vocab setting: {spm}")
+    vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+    # Define search space
+    # n_orders = [3, 4, 5, 6]  # adjust as you like
+    # prune_thresholds = [1e-9, 3e-8, 1e-7, 3e-7]  # smooth progression
+    # fractions = [1.0, 0.8, 0.6, 0.4, 0.3]  # decreasing training data
+
+    # n_orders = [6, 5]  # 6-gram first, then maybe 5-gram
+    # fractions = [1.0, 0.8, 0.6]
+    # prune_thresholds = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4]
+
+    n_orders = [2, 3]  # [6, 5, 3]
+    fractions = [1.0, 0.6, 0.3, 0.1, 0.03]
+    prune_thresholds = [1e-3]  # , 3e-3, 1e-2, 3e-2, 1e-1]
+
+    # Collect results
+    ppl_dict = {}
+    for name in ngrams:
+        n_order, fraction, prune_thresh = parse_ngram_name(name)
+        _, ppl_results, _ = build_ngram_lm(n_order=n_order,
+                                           fraction=fraction,
+                                           prune_thresh=prune_thresh,
+                                           vocab=vocab_config,
+                                           task_name="ES",
+                                           only_transcript=False,
+                                           word_ppl=False,
+                                           eval_keys=EVAL_DATASET_KEYS)
+        ppl_dict.update(ppl_results)
+    # for n in n_orders:
+    #     for pr in prune_thresholds:
+    #         for fr in fractions:
+    #             print(f"\n=== Building {n}-gram | fraction={fr} | prune={pr:.1e} ===")
+    #             try:
+    #                 _, ppl_results, _ = build_ngram_lm(
+    #                     vocab=vocab_config,
+    #                     n_order=n,
+    #                     prune_thresh=pr,
+    #                     fraction=fr if fr < 1 else None,
+    #                     word_ppl=False,
+    #                     only_transcript=False,
+    #                     task_name="ES",
+    #                     eval_keys=set(EVAL_DATASET_KEYS),
+    #                 )
+    #                 # merge the returned dictionary (lm_name → ppl_log)
+    #                 ppl_dict.update(ppl_results)
+    #
+    #             except Exception as e:
+    #                 print(f"⚠️ Failed for n={n}, prune={pr}, frac={fr}: {e}")
+    tk.register_output(
+        f"test/ES_ngram_PPLs/report_n2-6_for_plot",
+        AggregateDictJob(outputs=ppl_dict).out_report_dict)
+    # Done
+    #print("\nCollected PPL results:")
+    # from i6_experiments.users.zhang.utils.report import ReportDictJob
+    # tk.register_output(
+    #     f"test/ES_ngram_PPL_range/report_n{len(n_orders)}_p{len(prune_thresholds)}_f{len(fractions)}",
+    #     AggregateDictJob(outputs=ppl_dict).out_report_dict)
+    # for name, ppl in ppl_dict.items():
+    #     print(f"{name}: {ppl:.3f}")
+
+# def py():
+#     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
+#     _, spm, _ = get_model_and_vocab()
+#     vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+#     task_name = "ES"
+#     for N_order in [4,5,6]:
+#         get_count_based_n_gram(vocab_config, N_order,task_name=task_name, word_ppl=True, only_transcription=True)
+
+
+def py():
+    ngram_prune_exp()
+    from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, NETWORK_CONFIG_KWARGS
+    from i6_experiments.users.zhang.experiments.lm.trafo import get_ES_trafo
+    from i6_experiments.users.zhang.experiments.lm.ffnn import get_ES_ffnn
+    from i6_experiments.users.zhang.experiments.lm_getter import build_ffnn_ES_lms
+    _, spm, _ = get_model_and_vocab(fine_tuned_model=True)
+    vocab_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
+
+    get_count_based_n_gram(vocab=vocab_config, N_order=4, task_name="ES", word_ppl=True)
     get_ES_trafo(epochs=[100],word_ppl=True,only_transcript=False,old=False)
+    get_ES_ffnn(epochs=[50],word_ppl=True,only_transcript=False,old=False)
+    build_ffnn_ES_lms(word_ppl=True,only_transcript=False,old=False,only_best=True)
+    #get_count_based_n_gram(vocab="bpe128", N_order=4, task_name="ES", word_ppl=True)
+
