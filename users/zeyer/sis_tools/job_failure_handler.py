@@ -105,10 +105,12 @@ def _get_returnn_log_filename(job: Union[ReturnnTrainingJob, ReturnnForwardJobV2
 def _is_returnn_cuda_error(log_filename: str) -> bool:
     if not os.path.exists(log_filename):
         return False
-    # Example error:
+    # Example error (all a single line, wrapped here):
     #   torch.cuda.init() failed: RuntimeError Unexpected error from cudaGetDeviceCount().
     #   Did you run some cuda functions before calling NumCudaDevices() that might have already set an error?
     #   Error 805: MPS client failed to connect to the MPS control daemon or the MPS server
+    # Another example error:
+    #   ERROR: torch.cuda.is_available(): Timeout handler after 30 seconds, killing proc 51656.
     # Open in binary mode to avoid some UTF8 encoding problems,
     # e.g. due to some escape codes.
     f = open(log_filename, "rb")
@@ -120,6 +122,8 @@ def _is_returnn_cuda_error(log_filename: str) -> bool:
         if line.startswith(b"torch.cuda.init() failed:"):
             if b"MPS client" in line:
                 return True
+        if line.startswith(b"ERROR: torch.cuda.is_available(): Timeout handler"):
+            return True
     return False
 
 
