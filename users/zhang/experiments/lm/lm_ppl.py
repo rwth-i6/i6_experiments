@@ -380,7 +380,7 @@ class ComputePPLOnRecogOutJob(tk.Job):
         lm_weight: float = 1.0,    # divide stored scores by this if they were scaled
         include_eos_per_seq: int = 1,  # add this many tokens per hypothesis (e.g., 1 to count EOS if score included it)
         allow_inf_nan: bool = True,    # allow 'inf', 'nan' in the dict
-        to_word_func: Callable[[list[str]],str] = None,
+        to_word_func: Callable[[str],str] = None,
     ):
         super().__init__()
         self.input_scores = input_scores if isinstance(input_scores, tk.Path) else tk.Path(input_scores)
@@ -448,7 +448,7 @@ class ComputePPLOnRecogOutJob(tk.Job):
 
                     # token count: split on whitespace; add EOS if requested
                     if self.to_word_func:
-                        txt = self.to_word_func(txt.split())
+                        txt = self.to_word_func(txt)
                     tokens = txt.split()
                     T = len(tokens) + int(self.include_eos_per_seq)
 

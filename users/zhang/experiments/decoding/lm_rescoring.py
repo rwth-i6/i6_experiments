@@ -295,10 +295,13 @@ class LmRescoringJob(Job):
 
     @classmethod
     def hash(cls, parsed_args):
-        """delete some irrelevant args in lm_cfg from the hashing"""
-        irrelevant_keys = ["batch_size", "name", "cheat_prev_ctx"]
+        """keep only relevant args in lm_cfg for hashing"""
+        #irrelevant_keys = ["batch_size", "name", "cheat_prev_ctx"]
+        relevant_keys = {"model_dir", "eos_symbol", "lower_case", "get_raw_text_func",
+                         "ctx_len_limit", "prev_one_ctx", "gt_res",
+                         "AM_prior_scores", "lm_scale", "empty_score"}
         d = {k: v for k, v in parsed_args.items() if k != "lm_cfg"}
-        d["lm_cfg"] = {k: v for k,v in parsed_args["lm_cfg"].items() if k not in irrelevant_keys}
+        d["lm_cfg"] = {k: v for k,v in parsed_args["lm_cfg"].items() if k in relevant_keys}
         return super().hash(d)
 
 
