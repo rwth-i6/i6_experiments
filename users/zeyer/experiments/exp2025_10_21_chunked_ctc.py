@@ -60,6 +60,12 @@ def py():
         (1, 40, 0, 75_000),
         (2, 40, 0, 75_000),
         (3, 40, 0, 50_000),
+        # fixing total chunk size to 35, fixing right ctx to 15, varying left
+        (0, 20, 15, 50_000),
+        (1, 20, 15, 50_000),
+        (2, 20, 15, 50_000),
+        (3, 20, 15, 50_000),
+        (4, 20, 15, 50_000),
     ]:
         train(
             f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}",
