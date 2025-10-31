@@ -145,6 +145,7 @@ class Frontend(ISeqDownsamplingEncoder):
         :param out_dim: output feature dimension
         :param window_size:
         :param stride:
+        :param activation: by default identity here
         """
         super().__init__()
 
@@ -165,10 +166,10 @@ class Frontend(ISeqDownsamplingEncoder):
 def _make_activation(
     activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module, None], *, default=rf.swish
 ) -> Callable[[Tensor], Tensor]:
-    if callable(activation) or isinstance(activation, rf.Module):
+    if activation is NotSpecified or activation is None:
+        return default
+    if (not isinstance(activation, type) and callable(activation)) or isinstance(activation, rf.Module):
         return activation
     if isinstance(activation, dict):
         return rf.build_from_dict(activation)
-    if activation is NotSpecified or activation is None:
-        return default
     raise ValueError(f"Invalid activation specification {activation} (type {type(activation)})")
