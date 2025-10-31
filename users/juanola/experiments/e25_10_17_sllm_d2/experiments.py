@@ -10,9 +10,9 @@ from .configurations.training_configs import training_configs
 from .default_tools import RETURNN_EXE, RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import DatasetSettings, build_test_dataset, TrainingDatasets
 from .experiments_core.data.spm_utils import build_spm_training_datasets
-from .experiments_core.model_creation.pipeline import create_training_job
-from .experiments_core.reporting.report import create_generate_report_job, build_base_report
-from .experiments_core.tuning.tune_eval import eval_model
+from .experiments_core.model_creation.training_job_builder import create_training_job
+from .experiments_core.reporting.report import create_report_job, build_base_report
+from .experiments_core.tuning.evaluation import create_evaluation_jobs
 from .recognition.beam_search import DecoderConfig
 
 ROOT_RETURNN_ROOT = {
@@ -47,10 +47,10 @@ def sllm_ep(
     )
     sampling_alpha = 0.7  # TODO: move somewhere else?!
     vocab_size = 10_240 # 151936 # TODO: TD - this should not be hardcoded ??? which value goes here, sentence piece has a max of 56367
-    train_data, dev_dataset_tuples, test_dataset_tuples = prepare_datasets_jobs(prefix_name,
-                                                                                train_dataset_settings,
-                                                                                vocab_size,
-                                                                                sampling_alpha)
+    train_data, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(prefix_name,
+                                                                               train_dataset_settings,
+                                                                               vocab_size,
+                                                                               sampling_alpha)
 
     # GENERAL TRAINING CONSTANTS
     epochs = 500 if not debug else 1 # TODO: extract to a config file?
@@ -117,44 +117,37 @@ def sllm_ep(
 
     # MODEL EVALUATION/INFERENCE
     if not debug:
-        results = eval_model(
-            training_name=training_name,
-            train_job=train_job,
-            train_args=train_args,
-            train_data=train_data,
-            decoder_config=default_decoder_config,
-            decoder_module=recognition_module,
-            dev_dataset_tuples=dev_dataset_tuples,
-            specific_epoch=[epochs],
-            lm_scales=[0.0],
-            prior_scales=[0.0],
-            run_test=True,
-            test_dataset_tuples=test_dataset_tuples,
-            run_best=True,
-            run_best_4=True,
-            use_gpu=True,  # CPU is way too slow for AED decoding
-        )
+        run_best_4 = run_best = run_test = True
+        epochs_to_evaluate = [epochs]
     else:
-        results = eval_model(
-            training_name=training_name,
-            train_job=train_job,
-            train_args=train_args,
-            train_data=train_data,
-            decoder_config=default_decoder_config,
-            decoder_module=recognition_module,
-            dev_dataset_tuples=dev_dataset_tuples,
-            specific_epoch=[epochs],
-            lm_scales=[0.0],
-            prior_scales=[0.0],
-            run_test=True,
-            test_dataset_tuples=test_dataset_tuples,
-            run_best=True,
-            run_best_4=False, # TODO: changed
-            use_gpu=True,  # CPU is way too slow for AED decoding
-        )
+        run_test = True
+        run_best_4 = run_best = False
+        epochs_to_evaluate = []
+
+    results = create_evaluation_jobs(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        decoder_config=default_decoder_config,
+        decoder_module=recognition_module,
+
+        test_dataset_tuples=test_dataset_tuples,
+        dev_dataset_tuples=dev_dataset_tuples,
+
+        lm_scales=[0.0],
+        prior_scales=[0.0],
+
+        specific_epoch=epochs_to_evaluate,
+        run_test=run_test,
+        run_best=run_best,
+        run_best_4=run_best_4,
+
+        use_gpu=True,  # CPU is way too slow for AED decoding
+    )
 
     # MODEL REPORTING
-    create_generate_report_job(results=results, exp_name=training_name)
+    create_report_job(results=results, exp_name=training_name)
     report = {training_name: results}
     del results
     tk.register_report(
@@ -167,7 +160,7 @@ def sllm_ep(
     return report
 
 
-def prepare_datasets_jobs(prefix_name: str, train_settings: DatasetSettings, vocab_size: int, sampling_alpha: float) -> \
+def create_datasets_jobs(prefix_name: str, train_settings: DatasetSettings, vocab_size: int, sampling_alpha: float) -> \
         tuple[TrainingDatasets, dict[Any, Any], dict[Any, Any]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict

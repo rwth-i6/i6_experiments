@@ -28,7 +28,6 @@ def forward_step(
 
     RETURNN ENTRYPOINT!!
     """
-
     assert beam_size > 0
 
     data_: ReturnnTensor = extern_data["data"]
