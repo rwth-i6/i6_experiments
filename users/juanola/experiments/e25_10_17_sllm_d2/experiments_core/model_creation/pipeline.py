@@ -218,10 +218,16 @@ def create_training_job(training_name: str,
     """
     # TODO: separate method in 2 (1 is returnn config creation, other is job creation)
 
-    training_rqmt = {  # TODO: adapt to QWEN LLM requirements
-        "mem_rqmt": 30,
+    training_rqmt = {# TODO: extract as config file?
+        # Experiment Length
+        "num_epochs": num_epochs,
         "time_rqmt": 168,
+
+        # CPU
         "cpu_rqmt": 6,
+        "mem_rqmt": 24,
+
+        # Other
         "log_verbosity": 5,
         "returnn_root": returnn_root,
     }
@@ -239,12 +245,13 @@ def create_training_job(training_name: str,
         training_rqmt.update({
             "distributed_launch_cmd": "torchrun",
             "horovod_num_processes": num_gpus,
-            "mem_rqmt": training_rqmt["mem_rqmt"] # don't want to change this / before -> 20
+            "mem_rqmt": 20 #??
         })
 
-    returnn_config = get_training_config(training_datasets=datasets, **train_args)
+    returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
 
-    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **training_rqmt)
+    train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
+    train_job.rqmt["gpu_mem"] = 48 # TODO: should come from config file also...
     train_job.add_alias(training_name + "/training")
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job

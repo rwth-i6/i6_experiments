@@ -13,7 +13,7 @@ from ..networks.interfaces.label_scorer_protocol import LabelScorerProtocol, Sta
 
 
 @dataclass
-class DecoderConfig: # TODO: probably not needed with QWEN?
+class DecoderConfig:  # TODO: probably not needed with QWEN?
     # search related options:
     beam_size: int = 12
 
@@ -86,7 +86,7 @@ def _gather_backrefs(state: _T, *, backrefs: Tensor, beam_size: int) -> _T:
         return state
     assert state.ndim >= 2, "need at least batch and beam dims"
     assert (
-        state.shape[1] == 1 or state.shape[1] == beam_size
+            state.shape[1] == 1 or state.shape[1] == beam_size
     ), f"Beam dim must either be 1 or beam_size ({beam_size}) but is {state.shape[1]}"
     if state.shape[1] == 1:
         return state  # broadcast, e.g. encoder state in [B,1,T,F]
@@ -124,14 +124,15 @@ def _top_k_nd(source: Tensor, *, k: int, dim: Sequence[int], sorted: bool = True
 # -> use context manager instead (see below)
 #  @torch.no_grad
 def beam_search_v1(
-    *,
-    model: LabelScorerProtocol,
-    beam_size: int,
-    batch_size: int,
-    decoder_state: State,
-    device: torch.device,
-    length_norm_exponent: float = 1.0,
-    max_seq_len: Tensor,
+        *,
+        model: LabelScorerProtocol,
+        decoder_state: State,
+
+        beam_size: int,
+        batch_size: int,
+        device: torch.device,
+        max_seq_len: Tensor,
+        length_norm_exponent: float = 1.0,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     Eager-mode implementation of beam search.
@@ -154,10 +155,10 @@ def beam_search_v1(
         # First step uses beam=1, since the start state is the same for all beams, and multiple
         # beams containing the same contents cause issues in top-k search.
         initial_beam = 1
-        target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32, device=device)  # Batch, Beam
-        ended = torch.full([batch_size, initial_beam], False, device=device)  # Batch, Beam
-        seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # Batch, Beam
-        out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # Batch, Beam
+        target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32, device=device)  # [Batch, Beam]
+        ended = torch.full([batch_size, initial_beam], False, device=device)  # [Batch, Beam]
+        seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # [Batch, Beam]
+        out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # [Batch, Beam]
 
         ended_default = F.one_hot(torch.tensor(model.eos_idx, device=device), num_classes=model.num_labels)
         ended_default = torch.where(ended_default.bool(), 0.0, -1e30)
@@ -168,13 +169,16 @@ def beam_search_v1(
         step = torch.tensor(0, device=device, dtype=torch.int32)
 
         while True:
+            # DECODER (FORWARD) STEP (for inference)
             logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)
-            label_log_prob = F.log_softmax(logits, dim=-1)  # Batch, Beam, Vocab
+            print("****logits size", logits.size())
+            #print("****decoder_state-past_key_values size", decoder_state["past_key_values"].size())
+
+
+            label_log_prob = F.log_softmax(logits, dim=-1)  # [Batch, Beam, ?, Vocab]
             assert label_log_prob.shape[-2] == 1, f"time dim mismatch, is {label_log_prob.shape[-2]} but should be 1"
             label_log_prob = label_log_prob.squeeze(-2)
-            label_log_prob = torch.where(
-                ended[:, :, None], ended_default[None, None, :], label_log_prob
-            )  # filter out finished beams
+            label_log_prob = torch.where(ended[:, :, None], ended_default[None, None, :], label_log_prob)  # filter out finished beams
 
             seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # Batch, Beam, Vocab
             assert seq_log_prob.ndim == 3
@@ -190,7 +194,7 @@ def beam_search_v1(
             seq_targets.append(target)
             seq_backrefs.append(backrefs)
 
-            # now select from the decoder state those top-k beams
+            # now select from the decoder state those top-k beams  # TODO: here
             decoder_state = tree.map_structure(
                 partial(_gather_backrefs, backrefs=backrefs, beam_size=beam_size), decoder_state
             )
@@ -199,6 +203,7 @@ def beam_search_v1(
 
             step += 1
 
+            # Termination Condition
             ended = ended | (target == model.eos_idx)
             ended = ended | (step >= max_seq_len)[:, None]
             if ended.all():

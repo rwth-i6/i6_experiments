@@ -46,17 +46,17 @@ def sllm_ep(
         },
     )
     sampling_alpha = 0.7  # TODO: move somewhere else?!
-    vocab_size = 10_240
+    vocab_size = 10_240 # 151936 # TODO: TD - this should not be hardcoded ??? which value goes here, sentence piece has a max of 56367
     train_data, dev_dataset_tuples, test_dataset_tuples = prepare_datasets_jobs(prefix_name,
                                                                                 train_dataset_settings,
                                                                                 vocab_size,
                                                                                 sampling_alpha)
 
-    # GENERAL TRAINING CONSTANTS # TODO: adapt to qwen LLM requirements
-    epochs = 500  # TODO: extract to a config file?
+    # GENERAL TRAINING CONSTANTS
+    epochs = 500 if not debug else 1 # TODO: extract to a config file?
     batch_size_factor = 160
     batch_size = 15_000
-    num_gpus = 4 if not debug else 1
+    num_gpus = 4 if not debug else 1 # TODO: important! link with gpu mem, i think they should be hand in hand
     default_decoder_config = DecoderConfig()
 
     network_module = "networks.conformer_qwen_v1"  # important! # TODO:  move outside the method. Maybe in a constants class or config file...
@@ -116,23 +116,42 @@ def sllm_ep(
     train_job = create_training_job(training_name, train_data, train_args, epochs, **ROOT_RETURNN_ROOT)
 
     # MODEL EVALUATION/INFERENCE
-    results = eval_model(
-        training_name=training_name,
-        train_job=train_job,
-        train_args=train_args,
-        train_data=train_data,
-        decoder_config=default_decoder_config,
-        decoder_module=recognition_module,
-        dev_dataset_tuples=dev_dataset_tuples,
-        specific_epoch=[epochs],
-        lm_scales=[0.0],
-        prior_scales=[0.0],
-        run_test=True,
-        test_dataset_tuples=test_dataset_tuples,
-        run_best=True,
-        run_best_4=True,
-        use_gpu=True,  # CPU is way too slow for AED decoding
-    )
+    if not debug:
+        results = eval_model(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            train_data=train_data,
+            decoder_config=default_decoder_config,
+            decoder_module=recognition_module,
+            dev_dataset_tuples=dev_dataset_tuples,
+            specific_epoch=[epochs],
+            lm_scales=[0.0],
+            prior_scales=[0.0],
+            run_test=True,
+            test_dataset_tuples=test_dataset_tuples,
+            run_best=True,
+            run_best_4=True,
+            use_gpu=True,  # CPU is way too slow for AED decoding
+        )
+    else:
+        results = eval_model(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            train_data=train_data,
+            decoder_config=default_decoder_config,
+            decoder_module=recognition_module,
+            dev_dataset_tuples=dev_dataset_tuples,
+            specific_epoch=[epochs],
+            lm_scales=[0.0],
+            prior_scales=[0.0],
+            run_test=True,
+            test_dataset_tuples=test_dataset_tuples,
+            run_best=True,
+            run_best_4=False, # TODO: changed
+            use_gpu=True,  # CPU is way too slow for AED decoding
+        )
 
     # MODEL REPORTING
     create_generate_report_job(results=results, exp_name=training_name)

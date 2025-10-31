@@ -47,7 +47,7 @@ def serialize_training(
         import_as="get_model",
     )
     pytorch_train_step_import = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.{train_step_module}.train_step",
+        code_object_path=f"{ROOT_PACKAGE}.{train_step_module}.train_step", # TODO: conventions!
         unhashed_package_root=ROOT_PACKAGE,
         hashed_arguments=train_args,
         unhashed_arguments={},
@@ -124,7 +124,7 @@ def serialize_forward(
     forward_module = forward_module or network_module
 
     forward_step = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}",
+        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}_step", # TODO: this _step is not sane
         unhashed_package_root=ROOT_PACKAGE,
         import_as="forward_step",
         hashed_arguments={
@@ -139,8 +139,7 @@ def serialize_forward(
     spm_model_file = vocab_opts["model_file"]
     vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
     callback = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.recognition.aed.callback.RecognitionToTextDictCallback",
-        # todo: I think this will als o fail!
+        code_object_path=f"{ROOT_PACKAGE}.recognition.callback.RecognitionToTextDictCallback",
         import_as="forward_callback",
         hashed_arguments={"vocab": vocab_file},
         unhashed_arguments={},
