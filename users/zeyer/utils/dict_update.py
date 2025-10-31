@@ -7,12 +7,16 @@ from typing import Optional, Any, Dict, Sequence
 
 
 def dict_update_deep(
-    d: Dict[str, Any], deep_updates: Optional[Dict[str, Any]], deep_deletes: Optional[Sequence[str]] = None
+    d: Dict[str, Any],
+    deep_updates: Optional[Dict[str, Any]],
+    deep_deletes: Optional[Sequence[str]] = None,
+    dict_value_merge: bool = True,
 ) -> Dict[str, Any]:
     """
     :param d: dict to update (not inplace, new copy is returned if there are updates)
     :param deep_updates: might also contain "." in the key, for nested dicts
     :param deep_deletes: might also contain "." in the key, for nested dicts
+    :param dict_value_merge: if both d[k] and deep_updates[k] are dicts, merge them instead of replacing
     :return: updated dict (new copy in case there are changes, otherwise ``d`` is returned)
     """
     d = _dict_update_delete_deep(d, deep_deletes)
@@ -24,7 +28,7 @@ def dict_update_deep(
         if "." in k:
             k1, k2 = k.split(".", 1)
             d[k1] = dict_update_deep(d[k1], {k2: v})
-        elif isinstance(d.get(k), dict) and isinstance(v, dict):
+        elif isinstance(d.get(k), dict) and isinstance(v, dict) and dict_value_merge:
             d[k] = dict_update_deep(d[k], v)
         else:
             d[k] = v
