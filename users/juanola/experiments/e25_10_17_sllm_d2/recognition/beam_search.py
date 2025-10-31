@@ -194,7 +194,7 @@ def beam_search_v1(
             seq_targets.append(target)
             seq_backrefs.append(backrefs)
 
-            # now select from the decoder state those top-k beams  # TODO: here
+            # now select from the decoder state those top-k beams
             decoder_state = tree.map_structure(
                 partial(_gather_backrefs, backrefs=backrefs, beam_size=beam_size), decoder_state
             )

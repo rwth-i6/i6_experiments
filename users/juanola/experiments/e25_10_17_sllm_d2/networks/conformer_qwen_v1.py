@@ -32,6 +32,7 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 from .interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 from .interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 from .linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling
+from .qwen2_decoder_state import Qwen2DecoderState
 
 
 def _relu_sq(x):
@@ -46,13 +47,6 @@ class _SpecAugArgs(TypedDict):
     freq_min_num_masks: int
     freq_max_num_masks: int
     freq_mask_max_size: int
-
-
-class Qwen2DecoderState(TypedDict):
-    """Recurrent state of the Qwen2 HF transformers decoder."""
-
-    input_embeds: Tensor
-    past_key_values: Tensor
 
 
 class Model(nn.Module, AedCtcModelProtocol,

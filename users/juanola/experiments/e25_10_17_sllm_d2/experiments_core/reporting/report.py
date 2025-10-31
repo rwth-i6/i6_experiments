@@ -43,7 +43,7 @@ def baseline_report_format(report: _Report_Type) -> str:
     return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 
-def create_generate_report_job(results, exp_name: str, report_template=baseline_report_format) -> None:
+def create_report_job(results, exp_name: str, report_template=baseline_report_format) -> None:
     report_job = GenerateReportStringJob(report_values=results, report_template=report_template)
     report_job.add_alias(f"report/report/{exp_name}")
 
