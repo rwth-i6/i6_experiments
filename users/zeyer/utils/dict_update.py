@@ -29,7 +29,7 @@ def dict_update_deep(
         assert isinstance(k, str)
         if "." in k:
             k1, k2 = k.split(".", 1)
-            d[k1] = dict_update_deep(d[k1], {k2: v})
+            d[k1] = dict_update_deep(d[k1], {k2: v}, dict_value_merge=dict_value_merge)
         elif isinstance(d.get(k), dict) and isinstance(v, dict) and dict_value_merge:
             d[k] = dict_update_deep(d[k], v)
         else:
