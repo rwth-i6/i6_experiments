@@ -10,6 +10,7 @@ def dict_update_deep(
     d: Dict[str, Any],
     deep_updates: Optional[Dict[str, Any]],
     deep_deletes: Optional[Sequence[str]] = None,
+    *,
     dict_value_merge: bool = True,
 ) -> Dict[str, Any]:
     """
