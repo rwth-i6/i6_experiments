@@ -5,28 +5,28 @@ It uses ASRModels classes which contain the information of how to call trained m
 """
 
 import copy
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, List
 
-from sisyphus import tk
+from sisyphus import tk, job_path
 
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
+from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
-
 from i6_experiments.common.setups.returnn.datasets import Dataset
 from ..model_creation.returnn_config_helpers import get_forward_config
-
-from ..tuning.asr_model_info import ASRModel
+from ..tuning.asr_model import ASRModel
 from ...default_tools import SCTK_BINARY_PATH
+
 
 @tk.block()
 def compute_prior(
         prefix_name: str,
         returnn_config: ReturnnConfig,
-        checkpoint: tk.Path,
+        checkpoint: PtCheckpoint,
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
         mem_rqmt: int = 16,
@@ -56,7 +56,7 @@ def compute_prior(
     if "hubert_tune_v2" in prefix_name:
         search_job.rqmt["time"] += 12
         search_job.rqmt["gpu_mem"] = 24
-    search_job.add_alias(prefix_name + "/prior_job")
+    search_job.add_alias(f"{prefix_name}/prior_job")
     return search_job.out_files["prior.txt"]
 
 
@@ -73,7 +73,7 @@ def search(
         vocab_opts: Dict,
         use_gpu: bool = False,
         debug: bool = False,
-):
+) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
     """
     Run search over multiple datasets and collect statistics
 
@@ -137,7 +137,7 @@ def search_single(
         returnn_root: tk.Path,
         mem_rqmt: float = 14,
         use_gpu: bool = False,
-):
+) -> Tuple[job_path.Variable, ReturnnForwardJobV2]:
     """
     Run search for a specific test dataset.
 
