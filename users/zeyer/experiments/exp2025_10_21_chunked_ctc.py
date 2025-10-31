@@ -11,7 +11,7 @@ Chunked Attention-based Encoder-Decoder Model for Streaming Speech Recognition, 
 
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Optional, Any, Dict
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
@@ -37,6 +37,7 @@ from returnn.frontend.encoder.conformer import (
     ConformerPositionwiseFeedForward,
 )
 
+from i6_experiments.users.zeyer.nn_rf.encoder import ff
 from i6_experiments.users.zeyer.nn_rf.encoder import chunked_conformer_v1
 
 __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
@@ -44,6 +45,12 @@ __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
 
 def py():
     train("base", {})
+
+    train(
+        "ff-12",
+        {},
+        {"model.enc_build_dict": rf.build_dict(ff.FeedForwardEncoder, num_layers=12, out_dim=1024)},
+    )
 
     downsampling = 6
 
@@ -156,10 +163,11 @@ _base_config = {
 }
 
 
-def train(name: str, config: Dict[str, Any]):
+def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str, Any]] = None):
     prefix = get_setup_prefix_for_module(__name__)
 
     config = dict_update_deep(_base_config.copy(), config.copy())
+    config = dict_update_deep(config, config_overrides, dict_value_merge=False)
 
     train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
