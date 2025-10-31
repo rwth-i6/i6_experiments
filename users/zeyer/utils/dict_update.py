@@ -17,7 +17,8 @@ def dict_update_deep(
     :param d: dict to update (not inplace, new copy is returned if there are updates)
     :param deep_updates: might also contain "." in the key, for nested dicts
     :param deep_deletes: might also contain "." in the key, for nested dicts
-    :param dict_value_merge: if both d[k] and deep_updates[k] are dicts, merge them instead of replacing
+    :param dict_value_merge: if both d[k] and deep_updates[k] are dicts, merge them instead of replacing.
+        Defaults to True (i.e. merge instead of replace).
     :return: updated dict (new copy in case there are changes, otherwise ``d`` is returned)
     """
     d = _dict_update_delete_deep(d, deep_deletes)
