@@ -121,7 +121,7 @@ class FeedForwardEncoderLayer(rf.Module):
         self.ffn_layer_norm = make_norm(norm, out_dim)
         self.final_layer_norm = make_norm(norm, out_dim)
 
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
+    def __call__(self, inp: Tensor) -> Tensor:
         """forward"""
         # FFN
         x_ffn_ln = self.ffn_layer_norm(inp)
