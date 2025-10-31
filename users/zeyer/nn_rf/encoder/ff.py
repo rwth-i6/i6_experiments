@@ -64,7 +64,9 @@ class FeedForwardEncoder(rf.Module):
 
         in_dim_ = self.input_layer.out_dim if self.input_layer else self.in_dim
         self.input_projection = (
-            rf.Linear(in_dim_, self.out_dim, with_bias=False) if in_dim_ != self.out_dim else rf.identity
+            rf.Linear(in_dim_, self.out_dim, with_bias=False)
+            if in_dim_ != self.out_dim
+            else rf.Functional(rf.identity, attribs={"out_dim": self.out_dim})
         )
 
         if not encoder_layer or isinstance(encoder_layer, dict):
