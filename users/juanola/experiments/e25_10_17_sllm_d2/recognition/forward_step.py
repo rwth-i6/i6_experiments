@@ -8,6 +8,7 @@ from returnn.tensor import Tensor as ReturnnTensor
 from torch import Tensor
 
 from .beam_search import beam_search_v1
+from ..networks.conformer_qwen_v1 import Qwen2DecoderState
 from ..networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 
 
@@ -40,14 +41,15 @@ def forward_step(
         max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
 
     # ENCODER (FORWARD) STEP (for inference)
-    decoder_state = model.forward_encoder(data, seq_len)
+    decoder_state: Qwen2DecoderState = model.forward_encoder(data, seq_len)
+    print("decoder state input_embeds size", decoder_state["input_embeds"].size())
 
     # BEAM SEARCH (contains DECODER (FORWARD) STEPs)
     seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1(
         model=model,
+        decoder_state=decoder_state,
         beam_size=beam_size,
         batch_size=data.shape[0],
-        decoder_state=decoder_state,
         device=data.device,
         max_seq_len=max_seq_len,
     )

@@ -25,9 +25,7 @@ def train_step(
         aed_loss_scale: float,
         label_smoothing: float,
         label_smoothing_start_epoch: int,
-
-        # ???
-        num_eos_symbols: int = 1,
+        num_eos_symbols: int = 1, #only defined here
 
         **_kwargs,
 ):
@@ -44,6 +42,7 @@ def train_step(
     data_: ReturnnTensor = extern_data["data"]
     data: Tensor = data_.raw_tensor
     data_lens: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
+
     targets_: ReturnnTensor = extern_data["classes"]
     targets: Tensor = targets_.raw_tensor
     target_lens: Tensor = targets_.dims[1].dyn_size_ext.raw_tensor
@@ -52,13 +51,11 @@ def train_step(
     encoder_output, aux_logits, logits_lens, _ = model.forward(data, data_lens)
 
     if aed_loss_scale > 0:
-        input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx)
-        input_labels_len = target_lens + 1
+        input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx) # [B, MaxTextLen]
+        input_labels_len = (target_lens + 1).to(device=input_labels.device) # + BOS? # [B]
 
         # DECODER (FORWARD) STEP
-        logits: Tensor = model.decode_seq(
-            input_labels, input_labels_len.to(device=input_labels.device), encoder_output, logits_lens
-        )
+        logits: Tensor = model.decode_seq(input_labels, input_labels_len, encoder_output, logits_lens)
 
         # ??? some transformations
         logits_packed = pack_padded_sequence(logits, input_labels_len, batch_first=True, enforce_sorted=False)

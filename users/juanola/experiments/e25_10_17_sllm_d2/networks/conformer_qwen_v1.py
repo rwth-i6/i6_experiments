@@ -2,6 +2,8 @@ __all__ = ["Model"]
 
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, TypedDict, Union, Any
 
+import tree
+from functools import partial
 import torch
 import transformers
 from torch import Tensor, nn
@@ -16,15 +18,12 @@ from i6_models.assemblies.conformer.conformer_rel_pos_v1 import (
     ConformerRelPosEncoderV1,
     ConformerRelPosEncoderV1Config,
 )
-from i6_models.assemblies.transformer.transformer_decoder_v1 import (
-    TransformerDecoderV1State,
-)
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.masked_norm import MaskedBatchNorm1dV1
 from i6_models.primitives.feature_extraction import (
-    LogMelFeatureExtractionV1,                  # NEEDED!
-    LogMelFeatureExtractionV1Config,            # NEEDED!
+    LogMelFeatureExtractionV1,  # NEEDED!
+    LogMelFeatureExtractionV1Config,  # NEEDED!
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
@@ -49,7 +48,15 @@ class _SpecAugArgs(TypedDict):
     freq_mask_max_size: int
 
 
-class Model(nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel):
+class Qwen2DecoderState(TypedDict):
+    """Recurrent state of the Qwen2 HF transformers decoder."""
+
+    input_embeds: Tensor
+    past_key_values: Tensor
+
+
+class Model(nn.Module, AedCtcModelProtocol,
+            BaseEncoderDecoderModel[Qwen2DecoderState]):  # TODO: rename class -> will break in hardcoded places
     """
     Conformer encoder + Transformer decoder AED + CTC model
     similar to the RETURNN frontend implementation but using primitives from i6_models.
@@ -65,49 +72,49 @@ class Model(nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel):
     """
 
     def __init__(
-        self,
-        # RETURNN get_model PARAMS
-        epoch: int,
-        step: int,
-        *,
+            self,
+            # RETURNN get_model PARAMS
+            epoch: int,
+            step: int,
+            *,
 
-        # FEATURE EXTRACTION PARAMS
-        feature_extraction_config: Optional[Dict[str, Any]] = None,
-        sampling_rate: int,
-        n_mels: int = 80,
-        num_enc_layers: int,
+            # FEATURE EXTRACTION PARAMS
+            feature_extraction_config: Optional[Dict[str, Any]] = None,
+            sampling_rate: int,
+            n_mels: int = 80,
+            num_enc_layers: int,
 
-        # ENCODER PARAMS
-        encoder_dim: int,
-        num_heads: int,
+            # ENCODER PARAMS
+            encoder_dim: int,
+            num_heads: int,
 
-        rel_pos_clip: int = 16,
-        pos_emb_dropout: float = 0.1,
-        learnable_pos_emb: bool = True,
-        with_linear_pos: bool = False,
-        with_pos_bias: bool = False,
-        separate_pos_emb_per_head: bool = False,
+            rel_pos_clip: int = 16,
+            pos_emb_dropout: float = 0.1,
+            learnable_pos_emb: bool = True,
+            with_linear_pos: bool = False,
+            with_pos_bias: bool = False,
+            separate_pos_emb_per_head: bool = False,
 
-        # DECODER PARAMS
-        config_path: Optional[str] = None,
+            # DECODER PARAMS
+            config_path: Optional[str] = None,
 
-        # VOCAB
-        vocab_size: int,
-        bos_idx: int,
-        eos_idx: int,
-        blank_idx: Optional[int] = None,
+            # VOCAB
+            vocab_size: int, # TODO: this should not be here
+            bos_idx: int,
+            eos_idx: int,
+            blank_idx: Optional[int] = None,
 
-        # RF DEFAULTS
-        dropout: float = 0.1,
-        dropout_broadcast_axes: Optional[Literal["B", "BT", "T"]] = "BT",
-        specaug_start: Union[int, Tuple[int, int, int]] = 10,
-        specaug_args: Optional[Dict[str, int]] = None,
+            # RF DEFAULTS
+            dropout: float = 0.1,
+            dropout_broadcast_axes: Optional[Literal["B", "BT", "T"]] = "BT",
+            specaug_start: Union[int, Tuple[int, int, int]] = 10,
+            specaug_args: Optional[Dict[str, int]] = None,
 
-        # OTHER
-        aux_loss_layers: Sequence[int], # fot the ctc stuff
-        aux_logits_bias: bool = False,
+            # OTHER
+            aux_loss_layers: Sequence[int],  # fot the ctc stuff
+            aux_logits_bias: bool = False,
 
-        **_kwargs_unused,
+            **_kwargs_unused,
     ):
         super().__init__()
 
@@ -115,7 +122,7 @@ class Model(nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel):
         assert vocab_size > 0
         assert len(aux_loss_layers) == len(set(aux_loss_layers))
         assert list(aux_loss_layers) == sorted(aux_loss_layers)
-        #assert not share_embedding or not logits_bias
+        # assert not share_embedding or not logits_bias
         assert 0 <= bos_idx < vocab_size
         assert 0 <= eos_idx < vocab_size
         assert bos_idx != eos_idx
@@ -213,15 +220,17 @@ class Model(nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel):
         qwen2_config: Qwen2Config = transformers.Qwen2Config.from_pretrained(config_path)
         self.decoder = transformers.Qwen2ForCausalLM(qwen2_config)
 
+        self.num_labels = qwen2_config.vocab_size
+
         # Tokenizer -> harder than it looks
         # TODO: could not be here, only needed for potential prompt
-        #from returnn.datasets.util.vocabulary import SentencePieces
-        #sp_model_path: str = None #TODO: pass as parameter
-        #sp_model = SentencePieces(sp_model_path) # TODO: Maybe setup special tokens?
-        #self.decoder_tokenizer = sp_model.get_seq()
+        # from returnn.datasets.util.vocabulary import SentencePieces
+        # sp_model_path: str = None #TODO: pass as parameter
+        # sp_model = SentencePieces(sp_model_path) # TODO: Maybe setup special tokens?
+        # self.decoder_tokenizer = sp_model.get_seq()
 
         # Embedding
-        #del self.decoder.embed_tokens
+        # del self.decoder.embed_tokens
         self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
 
         # Adapter
@@ -296,7 +305,7 @@ class Model(nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel):
         :param raw_audio: raw audio tensor
         :param raw_audio_lens: raw audio lens tensor
         :returns: forward result tuple containing:
-            - Encoder output (Tensor)
+            - Encoder output (Tensor) [B, T, HiddenSize]
             - Aux Logits (Tensor List?)
             - Aux Logit Lengths (Tensor)
             - Out mask ? (Tensor)
@@ -312,90 +321,161 @@ class Model(nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel):
         out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
 
-        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
-
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> TransformerDecoderV1State:
-        """
-        Forward the raw audio data through the encoder and initialize decoder state from it. (for inference)
-        """
-        encoder_out, _, lens, _ = self.forward(raw_audio, raw_audio_lens)
-        state = self.decoder.get_initial_state()
-        state = self.decoder.transform_encoder_output(encoder_out.unsqueeze(1), lens.unsqueeze(1), state)
-        return state
-
+        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask # [-1] from aed setup...
 
     def decode_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
         """
         Main decoder forward function. (for training)
+
+        :param x: labels [B, MaxTextLen]
+        :param x_lens: labels [B]
+        :param encoder_output: encoder output [B, T, F]
+        :param encoder_output_lens: encoder output lens [B]
+        :returns: decoder output [B, x_lens.max(), VocabSize]
         """
         qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output)  # [B, T, F]
 
         # Setup decoder(LLM) inputs
         qwen_input_embeds, qwen_attention_mask = self.get_qwen_input_embeds(
-            text_tokens=x,
-            text_tokens_lens=x_lens,
-            audio_embeds=qwen_audio_features_in
-        )
+            qwen_audio_features_in,
+            x,
+            x_lens)
 
         # Decoder step
         qwen_output: CausalLMOutputWithPast = self.decoder.forward(
-            inputs_embeds=qwen_input_embeds, # TODO: check typing? i guess is because a FloatTensor is expected...
+            inputs_embeds=qwen_input_embeds,
             attention_mask=qwen_attention_mask,
             logits_to_keep=x_lens.max().item(),
         )
 
-        return qwen_output.logits
+        return qwen_output.logits # [B, x_lens.max(), VocabSize]
 
-    def get_qwen_input_embeds(self, text_tokens: Tensor, text_tokens_lens: Tensor, audio_embeds: Tensor) \
+    def get_qwen_input_embeds(self, audio_embeds: Tensor, text_tokens: Tensor, text_tokens_lens: Tensor) \
             -> Tuple[Tensor, Tensor]:
         """
         For now only feeding the encoded audio and the text labels.
-        No prompt!
-        :param text_tokens:
-        :param text_tokens_lens:
-        :param audio_embeds:
+        No prompt for now!
+        :param audio_embeds: [B, T, F]
+        :param text_tokens: [B, L]
+        :param text_tokens_lens: [B]
         :return:
         """
         device = audio_embeds.device
 
-        #input_prefix = self.decoder_tokenizer("USER: ").input_ids.to(device)
-        #input_prefix = self.decoder_embed_func(input_prefix)
+        # Are they divided in batches?
+        input_target_embeddings = self.decoder_embed_func(text_tokens) # [B, L] -> [B, L, F]
+        qwen_input_embeds = torch.cat([audio_embeds, input_target_embeddings], dim=1) #[B, T+L, F]
 
-        #input_suffix = self.decoder_tokenizer("Transcribe speech to text. ASSISTANT: ", return_tensors='pt')
-        #                   .input_ids.to(device)
-        #input_suffix = self.decoder_embed_func(input_suffix)
-
-        input_target_embeddings = self.decoder_embed_func(text_tokens)
-
-        qwen_input_embeds = torch.cat(
-            [
-                #input_prefix.expand(audio_embeds.size(0), -1, -1),
-                audio_embeds,
-                #input_suffix.expand(audio_embeds.size(0), -1, -1),
-                input_target_embeddings,
-            ],
-            dim=1
-        )
-
-        #qwen_input_lens = input_prefix.size(1) + audio_embeds.size(1) + input_suffix.size(1) + text_tokens_lens
-        qwen_input_lens = audio_embeds.size(1) + text_tokens_lens
+        # Compute sequence lengths
+        qwen_input_lens = audio_embeds.size(1) + text_tokens_lens # [B]
+        assert text_tokens_lens.ndim == 1
         qwen_input_lens = qwen_input_lens[:, None].expand(-1, qwen_input_embeds.size(1))
+
+        # Build attention mask
         qwen_input_lens_range = torch.range(0, qwen_input_embeds.size(1) - 1)[None].expand(qwen_input_lens.size(0), -1)
         qwen_attention_mask = qwen_input_lens_range.to(device) < qwen_input_lens.to(device)
 
         return qwen_input_embeds, qwen_attention_mask
 
+    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Qwen2DecoderState:
+        """
+        Forward the raw audio data through the encoder and initialize decoder state from it. (for inference)
+        batch=1 (only one encoding/decoding) || now beams in encoder (only in decoder)
+        """
+        # Forward through encoder
+        encoder_output, _, logits_lens, _ = self.forward(raw_audio, raw_audio_lens)
 
 
-    def step_decoder(
-        self, labels: Tensor, state: TransformerDecoderV1State
-    ) -> Tuple[Tensor, TransformerDecoderV1State]:
+
+        # Prepare decoder input [adapter + mix with text imput] (could be also extracted, but not needed for now)
+        qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output) #[B, T', HS']
+
+        bos_token1 = torch.full((raw_audio.shape[0], 1), self.bos_idx, dtype=torch.long, device=qwen_audio_features_in.device) # [B, 1]
+        bos_token_lens1 = torch.ones_like(bos_token1).squeeze() # [B]
+
+        #bos_token2 = torch.empty((qwen_audio_features_in.size(0), 0), dtype=torch.long, device=qwen_audio_features_in.device)
+        #bos_token_lens2 = torch.tensor([0], device=qwen_audio_features_in.device).expand(qwen_audio_features_in.size(0))
+
+        #print(f" bos_token1 shape = {bos_token1.size()}")
+        #print(f" bos_token_lens1 shape = {bos_token_lens1.size()}")
+
+        qwen_input_embeds, _ = self.get_qwen_input_embeds(
+            qwen_audio_features_in,
+            bos_token1,
+            bos_token_lens1)
+
+        # Package results in TransformerDecoderV1State
+        initial_beam_size = 1 #TODO: ?
+        initial_qwen2_decoder_state = {  # TODO: extract to class as initialize method
+            "input_embeds": qwen_input_embeds[:, None].expand(-1, initial_beam_size, -1, -1),  # (B, b, T, F),
+            #"input_embeds": qwen_input_embeds,
+            "past_key_values": None,
+        }
+
+        return initial_qwen2_decoder_state
+
+    def step_decoder(self, labels: Tensor, state: Qwen2DecoderState) -> Tuple[Tensor, Qwen2DecoderState]:
         """
-        Perform a decoder step (for inference)
+        Perform a decoder step (for inference) -> only one new label prediction
+        :type labels: Tensor - Previous generated labels
+        :param labels: [Batch, Beam, Time=1]
+        :param state: Decoder state
+        :returns: decoder output [Batch, Beam, Time=1, L]
         """
-        # TODO: e3 - change!! ??
-        return self.decoder.forward(
-            labels,
-            torch.full(labels.shape[:-1], 1, device=labels.device, dtype=torch.int32),
-            state,
+        qwen_input_embeds = self.decoder.get_input_embeddings()(labels)
+        print("****qwen_input_embeds size", qwen_input_embeds.size())
+        B, beam, T, F = qwen_input_embeds.shape  # noqa
+
+        past_key_values = state["past_key_values"]
+
+        if state["past_key_values"] is None: # First Iteration
+            # First step (use BOS + audio context)
+            qwen_input_embeds_prefix = state["input_embeds"]
+            qwen_input_embeds = torch.cat(
+                [
+                    qwen_input_embeds_prefix,
+                    qwen_input_embeds,
+                ],
+                dim=-2  # time dim
+            )  # (B, beam, T+l, F)
+            B, beam, T, F = qwen_input_embeds.shape  # noqa
+        else: # Others
+            past_key_values = tree.map_structure(
+                partial(combine_batch_and_beam, batch_size=B, beam_size=beam),past_key_values,
+            ) # [B*b,T+l,F]
+
+        # Decoder Forward pass
+        qwen_output: CausalLMOutputWithPast = self.decoder(
+            inputs_embeds=qwen_input_embeds.view(B * beam, T, F),
+            past_key_values=past_key_values,
+            logits_to_keep=1,  # Only 1 step!
+            use_cache=True,
         )
+
+        # Update and return new state
+        past_key_values = tree.map_structure(
+            partial(separate_batch_and_beam, batch_size=B, beam_size=beam), qwen_output.past_key_values
+        )
+        new_state = {
+            "input_embeds": None,
+            "past_key_values": past_key_values, # [B,b,T+l,F]
+        }
+
+        return qwen_output.logits.view(B, beam, 1, -1), new_state
+
+
+def separate_batch_and_beam(state, *, batch_size: int, beam_size: int):
+    if not isinstance(state, Tensor):
+        return state
+
+    return state.view(batch_size, beam_size, *state.shape[1:])
+
+
+def combine_batch_and_beam(state, *, batch_size: int, beam_size: int):
+    if not isinstance(state, Tensor):
+        return state
+
+    return state.view(batch_size * beam_size, *state.shape[2:])
+
+
+#print(f" XXX shape = {XXX.size()}")
