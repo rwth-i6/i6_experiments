@@ -12,7 +12,7 @@ from .experiments_core.data.dataset_commons import DatasetSettings, build_test_d
 from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
 from .experiments_core.reporting.report import create_report_job, build_base_report
-from .experiments_core.tuning.evaluation import create_evaluation_jobs
+from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
 from .recognition.beam_search import DecoderConfig
 
 ROOT_RETURNN_ROOT = {
@@ -111,7 +111,7 @@ def sllm_ep(
         "use_speed_perturbation": True,
     }
 
-    training_name = prefix_name + "/" + network_module + f"/{model_alias}"
+    training_name = f"{prefix_name}/{network_module}/{model_alias}"
 
     train_job = create_training_job(training_name, train_data, train_args, epochs, **ROOT_RETURNN_ROOT)
 
@@ -124,7 +124,7 @@ def sllm_ep(
         run_best_4 = run_best = False
         epochs_to_evaluate = []
 
-    results = create_evaluation_jobs(
+    results = create_tune_and_evaluate_jobs(
         training_name=training_name,
         train_job=train_job,
         train_args=train_args,

@@ -1,5 +1,5 @@
 """
-Pipeline parts to create the necessary jobs for training / forwarding / search etc...
+Builder for training job.
 """
 
 from typing import Any, Dict
@@ -8,22 +8,20 @@ from sisyphus import tk
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
-from ..data.dataset_commons import TrainingDatasets
 from .returnn_config_helpers import get_training_config
+from ..data.dataset_commons import TrainingDatasets
 
 
 def create_training_job(training_name: str,
                         datasets: TrainingDatasets,
                         train_args: Dict[str, Any],
                         num_epochs: int,
-                        returnn_exe: tk.Path,
                         returnn_root: tk.Path) -> ReturnnTrainingJob:
     """
     :param training_name:
     :param datasets:
     :param train_args:
     :param num_epochs:
-    :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
     """
     # TODO: separate method in 2 (1 is returnn config creation, other is job creation)
@@ -62,6 +60,6 @@ def create_training_job(training_name: str,
 
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
     train_job.rqmt["gpu_mem"] = 48  # TODO: should come from config file also...
-    train_job.add_alias(training_name + "/training")
-    tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
+    train_job.add_alias(f"{training_name}/training")
+    tk.register_output(f"{training_name}/learning_rates", train_job.out_learning_rates)
     return train_job

@@ -6,8 +6,10 @@ from typing import Any, Dict, Optional
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
-from ..data.dataset_commons import TrainingDatasets
 from .returnn_config_serializer import serialize_training, serialize_forward
+from ..data.dataset_commons import TrainingDatasets
+
+# TODO: make nice and separate
 
 
 def get_training_config(

@@ -82,8 +82,6 @@ def serialize_forward(
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         forward_module: Optional[str] = None,
         forward_step_name: str = "forward",
-        forward_init_args: Optional[Dict[str, Any]] = None,
-        unhashed_forward_init_args: Optional[Dict[str, Any]] = None,
         include_native_ops=False,
         debug: bool = False,
 ):
@@ -96,8 +94,6 @@ def serialize_forward(
     :param forward_module: optionally define a module file which contains the forward definition.
         If not provided the network_module is used.
     :param forward_step_name: path to the search decoder file containing forward_step and hooks
-    :param forward_init_args: additional arguments to pass to forward_init
-    :param unhashed_forward_init_args: additional non-hashed arguments to pass to forward_init
     :param include_native_ops: include the i6_native_ops for e.g. Fast-Baum-Welch or Warp-RNNT
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return:
