@@ -47,10 +47,16 @@ def py():
     train("base", {})
 
     train(
+        "ff-6",
+        {"aux_loss_layers": [6]},
+        {"model.enc_build_dict": rf.build_dict(ff.FeedForwardEncoder, num_layers=6, out_dim=1024)},
+    )
+    train(
         "ff-12",
-        {},
+        {"aux_loss_layers": [6, 12]},
         {"model.enc_build_dict": rf.build_dict(ff.FeedForwardEncoder, num_layers=12, out_dim=1024)},
     )
+    train("ff-12-bug", {}, {"model.enc_build_dict": rf.build_dict(ff.FeedForwardEncoder, num_layers=12, out_dim=1024)})
 
     downsampling = 6
 
