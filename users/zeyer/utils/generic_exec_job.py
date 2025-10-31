@@ -24,6 +24,7 @@ class GenericExecJob(Job):
         self.args = args
         self.non_hashed_args = non_hashed_args
 
+        assert output_files or output_dirs or output_vars, "At least one output must be specified."
         self.output_files = {k: self.output_path(k) for k in output_files}
         self.output_dirs = {k: self.output_path(k, directory=True) for k in output_dirs}
         self.output_vars = {k: self.output_var(k) for k in output_vars}
