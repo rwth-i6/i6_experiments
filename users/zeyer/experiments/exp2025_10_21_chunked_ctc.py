@@ -193,7 +193,7 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
         config = dict_update_deep(config, train_update_func_from_n_ep(n_ep))
 
     model_config = config.pop("model")
-    train_config = config.pop("train")
+    train_config: Dict[str, Any] = config.pop("train")
     post_config = config.pop("train_post")
 
     vocab = config.pop("vocab", "spm10k")
@@ -221,7 +221,7 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
         prefix=prefix + "/aed/" + name + "/aed+ctc",
         task=task,
         aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=16,
+        aux_ctc_layer=max(train_config["aux_loss_layers"]),
     )
 
 
