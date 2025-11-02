@@ -221,7 +221,9 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
         prefix=prefix + "/aed/" + name + "/aed+ctc",
         task=task,
         aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=max(train_config["aux_loss_layers"]),
+        aux_ctc_layer=max(
+            [i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]]
+        ),
     )
 
 
