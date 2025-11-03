@@ -382,7 +382,7 @@ def py():
             lm=exp.get_last_fixed_epoch(),
         )
 
-        if num_full_ep == 4:
+        if num_full_ep == 5:
             selected_lm = (name, exp.get_last_fixed_epoch())
 
     # AED+CTC+LM decoding
@@ -408,14 +408,7 @@ def py():
         tk.register_output(f"{prefix}/lm/4gram/ppl/{eval_set_name}", ppl)
 
     lexicon = get_lexicon_from_task(task_spm10k, lm_word_list=_public_vocab_word_list)
-    for subset, total_k_hours in [
-        ("small", 25),
-        ("large", 100),
-        ("large", 150),
-        ("large", 200),
-        ("large", 250),
-        ("large", 500),
-    ]:
+    for subset, total_k_hours in ams:
         name, am = ams[(subset, total_k_hours)]
 
         aed_ctc_lm_timesync_recog_recomb_auto_scale(
@@ -427,18 +420,18 @@ def py():
             lm=selected_lm[1],
         )
 
-        ctc_recog_ngram_lm_framewise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm/4gram",
-            task=task_spm10k,
-            ctc_model=am,
-            extra_config={"aux_loss_layers": [16]},
-            framewise_prior_dataset=get_loquacious_train_subset_dataset(vocab="spm10k"),
-            ngram_language_model=_public_4gram_lm,
-            lm_word_list=_public_vocab_word_list,
-            ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
-        )
+        if subset == "small" and total_k_hours == 25:
+            ctc_recog_ngram_lm_framewise_prior_auto_scale(
+                prefix=f"{prefix}/aed/{name}/ctc+lm/4gram",
+                task=task_spm10k,
+                ctc_model=am,
+                extra_config={"aux_loss_layers": [16]},
+                framewise_prior_dataset=get_loquacious_train_subset_dataset(vocab="spm10k"),
+                ngram_language_model=_public_4gram_lm,
+                lm_word_list=_public_vocab_word_list,
+                ctc_decoder_opts={"beam_size": 1024, "beam_size_token": 16, "beam_threshold": 14},
+            )
 
-        if subset == "small":
             framewise_prior = get_ctc_prior(
                 ctc_model=am,
                 extra_config={"aux_loss_layers": [16]},
