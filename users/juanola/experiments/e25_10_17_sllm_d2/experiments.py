@@ -5,7 +5,9 @@ from typing import Any
 from sisyphus import tk
 
 from i6_core.tools.download import DownloadJob
+from .configurations.qwen2_decoder_config_job import Qwen2DecoderConfigJob
 from .configurations.training_configs import training_configs
+from .constants import NETWORK_MODULE, TRAIN_STEP_MODULE, RECOGNITION_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import DatasetSettings, build_test_dataset, TrainingDatasets
 from .experiments_core.data.spm_utils import build_spm_training_datasets
@@ -13,6 +15,7 @@ from .experiments_core.model_creation.training_job_builder import create_trainin
 from .experiments_core.reporting.report import create_report_job, build_base_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
 from .recognition.decoder_config import DecoderConfig
+from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
@@ -29,6 +32,7 @@ def sllm_ep(
     :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
     """
+
     # INITIALIZE DATASET
     train_dataset_settings = DatasetSettings(
         preemphasis=None,
@@ -40,7 +44,7 @@ def sllm_ep(
         },
     )
     sampling_alpha = 0.7  # TODO: move somewhere else?!
-    vocab_size = 10_240 # 151936 # TODO: TD - this should not be hardcoded ??? which value goes here, sentence piece has a max of 56367
+    vocab_size = 10_240  # TODO: TD - this should not be hardcoded
     training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(experiment_path,
                                                                                       train_dataset_settings,
                                                                                       vocab_size,
@@ -48,49 +52,50 @@ def sllm_ep(
 
 
     # GENERAL CONSTANTS
-    train_epochs = 500 if not debug else 1 # TODO: extract to a config file?
-    debug_returnn_param = True # TODO: Make it depend on big debug?
+    # Training # TODO: compute them from the 100 epochs (500*4/20 = 100)
+    train_partial_epochs = 500 if not debug else 1  # TODO: extract to a config file?
 
-    # MODULES
-    network_module = "networks.conformer_qwen_v1" # TODO:  move outside the method. Maybe in a constants class or config file...
-    train_step_module = "training.train_step"
-    recognition_package = "recognition"
+    # Returnn
+    debug_returnn_param = True  # TODO: Make it depend on big debug?
+
 
     # NETWORK
-    encoder_alias = "v1" # TODO: could be imported - extract as parameter of method
+    encoder_alias = "v1"  # TODO: could be imported - extract as parameter of method
     decoder_alias = "Qwen2-0_5B"
-    model_alias, network_args = get_network_args_and_alias(decoder_alias, encoder_alias)
+    model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
+
 
     # MODEL TRAINING
-    training_name = f"{experiment_path}/{network_module}/{model_alias}"
+    training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}"
     train_job = create_training_job(training_name, training_datasets,
-                                    network_module, network_args,
-                                    train_step_module, train_epochs,
+                                    NETWORK_MODULE, network_args,
+                                    TRAIN_STEP_MODULE, train_partial_epochs,
                                     debug, debug_returnn_param,
                                     returnn_root=RETURNN_ROOT)
 
+
     # MODEL EVALUATION/INFERENCE
     # Which evals to run
-    if not debug:
-        run_best_4 = run_best = run_test = True
-        epochs_to_evaluate = [train_epochs]
+    if debug:
+        run_test = run_best_4 = run_best = False
+        epochs_to_evaluate = [train_partial_epochs]
     else:
-        run_test = True
-        run_best_4 = run_best = False
-        epochs_to_evaluate = []
+        run_best_4 = run_best = run_test = True
+        epochs_to_evaluate = default_returnn_keep_epochs(train_partial_epochs)
+
 
     # Tune-Eval
     results = create_tune_and_evaluate_jobs(
         training_name=training_name,
         train_job=train_job,
 
-        network_module=network_module,
+        network_module=NETWORK_MODULE,
         net_args=network_args,
         debug=debug_returnn_param,
 
         train_data=training_datasets,
         decoder_config=DecoderConfig(),
-        decoder_module=recognition_package,
+        decoder_module=RECOGNITION_PACKAGE,
 
         test_dataset_tuples=test_dataset_tuples,
         dev_dataset_tuples=dev_dataset_tuples,
@@ -120,20 +125,26 @@ def sllm_ep(
     return report
 
 
-def get_network_args_and_alias(decoder_alias: str, encoder_alias: str) -> tuple[
-    str, dict[str, Any]]:
-    # MODEL CONFIG
+def get_network_args_and_alias(encoder_alias: str, decoder_alias: str) -> tuple[str, dict[str, Any]]:
+    """
+    Builds network arguments and alias for the model.
+
+    :param encoder_alias:
+    :param decoder_alias:
+    :return:
+    """
     # Encoder Config
+    encoder_config = copy.deepcopy(training_configs[encoder_alias])  # TODO: this should be perfected
 
-    encoder_config = copy.deepcopy(training_configs[encoder_alias])
     # Decoder Config
+    qwen2_decoder_config_job = Qwen2DecoderConfigJob(encoder_config["bos_idx"],
+                                                     encoder_config["eos_idx"], encoder_config["vocab_size"],
+                                                     target_filename=f"config-{decoder_alias}-for-i6-spm.json")
+    decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
-    download_config_job = DownloadJob("https://huggingface.co/Qwen/Qwen2-0.5B/resolve/main/config.json",
-                                      target_filename=f"config-{decoder_alias}.json")
-    decoder_config = {"config_path": download_config_job.out_file}
     # Full Model
     model_alias = f"{encoder_alias}-{decoder_alias}"
-    network_args = encoder_config | decoder_config
+    network_args = encoder_config | decoder_config  # TODO: improve, dict collisions might happen (for now only config_path)
     return model_alias, network_args
 
 

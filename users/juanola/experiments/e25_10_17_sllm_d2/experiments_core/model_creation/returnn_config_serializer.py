@@ -124,7 +124,7 @@ def serialize_forward(
         unhashed_package_root=ROOT_PACKAGE,
         import_as="forward_step",
         hashed_arguments={
-            "beam_size": 12,
+            "beam_size": 12, # TODO: also used in decoder COnfig
             "max_tokens_per_sec": 20,
             "sample_rate": 16_000,
         },

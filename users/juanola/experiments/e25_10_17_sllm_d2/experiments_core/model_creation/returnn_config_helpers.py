@@ -124,14 +124,12 @@ def get_prior_config(
     }
 
     # RC - PYTHON EPILOG
-    serializer = serialize_forward(
+    serializer = serialize_forward(# TODO: fix this! 2 more params are needed
         network_module=network_module,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
         forward_module=None,  # same as network
         forward_step_name="prior",
-        forward_init_args=None,
-        unhashed_forward_init_args=None,
         debug=debug,
     )
 
@@ -179,15 +177,12 @@ def get_forward_config(
     serializer = serialize_forward(
         network_module=network_module,
         net_args=net_args,
-        unhashed_net_args=unhashed_net_args,
-
-        forward_module=decoder,
-        forward_init_args=decoder_args,
-        unhashed_forward_init_args=unhashed_decoder_args,
-
-        debug=debug,
         extern_data=extern_data,
         vocab_opts=vocab_opts,
+
+        unhashed_net_args=unhashed_net_args,
+        forward_module=decoder,
+        debug=debug,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

@@ -384,7 +384,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         # Prepare decoder input [adapter + mix with text imput] (could be also extracted, but not needed for now)
         qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output) #[B, T', HS']
 
-        bos_token1 = torch.full((raw_audio.shape[0], 1), self.bos_idx, dtype=torch.long, device=qwen_audio_features_in.device) # [B, 1]
+        bos_token1 = torch.empty((raw_audio.shape[0], 0), dtype=torch.long, device=qwen_audio_features_in.device) # [B, 0]
         bos_token_lens1 = torch.ones_like(bos_token1).squeeze() # [B]
 
         #bos_token2 = torch.empty((qwen_audio_features_in.size(0), 0), dtype=torch.long, device=qwen_audio_features_in.device)

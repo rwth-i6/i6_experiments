@@ -1,7 +1,7 @@
 import copy
 from collections import OrderedDict
 from dataclasses import asdict
-from typing import Optional, Dict, Any, Tuple, List, Union
+from typing import Optional, Dict, Any, Tuple, List, Union, Iterable
 
 from sisyphus import tk, job_path
 
@@ -45,7 +45,7 @@ def create_tune_and_evaluate_jobs(
         prior_args: Optional[Dict[str, Any]] = None,
 
         # TO RUN FLAGS
-        specific_epoch: Optional[Union[int, List]] = None,
+        specific_epoch: Optional[Union[int, Iterable[int]]] = None,
         run_best_4: bool = True,
         run_best: bool = True,
 
@@ -71,7 +71,7 @@ def create_tune_and_evaluate_jobs(
     checkpoint_per_evaluation = OrderedDict()
     for epoch in specific_epoch:
         evaluation_name = f"{training_name}/{epoch}"
-        checkpoint_per_evaluation[evaluation_name] = get_specific_checkpoint(evaluation_name, train_job)
+        checkpoint_per_evaluation[evaluation_name] = get_specific_checkpoint(evaluation_name, train_job, epoch)
     if run_best_4:
         evaluation_name = f"{training_name}/best4"
         checkpoint_per_evaluation[evaluation_name] = get_best_averaged_checkpoint(evaluation_name, train_job, 4,
@@ -283,10 +283,9 @@ def get_best_averaged_checkpoint(base_training_name: str, train_job: ReturnnTrai
 
 def get_last_averaged_checkpoint(base_training_name: str, train_job: ReturnnTrainingJob, last_n: int) -> tuple[
     PtCheckpoint, str]:
-    if last_n == 0:
-        return get_specific_checkpoint(base_training_name, train_job)
-
     num_checkpoints = len(train_job.out_checkpoints)
+    if last_n == 0:
+        return get_specific_checkpoint(base_training_name, train_job, num_checkpoints)
     avg = AverageTorchCheckpointsJob(
         checkpoints=[train_job.out_checkpoints[num_checkpoints - i] for i in range(last_n)],
         returnn_python_exe=RETURNN_EXE,
@@ -295,5 +294,5 @@ def get_last_averaged_checkpoint(base_training_name: str, train_job: ReturnnTrai
     return avg.out_checkpoint, f"{base_training_name}/avg_last_{num_checkpoints}_cpkt"
 
 
-def get_specific_checkpoint(base_training_name: str, train_job: ReturnnTrainingJob) -> tuple[PtCheckpoint, str]:
-    return train_job.out_checkpoints[get_specific_checkpoint], f"{base_training_name}/ep_{get_specific_checkpoint}_cpkt"
+def get_specific_checkpoint(base_training_name: str, train_job: ReturnnTrainingJob, epoch: int) -> tuple[PtCheckpoint, str]:
+    return train_job.out_checkpoints[epoch], f"{base_training_name}/ep_{epoch}_cpkt"

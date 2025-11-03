@@ -52,7 +52,7 @@ def train_step(
 
     if aed_loss_scale > 0:
         input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx) # [B, MaxTextLen]
-        input_labels_len = (target_lens + 1).to(device=input_labels.device) # + BOS? # [B]
+        input_labels_len = target_lens + 1 # [B]
 
         # DECODER (FORWARD) STEP
         logits: Tensor = model.decode_seq(input_labels, input_labels_len, encoder_output, logits_lens)

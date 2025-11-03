@@ -70,9 +70,10 @@ def get_training_parameters(debug: bool, debug_returnn_param: bool, network_args
         "__num_gpus": num_gpus,
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        "torch_amp": "bfloat16", # only for gpus > 11gb
     }
 
-    train_args = {
+    train_args = { # Params for the get_training_config() method #TODO needed this way?
         "config": train_config,
 
         "network_module": network_module,
