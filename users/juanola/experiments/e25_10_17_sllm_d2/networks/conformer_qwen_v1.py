@@ -93,7 +93,7 @@ class Model(nn.Module, AedCtcModelProtocol,
             config_path: Optional[str] = None,
 
             # VOCAB
-            vocab_size: int, # TODO: this should not be here
+            vocab_size: int,  # TODO: this should not be here
             bos_idx: int,
             eos_idx: int,
             blank_idx: Optional[int] = None,
@@ -315,7 +315,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
 
-        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask # [-1] from aed setup...
+        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask  # [-1] from aed setup...
 
     def decode_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
         """
@@ -342,7 +342,7 @@ class Model(nn.Module, AedCtcModelProtocol,
             logits_to_keep=x_lens.max().item(),
         )
 
-        return qwen_output.logits # [B, x_lens.max(), VocabSize]
+        return qwen_output.logits  # [B, x_lens.max(), VocabSize]
 
     def get_qwen_input_embeds(self, audio_embeds: Tensor, text_tokens: Tensor, text_tokens_lens: Tensor) \
             -> Tuple[Tensor, Tensor]:
@@ -357,11 +357,11 @@ class Model(nn.Module, AedCtcModelProtocol,
         device = audio_embeds.device
 
         # Are they divided in batches?
-        input_target_embeddings = self.decoder_embed_func(text_tokens) # [B, L] -> [B, L, F]
-        qwen_input_embeds = torch.cat([audio_embeds, input_target_embeddings], dim=1) #[B, T+L, F]
+        input_target_embeddings = self.decoder_embed_func(text_tokens)  # [B, L] -> [B, L, F]
+        qwen_input_embeds = torch.cat([audio_embeds, input_target_embeddings], dim=1)  # [B, T+L, F]
 
         # Compute sequence lengths
-        qwen_input_lens = audio_embeds.size(1) + text_tokens_lens # [B]
+        qwen_input_lens = audio_embeds.size(1) + text_tokens_lens  # [B]
         assert text_tokens_lens.ndim == 1
         qwen_input_lens = qwen_input_lens[:, None].expand(-1, qwen_input_embeds.size(1))
 
@@ -371,7 +371,7 @@ class Model(nn.Module, AedCtcModelProtocol,
 
         return qwen_input_embeds, qwen_attention_mask
 
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Qwen2DecoderState:
+    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int) -> Qwen2DecoderState:
         """
         Forward the raw audio data through the encoder and initialize decoder state from it. (for inference)
         batch=1 (only one encoding/decoding) || now beams in encoder (only in decoder)
@@ -379,30 +379,22 @@ class Model(nn.Module, AedCtcModelProtocol,
         # Forward through encoder
         encoder_output, _, logits_lens, _ = self.forward(raw_audio, raw_audio_lens)
 
-
-
         # Prepare decoder input [adapter + mix with text imput] (could be also extracted, but not needed for now)
-        qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output) #[B, T', HS']
+        qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output)  # [B, T', HS']
 
-        bos_token1 = torch.empty((raw_audio.shape[0], 0), dtype=torch.long, device=qwen_audio_features_in.device) # [B, 0]
-        bos_token_lens1 = torch.ones_like(bos_token1).squeeze() # [B]
-
-        #bos_token2 = torch.empty((qwen_audio_features_in.size(0), 0), dtype=torch.long, device=qwen_audio_features_in.device)
-        #bos_token_lens2 = torch.tensor([0], device=qwen_audio_features_in.device).expand(qwen_audio_features_in.size(0))
-
-        #print(f" bos_token1 shape = {bos_token1.size()}")
-        #print(f" bos_token_lens1 shape = {bos_token_lens1.size()}")
+        empty_tokens = torch.empty((raw_audio.shape[0], 0), dtype=torch.long,
+                                   device=qwen_audio_features_in.device)  # [B, 0]
+        empty_tokens_len = torch.tensor([0], device=qwen_audio_features_in.device).expand(
+            qwen_audio_features_in.size(0))  # [B]
 
         qwen_input_embeds, _ = self.get_qwen_input_embeds(
             qwen_audio_features_in,
-            bos_token1,
-            bos_token_lens1)
+            empty_tokens,
+            empty_tokens_len)
 
         # Package results in TransformerDecoderV1State
-        initial_beam_size = 1 #TODO: ?
         initial_qwen2_decoder_state = {  # TODO: extract to class as initialize method
             "input_embeds": qwen_input_embeds[:, None].expand(-1, initial_beam_size, -1, -1),  # (B, b, T, F),
-            #"input_embeds": qwen_input_embeds,
             "past_key_values": None,
         }
 
@@ -417,12 +409,12 @@ class Model(nn.Module, AedCtcModelProtocol,
         :returns: decoder output [Batch, Beam, Time=1, L]
         """
         qwen_input_embeds = self.decoder.get_input_embeddings()(labels)
-        print("****qwen_input_embeds size", qwen_input_embeds.size())
+        #print("****qwen_input_embeds size", qwen_input_embeds.size())
         B, beam, T, F = qwen_input_embeds.shape  # noqa
 
         past_key_values = state["past_key_values"]
 
-        if state["past_key_values"] is None: # First Iteration
+        if past_key_values is None:  # First Iteration
             # First step (use BOS + audio context)
             qwen_input_embeds_prefix = state["input_embeds"]
             qwen_input_embeds = torch.cat(
@@ -433,10 +425,10 @@ class Model(nn.Module, AedCtcModelProtocol,
                 dim=-2  # time dim
             )  # (B, beam, T+l, F)
             B, beam, T, F = qwen_input_embeds.shape  # noqa
-        else: # Others
+        else:  # Others
             past_key_values = tree.map_structure(
-                partial(combine_batch_and_beam, batch_size=B, beam_size=beam),past_key_values,
-            ) # [B*b,T+l,F]
+                partial(combine_batch_and_beam, batch_size=B, beam_size=beam), past_key_values,
+            )  # [B*b,T+l,F]
 
         # Decoder Forward pass
         qwen_output: CausalLMOutputWithPast = self.decoder(
@@ -452,7 +444,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         )
         new_state = {
             "input_embeds": None,
-            "past_key_values": past_key_values, # [B,b,T+l,F]
+            "past_key_values": past_key_values,  # [B,b,T+l,F]
         }
 
         return qwen_output.logits.view(B, beam, 1, -1), new_state
@@ -471,5 +463,4 @@ def combine_batch_and_beam(state, *, batch_size: int, beam_size: int):
 
     return state.view(batch_size * beam_size, *state.shape[2:])
 
-
-#print(f" XXX shape = {XXX.size()}")
+# print(f" XXX shape = {XXX.size()}")

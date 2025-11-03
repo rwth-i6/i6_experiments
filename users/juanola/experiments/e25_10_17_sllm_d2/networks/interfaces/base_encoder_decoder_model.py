@@ -17,7 +17,7 @@ class BaseEncoderDecoderModel(LabelScorerProtocol[State], Generic[State]):
     """
 
     @abstractmethod
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> State:
+    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int) -> State:
         """
         Forward the raw audio data through the encoder and initialize decoder state from it.
 

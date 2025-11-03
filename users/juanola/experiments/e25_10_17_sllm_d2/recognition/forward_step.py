@@ -30,6 +30,8 @@ def forward_step(
     """
     assert beam_size > 0
 
+    initial_beam_size = beam_size
+
     data_: ReturnnTensor = extern_data["data"]
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
@@ -40,11 +42,10 @@ def forward_step(
         max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
 
     # ENCODER (FORWARD) STEP (for inference)
-    decoder_state: Qwen2DecoderState = model.forward_encoder(data, seq_len)
-    print("decoder state input_embeds size", decoder_state["input_embeds"].size())
+    decoder_state: Qwen2DecoderState = model.forward_encoder(data, seq_len, initial_beam_size)
 
     # BEAM SEARCH (contains DECODER (FORWARD) STEPs)
-    seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1(
+    seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1( # TODO: should receive init_size by param
         model=model,
         decoder_state=decoder_state,
         beam_size=beam_size,

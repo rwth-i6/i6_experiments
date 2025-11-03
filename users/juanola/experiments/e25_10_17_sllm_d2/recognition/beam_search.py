@@ -143,7 +143,7 @@ def beam_search_v1(
 
         # First step uses beam=1, since the start state is the same for all beams, and multiple
         # beams containing the same contents cause issues in top-k search.
-        initial_beam = 1
+        initial_beam = beam_size
         target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32,
                             device=device)  # [Batch, Beam]
         ended = torch.full([batch_size, initial_beam], False, device=device)  # [Batch, Beam]
@@ -161,7 +161,7 @@ def beam_search_v1(
         while True:
             # DECODER (FORWARD) STEP (for inference)
             logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)
-            print("****logits size", logits.size())
+            #print("****logits size", logits.size())
             # print("****decoder_state-past_key_values size", decoder_state["past_key_values"].size())
 
             label_log_prob = F.log_softmax(logits, dim=-1)  # [Batch, Beam, ?, Vocab]
