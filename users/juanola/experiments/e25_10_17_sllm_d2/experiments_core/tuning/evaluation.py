@@ -24,7 +24,11 @@ default_returnn = {
 def create_tune_and_evaluate_jobs(
         training_name: str,
         train_job: ReturnnTrainingJob,
-        train_args: Dict[str, Any],
+
+        network_module,
+        net_args,
+        debug,
+
         train_data: TrainingDatasets,
         decoder_config: DecoderConfig,
 
@@ -53,7 +57,7 @@ def create_tune_and_evaluate_jobs(
     Run evaluation jobs for different trained models
 
     """
-    # DEFAULT PARAMETERS # TODO: MJ: defaults can be in parameters
+    # DEFAULT PARAMETERS
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
     if isinstance(specific_epoch, int):
@@ -62,7 +66,6 @@ def create_tune_and_evaluate_jobs(
         lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
     if prior_scales is None:
         prior_scales = [0.7, 0.9]
-    debug = train_args.get("debug", False)
 
     # Dict of all train_evals to perform (could be extended)
     checkpoint_per_evaluation = OrderedDict()
@@ -78,19 +81,17 @@ def create_tune_and_evaluate_jobs(
         checkpoint_per_evaluation[evaluation_name] = get_best_averaged_checkpoint(evaluation_name, train_job, 1,
                                                                                   loss_name)
 
+    # Tune & Eval different models
     result_dict = {} if result_dict is None else result_dict
     for evaluation_name, (checkpoint, checkpoint_name) in checkpoint_per_evaluation.items():
         asr_model = prepare_asr_model(
             checkpoint_name,
             checkpoint,
-            train_args if prior_args is None else prior_args,
-            with_prior=False,
+            network_module,
+            net_args,
+            prior_args=prior_args,
             datasets=train_data,
         )
-
-        if prior_args is not None:  # TODO: i dont like this here
-            asr_model.net_args = train_args["net_args"]
-            asr_model.network_module = train_args["network_module"]
 
         res, _ = tune_and_evaluate_model(
             evaluation_name,
@@ -112,53 +113,54 @@ def create_tune_and_evaluate_jobs(
 
 
 def prepare_asr_model(
-        base_training_name: str,
+        checkpoint_name: str,
         checkpoint: PtCheckpoint,
-        train_args: Dict[str, Any],
-
-        with_prior: bool,
+        network_module,
+        net_args,
+        prior_args: Dict[str, Any] = None,
         prior_config: Optional[Dict[str, Any]] = None,
         datasets: Optional[TrainingDatasets] = None,
 ) -> ASRModel:
     """
-    :param base_training_name:
+    :param checkpoint_name:
+    :param checkpoint:
     :param train_args: same args as for training
     :param with_prior: If prior should be used (yes for CTC, no for RNN-T)
     :param datasets: Needed if with_prior == True
     :param prior_config: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
     :return:
     """
-    assert not with_prior or datasets is not None
-    assert not with_prior or prior_config is not None
+    assert prior_args is None or datasets is not None
+    assert prior_args is None or prior_config is not None
 
     prior_file = None
-    if with_prior:
+    if prior_args is not None:
         returnn_config = get_prior_config(
             training_datasets=datasets,
-            network_module=train_args["network_module"],
+            network_module=prior_args["network_module"],
             config=prior_config if prior_config is not None else {},
-            net_args=train_args["net_args"],
-            unhashed_net_args=train_args.get("unhashed_net_args", None),
-            debug=train_args.get("debug", False),
+            net_args=prior_args["net_args"],
+            unhashed_net_args=prior_args.get("unhashed_net_args", None),
+            debug=prior_args.get("debug", False),
         )
         prior_file = compute_prior(
-            base_training_name,
+            checkpoint_name,
             returnn_config,
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
             returnn_root=RETURNN_ROOT,
         )
-        tk.register_output(f"{base_training_name}/prior.txt", prior_file)
+        tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
     else:
         if prior_config is not None:
             raise ValueError("prior_config can only be set if with_prior is True")
 
     return ASRModel(
         checkpoint=checkpoint,
-        network_module=train_args["network_module"],
-        net_args=train_args["net_args"],
+        network_module=network_module,
+        net_args=net_args,
         prior_file=prior_file,
-        prefix_name=base_training_name,
+        prefix_name=checkpoint_name,
     )
 
 

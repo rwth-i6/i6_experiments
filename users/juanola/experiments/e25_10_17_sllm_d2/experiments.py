@@ -7,18 +7,13 @@ from sisyphus import tk
 from i6_core.tools.download import DownloadJob
 from .configurations import optimizer_configs, learning_rate_configs
 from .configurations.training_configs import training_configs
-from .default_tools import RETURNN_EXE, RETURNN_ROOT, MINI_RETURNN_ROOT
+from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import DatasetSettings, build_test_dataset, TrainingDatasets
 from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
 from .experiments_core.reporting.report import create_report_job, build_base_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
 from .recognition.beam_search import DecoderConfig
-
-ROOT_RETURNN_ROOT = {
-    "returnn_exe": RETURNN_EXE,
-    "returnn_root": RETURNN_ROOT,
-}
 
 
 def sllm_ep(
@@ -79,6 +74,9 @@ def sllm_ep(
     network_args = encoder_config | decoder_config
 
     # MODEL TRAINING # TODO: move this inside create_training_job
+
+    debug_returnn_param = True # TODO: Make it depend on big debug?
+
     train_config = {
         **optimizer_configs.v1,
         **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
@@ -107,15 +105,16 @@ def sllm_ep(
             "label_smoothing_start_epoch": 0,
         },
 
-        "debug": True,
+        "debug": debug_returnn_param,
         "use_speed_perturbation": True,
     }
 
     training_name = f"{prefix_name}/{network_module}/{model_alias}"
 
-    train_job = create_training_job(training_name, train_data, train_args, epochs, **ROOT_RETURNN_ROOT)
+    train_job = create_training_job(training_name, train_data, train_args, epochs, returnn_root=RETURNN_ROOT)
 
     # MODEL EVALUATION/INFERENCE
+    # Which evals to run
     if not debug:
         run_best_4 = run_best = run_test = True
         epochs_to_evaluate = [epochs]
@@ -124,10 +123,15 @@ def sllm_ep(
         run_best_4 = run_best = False
         epochs_to_evaluate = []
 
+    # Tune-Eval
     results = create_tune_and_evaluate_jobs(
         training_name=training_name,
         train_job=train_job,
-        train_args=train_args,
+
+        network_module=network_module,
+        net_args=network_args,
+        debug=debug_returnn_param,
+
         train_data=train_data,
         decoder_config=default_decoder_config,
         decoder_module=recognition_module,
