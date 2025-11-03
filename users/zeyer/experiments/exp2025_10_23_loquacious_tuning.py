@@ -33,33 +33,36 @@ __setup_root_prefix__ = "exp2025_10_23_loquacious_tuning"
 
 def py():
     train("base", {})
-    train(
-        "dec-l12",
-        {
-            "model.dec_build_dict.num_layers": 12,
-            "train.dec_aux_loss_layers": [6],
-            "train.batch_size": 75_000 * configs._batch_size_factor,
-        },
-    )
 
-    from i6_experiments.users.zeyer.nn_rf.i6_models.primitives.feature_extraction import (
-        RasrCompatibleLogMelFeatureExtractionV1,
-    )
+    # worse. overfitting?
+    # train(
+    #     "dec-l12",
+    #     {
+    #         "model.dec_build_dict.num_layers": 12,
+    #         "train.dec_aux_loss_layers": [6],
+    #         "train.batch_size": 75_000 * configs._batch_size_factor,
+    #     },
+    # )
 
-    train(
-        "rasr-features",
-        {
-            "model.feature_extraction": rf.build_dict(
-                RasrCompatibleLogMelFeatureExtractionV1,
-                sample_rate=16000,
-                win_size=0.025,
-                hop_size=0.01,
-                min_amp=1.175494e-38,
-                num_filters=80,
-                alpha=0.97,
-            )
-        },
-    )
+    # from i6_experiments.users.zeyer.nn_rf.i6_models.primitives.feature_extraction import (
+    #     RasrCompatibleLogMelFeatureExtractionV1,
+    # )
+
+    # slightly worse
+    # train(
+    #     "rasr-features",
+    #     {
+    #         "model.feature_extraction": rf.build_dict(
+    #             RasrCompatibleLogMelFeatureExtractionV1,
+    #             sample_rate=16000,
+    #             win_size=0.025,
+    #             hop_size=0.01,
+    #             min_amp=1.175494e-38,
+    #             num_filters=80,
+    #             alpha=0.97,
+    #         )
+    #     },
+    # )
 
 
 _base_config = {
