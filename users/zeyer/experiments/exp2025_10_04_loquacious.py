@@ -73,6 +73,9 @@ def py():
     prefix = get_setup_prefix_for_module(__name__)
     task_spm10k = get_loquacious_task_raw(vocab="spm10k")
 
+    # TODO speed perturbation
+    # TODO cleanup...
+
     # Librispeech baseline name:
     # EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k
     # -> here: "base"
