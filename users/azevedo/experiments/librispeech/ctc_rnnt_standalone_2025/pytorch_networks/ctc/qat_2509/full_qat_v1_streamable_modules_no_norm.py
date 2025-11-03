@@ -491,7 +491,6 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
                 channel_axis=None if self.dot_quant_method == "per_tensor" else NotImplementedError,
                 observer_only_in_train=cfg.observer_only_in_train,
             )
-        self.norm = torch.tensor(math.sqrt(self.dim_heads))
         self.softmax = nn.Softmax(-1)
         self.dropout = nn.Dropout(cfg.att_weights_dropout)
 
@@ -572,14 +571,12 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
         print(f"{query = }")
         print(f"{key = }")
         dot = self.norm_in_quant(dot)
-        norm = self.norm_in_quant(self.norm.to(device=dot.device))
         print(f"{dot = }")
         # dot[0, 0].plt.fig.savefig(f"dot_{id(self)}")
         # torch.save(dot[0, 0], f"tensor_{id(self)}")
         print(f"{self.norm_in_quant = }")
-        print(f"{norm = }")
         print()
-        dot = dot / norm
+        dot = dot
         dot = self.norm_out_quant(dot)
 
         # total_mask = total_mask.view(batch_dim, 1, 1, total_mask.size(1))

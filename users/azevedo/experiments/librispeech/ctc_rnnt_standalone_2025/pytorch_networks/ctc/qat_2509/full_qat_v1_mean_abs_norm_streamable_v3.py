@@ -24,7 +24,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .full_qat_v1_streamable_cfg import (
+from .full_qat_v1_streamable_cfg_v3 import (
     QuantModelTrainConfigV4,
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedMultiheadAttentionV4Config,
@@ -281,13 +281,14 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         print(f"{self.layer_norm_in_quant = }")
         input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
         denom = torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5)
-        denom = torch.clamp(denom, min=0.01)
+        # denom = torch.clamp(denom, min=0.01)
         print(f"{denom = }")
         output_tensor = input_tensor / denom
         print(f"{output_tensor = }")
         output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
-        print(f"{self.layer_norm_scale = }")
-        print(f"{self.layer_norm_bias = }")
+        #   print(f"{self.layer_norm_scale = }")
+        #   print(f"{self.layer_norm_bias = }")
+
         # print(
         #     "Post norm MHSA", output_tensor[0, 0, :10], torch.sum(torch.abs(output_tensor), dim=-1, keepdim=True)[0, 0]
         # )
@@ -1239,7 +1240,7 @@ class Model(StreamableModule):
                     bit_prec_dot=self.train_config.weight_bit_prec,
                     bit_prec_A_v=self.train_config.weight_bit_prec,
                     bit_prec_W_o=self.train_config.weight_bit_prec,
-                    moving_average=self.train_config.moving_average,
+                    moving_average=self.train_config.mhsa_moving_average,
                     quantize_bias=self.train_config.quantize_bias,
                     observer_only_in_train=self.train_config.observer_only_in_train,
                 ),
@@ -1443,7 +1444,7 @@ class CTCTrainStepMode(train_handler.TrainStepMode):
     def __init__(self):
         super().__init__()
 
-    def step(self, model: StreamableModule, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
+    def step(self, model: Model, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
         raw_audio = data["raw_audio"]  # [B, T', F]
         raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
 
@@ -1469,6 +1470,11 @@ class CTCTrainStepMode(train_handler.TrainStepMode):
             reduction="sum",
             zero_infinity=True,
         )
+
+        # NOTE: TESTING regularization of first layer's in_proj
+        if model.train_config.l2_lambda > 0:
+            mhsa_module: ConformerMHSAQuantStreamable = model.conformer.module_list[0].mhsa
+            ctc_loss += model.train_config.l2_lambda * torch.norm(mhsa_module.mhsa.in_proj.weight, p=2)**2
 
         mode_str = mode.name.lower()[:3]
         loss_dict = {

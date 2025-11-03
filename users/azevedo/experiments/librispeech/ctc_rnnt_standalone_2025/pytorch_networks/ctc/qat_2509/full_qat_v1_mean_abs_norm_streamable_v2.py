@@ -280,12 +280,14 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         input_tensor = self.layer_norm_in_quant(input_tensor)
         print(f"{self.layer_norm_in_quant = }")
         input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
-        output_tensor = input_tensor / (torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5))
+        denom = torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5)
+        # denom = torch.clamp(denom, min=0.01)
+        print(f"{denom = }")
+        output_tensor = input_tensor / denom
         print(f"{output_tensor = }")
         output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
-        print(f"{output_tensor = }")
-        print(f"{self.layer_norm_scale = }")
-        print(f"{self.layer_norm_bias = }")
+        #   print(f"{self.layer_norm_scale = }")
+        #   print(f"{self.layer_norm_bias = }")
 
         # print(
         #     "Post norm MHSA", output_tensor[0, 0, :10], torch.sum(torch.abs(output_tensor), dim=-1, keepdim=True)[0, 0]
@@ -1442,7 +1444,7 @@ class CTCTrainStepMode(train_handler.TrainStepMode):
     def __init__(self):
         super().__init__()
 
-    def step(self, model: StreamableModule, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
+    def step(self, model: Model, data: dict, mode: Mode, scale: float) -> Tuple[Dict, int]:
         raw_audio = data["raw_audio"]  # [B, T', F]
         raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
 
@@ -1468,6 +1470,11 @@ class CTCTrainStepMode(train_handler.TrainStepMode):
             reduction="sum",
             zero_infinity=True,
         )
+
+        # NOTE: TESTING regularization of first layer's in_proj
+        mhsa_module: ConformerMHSAQuantStreamable = model.conformer.module_list[0].mhsa
+        for param in mhsa_module.mhsa.in_proj.parameters():
+            ctc_loss += torch.norm(param, p=2)**2
 
         mode_str = mode.name.lower()[:3]
         loss_dict = {
