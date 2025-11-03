@@ -33,11 +33,27 @@ def sllm_ep(
     :type debug: Used to set up config for debugging in one GPU
     """
 
+    # GENERAL CONSTANTS
+
+    # Training
+    epochs = 100
+    partition_epoch_factor = 20
+    num_gpus = 4 # TODO: improve
+    partition_epochs = epochs * partition_epoch_factor / num_gpus
+
+    if debug:
+        partition_epochs = 1
+        num_gpus = 1
+
+    # Returnn
+    debug_returnn_param = True  # TODO: Make it depend on big debug?
+
     # INITIALIZE DATASET
+
     train_dataset_settings = DatasetSettings(
         preemphasis=None,
         peak_normalization=True,
-        train_partition_epoch=20,
+        train_partition_epoch=partition_epoch_factor,
         train_seq_ordering="laplace:.1000",
         train_additional_options={
             "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
@@ -50,39 +66,27 @@ def sllm_ep(
                                                                                       vocab_size,
                                                                                       sampling_alpha)
 
-
-    # GENERAL CONSTANTS
-    # Training # TODO: compute them from the 100 epochs (500*4/20 = 100)
-    train_partial_epochs = 500 if not debug else 1  # TODO: extract to a config file?
-
-    # Returnn
-    debug_returnn_param = True  # TODO: Make it depend on big debug?
-
-
     # NETWORK
-    encoder_alias = "v1"  # TODO: could be imported - extract as parameter of method
+    encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
     decoder_alias = "Qwen2-0_5B"
     model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
 
-
     # MODEL TRAINING
     training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}"
-    train_job = create_training_job(training_name, training_datasets,
+    train_job = create_training_job(training_name, training_datasets, num_gpus,
                                     NETWORK_MODULE, network_args,
-                                    TRAIN_STEP_MODULE, train_partial_epochs,
-                                    debug, debug_returnn_param,
+                                    TRAIN_STEP_MODULE, partition_epochs,
+                                    debug_returnn_param,
                                     returnn_root=RETURNN_ROOT)
-
 
     # MODEL EVALUATION/INFERENCE
     # Which evals to run
     if debug:
         run_test = run_best_4 = run_best = False
-        epochs_to_evaluate = [train_partial_epochs]
+        epochs_to_evaluate = [partition_epochs]
     else:
         run_best_4 = run_best = run_test = True
-        epochs_to_evaluate = default_returnn_keep_epochs(train_partial_epochs)
-
+        epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs)
 
     # Tune-Eval
     results = create_tune_and_evaluate_jobs(
@@ -137,7 +141,7 @@ def get_network_args_and_alias(encoder_alias: str, decoder_alias: str) -> tuple[
     encoder_config = copy.deepcopy(training_configs[encoder_alias])  # TODO: this should be perfected
 
     # Decoder Config
-    qwen2_decoder_config_job = Qwen2DecoderConfigJob(encoder_config["bos_idx"],
+    qwen2_decoder_config_job = Qwen2DecoderConfigJob(decoder_alias, encoder_config["bos_idx"],
                                                      encoder_config["eos_idx"], encoder_config["vocab_size"],
                                                      target_filename=f"config-{decoder_alias}-for-i6-spm.json")
     decoder_config = {"config_path": qwen2_decoder_config_job.out_file}

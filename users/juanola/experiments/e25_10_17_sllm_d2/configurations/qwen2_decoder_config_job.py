@@ -7,11 +7,12 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.q
 
 
 class Qwen2DecoderConfigJob(Job):
-    def __init__(self, bos:int, eos:int, vocab_size:int, target_filename: str):
+    def __init__(self, config_version:str, bos:int, eos:int, vocab_size:int, target_filename: str):
         """
         Modify qwen2decoder configuration.
 
         """
+        self.config_version = config_version
         self.bos = bos
         self.eos = eos
         self.vocab_size = vocab_size
@@ -25,12 +26,12 @@ class Qwen2DecoderConfigJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        config = copy.deepcopy(qwen2_configs)
+        config = copy.deepcopy(qwen2_configs[self.config_version])
 
         config["bos_token_id"] = self.bos
         config["eos_token_id"] = self.eos
         config["vocab_size"] = self.vocab_size
 
         with open(self.out_file, "w") as f:
-            json.dump(config, f)
+            json.dump(config, f, indent=4)
 

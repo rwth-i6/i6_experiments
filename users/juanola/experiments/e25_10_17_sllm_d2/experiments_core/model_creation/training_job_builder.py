@@ -15,6 +15,7 @@ from ...configurations import optimizer_configs, learning_rate_configs
 
 def create_training_job(training_name: str,
                         datasets: TrainingDatasets,
+                        num_gpus: int,
 
                         network_module: str,
                         network_args: Dict[str, Any],
@@ -22,24 +23,23 @@ def create_training_job(training_name: str,
                         train_step_module: str,
                         train_epochs: int,
 
-                        debug: bool,
                         debug_returnn_param: bool,
 
                         returnn_root: tk.Path) -> ReturnnTrainingJob:
     """
     :param training_name:
     :param datasets:
+    :param num_gpus:
     :param network_module:
     :param network_args:
     :param train_step_module:
     :param train_epochs:
-    :param debug:
     :param debug_returnn_param:
     :param returnn_root: Path to a checked out RETURNN repository
     """
     gpu_memory = 48 # TODO: should come from config file also...
 
-    train_args, training_rqmt = get_training_parameters(debug, debug_returnn_param, network_args, network_module,
+    train_args, training_rqmt = get_training_parameters(num_gpus, debug_returnn_param, network_args, network_module,
                                                         returnn_root, train_epochs, train_step_module)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
@@ -50,11 +50,10 @@ def create_training_job(training_name: str,
     return train_job
 
 
-def get_training_parameters(debug: bool, debug_returnn_param: bool, network_args: dict[str, Any], network_module: str,
+def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_args: dict[str, Any], network_module: str,
                             returnn_root: tk.Path, train_epochs: int, train_step_module: str) -> tuple[dict[
     str, Any], dict[str, Any]]:
     # Some values
-    num_gpus = 4 if not debug else 1  # TODO: important! link with gpu mem, i think they should be hand in hand
     batch_size_factor = 160
     batch_size = 15_000
 

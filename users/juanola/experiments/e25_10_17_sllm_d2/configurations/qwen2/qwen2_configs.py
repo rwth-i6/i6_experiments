@@ -1,6 +1,6 @@
 
 qwen2_configs = {
-    "0.5B" : {
+    "Qwen2-0_5B" : {
         "architectures": [
             "Qwen2ForCausalLM"
         ],
