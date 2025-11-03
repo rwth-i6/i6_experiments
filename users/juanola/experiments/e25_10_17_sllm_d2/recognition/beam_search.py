@@ -1,6 +1,5 @@
 __all__ = ["beam_search_v1"]
 
-from dataclasses import dataclass
 from functools import partial
 from typing import List, Sequence, Tuple, TypeVar
 
@@ -10,16 +9,6 @@ import tree
 from torch import Tensor
 
 from ..networks.interfaces.label_scorer_protocol import LabelScorerProtocol, State
-
-
-@dataclass
-class DecoderConfig:  # TODO: probably not needed with QWEN?
-    # search related options:
-    beam_size: int = 12
-
-    # additional search options
-    lm_weight: float = 0.0
-    ilm_weight: float = 0.0
 
 
 def _batch_gather(values: Tensor, *, indices: Tensor, batch_dim: int = 0, index_dim: int = 1) -> Tensor:
@@ -155,7 +144,8 @@ def beam_search_v1(
         # First step uses beam=1, since the start state is the same for all beams, and multiple
         # beams containing the same contents cause issues in top-k search.
         initial_beam = 1
-        target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32, device=device)  # [Batch, Beam]
+        target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32,
+                            device=device)  # [Batch, Beam]
         ended = torch.full([batch_size, initial_beam], False, device=device)  # [Batch, Beam]
         seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # [Batch, Beam]
         out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # [Batch, Beam]
@@ -172,13 +162,13 @@ def beam_search_v1(
             # DECODER (FORWARD) STEP (for inference)
             logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)
             print("****logits size", logits.size())
-            #print("****decoder_state-past_key_values size", decoder_state["past_key_values"].size())
-
+            # print("****decoder_state-past_key_values size", decoder_state["past_key_values"].size())
 
             label_log_prob = F.log_softmax(logits, dim=-1)  # [Batch, Beam, ?, Vocab]
             assert label_log_prob.shape[-2] == 1, f"time dim mismatch, is {label_log_prob.shape[-2]} but should be 1"
             label_log_prob = label_log_prob.squeeze(-2)
-            label_log_prob = torch.where(ended[:, :, None], ended_default[None, None, :], label_log_prob)  # filter out finished beams
+            label_log_prob = torch.where(ended[:, :, None], ended_default[None, None, :],
+                                         label_log_prob)  # filter out finished beams
 
             seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # Batch, Beam, Vocab
             assert seq_log_prob.ndim == 3

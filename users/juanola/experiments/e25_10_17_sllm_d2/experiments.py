@@ -5,7 +5,6 @@ from typing import Any
 from sisyphus import tk
 
 from i6_core.tools.download import DownloadJob
-from .configurations import optimizer_configs, learning_rate_configs
 from .configurations.training_configs import training_configs
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import DatasetSettings, build_test_dataset, TrainingDatasets
@@ -13,11 +12,11 @@ from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
 from .experiments_core.reporting.report import create_report_job, build_base_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
-from .recognition.beam_search import DecoderConfig
+from .recognition.decoder_config import DecoderConfig
 
 
 def sllm_ep(
-        prefix_name: str = "experiments/librispeech/sllm/ls960/baselines",
+        experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False):
     """
     Sisyphus entry point.
@@ -27,7 +26,7 @@ def sllm_ep(
     - Prepare model config and all needed for returnn
     - Indicate wanted outputs
 
-    :param prefix_name: Used for alias creation
+    :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
     """
     # INITIALIZE DATASET
@@ -42,82 +41,39 @@ def sllm_ep(
     )
     sampling_alpha = 0.7  # TODO: move somewhere else?!
     vocab_size = 10_240 # 151936 # TODO: TD - this should not be hardcoded ??? which value goes here, sentence piece has a max of 56367
-    train_data, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(prefix_name,
-                                                                               train_dataset_settings,
-                                                                               vocab_size,
-                                                                               sampling_alpha)
+    training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(experiment_path,
+                                                                                      train_dataset_settings,
+                                                                                      vocab_size,
+                                                                                      sampling_alpha)
 
-    # GENERAL TRAINING CONSTANTS
-    epochs = 500 if not debug else 1 # TODO: extract to a config file?
-    batch_size_factor = 160
-    batch_size = 15_000
-    num_gpus = 4 if not debug else 1 # TODO: important! link with gpu mem, i think they should be hand in hand
-    default_decoder_config = DecoderConfig()
 
-    network_module = "networks.conformer_qwen_v1"  # important! # TODO:  move outside the method. Maybe in a constants class or config file...
-    train_step_module = "training.train_step"  # important!
-    recognition_module = "recognition"  # important!
-
-    # MODEL CONFIG
-    # Encoder Config
-    encoder_alias = "v1"
-    encoder_config = copy.deepcopy(training_configs[encoder_alias])  # TODO: extract as parameter of method
-
-    # Decoder Config
-    decoder_alias = "Qwen2-0_5B"
-    download_config_job = DownloadJob("https://huggingface.co/Qwen/Qwen2-0.5B/resolve/main/config.json",
-                                      target_filename=f"config-{decoder_alias}.json")
-    decoder_config = {"config_path": download_config_job.out_file}
-
-    # Full Model
-    model_alias = f"{encoder_alias}-{decoder_alias}"
-    network_args = encoder_config | decoder_config
-
-    # MODEL TRAINING # TODO: move this inside create_training_job
-
+    # GENERAL CONSTANTS
+    train_epochs = 500 if not debug else 1 # TODO: extract to a config file?
     debug_returnn_param = True # TODO: Make it depend on big debug?
 
-    train_config = {
-        **optimizer_configs.v1,
-        **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
-            n_ep=epochs,
-        ),
-        "batch_size": batch_size * batch_size_factor,
-        "max_seq_length": {"raw_audio": 19.5 * network_args["sampling_rate"]},  # 19.5 seconds
-        "accum_grad_multiple_step": 1,
-        "gradient_clip_global_norm": 5.0,
-        "__num_gpus": num_gpus,
-        "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
-        "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    }
+    # MODULES
+    network_module = "networks.conformer_qwen_v1" # TODO:  move outside the method. Maybe in a constants class or config file...
+    train_step_module = "training.train_step"
+    recognition_package = "recognition"
 
-    train_args = {
-        "config": train_config,
+    # NETWORK
+    encoder_alias = "v1" # TODO: could be imported - extract as parameter of method
+    decoder_alias = "Qwen2-0_5B"
+    model_alias, network_args = get_network_args_and_alias(decoder_alias, encoder_alias)
 
-        "network_module": network_module,
-        "net_args": network_args,
-
-        "train_step_module": train_step_module,
-        "train_args": {  # TODO: could also be extracted in a file
-            "aed_loss_scale": 1.0,
-            "aux_loss_scales": (1.0, 1.0),
-            "label_smoothing": 0.1,
-            "label_smoothing_start_epoch": 0,
-        },
-
-        "debug": debug_returnn_param,
-        "use_speed_perturbation": True,
-    }
-
-    training_name = f"{prefix_name}/{network_module}/{model_alias}"
-
-    train_job = create_training_job(training_name, train_data, train_args, epochs, returnn_root=RETURNN_ROOT)
+    # MODEL TRAINING
+    training_name = f"{experiment_path}/{network_module}/{model_alias}"
+    train_job = create_training_job(training_name, training_datasets,
+                                    network_module, network_args,
+                                    train_step_module, train_epochs,
+                                    debug, debug_returnn_param,
+                                    returnn_root=RETURNN_ROOT)
 
     # MODEL EVALUATION/INFERENCE
     # Which evals to run
     if not debug:
         run_best_4 = run_best = run_test = True
-        epochs_to_evaluate = [epochs]
+        epochs_to_evaluate = [train_epochs]
     else:
         run_test = True
         run_best_4 = run_best = False
@@ -132,9 +88,9 @@ def sllm_ep(
         net_args=network_args,
         debug=debug_returnn_param,
 
-        train_data=train_data,
-        decoder_config=default_decoder_config,
-        decoder_module=recognition_module,
+        train_data=training_datasets,
+        decoder_config=DecoderConfig(),
+        decoder_module=recognition_package,
 
         test_dataset_tuples=test_dataset_tuples,
         dev_dataset_tuples=dev_dataset_tuples,
@@ -162,6 +118,23 @@ def sllm_ep(
     )
 
     return report
+
+
+def get_network_args_and_alias(decoder_alias: str, encoder_alias: str) -> tuple[
+    str, dict[str, Any]]:
+    # MODEL CONFIG
+    # Encoder Config
+
+    encoder_config = copy.deepcopy(training_configs[encoder_alias])
+    # Decoder Config
+
+    download_config_job = DownloadJob("https://huggingface.co/Qwen/Qwen2-0.5B/resolve/main/config.json",
+                                      target_filename=f"config-{decoder_alias}.json")
+    decoder_config = {"config_path": download_config_job.out_file}
+    # Full Model
+    model_alias = f"{encoder_alias}-{decoder_alias}"
+    network_args = encoder_config | decoder_config
+    return model_alias, network_args
 
 
 def create_datasets_jobs(prefix_name: str, train_settings: DatasetSettings, vocab_size: int, sampling_alpha: float) -> \

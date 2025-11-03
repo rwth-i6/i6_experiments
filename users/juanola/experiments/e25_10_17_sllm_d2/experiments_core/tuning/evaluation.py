@@ -13,7 +13,7 @@ from .forward_job_builder import search, compute_prior
 from ..data.dataset_commons import TrainingDatasets
 from ..model_creation.returnn_config_helpers import get_prior_config
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
-from ...recognition.beam_search import DecoderConfig
+from ...recognition.decoder_config import DecoderConfig
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -124,8 +124,9 @@ def prepare_asr_model(
     """
     :param checkpoint_name:
     :param checkpoint:
-    :param train_args: same args as for training
-    :param with_prior: If prior should be used (yes for CTC, no for RNN-T)
+    :param network_module:
+    :param net_args:
+    :param prior_args:
     :param datasets: Needed if with_prior == True
     :param prior_config: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
     :return:
