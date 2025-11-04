@@ -90,6 +90,7 @@ def py():
         (1, 40, 15, 50_000),
         (1, 100, 15, 50_000),
         (1, 1000, 15, 25_000),
+        (1, 5000, 15, 25_000),
     ]:
         train(
             f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}",
