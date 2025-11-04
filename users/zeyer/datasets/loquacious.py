@@ -45,8 +45,10 @@ def py():
     for name in ["small", "medium", "large"]:
         for q in [3, 4]:
             get_loquacious_hf_ogg(name, quality=q)
-    get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3")
-    get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "dev", take_n=5_000, alias_name="dev_q3")
+    get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3_bug")
+    get_hf_random_sorted_subset(get_loquacious_hf_ogg("large"), "dev", take_n=5_000, alias_name="dev_q3_bug")
+    get_hf_random_sorted_subset_v2(get_loquacious_hf_ogg("large"), "train", take_n=5_000, alias_name="train_large_q3")
+    get_hf_random_sorted_subset_v2(get_loquacious_hf_ogg("large"), "dev", take_n=5_000, alias_name="dev_q3")
     get_train_corpus_text()
     get_hf_text_only()
     get_train_corpus_text("medium")
@@ -88,6 +90,8 @@ def get_hf_random_sorted_subset(
     Take some HF dataset path (e.g. via :func:`get_loquacious_hf_ogg`),
     shuffle it, take N seqs, and sort it by (reversed) duration,
     and store it as new HF dataset.
+
+    WARNING: There is a bug in the random sampling. Use V2.
     """
     assert split in ("train", "dev", "test")
     job = TransformAndMapHuggingFaceDatasetJob(
@@ -95,6 +99,40 @@ def get_hf_random_sorted_subset(
         load_dataset_opts={"split": split},
         transform=partial(
             _hf_dataset_transform_random_sorted_subset,
+            take_n=take_n,
+            duration_key=duration_key,
+            random_seed=random_seed,
+        ),
+    )
+    if alias_name:
+        job.add_alias(f"{_alias_prefix}dataset_hf_{alias_name}_random_sorted_subset_n{take_n}")
+        tk.register_output(f"{_alias_prefix}dataset_hf_{alias_name}_random_sorted_subset_n{take_n}", job.out_dir)
+    return job.out_dir
+
+
+@cache
+def get_hf_random_sorted_subset_v2(
+    path: Path,
+    split: str,
+    *,
+    take_n: int,
+    duration_key: str = "duration",
+    random_seed: int = 42,
+    alias_name: Optional[str] = None,
+) -> Path:
+    """
+    Take some HF dataset path (e.g. via :func:`get_loquacious_hf_ogg`),
+    shuffle it, take N seqs, and sort it by (reversed) duration,
+    and store it as new HF dataset.
+
+    V2: fixed random subset
+    """
+    assert split in ("train", "dev", "test")
+    job = TransformAndMapHuggingFaceDatasetJob(
+        path,
+        load_dataset_opts={"split": split},
+        transform=partial(
+            _hf_dataset_transform_random_sorted_subset_v2,
             take_n=take_n,
             duration_key=duration_key,
             random_seed=random_seed,
@@ -114,7 +152,24 @@ def _hf_dataset_transform_random_sorted_subset(
     assert isinstance(ds, datasets.Dataset), f"expected datasets.Dataset, got {type(ds)} {ds}"
     # like ds.shuffle(...).take(...) but faster and more direct
     generator = np.random.default_rng(random_seed)
-    permutation = generator.permutation(take_n)
+    permutation = generator.permutation(take_n)  # WARNING: BUG
+    ds = ds.select(permutation)
+    ds = ds.sort(duration_key, reverse=True)
+    return ds
+
+
+def _hf_dataset_transform_random_sorted_subset_v2(
+    ds: datasets.Dataset, *, take_n: int, duration_key: str = "duration", random_seed: int = 42
+) -> datasets.Dataset:
+    """
+    v2: fixed the random sampling
+    """
+    import datasets
+
+    assert isinstance(ds, datasets.Dataset), f"expected datasets.Dataset, got {type(ds)} {ds}"
+    # like ds.shuffle(...).take(...) but faster and more direct
+    generator = np.random.default_rng(random_seed)
+    permutation = generator.choice(len(ds), size=take_n, replace=False)
     ds = ds.select(permutation)
     ds = ds.sort(duration_key, reverse=True)
     return ds
@@ -352,6 +407,65 @@ def get_loquacious_task_raw_v2(
 
 
 @cache
+def get_loquacious_task_raw_v3(
+    *,
+    vocab: str,
+    subset_name: str = "large",
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+    train_seq_ordering: str = "laplace:.1000",
+    multi_proc: int = 2,
+    train_epoch_split: int = 25,  # so one subepoch is approx 1000h
+) -> Task:
+    """
+    v3: fixed subsets of dev and devtrain (see _hf_dataset_transform_random_sorted_subset_v2)
+    """
+    vocab: VocabConfig = get_vocab_by_str(vocab)
+
+    # See :func:`search_dataset`.
+    # We first optionally do :func:`ctc_alignment_to_label_seq` if ``recog_def.output_blank_label`` is set.
+    # (SearchCollapseRepeatedLabelsJob, SearchRemoveLabelJob).
+    # Then ``recog_post_proc_funcs`` are applied.
+    # Then SearchTakeBestJob.
+    # Then, for Sclite scoring, there is SearchWordsDummyTimesToCTMJob.
+    if isinstance(vocab, SentencePieceModel):
+        recog_post_proc_funcs = [_spm_to_words]
+    else:
+        raise TypeError(f"unhandled vocab type {type(vocab)}")
+
+    hf_data_dir = get_loquacious_hf_ogg(name=subset_name)
+
+    train_vocab = vocab.copy(**train_vocab_opts) if train_vocab_opts else None
+    train_dataset = _make_hf_dataset_train_v3(
+        hf_data_dir=hf_data_dir,
+        vocab=vocab,
+        train_vocab=train_vocab,
+        train_epoch_split=train_epoch_split,
+        train_seq_ordering=train_seq_ordering,
+        multi_proc=multi_proc,
+    )
+    eval_datasets = {
+        "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
+        **{k: _make_hf_dataset(hf_data_dir=hf_data_dir, split=k, vocab=vocab) for k in DevSplits},
+        "test": _make_hf_dataset(hf_data_dir=hf_data_dir, split="test", vocab=vocab),
+        **{k: _make_hf_dataset(hf_data_dir=hf_data_dir, split=k, vocab=vocab) for k in TestSplits},
+    }
+    dev_dataset = eval_datasets["dev"]
+
+    task = Task(
+        name="loquacious",
+        train_dataset=train_dataset,
+        train_epoch_split=train_epoch_split,
+        dev_dataset=dev_dataset,
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="WER%"),
+        main_measure_name="dev",
+        score_recog_output_func=partial(generic_sclite_score_recog_out, post_proc_funcs=recog_post_proc_funcs),
+        recog_post_proc_funcs=recog_post_proc_funcs,
+    )
+    return task
+
+
+@cache
 def get_loquacious_train_subset_dataset(
     *, vocab: str, num_seqs: int = 100_000, multi_proc: int = 2
 ) -> DatasetConfigStatic:
@@ -364,6 +478,24 @@ def get_loquacious_train_subset_dataset(
         split="train",
         vocab=vocab_,
         take_random_sorted_subset=num_seqs,
+        multi_proc_dataset=multi_proc_dataset,
+    )
+
+
+@cache
+def get_loquacious_train_subset_dataset_v2(
+    *, vocab: str, num_seqs: int = 100_000, multi_proc: int = 2
+) -> DatasetConfigStatic:
+    hf_data_dir = get_loquacious_hf_ogg(name="large")
+    multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
+    vocab_: VocabConfig = get_vocab_by_str(vocab)
+
+    return _make_hf_dataset(
+        hf_data_dir=hf_data_dir,
+        split="train",
+        vocab=vocab_,
+        take_random_sorted_subset=num_seqs,
+        take_random_sorted_subset_version=2,
         multi_proc_dataset=multi_proc_dataset,
     )
 
@@ -454,6 +586,55 @@ def _make_hf_dataset_train_v2(
     )
 
 
+def _make_hf_dataset_train_v3(
+    *,
+    hf_data_dir: Path,
+    vocab: VocabConfig,
+    train_vocab: Optional[VocabConfig] = None,
+    train_epoch_split: Optional[int] = None,
+    train_seq_ordering: str,
+    multi_proc: int = 2,
+    # dev has 7759. take 5000 just for a nicer number.
+    eval_take_random_sorted_subset: int = 5000,
+) -> DatasetConfigStatic:
+    multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
+
+    train_ds = _make_hf_dataset(
+        hf_data_dir=hf_data_dir,
+        split="train",
+        use_distrib_files=True,
+        vocab=train_vocab or vocab,
+        partition_epoch=train_epoch_split,
+        seq_ordering=train_seq_ordering,
+        multi_proc_dataset=multi_proc_dataset,
+    )
+    return DatasetConfigStatic(
+        extern_data=train_ds.extern_data,
+        default_input=train_ds.default_input,
+        default_target=train_ds.default_target,
+        train_dataset=train_ds.main_dataset,
+        eval_datasets={
+            "dev": _make_hf_dataset(
+                hf_data_dir=hf_data_dir,
+                split="dev",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                take_random_sorted_subset_version=2,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+            "devtrain": _make_hf_dataset(
+                hf_data_dir=hf_data_dir,
+                split="train",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                take_random_sorted_subset_version=2,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+        },
+        use_deep_copy=True,
+    )
+
+
 def _make_hf_dataset(
     *,
     hf_data_dir: Path,
@@ -464,6 +645,7 @@ def _make_hf_dataset(
     use_distrib_files: bool = False,
     take_first_shard_subset: bool = False,
     take_random_sorted_subset: Optional[int] = None,
+    take_random_sorted_subset_version: int = 1,
     multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> DatasetConfigStatic:
     vocab_opts = vocab.get_opts()
@@ -478,7 +660,9 @@ def _make_hf_dataset(
     }
     if take_random_sorted_subset:
         assert not take_first_shard_subset
-        hf_ds_opts = get_hf_random_sorted_subset(path=hf_data_dir, split=split, take_n=take_random_sorted_subset)
+        hf_ds_opts = {1: get_hf_random_sorted_subset, 2: get_hf_random_sorted_subset_v2}[
+            take_random_sorted_subset_version
+        ](path=hf_data_dir, split=split, take_n=take_random_sorted_subset)
         if seq_ordering == "sorted_reverse":
             seq_ordering = "default"
     else:
@@ -594,6 +778,56 @@ def get_loquacious_text_only_dataset(
     )
 
 
+def get_loquacious_text_only_dataset_v2(
+    *,
+    vocab: str,
+    train_epoch_split: Optional[int] = 10,
+    train_seq_ordering: str = "laplace:.1000",
+    multi_proc: int = 2,
+    # dev has 7759. take 5000 just for a nicer number.
+    eval_take_random_sorted_subset: int = 5000,
+) -> DatasetConfigStatic:
+    vocab: VocabConfig = get_vocab_by_str(vocab)
+    hf_data_dir = get_hf_text_only()
+    multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
+
+    train_ds = _make_hf_dataset_text_only(
+        hf_data_dir=hf_data_dir,
+        split="train",
+        # Don't use_distrib_files, we only have 5 shard files, but we might want partition epoch 25.
+        # use_distrib_files=True,
+        vocab=vocab,
+        partition_epoch=train_epoch_split,
+        seq_ordering=train_seq_ordering,
+        multi_proc_dataset=multi_proc_dataset,
+    )
+    return DatasetConfigStatic(
+        extern_data=train_ds.extern_data,
+        default_input=train_ds.default_input,
+        default_target=train_ds.default_target,
+        train_dataset=train_ds.main_dataset,
+        eval_datasets={
+            "dev": _make_hf_dataset_text_only(
+                hf_data_dir=hf_data_dir,
+                split="dev",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                take_random_sorted_subset_version=2,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+            "devtrain": _make_hf_dataset_text_only(
+                hf_data_dir=hf_data_dir,
+                split="train",
+                vocab=vocab,
+                take_random_sorted_subset=eval_take_random_sorted_subset,
+                take_random_sorted_subset_version=2,
+                multi_proc_dataset=multi_proc_dataset,
+            ).main_dataset,
+        },
+        use_deep_copy=True,
+    )
+
+
 def _make_hf_dataset_text_only(
     *,
     hf_data_dir: Path,
@@ -603,6 +837,7 @@ def _make_hf_dataset_text_only(
     partition_epoch: Optional[int] = None,
     use_distrib_files: bool = False,
     take_random_sorted_subset: Optional[int] = None,
+    take_random_sorted_subset_version: int = 1,
     multi_proc_dataset: Optional[Dict[str, Any]] = None,
 ) -> DatasetConfigStatic:
     vocab_opts = vocab.get_opts()
@@ -615,7 +850,9 @@ def _make_hf_dataset_text_only(
         },
     }
     if take_random_sorted_subset:
-        hf_ds_opts = get_hf_random_sorted_subset(path=hf_data_dir, split=split, take_n=take_random_sorted_subset)
+        hf_ds_opts = {1: get_hf_random_sorted_subset, 2: get_hf_random_sorted_subset_v2}[
+            take_random_sorted_subset_version
+        ](path=hf_data_dir, split=split, take_n=take_random_sorted_subset)
         if seq_ordering == "sorted_reverse":
             seq_ordering = "default"
     else:
