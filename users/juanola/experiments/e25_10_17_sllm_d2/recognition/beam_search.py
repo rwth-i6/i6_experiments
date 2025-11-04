@@ -118,6 +118,7 @@ def beam_search_v1(
         decoder_state: State,
 
         beam_size: int,
+        initial_beam_size: int,
         batch_size: int,
         device: torch.device,
         max_seq_len: Tensor,
@@ -143,12 +144,11 @@ def beam_search_v1(
 
         # First step uses beam=1, since the start state is the same for all beams, and multiple
         # beams containing the same contents cause issues in top-k search.
-        initial_beam = beam_size
-        target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32,
+        target = torch.full([batch_size, initial_beam_size], model.bos_idx, dtype=torch.int32,
                             device=device)  # [Batch, Beam]
-        ended = torch.full([batch_size, initial_beam], False, device=device)  # [Batch, Beam]
-        seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # [Batch, Beam]
-        out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # [Batch, Beam]
+        ended = torch.full([batch_size, initial_beam_size], False, device=device)  # [Batch, Beam]
+        seq_log_prob = torch.full([batch_size, initial_beam_size], 0.0, dtype=torch.float32, device=device)  # [Batch, Beam]
+        out_seq_len = torch.full([batch_size, initial_beam_size], 0, dtype=torch.int32, device=device)  # [Batch, Beam]
 
         ended_default = F.one_hot(torch.tensor(model.eos_idx, device=device), num_classes=model.num_labels)
         ended_default = torch.where(ended_default.bool(), 0.0, -1e30)

@@ -36,10 +36,10 @@ def sllm_ep(
     # GENERAL CONSTANTS
 
     # Training
-    epochs = 100
-    partition_epoch_factor = 20
-    num_gpus = 4 # TODO: improve
-    partition_epochs = epochs * partition_epoch_factor / num_gpus
+    epochs: int = 100
+    partition_epoch_factor: int = 20
+    num_gpus: int = 4 # TODO: improve
+    partition_epochs: int = int(epochs * partition_epoch_factor / num_gpus)
 
     if debug:
         partition_epochs = 1
@@ -68,7 +68,7 @@ def sllm_ep(
 
     # NETWORK
     encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
-    decoder_alias = "Qwen2-0_5B"
+    decoder_alias = "Qwen2-0_5B" # TODO: could be imported - use enums perhaps
     model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
 
     # MODEL TRAINING

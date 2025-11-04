@@ -49,6 +49,7 @@ def forward_step(
         model=model,
         decoder_state=decoder_state,
         beam_size=beam_size,
+        initial_beam_size=initial_beam_size,
         batch_size=data.shape[0],
         device=data.device,
         max_seq_len=max_seq_len,
