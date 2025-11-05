@@ -1653,6 +1653,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
             out_prior_type="log_prob",
         ).out_prior
         tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
+        labelwise_prior = Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file)
 
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
