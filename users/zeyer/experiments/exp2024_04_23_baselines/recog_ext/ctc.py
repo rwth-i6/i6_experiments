@@ -248,18 +248,10 @@ def model_recog_with_recomb(
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-
-    # Eager-mode implementation of beam search.
-    # Initial state.
-    beam_dim = Dim(1, name="initial-beam")
-    batch_dims_ = [beam_dim] + batch_dims
-    neg_inf = float("-inf")
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
-
     # The label log probs include the AM and the (scaled) prior.
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
+
     if ctc_soft_collapse_threshold is not None:
         label_log_prob, enc_spatial_dim = soft_collapse_repeated(
             label_log_prob,
@@ -268,6 +260,14 @@ def model_recog_with_recomb(
             threshold=ctc_soft_collapse_threshold,
             reduce_type=ctc_soft_collapse_reduce_type,
         )
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    neg_inf = float("-inf")
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
