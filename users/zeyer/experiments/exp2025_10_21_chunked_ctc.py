@@ -89,9 +89,13 @@ def py():
         (1, 20, 15, 50_000),
         (1, 40, 15, 50_000),
         (1, 100, 15, 50_000),
-        (1, 1000, 15, 15_000),
-        (1, 5000, 15, 25_000),
+        (1, 1000, 15, (50_000, 35)),
+        (1, 5000, 15, (50_000, 7)),
     ]:
+        if isinstance(bs, tuple):
+            bs, max_seqs = bs
+        else:
+            max_seqs = 200
         train(
             f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}",
             {
@@ -104,6 +108,7 @@ def py():
                     end_chunk_size_dim=center_size,
                 ),
                 "train.batch_size": bs * configs._batch_size_factor,
+                "train.max_seqs": max_seqs,
             },
         )
 
