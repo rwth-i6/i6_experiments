@@ -107,6 +107,8 @@ def py():
             },
         )
 
+    # TODO rope instead of relpos selfatt
+
 
 _base_config = {
     # ("large", 100),  # 100kh in total, 4 full epochs
