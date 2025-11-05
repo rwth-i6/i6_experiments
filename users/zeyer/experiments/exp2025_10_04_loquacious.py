@@ -427,7 +427,7 @@ def py():
 
         if subset == "large" and total_k_hours == 200:
             ctc_recog_recomb_labelwise_prior_auto_scale(
-                prefix=f"{prefix}/aed/{name}/ctc+lm/{selected_lm[0]}",
+                prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{selected_lm[0]}",
                 task=task_spm10k,
                 ctc_model=am,
                 extra_config={"aux_loss_layers": [16]},
