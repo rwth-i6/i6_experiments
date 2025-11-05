@@ -131,7 +131,9 @@ _base_config = {
     "train_post": dict_update_deep(
         configs.post_config, {"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}}
     ),
+    # TODO there is a bug, these are not used...
     "train_vocab_opts": {"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    # TODO there is a bug, these are not used...
     "dataset_train_opts": {"train_epoch_split": 1, "train_epoch_wise_filter": None},
     "env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
 }
