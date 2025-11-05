@@ -32,6 +32,9 @@ from i6_experiments.users.zeyer.decoding.perplexity import (
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 from i6_experiments.users.zeyer.recog import recog_model
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+    ctc_recog_recomb_labelwise_prior_auto_scale,
+)
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_torchaudio_ngram import (
     ctc_recog_ngram_lm_framewise_prior_auto_scale,
     model_recog_torchaudio,
@@ -44,6 +47,7 @@ from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw_v2,
     get_loquacious_text_only_dataset,
     get_loquacious_train_subset_dataset,
+    get_loquacious_train_subset_dataset_v2,
 )
 
 import returnn.frontend as rf
@@ -411,6 +415,7 @@ def py():
     for subset, total_k_hours in ams:
         name, am = ams[(subset, total_k_hours)]
 
+        # TODO this is not good, this is missing the prior
         aed_ctc_lm_timesync_recog_recomb_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm/{selected_lm[0]}",
             task=task_spm10k,
@@ -419,6 +424,16 @@ def py():
             aux_ctc_layer=16,
             lm=selected_lm[1],
         )
+
+        if subset == "large" and total_k_hours == 200:
+            ctc_recog_recomb_labelwise_prior_auto_scale(
+                prefix=f"{prefix}/aed/{name}/ctc+lm/{selected_lm[0]}",
+                task=task_spm10k,
+                ctc_model=am,
+                extra_config={"aux_loss_layers": [16]},
+                lm=selected_lm[1],
+                prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
+            )
 
         if subset == "small" and total_k_hours == 25:
             ctc_recog_ngram_lm_framewise_prior_auto_scale(

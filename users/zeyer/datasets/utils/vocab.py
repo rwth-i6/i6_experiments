@@ -11,8 +11,13 @@ from i6_core import util
 from i6_experiments.users.zeyer.datasets.task import Task as DatasetsTask
 
 
-def get_vocab_w_blank_file_from_task(task: DatasetsTask, *, blank_label: str, blank_idx: int) -> tk.Path:
+def get_vocab_file_from_task(task: DatasetsTask) -> tk.Path:
     vocab_file = ExtractVocabLabelsJob(get_vocab_opts_from_task(task)).out_vocab
+    return vocab_file
+
+
+def get_vocab_w_blank_file_from_task(task: DatasetsTask, *, blank_label: str, blank_idx: int) -> tk.Path:
+    vocab_file = get_vocab_file_from_task(task)
     vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
         vocab=vocab_file, new_label=blank_label, new_label_idx=blank_idx
     ).out_vocab
@@ -24,6 +29,12 @@ def get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
     extern_data_dict = dataset.get_extern_data()
     target_dict = extern_data_dict[dataset.get_default_target()]
     return target_dict["vocab"]
+
+
+def get_vocab_opts_file_from_task(task: DatasetsTask) -> tk.Path:
+    vocab_opts = get_vocab_opts_from_task(task)
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_opts).out_vocab_special_labels_dict
+    return vocab_opts_file
 
 
 def get_vocab_opts_from_dataset_dict(dataset_dict: Dict[str, Any], data_key: str = "classes") -> Dict[str, Any]:

@@ -1587,15 +1587,17 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     prefix: str,
     task: Task,
     ctc_model: ModelWithCheckpoint,
-    labelwise_prior: Prior,
+    labelwise_prior: Optional[Prior] = None,
+    prior_dataset: Optional[DatasetConfig] = None,
     lm: ModelWithCheckpoint,
-    vocab_file: tk.Path,
-    vocab_opts_file: tk.Path,
-    n_best_list_size: int,
-    first_pass_recog_beam_size: int,
+    vocab_file: Optional[tk.Path] = None,
+    vocab_opts_file: Optional[tk.Path] = None,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     recomb_type: str = "max",
     extra_config: Optional[Dict[str, Any]] = None,
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
@@ -1611,6 +1613,46 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     )
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from .recog_ext.ctc import model_recog_with_recomb
+    from .ctc import _ctc_model_def_blank_idx
+
+    if vocab_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
+
+        vocab_file = get_vocab_file_from_task(task)
+
+    if vocab_opts_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_opts_file_from_task
+
+        vocab_opts_file = get_vocab_opts_file_from_task(task)
+
+    if labelwise_prior is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import ExtendVocabLabelsByNewLabelJob
+        from i6_experiments.users.zeyer.decoding.prior_rescoring import PriorRemoveLabelRenormJob
+
+        prior = get_ctc_prior_probs(
+            ctc_model,
+            prior_dataset or task.train_dataset.copy_train_as_static(),
+            config={
+                "behavior_version": 24,
+                "batch_size": 200_000 * _batch_size_factor,
+                "max_seqs": 2000,
+                **(extra_config or {}),
+            },
+        )
+        prior.creator.add_alias(f"{prefix}/prior")
+        tk.register_output(f"{prefix}/prior.txt", prior)
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+        ).out_vocab
+        tk.register_output(f"{prefix}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+        log_prior_wo_blank = PriorRemoveLabelRenormJob(
+            prior_file=prior,
+            prior_type="prob",
+            vocab=vocab_w_blank_file,
+            remove_label=model_recog.output_blank_label,
+            out_prior_type="log_prob",
+        ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
@@ -1620,6 +1662,13 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
+    if ctc_soft_collapse_threshold is not None:
+        base_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
+        )
 
     # see recog_model, lm_labelwise_prior_rescore
     dataset = task.dev_dataset

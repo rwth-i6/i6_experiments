@@ -2110,7 +2110,7 @@ def recog_ext_with_lm(
     ctc_model_name: str,
     ctc_model: Optional[ModelWithCheckpoint] = None,
     lm_name: str,
-    ctc_soft_collapse_threshold: float = 0.8,
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
 ):
     from .ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -2160,12 +2160,6 @@ def recog_ext_with_lm(
     extra_config = {}
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
-        extra_config.update(
-            {
-                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
-                "ctc_soft_collapse_reduce_type": "max_renorm",
-            }
-        )
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
         task=task,
@@ -2177,6 +2171,7 @@ def recog_ext_with_lm(
         n_best_list_size=64,
         first_pass_recog_beam_size=64,
         extra_config=extra_config,
+        ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
     )
 
 
@@ -2325,12 +2320,6 @@ def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
         extra_config = {}
         if sct is not None:
             name_postfix += f"-sct{sct}"
-            extra_config.update(
-                {
-                    "ctc_soft_collapse_threshold": sct,
-                    "ctc_soft_collapse_reduce_type": "max_renorm",
-                }
-            )
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
             task=task,
@@ -2342,6 +2331,7 @@ def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
             n_best_list_size=64,
             first_pass_recog_beam_size=64,
             extra_config=extra_config,
+            ctc_soft_collapse_threshold=sct,
         )
 
     for sct, smp_top_p, smp_mnp in [
