@@ -415,25 +415,24 @@ def py():
     for subset, total_k_hours in ams:
         name, am = ams[(subset, total_k_hours)]
 
-        # TODO this is not good, this is missing the prior
-        aed_ctc_lm_timesync_recog_recomb_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm/{selected_lm[0]}",
-            task=task_spm10k,
-            aed_ctc_model=am,
-            aed_scale=0.0,
-            aux_ctc_layer=16,
-            lm=selected_lm[1],
-        )
+        # NOTE: this is not good, this is missing the prior
+        # aed_ctc_lm_timesync_recog_recomb_auto_scale(
+        #     prefix=f"{prefix}/aed/{name}/ctc+lm/{selected_lm[0]}",
+        #     task=task_spm10k,
+        #     aed_ctc_model=am,
+        #     aed_scale=0.0,
+        #     aux_ctc_layer=16,
+        #     lm=selected_lm[1],
+        # )
 
-        if subset == "large" and total_k_hours == 200:
-            ctc_recog_recomb_labelwise_prior_auto_scale(
-                prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{selected_lm[0]}",
-                task=task_spm10k,
-                ctc_model=am,
-                extra_config={"aux_loss_layers": [16]},
-                lm=selected_lm[1],
-                prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
-            )
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{selected_lm[0]}",
+            task=task_spm10k,
+            ctc_model=am,
+            extra_config={"aux_loss_layers": [16]},
+            lm=selected_lm[1],
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
+        )
 
         if subset == "small" and total_k_hours == 25:
             ctc_recog_ngram_lm_framewise_prior_auto_scale(
