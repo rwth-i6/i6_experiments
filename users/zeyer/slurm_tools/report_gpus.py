@@ -93,11 +93,15 @@ def parse_tres(tres_str: str) -> Dict[str, int]:
 
 def parse_scontrol_show_node() -> Dict[str, Dict[str, str]]:
     nodes_res = {}
-    out_lines = check_output(["scontrol", "-o", "show", "node"]).decode("utf-8").splitlines()
+    args = ["scontrol", "-o", "show", "node"]
+    out_lines = check_output(args).decode("utf-8").splitlines()
     # example out, with "-o" one line per node::
     # NodeName=n23g0007 CoresPerSocket=48  CPUAlloc=0 CPUEfctv=96 CPUTot=96 ...
     # ... CfgTRES=cpu=96,mem=499800M,billing=96,gres/gpu=4,gres/gpu:hopper=4 ...
     # ... Reason=Not responding [slurmadm@2024-12-05T16:14:59] Comment=BadPerformance. Testing.
+    # Also possible (note the "=" in Reason value):
+    # ... Reason=Ueberhitzung! CPU: 42 <= 92_CPULIMIT GPU: 83 > 82_GPULIMIT; NEC-Ticket #4942 [root@2025-11-05T12:26:23]
+    # ... Comment=RMA; NEC-Ticket #3615
     # Without "-o", full node example:
     # NodeName=n23g0002 Arch=x86_64 CoresPerSocket=12
     #    CPUAlloc=47 CPUEfctv=96 CPUTot=96 CPULoad=127.44
@@ -138,9 +142,9 @@ def parse_scontrol_show_node() -> Dict[str, Dict[str, str]]:
     for line in out_lines:
         node_res = {}
         # Parse the whole line
-        for part in re.split(" +(?=\\S+=)", line):
+        for part in re.split(" +(?=[A-Za-z_]+=)", line):
             m = re.match("^([A-Za-z_]+)=(.*)$", part)
-            assert m, f"Failed to match part: {part}"
+            assert m, f"Cmd: {' '.join(args)}\nFailed to match part: {part}\nline: {line}"
             key, value = m.groups()
             node_res[key] = value
         node_name = node_res["NodeName"]
