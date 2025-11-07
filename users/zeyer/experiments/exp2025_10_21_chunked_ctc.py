@@ -66,6 +66,10 @@ def py():
     downsampling = 6
 
     for left_n, center_size, right_size, bs in [
+        # fixing left chunk size to 80
+        (4, 20, 15, 50_000),
+        (8, 10, 8, 50_000),
+        (16, 5, 4, 50_000),
         # fixing total chunk size to 35, fixing left ctx to 40, varying center/right
         (8, 5, 30, 20_000),
         (4, 10, 25, 25_000),
