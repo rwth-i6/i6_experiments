@@ -250,16 +250,15 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
             [i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]]
         ),
     )
-    if name == "chunked-L80-C20-R15":  # TODO remove this check, do for all
-        lm_name, lm = get_lm(prefix=prefix, vocab=vocab)
-        ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
-            task=task,
-            ctc_model=exp.get_last_fixed_epoch(),
-            extra_config={"aux_loss_layers": [16]},
-            lm=lm,
-            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
-        )
+    lm_name, lm = get_lm(prefix=prefix, vocab=vocab)
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
+        task=task,
+        ctc_model=exp.get_last_fixed_epoch(),
+        extra_config={"aux_loss_layers": [16]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
+    )
 
 
 @cache
