@@ -255,7 +255,11 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
         prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
         task=task,
         ctc_model=exp.get_last_fixed_epoch(),
-        extra_config={"aux_loss_layers": [16]},
+        extra_config={
+            "aux_loss_layers": [
+                max([i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]])
+            ]
+        },
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
     )
