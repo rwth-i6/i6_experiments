@@ -7,7 +7,7 @@ from returnn.tensor import Dim, TensorDict, batch_dim
 from returnn.tensor import Tensor as ReturnnTensor
 from torch import Tensor
 
-from .beam_search import beam_search_v1
+from .beam_search import beam_search_decode
 from ..networks.conformer_qwen_v1 import Qwen2DecoderState
 from ..networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 
@@ -26,30 +26,23 @@ def forward_step(
     """
     Runs full recognition on the given data.
 
-    RETURNN ENTRYPOINT!!
+    RETURNN ENTRYPOINT (for search/inference)!!
     """
     assert beam_size > 0
-
-    initial_beam_size = beam_size
 
     data_: ReturnnTensor = extern_data["data"]
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
-
-    max_seq_len = seq_len
-    if max_tokens_per_sec is not None and sample_rate is not None:
-        assert max_tokens_per_sec > 0 and sample_rate > 0
-        max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
+    max_seq_len = define_maximum_sequence_length(max_tokens_per_sec, sample_rate, seq_len)
 
     # ENCODER (FORWARD) STEP (for inference)
-    decoder_state: Qwen2DecoderState = model.forward_encoder(data, seq_len, initial_beam_size)
+    decoder_state: Qwen2DecoderState = model.forward_encoder(data, seq_len, beam_size) # Initial beam size is beam_size
 
-    # BEAM SEARCH (contains DECODER (FORWARD) STEPs)
-    seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1( # TODO: should receive init_size by param
+    # BEAM SEARCH DECODING (contains DECODER (FORWARD) STEPs)
+    seq_targets, seq_log_prob, _, out_seq_len = beam_search_decode(
         model=model,
         decoder_state=decoder_state,
         beam_size=beam_size,
-        initial_beam_size=initial_beam_size,
         batch_size=data.shape[0],
         device=data.device,
         max_seq_len=max_seq_len,
@@ -65,3 +58,11 @@ def forward_step(
     ctx = rf.get_run_ctx()
     ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
     ctx.mark_as_output(seq_log_prob, "scores", dims=[batch_dim, beam_dim])
+
+
+def define_maximum_sequence_length(max_tokens_per_sec: int | None, sample_rate: int | None, seq_len: Tensor) -> Tensor:
+    max_seq_len = seq_len
+    if max_tokens_per_sec is not None and sample_rate is not None:
+        assert max_tokens_per_sec > 0 and sample_rate > 0
+        max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
+    return max_seq_len
