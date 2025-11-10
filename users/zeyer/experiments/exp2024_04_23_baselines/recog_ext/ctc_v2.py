@@ -290,19 +290,6 @@ def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
 
 
 def _same_seq_labels(seq: Tensor, *, spatial_dim: Dim, beam_dim: Dim) -> Tuple[Tensor, Dim]:
-    # beams: "aa", "a0", seq lens 2, 1.
-    # same Beam,BeamDual,Spatial: [[[1,1],[1,0]],[[1,0],[1,1]]]
-    # same masked Beam,BeamDual,Spatial: [[[1,1],[1,0]],[[1,1],[1,1]]]
-    # same reduce Beam,BeamDual: [[1,0],[1,1]]
-    # beams: "aa", "ab", "a0", seq lens 2,2,1
-    # same Beam,BeamDual,Spatial: [[[1,1],[1,0],[1,0]],[[1,0],[1,1],[1,0]],[[1,0],[1,0],[1,1]]]
-    # same masked Beam,BeamDual,Spatial: [[[1,1],[1,0],[1,0]],[[1,0],[1,1],[1,0]],[[1,1],[1,1],[1,1]]]
-    # same reduce Beam,BeamDual: [[1,0,0],[0,1,0],[1,1,1]]
-    # same seq lens Beam,BeamDual: [[1,1,0],[1,1,0],[0,0,1]]
-    # same reduce and same seq lens Beam,BeamDual: [[1,0,0],[0,1,0],[0,0,1]]
-    # beams: "aa", "ab", seq lens 1,1
-    # same Beam,BeamDual,Spatial: [[[1,1],[1,0]],[[1,0],[1,1]]]
-    # same masked Beam,BeamDual,Spatial: [[[1,1],[1,1]],[[1,1],[1,1]]]
     seq_label_dual, beam_dual_dim = rf.replace_dim(seq, in_dim=beam_dim)
     same_seq_labels = rf.compare_bc(seq, "==", seq_label_dual)  # Batch, Beam, BeamDual, Spatial
     same_seq_labels = rf.reduce_all(same_seq_labels, axis=spatial_dim)  # Batch, Beam, BeamDual
