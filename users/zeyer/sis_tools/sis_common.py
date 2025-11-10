@@ -66,7 +66,6 @@ def open_job_log(job: str, task: str = "run", index: int = 1) -> Tuple[Optional[
 
 def get_inputs(job: str) -> list[str]:
     work_dir_prefix = get_work_dir_prefix()
-    work_dir_prefix2 = get_work_dir_prefix2()
     inputs = []
     with open(work_dir_prefix + job + "/info") as f:
         for line in f.read().splitlines():
@@ -77,7 +76,7 @@ def get_inputs(job: str) -> list[str]:
             key, value = line.split(": ", 1)
             if key != "INPUT":
                 continue
-            if not (value.startswith(work_dir_prefix) or value.startswith(work_dir_prefix2)):
+            if "/output/" not in value:
                 continue
             inputs.append(get_job_from_work_output(value))
     return inputs
@@ -107,18 +106,20 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
         filename = filename[len("work/") :]
     else:
         if "/output/" in filename:
-            path = os.path.realpath(filename[: filename.rindex("/output/")])
+            path = filename[: filename.rindex("/output/")]
             if is_job_dir(path):
                 f = None
                 while True:
-                    f = path.rindex("/", None, f)
+                    f = path.rfind("/", None, f)
                     if f <= 0:
                         break
-                    if os.path.realpath(get_work_dir_prefix() + path[f + 1 :]) == path:
+                    if path[f + 1] == "/":
+                        continue
+                    if is_job_dir(path[f + 1 :]):
                         return path[f + 1 :]
         if allow_none:
             return None
-        raise ValueError(f"invalid {filename=}, not prefixed by {work_dir_prefix=} or {work_dir_prefix2=}")
+        raise ValueError(f"invalid {filename=}, not in work dir or part of a job output")
     s = 0
     while True:
         f = filename.find("/", s)
