@@ -54,7 +54,16 @@ def get_training_config(
     config = {**base_config, **copy.deepcopy(config)}  # Our base config + parameter config options
 
     # RC - POST CONFIG
-    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
+    base_post_config = {
+        "stop_on_nonfinite_train_score": True,
+        "backend": "torch",
+
+        # For better debugging
+        "torch_log_memory_usage": True,
+        "log_batch_size": True,
+        "use_tensorboard": True,
+        "log_grad_norm": True,
+    }
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 
     # RC - PYTHON PROLOG
