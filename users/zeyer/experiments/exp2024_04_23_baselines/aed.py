@@ -499,7 +499,9 @@ def train_exp(
         time_rqmt=time_rqmt,
         env_updates=env_updates,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(
+        prefix, task, model_with_checkpoint, recog_def=model_recog, search_mem_rqmt=config.get("__mem_rqmt") or 6
+    )
 
     _train_experiments[name] = model_with_checkpoint
     return model_with_checkpoint
