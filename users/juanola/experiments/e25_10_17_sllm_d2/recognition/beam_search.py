@@ -168,7 +168,7 @@ def beam_search_decode(
         seq_targets = []
 
         # Decoding Loop
-        step: int = 0
+        step = torch.tensor(0, device=device, dtype=torch.int32)
         while True:
             # DECODER (FORWARD) STEP (for inference)
             logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)
@@ -229,7 +229,7 @@ def beam_search_decode(
         return seq_targets, seq_log_prob, label_log_probs, out_seq_len
 
 
-def apply_length_normalization(ended: Tensor, length_norm_exponent: float, seq_log_prob: Tensor, step: int) -> Tensor:
+def apply_length_normalization(ended: Tensor, length_norm_exponent: float, seq_log_prob: Tensor, step: Tensor) -> Tensor:
     """
     Length-normalized scores, so we evaluate score_t/len.
     If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
