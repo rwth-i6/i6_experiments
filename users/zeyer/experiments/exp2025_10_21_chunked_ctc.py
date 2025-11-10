@@ -72,7 +72,7 @@ def py():
     downsampling = 6
 
     for left_n, center_size, right_size, bs in [
-        # fixing left chunk size to 80
+        # fixing left chunk size to 80, trying smaller chunk sizes
         (4, 20, 15, 50_000),
         (8, 10, 8, 50_000),
         (16, 5, 4, 50_000),
