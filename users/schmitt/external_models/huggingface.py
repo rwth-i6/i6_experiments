@@ -18,7 +18,7 @@ class DownloadHuggingFaceRepoJob(Job):
     Requires the huggingface_hub library to be installed.
     """
 
-    def __init__(self, *, model_id: str, file_list: Optional[List[str]] = None):
+    def __init__(self, *, model_id: str, file_list: Optional[List[str]] = None, require_login: bool = False):
         """
         :param model_id: e.g. "CohereLabs/aya-expanse-32b" or so
 
@@ -32,6 +32,8 @@ class DownloadHuggingFaceRepoJob(Job):
         super().__init__()
         self.model_id = model_id
         self.file_list = file_list
+        self.require_login = require_login
+
         self.rqmt = {"time": 4, "cpu": 2, "mem": 8}
         self.out_hub_cache_dir = self.output_path("hub_cache", directory=True)
 
@@ -50,8 +52,9 @@ class DownloadHuggingFaceRepoJob(Job):
         print("Import huggingface_hub CLI...")
 
         from huggingface_hub.commands.download import DownloadCommand
-        from huggingface_hub import login
-        login()
+        if self.require_login:
+            from huggingface_hub import login
+            login()
 
         parser = ArgumentParser("huggingface-cli", usage="huggingface-cli <command> [<args>]")
         commands_parser = parser.add_subparsers(help="huggingface-cli command helpers")
