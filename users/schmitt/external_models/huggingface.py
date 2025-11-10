@@ -99,12 +99,10 @@ class DownloadHuggingFaceRepoJobV2(DownloadHuggingFaceRepoJob):
 
     def symlink(self):
         content_dir = get_content_dir_from_hub_cache_dir(self.out_hub_cache_dir)
-        # os.symlink(content_dir, self.out_content_dir)
+        os.symlink(content_dir, self.out_content_dir)
 
-        print(os.path.join(content_dir, self.file_list[0]))
-
-        # if hasattr(self, "out_single_file"):
-        #     os.symlink(os.path.join(content_dir, self.file_list[0]), self.out_single_file)
+        if hasattr(self, "out_single_file"):
+            os.symlink(os.path.join(content_dir, self.file_list[0]), self.out_single_file)
 
 
 class GetContentDirFromHfCacheDirJob(Job):
