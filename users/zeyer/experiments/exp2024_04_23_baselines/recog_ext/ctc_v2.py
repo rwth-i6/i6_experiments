@@ -43,7 +43,7 @@ def model_recog_with_recomb(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 1
+    assert version == 10
     recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
     ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")

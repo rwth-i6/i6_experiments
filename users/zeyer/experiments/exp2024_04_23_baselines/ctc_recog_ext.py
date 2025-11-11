@@ -1598,6 +1598,8 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     recomb_type: str = "max",
     extra_config: Optional[Dict[str, Any]] = None,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
+    recog_version: int = 10,
+    recog_def: Optional[RecogDef[Model]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
@@ -1612,8 +1614,10 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         lm_score,
     )
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
-    from .recog_ext.ctc import model_recog_with_recomb
     from .ctc import _ctc_model_def_blank_idx
+
+    if recog_def is None:
+        from .recog_ext.ctc import model_recog_with_recomb as recog_def
 
     if vocab_file is None:
         from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
@@ -1658,7 +1662,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
-        "recog_version": 10,
+        "recog_version": recog_version,
         "recog_recomb": recomb_type,
     }
     if extra_config:
@@ -1676,7 +1680,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     asr_scores = search_dataset(
         dataset=dataset,
         model=ctc_model,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
@@ -1720,7 +1724,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     res = recog_model(
         task=task,
         model=ctc_model,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
@@ -1752,7 +1756,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     res = recog_model(
         task=task,
         model=model,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={
             **base_config,
             "beam_size": first_pass_recog_beam_size,
