@@ -125,6 +125,8 @@ def model_recog_with_recomb(
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
         if lm is not None:
+            # TODO in another variant, don't do that here, but instead do it below after the topk.
+            #   this would also be needed for delayed fusion.
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
@@ -180,11 +182,17 @@ def model_recog_with_recomb(
                 same_seq_labels, beam_dual_dim = _same_seq_labels(
                     seq_label.history, spatial_dim=seq_label.hist_dim, beam_dim=beam_dim
                 )
+                # TODO: double check: is this masking correct?
                 seq_log_prob_ext = rf.where(
                     same_seq_labels, rf.replace_dim_v2(seq_log_prob, in_dim=beam_dim, out_dim=beam_dual_dim), neg_inf
                 )  # Batch, Beam, BeamDual
                 if recomb == "sum":
                     seq_log_prob = rf.reduce_logsumexp(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
+                elif recomb == "max":
+                    seq_log_prob = rf.reduce_max(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
+                else:
+                    raise ValueError(f"invalid recog recomb {recomb!r}")
+                # TODO: do not select the argmax. instead, use the one where got_new_label=False if possible!
                 argmax_seq_log_prob = rf.reduce_argmax(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
                 mask = argmax_seq_log_prob == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
                 seq_log_prob = rf.where(mask, seq_log_prob, neg_inf)
