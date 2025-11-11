@@ -63,6 +63,7 @@ def get_training_config(
         "log_batch_size": True,
         "use_tensorboard": True,
         "log_grad_norm": True,
+        "watch_memory": True,
     }
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 
