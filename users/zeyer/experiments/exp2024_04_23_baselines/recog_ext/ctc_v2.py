@@ -15,7 +15,7 @@ from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from ..ctc import Model
 
 
-def model_recog_with_recomb(
+def model_recog_with_recomb_v2(
     *,
     model: Model,
     data: Tensor,
@@ -29,6 +29,8 @@ def model_recog_with_recomb(
     but the LM score is calculated for each of them.
     We could make this somehow unique depending on the label seq.
     (But unclear how exactly to do this in a GPU friendly, batched way.)
+
+    V2: Avoid some re-evaluations of the LM when not needed.
 
     :return:
         recog results including beam {batch, beam, out_spatial},
@@ -182,7 +184,6 @@ def model_recog_with_recomb(
                 same_seq_labels, beam_dual_dim = _same_seq_labels(
                     seq_label.history, spatial_dim=seq_label.hist_dim, beam_dim=beam_dim
                 )
-                # TODO: double check: is this masking correct?
                 seq_log_prob_ext = rf.where(
                     same_seq_labels, rf.replace_dim_v2(seq_log_prob, in_dim=beam_dim, out_dim=beam_dual_dim), neg_inf
                 )  # Batch, Beam, BeamDual
@@ -192,9 +193,15 @@ def model_recog_with_recomb(
                     seq_log_prob = rf.reduce_max(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
                 else:
                     raise ValueError(f"invalid recog recomb {recomb!r}")
-                # TODO: do not select the argmax. instead, use the one where got_new_label=False if possible!
-                argmax_seq_log_prob = rf.reduce_argmax(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
-                mask = argmax_seq_log_prob == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
+                # V2: Do not select the argmax of the seq_log_prob_ext.
+                # Instead, use the one where got_new_label=False if possible!
+                got_new_label_ext = rf.where(
+                    same_seq_labels,
+                    rf.replace_dim_v2(rf.cast(got_new_label, dtype="int32"), in_dim=beam_dim, out_dim=beam_dual_dim),
+                    100,
+                )  # Batch, Beam, BeamDual
+                idx = rf.reduce_argmin(got_new_label_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
+                mask = idx == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
                 seq_log_prob = rf.where(mask, seq_log_prob, neg_inf)
                 got_new_label = got_new_label & mask  # don't re-eval the LM when masked out
                 got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
@@ -264,10 +271,10 @@ def model_recog_with_recomb(
 
 
 # RecogDef API
-model_recog_with_recomb: RecogDef[Model]
-model_recog_with_recomb.output_with_beam = True
-model_recog_with_recomb.output_blank_label = "<blank>"
-model_recog_with_recomb.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+model_recog_with_recomb_v2: RecogDef[Model]
+model_recog_with_recomb_v2.output_with_beam = True
+model_recog_with_recomb_v2.output_blank_label = "<blank>"
+model_recog_with_recomb_v2.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:

@@ -66,6 +66,18 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
     )
 
+    from .exp2024_04_23_baselines.recog_ext.ctc_v2 import model_recog_with_recomb_v2
+
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb_v2,
+    )
+
 
 _base_config = {
     # ("large", 100),  # 100kh in total, 4 full epochs
