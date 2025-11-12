@@ -37,13 +37,10 @@ def create_training_job(training_name: str,
     :param debug_returnn_param:
     :param returnn_root: Path to a checked out RETURNN repository
     """
-    gpu_memory = 48 # TODO: should come from config file also...
-
     train_args, training_rqmt = get_training_parameters(num_gpus, debug_returnn_param, network_args, network_module,
                                                         returnn_root, train_epochs, train_step_module)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
-    train_job.rqmt["gpu_mem"] = gpu_memory
 
     train_job.add_alias(f"{training_name}/training")
     tk.register_output(f"{training_name}/learning_rates", train_job.out_learning_rates)

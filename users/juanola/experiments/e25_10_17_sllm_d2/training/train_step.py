@@ -11,6 +11,7 @@ from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pack_sequence, unpad_sequence
 from returnn.frontend import RunCtx
 
+from ..constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 from ..networks.interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 
 
@@ -39,11 +40,11 @@ def train_step(
     ), "must use at least AED or CTC aux loss"
     assert num_eos_symbols >= 1
 
-    data_: ReturnnTensor = extern_data["data"]
+    data_: ReturnnTensor = extern_data[DATA_PARAM_NAME]
     data: Tensor = data_.raw_tensor
     data_lens: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
-    targets_: ReturnnTensor = extern_data["classes"]
+    targets_: ReturnnTensor = extern_data[CLASSES_PARAM_NAME]
     targets: Tensor = targets_.raw_tensor
     target_lens: Tensor = targets_.dims[1].dyn_size_ext.raw_tensor
 

@@ -8,8 +8,8 @@ from returnn.tensor import Tensor as ReturnnTensor
 from torch import Tensor
 
 from .beam_search import beam_search_decode
-from ..networks.conformer_qwen_v1 import Qwen2DecoderState
-from ..networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
+from ...e25_10_17_sllm_d2.networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
+from ...e25_10_17_sllm_d2.networks.qwen2_decoder_state import Qwen2DecoderState
 
 
 def forward_step(

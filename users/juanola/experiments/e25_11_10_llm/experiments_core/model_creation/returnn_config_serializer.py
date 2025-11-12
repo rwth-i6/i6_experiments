@@ -8,8 +8,10 @@ from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from i6_core.util import instanciate_delayed
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import ExternalImport, PartialImport, NonhashedCode
+
 from ... import ROOT_PACKAGE
 from ...default_tools import I6_NATIVE_OPS_REPO_PATH
+from ....e25_10_17_sllm_d2 import ROOT_PACKAGE as ROOT_PACKAGE_SLLM
 
 
 def serialize_extern_data(extern_data: Dict[str, Any]):
@@ -40,8 +42,8 @@ def serialize_training(
     :return: Collection object to be added to the ReturnnConfig epilog
     """
     pytorch_model_import = PartialImport(  # TODO: path is not exactly right! it adds "recipe"!!
-        code_object_path=f"{ROOT_PACKAGE}.{network_module}.Model",  # TODO: extract Model name!!
-        unhashed_package_root=ROOT_PACKAGE,
+        code_object_path=f"{ROOT_PACKAGE_SLLM}.{network_module}.Model",  # TODO: extract Model name!!
+        unhashed_package_root=ROOT_PACKAGE_SLLM,# TODO: big technical deb with this rplace
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",

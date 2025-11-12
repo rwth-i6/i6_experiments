@@ -8,6 +8,8 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_serializer import serialize_training, serialize_forward
+from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
+
 
 # TODO: make nice and separate
 
@@ -75,8 +77,8 @@ def get_training_config(
 
     # RC - PYTHON EPILOG
     extern_data = {
-        "data": {"dim": 1},
-        "classes": {
+        DATA_PARAM_NAME: {"dim": 1},
+        CLASSES_PARAM_NAME: {
             "dim": training_datasets.datastreams["labels"].vocab_size,
             "sparse": True,
             # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
@@ -182,7 +184,7 @@ def get_forward_config(
 
     # RC - PYTHON EPILOG
     extern_data = {
-        "data": {"dim": 1},
+        DATA_PARAM_NAME: {"dim": 1},
     }
     serializer = serialize_forward(
         network_module=network_module,

@@ -8,7 +8,8 @@ import torch.nn.functional as F
 import tree
 from torch import Tensor
 
-from ..networks.interfaces.label_scorer_protocol import LabelScorerProtocol, State
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.networks.interfaces.label_scorer_protocol import \
+    LabelScorerProtocol, State
 
 
 def _batch_gather(values: Tensor, *, indices: Tensor, batch_dim: int = 0, index_dim: int = 1) -> Tensor:

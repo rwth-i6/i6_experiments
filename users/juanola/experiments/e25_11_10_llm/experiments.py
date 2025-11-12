@@ -45,10 +45,14 @@ def llm_ep(
     partition_epoch_factor: int = 20
     num_gpus: int = 1 # Should be 1 for 48gb in i6 cluster
     partition_epochs: int = int(epochs * partition_epoch_factor / num_gpus)
+    TRAINING_GPU_MEMORY = 48
 
     if debug:
         partition_epochs = 1
         num_gpus = 1
+        #TRAINING_GPU_MEMORY = 11
+
+
 
     # TODO: probably use also search_gpu_memory > 11
 
@@ -89,6 +93,7 @@ def llm_ep(
                                     TRAIN_STEP_MODULE, partition_epochs,
                                     debug_returnn_param,
                                     returnn_root=RETURNN_ROOT)
+    train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
 
     # MODEL EVALUATION/INFERENCE
     # Which evals to run
