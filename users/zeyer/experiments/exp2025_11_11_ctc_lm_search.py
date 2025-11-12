@@ -66,6 +66,7 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
     )
 
+    from .exp2024_04_23_baselines.recog_ext.ctc import model_recog_with_recomb
     from .exp2024_04_23_baselines.recog_ext.ctc_v2 import model_recog_with_recomb_v2
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -75,6 +76,7 @@ def py():
         extra_config={"aux_loss_layers": [aux_ctc_layer]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
         recog_def=model_recog_with_recomb_v2,
     )
 
@@ -87,6 +89,7 @@ def py():
         extra_config={"aux_loss_layers": [aux_ctc_layer]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
         recog_def=model_recog_with_recomb_delayed_fusion,
     )
 

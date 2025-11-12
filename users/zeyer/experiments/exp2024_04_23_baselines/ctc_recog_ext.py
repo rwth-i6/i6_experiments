@@ -1599,6 +1599,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     extra_config: Optional[Dict[str, Any]] = None,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
     recog_version: int = 10,
+    ctc_only_recog_def: Optional[RecogDef[Model]] = None,
     recog_def: Optional[RecogDef[Model]] = None,
 ) -> ScoreResultCollection:
     """
@@ -1618,6 +1619,9 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
     if recog_def is None:
         from .recog_ext.ctc import model_recog_with_recomb as recog_def
+
+    if ctc_only_recog_def is None:
+        ctc_only_recog_def = recog_def
 
     if vocab_file is None:
         from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
@@ -1680,7 +1684,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     asr_scores = search_dataset(
         dataset=dataset,
         model=ctc_model,
-        recog_def=recog_def,
+        recog_def=ctc_only_recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
@@ -1724,7 +1728,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     res = recog_model(
         task=task,
         model=ctc_model,
-        recog_def=recog_def,
+        recog_def=ctc_only_recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
