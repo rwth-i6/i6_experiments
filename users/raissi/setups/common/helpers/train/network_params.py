@@ -58,8 +58,13 @@ blstm_viterbi_singlestate = GeneralNetworkParams(
 ################
 # Conformer
 ################
+#10ms
 default_conformer_viterbi = GeneralNetworkParams(chunking="400:200", l2=1e-6, specaug_args=asdict(default_sa_args))
+default_conformer_viterbi_smallchunk = GeneralNetworkParams(chunking="256:128", l2=1e-6, specaug_args=asdict(default_sa_args))
 
+
+
+#40ms
 frameshift40_conformer_viterbi = GeneralNetworkParams(
     l2=1e-6, chunking="400:200", specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
 )

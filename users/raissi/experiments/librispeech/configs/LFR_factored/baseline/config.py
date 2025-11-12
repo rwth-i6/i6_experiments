@@ -1,7 +1,10 @@
 import dataclasses
-
+from sisyphus import tk
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import DecodingTensorMap
-
+RAISSI_ALIGNMENT_10ms = tk.Path(
+    "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.bundle",
+    cached=True,
+)
 ALIGN_30MS_BLSTM_MP = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-lr-v6-ss-4-mp-2,3-mp-2,4-bw-0.3-pC0.6-tdp-1.0-v2/alignment.cache.bundle"
 ALIGN_40MS_BLSTM_MP = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/40ms/blstm-1-lr-v6-ss-4-mp2,3-mp2,4-bw0.3-pC0.6-tdp1.0/alignment.cache.bundle"
 

@@ -1554,8 +1554,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             sp_tdp = tdps["*"]
 
         else:
-            sil_tdp = (11.0, 0.0, "infinity", 20.0)
-            sp_tdp = (8.0, 0.0, "infinity", 0.0)
+            if self.frame_rate_reduction_ratio_info.factor > 1:
+                sil_tdp = (11.0, 0.0, "infinity", 20.0)
+                sp_tdp = (8.0, 0.0, "infinity", 0.0)
+            else:
+                sil_tdp = (0.0, 3.0, "infinity", 20.0)
+                sp_tdp = (3.0, 0.0, "infinity", 0.0)
+
 
 
         best_config_scales = recognizer.recognize_optimize_scales_v2(
