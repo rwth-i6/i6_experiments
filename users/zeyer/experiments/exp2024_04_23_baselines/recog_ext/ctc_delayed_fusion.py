@@ -173,19 +173,8 @@ def model_recog_with_recomb_delayed_fusion(
                 )  # Batch, Beam, BeamDual
                 if recomb == "sum":
                     seq_log_prob = rf.reduce_logsumexp(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
-                elif recomb == "max":
-                    seq_log_prob = rf.reduce_max(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
-                else:
-                    raise ValueError(f"invalid recog recomb {recomb!r}")
-                # V2: Do not select the argmax of the seq_log_prob_ext.
-                # Instead, use the one where got_new_label=False if possible!
-                got_new_label_ext = rf.where(
-                    same_seq_labels,
-                    rf.replace_dim_v2(rf.cast(got_new_label, dtype="int32"), in_dim=beam_dim, out_dim=beam_dual_dim),
-                    100,
-                )  # Batch, Beam, BeamDual
-                idx = rf.reduce_argmin(got_new_label_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
-                mask = idx == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
+                argmax_seq_log_prob = rf.reduce_argmax(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
+                mask = argmax_seq_log_prob == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
                 seq_log_prob = rf.where(mask, seq_log_prob, neg_inf)
                 got_new_label = got_new_label & mask  # don't re-eval the LM when masked out
                 got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
