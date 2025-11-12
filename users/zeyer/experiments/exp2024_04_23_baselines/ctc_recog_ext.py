@@ -1599,8 +1599,9 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     extra_config: Optional[Dict[str, Any]] = None,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
     recog_version: int = 10,
-    ctc_only_recog_def: Optional[RecogDef[Model]] = None,
     recog_def: Optional[RecogDef[Model]] = None,
+    ctc_only_recog_version: Optional[int] = None,
+    ctc_only_recog_def: Optional[RecogDef[Model]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
@@ -1619,6 +1620,9 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
     if recog_def is None:
         from .recog_ext.ctc import model_recog_with_recomb as recog_def
+
+    if ctc_only_recog_version is None:
+        ctc_only_recog_version = recog_version
 
     if ctc_only_recog_def is None:
         ctc_only_recog_def = recog_def
@@ -1666,7 +1670,6 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
-        "recog_version": recog_version,
         "recog_recomb": recomb_type,
     }
     if extra_config:
@@ -1685,7 +1688,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         dataset=dataset,
         model=ctc_model,
         recog_def=ctc_only_recog_def,
-        config={**base_config, "beam_size": n_best_list_size},
+        config={**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size},
         keep_beam=True,
     )
     prior_scores = prior_score(asr_scores, prior=labelwise_prior)
@@ -1729,7 +1732,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         task=task,
         model=ctc_model,
         recog_def=ctc_only_recog_def,
-        config={**base_config, "beam_size": n_best_list_size},
+        config={**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 lm_labelwise_prior_rescore,
@@ -1763,6 +1766,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         recog_def=recog_def,
         config={
             **base_config,
+            "recog_version": recog_version,
             "beam_size": first_pass_recog_beam_size,
             # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
             # So when the beam size is larger, reduce batch size.

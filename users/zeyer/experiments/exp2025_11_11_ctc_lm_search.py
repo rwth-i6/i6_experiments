@@ -88,7 +88,9 @@ def py():
         extra_config={"aux_loss_layers": [aux_ctc_layer]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=11,
         recog_def=model_recog_with_recomb_delayed_fusion,
     )
 
