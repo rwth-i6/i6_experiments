@@ -125,8 +125,7 @@ def model_recog_with_recomb_delayed_fusion(
         prev_target = target
         prev_target_wb = target_wb
 
-        ctc_seq_log_prob = ctc_seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
-        seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob
+        seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
         _, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
@@ -138,6 +137,7 @@ def model_recog_with_recomb_delayed_fusion(
         seq_backrefs.append(backrefs)
 
         ctc_seq_log_prob = rf.gather(ctc_seq_log_prob, indices=backrefs)  # Batch, Beam
+        ctc_seq_log_prob += rf.gather(label_log_prob_ta[t], indices=target_wb, axis=model.wb_target_dim)  # Batch, Beam
         lm_seq_log_prob = rf.gather(lm_seq_log_prob, indices=backrefs)  # Batch, Beam
         if lm is not None:
             lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
@@ -303,7 +303,8 @@ def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
 
 
 def _same_seq_labels(seq: Tensor, *, spatial_dim: Dim, beam_dim: Dim) -> Tuple[Tensor, Dim]:
-    seq_label_dual, beam_dual_dim = rf.replace_dim(seq, in_dim=beam_dim)
+    beam_dual_dim = beam_dim.copy(same_as_self=False, description=beam_dim.description + "_dual")
+    seq_label_dual, _ = rf.replace_dim(seq, in_dim=beam_dim, out_dim=beam_dual_dim)
     same_seq_labels = rf.compare_bc(seq, "==", seq_label_dual)  # Batch, Beam, BeamDual, Spatial
     same_seq_labels = rf.reduce_all(same_seq_labels, axis=spatial_dim)  # Batch, Beam, BeamDual
     if beam_dim in spatial_dim.get_size_tensor().dims:
