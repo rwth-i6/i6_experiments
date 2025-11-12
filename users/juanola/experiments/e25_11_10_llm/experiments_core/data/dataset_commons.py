@@ -1,6 +1,7 @@
 """
 The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
+import copy
 from functools import lru_cache
 from typing import List, Optional, Tuple, Union
 
@@ -11,7 +12,9 @@ from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
 from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
+from i6_experiments.users.juanola.data.lm_dataset import LmDataset
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
+
 from .cross_validation import get_mixed_cv_segments
 from .multi_proc_dataset import MultiProcDataset
 from ...default_tools import RETURNN_ROOT, RETURNN_EXE
@@ -19,7 +22,7 @@ from ...default_tools import RETURNN_ROOT, RETURNN_EXE
 
 @lru_cache()
 def get_audio_raw_datastream(
-    preemphasis: Optional[float] = None, peak_normalization: bool = False
+        preemphasis: Optional[float] = None, peak_normalization: bool = False
 ) -> AudioRawDatastream:
     """
     Return the datastream for raw-audio input settings for RETURNN
@@ -33,16 +36,17 @@ def get_audio_raw_datastream(
     )
 
 
-def make_multi_proc(dataset: Dataset) -> MultiProcDataset:
+def make_dataset_multi_proc(dataset: Dataset):
     return MultiProcDataset(dataset=dataset, buffer_size=10, num_workers=4)
 
 
-def build_training_datasets(
-    train_ogg: Union[tk.Path, List[tk.Path]],
-    dev_clean_ogg: tk.Path,
-    dev_other_ogg: tk.Path,
-    label_datastream: LabelDatastream,
-    returnn_settings: ReturnnDatasetSettings,
+def build_lm_training_datasets(
+        train_ogg: Union[tk.Path, List[tk.Path]],
+        dev_clean_ogg: tk.Path,
+        dev_other_ogg: tk.Path,
+        label_datastream: LabelDatastream,
+        returnn_settings: ReturnnDatasetSettings,
+        alpha: float,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -60,35 +64,40 @@ def build_training_datasets(
         "labels": label_datastream,
     }
 
-    training_audio_opts = audio_datastream.as_returnn_audio_opts()
+    vocab_settings = label_datastream.as_returnn_targets_opts()
+    vocab_settings.pop("add_eos",
+                       None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
 
-    train_zip_dataset = OggZipDataset(
-        files=train_ogg,
-        audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+    training_vocab_settings = copy.deepcopy(vocab_settings)
+    training_vocab_settings.update(
+        {"alpha": alpha, "enable_sampling": True}
+        if alpha is not None
+        else {})
+
+    lm_train_dataset = LmDataset(
+        corpus_file=train_ogg,
+        vocab_settings=training_vocab_settings,
         partition_epoch=returnn_settings.train_partition_epoch,
         seq_ordering=returnn_settings.train_seq_ordering,
         additional_options=returnn_settings.train_additional_options,
     )
-    train_dataset = make_multi_proc(train_zip_dataset)
+    train_dataset = make_dataset_multi_proc(lm_train_dataset)
 
-    cv_zip_dataset = OggZipDataset(
-        files=[dev_clean_ogg, dev_other_ogg],
-        audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+    cv_zip_dataset = LmDataset(
+        corpus_file=[dev_clean_ogg, dev_other_ogg],
+        vocab_settings=vocab_settings,
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_multi_proc(cv_zip_dataset)
+    cv_dataset = make_dataset_multi_proc(cv_zip_dataset)
 
-    devtrain_zip_dataset = OggZipDataset(
-        files=train_ogg,
-        audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+    devtrain_zip_dataset = LmDataset(
+        corpus_file=train_ogg,
+        vocab_settings=vocab_settings,
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_multi_proc(devtrain_zip_dataset)
+    devtrain_dataset = make_dataset_multi_proc(devtrain_zip_dataset)
 
     return TrainingDatasets(
         train=train_dataset,
@@ -98,9 +107,9 @@ def build_training_datasets(
     )
 
 
-def build_test_dataset(
-    dataset_key: str,
-    settings: ReturnnDatasetSettings,
+def build_lm_test_dataset(
+        dataset_key: str,
+        settings: ReturnnDatasetSettings,
 ) -> Tuple[Dataset, tk.Path]:
     """
     Create ASR test set that only contains the audio stream
@@ -120,6 +129,6 @@ def build_test_dataset(
         audio_options=audio_datastream.as_returnn_audio_opts(),
         seq_ordering="sorted_reverse"
     )
-    test_dataset = make_multi_proc(test_zip_dataset)
+    test_dataset = make_dataset_multi_proc(test_zip_dataset)
 
     return test_dataset, bliss_dict[dataset_key]

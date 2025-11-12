@@ -1,9 +1,8 @@
 """
 The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
-from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 from sisyphus import tk
 
@@ -11,50 +10,12 @@ from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset
 from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
-from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
+from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .cv_segments import get_mixed_cv_segments
 from .multi_proc import MultiProcDataset
 from ..default_tools import RETURNN_ROOT, RETURNN_EXE
-
-
-# -------------- Dataclasses for configuration and data passing -------------------
-
-
-@dataclass(frozen=True)
-class TrainingDatasets:
-    train: Dataset
-    cv: Dataset
-    devtrain: Dataset
-    datastreams: Dict[str, Datastream]
-
-
-@dataclass()
-class DatasetSettings:
-    """
-    A helper structure for the dataset settings that are configurable in RETURNN
-
-    Args:
-        custom_prcessing_function: the name of a python function added to the config
-            this function can be used to process the input waveform
-        partition_epoch: use this split of the data for one training epoch
-        epoch_wise_filters: can be used to limit e.g. the sequence lengths at the beginning of the training
-        seq_ordering: see RETURNN settings on sequence sorting
-        preemphasis: filter scale for high-pass z-filter
-        peak_normalization: normalize input utterance to unit amplitude peak
-    """
-
-    # general settings
-    preemphasis: Optional[float]
-    peak_normalization: bool
-
-    # training settings
-    train_partition_epoch: int
-    train_seq_ordering: str
-    train_additional_options: Optional[Dict[str, Any]] = None
-
-
-# --------------------------- Helper functions  -----------------------------------
 
 
 @lru_cache()
@@ -105,7 +66,7 @@ def build_training_datasets(
     dev_clean_ogg: tk.Path,
     dev_other_ogg: tk.Path,
     label_datastream: LabelDatastream,
-    settings: DatasetSettings,
+    settings: ReturnnDatasetSettings,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -170,7 +131,7 @@ def build_training_datasets(
 
 def build_test_dataset(
     dataset_key: str,
-    settings: DatasetSettings,
+    settings: ReturnnDatasetSettings,
 ) -> Tuple[Dataset, tk.Path]:
     """
     Create ASR test set that only contains the audio stream

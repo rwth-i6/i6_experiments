@@ -41,7 +41,6 @@ def create_tune_and_evaluate_jobs(
         decoder_module: str = "should_not_be_default",
         loss_name: str = "dev_loss_ce",
         use_gpu: bool = False,
-        search_gpu_memory:int = 11,
         extra_forward_config: Optional[dict[str, Any]] = None,
         prior_args: Optional[Dict[str, Any]] = None,
 
@@ -103,7 +102,6 @@ def create_tune_and_evaluate_jobs(
             dev_dataset_tuples=dev_dataset_tuples,
             decoder_module=decoder_module,
             use_gpu=use_gpu,
-            search_gpu_memory=search_gpu_memory,
             debug=debug,
             extra_forward_config=extra_forward_config,
             run_test=run_test,
@@ -182,7 +180,6 @@ def tune_and_evaluate_model(
         extra_forward_config: Optional[dict[str, Any]] = None,
 
         use_gpu: bool = False,
-        search_gpu_memory: int = 11,
         debug: bool = False,
 
         run_test: bool = False,
@@ -222,7 +219,6 @@ def tune_and_evaluate_model(
                 use_gpu=use_gpu,
                 debug=debug,
                 vocab_opts=vocab_opts,
-                search_gpu_memory= search_gpu_memory,
                 **default_returnn,
             )
 
@@ -250,11 +246,8 @@ def tune_and_evaluate_model(
                 decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
-
                 use_gpu=use_gpu,
-                search_gpu_memory= search_gpu_memory,
                 vocab_opts=vocab_opts,
-
                 debug=debug,
                 **default_returnn,
             )

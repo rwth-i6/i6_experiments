@@ -3,10 +3,11 @@ from functools import partial
 
 from sisyphus import tk
 
+from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.aed import model_configs, optimizer_configs, \
     learning_rate_configs
 from .tune_eval import build_base_report, eval_model
-from ..data.common import DatasetSettings, build_test_dataset
+from ..data.common import build_test_dataset
 from ..data.spm import build_spm_training_datasets
 from ..default_tools import RETURNN_EXE, RETURNN_ROOT, MINI_RETURNN_ROOT
 from ..pipeline import create_training_job
@@ -23,7 +24,7 @@ def aed_baseline():
     prefix_name = "experiments/librispeech/aed/ls960/baselines"
 
     # INITIALIZE DATASET
-    train_settings = DatasetSettings(
+    train_settings = ReturnnDatasetSettings(
         preemphasis=None,
         peak_normalization=True,
         train_partition_epoch=20,

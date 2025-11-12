@@ -17,9 +17,9 @@ from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpointsJob, GetBestPtCheckpointJob
 from i6_experiments.common.setups.returnn.datasets import Dataset
-from .data.common import TrainingDatasets
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, RETURNN_ROOT
 from .returnn_config_helpers import get_forward_config, get_training_config, get_prior_config
+from ...data.training_datasets import TrainingDatasets
 
 
 @dataclass

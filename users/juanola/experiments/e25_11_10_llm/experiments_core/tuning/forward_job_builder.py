@@ -73,7 +73,6 @@ def search(
         vocab_opts: Dict,
         use_gpu: bool = False,
         debug: bool = False,
-        search_gpu_memory: int = 11,
 ) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
     """
     Run search over multiple datasets and collect statistics
@@ -105,7 +104,7 @@ def search(
     wers = {}
     search_jobs = []
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
-        search_name = f"{prefix_name}/{key}"
+        search_name = prefix_name + "/%s" % key
         if "hubert_tune" in search_name:
             mem = 30
         elif "RelPosEnc" in search_name:
@@ -122,7 +121,6 @@ def search(
             returnn_root,
             use_gpu=use_gpu,
             mem_rqmt=mem,
-            search_gpu_memory=search_gpu_memory,
         )
         search_jobs.append(search_job)
 
@@ -139,7 +137,6 @@ def search_single(
         returnn_root: tk.Path,
         mem_rqmt: float = 14,
         use_gpu: bool = False,
-        search_gpu_memory: int = 11,
 ) -> Tuple[job_path.Variable, ReturnnForwardJobV2]:
     """
     Run search for a specific test dataset.
@@ -160,7 +157,6 @@ def search_single(
     :param returnn_root: Path to a checked out RETURNN repository
     :param mem_rqmt: some search jobs might need more memory
     :param use_gpu: if to do GPU decoding
-    :param search_gpu_memory:
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
@@ -177,7 +173,6 @@ def search_single(
         output_files=["search_out.py.gz"],
     )
     search_job.add_alias(prefix_name + "/search_job")
-    search_job.rqmt["gpu_mem"] = search_gpu_memory
 
     words = SearchOutputRawReplaceJob(
         search_job.out_files["search_out.py.gz"], [(" ", ""), ("▁", " ")], output_gzip=True

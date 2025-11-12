@@ -6,8 +6,10 @@ from typing import Any, Dict, Optional
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_serializer import serialize_training, serialize_forward
-from ...data.training_datasets import TrainingDatasets
+
+# TODO: make nice and separate
 
 
 def get_training_config(
@@ -52,26 +54,24 @@ def get_training_config(
     config = {**base_config, **copy.deepcopy(config)}  # Our base config + parameter config options
 
     # RC - POST CONFIG
-    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
+    base_post_config = {
+        "stop_on_nonfinite_train_score": True,
+        "backend": "torch",
+
+        # For better debugging
+        "torch_log_memory_usage": True,
+        "log_batch_size": True,
+        "use_tensorboard": True,
+        "log_grad_norm": True,
+        "watch_memory": True,
+    }
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 
     # RC - PYTHON PROLOG
     python_prolog = None
-    if use_speed_perturbation:  # TODO: maybe make nice (if capability added to RETURNN itself)
-        from i6_experiments.users.zeyer.speed_pert.librosa_config import (
-            speed_pert_librosa_config,
-        )  # TODO: MJ: should be copied and not imported
-
-        # prolog_serializer = TorchCollection(
-        #     serializer_objects=[
-        #         Import(
-        #             code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
-        #             unhashed_package_root=PACKAGE,
-        #         )
-        #     ]
-        # )
-        # python_prolog = [prolog_serializer]
-        config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
+    #if use_speed_perturbation:
+    #    from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config #TODO: warning! external import!
+    #    config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
 
     # RC - PYTHON EPILOG
     extern_data = {
@@ -134,14 +134,12 @@ def get_prior_config(
     }
 
     # RC - PYTHON EPILOG
-    serializer = serialize_forward(
+    serializer = serialize_forward(# TODO: fix this! 2 more params are needed
         network_module=network_module,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
         forward_module=None,  # same as network
         forward_step_name="prior",
-        forward_init_args=None,
-        unhashed_forward_init_args=None,
         debug=debug,
     )
 
@@ -189,13 +187,12 @@ def get_forward_config(
     serializer = serialize_forward(
         network_module=network_module,
         net_args=net_args,
-        unhashed_net_args=unhashed_net_args,
-        forward_module=decoder,
-        forward_init_args=decoder_args,
-        unhashed_forward_init_args=unhashed_decoder_args,
-        debug=debug,
         extern_data=extern_data,
         vocab_opts=vocab_opts,
+
+        unhashed_net_args=unhashed_net_args,
+        forward_module=decoder,
+        debug=debug,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

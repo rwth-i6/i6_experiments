@@ -8,7 +8,7 @@ from sisyphus import tk
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import SentencePieceDatastream
 from i6_experiments.users.zeyer.datasets.librispeech import _get_spm_vocab
-from .common import DatasetSettings, TrainingDatasets, build_training_datasets
+from .common import ReturnnDatasetSettings, TrainingDatasets, build_training_datasets
 from ..default_tools import RETURNN_ROOT, RETURNN_EXE
 
 
@@ -32,7 +32,7 @@ def build_spm_training_datasets(
     prefix: str,
     librispeech_key: str,
     vocab_size: int,
-    settings: DatasetSettings,
+    settings: ReturnnDatasetSettings,
     returnn_root: tk.Path = RETURNN_ROOT,
     alpha: Optional[float] = None,
 ) -> TrainingDatasets:

@@ -5,6 +5,7 @@ from sisyphus import *
 
 from .qwen2.qwen2_configs import qwen2_configs
 
+
 class Qwen2DecoderConfigJob(Job):
     def __init__(self, config_version:str, bos:int, eos:int, vocab_size:int, target_filename: str):
         """

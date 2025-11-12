@@ -8,7 +8,9 @@ from i6_core.lexicon.bpe import CreateBPELexiconJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_lexicon
 from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import BpeDatastream
-from .common import DatasetSettings, TrainingDatasets, build_training_datasets
+from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
+from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
+from .common import build_training_datasets
 from ..default_tools import RETURNN_ROOT, RETURNN_EXE, SUBWORD_NMT_REPO
 
 
@@ -76,7 +78,7 @@ def build_bpe_training_datasets(
     prefix: str,
     librispeech_key: str,
     bpe_size: int,
-    settings: DatasetSettings,
+    settings: ReturnnDatasetSettings,
     use_postfix: bool,
 ) -> TrainingDatasets:
     """

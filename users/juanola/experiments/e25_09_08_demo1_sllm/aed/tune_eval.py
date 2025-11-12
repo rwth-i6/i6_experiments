@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List, Union
 
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
-from ..data.common import TrainingDatasets
+from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from ..default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..pipeline import search, ASRModel, prepare_asr_model
 from ..recognition.aed.beam_search import DecoderConfig
