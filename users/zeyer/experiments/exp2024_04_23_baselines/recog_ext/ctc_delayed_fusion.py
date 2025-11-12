@@ -30,7 +30,7 @@ def model_recog_with_recomb_delayed_fusion(
     We could make this somehow unique depending on the label seq.
     (But unclear how exactly to do this in a GPU friendly, batched way.)
 
-    V2: Avoid some re-evaluations of the LM when not needed.
+    Based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_v2.model_recog_with_recomb_v2.
 
     :return:
         recog results including beam {batch, beam, out_spatial},
@@ -126,22 +126,6 @@ def model_recog_with_recomb_delayed_fusion(
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
-        if lm is not None:
-            # TODO don't do that here, but instead do it below after the topk.
-            #   this would also be needed for delayed fusion.
-            # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
-            seq_log_prob += rf.where(
-                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-                _target_dense_extend_blank(
-                    lm_log_probs,
-                    target_dim=model.target_dim,
-                    wb_target_dim=model.wb_target_dim,
-                    blank_idx=model.blank_idx,
-                    value=0.0,
-                ),
-                0.0,
-            )  # Batch, InBeam, VocabWB
-
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
         )
@@ -210,14 +194,19 @@ def model_recog_with_recomb_delayed_fusion(
 
         if lm is not None:
             if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                    (target, lm_state),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
-                    dims=batch_dims + [beam_dim],
+                (target_, lm_state_, seq_log_prob_, lm_log_probs_), packed_new_label_dim, packed_new_label_dim_map = (
+                    rf.nested.masked_select_nested(
+                        (target, lm_state, seq_log_prob, lm_log_probs),
+                        mask=got_new_label,
+                        mask_cpu=got_new_label_cpu,
+                        dims=batch_dims + [beam_dim],
+                    )
                 )
                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                 assert packed_new_label_dim.get_dim_value() > 0
+
+                # Now add LM score.
+                seq_log_prob_ += rf.gather(lm_log_probs_, indices=target_, axis=model.target_dim)
 
                 lm_logits_, lm_state_ = lm(
                     target_,
@@ -229,9 +218,9 @@ def model_recog_with_recomb_delayed_fusion(
                 if labelwise_prior is not None:
                     lm_log_probs_ -= labelwise_prior  # prior scale already applied
 
-                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                    (lm_log_probs_, lm_state_),
-                    (lm_log_probs, lm_state),
+                seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                    (seq_log_prob_, lm_log_probs_, lm_state_),
+                    (seq_log_prob, lm_log_probs, lm_state),
                     mask=got_new_label,
                     mask_cpu=got_new_label_cpu,
                     dims=batch_dims + [beam_dim],
