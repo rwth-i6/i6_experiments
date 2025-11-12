@@ -15,7 +15,7 @@ from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from ..ctc import Model
 
 
-def model_recog_with_recomb_v2(
+def model_recog_with_recomb_delayed_fusion(
     *,
     model: Model,
     data: Tensor,
@@ -127,6 +127,8 @@ def model_recog_with_recomb_v2(
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
         if lm is not None:
+            # TODO don't do that here, but instead do it below after the topk.
+            #   this would also be needed for delayed fusion.
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
