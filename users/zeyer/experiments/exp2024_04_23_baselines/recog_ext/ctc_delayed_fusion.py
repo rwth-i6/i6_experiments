@@ -45,7 +45,7 @@ def model_recog_with_recomb_delayed_fusion(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 10
+    assert version == 11
     recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
     ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")
@@ -73,7 +73,8 @@ def model_recog_with_recomb_delayed_fusion(
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
     neg_inf = float("-inf")
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+    ctc_seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+    lm_seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
@@ -124,9 +125,10 @@ def model_recog_with_recomb_delayed_fusion(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        ctc_seq_log_prob = ctc_seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob
 
-        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+        _, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
         )
         # seq_log_prob, backrefs, target_wb: Batch, Beam
@@ -135,6 +137,8 @@ def model_recog_with_recomb_delayed_fusion(
         seq_targets_wb.append(target_wb)
         seq_backrefs.append(backrefs)
 
+        ctc_seq_log_prob = rf.gather(ctc_seq_log_prob, indices=backrefs)  # Batch, Beam
+        lm_seq_log_prob = rf.gather(lm_seq_log_prob, indices=backrefs)  # Batch, Beam
         if lm is not None:
             lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
             lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
@@ -168,13 +172,15 @@ def model_recog_with_recomb_delayed_fusion(
                 same_seq_labels, beam_dual_dim = _same_seq_labels(
                     seq_label.history, spatial_dim=seq_label.hist_dim, beam_dim=beam_dim
                 )
-                seq_log_prob_ext = rf.where(
-                    same_seq_labels, rf.replace_dim_v2(seq_log_prob, in_dim=beam_dim, out_dim=beam_dual_dim), neg_inf
+                ctc_seq_log_prob_ext = rf.where(
+                    same_seq_labels,
+                    rf.replace_dim_v2(ctc_seq_log_prob, in_dim=beam_dim, out_dim=beam_dual_dim),
+                    neg_inf,
                 )  # Batch, Beam, BeamDual
                 if recomb == "sum":
-                    seq_log_prob = rf.reduce_logsumexp(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
+                    ctc_seq_log_prob = rf.reduce_logsumexp(ctc_seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
                 elif recomb == "max":
-                    seq_log_prob = rf.reduce_max(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
+                    ctc_seq_log_prob = rf.reduce_max(ctc_seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
                 else:
                     raise ValueError(f"invalid recog recomb {recomb!r}")
                 # V2: Do not select the argmax of the seq_log_prob_ext.
@@ -186,7 +192,7 @@ def model_recog_with_recomb_delayed_fusion(
                 )  # Batch, Beam, BeamDual
                 idx = rf.reduce_argmin(got_new_label_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
                 mask = idx == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
-                seq_log_prob = rf.where(mask, seq_log_prob, neg_inf)
+                ctc_seq_log_prob = rf.where(mask, ctc_seq_log_prob, neg_inf)
                 got_new_label = got_new_label & mask  # don't re-eval the LM when masked out
                 got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
             else:
@@ -194,19 +200,21 @@ def model_recog_with_recomb_delayed_fusion(
 
         if lm is not None:
             if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                (target_, lm_state_, seq_log_prob_, lm_log_probs_), packed_new_label_dim, packed_new_label_dim_map = (
-                    rf.nested.masked_select_nested(
-                        (target, lm_state, seq_log_prob, lm_log_probs),
-                        mask=got_new_label,
-                        mask_cpu=got_new_label_cpu,
-                        dims=batch_dims + [beam_dim],
-                    )
+                (
+                    (target_, lm_state_, lm_seq_log_prob_, lm_log_probs_),
+                    packed_new_label_dim,
+                    packed_new_label_dim_map,
+                ) = rf.nested.masked_select_nested(
+                    (target, lm_state, lm_seq_log_prob, lm_log_probs),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
                 )
                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                 assert packed_new_label_dim.get_dim_value() > 0
 
                 # Now add LM score.
-                seq_log_prob_ += rf.gather(lm_log_probs_, indices=target_, axis=model.target_dim)
+                lm_seq_log_prob_ += rf.gather(lm_log_probs_, indices=target_, axis=model.target_dim)
 
                 lm_logits_, lm_state_ = lm(
                     target_,
@@ -218,9 +226,9 @@ def model_recog_with_recomb_delayed_fusion(
                 if labelwise_prior is not None:
                     lm_log_probs_ -= labelwise_prior  # prior scale already applied
 
-                seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                    (seq_log_prob_, lm_log_probs_, lm_state_),
-                    (seq_log_prob, lm_log_probs, lm_state),
+                lm_seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                    (lm_seq_log_prob_, lm_log_probs_, lm_state_),
+                    (lm_seq_log_prob, lm_log_probs, lm_state),
                     mask=got_new_label,
                     mask_cpu=got_new_label_cpu,
                     dims=batch_dims + [beam_dim],
@@ -232,7 +240,8 @@ def model_recog_with_recomb_delayed_fusion(
         # seq_log_prob, lm_log_probs: Batch, Beam
         # Add LM EOS score at the end.
         lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
-        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+        lm_seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+    seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_wb_ = []
