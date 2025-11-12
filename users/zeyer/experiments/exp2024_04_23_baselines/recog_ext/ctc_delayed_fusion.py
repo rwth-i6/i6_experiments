@@ -260,10 +260,10 @@ def model_recog_with_recomb_delayed_fusion(
 
 
 # RecogDef API
-model_recog_with_recomb_v2: RecogDef[Model]
-model_recog_with_recomb_v2.output_with_beam = True
-model_recog_with_recomb_v2.output_blank_label = "<blank>"
-model_recog_with_recomb_v2.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+model_recog_with_recomb_delayed_fusion: RecogDef[Model]
+model_recog_with_recomb_delayed_fusion.output_with_beam = True
+model_recog_with_recomb_delayed_fusion.output_blank_label = "<blank>"
+model_recog_with_recomb_delayed_fusion.batch_size_dependent = True  # ...?
 
 
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:

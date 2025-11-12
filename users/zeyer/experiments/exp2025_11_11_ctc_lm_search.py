@@ -78,6 +78,18 @@ def py():
         recog_def=model_recog_with_recomb_v2,
     )
 
+    from .exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion import model_recog_with_recomb_delayed_fusion
+
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed/{lm_name}",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb_delayed_fusion,
+    )
+
 
 _base_config = {
     # ("large", 100),  # 100kh in total, 4 full epochs
