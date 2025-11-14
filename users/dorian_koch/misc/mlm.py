@@ -32,7 +32,7 @@ A lot of the code here is adapted from # https://github.com/microsoft/SpeechT5/b
 """
 
 import math
-from typing import Tuple
+from typing import Tuple, Union
 import torch
 import returnn.frontend as rf
 from functools import lru_cache
@@ -56,7 +56,12 @@ def make_poisson_dist(_lambda: float):
 
 
 def text_infill_masking(
-    source: rf.Tensor, *, source_spatial_dim: rf.Dim, mask_prob: float, lambda_poisson: float, mask_token_id: int
+    source: rf.Tensor,
+    *,
+    source_spatial_dim: rf.Dim,
+    mask_prob: Union[float, Tuple[float, float]],
+    lambda_poisson: float,
+    mask_token_id: int,
 ) -> Tuple[rf.Tensor, rf.Dim]:
     """
     https://github.com/microsoft/SpeechT5/blob/5d66cf5f37e97f4a1999ad519537decc16d852af/SpeechT5/speecht5/data/text_dataset.py#L263
@@ -71,7 +76,11 @@ def text_infill_masking(
     assert source._raw_backend.name == "torch"  # for poisson distribution sampling
     assert mask_token_id is not None
     assert lambda_poisson > 0.0
-    assert 0.0 < mask_prob < 1.0
+    if isinstance(mask_prob, tuple):
+        assert 0.0 <= mask_prob[0] <= mask_prob[1] <= 1.0
+        mask_prob = rf.random_uniform((), minval=mask_prob[0], maxval=mask_prob[1]).raw_tensor.item()
+    else:
+        assert 0.0 <= mask_prob <= 1.0
 
     # poisson dist has mean lambda_poisson, so each index will on average mask lambda_poisson tokens
     # TODO: does rf.random_uniform respect masks in source.dims? i think it doesnt matter
@@ -94,6 +103,7 @@ def text_infill_masking(
     # now we dont want our spans to go beyond the max sequence length
     # i think this makes our code bias towards lower mask ratio, but hopefully doesnt matter?
     # TODO does this matter
+    # we don't actually need to do this...
     lengths = torch.minimum(lengths, max_spat_len.raw_tensor - 1)
 
     num_to_mask_dim = rf.Dim(dimension=num_indices, name="num_mask_indices")
@@ -128,7 +138,7 @@ def text_infill_masking(
     mask_repeat = (source_shifted != mask_token_id) | (source != mask_token_id)
     # but always keep the first token
     mask_repeat |= rf.range_over_dim(source_spatial_dim) == 0
-    # dont include any padded positions (not sure if necessary)
+    # dont include any padded positions (not sure if this is necessary)
     mask_repeat &= source_spatial_dim.get_mask()
     assert mask_repeat.dims_set == source.dims_set
 
