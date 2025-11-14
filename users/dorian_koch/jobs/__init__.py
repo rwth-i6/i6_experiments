@@ -2,3 +2,4 @@ from .DatasetToTextDictJob import DatasetToTextDictJob
 from .AggregateOutputsAsCsv import AggregateOutputsAsCsv
 from .lexicon import MergeLexiconWithoutDuplicatesJob
 from .FixTorchModel import FixTorchModelJob
+from .GetModelInfo import GetModelInfo
