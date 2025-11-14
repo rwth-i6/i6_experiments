@@ -111,6 +111,8 @@ def text_infill_masking(
     # print(indices.device, all_indices.device, lengths_tensor.device)
     maskmask = (all_indices >= indices) & (all_indices < (indices + lengths_tensor))  # [all_merged, num_to_mask_dim]
     assert maskmask.dims_set == set([all_merged, num_to_mask_dim])
+    # merge all masks together
+    maskmask = rf.reduce_any(maskmask, axis=num_to_mask_dim)  # [all_merged]
 
     actual_num_masked = rf.reduce_sum(rf.cast(maskmask, "int32"), axis=maskmask.dims).raw_tensor.item()
     print(f"Actually masking {actual_num_masked} tokens")
@@ -130,10 +132,18 @@ def text_infill_masking(
     mask_repeat &= source_spatial_dim.get_mask()
     assert mask_repeat.dims_set == source.dims_set
 
+    old_source_dims = source.dims_set
+    old_source_spatial = source_spatial_dim
     source, source_spatial_dim = rf.masked_select(
         source,
         mask=mask_repeat,
         dims=[source_spatial_dim],
     )
+    assert (source.dims_set - {source_spatial_dim}) == (old_source_dims - {old_source_spatial})
+
+    new_spat_lens = rf.copy_to_device(source_spatial_dim.get_size_tensor(), device=spat_lens.device)
+    assert new_spat_lens.dims_set == spat_lens.dims_set
+    smaller_test = new_spat_lens <= spat_lens
+    assert rf.reduce_all(smaller_test, axis=smaller_test.dims).raw_tensor.item(), "spatial lengths should not increase"
 
     return source, source_spatial_dim
