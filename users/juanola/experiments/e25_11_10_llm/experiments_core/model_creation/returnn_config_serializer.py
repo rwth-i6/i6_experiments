@@ -43,7 +43,7 @@ def serialize_training(
     """
     pytorch_model_import = PartialImport(  # TODO: path is not exactly right! it adds "recipe"!!
         code_object_path=f"{ROOT_PACKAGE_SLLM}.{network_module}.Model",  # TODO: extract Model name!!
-        unhashed_package_root=ROOT_PACKAGE_SLLM,# TODO: big technical deb with this rplace
+        unhashed_package_root=ROOT_PACKAGE_SLLM,# TODO: big technical deb with this replace
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",

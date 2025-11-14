@@ -19,11 +19,11 @@ def train_step(
         *,
         # RETURNN PARAMS
         model: LmDecoderModelProtocol,
-        extern_data: TensorDict,
+        extern_data: TensorDict, #TODO: check extern_data vs data
 
         # TRAIN_STEP PARAMS
-        aux_loss_scales: Sequence[float], # TODO: remove
-        aed_loss_scale: float, # TODO: remove
+        aux_loss_scales: Sequence[float], # not used
+        aed_loss_scale: float, # not used
         label_smoothing: float,
         label_smoothing_start_epoch: int,
         num_eos_symbols: int = 1, #only defined here
@@ -32,49 +32,47 @@ def train_step(
 ):
     """
     RETURNN ENTRYPOINT!!
-    """
-    ctx: RunCtx = rf.get_run_ctx()
 
+    Coupled with LmDataset from returnn.datasets.lm
+    """
     assert num_eos_symbols >= 1
 
-    print(extern_data)
+    ctx: RunCtx = rf.get_run_ctx()
 
-    # data_: ReturnnTensor = extern_data[DATA_PARAM_NAME]
-    # data: Tensor = data_.raw_tensor
-    # data_lens: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
-    #
-    targets_: ReturnnTensor = extern_data[CLASSES_PARAM_NAME]
+    # TODO: check that data is received correctly
+    targets_ = extern_data["data"] # Target / label / ground truth
     targets: Tensor = targets_.raw_tensor
     target_lens: Tensor = targets_.dims[1].dyn_size_ext.raw_tensor
-    #
-    # # ENCODER (FORWARD) STEP # TODO. remove! only decoder?
-    # encoder_output, aux_logits, logits_lens, _ = model.forward(data, data_lens)
-    #
-    #
-    # input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx) # [B, MaxTextLen]
-    # input_labels_len = target_lens + 1 # [B]
-    #
-    # # DECODER (FORWARD) STEP
-    # logits: Tensor = model.decode_seq(input_labels, input_labels_len, encoder_output, logits_lens)
-    #
-    # # ??? some transformations
-    # logits_packed = pack_padded_sequence(logits, input_labels_len, batch_first=True, enforce_sorted=False)
-    # single_seqs = unpad_sequence(targets, target_lens, batch_first=True)
-    # eos_tensor = torch.tensor(num_eos_symbols * [model.eos_idx], device=targets.device, dtype=torch.int32)
-    # targets_w_eos_packed = pack_sequence(
-    #     [torch.concat((seq, eos_tensor), dim=-1) for seq in single_seqs],
-    #     enforce_sorted=False,
-    # ).data
-    #
-    # # "ce" LOSS
-    # cross_entropy_loss = F.cross_entropy(
-    #     logits_packed.data,
-    #     targets_w_eos_packed.long(),
-    #     label_smoothing=label_smoothing if ctx.epoch >= label_smoothing_start_epoch else 0.0,
-    #     reduction="none",
-    # )
+    #target_lens = extern_data["data:size1"]
 
-    cross_entropy_loss = 1.0
+    data_ = extern_data["delayed"] # Already generated sequence (shifted by one position)
+    data: Tensor = data_.raw_tensor
+    data_lens: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
+    #data_lens = extern_data["delayed:size1"]
+
+
+    # DECODER (FORWARD) STEP
+    # No encoder output | only delayed seq (to predict next token)
+    logits: Tensor = model.decode_seq(data, data_lens, None, None)
+    # TODO: understand exactly how delayed data looks [0, seq]? and what the model expects
+
+    # TODO: finish below on how data is obtained and used
+    # ??? some transformations
+    logits_packed = pack_padded_sequence(logits, data_lens, batch_first=True, enforce_sorted=False)
+    single_seqs = unpad_sequence(targets, target_lens, batch_first=True)
+    eos_tensor = torch.tensor(num_eos_symbols * [model.eos_idx], device=targets.device, dtype=torch.int32)
+    targets_w_eos_packed = pack_sequence(
+        [torch.concat((seq, eos_tensor), dim=-1) for seq in single_seqs],
+        enforce_sorted=False,
+    ).data
+
+    # "ce" LOSS
+    cross_entropy_loss = F.cross_entropy(
+        logits_packed.data,
+        targets_w_eos_packed.long(),
+        label_smoothing=label_smoothing if ctx.epoch >= label_smoothing_start_epoch else 0.0,
+        reduction="none",
+    )
     ctx.mark_as_loss(
         cross_entropy_loss,
         "ce",
@@ -83,5 +81,5 @@ def train_step(
     )
 
     # "fer" ERROR LOSS (not used for training)
-    # error = torch.argmax(logits_packed.data, dim=-1).not_equal(targets_w_eos_packed)
-    # ctx.mark_as_loss(error, "fer", as_error=True)
+    error = torch.argmax(logits_packed.data, dim=-1).not_equal(targets_w_eos_packed)
+    ctx.mark_as_loss(error, "fer", as_error=True)

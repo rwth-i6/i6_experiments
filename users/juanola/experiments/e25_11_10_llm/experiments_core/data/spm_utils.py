@@ -62,8 +62,8 @@ def build_spm_lm_training_datasets(
         train_ogg=ogg_zip_dict[librispeech_key],
         dev_clean_ogg=ogg_zip_dict["dev-clean"],
         dev_other_ogg=ogg_zip_dict["dev-other"],
-        returnn_settings=return_settings,
         label_datastream=label_datastream,
+        returnn_settings=return_settings,
         alpha=alpha,
     )
 

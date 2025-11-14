@@ -69,10 +69,7 @@ def build_lm_training_datasets(
                        None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
 
     training_vocab_settings = copy.deepcopy(vocab_settings)
-    training_vocab_settings.update(
-        {"alpha": alpha, "enable_sampling": True}
-        if alpha is not None
-        else {})
+    training_vocab_settings.update({"alpha": alpha, "enable_sampling": True} if alpha is not None else {})
 
     lm_train_dataset = LmDataset(
         corpus_file=train_ogg,
@@ -95,14 +92,14 @@ def build_lm_training_datasets(
         corpus_file=train_ogg,
         vocab_settings=vocab_settings,
         seq_ordering="sorted_reverse",
-        random_subset=3000,
+        random_subset=3000, # TODO: does not work with LMDataset in returnn
     )
     devtrain_dataset = make_dataset_multi_proc(devtrain_zip_dataset)
 
     return TrainingDatasets(
         train=train_dataset,
         cv=cv_dataset,
-        devtrain=devtrain_dataset,
+        devtrain=cv_dataset, # TODO: fix from rossenbach #devtrain_dataset,
         datastreams=datastreams,
     )
 

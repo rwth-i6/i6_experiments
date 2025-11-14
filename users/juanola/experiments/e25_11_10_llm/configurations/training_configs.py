@@ -3,7 +3,7 @@ llm_training_configs = {
         "aux_loss_layers": (4, 8),
         "num_enc_layers": 12,
         "num_heads": 8,
-        #"encoder_dim": 512,
+        "encoder_dim": 512,  # Todo remove?
         "vocab_size": 10_240,
         "sampling_rate": 16_000, # Todo remove?
         "specaug_start": (5_000, 15_000, 25_000),

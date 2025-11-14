@@ -40,13 +40,13 @@ class LmDataset(ControlDataset):
     def as_returnn_opts(self) -> Dict[str, Any]:
         d = {
             "class": "LmDataset",
-            "corpus_file": CodeWrapper(DelayedFormat('lambda: cf("{}")', self.corpus_file)),
+            "corpus_file": self.corpus_file, # CodeWrapper(DelayedFormat('lambda: cf("{}")', self.corpus_file)),
             "orth_replace_map_file": "",
             "word_based": True,
             "seq_end_symbol": "</s>",
             "auto_replace_unknown_symbol": False,
             "unknown_symbol": "<unk>",
-            "add_delayed_seq_data": True,
+            "add_delayed_seq_data": True, #creates the "delayed data!"
             "delayed_seq_data_start_symbol": "<s>",
         }
 

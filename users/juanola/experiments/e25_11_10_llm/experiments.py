@@ -50,7 +50,7 @@ def llm_ep(
     if debug:
         partition_epochs = 1
         num_gpus = 1
-        #TRAINING_GPU_MEMORY = 11
+        TRAINING_GPU_MEMORY = 24
 
 
 
@@ -64,9 +64,9 @@ def llm_ep(
         peak_normalization=True,
         train_partition_epoch=partition_epoch_factor,
         train_seq_ordering="laplace:.1000",
-        train_additional_options={
-            "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
-        },
+        #train_additional_options={
+        #    "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
+        #},
     )
     sampling_alpha = 0.7
     vocab_size = 10_240  # TODO: TD - this should not be hardcoded
