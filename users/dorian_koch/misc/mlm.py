@@ -68,14 +68,24 @@ def text_infill_masking(
     :param mask_token_id:
     :return: Tensor, Dim
     """
-    assert source._raw_backend.name == "torch"
+    assert source._raw_backend.name == "torch"  # for poisson distribution sampling
+    assert mask_token_id is not None
+    assert lambda_poisson > 0.0
+    assert 0.0 < mask_prob < 1.0
 
-    # poisson dist has mean lambda_poisson
-    # TODO: does this respect masks in source.dims? i think it doesnt matter
+    # poisson dist has mean lambda_poisson, so each index will on average mask lambda_poisson tokens
+    # TODO: does rf.random_uniform respect masks in source.dims? i think it doesnt matter
     mask_indices = rf.random_uniform(source.dims) < (mask_prob / lambda_poisson)
     num_indices = rf.reduce_sum(rf.cast(mask_indices, "int32"), axis=mask_indices.dims).raw_tensor.item()
     if num_indices == 0:
         return source, source_spatial_dim
+
+    spat_lens = source_spatial_dim.get_size_tensor()
+    total_tokens = rf.reduce_sum(spat_lens, axis=spat_lens.dims).raw_tensor.item()
+    print(
+        f"Masking {num_indices} spans, expect that to be {num_indices * lambda_poisson} masked tokens (of {total_tokens})",
+        mask_indices.device,
+    )
 
     mask_span_distribution = make_poisson_dist(lambda_poisson)
     lengths = mask_span_distribution.sample(sample_shape=(num_indices,))
@@ -84,7 +94,7 @@ def text_infill_masking(
     # now we dont want our spans to go beyond the max sequence length
     # i think this makes our code bias towards lower mask ratio, but hopefully doesnt matter?
     # TODO does this matter
-    lengths = torch.minimum(lengths, max_spat_len - 1)
+    lengths = torch.minimum(lengths, max_spat_len.raw_tensor - 1)
 
     num_to_mask_dim = rf.Dim(dimension=num_indices, name="num_mask_indices")
     lengths_tensor = rf.convert_to_tensor(lengths, dims=[num_to_mask_dim])
@@ -97,11 +107,33 @@ def text_infill_masking(
     )
     all_indices = rf.range_over_dim(all_merged)
     # create mask over the spans
-    maskmask = (all_indices >= indices) & (all_indices < (indices + lengths_tensor))
+    lengths_tensor = rf.copy_to_device(lengths_tensor, device=source.device)
+    # print(indices.device, all_indices.device, lengths_tensor.device)
+    maskmask = (all_indices >= indices) & (all_indices < (indices + lengths_tensor))  # [all_merged, num_to_mask_dim]
+    assert maskmask.dims_set == set([all_merged, num_to_mask_dim])
 
-    # merge back to original shape
+    actual_num_masked = rf.reduce_sum(rf.cast(maskmask, "int32"), axis=maskmask.dims).raw_tensor.item()
+    print(f"Actually masking {actual_num_masked} tokens")
+
+    # split back to original shape
     mask_indices = rf.split_dims(maskmask, axis=all_merged, dims=mask_indices.dims, pad_to_multiples=False)
     source = rf.where(mask_indices, mask_token_id, source)
 
-    # TODO: merge adjacent mask_token_id...
+    # now we eliminate consecutive duplicates of mask_token_id
+    # i.e. replace spans of mask_token_id with single mask_token_id
+    source_shifted = rf.shift_right(source, axis=source_spatial_dim, pad_value=mask_token_id)
+    # if both the current and previous token are mask_token_id, we want to remove the current one
+    mask_repeat = (source_shifted != mask_token_id) | (source != mask_token_id)
+    # but always keep the first token
+    mask_repeat |= rf.range_over_dim(source_spatial_dim) == 0
+    # dont include any padded positions (not sure if necessary)
+    mask_repeat &= source_spatial_dim.get_mask()
+    assert mask_repeat.dims_set == source.dims_set
+
+    source, source_spatial_dim = rf.masked_select(
+        source,
+        mask=mask_repeat,
+        dims=[source_spatial_dim],
+    )
+
     return source, source_spatial_dim
