@@ -1,4 +1,4 @@
-from multiprocessing.pool import ThreadPool
+import time
 import os
 import sys
 import functools
@@ -33,10 +33,15 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
     """
     gs.WORK_DIR = work_dir
 
+    prev_report_time = time.monotonic()
     count_all_jobs = 0
     count_cleaned_jobs = 0
 
     for root, dirs, files in os.walk(work_dir):
+        if time.monotonic() - prev_report_time > 10::
+            prev_report_time = time.monotonic()
+            print(f"Jobs found so far: {count_all_jobs}, cleaned: {count_cleaned_jobs}")
+
         job_dir_names = set()
         for dir_name in dirs:
             job_dir = root + "/" + dir_name
