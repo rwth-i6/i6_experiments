@@ -33,6 +33,7 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
     """
     gs.WORK_DIR = work_dir
 
+    count_all_jobs = 0
     count_cleaned_jobs = 0
 
     for root, dirs, files in os.walk(work_dir):
@@ -40,6 +41,7 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
         for dir_name in dirs:
             job_dir = root + "/" + dir_name
             if _is_job_dir(job_dir):
+                count_all_jobs += 1
                 job_dir_names.add(dir_name)
 
                 assert job_dir.startswith(work_dir + "/")
@@ -67,6 +69,8 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
         if job_dir_names:
             # don't visit job directories
             dirs[:] = [d for d in dirs if d not in job_dir_names]
+
+    print(f"Total jobs found: {count_all_jobs}, cleaned: {count_cleaned_jobs}")
 
 
 def _is_job_dir(job_dir: str) -> bool:
