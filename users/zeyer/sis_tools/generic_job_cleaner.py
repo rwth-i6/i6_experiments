@@ -33,9 +33,7 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
     """
     gs.WORK_DIR = work_dir
 
-    thread_pool = ThreadPool(gs.JOB_CLEANER_WORKER)
     count_cleaned_jobs = 0
-    results = []
 
     for root, dirs, files in os.walk(work_dir):
         job_dir_names = set()
@@ -58,11 +56,7 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
                         print(f"Clean: {job._sis_id()!r} in {job_dir!r} (dry-run)")
                     else:
                         print(f"Clean: {job._sis_id()!r} in {job_dir!r}")
-                        results.append(
-                            thread_pool.apply_async(
-                                tools.default_handle_exception_interrupt_main_thread(job._sis_cleanup)
-                            )
-                        )
+                        job._sis_cleanup()
                         count_cleaned_jobs += 1
                         if 0 < stop_after_n_jobs <= count_cleaned_jobs:
                             break
@@ -73,11 +67,6 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
         if job_dir_names:
             # don't visit job directories
             dirs[:] = [d for d in dirs if d not in job_dir_names]
-
-    for res in results:
-        res.wait()
-    thread_pool.close()
-    thread_pool.join()
 
 
 def _is_job_dir(job_dir: str) -> bool:
