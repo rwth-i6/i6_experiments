@@ -40,7 +40,7 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
     for root, dirs, files in os.walk(work_dir):
         if time.monotonic() - prev_report_time > 10:
             prev_report_time = time.monotonic()
-            print(f"Jobs found so far: {count_all_jobs}, cleaned: {count_cleaned_jobs}")
+            print(f"Jobs found so far: {count_all_jobs}, cleaned: {count_cleaned_jobs}, current dir: {root!r}")
 
         job_dir_names = set()
         for dir_name in dirs:
