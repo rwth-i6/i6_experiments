@@ -129,7 +129,17 @@ def py():
             train_def=lm_train_def,
         )
 
-    for n_l, dim in [(3, 1024), (6, 1024), (12, 1024), (16, 1024), (24, 1024), (32, 1024)]:
+    for n_l, dim in [
+        (3, 1024),
+        (6, 1024),
+        (12, 1024),
+        (16, 1024),
+        (24, 1024),
+        (32, 1024),
+        (32, 768),
+        (32, 512),
+        (16, 512),
+    ]:
         train(
             f"lm/trafo-n{n_l}-d{dim}-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100-spm10k",
             config=dict_update_deep(
