@@ -42,12 +42,12 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
             prev_report_time = time.monotonic()
             print(f"Jobs found so far: {count_all_jobs}, cleaned: {count_cleaned_jobs}, current dir: {root!r}")
 
-        job_dir_names = set()
+        exclude_recurse_dirs = set()
         for dir_name in dirs:
             job_dir = root + "/" + dir_name
             if _is_job_dir(job_dir):
                 count_all_jobs += 1
-                job_dir_names.add(dir_name)
+                exclude_recurse_dirs.add(dir_name)
 
                 assert job_dir.startswith(work_dir + "/")
                 parts = job_dir[len(work_dir) + 1 :].split("/")
@@ -68,12 +68,16 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
                         if 0 < stop_after_n_jobs <= count_cleaned_jobs:
                             break
 
+            elif "." in dir_name:
+                # exclude directories with dots in their names (probably not job dirs)
+                exclude_recurse_dirs.add(dir_name)
+
         if 0 < stop_after_n_jobs <= count_cleaned_jobs:
             break
 
-        if job_dir_names:
-            # don't visit job directories
-            dirs[:] = [d for d in dirs if d not in job_dir_names]
+        if exclude_recurse_dirs:
+            # don't visit those directories
+            dirs[:] = [d for d in dirs if d not in exclude_recurse_dirs]
 
     print(f"Total jobs found: {count_all_jobs}, cleaned: {count_cleaned_jobs}")
 
