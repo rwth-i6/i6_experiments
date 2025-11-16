@@ -129,9 +129,9 @@ def py():
             train_def=lm_train_def,
         )
 
-    for n_l in [3, 6, 12, 16, 24, 32]:
+    for n_l, dim in [(3, 1024), (6, 1024), (12, 1024), (16, 1024), (24, 1024), (32, 1024)]:
         train(
-            f"lm/trafo-n{n_l}-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100-spm10k",
+            f"lm/trafo-n{n_l}-d{dim}-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100-spm10k",
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
@@ -149,7 +149,7 @@ def py():
                         TransformerDecoder,
                         encoder_dim=None,
                         num_layers=n_l,
-                        model_dim=1024,
+                        model_dim=dim,
                         pos_enc=None,
                         norm=rf.build_dict(rf.RMSNorm),
                         ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
