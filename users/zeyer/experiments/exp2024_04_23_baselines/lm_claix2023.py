@@ -135,7 +135,7 @@ def py():
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
-                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, n_ep, batch_size_factor=1),
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
                     "max_seqs": 400,
                     "optimizer.weight_decay": 1e-2,
                     "calculate_exp_loss": True,
