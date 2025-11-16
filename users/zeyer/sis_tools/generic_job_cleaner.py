@@ -86,6 +86,9 @@ def _is_job_dir(job_dir: str) -> bool:
     """
     :param job_dir: absolute or relative path to job directory
     """
+    base_name = os.path.basename(job_dir)
+    if "." not in base_name:
+        return False
     if not os.path.isfile(job_dir + "/info"):
         return False
     if not os.path.isdir(job_dir + "/output"):
