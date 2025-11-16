@@ -104,6 +104,13 @@ def _job_sis_finished_simple(self: Job) -> bool:
 
 def main():
     """main"""
+    try:
+        import better_exchook
+
+        better_exchook.install()
+    except ImportError:
+        pass
+
     arg_parser = ArgumentParser()
     arg_parser.add_argument("work_dir", default="work")
     arg_parser.add_argument("--mode", default="dryrun", help="dryrun (default), run")
