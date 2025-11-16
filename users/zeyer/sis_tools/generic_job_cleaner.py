@@ -55,7 +55,7 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
                 cls_name, sis_hash = parts[-1].split(".", 1)
 
                 job = make_fake_job(module=module_s, name=cls_name, sis_hash=sis_hash)
-                assert job._sis_path() == job_dir
+                assert job._sis_path() == job_dir, f"{job._sis_path()!r} != {job_dir!r}"
                 job._sis_finished = functools.partial(_job_sis_finished_simple, job)
 
                 if job._sis_cleanable():
