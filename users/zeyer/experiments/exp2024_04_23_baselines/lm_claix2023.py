@@ -129,6 +129,41 @@ def py():
             train_def=lm_train_def,
         )
 
+    for n_l in [3, 6, 12, 16, 24, 32]:
+        train(
+            f"lm/trafo-n{n_l}-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100-spm10k",
+            config=dict_update_deep(
+                config_96gb_bf16_accgrad1,
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, n_ep, batch_size_factor=1),
+                    "max_seqs": 400,
+                    "optimizer.weight_decay": 1e-2,
+                    "calculate_exp_loss": True,
+                },
+            ),
+            train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        TransformerDecoder,
+                        encoder_dim=None,
+                        num_layers=n_l,
+                        model_dim=1024,
+                        pos_enc=None,
+                        norm=rf.build_dict(rf.RMSNorm),
+                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                        decoder_layer_opts=dict(
+                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
+                        ),
+                        dropout=0.0,
+                        att_dropout=0.0,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+
     # batch size max_seqs 2k
     train(
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-nEp200-spm10k",
