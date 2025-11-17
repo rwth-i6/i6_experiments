@@ -20,6 +20,8 @@ training_configs = {
             "num_filters": 80,
             "center": False,
         },
+        "using_encoder": True,
+        "using_decoder": False,
     },
     "v2": {}  # ...
 }

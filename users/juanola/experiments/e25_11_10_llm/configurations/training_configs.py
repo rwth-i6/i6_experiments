@@ -20,6 +20,8 @@ llm_training_configs = {
         #    "num_filters": 80,
         #    "center": False,
         #}, # TODO: finish removing things
+        "using_encoder": False,
+        "using_decoder": True,
     },
     "v2": {}  # ...
 }

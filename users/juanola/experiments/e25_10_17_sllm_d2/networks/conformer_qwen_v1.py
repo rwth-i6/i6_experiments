@@ -105,12 +105,12 @@ class Model(nn.Module, AedCtcModelProtocol,
             specaug_args: Optional[Dict[str, int]] = None,
 
             # OTHER
-            aux_loss_layers: Sequence[int],  # fot the ctc stuff
+            aux_loss_layers: Sequence[int],  # for the ctc stuff
             aux_logits_bias: bool = False,
 
             # Added later to use only parts of the model
-            using_encoder:bool = True,
-            using_decoder:bool = True,
+            using_encoder: bool = True,
+            using_decoder: bool = True,
 
             **_kwargs_unused,
     ):
@@ -128,11 +128,11 @@ class Model(nn.Module, AedCtcModelProtocol,
         self.bos_idx = bos_idx
         self.eos_idx = eos_idx
         self.num_labels = vocab_size
-        if blank_idx is not None: # blank index is part of the vocabulary
+        if blank_idx is not None:  # blank index is part of the vocabulary
             assert 0 <= blank_idx < vocab_size
             aux_out_dim = vocab_size
             self.blank_idx = blank_idx
-        else: # blank index is not part of the vocabulary, make space for it
+        else:  # blank index is not part of the vocabulary, make space for it
             aux_out_dim = vocab_size + 1
             self.blank_idx = vocab_size
 
@@ -423,7 +423,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         :returns: decoder output [Batch, Beam, Time=1, L]
         """
         qwen_input_embeds = self.decoder.get_input_embeddings()(labels)
-        #print("****qwen_input_embeds size", qwen_input_embeds.size())
+        # print("****qwen_input_embeds size", qwen_input_embeds.size())
         B, beam, T, F = qwen_input_embeds.shape  # noqa
 
         past_key_values = state["past_key_values"]
