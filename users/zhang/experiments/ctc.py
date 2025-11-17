@@ -1,5 +1,6 @@
 """
 CTC experiments.
+Backbone stuff taken from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc
 """
 
 from __future__ import annotations
@@ -557,6 +558,7 @@ def recog_exp(
         params.pop("check_search_error_rescore", None)
         params.pop("tune_range_2", None)
         params.pop("tune_range", None)
+        params.pop("EC_config", None)
         if tune_with_orig_nbest:
             params.pop("Nlist_configs", None)
             params.pop("Nbest_dataset", None)

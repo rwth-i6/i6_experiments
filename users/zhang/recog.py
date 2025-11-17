@@ -566,10 +566,6 @@ def recog_model(
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets and dataset_name not in dev_sets:
                 continue
-        # print(f"dataset:{dataset}, type{type(dataset)}, name:{dataset_name}, type:{type(dataset_name)}")
-        # from i6_experiments.users.zhang.experiments.exp_wer_ppl import LLM_PREV_ONE_CTX
-        # if LLM_PREV_ONE_CTX:
-        #     dataset["seq_ordering"] = "default"
         import copy
         config_ = config
         if using_trafo_lm(config):
@@ -577,21 +573,9 @@ def recog_model(
             trafo_config = copy.deepcopy(config)
             trafo_config["batch_size"] = 2_400_000 if decoding_config["beam_size"] <= 50 else 1_600_000
             trafo_config["max_seqs"] = 90
-            # if trafo_config.get("batch_size", False):
-            #     trafo_config["batch_size"] = config["batch_size"] if config["batch_size"] < 2_000_000 else config["batch_size"] // 4
-            # else:
-            #      # Use PLOT var For not broken hash for finished exps related to trafo
-            #     trafo_config["batch_size"] = 3_200_000 if PLOT else 1_000_000 # Try limit max_seq to be able to use larger batch_size, current usage is still low for 80g GPU
-            #     if PLOT:
-            #         trafo_config["max_seqs"] = 90
-
             watch_list = ["eval_napoli_202210-v3", "movies_tvshows_talks_202303-v3"]#, "mtp_dev_heldout-v2"]
             if any(watch in dataset_name for watch in watch_list):
                 trafo_config["batch_size"] = 2_000_000 if decoding_config["beam_size"] <= 50 else 1_000_000
-            # watch_list = ["mtp_eval_p4_family_holiday_other", "mtp_dev_heldout-v2", "eval_callcenter_lt-v5"]
-            # for name in watch_list:
-            #     if name in dataset.get_main_name():
-            #         trafo_config["batch_size"] = 2_000_000
             search_rqmt.update({"gpu_mem": 80, "time": 12 if "mtp_dev_heldout-v2" in dataset.get_main_name() else 8})
             config_ = trafo_config
         if using_ffnn_lm(config):
@@ -955,6 +939,7 @@ def search_dataset(
     decoding_config = decoding_config.copy()
     combine_Nlist_configs = decoding_config.pop("Nlist_configs",[])
     combine_given_Nlist = decoding_config.pop("combine_with_given_Nlist",False)
+    EC_config = decoding_config.pop("EC_config",None)
     first_pass_lm_name = decoding_config.get("lm_order", "")
     use_word_lm_first_pass = "word" in first_pass_lm_name or combine_given_Nlist
     cheat = decoding_config.pop("cheat", False) and "aptk_leg" not in dataset.get_main_name()
@@ -1228,6 +1213,15 @@ def search_dataset(
         res = f(RecogOutput(output=res)).output
         if lm_rescoring_res is not None:
             lm_rescoring_res = f(RecogOutput(output=lm_rescoring_res)).output
+    if EC_config:
+        print(f"{search_alias_name}: \n\t Do EC with {EC_config.model_name}!")
+        from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import LLMErrorCorrectionJob, \
+            get_EC_rqmt, LLMECConfig
+        EC_config: LLMECConfig
+        EC_job = LLMErrorCorrectionJob(recog_out_file=res, config=EC_config)
+        EC_job.rqmt.update(get_EC_rqmt(EC_config))
+        EC_job.add_alias(search_alias_name + f"/EC_with{os.path.basename(EC_config.model_name)}")
+        res = EC_job.out_file
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.

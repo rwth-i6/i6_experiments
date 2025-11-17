@@ -1,16 +1,18 @@
 """
-CTC experiments on Apptek datasets(refactored).
+CTC experiments on LBS datasets(refactored).
 """
 
 from __future__ import annotations
 
 import re
+import os
 from typing import Tuple, Optional, Dict, Any, TYPE_CHECKING
 
 from i6_experiments.users.zhang.experiments.lm_getter import build_all_lms
 from i6_experiments.users.schmitt.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
+from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import LLMECConfig
 from returnn_common.datasets_old_2022_10.interface import VocabConfig
 from sisyphus import tk
 
@@ -37,6 +39,59 @@ DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
+# -----------------Error Correction related-----------------
+STRATEGY = "top1_only"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
+NBEST_K = 3  # Only considered when use "nbest_reason_rewrite" strategy
+CONTEXT_MODE = "none"  # "none" | "prev_top1" | "prev_corrected"
+CONTEXT_WINDOW = 50
+JSON_OUT = True
+EXAMPLES = """
+Ejemplos:
+
+entrada: "buenos dias a todoz y todas"
+salida: "buenos dias a todos y todas"
+
+entrada: "el real madri a ganado la liga"
+salida: "el real madrid ha ganado la liga"
+"""
+
+FEW_SHOT = False
+EXAMPLES_JSON = """
+Ejemplo:
+
+entrada: {"text": "buenos dias a todoz y todas"}
+salida: {"text": "buenos dias a todos y todas"}
+
+entrada: {"text": "el real madri a ganado la liga"}
+salida:{"text": "el real madrid ha ganado la liga"}
+"""
+
+
+SPANISH_SYSTEM_PROMPT = f"""
+Eres un corrector de errores de reconocimiento automático del habla (ASR) en español.
+Recibes una hipótesis de ASR y debes producir una versión corregida en español.
+
+{(EXAMPLES_JSON if JSON_OUT else EXAMPLES) if FEW_SHOT else ''}
+
+Reglas:
+- corrige solo errores claros, haz cambios mínimos
+- prefiere sustituir por palabras que suenen muy parecido a las originales
+- evita borrar palabras salvo que sea claramente necesario
+- intenta mantener un número de palabras similar
+- no añadas información nueva
+
+Formato de salida:
+- solo la frase corregida
+- todo en minúsculas
+- sin signos de puntuación
+- sin guiones
+- sin comillas
+- sin paréntesis
+- sin símbolos especiales
+- solo usa espacios simples para separar palabras
+- no añadas ningún comentario ni explicación
+"""
+# -----------------Search config-----------------
 # !! PLOT need to be set in main exp
 
 CHEAT_N_BEST = False
@@ -46,7 +101,7 @@ TUNE_TWO_ROUND = True
 
 BEAM_SIZE = 500
 TRAFO_BEAM = 200
-NBEST = 200 # Use 100 for plot
+NBEST = 100 # Use 100 for plot
 
 TUNE_ON_GREEDY_N_LIST = False
 
@@ -189,6 +244,10 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
             lm_hyperparamters_str += f"{dec_config['lm_order']}_b{dec_config['beam_size']}_n{dec_config['nbest']}_"
     lm2_hyperparamters_str = "_" + p5 + "_" + p6 + p7
     alias_name = f"LBS-ctc-baseline_{encoder}_decodingWith_1st-{lmname}_{lm_hyperparamters_str}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}_2rd{lm2_hyperparamters_str}"
+
+    EC_config = decoding_config.get("EC_config",None)
+    EC_model_name = EC_config.model_name if EC_config else None
+    alias_name += f"_EC_with_{EC_model_name}" if EC_model_name else ""
     first_pass_name = f"LBS-ctc-baseline_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}"
     return alias_name, first_pass_name
 
@@ -219,6 +278,7 @@ def ctc_exp(
     lm_vocab: Optional[Bpe : SentencePieceModel] = None,
     rescore_lm: Optional[ModelWithCheckpoint, dict] = None,
     rescore_lm_name: str = None,
+    EC_config: Optional[LLMECConfig] = None,
     encoder: str = "conformer",
     train: bool = False,
 ):
@@ -393,6 +453,8 @@ def ctc_exp(
                                    default_prior=decoding_config["prior_weight"],
                                    first_pass=True)
 
+    if EC_config:
+        decoding_config["EC_config"] = EC_config
     if COMBINE_NLIST:
         decoding_config["Nlist_configs"] = N_BEST_COMBINE_CONFIGS
         decoding_config["tune_with_orig_Nbest"] = TUNE_WITH_ORIG_NBEST
@@ -476,7 +538,7 @@ def ctc_exp(
 # --- Main py() function ---
 
 from i6_experiments.users.zhang.utils.report import GetOutPutsJob
-from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import LLMECConfig
+
 def py():
     # from apptek_asr.artefacts import ArtefactSpecification
     # from apptek_asr.artefacts.factory import AbstractArtefactRepository
@@ -501,80 +563,103 @@ def py():
                   #"bpe10k",
                   #"spm10k",
                   ]:
-        word_ppl = True # Default
+        word_ppl = True # Default if not plot
         # LM that do first pass,
-        lm_kinds = {"ffnn",
-                    #"trafo", #nn has better result on second pass for cfm
-                    #"trafo_n24d1024",
-                    #"trafo_n24d1280_rope_ffgated",
-                    #"4gram_word_official_LBS"
+        lm_kinds = {#"ffnn",
+                    "trafo",
                     }
-        lm_kinds_2 = {#"ngram", # LM that do second pass
+        lm_kinds_2 = {#"ngram", # Ngrams with varies PPLs
+                    #"4gram",
                     #"word_ngram",
                     #"ffnn",
-                    #"6gram",
                     #"trafo",
-                    #"4gram_word_official_LBS",
                     #"LLM"
                     }
-        insert_spm10k_lm = False
-        LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 80,  # 40 on 48gb,
-                              #"meta-llama/Llama-3.1-8B": 180,#120 + ctx 100 for 141g,# 70 for 80gb # batch 50 + ctx 200 -> 40GB peak
-                               #"Qwen/Qwen3-0.6B-Base": 51,
-                              "Qwen/Qwen3-1.7B-Base": 80,  # 40 on 48gb# 80 + ctx 100 -> 79 peak
-                              # "Qwen/Qwen3-4B-Base":24,
-                              #"Qwen/Qwen3-8B-Base":50,
-                             #"microsoft/phi-4": 160,#120 for 141g, 50 for 80gb, #(batch 42 + ctx 200 -> 47gb peak. batch 150 + ctx 100 -> 105/130gb peak)
+        #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
+        reduce_offset = max(0,10*(CTX_LEN_LIMIT//100 - 1)) if LLM_PREV_ONE_CTX else -20
+        LLM_and_Batch_size = {"meta-llama/Llama-3.2-1B": 40 - reduce_offset,  # 40*6,
+                              #"meta-llama/Llama-3.1-8B": 40 - reduce_offset,#base 80 for 141 40 for 80
+                              # "Qwen/Qwen3-0.6B-Base": 51,
+                              #"Qwen/Qwen3-1.7B-Base": 40 - reduce_offset,  # 40*6,#15 has peak 19GB on 48G, so can be at least doubled
+                              # "Qwen/Qwen3-4B-Base":40,
+                              #"Qwen/Qwen3-8B-Base":40,
+                             #"microsoft/phi-4": 40 - reduce_offset,# base 80 for 141 40 for 80
                               # "mistralai/Mistral-7B-v0.3": 4,
                               }  # Keys of this determines which LLM will be built by lm_getter
 
-        EC_LLMs = {"meta-llama/Llama-3.2-3B-Instruct"}
-        EC_configs = {model_id:LLMECConfig(
+        EC_LLMs_Batch_size = {"meta-llama/Llama-3.2-3B-Instruct": 50,
+                   #"Qwen/Qwen3-4B-Instruct-2507",
+                   "Qwen/Qwen2.5-3B-Instruct": 50,
+                   "meta-llama/Meta-Llama-3-8B-Instruct": 30,
+                    "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": 8,
+                   }
+        EC_configs = [(os.path.basename(model_id),LLMECConfig(
         provider="hf",
-        model_name_or_path=model_id,
+        expect_json=JSON_OUT,
+        model_name=model_id,
         device="auto",
         dtype="bfloat16",
-        strategy="top1_only", # Only correct the top1
-        nbest_k=5, # Only considered when use "nbest_reason_rewrite" strategy
+        system_prompt=SPANISH_SYSTEM_PROMPT,
+        prompt_lang="ES",
+        strategy=STRATEGY, # Only correct the top1
+        nbest_k=NBEST_K, # Only considered when use "nbest_reason_rewrite" strategy
         order_by_score=True,
         score_policy="keep_top1",
-        context_mode="prev_top1",
-        context_window=100,
-        max_new_tokens=64,
+        context_mode=CONTEXT_MODE, # "none" | "prev_top1" | "prev_corrected"
+        context_window=CONTEXT_WINDOW,
+        hf_batch_size=EC_LLMs_Batch_size[model_id],
+        max_new_tokens=128,
         temperature=0.0,
         top_p=1.0,
         repetition_penalty=1.0, # HF only
-        ) for model_id in EC_LLMs}
+        )) for model_id in EC_LLMs_Batch_size.keys()]
 
-        #lm_kinds = [] if "ffnn" not in lm_kinds_2 else lm_kinds
-        if "LLM" in lm_kinds_2 or "word_ngram" in lm_kinds_2 or insert_spm10k_lm:
+        EC_LLMs_hf_api = {#"meta-llama/Llama-3.3-70B-Instruct",
+                          #"Qwen/Qwen2.5-72B-Instruct",
+                          }
+        EC_configs += [(os.path.basename(model_id),LLMECConfig(
+        provider="hf_api",
+        model_name=model_id,
+        device="cpu",
+        dtype="bfloat16",
+        system_prompt=SPANISH_SYSTEM_PROMPT,
+        prompt_lang="ES",
+        strategy=STRATEGY, # Only correct the top1
+        nbest_k=NBEST_K, # Only considered when use "nbest_reason_rewrite" strategy
+        order_by_score=True,
+        score_policy="keep_top1",
+        context_mode="none", # Better do not use context for remote api
+        context_window=CONTEXT_WINDOW,
+        max_new_tokens=128,
+        temperature=0.0,
+        top_p=1.0,
+        repetition_penalty=1.0, # HF only
+        )) for model_id in EC_LLMs_hf_api]
+
+        if "LLM" in lm_kinds_2:
             word_ppl = True
-        lms, ppl_results, _ = build_all_lms(vocab, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True, only_transcript=False,
-                                            task_name="LBS")  # NEW
+            #lm_kinds = ["ffnn"]
+            #lm_kinds_2 = ["trafo", "LLM"]
+        lms, ppl_results, _ = build_all_lms(vocab, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True,
+                                            task_name="ES")  # NEW
         #lms = {}
         #ppl_results = {}
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, only_best=True, only_transcript=False,
-                                                     task_name="LBS", llmids_batch_sizes=LLM_and_Batch_size)
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl,
+                                                     task_name="ES", llmids_batch_sizes=LLM_and_Batch_size)
         rescor_lms.update({"NoLM": None})
-        EC_configs.update({"NoLM": None})
-        if insert_spm10k_lm:
-            from i6_experiments.users.zhang.experiments.lm_getter import build_trafo_lm_spm
-            other_lms, other_lms_ppl, _ =  build_trafo_lm_spm()
-            rescor_lms.update(other_lms)
-            ppl_results_2.update(other_lms_ppl)
-
-        rescor_lms.update({"NoLM": None})
+        EC_configs.append(("NoLM", None))
         ppl_results_2.update({"uniform": {k:10240.0 for k in EVAL_DATASET_KEYS}})
 
         # print(lms)
         # print(rescor_lms)
 
-        def first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2, lm_weight: Optional[float] = None, prior_weight:Optional[float] = None):
-            if not greedy_first_pass:
-                lms.pop("NoLM",None)
+        def first_pass_with_lm_exp(exp, model_name, lms,
+                                   rescor_lms, lm_kinds, lm_kinds_2,
+                                   EC_config: Optional[Tuple] = None,):
+            lms.pop("NoLM",None)
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl
             wer_results = dict()
             for name, lm in lms.items():  # First pass lms
@@ -583,13 +668,12 @@ def py():
                     name, lm, vocab,
                     encoder=encoder, train=train,
                     lm_vocab="spm10k" if "spm10k" in name else None,
-                    lm_weight=lm_weight,
-                    prior_weight=prior_weight,
                 )
                 break_flag = False
                 wer_ppl_results_2 = dict()
+                two_pass_same_lm = False
                 for name_2, lm_2 in rescor_lms.items():  # Second pass lms
-                    if lm is None and lm_2 is not None: # Skip 2 pass on greedy first pass
+                    if EC_config[1] and lm_2:
                         continue
                     two_pass_same_lm = False
                     one_pass_lm = name_2
@@ -597,93 +681,83 @@ def py():
                         wer_ppl_results_2[name_2] = (
                             ppl_results_2.get(name_2), *one_pass_res)
                         wer_results[one_pass_lm] = one_pass_res[-5]
-                        #print(wer_results[one_pass_lm])
                         two_pass_same_lm = True
-                    print(name, name_2)
-                    (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict, rescor_ppls,
+                    print(name, name_2, EC_config[0])
+                    (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict,rescor_ppls,
                      lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale) = exp(
                         name, lm, vocab,
                         rescore_lm=lm_2,
                         rescore_lm_name=name_2,
+                        EC_config=EC_config[1],
                         encoder=encoder, train=train,
                         lm_vocab="spm10k" if "spm10k" in name_2 else None,
-                        lm_weight=lm_weight,
-                        prior_weight=prior_weight,
+                        model=model,
+                        model_config=model_config,
+                        vocab_config=vocab,
+                        prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
+                        i6_models=i6_models,
                     )
                     if lm_2:
-                        wer_ppl_results_2[f"{name} + {name_2}" if two_pass_same_lm else name_2] = (
+                        wer_ppl_results_2[f"{name} + {name_2} + {EC_config[0]}" if two_pass_same_lm else name_2] = (
                             ppl_results_2.get(name_2) if not rescor_ppls or CHEAT_CTX else rescor_ppls, wer_result_path, search_error, search_error_rescore, lm_tune,
                             prior_tune,
                             dafault_lm_scale,
                             dafault_prior_scale)
                         wer_results[f"{name} + {name_2}" if two_pass_same_lm else name_2] = output_dict
                     else: # Second pass NoLM, assert unique first pass lm
-                        wer_ppl_results_2["uniform"] = (
+                        wer_ppl_results_2[EC_config[0]] = (
                             ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
                             None,
                             None, 0, 0)
-                        wer_results["uniform"] = output_dict
+                        wer_results[EC_config[0]] = output_dict
                     if break_flag:  # Ensure for lm do first pass not do second pass multiple times
                         break
+                if not two_pass_same_lm:
+                    wer_ppl_results_2[name] = (
+                        ppl_results.get(name), *one_pass_res)
+                    wer_results[name] = one_pass_res[-5]
                 # print(wer_ppl_results_2)
                 # if lm:
                 #     wer_ppl_results[name] = (
                 #     ppl_results.get(name), wer_result_path, search_error, lm_tune, prior_tune, dafault_lm_scale,
                 #     dafault_prior_scale)
-                if wer_ppl_results_2 and not train and lm is not None:
-                    #print(wer_ppl_results_2)
-                    names, res = zip(*wer_ppl_results_2.items())
-                    results = [(x[0], x[1]) for x in res]
-                    search_errors = [x[2] for x in res]
-                    search_errors_rescore = [x[3] for x in res]
-                    lm_tunes = [x[4] for x in res]
-                    prior_tunes = [x[5] for x in res]
-                    dafault_lm_scales = [x[6] for x in res]
-                    dafault_prior_scales = [x[7] for x in res]
+            if wer_ppl_results_2 and not train:
+                #print(wer_ppl_results_2)
+                names, res = zip(*wer_ppl_results_2.items())
+                results = [(x[0], x[1]) for x in res]
+                search_errors = [x[2] for x in res]
+                search_errors_rescore = [x[3] for x in res]
+                lm_tunes = [x[4] for x in res]
+                prior_tunes = [x[5] for x in res]
+                dafault_lm_scales = [x[6] for x in res]
+                dafault_prior_scales = [x[7] for x in res]
 
-                    summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
-                                                           search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
-                                                           eval_dataset_keys=EVAL_DATASET_KEYS)
-                    gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
-                    llm_related_name_ext = f"{'cheat_ctx' if CHEAT_CTX else ''}" + f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"rdm_ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
-                        f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
-                    alias_prefix = (
-                            f"LBS_wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
-                            + ("n_best_cheat" if CHEAT_N_BEST else "")
-                            + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
-                    summaryjob.add_alias(alias_prefix+"/summary_job")
-                    tk.register_output(alias_prefix + "/report_summary",
-                                       GetOutPutsJob(outputs=wer_results).out_report_dict)
-                    tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
-                    for i, key in enumerate(EVAL_DATASET_KEYS):
-                        #tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
-                        tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
-                        tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
+                                                       search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
+                                                       eval_dataset_keys=EVAL_DATASET_KEYS)
+                gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
+                llm_related_name_ext = f"{'cheat_ctx' if CHEAT_CTX else ''}" + f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
+                    f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
+                llm_related_name_ext += f'EC{EC_config[0]}' + f"{'top1_only' if STRATEGY == 'top1_only' else f'{NBEST_K}_best'}" + f"{CONTEXT_MODE if CONTEXT_MODE != 'none' else ''}"
+                alias_prefix = (
+                        f"LBS_wer_ppl/{f'1st_pass_{name}'}{'givenNbest' if USE_GIVEN_NBEST else ''}{'combined' if COMBINE_NLIST else ''}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
+                        + ("n_best_cheat" if CHEAT_N_BEST else "")
+                        + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
+                summaryjob.add_alias(alias_prefix+"/summary_job")
+                tk.register_output(alias_prefix + "/report_summary",
+                                   GetOutPutsJob(outputs=wer_results).out_report_dict)
+                tk.register_output(alias_prefix + "/wers", summaryjob.out_tables["wers"])
+                for i, key in enumerate(EVAL_DATASET_KEYS):
+                    #tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
+                    tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
+                    tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
 
         for model_name, exp in models.items():
             if (vocab, model_name, encoder) not in available:
                 train = True
             #wer_ppl_results = dict()
-            scales = [(0.8,0.2)] if "4gram_word_official_LBS" in lm_kinds else [(None,None)]
-            for lm_weight, prior_weight in scales:
-                first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2, lm_weight=lm_weight, prior_weight=prior_weight)
-
-            # if wer_ppl_results and not train:
-            #     names, res = zip(*wer_ppl_results.items())
-            #     results = [(x[0], x[1]) for x in res]
-            #     search_errors = [x[2] for x in res]
-            #     search_errors_rescore = [x[3] for x in res]
-            #     lm_tunes = [x[3] for x in res]
-            #     prior_tunes = [x[4] for x in res]
-            #     dafault_lm_scales = [x[5] for x in res]
-            #     dafault_prior_scales = [x[6] for x in res]
-            #
-            #     summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
-            #                                            search_errors_rescore, dafault_lm_scales, dafault_prior_scales,
-            #                                            eval_dataset_keys=EVAL_DATASET_KEYS)
-            #     alias_prefix = "wer_ppl/" + model + "_" + vocab + encoder + ("n_best_cheat" if CHEAT_N_BEST else "")
-            #     tk.register_output("wer_ppl/" + model + "_" + vocab + encoder + "/summary",
-            #                        summaryjob.out_summary)
-            #     for i, key in enumerate(EVAL_DATASET_KEYS):
-            #         tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
-            #         tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
+            if greedy_first_pass:
+                greedy_first_pass_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2)
+            else:
+                for EC_config in EC_configs:
+                    first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2, EC_config=EC_config)

@@ -260,7 +260,6 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             #     print(f"Add PPLs on {dataset_key_} for epoch {epoch}:\n -> {ppls}\n")
             # if dataset_key_ == "test-other":
             #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
-    print(ppls)
     for epoch in check_epochs:
         tk.register_output(f"test/ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
     return ppls

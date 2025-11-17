@@ -384,15 +384,15 @@ def _compute_merged_costa(name: str, corpus_dict: Dict[str, EvalInfo], alias_pre
         ]
         merge_corpora_job = MergeCorporaJob(corpora_to_merge, merge_strategy=MergeStrategy.CONCATENATE, name=name)
         stats_job = ComputeCorpusStatisticsJob(merge_corpora_job.out_merged_corpus, audio_dir=None)
-        tk.register_output(
-            f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length",
-            stats_job.average_segment_length,
-        )
-        tk.register_output(
-            f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length-std",
-            stats_job.average_segment_length_std,
-        )
-        tk.register_output(f"{alias_prefix}/costa/{name}.{segmenter_type}/duration", stats_job.corpus_duration)
+        # tk.register_output(
+        #     f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length",
+        #     stats_job.average_segment_length,
+        # )
+        # tk.register_output(
+        #     f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length-std",
+        #     stats_job.average_segment_length_std,
+        # )
+        # tk.register_output(f"{alias_prefix}/costa/{name}.{segmenter_type}/duration", stats_job.corpus_duration)
 
 
 @cache

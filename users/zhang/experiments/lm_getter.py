@@ -376,7 +376,7 @@ def parse_trafo_name(name: str):
     match = re.search(r"n(\d+)d(\d+)", name)
     if not match:
         print(f"Warning: Use default trafo network setting for {name}")
-        return None, None
+        return None, None, None
     return int(match.group(1)), int(match.group(2)), "rope_ffgated" in name
 
 def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt: bool = False, word_ppl: bool = False,

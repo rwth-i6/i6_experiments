@@ -266,7 +266,7 @@ def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcri
         batch_size=10_000,
         rqmt={"gpu_mem": 48, "time": 2},
     )
-    print(ppls)
+    # print(ppls)
     if epochs:
         for epoch in epochs:
             #assert epoch in model_with_checkpoints.fixed_epochs
