@@ -102,27 +102,26 @@ def build_messages_tap_nbest_reason(
 
     # You can shorten these answers if you like; they mainly serve as
     # task activation / few-shot priming.
-    q1 = "Q: Do you know speech recognition?"
+    q1 = "Do you know speech recognition?"
     r1 = (
-        "R: Yes, I am familiar with automatic speech recognition (ASR), "
+        "Yes, I am familiar with automatic speech recognition (ASR), "
         "which converts spoken language into text using acoustic and "
         "language models."
     )
-    q2 = "Q: Do you know language model for speech recognition?"
+    q2 = "Do you know language model for speech recognition?"
     r2 = (
-        "R: Yes. In ASR, a language model scores word sequences to help "
+        "Yes. In ASR, a language model scores word sequences to help "
         "disambiguate acoustically similar hypotheses. It is often used "
         "to rescore N-best hypotheses and select the most likely "
         "transcription given the context."
     )
-    q3 = "Q: Could you give a possible example of language model rescoring with some hypotheses?"
+    q3 = "Could you give a possible example of language model rescoring with some hypotheses?"
     r3 = (
-        "R: Sure, here is an example of N-best rescoring with 5 hypotheses:\n"
+        "Sure, here is an example of N-best rescoring with 5 hypotheses:\n"
         "1. recognize speech with artificial intelligence.\n"
         "2. recognized speech with artificial intelligence.\n"
-        "3. recognize speech with artificial intelligent.\n"
-        "4. reckon eyes speech with artificial intelligence.\n"
-        "5. recognize peach with artificial intelligence.\n\n"
+        "3. reckon eyes speech with artificial intelligence.\n"
+        "4. recognize peach with artificial intelligence.\n\n"
         "A good language model assigns highest probability to (1), which is "
         "the correct transcription: recognize speech with artificial intelligence."
     )
@@ -143,7 +142,7 @@ def build_messages_tap_nbest_reason(
 
     # Final question with target hypotheses
     q4_lines = [
-        f"Q: Nice job. I will now provide some examples as a demonstration from {domain}.",
+        f"Nice job. I will now provide some examples as a demonstration from {domain}.",
         examples_text.strip(),
         "Following these examples, please report the most plausible true transcription ",
         "for the following N-best hypotheses:",
@@ -231,7 +230,7 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
 
     # account for KV cache, activations, fragmentation, PyTorch overhead
     safety_factor = 2.0
-    need_gb = model_mem_gb * safety_factor
+    need_gb = model_mem_gb * safety_factor + (8 if cfg.tap_examples else 0)
 
     # Bucket into typical GPU sizes on AppTek cluster
     if need_gb <= 16:
@@ -280,6 +279,14 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
     #         return {"cpu": 1, "mem": 25, "time": 3, "gpu_mem": 24}
 
 # -------------------------- Configuration dataclass ---------------------------
+system_prompt_es = (
+    "eres un transcriptor de segunda pasada que recibe la primera transcripción de un enunciado acústico. "
+    "por favor corrige cualquier error de transcripción de la primera pasada para minimizar la distancia de edición "
+    "con la transcripción de referencia desconocida. ten en cuenta que el original fue hablado, así que no corrijas "
+    "las disfluencias en el texto y concéntrate en corregir nombres propios. escribe solo la frase actualizada sin "
+    "comentarios adicionales. escribe solo palabras en minúsculas sin puntuación\n\n"
+)
+
 @dataclass
 class LLMECConfig:
     # Provider / model
@@ -315,10 +322,17 @@ class LLMECConfig:
     # Prompt style
     tap_examples: List[TapExample] = None
     system_prompt: str = (
-    "You are second pass transcriber that is given the first pass transcription of an acoustic utterance. "
-    "Please fix any transcription errors of the first pass transcriber to minimize the edit distance to the "
-    "unknown reference transcription. Write only the updated sentence without any additional comments. Do not translate it."
-    "Write only lowercased words without punctuation")
+                    "You are second pass transcriber that is given the first pass transcription of an acoustic utterance. "
+                    "Please fix any transcription errors of the first pass transcriber to minimize the edit distance to the "
+                    "unknown reference transcription. Note that the original was spoken, so please do not correct disfluencies "
+                    "in the text and rather focus on correcting proper names. Write only the updated sentence without any additional comments. "
+                    "Write only lowercased words without punctuation\n\n"
+                )
+    # (
+    # "You are second pass transcriber that is given the first pass transcription of an acoustic utterance. "
+    # "Please fix any transcription errors of the first pass transcriber to minimize the edit distance to the "
+    # "unknown reference transcription. Write only the updated sentence without any additional comments. Do not translate it."
+    # "Write only lowercased words without punctuation"))
 
     # Prompt_alt_1 few shot:
     # """
@@ -657,17 +671,18 @@ def generate_json_text_hf_batch(
     with torch.no_grad():
         out = model.generate(**inputs, **gen_kwargs)
 
-    # lengths of each input prompt (before padding)
-    # attention_mask: 1 for real tokens, 0 for padding
-    attn_mask = inputs["attention_mask"]
-    input_lengths = attn_mask.sum(dim=1)  # shape: [B]
+    # # lengths of each input prompt (before padding)
+    # # attention_mask: 1 for real tokens, 0 for padding
+    # attn_mask = inputs["attention_mask"]
+    # input_lengths = attn_mask.sum(dim=1)  # shape: [B]
+    seq_len = inputs["input_ids"].shape[1]  # T
 
     end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
 
     texts: List[str] = []
     for i in range(out.size(0)):
         # slice generated part for sample i
-        gen_tokens = out[i, input_lengths[i] :]
+        gen_tokens = out[i, seq_len :]
 
         # Manual cut at <|im_end|>
         if end_id is not None and end_id in gen_tokens:
@@ -678,15 +693,25 @@ def generate_json_text_hf_batch(
                 pass
 
         text = tokenizer.decode(gen_tokens, skip_special_tokens=True)
-        if ":" in text:
-            print(f"Remove Unexpected : in '{text}'")
-            text = text.split(":")[-1]
-        if "\n" in text:
-            print(f"Remove Unexpected newline in '{text}'")
-            text = text.split("\n")[-1]
-        if has_punctuation(text):
-            print(f"Remove Unexpected punctuation in '{text}'")
-            text = strip_punctuation(text)
+        if not cfg.expect_json:
+            flag = False
+            if "-" in text:
+                print(f"Replace Unexpected - in '{text}'")
+                text = text.replace("-", " ")
+            if ":" in text:
+                print(f"Remove Unexpected : in '{text}'")
+                text = text.split(":")[-1]
+                flag = True
+            if "\n" in text:
+                print(f"Remove Unexpected newline in '{text}'")
+                text = text.split("\n")[-1]
+                flag = True
+            if has_punctuation(text):
+                print(f"Remove Unexpected punctuation in '{text}'")
+                text = strip_punctuation(text)
+                flag = True
+            if flag:
+                print(f"\n--------------------------------")
         if cfg.expect_json:
             text = _first_json_text(text, cfg.json_key)
         else:
@@ -794,6 +819,9 @@ class LLMErrorCorrectionJob(Job):
             model = DownloadHuggingFaceRepoJob(model_id=self.cfg.model_name)
             tk.register_output(self.cfg.model_name, model.out_hub_cache_dir)
             self.cfg.model_dir = model.out_hub_cache_dir
+        if self.cfg.system_prompt is None:
+            print("Use default system prompt!")
+            self.cfg.system_prompt = system_prompt_es if self.cfg.prompt_lang == "ES" else LLMECConfig.system_prompt
         self.out_file = self.output_path("output.py.gz")
         self.rqmt = {"time": 8, "cpu": 3, "mem": 12, "gpu": 1, "gpu_mem": 24}
 
@@ -857,7 +885,8 @@ class LLMErrorCorrectionJob(Job):
             rec2tags.setdefault(rec_id, []).append(seq_tag)
 
         seg_count = 0  # number of finalized segments (for debug printing)
-
+        total_num_seg = len(d_rec)
+        processed_seg = 0
         for rec_id, tags in rec2tags.items():
             # context buffers per recording
             prev_top1_buf: deque[str] = deque(maxlen=max(1, cfg.context_window))
@@ -910,6 +939,9 @@ class LLMErrorCorrectionJob(Job):
                     batch_scores.clear()
 
                 for seq_tag in tags:
+                    processed_seg += 1
+                    if processed_seg%500 == 1:
+                        print(f"[Processed]: {processed_seg}/{total_num_seg}, {100*processed_seg/total_num_seg:.2f}%")
                     pairs = d_rec[seq_tag]
 
                     # build context from prev_top1 only (prev_corrected is not used in this mode)

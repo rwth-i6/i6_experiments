@@ -70,11 +70,12 @@ DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with
 STRATEGY = "nbest_reason_rewrite"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
 NBEST_K = 3  # Only considered when use "nbest_reason_rewrite" strategy
 CONTEXT_MODE = "none"  # "none" | "prev_top1" | "prev_corrected"
-USE_TAP = True and STRATEGY == "nbest_reason_rewrite"
+USE_TAP = False and STRATEGY == "nbest_reason_rewrite"
 CONTEXT_WINDOW = 50
-PROMPT_LANG = "EN"
+PROMPT_LANG = "ES"
 JSON_OUT = False
-FEW_SHOT = True
+FEW_SHOT = False
+DEFAULT_PROMPT = False
 TAP_EXAMPLE = TapExample(
     hyps=[
         "déjame a seguir mirando la cuenta tú estás ahí",
@@ -114,14 +115,14 @@ Eres un corrector de errores de reconocimiento automático del habla (ASR) en es
 Tu tarea es transformar una hipótesis de ASR en una versión corregida, realizando
 solo modificaciones mínimas y estrictamente necesarias.
 
-{(EXAMPLES_JSON if JSON_OUT else EXAMPLES) if FEW_SHOT else ''}
+{(EXAMPLES_JSON if JSON_OUT else EXAMPLES) if FEW_SHOT and not USE_TAP else ''}
+"""
 
+SPANISH_SYSTEM_PROMPT += """
 Instrucciones de corrección:
 - corrige únicamente errores evidentes; no reformules ni parafrasees
 - prioriza sustituciones por palabras que suenen de forma muy similar
 - no borres palabras salvo que resulte imprescindible para la coherencia mínima
-- mantiene aproximadamente el mismo número de palabras
-- conserva el contenido semántico original; no añadas información nueva
 - no inventes palabras ni completes fragmentos dudosos
 
 Formato de salida:
@@ -130,7 +131,15 @@ Formato de salida:
 - sin signos de puntuación, paréntesis, guiones, comillas ni símbolos
 - usa únicamente espacios simples entre palabras
 - no añadas comentarios ni explicaciones
+""" if not USE_TAP else """
+Formato de salida:
+- devuelve solo la frase corregida
+- todo en minúsculas
+- sin signos de puntuación, paréntesis, guiones, comillas ni símbolos
+- usa únicamente espacios simples entre palabras
+- no añadas comentarios ni explicaciones
 """
+
 
 EXAMPLES_EN = """
 Examples:
@@ -157,15 +166,13 @@ ENGLISH_SYSTEM_PROMPT = f"""
 You are a corrector of automatic speech recognition (ASR) errors in Spanish.
 Your task is to transform an ASR hypothesis into a corrected version, making
 only minimal and strictly necessary modifications.
-
-{(EXAMPLES_JSON_EN if JSON_OUT else EXAMPLES_EN) if FEW_SHOT else ''}
-
+{(EXAMPLES_JSON_EN if JSON_OUT else EXAMPLES_EN) if FEW_SHOT and not USE_TAP else ''}
+"""
+ENGLISH_SYSTEM_PROMPT += """
 Correction guidelines:
 - correct only obvious errors; do not rephrase or paraphrase
 - prioritize substitutions with words that sound very similar
 - do not delete words unless it is essential for minimal coherence
-- keep approximately the same number of words
-- preserve the original semantic content; do not add new information
 - do not invent words or complete uncertain fragments
 
 Output format:
@@ -174,7 +181,15 @@ Output format:
 - no punctuation marks, parentheses, dashes, quotation marks, or symbols
 - use only single spaces between words
 - do not add comments or explanations
+""" if not USE_TAP else """
+Output format:
+- return only the corrected sentence
+- all in lowercase
+- no punctuation marks, parentheses, dashes, quotation marks, or symbols
+- use only single spaces between words
+- do not add comments or explanations
 """
+#- Respond only with the output. Do not include Human:, Assistant:, or any role labels.
 # -----------------Search config-----------------
 trans_only_LM = False
 
@@ -590,11 +605,12 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
     Returns list of (ec_name, EC_config_or_None).
     """
     EC_LLMs_Batch_size = {
-        "meta-llama/Llama-3.2-3B-Instruct": 50,
-        "Qwen/Qwen2.5-3B-Instruct": 50,
-        "meta-llama/Meta-Llama-3-8B-Instruct": 60,
-        "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": 60,
+        "meta-llama/Llama-3.2-3B-Instruct": 80 if DEFAULT_PROMPT else 50,
+        "Qwen/Qwen2.5-3B-Instruct": 100 if DEFAULT_PROMPT else 50,
+        "meta-llama/Meta-Llama-3-8B-Instruct": 100 if USE_TAP else 80,
+        #"Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": 70 if USE_TAP else 200,
     }
+    from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import get_model_size_and_quant
 
     EC_configs: List[Tuple[str, Optional[LLMECConfig]]] = [
         (
@@ -605,8 +621,11 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
                 model_name=model_id,
                 device="auto",
                 dtype="bfloat16",
-                system_prompt=SPANISH_SYSTEM_PROMPT if PROMPT_LANG == "ES" else ENGLISH_SYSTEM_PROMPT,
+                system_prompt=(
+                    SPANISH_SYSTEM_PROMPT if PROMPT_LANG == "ES" else ENGLISH_SYSTEM_PROMPT) if not DEFAULT_PROMPT else None,
                 prompt_lang=PROMPT_LANG,
+                tap_examples=[TAP_EXAMPLE] if USE_TAP and get_model_size_and_quant(os.path.basename(model_id))[
+                    0] > 10 else None,
                 strategy=STRATEGY,             # Only correct the top1
                 nbest_k=NBEST_K,               # Only considered when use "nbest_reason_rewrite" strategy
                 order_by_score=True,
@@ -628,7 +647,6 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
         # "meta-llama/Llama-3.3-70B-Instruct",
         # "Qwen/Qwen2.5-72B-Instruct",
     }
-
     EC_configs += [
         (
             os.path.basename(model_id),
@@ -637,9 +655,10 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
                 model_name=model_id,
                 device="cpu",
                 dtype="bfloat16",
-                system_prompt=SPANISH_SYSTEM_PROMPT,
-                prompt_lang="ES",
+                system_prompt=(SPANISH_SYSTEM_PROMPT if PROMPT_LANG == "ES" else ENGLISH_SYSTEM_PROMPT) if not DEFAULT_PROMPT else None,
+                prompt_lang=PROMPT_LANG,
                 strategy=STRATEGY,         # Only correct the top1
+                tap_examples=[TAP_EXAMPLE] if USE_TAP and get_model_size_and_quant(os.path.basename(model_id))[0] > 10 else None,
                 nbest_k=NBEST_K,
                 order_by_score=True,
                 score_policy="keep_top1",
@@ -722,7 +741,7 @@ def build_llm_name_suffix() -> str:
     llm_suffix += (f'EC' + f"{'few_shot' if FEW_SHOT else ''}" +
                    f"{'_top1_only' if STRATEGY == 'top1_only' else f'{NBEST_K}_best'}"
                    + f"{CONTEXT_MODE if CONTEXT_MODE != 'none' else ''}"
-                   + f"_{PROMPT_LANG}{'TAP' if USE_TAP else ''}")
+                   + f"_{PROMPT_LANG}{'TAP' if USE_TAP else ''}" + f"{'default_prompt' if DEFAULT_PROMPT else ''}")
     return llm_suffix
 
 
@@ -797,14 +816,14 @@ def create_summary_and_register(
     )
     tk.register_output(alias_prefix + "/wers", summaryjob.out_tables["wers"])
 
-    for key in eval_dataset_keys:
-        tk.register_output(
-            alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key]
-        )
-        tk.register_output(
-            alias_prefix + f"/gnuplot/{key}_regression",
-            gnuplotjob.out_equations[key],
-        )
+    # for key in eval_dataset_keys:
+    #     tk.register_output(
+    #         alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key]
+    #     )
+    #     tk.register_output(
+    #         alias_prefix + f"/gnuplot/{key}_regression",
+    #         gnuplotjob.out_equations[key],
+    #     )
 
 
 def run_first_and_second_pass(
