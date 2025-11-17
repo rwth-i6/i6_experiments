@@ -78,7 +78,7 @@ def build_lm_training_datasets(
         seq_ordering=returnn_settings.train_seq_ordering,
         additional_options=returnn_settings.train_additional_options,
     )
-    train_dataset = make_dataset_multi_proc(lm_train_dataset)
+    train_dataset = lm_train_dataset #make_dataset_multi_proc(lm_train_dataset) # MultiProcDataset does not work with LMDataset in returnn (hyp Robin)
 
     cv_zip_dataset = LmDataset(
         corpus_file=[dev_clean_ogg, dev_other_ogg],
@@ -86,7 +86,7 @@ def build_lm_training_datasets(
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_dataset_multi_proc(cv_zip_dataset)
+    cv_dataset = cv_zip_dataset #make_dataset_multi_proc(cv_zip_dataset) # MultiProcDataset does not work with LMDataset in returnn (hyp Robin)
 
     devtrain_zip_dataset = LmDataset(
         corpus_file=train_ogg,
@@ -94,7 +94,7 @@ def build_lm_training_datasets(
         seq_ordering="sorted_reverse",
         random_subset=3000, # TODO: does not work with LMDataset in returnn
     )
-    devtrain_dataset = make_dataset_multi_proc(devtrain_zip_dataset)
+    devtrain_dataset = devtrain_zip_dataset #make_dataset_multi_proc(devtrain_zip_dataset) # MultiProcDataset does not work with LMDataset in returnn (hyp Robin)
 
     return TrainingDatasets(
         train=train_dataset,

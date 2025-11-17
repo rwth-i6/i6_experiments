@@ -39,6 +39,17 @@ def train_step(
 
     ctx: RunCtx = rf.get_run_ctx()
 
+    # TODO: from robin:
+    """
+    to me, it seems like "delayed" is just the labels with BOS prepended -> i.e. the actual labels are "delayed" on 
+    step to the right. in our SLLM and AED setups, we do this manually inside the train step - see the padding function 
+    which adds BOS
+    
+    +
+    
+    CHeck out albert setup https://github.com/rwth-i6/i6_experiments/blob/main/users/zeyer/experiments/exp2024_04_23_baselines/lm.py
+    """
+
     # TODO: check that data is received correctly
     targets_ = extern_data["data"] # Target / label / ground truth
     targets: Tensor = targets_.raw_tensor
