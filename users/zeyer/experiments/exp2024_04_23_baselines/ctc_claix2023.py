@@ -2110,6 +2110,7 @@ def recog_ext_with_lm(
     ctc_model_name: str,
     ctc_model: Optional[ModelWithCheckpoint] = None,
     lm_name: str,
+    lm: Optional[ModelWithCheckpoint] = None,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
 ):
     from .ctc_recog_ext import (
@@ -2165,7 +2166,7 @@ def recog_ext_with_lm(
         task=task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-        lm=_get_lm_model(_lms[lm_name]),
+        lm=lm or _get_lm_model(_lms[lm_name]),
         vocab_file=vocab_file,
         vocab_opts_file=vocab_opts_file,
         n_best_list_size=64,
