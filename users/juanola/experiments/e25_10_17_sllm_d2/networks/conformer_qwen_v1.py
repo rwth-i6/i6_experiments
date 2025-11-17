@@ -108,6 +108,10 @@ class Model(nn.Module, AedCtcModelProtocol,
             aux_loss_layers: Sequence[int],  # fot the ctc stuff
             aux_logits_bias: bool = False,
 
+            # Added later to use only parts of the model
+            using_encoder:bool = True,
+            using_decoder:bool = True,
+
             **_kwargs_unused,
     ):
         super().__init__()
@@ -116,147 +120,140 @@ class Model(nn.Module, AedCtcModelProtocol,
         assert vocab_size > 0
         assert len(aux_loss_layers) == len(set(aux_loss_layers))
         assert list(aux_loss_layers) == sorted(aux_loss_layers)
-        # assert not share_embedding or not logits_bias
         assert 0 <= bos_idx < vocab_size
         assert 0 <= eos_idx < vocab_size
         assert bos_idx != eos_idx
 
+        # GENERAL
         self.bos_idx = bos_idx
         self.eos_idx = eos_idx
         self.num_labels = vocab_size
-
-        if blank_idx is not None:
-            # blank index is part of the vocabulary
+        if blank_idx is not None: # blank index is part of the vocabulary
             assert 0 <= blank_idx < vocab_size
             aux_out_dim = vocab_size
             self.blank_idx = blank_idx
-        else:
-            # blank index is not part of the vocabulary, make space for it
+        else: # blank index is not part of the vocabulary, make space for it
             aux_out_dim = vocab_size + 1
             self.blank_idx = vocab_size
 
-        # FEATURE EXTRACTION
-        if feature_extraction_config is None:
-            mel_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
-                sample_rate=sampling_rate, win_size=25 / 1000, hop_size=10 / 1000, min_amp=1e-4, num_filters=n_mels
+        self.using_encoder = using_encoder
+        self.using_decoder = using_decoder
+
+        if using_encoder:
+            # FEATURE EXTRACTION (used in forward encoder)
+            if feature_extraction_config is None:
+                mel_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
+                    sample_rate=sampling_rate, win_size=25 / 1000, hop_size=10 / 1000, min_amp=1e-4, num_filters=n_mels
+                )
+                self.mel_frontend = RasrCompatibleLogMelFeatureExtractionV1(mel_cfg)
+            else:
+                assert "class" in feature_extraction_config
+                feature_extraction_class_str = feature_extraction_config.pop("class")
+                feature_extraction_class = eval(feature_extraction_class_str)
+                feature_extraction_config_class = eval(feature_extraction_class_str + "Config")
+                mel_cfg = feature_extraction_config_class(
+                    sample_rate=sampling_rate,
+                    **feature_extraction_config,
+                )
+                self.mel_frontend = feature_extraction_class(mel_cfg)
+
+            # DATA AUGMENTATION - Spectrogram Augmentation (used in the forward encoder)
+            self.spec_aug_args: _SpecAugArgs = {
+                "time_min_num_masks": 1,
+                "time_max_mask_per_n_frames": 100,
+                "time_mask_max_size": 20,
+                "freq_min_num_masks": 1,
+                "freq_max_num_masks": 2,
+                "freq_mask_max_size": n_mels // 5,
+            }
+            if specaug_args is not None:
+                self.spec_aug_args.update(specaug_args)
+            self.spec_aug_start = specaug_start
+
+            # ENCODER
+            frontend = ModuleFactoryV1(
+                module_class=VGG4LayerActFrontendV1,
+                cfg=VGG4LayerActFrontendV1Config(
+                    in_features=n_mels,
+                    conv1_channels=32,
+                    conv2_channels=64,
+                    conv3_channels=64,
+                    conv4_channels=32,
+                    conv_kernel_size=(3, 3),
+                    conv_padding=None,
+                    pool1_kernel_size=(1, 2),
+                    pool1_padding=None,
+                    pool1_stride=(3, 1),
+                    pool2_kernel_size=(1, 2),
+                    pool2_padding=None,
+                    pool2_stride=(2, 1),
+                    activation=nn.functional.relu,
+                    out_features=encoder_dim,
+                ),
             )
-            self.mel_frontend = RasrCompatibleLogMelFeatureExtractionV1(mel_cfg)
-        else:
-            assert "class" in feature_extraction_config
-            feature_extraction_class_str = feature_extraction_config.pop("class")
-            feature_extraction_class = eval(feature_extraction_class_str)
-            feature_extraction_config_class = eval(feature_extraction_class_str + "Config")
-            mel_cfg = feature_extraction_config_class(
-                sample_rate=sampling_rate,
-                **feature_extraction_config,
+            block_cfg = ConformerRelPosBlockV1Config(
+                ff_cfg=ConformerPositionwiseFeedForwardV2Config(
+                    input_dim=encoder_dim,
+                    hidden_dim=encoder_dim * 4,
+                    dropout=dropout,
+                    activation=_relu_sq,
+                    dropout_broadcast_axes=dropout_broadcast_axes,
+                ),
+                mhsa_cfg=ConformerMHSARelPosV1Config(
+                    input_dim=encoder_dim,
+                    num_att_heads=num_heads,
+                    att_weights_dropout=dropout,
+                    with_bias=False,
+                    dropout=dropout,
+                    # this is not applied to attention weights, whose dropout is not broadcast
+                    dropout_broadcast_axes=dropout_broadcast_axes,
+                    rel_pos_clip=rel_pos_clip,
+                    pos_emb_dropout=pos_emb_dropout,
+                    learnable_pos_emb=learnable_pos_emb,
+                    with_linear_pos=with_linear_pos,
+                    with_pos_bias=with_pos_bias,
+                    separate_pos_emb_per_head=separate_pos_emb_per_head,
+                ),
+                conv_cfg=ConformerConvolutionV2Config(
+                    channels=encoder_dim,
+                    kernel_size=33,
+                    dropout=dropout,
+                    dropout_broadcast_axes=dropout_broadcast_axes,
+                    activation=nn.functional.silu,
+                    norm=MaskedBatchNorm1dV1(encoder_dim, eps=1e-3, momentum=0.1),
+                ),
+                modules=["ff", "mhsa", "conv", "ff"],
+                scales=[0.5, 1.0, 1.0, 0.5],
             )
-            self.mel_frontend = feature_extraction_class(mel_cfg)
+            enc_cfg = ConformerRelPosEncoderV1Config(num_layers=num_enc_layers, frontend=frontend, block_cfg=block_cfg)
+            self.encoder = ConformerRelPosEncoderV1(enc_cfg)
 
-        # ENCODER
-        frontend = ModuleFactoryV1(
-            module_class=VGG4LayerActFrontendV1,
-            cfg=VGG4LayerActFrontendV1Config(
-                in_features=n_mels,
-                conv1_channels=32,
-                conv2_channels=64,
-                conv3_channels=64,
-                conv4_channels=32,
-                conv_kernel_size=(3, 3),
-                conv_padding=None,
-                pool1_kernel_size=(1, 2),
-                pool1_padding=None,
-                pool1_stride=(3, 1),
-                pool2_kernel_size=(1, 2),
-                pool2_padding=None,
-                pool2_stride=(2, 1),
-                activation=nn.functional.relu,
-                out_features=encoder_dim,
-            ),
-        )
-        block_cfg = ConformerRelPosBlockV1Config(
-            ff_cfg=ConformerPositionwiseFeedForwardV2Config(
-                input_dim=encoder_dim,
-                hidden_dim=encoder_dim * 4,
-                dropout=dropout,
-                activation=_relu_sq,
-                dropout_broadcast_axes=dropout_broadcast_axes,
-            ),
-            mhsa_cfg=ConformerMHSARelPosV1Config(
-                input_dim=encoder_dim,
-                num_att_heads=num_heads,
-                att_weights_dropout=dropout,
-                with_bias=False,
-                dropout=dropout,
-                # this is not applied to attention weights, whose dropout is not broadcast
-                dropout_broadcast_axes=dropout_broadcast_axes,
-                rel_pos_clip=rel_pos_clip,
-                pos_emb_dropout=pos_emb_dropout,
-                learnable_pos_emb=learnable_pos_emb,
-                with_linear_pos=with_linear_pos,
-                with_pos_bias=with_pos_bias,
-                separate_pos_emb_per_head=separate_pos_emb_per_head,
-            ),
-            conv_cfg=ConformerConvolutionV2Config(
-                channels=encoder_dim,
-                kernel_size=33,
-                dropout=dropout,
-                dropout_broadcast_axes=dropout_broadcast_axes,
-                activation=nn.functional.silu,
-                norm=MaskedBatchNorm1dV1(encoder_dim, eps=1e-3, momentum=0.1),
-            ),
-            modules=["ff", "mhsa", "conv", "ff"],
-            scales=[0.5, 1.0, 1.0, 0.5],
-        )
-        enc_cfg = ConformerRelPosEncoderV1Config(num_layers=num_enc_layers, frontend=frontend, block_cfg=block_cfg)
-        self.encoder = ConformerRelPosEncoderV1(enc_cfg)
+            # AUX LAYERS (CTC - used in forward encoder)
+            self.out_aux_logits = nn.ModuleList(
+                [nn.Linear(encoder_dim, aux_out_dim, bias=aux_logits_bias) for _ in range(len(aux_loss_layers))]
+            )
+            self._out_fetch_layers = sorted(v - 1 for v in {*aux_loss_layers, enc_cfg.num_layers})
 
-        # DECODER
-        qwen2_config: Qwen2Config = transformers.Qwen2Config.from_pretrained(config_path)
-        self.decoder = transformers.Qwen2ForCausalLM(qwen2_config)
+        if using_decoder:
+            # DECODER
+            qwen2_config: Qwen2Config = transformers.Qwen2Config.from_pretrained(config_path)
+            self.decoder = transformers.Qwen2ForCausalLM(qwen2_config)
 
-        self.num_labels = qwen2_config.vocab_size
+            self.num_labels = qwen2_config.vocab_size
 
-        # Tokenizer -> harder than it looks
-        # TODO: could not be here, only needed for potential prompt
-        # from returnn.datasets.util.vocabulary import SentencePieces
-        # sp_model_path: str = None #TODO: pass as parameter
-        # sp_model = SentencePieces(sp_model_path) # TODO: Maybe setup special tokens?
-        # self.decoder_tokenizer = sp_model.get_seq()
+            # Embedding
+            self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
 
-        # Embedding
-        # del self.decoder.embed_tokens
-        self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
-
-        # Adapter
-        self.encoder_decoder_adapter = LinearAdapterWithConcatDownsampling(
-            in_dim=encoder_dim,
-            out_dim=qwen2_config.hidden_size,
-        )
-
-        # OTHER STUFF
-        self.spec_aug_args: _SpecAugArgs = {
-            "time_min_num_masks": 1,
-            "time_max_mask_per_n_frames": 100,
-            "time_mask_max_size": 20,
-            "freq_min_num_masks": 1,
-            "freq_max_num_masks": 2,
-            "freq_mask_max_size": n_mels // 5,
-        }
-        if specaug_args is not None:
-            self.spec_aug_args.update(specaug_args)
-        self.spec_aug_start = specaug_start
-
-        self.out_aux_logits = nn.ModuleList(
-            [nn.Linear(encoder_dim, aux_out_dim, bias=aux_logits_bias) for _ in range(len(aux_loss_layers))]
-        )
-        self._out_fetch_layers = sorted(v - 1 for v in {*aux_loss_layers, enc_cfg.num_layers})
+            # Adapter
+            self.encoder_decoder_adapter = LinearAdapterWithConcatDownsampling(
+                in_dim=encoder_dim,
+                out_dim=qwen2_config.hidden_size,
+            )
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
-        if not self.training:
-            return data
-
-        import returnn.frontend as rf
-        from returnn.tensor import Dim
+        """
+        Uses returnn frontend wrapper for SpecAug -> data augmentation technique applied to audio features
+        (usually spectrograms).
 
         # `self.specaug_start` configures whether we use the standard i6_models
         # SpecAugment-by-length or the stepwise-scheduled RF implementation.
@@ -269,6 +266,16 @@ class Model(nn.Module, AedCtcModelProtocol,
         # When using RF SpecAug, set `self.specaug_start` to a tuple of three train
         # step indices. These represent the points at which the RF implementation
         # will increase the amount of regularization.
+
+        :param data:
+        :param data_len:
+        :return:
+        """
+        if not self.training:
+            return data
+
+        import returnn.frontend as rf
+        from returnn.tensor import Dim
 
         if isinstance(self.spec_aug_start, int):
             if rf.get_run_ctx().epoch < self.spec_aug_start:
@@ -304,6 +311,9 @@ class Model(nn.Module, AedCtcModelProtocol,
             - Aux Logit Lengths (Tensor)
             - Out mask ? (Tensor)
         """
+        if not self.using_encoder:
+            raise Exception("Trying to use forward encoder for Model without encoder!")
+
         raw_audio = raw_audio.squeeze(dim=2).float()
         data, seq_lens = self.mel_frontend(raw_audio, raw_audio_lens)
         data = self._apply_spec_aug(data, seq_lens)
@@ -327,6 +337,9 @@ class Model(nn.Module, AedCtcModelProtocol,
         :param encoder_output_lens: encoder output lens [B]
         :returns: decoder output [B, x_lens.max(), VocabSize]
         """
+        if not self.using_decoder:
+            raise Exception("Trying to use forward decoder for Model without decoder!")
+
         qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output)  # [B, T, F]
 
         # Setup decoder(LLM) inputs
@@ -376,6 +389,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         Forward the raw audio data through the encoder and initialize decoder state from it. (for inference)
         batch=1 (only one encoding/decoding) || now beams in encoder (only in decoder)
         """
+
         # Forward through encoder
         encoder_output, _, logits_lens, _ = self.forward(raw_audio, raw_audio_lens)
 

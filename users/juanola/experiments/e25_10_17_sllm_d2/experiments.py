@@ -43,7 +43,7 @@ def sllm_ep(
     epochs: int = 100
     partition_epoch_factor: int = 20
     NUM_GPUS: int = 1 # Should be 1 for 48gb in i6 cluster
-    partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS)
+    partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS) # 2000 (1GPU) | 500 (4GPU)
     TRAINING_GPU_MEMORY = 48
 
     if debug:
