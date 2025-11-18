@@ -156,6 +156,15 @@ def py():
         {"nEp": 200},
         {"nEp": 300},
         {"nEp": 400},
+        {"n": 6, "a": 2, "d": 512, "lr": 0.5, "nEp": 200},
+        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 50},
+        {"n": 9, "a": 3, "d": 512, "lr": 1.25, "nEp": 50},
+        {"n": 3, "a": 1, "d": 512, "lr": 1.25, "nEp": 100},
+        {"n": 3, "a": 1, "d": 256, "lr": 0.5, "nEp": 50},
+        {"n": 12, "a": 4, "d": 768, "lr": 0.5, "nEp": 200},
+        {"n": 3, "a": 1, "d": 128, "lr": 1.25, "nEp": 50},
+        {"n": 30, "a": 10, "d": 1024, "lr": 0.5, "nEp": 100},
+        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 50},
     ]:
         # n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100 by default
         # reorder and set defaults
@@ -165,6 +174,7 @@ def py():
         dim = opts.pop("d")
         n_ep = opts.pop("nEp", 100)
         lr = opts.pop("lr", 1.0)
+        num_heads = opts.pop("a", None)
         assert not opts
         train(
             name,
@@ -190,7 +200,11 @@ def py():
                         norm=rf.build_dict(rf.RMSNorm),
                         ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
                         decoder_layer_opts=dict(
-                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
+                            self_att=rf.build_dict(
+                                rf.RotaryPosCausalSelfAttention,
+                                with_bias=False,
+                                **({"num_heads": num_heads} if num_heads is not None else {}),
+                            )
                         ),
                         dropout=0.0,
                         att_dropout=0.0,
