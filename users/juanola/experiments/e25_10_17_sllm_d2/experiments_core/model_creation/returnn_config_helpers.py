@@ -61,11 +61,11 @@ def get_training_config(
         "backend": "torch",
 
         # For better debugging
-        "torch_log_memory_usage": True,
+        "torch_log_memory_usage": True, # GPU
         "log_batch_size": True,
         "use_tensorboard": True,
         "log_grad_norm": True,
-        "watch_memory": True,
+        "watch_memory": True, # RAM
     }
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 

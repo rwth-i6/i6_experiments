@@ -94,8 +94,8 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         "time_rqmt": 168,
 
         # CPU
-        "cpu_rqmt": 6,
-        "mem_rqmt": 24,
+        "cpu_rqmt": 6, # can be increased if needed (with care)
+        "mem_rqmt": 30, # can be increased if needed (with care) (max 64??)
 
         # Other
         "log_verbosity": 5,
