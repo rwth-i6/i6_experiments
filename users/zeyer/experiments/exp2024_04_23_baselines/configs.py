@@ -138,6 +138,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v3(
     bs_feat: int,
     n_ep: int,
     *,
+    base_lr: float = 1.0,
     peak_lr: float = 1e-3,
     low_lr: float = 1e-5,
     lowest_lr: float = 1e-6,
@@ -150,7 +151,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v3(
     return {
         "__num_epochs": n_ep,
         "batch_size": bs_feat * batch_size_factor,
-        "learning_rate": 1.0,
+        "learning_rate": base_lr,
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
         "learning_rate_piecewise_by_epoch_continuous": True,
         "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
