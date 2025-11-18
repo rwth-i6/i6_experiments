@@ -129,23 +129,39 @@ def py():
             train_def=lm_train_def,
         )
 
-    for n_l, dim in [
-        (3, 1024),
-        (6, 1024),
-        (12, 1024),
-        (16, 1024),
-        (24, 1024),
-        (32, 1024),
-        (32, 768),
-        (32, 512),
-        (16, 512),
+    for opts in [
+        {"n": 3},
+        {"n": 6},
+        {"n": 12},
+        {"n": 16},
+        {"n": 24},
+        {},
+        {"d": 768},
+        {"d": 512},
+        {"n": 16, "d": 512},
+        {"n": 8, "d": 512},
+        {"n": 4, "d": 512},
+        {"n": 4, "d": 256},
+        {"n": 4, "d": 768},
+        {"n": 4},
+        {"n": 4, "lr": 0.5},
+        {"n": 4, "lr": 2.0},
+        {"n": 4, "nEp": 200},
+        {"n": 4, "nEp": 300},
     ]:
+        # n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100 by default
+        n_l = opts.pop("n", 32)
+        dim = opts.pop("d", 1024)
+        name = f"lm/trafo-v2-n{n_l}-d{dim}-{_name_for_dict(opts)}-spm10k"
+        n_ep = opts.pop("nEp", 100)
+        lr = opts.pop("lr", 1.0)
+        assert not opts
         train(
-            f"lm/trafo-n{n_l}-d{dim}-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100-spm10k",
+            name,
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
-                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, n_ep, base_lr=lr, batch_size_factor=1),
                     "max_seqs": 400,
                     "optimizer.weight_decay": 1e-2,
                     "calculate_exp_loss": True,
@@ -1544,3 +1560,11 @@ def py():
     #     # avoid oom
     #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     # )
+
+
+def _name_for_dict(cfg: dict) -> str:
+    parts = []
+    for k, v in sorted(cfg.items()):
+        v = str(v).replace(".", "_").replace("-", "_")
+        parts.append(f"{k}{v}")
+    return "-".join(parts)
