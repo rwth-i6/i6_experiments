@@ -1574,7 +1574,7 @@ def py():
 
 def _name_for_dict(cfg: dict) -> str:
     parts = []
-    for k, v in sorted(cfg.items()):
+    for k, v in cfg.items():
         v = str(v).replace(".", "_").replace("-", "_")
         parts.append(f"{k}{v}")
     return "-".join(parts)
