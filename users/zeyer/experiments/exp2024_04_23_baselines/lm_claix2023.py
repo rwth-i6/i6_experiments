@@ -203,8 +203,8 @@ def py():
                             self_att=rf.build_dict(
                                 rf.RotaryPosCausalSelfAttention,
                                 with_bias=False,
-                                **({"num_heads": num_heads} if num_heads is not None else {}),
-                            )
+                            ),
+                            **({"num_heads": num_heads} if num_heads is not None else {}),
                         ),
                         dropout=0.0,
                         att_dropout=0.0,
