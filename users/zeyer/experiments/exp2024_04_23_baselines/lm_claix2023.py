@@ -94,7 +94,7 @@ def py():
     )
     lm_eval(prefix=name, task=task_spm10k, lm=exp)
 
-    for n_ep in [100, 200, 300, 400]:
+    for n_ep in [20, 50, 100, 200, 300, 400]:
         train(
             f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp{n_ep}-spm10k",
             config=dict_update_deep(
@@ -135,9 +135,11 @@ def py():
         {"n": 12},
         {"n": 16},
         {"n": 24},
-        {},
+        {"n": 32},
+        {"n": 1024},
         {"d": 768},
         {"d": 512},
+        {"d": 256},
         {"n": 16, "d": 512},
         {"n": 8, "d": 512},
         {"n": 4, "d": 512},
@@ -148,11 +150,19 @@ def py():
         {"n": 4, "lr": 2.0},
         {"n": 4, "nEp": 200},
         {"n": 4, "nEp": 300},
+        {"nEp": 20},
+        {"nEp": 50},
+        {"nEp": 100},
+        {"nEp": 200},
+        {"nEp": 300},
+        {"nEp": 400},
     ]:
         # n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100 by default
-        n_l = opts.pop("n", 32)
-        dim = opts.pop("d", 1024)
-        name = f"lm/trafo-v2-n{n_l}-d{dim}-{_name_for_dict(opts)}-spm10k"
+        # reorder and set defaults
+        opts = {"n": opts.pop("n", 32), "d": opts.pop("d", 1024), **opts}
+        name = f"lm/trafo-v2-{_name_for_dict(opts)}-spm10k"
+        n_l = opts.pop("n")
+        dim = opts.pop("d")
         n_ep = opts.pop("nEp", 100)
         lr = opts.pop("lr", 1.0)
         assert not opts
