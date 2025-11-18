@@ -78,7 +78,6 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         "train_step_module": train_step_module,
         "train_args": {  # TODO: could also be extracted in a file
             "aed_loss_scale": 1.0,
-            "aux_loss_scales": (1.0, 1.0),
             "label_smoothing": 0.1,
             "label_smoothing_start_epoch": 0,
         },

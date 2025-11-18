@@ -45,6 +45,7 @@ def sllm_ep(
     NUM_GPUS: int = 1 # Should be 1 for 48gb in i6 cluster
     partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS) # 2000 (1GPU) | 500 (4GPU)
     TRAINING_GPU_MEMORY = 48
+    batch_size = 15_000 # TODO: change to 45_000
 
     if debug:
         partition_epochs = 1
@@ -80,7 +81,7 @@ def sllm_ep(
 
     # MODEL TRAINING
     training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}"
-    train_job = create_training_job(training_name, training_datasets, NUM_GPUS,
+    train_job = create_training_job(training_name, training_datasets, NUM_GPUS, batch_size,
                                     NETWORK_MODULE, network_args,
                                     TRAIN_STEP_MODULE, partition_epochs,
                                     debug_returnn_param,

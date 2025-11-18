@@ -1,6 +1,10 @@
 training_configs = {
     "v1": { # TODO: order stuff here
+
+        # CTC losses for encoder
         "aux_loss_layers": (4, 8),
+        #"aux_loss_scales": (1.0, 1.0), # TODO: move from training_job_builder (carefully, changes training_job_hash)
+
         "num_enc_layers": 12,
         "num_heads": 8,
         "encoder_dim": 512,
