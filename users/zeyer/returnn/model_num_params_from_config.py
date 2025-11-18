@@ -77,6 +77,7 @@ class GetNumParamsFromReturnnConfigJob(Job):
                     f"get_model returned {model} of type {type(model)}, expected rf.Module or torch.nn.Module"
                 )
             assert isinstance(pt_model, torch.nn.Module)
-            # print("Model:", pt_model)
+            print("Model:", pt_model)
             num_params = sum([parameter.numel() for parameter in pt_model.parameters()])
-            return num_params
+            print(f"net params #: {num_params}")
+            self.out_num_params.set(num_params)
