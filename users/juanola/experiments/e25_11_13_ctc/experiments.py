@@ -49,9 +49,10 @@ def ctc_ep(
     if debug:
         partition_epochs = 1
         NUM_GPUS = 1
+        TRAINING_GPU_MEMORY = 11
 
     # Search
-    SEARCH_GPU_MEMORY = 24
+    SEARCH_GPU_MEMORY = 11
 
 
     # INITIALIZE DATASET

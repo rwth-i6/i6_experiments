@@ -1,9 +1,14 @@
 training_configs = {
     "v1": { # TODO: order stuff here
-        "aux_loss_layers": (4, 8),
+
+        # CTC losses for encoder
+        "aux_loss_layers": (4, 8, 12),
+        "aux_loss_scales": (1.0, 1.0, 1.0),
+
         "num_enc_layers": 12,
         "num_heads": 8,
         "encoder_dim": 512,
+
         "vocab_size": 10_240,
         "sampling_rate": 16_000,
         "specaug_start": (5_000, 15_000, 25_000),
