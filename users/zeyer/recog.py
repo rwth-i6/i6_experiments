@@ -162,7 +162,7 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 12,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
