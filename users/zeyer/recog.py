@@ -227,7 +227,7 @@ def search_dataset(
     recog_def: RecogDef,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 12,
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
