@@ -5,6 +5,8 @@ Generic HuggingFace model downloader
 from typing import Union, Optional, List
 import os
 import shutil
+import copy
+
 from sisyphus import tk, Job, Task
 
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
@@ -68,6 +70,14 @@ class DownloadHuggingFaceRepoJob(Job):
         service = args.func(args)
         print(service)
         service.run()
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = copy.deepcopy(kwargs)
+        if not d.get("require_login", False):
+            d.pop("require_login", None)
+
+        return super().hash(d)
 
 
 class DownloadHuggingFaceRepoJobV2(DownloadHuggingFaceRepoJob):
