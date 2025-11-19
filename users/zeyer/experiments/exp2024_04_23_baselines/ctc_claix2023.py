@@ -18,11 +18,12 @@ from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
+from ...model_interfaces import ModelWithCheckpoint
+from i6_experiments.users.zeyer.datasets.task import Task
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerPositionwiseFeedForward
-from ...model_interfaces import ModelWithCheckpoint
 
 
 def py():
@@ -2112,6 +2113,8 @@ def recog_ext_with_lm(
     lm_name: str,
     lm: Optional[ModelWithCheckpoint] = None,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
+    eval_task: Optional[Task] = None,
+    postfix: str = "",
 ):
     from .ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -2162,8 +2165,8 @@ def recog_ext_with_lm(
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
-        task=task,
+        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}{postfix}",
+        task=eval_task or task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
         lm=lm or _get_lm_model(_lms[lm_name]),
