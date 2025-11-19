@@ -156,6 +156,13 @@ def py():
         {"nEp": 200},
         {"nEp": 300},
         {"nEp": 400},
+        {"drop": 0.1, "nEp": 50},
+        {"drop": 0.1, "nEp": 100},
+        {"drop": 0.1, "nEp": 200},
+        {"drop": 0.1, "nEp": 300},
+        {"drop": 0.1, "nEp": 400},
+        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 200},
+        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 300},
         {"n": 6, "a": 2, "d": 512, "lr": 0.5, "nEp": 200},
         {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 50},
         {"n": 9, "a": 4, "d": 512, "lr": 1.25, "nEp": 50},
@@ -176,6 +183,8 @@ def py():
         n_ep = opts.pop("nEp", 100)
         lr = opts.pop("lr", 1.0)
         num_heads = opts.pop("a", None)
+        drop = opts.pop("drop", 0.0)
+        att_drop = opts.pop("adrop", drop)
         assert not opts
         train(
             name,
@@ -207,8 +216,8 @@ def py():
                             ),
                             **({"num_heads": num_heads} if num_heads is not None else {}),
                         ),
-                        dropout=0.0,
-                        att_dropout=0.0,
+                        dropout=drop,
+                        att_dropout=att_drop,
                     )
                 },
             ),
@@ -281,7 +290,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    name = "lm/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k"
+    name = "lm/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_15k-spm10k"
     exp = train(  # 32.88 (!!)
         name,
         config=dict_update_deep(
