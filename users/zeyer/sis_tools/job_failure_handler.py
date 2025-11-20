@@ -50,7 +50,11 @@ class JobFailureHandler:
             return  # do nothing
 
         # Register failure.
-        task, task_id = _get_failed_task(job)
+        try:
+            task, task_id = _get_failed_task(job)
+        except _FailedTaskNotFoundError:
+            print(f"{job} failed but no failed task found, maybe already cleaned, skipping...")
+            return
         usage_file = task.get_process_logging_path(task_id)
         last_usage = literal_eval(open(usage_file).read())
         failed_host = last_usage["host"]
@@ -127,13 +131,17 @@ def _is_returnn_cuda_error(log_filename: str) -> bool:
     return False
 
 
+class _FailedTaskNotFoundError(Exception):
+    pass
+
+
 def _get_failed_task(job: Job) -> Tuple[Task, int]:
     for task in job._sis_tasks():
         task: Task
         for task_id in task.task_ids():
             if task.error(task_id):
                 return task, task_id
-    raise ValueError(f"No failed task for job {job}?")
+    raise _FailedTaskNotFoundError(f"No failed task for job {job}?")
 
 
 def _get_slurm_engine(
