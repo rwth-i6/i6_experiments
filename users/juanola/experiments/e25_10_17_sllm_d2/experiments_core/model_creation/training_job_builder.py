@@ -9,7 +9,6 @@ from sisyphus import tk
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
-from i6_experiments.users.zeyer.returnn.test_model_config import batch_size
 from .returnn_config_helpers import get_training_config
 from ...configurations import optimizer_configs, learning_rate_configs
 
@@ -53,14 +52,14 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
                             returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int) -> tuple[
     dict[str, Any], dict[str, Any]]:
     # Some values
-    batch_size_factor = 160
+    training_batch_size_factor = 160
 
     train_config = {
         **optimizer_configs.v1,
         **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
             n_ep=train_epochs,
         ),
-        "batch_size": batch_size * batch_size_factor,
+        "batch_size": batch_size * training_batch_size_factor,
         "max_seq_length": {"raw_audio": 19.5 * network_args["sampling_rate"]},  # 19.5 seconds
         "accum_grad_multiple_step": 1,
         "gradient_clip_global_norm": 5.0,

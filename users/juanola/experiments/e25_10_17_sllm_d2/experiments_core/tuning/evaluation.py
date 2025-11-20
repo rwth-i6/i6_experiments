@@ -41,9 +41,12 @@ def create_tune_and_evaluate_jobs(
         decoder_module: str = "should_not_be_default",
         loss_name: str = "dev_loss_ce",
         use_gpu: bool = False,
-        search_gpu_memory:int = 11,
+        search_gpu_memory: int = 11,
         extra_forward_config: Optional[dict[str, Any]] = None,
         prior_args: Optional[Dict[str, Any]] = None,
+
+        recognition_batch_size: int = 15_000,
+        prior_batch_size: int = 16_000,
 
         # TO RUN FLAGS
         specific_epoch: Optional[Union[int, Iterable[int]]] = None,
@@ -92,6 +95,7 @@ def create_tune_and_evaluate_jobs(
             net_args,
             prior_args=prior_args,
             datasets=train_data,
+            prior_batch_size=prior_batch_size,
         )
 
         res, _ = tune_and_evaluate_model(
@@ -109,6 +113,7 @@ def create_tune_and_evaluate_jobs(
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
+            recognition_batch_size=recognition_batch_size
         )
         result_dict.update(res)
     return result_dict
@@ -122,6 +127,7 @@ def prepare_asr_model(
         prior_args: Dict[str, Any] = None,
         prior_config: Optional[Dict[str, Any]] = None,
         datasets: Optional[TrainingDatasets] = None,
+        prior_batch_size: int = 16_000,
 ) -> ASRModel:
     """
     :param checkpoint_name:
@@ -145,6 +151,7 @@ def prepare_asr_model(
             net_args=prior_args["net_args"],
             unhashed_net_args=prior_args.get("unhashed_net_args", None),
             debug=prior_args.get("debug", False),
+            batch_size=prior_batch_size,
         )
         prior_file = compute_prior(
             checkpoint_name,
@@ -152,6 +159,7 @@ def prepare_asr_model(
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
             returnn_root=RETURNN_ROOT,
+
         )
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
     else:
@@ -184,6 +192,8 @@ def tune_and_evaluate_model(
         use_gpu: bool = False,
         search_gpu_memory: int = 11,
         debug: bool = False,
+
+        recognition_batch_size: int = 15_000,
 
         run_test: bool = False,
 ) -> Tuple[Dict[str, job_path.Variable], None or GetOptimalParametersAsVariableJob]:
@@ -222,7 +232,8 @@ def tune_and_evaluate_model(
                 use_gpu=use_gpu,
                 debug=debug,
                 vocab_opts=vocab_opts,
-                search_gpu_memory= search_gpu_memory,
+                search_gpu_memory=search_gpu_memory,
+                batch_size=recognition_batch_size,
                 **default_returnn,
             )
 
@@ -252,10 +263,12 @@ def tune_and_evaluate_model(
                 test_dataset_tuples={key: test_dataset_tuples[key]},
 
                 use_gpu=use_gpu,
-                search_gpu_memory= search_gpu_memory,
+                search_gpu_memory=search_gpu_memory,
                 vocab_opts=vocab_opts,
 
                 debug=debug,
+
+                batch_size=recognition_batch_size,
                 **default_returnn,
             )
         results.update(wers)
@@ -301,5 +314,6 @@ def get_last_averaged_checkpoint(base_training_name: str, train_job: ReturnnTrai
     return avg.out_checkpoint, f"{base_training_name}/avg_last_{num_checkpoints}_cpkt"
 
 
-def get_specific_checkpoint(base_training_name: str, train_job: ReturnnTrainingJob, epoch: int) -> tuple[PtCheckpoint, str]:
+def get_specific_checkpoint(base_training_name: str, train_job: ReturnnTrainingJob, epoch: int) -> tuple[
+    PtCheckpoint, str]:
     return train_job.out_checkpoints[epoch], f"{base_training_name}/ep_{epoch}_cpkt"

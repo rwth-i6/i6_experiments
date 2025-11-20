@@ -45,14 +45,17 @@ def sllm_ep(
     NUM_GPUS: int = 1 # Should be 1 for 48gb in i6 cluster
     partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS) # 2000 (1GPU) | 500 (4GPU)
     TRAINING_GPU_MEMORY = 48
-    batch_size = 15_000 # TODO: change to 45_000
+    TRAINING_BATCH_SIZE = 15_000 # TODO: change to 45_000
+
+    # Search
+    SEARCH_GPU_MEMORY = 11 # Avoid using bigger ones
+    RECOGNITION_BATCH_SIZE = 15_000  #TODO: maybe change to 14_000 (running again seems to solve the problem...)
+    PRIOR_BATCH_SIZE = 16_000
+
 
     if debug:
         partition_epochs = 1
         NUM_GPUS = 1
-
-    # Search
-    SEARCH_GPU_MEMORY = 24
 
 
     # INITIALIZE DATASET
@@ -81,7 +84,7 @@ def sllm_ep(
 
     # MODEL TRAINING
     training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}"
-    train_job = create_training_job(training_name, training_datasets, NUM_GPUS, batch_size,
+    train_job = create_training_job(training_name, training_datasets, NUM_GPUS, TRAINING_BATCH_SIZE,
                                     NETWORK_MODULE, network_args,
                                     TRAIN_STEP_MODULE, partition_epochs,
                                     debug_returnn_param,
@@ -124,6 +127,9 @@ def sllm_ep(
 
         use_gpu=True,  # CPU is way too slow for AED decoding
         search_gpu_memory=SEARCH_GPU_MEMORY, # breaks for bigger searches
+
+        recognition_batch_size = RECOGNITION_BATCH_SIZE,
+        prior_batch_size = PRIOR_BATCH_SIZE,
     )
 
 

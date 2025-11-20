@@ -15,17 +15,17 @@ from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 
 
 def get_training_config(
-    training_datasets: TrainingDatasets,
-    network_module: str,
-    train_step_module: str,
-    config: Dict[str, Any],
-    net_args: Dict[str, Any],
-    train_args: Dict[str, Any],
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
+        training_datasets: TrainingDatasets,
+        network_module: str,
+        train_step_module: str,
+        config: Dict[str, Any],
+        net_args: Dict[str, Any],
+        train_args: Dict[str, Any],
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
         include_native_ops: bool = False,
-    debug: bool = False,
-    use_speed_perturbation: bool = False,
-    post_config: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+        use_speed_perturbation: bool = False,
+        post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -61,18 +61,19 @@ def get_training_config(
         "backend": "torch",
 
         # For better debugging
-        "torch_log_memory_usage": True, # GPU
+        "torch_log_memory_usage": True,  # GPU
         "log_batch_size": True,
         "use_tensorboard": True,
         "log_grad_norm": True,
-        "watch_memory": True, # RAM
+        "watch_memory": True,  # RAM
     }
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 
     # RC - PYTHON PROLOG
     python_prolog = None
     if use_speed_perturbation:  # TODO: maybe make nice (if capability added to RETURNN itself)
-        from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config #TODO: warning! external import!
+        from i6_experiments.users.zeyer.speed_pert.librosa_config import \
+            speed_pert_librosa_config  # TODO: warning! external import!
         config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
 
     # RC - PYTHON EPILOG
@@ -104,12 +105,13 @@ def get_training_config(
 
 
 def get_prior_config(
-    training_datasets: TrainingDatasets,  # TODO: replace by single dataset
-    network_module: str,
-    config: Dict[str, Any],
-    net_args: Dict[str, Any],
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
-    debug: bool = False,
+        training_datasets: TrainingDatasets,  # TODO: replace by single dataset
+        network_module: str,
+        config: Dict[str, Any],
+        net_args: Dict[str, Any],
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+        batch_size: int = 16_000,
 ):
     """
     Get a generic config for extracting output label priors
@@ -122,8 +124,9 @@ def get_prior_config(
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
     # RC - CONFIG
+    prior_batch_size_factor = 500
     base_config = {
-        "batch_size": 500 * 16000,
+        "batch_size": prior_batch_size_factor * batch_size,
         "max_seqs": 240,
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
@@ -132,11 +135,12 @@ def get_prior_config(
     # RC - POST CONFIG
     post_config = {
         "num_workers_per_gpu": 2,
-        "backend": "torch"
+        "backend": "torch",
+        "forward_auto_split_batch_on_oom": True,
     }
 
     # RC - PYTHON EPILOG
-    serializer = serialize_forward(# TODO: fix this! 2 more params are needed
+    serializer = serialize_forward(  # TODO: fix this! 2 more params are needed
         network_module=network_module,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
@@ -149,15 +153,16 @@ def get_prior_config(
 
 
 def get_forward_config(
-    network_module: str,
-    config: Dict[str, Any],
-    net_args: Dict[str, Any],
-    decoder: str,
-    decoder_args: Dict[str, Any],
-    vocab_opts: Dict,
-    unhashed_decoder_args: Optional[Dict[str, Any]] = None,
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
-    debug: bool = False,
+        network_module: str,
+        config: Dict[str, Any],
+        net_args: Dict[str, Any],
+        decoder: str,
+        decoder_args: Dict[str, Any],
+        vocab_opts: Dict,
+        unhashed_decoder_args: Optional[Dict[str, Any]] = None,
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+        batch_size: int = 15_000,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -173,14 +178,19 @@ def get_forward_config(
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
     # RC - CONFIG
+
+    recognition_batch_size_factor = 160
     base_config = {
-        "batch_size": 15_000 * 160,
+        "batch_size": batch_size * recognition_batch_size_factor,
         "max_seqs": 200,
     }
     config = {**base_config, **copy.deepcopy(config)}
 
     # RC - POST CONFIG
-    post_config = {"backend": "torch"}
+    post_config = {
+        "backend": "torch",
+        "forward_auto_split_batch_on_oom": True,
+    }
 
     # RC - PYTHON EPILOG
     extern_data = {

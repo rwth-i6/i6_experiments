@@ -74,6 +74,7 @@ def search(
         use_gpu: bool = False,
         debug: bool = False,
         search_gpu_memory: int = 11,
+        batch_size: int = 15_000,
 ) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
     """
     Run search over multiple datasets and collect statistics
@@ -99,6 +100,7 @@ def search(
         decoder=decoder_module,
         debug=debug,
         vocab_opts=vocab_opts,
+        batch_size= batch_size,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here

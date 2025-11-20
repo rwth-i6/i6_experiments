@@ -15,17 +15,17 @@ from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 
 
 def get_training_config(
-    training_datasets: TrainingDatasets,
-    network_module: str,
-    train_step_module: str,
-    config: Dict[str, Any],
-    net_args: Dict[str, Any],
-    train_args: Dict[str, Any],
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
+        training_datasets: TrainingDatasets,
+        network_module: str,
+        train_step_module: str,
+        config: Dict[str, Any],
+        net_args: Dict[str, Any],
+        train_args: Dict[str, Any],
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
         include_native_ops: bool = False,
-    debug: bool = False,
-    use_speed_perturbation: bool = False,
-    post_config: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+        use_speed_perturbation: bool = False,
+        post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -71,7 +71,7 @@ def get_training_config(
 
     # RC - PYTHON PROLOG
     python_prolog = None
-    #if use_speed_perturbation:
+    # if use_speed_perturbation:
     #    from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config #TODO: warning! external import!
     #    config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
 
@@ -104,12 +104,12 @@ def get_training_config(
 
 
 def get_prior_config(
-    training_datasets: TrainingDatasets,  # TODO: replace by single dataset
-    network_module: str,
-    config: Dict[str, Any],
-    net_args: Dict[str, Any],
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
-    debug: bool = False,
+        training_datasets: TrainingDatasets,  # TODO: replace by single dataset
+        network_module: str,
+        config: Dict[str, Any],
+        net_args: Dict[str, Any],
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
 ):
     """
     Get a generic config for extracting output label priors
@@ -132,11 +132,12 @@ def get_prior_config(
     # RC - POST CONFIG
     post_config = {
         "num_workers_per_gpu": 2,
-        "backend": "torch"
+        "backend": "torch",
+        "forward_auto_split_batch_on_oom": True,
     }
 
     # RC - PYTHON EPILOG
-    serializer = serialize_forward(# TODO: fix this! 2 more params are needed
+    serializer = serialize_forward(  # TODO: fix this! 2 more params are needed
         network_module=network_module,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
@@ -149,15 +150,15 @@ def get_prior_config(
 
 
 def get_forward_config(
-    network_module: str,
-    config: Dict[str, Any],
-    net_args: Dict[str, Any],
-    decoder: str,
-    decoder_args: Dict[str, Any],
-    vocab_opts: Dict,
-    unhashed_decoder_args: Optional[Dict[str, Any]] = None,
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
-    debug: bool = False,
+        network_module: str,
+        config: Dict[str, Any],
+        net_args: Dict[str, Any],
+        decoder: str,
+        decoder_args: Dict[str, Any],
+        vocab_opts: Dict,
+        unhashed_decoder_args: Optional[Dict[str, Any]] = None,
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -180,7 +181,10 @@ def get_forward_config(
     config = {**base_config, **copy.deepcopy(config)}
 
     # RC - POST CONFIG
-    post_config = {"backend": "torch"}
+    post_config = {
+        "backend": "torch",
+        "forward_auto_split_batch_on_oom": True,
+    }
 
     # RC - PYTHON EPILOG
     extern_data = {
