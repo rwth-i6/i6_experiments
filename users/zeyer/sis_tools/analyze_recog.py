@@ -106,6 +106,9 @@ def main():
                 )
             search_per_corpus[corpus] = job
             continue  # deps of this don't matter
+        elif job.startswith("i6_core/audio/encoding/BlissChangeEncodingJob."):
+            # Ignore these.
+            continue
         if not scoring:
             for corpus_, job_ in sis_common.get_inputs_per_key(job).items():
                 queue.append((job_, corpus if scoring else corpus_, scoring))
