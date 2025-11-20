@@ -107,7 +107,11 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
     else:
         if "/output/" in filename:
             path = filename[: filename.rindex("/output/")]
-            if is_job_dir(path):
+            # If the absolute path it is a job dir, search whether we can find a relative work dir
+            # as a subset (postfix) of the absolute path.
+            # If the absolute path is not accessible, maybe it comes from another environment / cluster.
+            # Assume it is a job dir, and try to find a relative work dir as a subset (postfix) of the absolute path.
+            if is_job_dir(path) or not os.path.exists(path):
                 f = None
                 while True:
                     f = path.rfind("/", None, f)
