@@ -117,9 +117,14 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
                         continue
                     if is_job_dir(path[f + 1 :]):
                         return path[f + 1 :]
+                not_job_reason = f"could not find job dir in prefixes of {path=}"
+            else:
+                not_job_reason = f"{path=} is not a job dir"
+        else:
+            not_job_reason = f"no /output/ in {filename=}"
         if allow_none:
             return None
-        raise ValueError(f"invalid {filename=}, not in work dir or part of a job output")
+        raise ValueError(f"invalid {filename=}, not in work dir or part of a job output: {not_job_reason}")
     s = 0
     while True:
         f = filename.find("/", s)
