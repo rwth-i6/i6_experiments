@@ -20,8 +20,9 @@ from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
+        training_batch_sizes: list[int] = [15_000, 45_000], # TODO: change with full configs
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
-        debug: bool = False):
+        debug: bool = False) -> Dict[str, Any]:
     """
     Sisyphus entry point.
 
@@ -33,118 +34,126 @@ def sllm_ep(
     :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
     """
+    reports = {}
 
-    # GENERAL CONSTANTS
+    #for setup in setups: # TODO: REFACTOR - use full configs instead of only batch sizes
+    for training_batch_size in training_batch_sizes:
 
-    # Returnn
-    debug_returnn_param = True  # TODO: Make it depend on big debug?
+        # GENERAL CONSTANTS
 
-    # Training
-    epochs: int = 100
-    partition_epoch_factor: int = 20
-    NUM_GPUS: int = 1 # Should be 1 for 48gb in i6 cluster
-    partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS) # 2000 (1GPU) | 500 (4GPU)
-    TRAINING_GPU_MEMORY = 48
-    TRAINING_BATCH_SIZE = 15_000 # TODO: change to 45_000
+        # Returnn
+        debug_returnn_param = True  # TODO: Make it depend on big debug?
 
-    # Search
-    SEARCH_GPU_MEMORY = 11 # Avoid using bigger ones
-    RECOGNITION_BATCH_SIZE = 15_000  #TODO: maybe change to 14_000 (running again seems to solve the problem...)
-    PRIOR_BATCH_SIZE = 16_000
+        # Training
+        epochs: int = 100
+        partition_epoch_factor: int = 20
+        NUM_GPUS: int = 1 # Should be 1 for 48gb in i6 cluster
+        partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS) # 2000 (1GPU) | 500 (4GPU)
+        TRAINING_GPU_MEMORY = 48
+        TRAINING_BATCH_SIZE = training_batch_size
 
-
-    if debug:
-        partition_epochs = 1
-        NUM_GPUS = 1
-
-
-    # INITIALIZE DATASET
-    train_dataset_settings = ReturnnDatasetSettings(
-        preemphasis=None,
-        peak_normalization=True,
-        train_partition_epoch=partition_epoch_factor,
-        train_seq_ordering="laplace:.1000",
-        train_additional_options={
-            "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
-        },
-    )
-    sampling_alpha = 0.7  # TODO: move somewhere else?!
-    vocab_size = 10_240  # TODO: TD - this should not be hardcoded
-    training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(experiment_path,
-                                                                                      train_dataset_settings,
-                                                                                      vocab_size,
-                                                                                      sampling_alpha)
+        # Search
+        SEARCH_GPU_MEMORY = 11 # Avoid using bigger ones
+        RECOGNITION_BATCH_SIZE = 15_000  #TODO: maybe change to 14_000 (running again seems to solve the problem...)
+        PRIOR_BATCH_SIZE = 16_000
 
 
-    # NETWORK
-    encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
-    decoder_alias = "Qwen2-0_5B" # TODO: could be imported - use enums perhaps
-    model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
+        if debug:
+            partition_epochs = 1
+            NUM_GPUS = 1
 
 
-    # MODEL TRAINING
-    training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}"
-    train_job = create_training_job(training_name, training_datasets, NUM_GPUS, TRAINING_BATCH_SIZE,
-                                    NETWORK_MODULE, network_args,
-                                    TRAIN_STEP_MODULE, partition_epochs,
-                                    debug_returnn_param,
-                                    returnn_root=RETURNN_ROOT)
-    train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
+        # INITIALIZE DATASET
+        train_dataset_settings = ReturnnDatasetSettings(
+            preemphasis=None,
+            peak_normalization=True,
+            train_partition_epoch=partition_epoch_factor,
+            train_seq_ordering="laplace:.1000",
+            train_additional_options={
+                "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
+            },
+        )
+        sampling_alpha = 0.7  # TODO: move somewhere else?!
+        vocab_size = 10_240  # TODO: TD - this should not be hardcoded
+        training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(experiment_path,
+                                                                                          train_dataset_settings,
+                                                                                          vocab_size,
+                                                                                          sampling_alpha)
 
 
-    # MODEL EVALUATION/INFERENCE
-    # Which evals to run
-    if debug:
-        run_test = run_best_4 = run_best = False
-        epochs_to_evaluate = [partition_epochs]
-    else:
-        run_best_4 = run_best = run_test = True
-        epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs)
+        # NETWORK
+        encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
+        decoder_alias = "Qwen2-0_5B" # TODO: could be imported - use enums perhaps
+        model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
 
-    # Tune-Eval
-    results = create_tune_and_evaluate_jobs(
-        training_name=training_name,
-        train_job=train_job,
+        # EXPERIMENT NAME # TODO: use external config!
+        experiment_config_name = f"bs{TRAINING_BATCH_SIZE}"
 
-        network_module=NETWORK_MODULE,
-        net_args=network_args,
-        debug=debug_returnn_param,
-
-        train_data=training_datasets,
-        decoder_config=DecoderConfig(),
-        decoder_module=RECOGNITION_PACKAGE,
-
-        test_dataset_tuples=test_dataset_tuples,
-        dev_dataset_tuples=dev_dataset_tuples,
-
-        lm_scales=[0.0],
-        prior_scales=[0.0],
-
-        specific_epoch=epochs_to_evaluate,
-        run_test=run_test,
-        run_best=run_best,
-        run_best_4=run_best_4,
-
-        use_gpu=True,  # CPU is way too slow for AED decoding
-        search_gpu_memory=SEARCH_GPU_MEMORY, # breaks for bigger searches
-
-        recognition_batch_size = RECOGNITION_BATCH_SIZE,
-        prior_batch_size = PRIOR_BATCH_SIZE,
-    )
+        # MODEL TRAINING
+        training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}/{experiment_config_name}" # THis is good, but perhaps todo: with paths & encapsulated in method outside experiment
+        train_job = create_training_job(training_name, training_datasets, NUM_GPUS, TRAINING_BATCH_SIZE,
+                                        NETWORK_MODULE, network_args,
+                                        TRAIN_STEP_MODULE, partition_epochs,
+                                        debug_returnn_param,
+                                        returnn_root=RETURNN_ROOT)
+        train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
 
 
-    # MODEL REPORTING
-    create_report_job(results=results, exp_name=training_name)
-    report = {training_name: results}
-    del results
-    tk.register_report(
-        "reports/ls_baseline_report",
-        partial(build_base_report, report),
-        required=report,
-        update_frequency=900
-    )
+        # MODEL EVALUATION/INFERENCE
+        # Which evals to run
+        if debug:
+            run_test = run_best_4 = run_best = False
+            epochs_to_evaluate = [partition_epochs]
+        else:
+            run_best_4 = run_best = run_test = True
+            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs)
 
-    return report
+        # Tune-Eval
+        results: Dict[Any, Any] = create_tune_and_evaluate_jobs(
+            training_name=training_name,
+            train_job=train_job,
+
+            network_module=NETWORK_MODULE,
+            net_args=network_args,
+            debug=debug_returnn_param,
+
+            train_data=training_datasets,
+            decoder_config=DecoderConfig(),
+            decoder_module=RECOGNITION_PACKAGE,
+
+            test_dataset_tuples=test_dataset_tuples,
+            dev_dataset_tuples=dev_dataset_tuples,
+
+            lm_scales=[0.0],
+            prior_scales=[0.0],
+
+            specific_epoch=epochs_to_evaluate,
+            run_test=run_test,
+            run_best=run_best,
+            run_best_4=run_best_4,
+
+            use_gpu=True,  # CPU is way too slow for AED decoding
+            search_gpu_memory=SEARCH_GPU_MEMORY, # breaks for bigger searches
+
+            recognition_batch_size = RECOGNITION_BATCH_SIZE,
+            prior_batch_size = PRIOR_BATCH_SIZE,
+        )
+
+
+        # MODEL REPORTING
+        create_report_job(results=results, exp_name=training_name)
+        report = {training_name: results}
+        del results
+        tk.register_report(
+            "reports/ls_baseline_report",
+            partial(build_base_report, report),
+            required=report,
+            update_frequency=900
+        )
+
+        reports[training_name] = report # TODO:REFACTOR change with config name
+
+    return reports
 
 
 def get_network_args_and_alias(encoder_alias: str, decoder_alias: str) -> tuple[str, dict[str, Any]]:
