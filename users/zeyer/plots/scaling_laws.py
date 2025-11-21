@@ -5,6 +5,8 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 
 class ScalingLawPlotJob(Job):
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
