@@ -63,8 +63,6 @@ class RoverJob(Job):
         yield Task("run", resume="run", rqmt=self.rqmt, mini_task=True)
 
     def run(self):
-        # print env
-        print(dict(os.environ))
         if not os.environ.get("I_RECOMPILED_SCTK_I_KNOW_WHAT_I_AM_DOING", False):
             # rover in SCTK has a hard limit of max 50 hyps, hardcoded in its source code
             # it preallocates a fixed size array, and doesn't ever check if more than 50 hyps are given
@@ -96,6 +94,8 @@ class RoverJob(Job):
         null_confidence = self.null_confidence
         if isinstance(null_confidence, DelayedBase):
             null_confidence = null_confidence.get()
+
+        print(f"Alpha: {alpha}, Null confidence: {null_confidence}")
 
         args = [
             rover_path,
