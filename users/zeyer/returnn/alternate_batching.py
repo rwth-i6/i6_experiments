@@ -10,6 +10,16 @@ if TYPE_CHECKING:
 def alternate_batching(
     dataset: torch.utils.data.IterableDataset, *, train: bool, **_kwargs
 ) -> torch.utils.data.IterableDataset:
+    """
+    Alternate batching, alternating between two kinds, ASR (speech+text) and LM (text-only).
+
+    Example usage::
+
+        train_config["torch_batching"] = alternate_batching
+        train_config["accum_grad_multiple_step"] *= 2
+
+    """
+
     from returnn.config import get_global_config
     from returnn.torch.data.pipeline import BatchingIterDataPipe
     from .torch.alternate_batching import AlternateBatchingIterDataPipe
