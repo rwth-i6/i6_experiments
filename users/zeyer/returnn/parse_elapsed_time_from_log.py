@@ -42,7 +42,7 @@ class ParseElapsedTimeFromReturnnLogJob(Job):
             for line in reversed(lines):
                 if b"elapsed:" in line:
                     # Example line: elapsed: 0:05:23.456789
-                    parts = line.split(b"elapsed:")[-1].strip().split(":")
+                    parts = line.split(b"elapsed:")[-1].strip().split(b":")
                     if len(parts) == 3:
                         hours = int(parts[0])
                         minutes = int(parts[1])
