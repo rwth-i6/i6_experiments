@@ -26,7 +26,7 @@ class ParseElapsedTimeFromReturnnLogJob(Job):
         job_dir = os.path.dirname(os.path.normpath(self.returnn_job_output_file.get_path()))
         print("*** Job dir:", job_dir)
         print("*** Job base dir:", get_job_base_dir(job_dir))
-        with open_recent_job_log(job_dir) as (log_file, log_filename):
+        with open_recent_job_log(job_dir, as_text=False) as (log_file, log_filename):
             print("*** Log filename:", log_filename)
             assert log_file is not None
 
@@ -40,9 +40,9 @@ class ParseElapsedTimeFromReturnnLogJob(Job):
 
             elapsed_time_secs = None
             for line in reversed(lines):
-                if "elapsed:" in line:
+                if b"elapsed:" in line:
                     # Example line: elapsed: 0:05:23.456789
-                    parts = line.split("elapsed:")[-1].strip().split(":")
+                    parts = line.split(b"elapsed:")[-1].strip().split(":")
                     if len(parts) == 3:
                         hours = int(parts[0])
                         minutes = int(parts[1])

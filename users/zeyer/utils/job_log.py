@@ -10,7 +10,7 @@ from .job_dir import get_job_base_dir
 
 @contextmanager
 def open_recent_job_log(
-    job: Union[str, Job], task: str = "run", index: int = 1
+    job: Union[str, Job], *, task: str = "run", index: int = 1, as_text: bool = True
 ) -> Tuple[Optional[TextIO], Optional[str]]:
     """
     Opens the job dir / log.<task>.<index> or the log inside the finished.tar.gz.
@@ -20,12 +20,13 @@ def open_recent_job_log(
     :param job: dir or Job object
     :param task:
     :param index:
+    :param as_text:
     """
     job_dir = get_job_base_dir(job)
     log_base_fn = f"log.{task}.{index}"
     log_fn = f"{job_dir}/{log_base_fn}"
     if os.path.exists(log_fn):
-        yield open(log_fn), log_fn
+        yield open(log_fn, "rt" if as_text else "rb"), log_fn
         return
     tar_fn = f"{job_dir}/finished.tar.gz"
     if os.path.exists(tar_fn):
@@ -36,7 +37,7 @@ def open_recent_job_log(
                     break
                 if f.name == log_base_fn:
                     f = tarf.extractfile(f)
-                    yield TextIOWrapper(f), f"{tar_fn}:{log_base_fn}"
+                    yield TextIOWrapper(f) if as_text else f, f"{tar_fn}:{log_base_fn}"
                     return
     yield None, None
 
