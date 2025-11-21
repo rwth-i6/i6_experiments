@@ -1,9 +1,32 @@
-from sisyphus import Job, Task
+from __future__ import annotations
+from typing import Optional, Union, Any, Collection, Tuple, Dict
+from sisyphus import Job, Task, tk
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 
 
 class ScalingLawPlotJob(Job):
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        x_label: str,
+        y_label: str,
+        x_scale: str = "log",
+        y_scale: str = "linear",
+        baselines: Optional[Dict[str, Union[tk.Variable, Dict[str, Any]]]] = None,
+        points: Dict[str, Collection[Tuple[tk.Variable, tk.Variable]]],
+    ):
+        """
+        :param baselines: name -> y-value
+        :param points: name -> list of (x, y) points
+        """
         super().__init__()
+
+        self.x_label = x_label
+        self.y_label = y_label
+        self.x_scale = x_scale
+        self.y_scale = y_scale
+        self.baselines = baselines
+        self.points = points
 
         self.out_plot_pdf = self.output_path("scaling_laws.pdf")
 
@@ -14,57 +37,22 @@ class ScalingLawPlotJob(Job):
         import matplotlib.pyplot as plt
         from matplotlib.ticker import ScalarFormatter
         import numpy as np
-        import os
-
-        # no. just glob all scaling law experiments
-        import glob
-
-        models = glob.glob("base-scalingLaws-*", root_dir=p_exp)
-        print(models)
-
-        metric = "total_train_time_secs"
-
-        def parse_metric(source_path: str) -> int:
-            pp = experiment_to_path(source_path)
-            pp = os.path.join(pp, f"../{metric}.txt")
-            with open(pp) as f:
-                return int(f.read().strip())
-
-        ds_name = "test-other"
-
-        def name_to_number(source_path: str) -> float:
-            vals = parse_experiment(source_path)
-            return vals["DLM sum"][ds_name]
-
-        asrbaseline = parse_experiment(
-            "train_data/asrbaseline-(L16-D1024-spm10k-auxAED-b100k-tts)/eval_datasets/input/"
-        )[
-            "DSR"  # hack for "score_results.txt"
-        ][ds_name]
-        print(asrbaseline)
-
-        new_models = []
-        for name in models:
-            try:
-                new_models.append((parse_metric(name), name_to_number(name)))
-            except Exception as e:
-                print(f"Error processing {name}: {e}")
-        models = new_models
-        # --- User-supplied data ---
-        # (x, y)
-        data_points = [(x, y) for x, y in models]
-
-        # sort by x
-        data_points.sort(key=lambda pair: pair[0])
-        print(data_points)
-
-        # Unzip the data into separate lists for x and y coordinates
-        x_data, y_data = zip(*data_points)
 
         # Create the plot
         fig, ax = plt.subplots(figsize=(8, 6))
 
-        ax.axhline(y=asrbaseline, color="red", linestyle="--", label="ASR Baseline", zorder=1)
+        for name, opts in self.baselines.items():
+            if not isinstance(opts, dict):
+                opts = {"y": opts}
+            opts = instanciate_delayed_copy(opts)
+            opts.setdefault("label", name)
+            opts.setdefault("color", "red")
+            opts.setdefault("linestyle", "--")
+            opts.setdefault("zorder", 1)
+            ax.axhline(**opts)
+
+        # Unzip the data into separate lists for x and y coordinates
+        x_data, y_data = zip(*data_points)
 
         # Plot the data points with markers and a connecting line
         ax.scatter(
@@ -109,18 +97,16 @@ class ScalingLawPlotJob(Job):
         )
         ax.scatter(pareto_x, pareto_y, color="orange", edgecolor="k", s=60, zorder=5)
 
-        # Set the x-axis to a logarithmic scale
-        ax.set_xscale("log")
+        # Set the xy-axis to a linear, logarithmic, or whatever scale
+        ax.set_xscale(self.x_scale)
+        ax.set_yscale(self.y_scale)
 
         # --- Set labels and titles ---
 
         # Set the x-axis label with 'Parameters' in bold and 'non-embedding' below
-        ax.set_xlabel(
-            {"num_params": "Parameters", "total_train_time_secs": "Training time"}.get(metric, metric),
-            fontsize=20,
-            fontweight="bold",
-            labelpad=10,
-        )
+        ax.set_xlabel(self.x_label, fontsize=20, fontweight="bold", labelpad=10)
+        ax.set_ylabel(self.y_label, fontsize=20, fontweight="bold", labelpad=10)
+
         # Add the 'non-embedding' sub-label with specific positioning and style
         # ax.text(0.5, -0.15, "non-embedding", ha="center", va="center", transform=ax.transAxes, fontsize=18, color="gray")
         ax.legend(fontsize=14)
@@ -140,6 +126,7 @@ class ScalingLawPlotJob(Job):
 
         # Display the plot
         plt.tight_layout()  # Adjust layout to prevent labels from being cut off
+
         plt.savefig(
             self.out_plot_pdf.get_path(),
             metadata={"CreationDate": None},
