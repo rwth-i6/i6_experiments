@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Union, Any, Collection, Tuple, Dict
+from typing import Optional, Union, Any, Sequence, Tuple, Dict
 from sisyphus import Job, Task, tk
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 
@@ -13,7 +13,7 @@ class ScalingLawPlotJob(Job):
         x_scale: str = "log",
         y_scale: str = "linear",
         baselines: Optional[Dict[str, Union[tk.Variable, Dict[str, Any]]]] = None,
-        points: Dict[str, Collection[Tuple[tk.Variable, tk.Variable]]],
+        points: Dict[str, Union[Sequence[Tuple[tk.Variable, tk.Variable]]]],
     ):
         """
         :param baselines: name -> y-value
@@ -51,51 +51,52 @@ class ScalingLawPlotJob(Job):
             opts.setdefault("zorder", 1)
             ax.axhline(**opts)
 
-        # Unzip the data into separate lists for x and y coordinates
-        x_data, y_data = zip(*data_points)
+        for name, data_points in self.points.items():
+            # Unzip the data into separate lists for x and y coordinates
+            x_data, y_data = zip(*data_points)
 
-        # Plot the data points with markers and a connecting line
-        ax.scatter(
-            x_data,
-            y_data,
-            marker="o",
-            linestyle="-",
-            color="#1f77b4",
-            zorder=2,
-            label="Scaling Law Experiments",
-        )
-        # Compute Pareto front (minimize x, maximize y)
-        # combine duplicate x values by keeping the max y
-        combined = {}
-        for x, y in zip(x_data, y_data):
-            combined[x] = min(y, combined.get(x, np.inf))
+            # Plot the data points with markers and a connecting line
+            ax.scatter(
+                x_data,
+                y_data,
+                marker="o",
+                linestyle="-",
+                color="#1f77b4",
+                zorder=2,
+                label="Scaling Law Experiments",
+            )
+            # Compute Pareto front (minimize x, maximize y)
+            # combine duplicate x values by keeping the max y
+            combined = {}
+            for x, y in zip(x_data, y_data):
+                combined[x] = min(y, combined.get(x, np.inf))
 
-        # sort by x ascending
-        sorted_items = sorted(combined.items(), key=lambda kv: kv[0])
-        xs_sorted, ys_sorted = zip(*sorted_items)
+            # sort by x ascending
+            sorted_items = sorted(combined.items(), key=lambda kv: kv[0])
+            xs_sorted, ys_sorted = zip(*sorted_items)
 
-        pareto_x = []
-        pareto_y = []
-        best_y = np.inf
-        for x, y in zip(xs_sorted, ys_sorted):
-            if y < best_y:
-                pareto_x.append(x)
-                pareto_y.append(y)
-                best_y = y
+            pareto_x = []
+            pareto_y = []
+            best_y = np.inf
+            for x, y in zip(xs_sorted, ys_sorted):
+                if y < best_y:
+                    pareto_x.append(x)
+                    pareto_y.append(y)
+                    best_y = y
 
-        # Plot Pareto front
-        ax.plot(
-            pareto_x,
-            pareto_y,
-            color="orange",
-            linewidth=2.5,
-            marker="s",
-            markersize=6,
-            linestyle="-",
-            zorder=4,
-            label="Pareto front",
-        )
-        ax.scatter(pareto_x, pareto_y, color="orange", edgecolor="k", s=60, zorder=5)
+            # Plot Pareto front
+            ax.plot(
+                pareto_x,
+                pareto_y,
+                color="orange",
+                linewidth=2.5,
+                marker="s",
+                markersize=6,
+                linestyle="-",
+                zorder=4,
+                label="Pareto front",
+            )
+            ax.scatter(pareto_x, pareto_y, color="orange", edgecolor="k", s=60, zorder=5)
 
         # Set the xy-axis to a linear, logarithmic, or whatever scale
         ax.set_xscale(self.x_scale)
