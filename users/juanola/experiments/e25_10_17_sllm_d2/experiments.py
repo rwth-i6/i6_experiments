@@ -54,7 +54,7 @@ def sllm_ep(
 
         # Search
         SEARCH_GPU_MEMORY = 11 # Avoid using bigger ones
-        RECOGNITION_BATCH_SIZE = 15_000  #TODO: maybe change to 14_000 (running again seems to solve the problem...)
+        RECOGNITION_BATCH_SIZE = 15_000
         PRIOR_BATCH_SIZE = 16_000
 
 
