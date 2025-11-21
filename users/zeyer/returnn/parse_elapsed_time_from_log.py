@@ -22,7 +22,8 @@ class ParseElapsedTimeFromReturnnLogJob(Job):
         # Parse this:
         # print(("elapsed: %s" % hms_fraction(time.time() - start_time)), file=log.v3)
 
-        job_dir = os.path.dirname(self.returnn_job_output_file.get_path())
+        print("*** Job output file:", self.returnn_job_output_file.get_path())
+        job_dir = os.path.dirname(os.path.normpath(self.returnn_job_output_file.get_path()))
         print("*** Job dir:", job_dir)
         print("*** Job base dir:", get_job_base_dir(job_dir))
         with open_recent_job_log(job_dir) as (log_file, log_filename):
