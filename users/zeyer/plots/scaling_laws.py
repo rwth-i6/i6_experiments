@@ -41,15 +41,16 @@ class ScalingLawPlotJob(Job):
         # Create the plot
         fig, ax = plt.subplots(figsize=(8, 6))
 
-        for name, opts in self.baselines.items():
-            if not isinstance(opts, dict):
-                opts = {"y": opts}
-            opts = instanciate_delayed_copy(opts)
-            opts.setdefault("label", name)
-            opts.setdefault("color", "red")
-            opts.setdefault("linestyle", "--")
-            opts.setdefault("zorder", 1)
-            ax.axhline(**opts)
+        if self.baselines:
+            for name, opts in self.baselines.items():
+                if not isinstance(opts, dict):
+                    opts = {"y": opts}
+                opts = instanciate_delayed_copy(opts)
+                opts.setdefault("label", name)
+                opts.setdefault("color", "red")
+                opts.setdefault("linestyle", "--")
+                opts.setdefault("zorder", 1)
+                ax.axhline(**opts)
 
         for name, data_points in self.points.items():
             if not isinstance(data_points, dict):
