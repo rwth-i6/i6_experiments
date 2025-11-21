@@ -79,6 +79,8 @@ class ScaleTuningPlotJob(Job):
         self.metric_name = metric_name
         self.metric_evals = metric_evals
         self.out_plot = self.output_path("scale_tuning_plot.pdf")
+        self.out_minimum = self.output_var("minimum")
+        self.out_maximum = self.output_var("maximum")
         self.axis = axis
 
     def tasks(self):
@@ -97,3 +99,16 @@ class ScaleTuningPlotJob(Job):
             x_axis_name=self.axis[0][1],
             out_plot_filename=self.out_plot.get_path(),
         )
+
+        minimum = min(nums, key=lambda x: x[0])
+        maximum = max(nums, key=lambda x: x[0])
+        with uopen(self.out_minimum.get_path(), "w") as f:
+            f.write(str(minimum))
+        with uopen(self.out_maximum.get_path(), "w") as f:
+            f.write(str(maximum))
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 2
+        return super().hash(d)
