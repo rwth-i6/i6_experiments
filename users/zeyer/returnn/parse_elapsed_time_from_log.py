@@ -1,5 +1,6 @@
 import os
 from sisyphus import Job, Task, tk
+from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
 from i6_experiments.users.zeyer.utils.job_log import open_recent_job_log
 
 
@@ -22,7 +23,12 @@ class ParseElapsedTimeFromReturnnLogJob(Job):
         # print(("elapsed: %s" % hms_fraction(time.time() - start_time)), file=log.v3)
 
         job_dir = os.path.dirname(self.returnn_job_output_file.get_path())
-        with open_recent_job_log(job_dir) as (log_file, _):
+        print("*** Job dir:", job_dir)
+        print("*** Job base dir:", get_job_base_dir(job_dir))
+        with open_recent_job_log(job_dir) as (log_file, log_filename):
+            print("*** Log filename:", log_filename)
+            assert log_file is not None
+
             # Parse last part of file
 
             log_file.seek(0, os.SEEK_END)
