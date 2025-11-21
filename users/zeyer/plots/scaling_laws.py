@@ -13,7 +13,7 @@ class ScalingLawPlotJob(Job):
         x_scale: str = "log",
         y_scale: str = "linear",
         baselines: Optional[Dict[str, Union[tk.Variable, Dict[str, Any]]]] = None,
-        points: Dict[str, Union[Sequence[Tuple[tk.Variable, tk.Variable]]]],
+        points: Dict[str, Union[Sequence[Tuple[tk.Variable, tk.Variable]], Dict[str, Any]]],
     ):
         """
         :param baselines: name -> y-value
@@ -52,8 +52,22 @@ class ScalingLawPlotJob(Job):
             ax.axhline(**opts)
 
         for name, data_points in self.points.items():
+            if not isinstance(data_points, dict):
+                data_points = {"xy": data_points}
+            data_points = instanciate_delayed_copy(data_points)
+
             # Unzip the data into separate lists for x and y coordinates
-            x_data, y_data = zip(*data_points)
+            if "xy" in data_points:
+                x_data, y_data = zip(*data_points.pop("xy"))
+            elif "x" in data_points and "y" in data_points:
+                x_data = data_points.pop("x")
+                y_data = data_points.pop("y")
+            else:
+                raise ValueError(f"invalid points {name} : {data_points}")
+
+            color = data_points.pop("color", "#1f77b4")
+            if data_points:
+                raise ValueError(f"unexpected extra data points options: {data_points}")
 
             # Plot the data points with markers and a connecting line
             ax.scatter(
@@ -61,9 +75,9 @@ class ScalingLawPlotJob(Job):
                 y_data,
                 marker="o",
                 linestyle="-",
-                color="#1f77b4",
+                color=color,
                 zorder=2,
-                label="Scaling Law Experiments",
+                label=name,
             )
             # Compute Pareto front (minimize x, maximize y)
             # combine duplicate x values by keeping the max y
@@ -88,15 +102,15 @@ class ScalingLawPlotJob(Job):
             ax.plot(
                 pareto_x,
                 pareto_y,
-                color="orange",
+                color=color,
                 linewidth=2.5,
                 marker="s",
                 markersize=6,
                 linestyle="-",
                 zorder=4,
-                label="Pareto front",
+                label=f"{name} pareto front",
             )
-            ax.scatter(pareto_x, pareto_y, color="orange", edgecolor="k", s=60, zorder=5)
+            ax.scatter(pareto_x, pareto_y, color=color, edgecolor="k", s=60, zorder=5)
 
         # Set the xy-axis to a linear, logarithmic, or whatever scale
         ax.set_xscale(self.x_scale)
