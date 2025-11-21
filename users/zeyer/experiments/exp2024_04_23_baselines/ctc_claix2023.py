@@ -2113,6 +2113,8 @@ def recog_ext_with_lm(
     lm_name: str,
     lm: Optional[ModelWithCheckpoint] = None,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
     eval_task: Optional[Task] = None,
     postfix: str = "",
 ):
@@ -2165,15 +2167,17 @@ def recog_ext_with_lm(
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}{postfix}",
+        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb"
+        f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
+        f"-lm_{lm_name}{name_postfix}{postfix}",
         task=eval_task or task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
         lm=lm or _get_lm_model(_lms[lm_name]),
         vocab_file=vocab_file,
         vocab_opts_file=vocab_opts_file,
-        n_best_list_size=64,
-        first_pass_recog_beam_size=64,
+        n_best_list_size=n_best_list_size,
+        first_pass_recog_beam_size=first_pass_recog_beam_size,
         extra_config=extra_config,
         ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
     )
@@ -2185,6 +2189,8 @@ def recog_ext_labelwise_with_lm(
     ctc_model: Optional[ModelWithCheckpoint] = None,
     lm_name: str,
     ctc_soft_collapse_threshold: float = 0.8,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
 ):
     from .ctc_recog_ext import (
         ctc_labelwise_recog_auto_scale,
@@ -2241,15 +2247,17 @@ def recog_ext_labelwise_with_lm(
             }
         )
     ctc_labelwise_recog_auto_scale(
-        prefix=f"{prefix}/{ctc_model_name}/recog-labelsync-beam64-fp64-lm_{lm_name}{name_postfix}",
+        prefix=f"{prefix}/{ctc_model_name}/recog-labelsync"
+        f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
+        f"-lm_{lm_name}{name_postfix}",
         task=task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
         lm=_get_lm_model(_lms[lm_name]),
         vocab_file=vocab_file,
         vocab_opts_file=vocab_opts_file,
-        n_best_list_size=64,
-        first_pass_recog_beam_size=64,
+        n_best_list_size=n_best_list_size,
+        first_pass_recog_beam_size=first_pass_recog_beam_size,
         extra_config=extra_config,
     )
 
