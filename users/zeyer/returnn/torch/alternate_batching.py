@@ -4,6 +4,14 @@ from returnn.torch.data.pipeline import BatchingIterDataPipe
 
 # noinspection PyAbstractClass
 class AlternateBatchingIterDataPipe(BatchingIterDataPipe):
+    """
+    Assume that we have a special data key like "asr" (default)
+    which is only available in some dataset entries
+    but not in others (where we maybe have only text data).
+
+    Alternates between both types of batches (consisting no ASR data, and always containing ASR data).
+    """
+
     # noinspection PyShadowingNames
     def __iter__(self):
         """

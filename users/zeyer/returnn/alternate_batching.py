@@ -13,7 +13,12 @@ def alternate_batching(
     """
     Alternate batching, alternating between two kinds, ASR (speech+text) and LM (text-only).
 
-    Example usage::
+    This is usually used together with :class:`CombinedDataset` with ``seq_ordering="interleave"``.
+
+    For :class:`CombinedDataset`, also remember to set ``batch_size`` appropriately,
+    i.e. as a dict, defining the batch size for both data keys (speech and text).
+
+    Example usage of :func:`alternate_batching`::
 
         train_config["torch_batching"] = alternate_batching
         train_config["accum_grad_multiple_step"] *= 2
