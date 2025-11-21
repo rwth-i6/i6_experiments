@@ -20,6 +20,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc im
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
 from ...model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.task import Task
+from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -2118,7 +2119,7 @@ def recog_ext_with_lm(
     eval_task: Optional[Task] = None,
     prefix: str = "ctc",
     postfix: str = "",
-):
+) -> ScoreResultCollection:
     from .ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         _get_lm_model,
@@ -2166,7 +2167,7 @@ def recog_ext_with_lm(
     extra_config = {}
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
-    ctc_recog_recomb_labelwise_prior_auto_scale(
+    return ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb"
         f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
         f"-lm_{lm_name}{name_postfix}{postfix}",
@@ -2192,7 +2193,7 @@ def recog_ext_labelwise_with_lm(
     ctc_soft_collapse_threshold: float = 0.8,
     n_best_list_size: int = 64,
     first_pass_recog_beam_size: int = 64,
-):
+) -> ScoreResultCollection:
     from .ctc_recog_ext import (
         ctc_labelwise_recog_auto_scale,
         _get_lm_model,
@@ -2246,7 +2247,7 @@ def recog_ext_labelwise_with_lm(
                 "ctc_soft_collapse_reduce_type": "max_renorm",
             }
         )
-    ctc_labelwise_recog_auto_scale(
+    return ctc_labelwise_recog_auto_scale(
         prefix=f"{prefix}/{ctc_model_name}/recog-labelsync"
         f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
         f"-lm_{lm_name}{name_postfix}",
