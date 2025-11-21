@@ -155,11 +155,7 @@ class ScalingLawPlotJob(Job):
         ax.tick_params(axis="both", which="major", labelsize=14)
         ax.xaxis.set_minor_locator(plt.LogLocator(base=10.0, subs=(0.2, 0.4, 0.6, 0.8), numticks=5))
 
-        # Add this line to show the minor tick labels
-        ax.xaxis.set_minor_formatter(ScalarFormatter())
-        ax.xaxis.get_minor_formatter().set_useOffset(False)
-        ax.xaxis.get_minor_formatter().set_scientific(True)
-
+        # show the minor tick labels
         ax.tick_params(axis="x", which="minor", labelsize=10)
 
         # Display the plot
