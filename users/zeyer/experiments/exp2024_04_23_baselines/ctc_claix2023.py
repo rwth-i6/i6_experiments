@@ -2116,6 +2116,7 @@ def recog_ext_with_lm(
     n_best_list_size: int = 64,
     first_pass_recog_beam_size: int = 64,
     eval_task: Optional[Task] = None,
+    prefix: str = "ctc",
     postfix: str = "",
 ):
     from .ctc_recog_ext import (
@@ -2133,7 +2134,6 @@ def recog_ext_with_lm(
         ExtendVocabLabelsByNewLabelJob,
     )
 
-    prefix = "ctc"
     ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
@@ -2188,6 +2188,7 @@ def recog_ext_labelwise_with_lm(
     ctc_model_name: str,
     ctc_model: Optional[ModelWithCheckpoint] = None,
     lm_name: str,
+    prefix: str = "ctc",
     ctc_soft_collapse_threshold: float = 0.8,
     n_best_list_size: int = 64,
     first_pass_recog_beam_size: int = 64,
@@ -2207,7 +2208,6 @@ def recog_ext_labelwise_with_lm(
         ExtendVocabLabelsByNewLabelJob,
     )
 
-    prefix = "ctc"
     ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
