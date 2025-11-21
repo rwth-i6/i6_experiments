@@ -14,6 +14,7 @@ class ScalingLawPlotJob(Job):
         y_scale: str = "linear",
         baselines: Optional[Dict[str, Union[tk.Variable, Dict[str, Any]]]] = None,
         points: Dict[str, Union[Sequence[Tuple[tk.Variable, tk.Variable]], Dict[str, Any]]],
+        filter_outliers: bool = False,
     ):
         """
         :param baselines: name -> y-value
@@ -27,6 +28,7 @@ class ScalingLawPlotJob(Job):
         self.y_scale = y_scale
         self.baselines = baselines
         self.points = points
+        self.filter_outliers = filter_outliers
 
         self.out_plot_pdf = self.output_path("scaling_laws.pdf")
 
@@ -72,6 +74,17 @@ class ScalingLawPlotJob(Job):
                 y_data = data_points.pop("y")
             else:
                 raise ValueError(f"invalid points {name} : {data_points}")
+
+            if self.filter_outliers:
+                # Simple outlier removal: remove points that are beyond 1.5 * IQR from Q1 and Q3
+                q1 = np.percentile(y_data, 25)
+                q3 = np.percentile(y_data, 75)
+                iqr = q3 - q1
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+                filtered_points = [(x, y) for x, y in zip(x_data, y_data) if lower_bound <= y <= upper_bound]
+                if filtered_points:  # only take this if not empty (should not happen?)
+                    x_data, y_data = zip(*filtered_points)
 
             color = data_points.pop("color", colors[idx])
             if data_points:
