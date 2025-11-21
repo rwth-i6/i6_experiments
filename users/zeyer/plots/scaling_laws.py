@@ -34,6 +34,7 @@ class ScalingLawPlotJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
+        import matplotlib as mpl
         import matplotlib.pyplot as plt
         from matplotlib.ticker import ScalarFormatter
         import numpy as np
@@ -41,16 +42,22 @@ class ScalingLawPlotJob(Job):
         # Create the plot
         fig, ax = plt.subplots(figsize=(8, 6))
 
+        name = "Accent"
+        cmap = mpl.colormaps[name]
+        colors = cmap.colors
+        idx = 0
+
         if self.baselines:
             for name, opts in self.baselines.items():
                 if not isinstance(opts, dict):
                     opts = {"y": opts}
                 opts = instanciate_delayed_copy(opts)
                 opts.setdefault("label", name)
-                opts.setdefault("color", "red")
+                opts.setdefault("color", colors[idx])
                 opts.setdefault("linestyle", "--")
                 opts.setdefault("zorder", 1)
                 ax.axhline(**opts)
+                idx += 1
 
         for name, data_points in self.points.items():
             if not isinstance(data_points, dict):
@@ -66,7 +73,7 @@ class ScalingLawPlotJob(Job):
             else:
                 raise ValueError(f"invalid points {name} : {data_points}")
 
-            color = data_points.pop("color", "#1f77b4")
+            color = data_points.pop("color", colors[idx])
             if data_points:
                 raise ValueError(f"unexpected extra data points options: {data_points}")
 
@@ -112,6 +119,8 @@ class ScalingLawPlotJob(Job):
                 label=f"{name} pareto front",
             )
             ax.scatter(pareto_x, pareto_y, color=color, edgecolor="k", s=60, zorder=5)
+
+            idx += 1
 
         # Set the xy-axis to a linear, logarithmic, or whatever scale
         ax.set_xscale(self.x_scale)
