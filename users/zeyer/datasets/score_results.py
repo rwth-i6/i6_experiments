@@ -40,6 +40,9 @@ class ScoreResultCollection:
     output: tk.Path
     "JSON dict with all score outputs for each eval dataset"
 
+    def get_main_measure_value_as_variable(self) -> tk.Variable:
+        return tk.Variable(path=self.main_measure_value.path, creator=self.main_measure_value.creator)
+
 
 @dataclasses.dataclass(frozen=True)
 class MeasureType:
