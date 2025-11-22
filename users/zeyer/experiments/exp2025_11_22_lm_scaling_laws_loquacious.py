@@ -60,7 +60,7 @@ def py():
 
     for lm_name, lm in lms.items():
         train_job: ReturnnTrainingJob = lm.checkpoint.path.creator
-        num_params = GetNumParamsFromReturnnConfigJob(train_job.out_returnn_config_file).out_num_params
+        num_params = GetNumParamsFromReturnnConfigJob(train_job.returnn_config).out_num_params
         tk.register_output(f"{prefix}/{lm_name}/num_params.txt", num_params)
 
         train_time_secs = GetTotalRuntimeFromReturnnTrainingJob(train_job.out_learning_rates).out_train_time_secs
