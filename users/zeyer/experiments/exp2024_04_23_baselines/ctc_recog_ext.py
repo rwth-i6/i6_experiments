@@ -1796,6 +1796,7 @@ def ctc_labelwise_recog_auto_scale(
     first_pass_recog_beam_size: int = 64,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     extra_config: Optional[Dict[str, Any]] = None,
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
     extra_config_n_best_list: Optional[Dict[str, Any]] = None,
 ) -> ScoreResultCollection:
     """
@@ -1869,10 +1870,17 @@ def ctc_labelwise_recog_auto_scale(
     # Note: Still requires lots of memory. E.g. batch size 64, without LM, with ctc_soft_collapse_threshold,
     # takes more than 40GB.
     # Could maybe use forward_auto_split_batch_on_oom when we are sure that the batch size does not matter.
-    base_config = {
+    base_config: Dict[str, Any] = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
     }
+    if ctc_soft_collapse_threshold is not None:
+        base_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
+        )
     if extra_config:
         config_dict_update_(base_config, extra_config)
     config_n_best = {**base_config, "beam_size": n_best_list_size}

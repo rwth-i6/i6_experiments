@@ -2164,7 +2164,6 @@ def recog_ext_with_lm(
     tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
     name_postfix = ""
-    extra_config = {}
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
     return ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -2179,7 +2178,6 @@ def recog_ext_with_lm(
         vocab_opts_file=vocab_opts_file,
         n_best_list_size=n_best_list_size,
         first_pass_recog_beam_size=first_pass_recog_beam_size,
-        extra_config=extra_config,
         ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
     )
 
@@ -2239,15 +2237,8 @@ def recog_ext_labelwise_with_lm(
     tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
     name_postfix = ""
-    extra_config = {}
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
-        extra_config.update(
-            {
-                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
-                "ctc_soft_collapse_reduce_type": "max_renorm",
-            }
-        )
     return ctc_labelwise_recog_auto_scale(
         prefix=f"{prefix}/{ctc_model_name}/recog-labelsync"
         f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
@@ -2260,7 +2251,7 @@ def recog_ext_labelwise_with_lm(
         vocab_opts_file=vocab_opts_file,
         n_best_list_size=n_best_list_size,
         first_pass_recog_beam_size=first_pass_recog_beam_size,
-        extra_config=extra_config,
+        ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
     )
 
 
