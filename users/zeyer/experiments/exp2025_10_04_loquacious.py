@@ -4,9 +4,11 @@ Some Loquacious baselines
 
 from __future__ import annotations
 
+from typing import Dict, Tuple
 from sisyphus import tk, Path
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as aed_train_exp,
     _raw_sample_rate,
@@ -327,67 +329,9 @@ def py():
         if subset == "large" and total_k_hours == 200:  # for now only this
             selected_asr = (name, exp.get_last_fixed_epoch())
 
-    # Language models on train large transcriptions
-
-    selected_lm = None
-    lms = {}
-    for num_full_ep, split in [(4, 25), (5, 10), (10, 10), (20, 10), (30, 10)]:
-        n_ep = round(num_full_ep * split)
-        # orig name: trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp...-spm10k
-        name = f"trafo-n32-d1024-nFullEp{num_full_ep}-nEp{n_ep}-spm10k"
-        exp = train(
-            f"{prefix}/lm/{name}",
-            config=dict_update_deep(
-                config_96gb_bf16_accgrad1,
-                {
-                    **_get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep),
-                    "batch_size": 20_000,
-                    "max_seqs": 400,
-                    "optimizer.weight_decay": 1e-2,
-                    "calculate_exp_loss": True,
-                },
-            ),
-            train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=split),
-            model_def=ModelDefWithCfg(
-                lm_model_def,
-                {
-                    "_model_def_dict": rf.build_dict(
-                        TransformerDecoder,
-                        encoder_dim=None,
-                        num_layers=32,
-                        model_dim=1024,
-                        pos_enc=None,
-                        norm=rf.build_dict(rf.RMSNorm),
-                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                        decoder_layer_opts=dict(
-                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
-                        ),
-                        dropout=0.1,
-                        att_dropout=0.1,
-                    )
-                },
-            ),
-            train_def=lm_train_def,
-        )
-        lms[name] = exp.get_last_fixed_epoch()
-
-        perplexities_nlm = get_lm_perplexities_for_task_evals(
-            task_spm10k, label_level="task", lm=exp.get_last_fixed_epoch()
-        )
-        for eval_set_name, ppl in perplexities_nlm.items():
-            tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
-
-        aed_ctc_lm_timesync_recog_recomb_auto_scale(
-            prefix=prefix + "/aed/" + selected_asr[0] + "/ctc+lm/" + name,
-            task=task_spm10k,
-            aed_ctc_model=selected_asr[1],
-            aed_scale=0.0,
-            aux_ctc_layer=16,
-            lm=exp.get_last_fixed_epoch(),
-        )
-
-        if num_full_ep == 5:
-            selected_lm = (name, exp.get_last_fixed_epoch())
+    lms = train_lms()
+    selected_lm = lms["trafo-n32-d1024-nFullEp5-nEp50-spm10k"]
+    eval_lms_with_asr(lms=lms, asr=selected_asr)
 
     # AED+CTC+LM decoding
 
@@ -495,3 +439,74 @@ def py():
                     name=prefix_,
                 )
                 tk.register_output(prefix_ + ".txt", res.output)
+
+
+def train_lms():
+    # Language models on train large transcriptions
+
+    prefix = get_setup_prefix_for_module(__name__)
+    task_spm10k = get_loquacious_task_raw(vocab="spm10k")
+
+    lms = {}
+    for num_full_ep, split in [(4, 25), (5, 10), (10, 10), (20, 10), (30, 10)]:
+        n_ep = round(num_full_ep * split)
+        # orig name: trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp...-spm10k
+        name = f"trafo-n32-d1024-nFullEp{num_full_ep}-nEp{n_ep}-spm10k"
+        exp = train(
+            f"{prefix}/lm/{name}",
+            config=dict_update_deep(
+                config_96gb_bf16_accgrad1,
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep),
+                    "batch_size": 20_000,
+                    "max_seqs": 400,
+                    "optimizer.weight_decay": 1e-2,
+                    "calculate_exp_loss": True,
+                },
+            ),
+            train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=split),
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        TransformerDecoder,
+                        encoder_dim=None,
+                        num_layers=32,
+                        model_dim=1024,
+                        pos_enc=None,
+                        norm=rf.build_dict(rf.RMSNorm),
+                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                        decoder_layer_opts=dict(
+                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
+                        ),
+                        dropout=0.1,
+                        att_dropout=0.1,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+        lms[name] = exp.get_last_fixed_epoch()
+
+        perplexities_nlm = get_lm_perplexities_for_task_evals(
+            task_spm10k, label_level="task", lm=exp.get_last_fixed_epoch()
+        )
+        for eval_set_name, ppl in perplexities_nlm.items():
+            tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
+
+    return lms
+
+
+def eval_lms_with_asr(*, lms: Dict[str, ModelWithCheckpoint], asr: Tuple[str, ModelWithCheckpoint]):
+    prefix = get_setup_prefix_for_module(__name__)
+    task_spm10k = get_loquacious_task_raw(vocab="spm10k")
+
+    for name, lm in lms.items():
+        aed_ctc_lm_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + asr[0] + "/ctc+lm/" + name,
+            task=task_spm10k,
+            aed_ctc_model=asr[1],
+            aed_scale=0.0,
+            aux_ctc_layer=16,
+            lm=lm,
+        )
