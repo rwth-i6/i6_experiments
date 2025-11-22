@@ -425,14 +425,13 @@ def model_recog_label_sync_v2(
 
     neg_inf = float("-inf")
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    logits, enc_out, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    ctc_log_prob, enc_out, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    batch_dims = ctc_log_prob.remaining_dims((enc_spatial_dim, ctc_log_prob.feature_dim))
     print("Encoder seq lens:", enc_spatial_dim.get_size_tensor().raw_tensor)
 
     # Eager-mode implementation of beam search.
 
     # The label log probs include the AM and the (scaled) prior.
-    ctc_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
     if ctc_soft_collapse_threshold is not None:
         ctc_log_prob, enc_spatial_dim = soft_collapse_repeated(
             ctc_log_prob,
@@ -441,6 +440,7 @@ def model_recog_label_sync_v2(
             threshold=ctc_soft_collapse_threshold,
             reduce_type=ctc_soft_collapse_reduce_type,
         )
+
     ctc_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         ctc_log_prob,
