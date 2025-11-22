@@ -210,8 +210,8 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"n": 12},
         {"n": 16},
         {"n": 24},
-        {"n": 32},  # baseline
-        {"d": 1024},  # baseline
+        # {"n": 32},  # baseline
+        # {"d": 1024},  # baseline
         {"d": 768},
         {"d": 512},
         {"d": 256},
@@ -233,8 +233,8 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"n": 2, "nEp": 25},
         {"nEp": 10},
         {"nEp": 25},
-        {"nEp": 50},  # baseline
-        {"nEp": 100},
+        # {"nEp": 50},  # baseline
+        # {"nEp": 100},
         # {"nEp": 150},
         # {"nEp": 200},
         # {"drop": 0.1, "nEp": 25},
@@ -242,7 +242,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"drop": 0.1, "nEp": 100},
         # {"drop": 0.1, "nEp": 150},
         # {"drop": 0.1, "nEp": 200},
-        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 100},
+        # {"n": 24, "d": 1280, "drop": 0.1, "nEp": 100},
         # {"n": 24, "d": 1280, "drop": 0.1, "nEp": 150},
         # intended to be similar as Dorians DLMs (wrong, but anyway keep that now...)
         {"n": 6, "a": 2, "d": 512, "lr": 0.5, "nEp": 100},
