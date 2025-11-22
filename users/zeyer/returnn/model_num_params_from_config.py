@@ -14,6 +14,8 @@ class GetNumParamsFromReturnnConfigJob(Job):
         *,
         returnn_root: Optional[tk.Path] = None,
     ):
+        assert isinstance(returnn_config, ReturnnConfig)
+
         self.returnn_config = returnn_config
         self.returnn_root = returnn_root
 
