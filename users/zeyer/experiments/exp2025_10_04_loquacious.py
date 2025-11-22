@@ -330,7 +330,8 @@ def py():
             selected_asr = (name, exp.get_last_fixed_epoch())
 
     lms = train_lms()
-    selected_lm = lms["trafo-n32-d1024-nFullEp5-nEp50-spm10k"]
+    selected_lm_name = "trafo-n32-d1024-nFullEp5-nEp50-spm10k"
+    selected_lm = selected_lm_name, lms[selected_lm_name]
     eval_lms_with_asr(lms=lms, asr=selected_asr)
 
     # AED+CTC+LM decoding
@@ -441,7 +442,7 @@ def py():
                 tk.register_output(prefix_ + ".txt", res.output)
 
 
-def train_lms():
+def train_lms() -> Dict[str, ModelWithCheckpoint]:
     # Language models on train large transcriptions
 
     prefix = get_setup_prefix_for_module(__name__)
