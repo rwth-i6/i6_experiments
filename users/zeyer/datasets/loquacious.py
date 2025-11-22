@@ -787,6 +787,9 @@ def get_loquacious_text_only_dataset_v2(
     # dev has 7759. take 5000 just for a nicer number.
     eval_take_random_sorted_subset: int = 5000,
 ) -> DatasetConfigStatic:
+    """
+    V2: using take_random_sorted_subset_version=2
+    """
     vocab: VocabConfig = get_vocab_by_str(vocab)
     hf_data_dir = get_hf_text_only()
     multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
