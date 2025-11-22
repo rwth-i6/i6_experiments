@@ -59,9 +59,6 @@ def py():
     time_points_ = time_points["CTC+LM"] = []
 
     for lm_name, lm in lms.items():
-        if not lm_name.startswith("lm/"):
-            continue
-
         train_job: ReturnnTrainingJob = lm.checkpoint.path.creator
         num_params = GetNumParamsFromReturnnConfigJob(train_job.out_returnn_config_file).out_num_params
         tk.register_output(f"{prefix}/{lm_name}/num_params.txt", num_params)
