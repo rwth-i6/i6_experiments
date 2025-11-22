@@ -1787,12 +1787,13 @@ def ctc_labelwise_recog_auto_scale(
     prefix: str,
     task: Task,
     ctc_model: ModelWithCheckpoint,
-    labelwise_prior: Prior,
+    labelwise_prior: Optional[Prior] = None,
+    prior_dataset: Optional[DatasetConfig] = None,
     lm: ModelWithCheckpoint,
-    vocab_file: tk.Path,
-    vocab_opts_file: tk.Path,
-    n_best_list_size: int,
-    first_pass_recog_beam_size: int,
+    vocab_file: Optional[tk.Path] = None,
+    vocab_opts_file: Optional[tk.Path] = None,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     extra_config: Optional[Dict[str, Any]] = None,
     extra_config_n_best_list: Optional[Dict[str, Any]] = None,
@@ -1809,11 +1810,52 @@ def ctc_labelwise_recog_auto_scale(
         prior_score,
         lm_score,
     )
+    from .ctc import _ctc_model_def_blank_idx
     from .recog_ext.ctc_label_sync_espnet import model_recog_label_sync_v2
     from i6_core.returnn.search import SearchTakeBestJob
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
     from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import sclite_score_recog_out_to_ref
+
+    if vocab_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
+
+        vocab_file = get_vocab_file_from_task(task)
+
+    if vocab_opts_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_opts_file_from_task
+
+        vocab_opts_file = get_vocab_opts_file_from_task(task)
+
+    if labelwise_prior is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import ExtendVocabLabelsByNewLabelJob
+        from i6_experiments.users.zeyer.decoding.prior_rescoring import PriorRemoveLabelRenormJob
+
+        prior = get_ctc_prior_probs(
+            ctc_model,
+            prior_dataset or task.train_dataset.copy_train_as_static(),
+            config={
+                "behavior_version": 24,
+                "batch_size": 200_000 * _batch_size_factor,
+                "max_seqs": 2000,
+                **(extra_config or {}),
+            },
+        )
+        prior.creator.add_alias(f"{prefix}/prior")
+        tk.register_output(f"{prefix}/prior.txt", prior)
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+        ).out_vocab
+        tk.register_output(f"{prefix}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+        log_prior_wo_blank = PriorRemoveLabelRenormJob(
+            prior_file=prior,
+            prior_type="prob",
+            vocab=vocab_w_blank_file,
+            remove_label=model_recog.output_blank_label,
+            out_prior_type="log_prob",
+        ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
+        labelwise_prior = Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file)
 
     dataset = task.dev_dataset
     ref = RecogOutput(
