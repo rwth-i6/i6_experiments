@@ -322,8 +322,6 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         )
         lms[name] = exp.get_last_fixed_epoch()
 
-        break  # TODO remove
-
     return lms
 
 
