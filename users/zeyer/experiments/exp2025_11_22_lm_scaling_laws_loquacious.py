@@ -81,12 +81,13 @@ def py():
             params_points_.append((num_params, res_wer))
             time_points_.append((train_time_secs / 60 / 60, res_wer))
 
-    tk.register_output(
-        f"{prefix}/lm_scaling_plot.pdf",
-        ScalingLawPlotJob(
-            x_label="Train time [h]", y_label="WER [%]", points=time_points, filter_outliers=True
-        ).out_plot_pdf,
-    )
+    if time_points:
+        tk.register_output(
+            f"{prefix}/lm_scaling_plot.pdf",
+            ScalingLawPlotJob(
+                x_label="Train time [h]", y_label="WER [%]", points=time_points, filter_outliers=True
+            ).out_plot_pdf,
+        )
 
 
 def get_ctc_model(*, subset: str = "large", total_k_hours: int = 250) -> Tuple[str, ModelWithCheckpoint]:
