@@ -17,6 +17,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw_v2,
     get_loquacious_text_only_dataset_v2,
+    get_loquacious_train_subset_dataset_v2,
 )
 
 import returnn.frontend as rf
@@ -33,12 +34,13 @@ __setup_root_prefix__ = "exp2025_11_22_lm_scaling_laws_loquacious"
 
 
 def py():
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023 import (
-        recog_ext_with_lm,
-        recog_ext_labelwise_with_lm,
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+        ctc_labelwise_recog_auto_scale,
     )
 
     prefix = get_setup_prefix_for_module(__name__)
+    asr_task_spm10k = get_loquacious_task_raw_v2(vocab="spm10k")
 
     ctc_model_name, ctc_model = get_ctc_model()
     lms = train_lms()
@@ -67,12 +69,12 @@ def py():
         train_time_secs = GetTotalRuntimeFromReturnnTrainingJob(train_job.out_learning_rates).out_train_time_secs
         tk.register_output(f"{prefix}/{lm_name}/total_train_time_secs.txt", train_time_secs)
 
-        res = recog_ext_with_lm(
-            ctc_model_name=ctc_model_name,
+        res = ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{ctc_model_name}/ctc+lm-v2/{lm_name}",
+            task=asr_task_spm10k,
             ctc_model=ctc_model,
-            lm_name=lm_name,
             lm=lm,
-            ctc_soft_collapse_threshold=0.9,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
         )
         res_wer = res.get_main_measure_value_as_variable()
         if res_wer.available():  # TODO remove this check...
