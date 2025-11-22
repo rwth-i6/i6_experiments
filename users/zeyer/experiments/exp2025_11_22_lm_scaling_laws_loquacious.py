@@ -1,15 +1,20 @@
 from sisyphus import tk
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
+from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
     config_96gb_bf16_accgrad1,
     _get_cfg_lrlin_oclr_by_bs_nep_v3,
 )
-from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
-from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
+
+from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_text_only_dataset_v2
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
+
+
+__setup_root_prefix__ = "exp2025_11_22_lm_scaling_laws_loquacious"
 
 
 def py():
@@ -132,48 +137,15 @@ def train_base_asr_models():
 
 def train_lms():
     from i6_experiments.users.zeyer.train_v4 import train
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm_claix2023 import (
+    from i6_experiments.users.zeyer.experiments.exp2025_10_04_loquacious import (
         lm_model_def,
         lm_train_def,
-        py as base_lm_exps,
+        train_lms as base_lm_exps,
     )
 
-    base_lm_exps()
+    prefix = get_setup_prefix_for_module(__name__)
 
-    for n_ep in [20, 50, 100, 200, 300, 400]:
-        train(
-            f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp{n_ep}-spm10k",
-            config=dict_update_deep(
-                config_96gb_bf16_accgrad1,
-                {
-                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, n_ep, batch_size_factor=1),
-                    "max_seqs": 400,
-                    "optimizer.weight_decay": 1e-2,
-                    "calculate_exp_loss": True,
-                },
-            ),
-            train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
-            model_def=ModelDefWithCfg(
-                lm_model_def,
-                {
-                    "_model_def_dict": rf.build_dict(
-                        TransformerDecoder,
-                        encoder_dim=None,
-                        num_layers=32,
-                        model_dim=1024,
-                        pos_enc=None,
-                        norm=rf.build_dict(rf.RMSNorm),
-                        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                        decoder_layer_opts=dict(
-                            self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
-                        ),
-                        dropout=0.0,
-                        att_dropout=0.0,
-                    )
-                },
-            ),
-            train_def=lm_train_def,
-        )
+    base_lm_exps()
 
     # Try various configurations.
     # The goal is to have, for e.g. a given number of training time, or given amount of parameters, etc,
@@ -199,61 +171,61 @@ def train_lms():
         {"n": 4},
         {"n": 4, "lr": 0.5},
         {"n": 4, "lr": 2.0},
-        {"n": 4, "nEp": 200},
-        {"n": 4, "nEp": 300},
-        {"n": 4, "nEp": 50},
-        {"n": 4, "d": 512, "nEp": 50},
+        {"n": 4, "nEp": 100},
+        {"n": 4, "nEp": 150},
+        {"n": 4, "nEp": 25},
+        {"n": 4, "d": 512, "nEp": 25},
         {"n": 3},
         {"n": 2},
-        {"n": 3, "nEp": 50},
-        {"n": 2, "nEp": 50},
-        {"nEp": 20},
-        {"nEp": 50},
-        {"nEp": 100},  # baseline
+        {"n": 3, "nEp": 25},
+        {"n": 2, "nEp": 25},
+        {"nEp": 10},
+        {"nEp": 25},
+        {"nEp": 50},  # baseline
+        {"nEp": 100},
+        {"nEp": 150},
         {"nEp": 200},
-        {"nEp": 300},
-        {"nEp": 400},
+        {"drop": 0.1, "nEp": 25},
         {"drop": 0.1, "nEp": 50},
         {"drop": 0.1, "nEp": 100},
+        {"drop": 0.1, "nEp": 150},
         {"drop": 0.1, "nEp": 200},
-        {"drop": 0.1, "nEp": 300},
-        {"drop": 0.1, "nEp": 400},
-        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 200},
-        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 300},
+        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 100},
+        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 150},
         # intended to be similar as Dorians DLMs (wrong, but anyway keep that now...)
-        {"n": 6, "a": 2, "d": 512, "lr": 0.5, "nEp": 200},
-        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 50},
-        {"n": 9, "a": 4, "d": 512, "lr": 1.25, "nEp": 50},
-        {"n": 3, "a": 1, "d": 512, "lr": 1.25, "nEp": 100},
-        {"n": 3, "a": 1, "d": 256, "lr": 0.5, "nEp": 50},
-        {"n": 12, "a": 4, "d": 768, "lr": 0.5, "nEp": 200},
-        {"n": 3, "a": 1, "d": 128, "lr": 1.25, "nEp": 50},
-        {"n": 30, "a": 16, "d": 1024, "lr": 0.5, "nEp": 100},
-        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 50},
-        {"n": 30, "a": 16, "d": 1024, "lr": 1.0, "nEp": 100},
+        {"n": 6, "a": 2, "d": 512, "lr": 0.5, "nEp": 100},
+        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 25},
+        {"n": 9, "a": 4, "d": 512, "lr": 1.25, "nEp": 25},
+        {"n": 3, "a": 1, "d": 512, "lr": 1.25, "nEp": 50},
+        {"n": 3, "a": 1, "d": 256, "lr": 0.5, "nEp": 25},
+        {"n": 12, "a": 4, "d": 768, "lr": 0.5, "nEp": 100},
+        {"n": 3, "a": 1, "d": 128, "lr": 1.25, "nEp": 25},
+        {"n": 30, "a": 16, "d": 1024, "lr": 0.5, "nEp": 50},
+        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 25},
+        {"n": 30, "a": 16, "d": 1024, "lr": 1.0, "nEp": 50},
         # similar as Dorians DLMs
-        {"n": 8, "d": 512, "lr": 0.5, "nEp": 200},
-        {"n": 24, "d": 768, "lr": 0.5, "nEp": 50},
-        {"n": 12, "d": 512, "lr": 1.25, "nEp": 50},
-        {"n": 4, "d": 512, "lr": 1.25, "nEp": 100},
-        {"n": 4, "d": 256, "lr": 0.5, "nEp": 50},
-        {"n": 16, "d": 768, "lr": 0.5, "nEp": 200},
-        {"n": 4, "d": 128, "lr": 1.25, "nEp": 50},
-        {"n": 40, "d": 1024, "lr": 0.5, "nEp": 100},
-        {"n": 24, "d": 768, "lr": 0.5, "nEp": 50},
-        {"n": 40, "d": 1024, "lr": 1.0, "nEp": 100},
+        {"n": 8, "d": 512, "lr": 0.5, "nEp": 100},
+        {"n": 24, "d": 768, "lr": 0.5, "nEp": 25},
+        {"n": 12, "d": 512, "lr": 1.25, "nEp": 25},
+        {"n": 4, "d": 512, "lr": 1.25, "nEp": 50},
+        {"n": 4, "d": 256, "lr": 0.5, "nEp": 25},
+        {"n": 16, "d": 768, "lr": 0.5, "nEp": 100},
+        {"n": 4, "d": 128, "lr": 1.25, "nEp": 25},
+        {"n": 40, "d": 1024, "lr": 0.5, "nEp": 50},
+        {"n": 24, "d": 768, "lr": 0.5, "nEp": 25},
+        {"n": 40, "d": 1024, "lr": 1.0, "nEp": 50},
         {"n": 2, "d": 128},
         # similar as from MDLM
-        {"n": 12, "a": 12, "d": 768, "drop": 0.1, "nEp": 100},  # like small mdlm
-        {"n": 24, "a": 16, "d": 1024, "drop": 0.1, "nEp": 100},  # like medium mdlm
+        {"n": 12, "a": 12, "d": 768, "drop": 0.1, "nEp": 50},  # like small mdlm
+        {"n": 24, "a": 16, "d": 1024, "drop": 0.1, "nEp": 50},  # like medium mdlm
     ]:
         # n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100 by default
         # reorder and set defaults
         opts = {"n": opts.pop("n", 32), "d": opts.pop("d", 1024), **opts}
-        name = f"lm/trafo-v2-{_name_for_dict(opts)}-spm10k"
+        name = f"{prefix}/lm/trafo-v2-{_name_for_dict(opts)}-spm10k"
         n_l = opts.pop("n")
         dim = opts.pop("d")
-        n_ep = opts.pop("nEp", 100)
+        n_ep = opts.pop("nEp", 50)
         lr = opts.pop("lr", 1.0)
         num_heads = opts.pop("a", None)
         drop = opts.pop("drop", 0.0)
@@ -270,7 +242,7 @@ def train_lms():
                     "calculate_exp_loss": True,
                 },
             ),
-            train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+            train_dataset=get_loquacious_text_only_dataset_v2(vocab="spm10k", train_epoch_split=10),
             model_def=ModelDefWithCfg(
                 lm_model_def,
                 {
