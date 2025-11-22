@@ -227,7 +227,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"n": 4, "lr": 0.5},
         {"n": 4, "lr": 2.0},
         {"n": 4, "nEp": 100},
-        {"n": 4, "nEp": 150},
+        # {"n": 4, "nEp": 150},
         {"n": 4, "nEp": 25},
         {"n": 4, "d": 512, "nEp": 25},
         {"n": 3},
@@ -238,41 +238,41 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"nEp": 25},
         {"nEp": 50},  # baseline
         {"nEp": 100},
-        {"nEp": 150},
-        {"nEp": 200},
-        {"drop": 0.1, "nEp": 25},
+        # {"nEp": 150},
+        # {"nEp": 200},
+        # {"drop": 0.1, "nEp": 25},
         {"drop": 0.1, "nEp": 50},
         {"drop": 0.1, "nEp": 100},
-        {"drop": 0.1, "nEp": 150},
-        {"drop": 0.1, "nEp": 200},
+        # {"drop": 0.1, "nEp": 150},
+        # {"drop": 0.1, "nEp": 200},
         {"n": 24, "d": 1280, "drop": 0.1, "nEp": 100},
-        {"n": 24, "d": 1280, "drop": 0.1, "nEp": 150},
+        # {"n": 24, "d": 1280, "drop": 0.1, "nEp": 150},
         # intended to be similar as Dorians DLMs (wrong, but anyway keep that now...)
         {"n": 6, "a": 2, "d": 512, "lr": 0.5, "nEp": 100},
-        {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 25},
+        # {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 25},
         {"n": 9, "a": 4, "d": 512, "lr": 1.25, "nEp": 25},
         {"n": 3, "a": 1, "d": 512, "lr": 1.25, "nEp": 50},
         {"n": 3, "a": 1, "d": 256, "lr": 0.5, "nEp": 25},
         {"n": 12, "a": 4, "d": 768, "lr": 0.5, "nEp": 100},
         {"n": 3, "a": 1, "d": 128, "lr": 1.25, "nEp": 25},
-        {"n": 30, "a": 16, "d": 1024, "lr": 0.5, "nEp": 50},
+        # {"n": 30, "a": 16, "d": 1024, "lr": 0.5, "nEp": 50},
         {"n": 18, "a": 6, "d": 768, "lr": 0.5, "nEp": 25},
-        {"n": 30, "a": 16, "d": 1024, "lr": 1.0, "nEp": 50},
+        # {"n": 30, "a": 16, "d": 1024, "lr": 1.0, "nEp": 50},
         # similar as Dorians DLMs
         {"n": 8, "d": 512, "lr": 0.5, "nEp": 100},
-        {"n": 24, "d": 768, "lr": 0.5, "nEp": 25},
+        # {"n": 24, "d": 768, "lr": 0.5, "nEp": 25},
         {"n": 12, "d": 512, "lr": 1.25, "nEp": 25},
         {"n": 4, "d": 512, "lr": 1.25, "nEp": 50},
         {"n": 4, "d": 256, "lr": 0.5, "nEp": 25},
         {"n": 16, "d": 768, "lr": 0.5, "nEp": 100},
         {"n": 4, "d": 128, "lr": 1.25, "nEp": 25},
-        {"n": 40, "d": 1024, "lr": 0.5, "nEp": 50},
+        # {"n": 40, "d": 1024, "lr": 0.5, "nEp": 50},
         {"n": 24, "d": 768, "lr": 0.5, "nEp": 25},
-        {"n": 40, "d": 1024, "lr": 1.0, "nEp": 50},
+        # {"n": 40, "d": 1024, "lr": 1.0, "nEp": 50},
         {"n": 2, "d": 128},
         # similar as from MDLM
         {"n": 12, "a": 12, "d": 768, "drop": 0.1, "nEp": 50},  # like small mdlm
-        {"n": 24, "a": 16, "d": 1024, "drop": 0.1, "nEp": 50},  # like medium mdlm
+        # {"n": 24, "a": 16, "d": 1024, "drop": 0.1, "nEp": 50},  # like medium mdlm
     ]:
         # n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp100 by default
         # reorder and set defaults
