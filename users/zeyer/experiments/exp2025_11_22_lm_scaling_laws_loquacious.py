@@ -1,11 +1,14 @@
 from __future__ import annotations
+
 from typing import Union, Literal, Dict, Tuple
+from dataclasses import dataclass
 
 from i6_core.returnn import ReturnnTrainingJob
 from sisyphus import tk
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, ModelWithCheckpoint
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.plots.scaling_laws import ScalingLawPlotJob
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
     config_96gb_bf16_accgrad1,
@@ -34,6 +37,29 @@ __setup_root_prefix__ = "exp2025_11_22_lm_scaling_laws_loquacious"
 
 
 def py():
+    prefix = get_setup_prefix_for_module(__name__)
+    stats = get_lm_scaling_stats()
+
+    if stats:
+        tk.register_output(
+            f"{prefix}/lm_scaling_plot.pdf",
+            ScalingLawPlotJob(
+                x_label="Train time [h]",
+                y_label="WER [%]",
+                points={"CTC+LM": [(stat.train_time_hours, stat.wer) for stat in stats.values()]},
+                filter_outliers=True,
+            ).out_plot_pdf,
+        )
+
+
+@dataclass
+class LmScalingStats:
+    num_params: tk.Variable
+    train_time_hours: tk.Variable
+    wer: tk.Variable
+
+
+def get_lm_scaling_stats() -> Dict[str, LmScalingStats]:
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         ctc_labelwise_recog_auto_scale,
@@ -49,15 +75,8 @@ def py():
 
     from i6_experiments.users.zeyer.returnn.model_num_params_from_config import GetNumParamsFromReturnnConfigJob
     from i6_experiments.users.zeyer.returnn.total_runtime_from_training import GetTotalRuntimeFromReturnnTrainingJob
-    from i6_experiments.users.zeyer.plots.scaling_laws import ScalingLawPlotJob
 
-    # baselines
-    params_points = {}
-    time_points = {}
-
-    params_points_ = params_points["CTC+LM"] = []
-    time_points_ = time_points["CTC+LM"] = []
-
+    out = {}
     for lm_name, lm in lms.items():
         train_job: ReturnnTrainingJob = lm.checkpoint.path.creator
         num_params = GetNumParamsFromReturnnConfigJob(train_job.returnn_config).out_num_params
@@ -75,16 +94,13 @@ def py():
         )
         res_wer = res.get_main_measure_value_as_variable()
         if res_wer.available():  # TODO remove this check...
-            params_points_.append((num_params, res_wer))
-            time_points_.append((train_time_secs / 60 / 60, res_wer))
+            out[lm_name] = LmScalingStats(
+                num_params=num_params,
+                train_time_hours=train_time_secs / 60 / 60,
+                wer=res_wer,
+            )
 
-    if time_points:
-        tk.register_output(
-            f"{prefix}/lm_scaling_plot.pdf",
-            ScalingLawPlotJob(
-                x_label="Train time [h]", y_label="WER [%]", points=time_points, filter_outliers=True
-            ).out_plot_pdf,
-        )
+    return out
 
 
 def get_ctc_model(
