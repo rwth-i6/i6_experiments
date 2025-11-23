@@ -265,6 +265,8 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"drop": 0.1, "nEp": 100},
         {"drop": 0.1, "nEp": 150},
         {"drop": 0.1, "nEp": 200},
+        {"drop": 0.1, "nEp": 250},
+        {"drop": 0.1, "nEp": 300},
         {"n": 24, "d": 1280, "drop": 0.1, "nEp": 100},
         {"n": 24, "d": 1280, "drop": 0.1, "nEp": 150},
         # intended to be similar as Dorians DLMs (wrong, but anyway keep that now...)
