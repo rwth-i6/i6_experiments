@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, Tuple
+from typing import Union, Literal, Dict, Tuple
 
 from i6_core.returnn import ReturnnTrainingJob
 from sisyphus import tk
@@ -87,7 +87,9 @@ def py():
         )
 
 
-def get_ctc_model(*, subset: str = "large", total_k_hours: int = 250) -> Tuple[str, ModelWithCheckpoint]:
+def get_ctc_model(
+    *, subset: str = "large", total_k_hours: int = 250, epoch: Union[Literal["max", "min"], int] = "max"
+) -> Tuple[str, ModelWithCheckpoint]:
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
         train_exp as aed_train_exp,
         _raw_sample_rate,
@@ -168,9 +170,14 @@ def get_ctc_model(*, subset: str = "large", total_k_hours: int = 250) -> Tuple[s
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
-    model = exp.get_last_fixed_epoch()
+    if epoch == "max":
+        epoch = max(exp.fixed_epochs)
+    elif epoch == "min":
+        epoch = min(exp.fixed_epochs)
+    assert isinstance(epoch, int)
+    model = exp.get_epoch(epoch)
     aed_ctc_timesync_recog_recomb_auto_scale(
-        prefix=f"{prefix}/aed/{name}/aed+ctc",
+        prefix=f"{prefix}/aed/{name}/ep{epoch}/aed+ctc",
         task=task_spm10k,
         aed_ctc_model=model,
         aux_ctc_layer=16,
