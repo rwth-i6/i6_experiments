@@ -5,7 +5,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 
 class ScalingLawPlotJob(Job):
-    __sis_version__ = 3
+    __sis_version__ = 4
 
     def __init__(
         self,
@@ -101,8 +101,8 @@ class ScalingLawPlotJob(Job):
                 zorder=2,
                 label=name,
             )
-            # Compute Pareto front (minimize x, maximize y)
-            # combine duplicate x values by keeping the max y
+            # Compute Pareto front (minimize x, minimize y)
+            # combine duplicate x values by keeping the min y
             combined = {}
             for x, y in zip(x_data, y_data):
                 combined[x] = min(y, combined.get(x, np.inf))
@@ -127,10 +127,10 @@ class ScalingLawPlotJob(Job):
                 color=color,
                 linewidth=2.5,
                 marker="s",
-                markersize=6,
+                markersize=3,
                 linestyle="-",
                 zorder=4,
-                label=f"{name} Pareto front",
+                # label=f"{name} Pareto front",
             )
             ax.scatter(pareto_x, pareto_y, color=color, edgecolor="k", s=60, zorder=5)
 
