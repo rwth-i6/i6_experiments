@@ -5,7 +5,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 
 class ScalingLawPlotJob(Job):
-    __sis_version__ = 4
+    __sis_version__ = 5
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class ScalingLawPlotJob(Job):
         # Create the plot
         fig, ax = plt.subplots(figsize=(8, 6))
 
-        name = "Accent"
+        name = "Set1"
         cmap = mpl.colormaps[name]
         colors = cmap.colors
         idx = 0
