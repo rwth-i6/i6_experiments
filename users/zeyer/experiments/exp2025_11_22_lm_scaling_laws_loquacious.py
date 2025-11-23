@@ -38,7 +38,7 @@ __setup_root_prefix__ = "exp2025_11_22_lm_scaling_laws_loquacious"
 
 def py():
     prefix = get_setup_prefix_for_module(__name__)
-    stats = get_lm_scaling_stats()
+    stats = get_lm_scaling_stats(only_available=True)  # TODO remove only_available...
 
     if stats:
         tk.register_output(
@@ -59,7 +59,7 @@ class LmScalingStats:
     wer: tk.Variable
 
 
-def get_lm_scaling_stats() -> Dict[str, LmScalingStats]:
+def get_lm_scaling_stats(*, only_available: bool = False) -> Dict[str, LmScalingStats]:
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         ctc_labelwise_recog_auto_scale,
@@ -93,7 +93,7 @@ def get_lm_scaling_stats() -> Dict[str, LmScalingStats]:
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
         )
         res_wer = res.get_main_measure_value_as_variable()
-        if res_wer.available():  # TODO remove this check...
+        if not only_available or res_wer.available():
             out[lm_name] = LmScalingStats(
                 num_params=num_params,
                 train_time_hours=train_time_secs / 60 / 60,
