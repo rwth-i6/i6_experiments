@@ -5,7 +5,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 
 class ScalingLawPlotJob(Job):
-    __sis_version__ = 2
+    __sis_version__ = 3
 
     def __init__(
         self,
@@ -40,7 +40,6 @@ class ScalingLawPlotJob(Job):
     def run(self):
         import matplotlib as mpl
         import matplotlib.pyplot as plt
-        from matplotlib.ticker import ScalarFormatter
         import numpy as np
 
         # Create the plot
@@ -123,15 +122,15 @@ class ScalingLawPlotJob(Job):
 
             # Plot Pareto front
             ax.plot(
-                pareto_x,
-                pareto_y,
+                pareto_x + [xs_sorted[-1]],
+                pareto_y + [best_y],
                 color=color,
                 linewidth=2.5,
                 marker="s",
                 markersize=6,
                 linestyle="-",
                 zorder=4,
-                label=f"{name} pareto front",
+                label=f"{name} Pareto front",
             )
             ax.scatter(pareto_x, pareto_y, color=color, edgecolor="k", s=60, zorder=5)
 
