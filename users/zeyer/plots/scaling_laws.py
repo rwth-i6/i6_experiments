@@ -14,7 +14,7 @@ class ScalingLawPlotJob(Job):
     Here the left-bottom is better (min x, min y).
     """
 
-    __sis_version__ = 6
+    __sis_version__ = 7
 
     def __init__(
         self,
@@ -100,8 +100,11 @@ class ScalingLawPlotJob(Job):
 
             color = data_points.pop("color", colors[idx])
 
+            xy_clamped_min_out = []
+            clamp_x_min = None
             if "clamp_x_min" in data_points:
                 clamp_x_min = data_points.pop("clamp_x_min")
+                xy_clamped_min_out += [(clamp_x_min, y) for x, y in xy if x < clamp_x_min]
                 xy = [(x, y) for x, y in xy if x >= clamp_x_min]
                 if not xy:
                     continue
@@ -133,6 +136,8 @@ class ScalingLawPlotJob(Job):
             pareto_x = []
             pareto_y = []
             best_y = np.inf
+            if xy_clamped_min_out:
+                best_y = min(y for x, y in xy_clamped_min_out)
             for x, y in zip(xs_sorted, ys_sorted):
                 if y < best_y:
                     pareto_x.append(x)
@@ -141,8 +146,8 @@ class ScalingLawPlotJob(Job):
 
             # Plot Pareto front
             ax.plot(
-                pareto_x + [xs_sorted[-1]],
-                pareto_y + [best_y],
+                ([clamp_x_min] if xy_clamped_min_out else []) + pareto_x + [xs_sorted[-1]],
+                ([min(y for x, y in xy_clamped_min_out)] if xy_clamped_min_out else []) + pareto_y + [best_y],
                 color=color,
                 linewidth=2.5,
                 marker="s",
