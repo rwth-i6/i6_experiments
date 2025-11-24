@@ -1,7 +1,11 @@
 from __future__ import annotations
 from typing import Optional, Union, Any, Sequence, Tuple, Dict
 from sisyphus import Job, Task, tk
+from sisyphus.delayed_ops import DelayedBase
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
+
+
+TNumber = Union[tk.Variable, DelayedBase]
 
 
 class ScalingLawPlotJob(Job):
@@ -14,8 +18,8 @@ class ScalingLawPlotJob(Job):
         y_label: str,
         x_scale: str = "log",
         y_scale: str = "linear",
-        baselines: Optional[Dict[str, Union[tk.Variable, Dict[str, Any]]]] = None,
-        points: Dict[str, Union[Sequence[Tuple[tk.Variable, tk.Variable]], Dict[str, Any]]],
+        baselines: Optional[Dict[str, Union[TNumber, Dict[str, Any]]]] = None,
+        points: Dict[str, Union[Sequence[Tuple[TNumber, TNumber]], Dict[str, Any]]],
         filter_outliers: bool = False,
     ):
         """
