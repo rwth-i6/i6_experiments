@@ -268,6 +268,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         {"drop": 0.1, "nEp": 250},
         {"drop": 0.1, "nEp": 300},
         {"drop": 0.1, "nEp": 400},
+        {"drop": 0.1, "nEp": 500},
         {"drop": 0.1, "nEp": 600},
         {"n": 24, "d": 1280, "drop": 0.1, "nEp": 100},
         {"n": 24, "d": 1280, "drop": 0.1, "nEp": 150},
@@ -304,6 +305,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         name = f"trafo-v2-{_name_for_dict(opts)}-spm10k"
         n_l = opts.pop("n")
         dim = opts.pop("d")
+        # Note on nEp: 10 subepochs -> 1 full epoch
         n_ep = opts.pop("nEp", 50)
         lr = opts.pop("lr", 1.0)
         num_heads = opts.pop("a", None)
