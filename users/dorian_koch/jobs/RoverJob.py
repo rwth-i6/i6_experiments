@@ -137,6 +137,7 @@ class SearchToRoverCtms(Job):
         *,
         convert_log_probs_to_probs: bool = False,
         length_norm_words: bool = False,
+        seq_order_file: Optional[tk.Path] = None,
     ):
         """
         :param search_py_output: a search output file from RETURNN in python format (n-best)
@@ -145,6 +146,7 @@ class SearchToRoverCtms(Job):
         self.out_ctms = [self.output_path(f"rover_hyp_{i}.ctm") for i in range(num_ctms)]
         self.convert_log_probs_to_probs = convert_log_probs_to_probs
         self.length_norm_words = length_norm_words
+        self.seq_order_file = seq_order_file
 
     def tasks(self):
         """task"""
@@ -153,14 +155,23 @@ class SearchToRoverCtms(Job):
     def run(self):
         """run"""
         d = eval(util.uopen(self.search_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+
         assert isinstance(d, dict)  # seq_tag -> bpe string
         assert not os.path.exists(self.out_ctms[0].get_path())
+
+        if self.seq_order_file is not None:
+            seq_order = eval(util.uopen(self.seq_order_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+            assert isinstance(seq_order, (dict, list, tuple))
+        else:
+            seq_order = d.keys()
+
         file_handles = [util.uopen(out_ctm, "wt") for out_ctm in self.out_ctms]
         try:
             # write ctm
             for out in file_handles:
                 out.write(";; <name> <track> <start> <duration> <word> <confidence>\n")
-            for seq_tag, entry in d.items():
+            for seq_tag in seq_order:
+                entry = d[seq_tag]
                 assert isinstance(entry, list)
                 # n-best list as [(score, text), ...]
                 assert isinstance(seq_tag, str), f"invalid seq_order entry {seq_tag!r} (type {type(seq_tag).__name__})"

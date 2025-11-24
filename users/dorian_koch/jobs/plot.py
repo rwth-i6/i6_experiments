@@ -5,7 +5,7 @@ import tempfile
 import collections
 import math
 import re
-from typing import List, Optional, Dict, Tuple
+from typing import List, Dict, Tuple
 
 from sisyphus import tk, Job, Task, gs
 from sisyphus.delayed_ops import DelayedBase
@@ -99,6 +99,11 @@ class ScaleTuningPlotJob(Job):
             x_axis_name=self.axis[0][1],
             out_plot_filename=self.out_plot.get_path(),
         )
+
+        nums = sorted(nums, key=lambda x: x[0])
+        # print all
+        for num in nums:
+            print(num)
 
         minimum = min(nums, key=lambda x: x[0])
         maximum = max(nums, key=lambda x: x[0])
