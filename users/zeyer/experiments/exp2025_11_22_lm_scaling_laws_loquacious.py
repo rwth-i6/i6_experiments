@@ -56,6 +56,7 @@ def py():
 class LmScalingStats:
     num_params: tk.Variable
     train_time_hours: tk.Variable
+    num_epochs: Union[int, float, tk.Variable]
     wer: tk.Variable
 
 
@@ -75,6 +76,7 @@ def get_lm_scaling_stats(*, only_available: bool = False) -> Dict[str, LmScaling
 
     from i6_experiments.users.zeyer.returnn.model_num_params_from_config import GetNumParamsFromReturnnConfigJob
     from i6_experiments.users.zeyer.returnn.total_runtime_from_training import GetTotalRuntimeFromReturnnTrainingJob
+    from i6_experiments.users.zeyer.returnn.num_epochs_from_training import get_num_epochs_from_returnn_training_job
 
     out = {}
     for lm_name, lm in lms.items():
@@ -97,6 +99,7 @@ def get_lm_scaling_stats(*, only_available: bool = False) -> Dict[str, LmScaling
             out[lm_name] = LmScalingStats(
                 num_params=num_params,
                 train_time_hours=train_time_secs / 60 / 60,
+                num_epochs=get_num_epochs_from_returnn_training_job(train_job) / 10,
                 wer=res_wer,
             )
 
