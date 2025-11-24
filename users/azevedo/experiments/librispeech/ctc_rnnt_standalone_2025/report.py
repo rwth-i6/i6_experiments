@@ -161,6 +161,7 @@ def build_qat_report(qat_report, ret_best=True):
             df = df.sort_values('wer').groupby('model').head(1)
             decoder_tables[decoder_name] = df.sort_values("model")
         else:
+            # otherwise sort w.r.t. model and then w.r.t. WER
             decoder_tables[decoder_name] = df.sort_values(["model", "wer"])
 
     final_str = ""

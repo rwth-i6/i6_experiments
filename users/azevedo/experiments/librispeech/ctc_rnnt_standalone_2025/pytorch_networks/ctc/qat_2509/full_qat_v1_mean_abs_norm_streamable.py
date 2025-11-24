@@ -281,8 +281,8 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         print(f"{self.layer_norm_in_quant = }")
         input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
         denom = torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5)
-        denom = torch.clamp(denom, min=0.01)
-        print(f"{denom = }")
+        # denom = torch.clamp(denom, min=0.01)
+        # print(f"{denom = }")
         output_tensor = input_tensor / denom
         print(f"{output_tensor = }")
         output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
