@@ -9,7 +9,12 @@ TNumber = Union[tk.Variable, DelayedBase]
 
 
 class ScalingLawPlotJob(Job):
-    __sis_version__ = 5
+    """
+    Show some scatter points, including optional baselines, and compute & plot the Pareto front.
+    Here the left-bottom is better (min x, min y).
+    """
+
+    __sis_version__ = 6
 
     def __init__(
         self,
@@ -73,29 +78,39 @@ class ScalingLawPlotJob(Job):
 
             # Unzip the data into separate lists for x and y coordinates
             if "xy" in data_points:
-                x_data, y_data = zip(*data_points.pop("xy"))
+                xy = data_points.pop("xy")
             elif "x" in data_points and "y" in data_points:
                 x_data = data_points.pop("x")
                 y_data = data_points.pop("y")
+                xy = list(zip(x_data, y_data))
             else:
                 raise ValueError(f"invalid points {name} : {data_points}")
+            if not xy:
+                continue
 
             if self.filter_outliers:
                 # Simple outlier removal: remove points that are beyond 1.5 * IQR from Q1 and Q3
+                y_data = [y for x, y in xy]
                 q1 = np.percentile(y_data, 25)
                 q3 = np.percentile(y_data, 75)
                 iqr = q3 - q1
-                lower_bound = q1 - 1.5 * iqr
                 upper_bound = q3 + 1.5 * iqr
-                filtered_points = [(x, y) for x, y in zip(x_data, y_data) if lower_bound <= y <= upper_bound]
-                if filtered_points:  # only take this if not empty (should not happen?)
-                    x_data, y_data = zip(*filtered_points)
+                xy = [(x, y) for x, y in xy if y <= upper_bound]
+                assert xy, "all points were filtered out as outliers? (should not happen)"
 
             color = data_points.pop("color", colors[idx])
+
+            if "clamp_x_min" in data_points:
+                clamp_x_min = data_points.pop("clamp_x_min")
+                xy = [(x, y) for x, y in xy if x >= clamp_x_min]
+                if not xy:
+                    continue
+
             if data_points:
                 raise ValueError(f"unexpected extra data points options: {data_points}")
 
             # Plot the data points with markers and a connecting line
+            x_data, y_data = zip(*xy)
             ax.scatter(
                 x_data,
                 y_data,
