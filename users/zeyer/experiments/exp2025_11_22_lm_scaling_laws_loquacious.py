@@ -80,10 +80,10 @@ def get_lm_scaling_stats(*, only_available: bool = False) -> Dict[str, LmScaling
     for lm_name, lm in lms.items():
         train_job: ReturnnTrainingJob = lm.checkpoint.path.creator
         num_params = GetNumParamsFromReturnnConfigJob(train_job.returnn_config).out_num_params
-        tk.register_output(f"{prefix}/{lm_name}/num_params.txt", num_params)
+        tk.register_output(f"{prefix}/lm/{lm_name}/num_params.txt", num_params)
 
         train_time_secs = GetTotalRuntimeFromReturnnTrainingJob(train_job.out_learning_rates).out_train_time_secs
-        tk.register_output(f"{prefix}/{lm_name}/total_train_time_secs.txt", train_time_secs)
+        tk.register_output(f"{prefix}/lm/{lm_name}/total_train_time_secs.txt", train_time_secs)
 
         res = ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{ctc_model_name}/ctc+lm-v2/{lm_name}",
