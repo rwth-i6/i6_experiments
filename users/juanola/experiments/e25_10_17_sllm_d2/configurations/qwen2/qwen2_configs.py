@@ -26,6 +26,37 @@ qwen2_configs = {
         "use_cache": True,
         "use_sliding_window": False,
         "vocab_size": 151936
+    },
+
+    "Qwen2-0_5B-dropout" : {
+        "architectures": [
+            "Qwen2ForCausalLM"
+        ],
+        "attention_dropout": 0.1, # changed
+        "bos_token_id": 151643,
+        "eos_token_id": 151643,
+        "hidden_act": "silu",
+        "hidden_size": 896,
+        "initializer_range": 0.02,
+        "intermediate_size": 4864,
+        "max_position_embeddings": 131072,
+        "max_window_layers": 24,
+        "model_type": "qwen2",
+        "num_attention_heads": 14,
+        "num_hidden_layers": 24,
+        "num_key_value_heads": 2,
+        "rms_norm_eps": 1e-06,
+        "rope_theta": 1000000.0,
+        "sliding_window": 131072,
+        "tie_word_embeddings": True,
+        "torch_dtype": "bfloat16",
+        "transformers_version": "4.40.1",
+        "use_cache": True,
+        "use_sliding_window": False,
+        "vocab_size": 151936,
+
+        # From here added for custom qwen2 model
+        "mlp_dropout": 0.1,
     }
 
 }

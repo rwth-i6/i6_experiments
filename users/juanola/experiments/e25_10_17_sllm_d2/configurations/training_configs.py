@@ -3,7 +3,7 @@ training_configs = {
 
         # CTC losses for encoder
         "aux_loss_layers": (4, 8),
-        #"aux_loss_scales": (1.0, 1.0), # TODO: move from training_job_builder (carefully, changes training_job_hash)
+        "aux_loss_scales": (1.0, 1.0),
 
         "num_enc_layers": 12,
         "num_heads": 8,

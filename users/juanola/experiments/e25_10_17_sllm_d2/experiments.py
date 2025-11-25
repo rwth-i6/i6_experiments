@@ -20,7 +20,7 @@ from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
-        training_batch_sizes: list[int] = [15_000], # TODO: change with full configs
+        training_batch_sizes: list[int] = [15_000],  # TODO: change with full configs
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False,
         itc_training: bool = False) -> Dict[str, Any]:
@@ -63,8 +63,8 @@ def sllm_ep(
             NUM_GPUS = 1
 
             # Test with ITC
-            itc_training = True
-            TRAINING_BATCH_SIZE = 20_000  # TO make it different
+            # itc_training = True
+            # TRAINING_BATCH_SIZE = 20_000  # TO make it different
 
         # INITIALIZE DATASET
         train_dataset_settings = ReturnnDatasetSettings(
@@ -85,7 +85,7 @@ def sllm_ep(
 
         # NETWORK
         encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
-        decoder_alias = "Qwen2-0_5B"  # TODO: could be imported - use enums perhaps
+        decoder_alias = "Qwen2-0_5B-dropout"  # TODO: could be imported - use enums perhaps
         model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
 
         # EXPERIMENT NAME # TODO: use external config!
@@ -104,7 +104,7 @@ def sllm_ep(
         if itc_training:
             train_job.hold()
             train_job.move_to_hpc = True
-            train_job.rqmt["time_rqmt"] = 36 # ??
+            train_job.rqmt["time_rqmt"] = 36  # ??
 
         # MODEL EVALUATION/INFERENCE
         # Which evals to run
