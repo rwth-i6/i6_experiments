@@ -117,6 +117,14 @@ class ScalingLawPlotJob(Job):
                 xy = [(x, y) for x, y in xy if x >= clamp_x_min]
                 if not xy:
                     continue
+            xy_clamped_max_out = []
+            clamp_x_max = None
+            if "clamp_x_max" in data_points:
+                clamp_x_max = data_points.pop("clamp_x_max")
+                xy_clamped_max_out += [(clamp_x_max, y) for x, y in xy if x > clamp_x_max]
+                xy = [(x, y) for x, y in xy if x <= clamp_x_max]
+                if not xy:
+                    continue
 
             if data_points:
                 raise ValueError(f"unexpected extra data points options: {data_points}")
@@ -152,10 +160,14 @@ class ScalingLawPlotJob(Job):
                     pareto_x.append(x)
                     pareto_y.append(y)
                     best_y = y
+            if xy_clamped_max_out:
+                best_y = min(best_y, min(y for x, y in xy_clamped_max_out))
 
             # Plot Pareto front
             ax.plot(
-                ([clamp_x_min] if xy_clamped_min_out else []) + pareto_x + [xs_sorted[-1]],
+                ([clamp_x_min] if xy_clamped_min_out else [])
+                + pareto_x
+                + [clamp_x_max if xy_clamped_max_out else xs_sorted[-1]],
                 ([min(y for x, y in xy_clamped_min_out)] if xy_clamped_min_out else []) + pareto_y + [best_y],
                 color=color,
                 linewidth=2.5,
