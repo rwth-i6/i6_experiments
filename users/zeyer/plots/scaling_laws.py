@@ -14,7 +14,7 @@ class ScalingLawPlotJob(Job):
     Here the left-bottom is better (min x, min y).
     """
 
-    __sis_version__ = 9
+    __sis_version__ = 10
 
     def __init__(
         self,
@@ -198,7 +198,7 @@ class ScalingLawPlotJob(Job):
 
         # Set the y-axis ticks to match the image
         ax.tick_params(axis="both", which="major", labelsize=14)
-        ax.xaxis.set_minor_locator(plt.LogLocator(base=10.0, subs=(0.2, 0.4, 0.6, 0.8), numticks=5))
+        ax.xaxis.minorticks_on()
 
         # show the minor tick labels
         ax.tick_params(axis="x", which="minor", labelsize=10)
