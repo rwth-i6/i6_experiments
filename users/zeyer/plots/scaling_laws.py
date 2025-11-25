@@ -14,8 +14,7 @@ class ScalingLawPlotJob(Job):
     Here the left-bottom is better (min x, min y).
     """
 
-    __sis_version__ = 7
-    __sis_hash_exclude__ = {"figsize": (8, 6)}
+    __sis_version__ = 8
 
     def __init__(
         self,
@@ -188,8 +187,8 @@ class ScalingLawPlotJob(Job):
         # --- Set labels and titles ---
 
         # Set the x-axis label with 'Parameters' in bold and 'non-embedding' below
-        ax.set_xlabel(self.x_label, fontsize=20, fontweight="bold", labelpad=10)
-        ax.set_ylabel(self.y_label, fontsize=20, fontweight="bold", labelpad=10)
+        ax.set_xlabel(self.x_label, fontsize=14)
+        ax.set_ylabel(self.y_label, fontsize=14)
 
         # Add the 'non-embedding' sub-label with specific positioning and style
         # ax.text(0.5, -0.15, "non-embedding", ha="center", va="center", transform=ax.transAxes, fontsize=18, color="gray")
@@ -210,5 +209,6 @@ class ScalingLawPlotJob(Job):
         plt.savefig(
             self.out_plot_pdf.get_path(),
             metadata={"CreationDate": None},
+            bbox_inches="tight",
         )
         plt.close()
