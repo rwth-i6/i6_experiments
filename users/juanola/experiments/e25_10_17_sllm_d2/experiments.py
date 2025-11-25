@@ -20,9 +20,10 @@ from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
-        training_batch_sizes: list[int] = [15_000, 45_000], # TODO: change with full configs
+        training_batch_sizes: list[int] = [15_000], # TODO: change with full configs
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
-        debug: bool = False) -> Dict[str, Any]:
+        debug: bool = False,
+        itc_training: bool = False) -> Dict[str, Any]:
     """
     Sisyphus entry point.
 
@@ -36,7 +37,7 @@ def sllm_ep(
     """
     reports = {}
 
-    #for setup in setups: # TODO: REFACTOR - use full configs instead of only batch sizes
+    # for setup in setups: # TODO: REFACTOR - use full configs instead of only batch sizes
     for training_batch_size in training_batch_sizes:
 
         # GENERAL CONSTANTS
@@ -47,21 +48,23 @@ def sllm_ep(
         # Training
         epochs: int = 100
         partition_epoch_factor: int = 20
-        NUM_GPUS: int = 1 # Should be 1 for 48gb in i6 cluster
-        partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS) # 2000 (1GPU) | 500 (4GPU)
+        NUM_GPUS: int = 1  # Should be 1 for 48gb in i6 cluster
+        partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS)  # 2000 (1GPU) | 500 (4GPU)
         TRAINING_GPU_MEMORY = 48
         TRAINING_BATCH_SIZE = training_batch_size
 
         # Search
-        SEARCH_GPU_MEMORY = 11 # Avoid using bigger ones
+        SEARCH_GPU_MEMORY = 11  # Avoid using bigger ones
         RECOGNITION_BATCH_SIZE = 15_000
         PRIOR_BATCH_SIZE = 16_000
-
 
         if debug:
             partition_epochs = 1
             NUM_GPUS = 1
 
+            # Test with ITC
+            itc_training = True
+            TRAINING_BATCH_SIZE = 20_000  # TO make it different
 
         # INITIALIZE DATASET
         train_dataset_settings = ReturnnDatasetSettings(
@@ -80,17 +83,16 @@ def sllm_ep(
                                                                                           vocab_size,
                                                                                           sampling_alpha)
 
-
         # NETWORK
         encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
-        decoder_alias = "Qwen2-0_5B" # TODO: could be imported - use enums perhaps
+        decoder_alias = "Qwen2-0_5B"  # TODO: could be imported - use enums perhaps
         model_alias, network_args = get_network_args_and_alias(encoder_alias, decoder_alias)
 
         # EXPERIMENT NAME # TODO: use external config!
         experiment_config_name = f"bs{TRAINING_BATCH_SIZE}"
 
         # MODEL TRAINING
-        training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}/{experiment_config_name}" # THis is good, but perhaps todo: with paths & encapsulated in method outside experiment
+        training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}/{experiment_config_name}"  # THis is good, but perhaps todo: with paths & encapsulated in method outside experiment
         train_job = create_training_job(training_name, training_datasets, NUM_GPUS, TRAINING_BATCH_SIZE,
                                         NETWORK_MODULE, network_args,
                                         TRAIN_STEP_MODULE, partition_epochs,
@@ -98,6 +100,11 @@ def sllm_ep(
                                         returnn_root=RETURNN_ROOT)
         train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
 
+        # ITC Training
+        if itc_training:
+            train_job.hold()
+            train_job.move_to_hpc = True
+            train_job.rqmt["time_rqmt"] = 36 # ??
 
         # MODEL EVALUATION/INFERENCE
         # Which evals to run
@@ -133,12 +140,11 @@ def sllm_ep(
             run_best_4=run_best_4,
 
             use_gpu=True,  # CPU is way too slow for AED decoding
-            search_gpu_memory=SEARCH_GPU_MEMORY, # breaks for bigger searches
+            search_gpu_memory=SEARCH_GPU_MEMORY,  # breaks for bigger searches
 
-            recognition_batch_size = RECOGNITION_BATCH_SIZE,
-            prior_batch_size = PRIOR_BATCH_SIZE,
+            recognition_batch_size=RECOGNITION_BATCH_SIZE,
+            prior_batch_size=PRIOR_BATCH_SIZE,
         )
-
 
         # MODEL REPORTING
         create_report_job(results=results, exp_name=training_name)
@@ -151,7 +157,7 @@ def sllm_ep(
             update_frequency=900
         )
 
-        reports[training_name] = report # TODO:REFACTOR change with config name
+        reports[training_name] = report  # TODO:REFACTOR change with config name
 
     return reports
 
@@ -179,7 +185,8 @@ def get_network_args_and_alias(encoder_alias: str, decoder_alias: str) -> tuple[
     return model_alias, network_args
 
 
-def create_datasets_jobs(prefix_name: str, train_settings: ReturnnDatasetSettings, vocab_size: int, sampling_alpha: float) -> \
+def create_datasets_jobs(prefix_name: str, train_settings: ReturnnDatasetSettings, vocab_size: int,
+                         sampling_alpha: float) -> \
         tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
