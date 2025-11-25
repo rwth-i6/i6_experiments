@@ -15,6 +15,7 @@ class ScalingLawPlotJob(Job):
     """
 
     __sis_version__ = 7
+    __sis_hash_exclude__ = {"figsize": (8, 6)}
 
     def __init__(
         self,
@@ -26,10 +27,17 @@ class ScalingLawPlotJob(Job):
         baselines: Optional[Dict[str, Union[TNumber, Dict[str, Any]]]] = None,
         points: Dict[str, Union[Sequence[Tuple[TNumber, TNumber]], Dict[str, Any]]],
         filter_outliers: bool = False,
+        figsize: Tuple[float, float] = (8, 6),
     ):
         """
+        :param x_label: label for x-axis
+        :param y_label: label for y-axis
+        :param x_scale: scale for x-axis (e.g., 'linear', 'log')
+        :param y_scale: scale for y-axis
         :param baselines: name -> y-value
         :param points: name -> list of (x, y) points
+        :param filter_outliers: whether to filter out outliers in y-axis
+        :param figsize: figure size (width, height)
         """
         super().__init__()
 
@@ -40,6 +48,7 @@ class ScalingLawPlotJob(Job):
         self.baselines = baselines
         self.points = points
         self.filter_outliers = filter_outliers
+        self.figsize = figsize
 
         self.out_plot_pdf = self.output_path("scaling_laws.pdf")
 
@@ -52,7 +61,7 @@ class ScalingLawPlotJob(Job):
         import numpy as np
 
         # Create the plot
-        fig, ax = plt.subplots(figsize=(8, 6))
+        fig, ax = plt.subplots(figsize=self.figsize)
 
         name = "Set1"
         cmap = mpl.colormaps[name]
