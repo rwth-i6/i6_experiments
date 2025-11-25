@@ -14,7 +14,7 @@ class ScalingLawPlotJob(Job):
     Here the left-bottom is better (min x, min y).
     """
 
-    __sis_version__ = 8
+    __sis_version__ = 9
 
     def __init__(
         self,
@@ -210,5 +210,6 @@ class ScalingLawPlotJob(Job):
             self.out_plot_pdf.get_path(),
             metadata={"CreationDate": None},
             bbox_inches="tight",
+            pad_inches=0,
         )
         plt.close()
