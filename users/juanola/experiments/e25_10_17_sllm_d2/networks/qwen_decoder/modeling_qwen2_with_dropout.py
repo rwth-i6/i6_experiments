@@ -37,12 +37,13 @@ class Qwen2MLP(nn.Module):
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
         self.act_fn = ACT2FN[config.hidden_act]
 
-        # Added
-        self.dropout = nn.Dropout(config.mlp_dropout if hasattr(config, 'mlp_dropout') else 0.0)
+        self.dropout: float = config.mlp_dropout if hasattr(config, 'mlp_dropout') else 0.0
 
     def forward(self, x):
-        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
-        down_proj = self.dropout(down_proj)  # Apply dropout after output projection
+        up_proj = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
+        up_proj = nn.functional.dropout(up_proj, p=self.dropout, training=self.training)
+        down_proj = self.down_proj(up_proj)
+        down_proj = nn.functional.dropout(down_proj, p=self.dropout, training=self.training)
         return down_proj
 
 
