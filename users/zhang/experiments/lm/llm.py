@@ -134,7 +134,7 @@ def get_llm(model_ids: List[str], batch_sizes: List[int] = None, word_ppl: bool 
         from i6_experiments.users.zhang.experiments.LLM_LBS_exp import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX, CHEAT_CTX
         ds_names = ["test-other", "dev-other","test-clean", "dev-clean"]
     elif task_name == "ES":
-        from i6_experiments.users.zhang.experiments.LLM_apptek_exp import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX, CHEAT_CTX
+        from i6_experiments.users.zhang.experiments.LLM_apptek_EC_exp import CTX_LEN_LIMIT, LLM_FXIED_CTX, LLM_FXIED_CTX_SIZE, LLM_PREV_ONE_CTX, CHEAT_CTX
         from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
         ds_names = list(set(DEV_KEYS + TEST_KEYS))
     else:

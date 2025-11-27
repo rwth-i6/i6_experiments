@@ -304,7 +304,7 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, onl
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
     bpe_data = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=int(match.group(1)))
     bpe = Bpe(dim=184, codes=bpe_data.bpe_codes, vocab=bpe_data.bpe_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>")
-    for checkpoint, ppl, epoch in get_trafo_lm(bpe, n_ep=50, bs_feat=10000, num_layers=config["num_layers"], word_ppl=word_ppl,
+    for checkpoint, ppl, epoch, model_def_dict in get_trafo_lm(bpe, n_ep=50, bs_feat=10000, num_layers=config["num_layers"], word_ppl=word_ppl,
                                                model_dim=config["model_dim"], max_seqs=200, max_seq_length_default_target=True, epochs=epochs, rope_ffgated=rope_ffgated):
         name = f"trafo_n{num_layers}d{dim}_{epoch}_bpe{match.group(1)}{'_rope_ffgated' if rope_ffgated else ''}"
         lms[name] = {
@@ -314,7 +314,7 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, onl
                     "filename": checkpoint.checkpoint
                 },
             },
-            "recog_language_model": config
+            "recog_language_model": model_def_dict or config
         } if not as_ckpt else checkpoint
         ppl_results[name] = ppl
     return lms, ppl_results, lm_types

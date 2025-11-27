@@ -230,7 +230,7 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
 
     # account for KV cache, activations, fragmentation, PyTorch overhead
     safety_factor = 2.0
-    need_gb = model_mem_gb * safety_factor + (8 if cfg.tap_examples else 0)
+    need_gb = model_mem_gb * safety_factor + 8 #(8 if cfg.tap_examples or ("Llama-3.2-3B-Instruct" in cfg.model_name) else 0)
 
     # Bucket into typical GPU sizes on AppTek cluster
     if need_gb <= 16:
@@ -245,7 +245,7 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
         gpu_mem = 141  #  biggest GPU
 
     # --- CPU RAM (GB) heuristic ---
-    mem = math.ceil(min(need_gb,gpu_mem) * 1.5)
+    mem = math.ceil(min(need_gb,gpu_mem) * 1.5) + 5
 
     # --- CPU cores heuristic ---
     cpu = min(4, int(math.ceil(size_b / 2.0) * 2))
@@ -256,8 +256,10 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
         time_bucket = 3
     elif size_b <= 10:
         time_bucket = 4
-    else:
+    elif size_b <= 20:
         time_bucket = 5
+    else:
+        time_bucket = 7
 
     return {
         "cpu": cpu,
@@ -279,16 +281,27 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
     #         return {"cpu": 1, "mem": 25, "time": 3, "gpu_mem": 24}
 
 # -------------------------- Configuration dataclass ---------------------------
-system_prompt_es = (
-    "eres un transcriptor de segunda pasada que recibe la primera transcripción de un enunciado acústico. "
-    "por favor corrige cualquier error de transcripción de la primera pasada para minimizar la distancia de edición "
-    "con la transcripción de referencia desconocida. ten en cuenta que el original fue hablado, así que no corrijas "
-    "las disfluencias en el texto y concéntrate en corregir nombres propios. escribe solo la frase actualizada sin "
-    "comentarios adicionales. escribe solo palabras en minúsculas sin puntuación\n\n"
-)
+def get_system_prompt(names_focus: bool = False, lang: str = "EN") -> str:
+    prompt_es = (
+        "Eres un transcriptor de segunda pasada que recibe la transcripción de primera pasada de un enunciado acústico. "
+        "Por favor corrige cualquier error de transcripción de la primera pasada para minimizar la distancia de edición con la "
+        "transcripción de referencia desconocida. Ten en cuenta que el original fue hablado, así que no corrijas las disfluencias "
+        f"en el texto y {'en su lugar concéntrate en corregir' if not names_focus else 'corrige únicamente'} los nombres propios. "
+        "Escribe solo la oración actualizada sin comentarios adicionales. "
+        "Escribe únicamente palabras en minúsculas y sin puntuación\n\n"
+    )
+    prompt_en = (
+                    "You are second pass transcriber that is given the first pass transcription of an acoustic utterance. "
+                    "Please fix any transcription errors of the first pass transcriber to minimize the edit distance to the "
+                    "unknown reference transcription. Note that the original was spoken, so please do not correct disfluencies "
+                    f"in the text and {'rather focus on correcting' if not names_focus else 'only'} proper names. Write only the updated sentence without any additional comments. "
+                    "Write only lowercased words without punctuation\n\n"
+                )
+    return prompt_en if lang == "EN" else prompt_es
 
 @dataclass
 class LLMECConfig:
+    task: str = "EC"
     # Provider / model
     provider: str = "hf"  # "hf" | "openai_api" | "hf_api"
     model_name: str = "meta-llama/Llama-3.2-3B-Instruct"
@@ -303,12 +316,14 @@ class LLMECConfig:
     order_by_score: bool = True  # if True, sort by score dsc (higher is better)
     score_policy: str = "keep_top1"  # "keep_top1" | "zero"
     prompt_lang: str = "EN" # ES
+    keep_apostrophe: bool = False
 
     # Context
     context_mode: str = "none"  # "none" | "prev_top1" | "prev_corrected"
     context_window: int = 100  # number of previous words to include (soft limit)
 
     # Generation params (both providers)
+    N_expand: int = 5
     max_new_tokens: int = 128
     temperature: float = 0.0
     top_p: float = 1.0
@@ -318,8 +333,11 @@ class LLMECConfig:
     # Safety / parsing
     expect_json: bool = True
     json_key: str = "text"
+    rejection_ratio: float = 0.25
 
     # Prompt style
+    few_shot: bool = False
+    name_focused: bool = False
     tap_examples: List[TapExample] = None
     system_prompt: str = (
                     "You are second pass transcriber that is given the first pass transcription of an acoustic utterance. "
@@ -402,44 +420,74 @@ def get_context_block(context_transcripts, cfg: LLMECConfig) -> str:
 def build_messages_top1(cfg: LLMECConfig, asr_text: str, context_transcripts: List[str]) -> List[Dict[str, str]]:
     context_block = get_context_block(context_transcripts, cfg)
     user = []
-    if cfg.context_mode != "none" and context_block:
-        user.append("Context from previous segments:\n" + context_block)
-        user.append("\nPlease correct ASR hypothesis below so that it naturally follows context above\n")
-    user.append("ASR hypothesis to correct:\n" + asr_text)
-    if cfg.expect_json:
-        user.append(essential_json_hint)
-    user_prompt = "\n\n".join(user)
-    return [
-        {"role": "system", "content": cfg.system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    if cfg.task == "EC":
+        if cfg.context_mode != "none" and context_block:
+            user.append("Context from previous segments:\n" + context_block)
+            user.append("\nPlease correct ASR hypothesis below so that it naturally follows context above\n")
+        user.append("ASR hypothesis to correct:\n" + asr_text)
+        if cfg.expect_json:
+            user.append(essential_json_hint)
+        user_prompt = "\n\n".join(user)
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    elif cfg.task == "Nbest_expand":
+        if cfg.context_mode != "none" and context_block:
+            user.append(
+                "Context from previous segments:\n" + context_block
+            )
+        user.append(f"Expand the following ASR hypothesis into {cfg.N_expand} diverse alternatives for rescoring:\n{asr_text}")
+        user_prompt = "\n\n".join(user)
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    else:
+        raise NotImplementedError(f"Unknown task: {cfg.task}")
 
 def build_messages_top1_spanish(cfg: LLMECConfig, asr_text: str, context_transcripts: List[str]) -> List[Dict[str, str]]:
     context_block = get_context_block(context_transcripts, cfg)
     user_lines = []
+    if cfg.task == "EC":
+        if cfg.context_mode != "none" and context_block:
+            user_lines.append(
+                "Contexto de segmentos anteriores:\n" + context_block
+            )
+            user_lines.append(
+                "\nCorrige la siguiente hipótesis de ASR para que siga naturalmente el contexto anterior."
+            )
 
-    if cfg.context_mode != "none" and context_block:
-        user_lines.append(
-            "Contexto de segmentos anteriores:\n" + context_block
-        )
-        user_lines.append(
-            "\nCorrige la siguiente hipótesis de ASR para que siga naturalmente el contexto anterior."
-        )
+        user_lines.append("Hipótesis de ASR para corregir:\n" + asr_text)
 
-    user_lines.append("Hipótesis de ASR para corregir:\n" + asr_text)
+        if cfg.expect_json:
+            # Note: your essential_json_hint can be reused directly or translated if you prefer
+            user_lines.append(
+                "Devuelve estrictamente un JSON con la forma {\"text\": \"<transcripción corregida>\"}, sin añadir nada más."
+            )
 
-    if cfg.expect_json:
-        # Note: your essential_json_hint can be reused directly or translated if you prefer
-        user_lines.append(
-            "Devuelve estrictamente un JSON con la forma {\"text\": \"<transcripción corregida>\"}, sin añadir nada más."
-        )
+        user_prompt = "\n\n".join(user_lines)
 
-    user_prompt = "\n\n".join(user_lines)
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    elif cfg.task == "Nbest_expand":
+        if cfg.context_mode != "none" and context_block:
+            user_lines.append(
+                "Contexto de segmentos anteriores:\n" + context_block
+            )
 
-    return [
-        {"role": "system", "content": cfg.system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+        user_lines.append(f"Expande la siguiente hipótesis de ASR en {cfg.N_expand} alternativas diversas para re-puntuación:\n{asr_text}")
+
+        user_prompt = "\n\n".join(user_lines)
+
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    else:
+        raise NotImplementedError(f"Unknown task: {cfg.task}")
 
 def build_messages_nbest_reason(
     cfg: LLMECConfig, candidates: List[str], context_transcripts: List[str]
@@ -447,20 +495,34 @@ def build_messages_nbest_reason(
     context_block = get_context_block(context_transcripts, cfg)
     cand_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(candidates))
     user_lines = []
-    if cfg.context_mode != "none" and context_block:
-        user_lines.append("Context from previous segments:\n" + context_block)
-    user_lines.append("Candidate ASR hypotheses (best first):\n" + cand_block)
-    user_lines.append(
-        "Choose or merge candidates to produce the best corrected transcript. "
-        "Fix common ASR errors (homophones, punctuation, casing, missing small words)."
-    )
-    if cfg.expect_json:
-        user_lines.append("Return strictly JSON: {\"text\": \"<final corrected transcript>\"}.")
-    user_prompt = "\n\n".join(user_lines)
-    return [
-        {"role": "system", "content": cfg.system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    if cfg.task == "EC":
+        if cfg.context_mode != "none" and context_block:
+            user_lines.append("Context from previous segments:\n" + context_block)
+        user_lines.append("Candidate ASR hypotheses (best first):\n" + cand_block)
+        user_lines.append(
+            "Choose or merge candidates to produce the best corrected transcript. "
+            "Fix common ASR errors (homophones, punctuation, casing, missing small words)."
+        )
+        if cfg.expect_json:
+            user_lines.append("Return strictly JSON: {\"text\": \"<final corrected transcript>\"}.")
+        user_prompt = "\n\n".join(user_lines)
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    elif cfg.task == "Nbest_expand":
+        if cfg.context_mode != "none" and context_block:
+            user_lines.append("Context from previous segments:\n" + context_block)
+        user_lines.append(
+            f"Expand the following ASR hypothesis into {cfg.N_expand} diverse alternatives for rescoring:\n{cand_block}"
+        )
+        user_prompt = "\n\n".join(user_lines)
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    else:
+        raise NotImplementedError(f"Unknown task: {cfg.task}")
 
 def build_messages_nbest_reason_spanish(
     cfg: LLMECConfig, candidates: List[str], context_transcripts: List[str]
@@ -470,32 +532,45 @@ def build_messages_nbest_reason_spanish(
     cand_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(candidates))
 
     user_lines = []
+    if cfg.task == "EC":
+        if cfg.context_mode != "none" and context_block:
+            user_lines.append(
+                "Contexto de segmentos anteriores:\n" + context_block
+            )
 
-    if cfg.context_mode != "none" and context_block:
+        user_lines.append("Candidatos de hipótesis de ASR (mejor primero):\n" + cand_block)
+
         user_lines.append(
-            "Contexto de segmentos anteriores:\n" + context_block
+            "Elige o combina los candidatos para producir la mejor transcripción corregida. "
+            "Realiza solo cambios mínimos. "
+            "Prefiere sustituciones que suenen muy parecido y evita borrar palabras salvo que sea necesario. "
+            "No añadas información nueva."
         )
 
-    user_lines.append("Candidatos de hipótesis de ASR (mejor primero):\n" + cand_block)
+        if cfg.expect_json:
+            user_lines.append(
+                "Devuelve estrictamente un JSON con la forma {\"text\": \"<transcripción corregida>\"}."
+            )
 
-    user_lines.append(
-        "Elige o combina los candidatos para producir la mejor transcripción corregida. "
-        "Realiza solo cambios mínimos. "
-        "Prefiere sustituciones que suenen muy parecido y evita borrar palabras salvo que sea necesario. "
-        "No añadas información nueva."
-    )
+        user_prompt = "\n\n".join(user_lines)
 
-    if cfg.expect_json:
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    elif cfg.task == "Nbest_expand":
+        if cfg.context_mode != "none" and context_block:
+            user_lines.append("Contexto de segmentos anteriores:\n" + context_block)
         user_lines.append(
-            "Devuelve estrictamente un JSON con la forma {\"text\": \"<transcripción corregida>\"}."
+            f"Expande la siguiente hipótesis de ASR en {cfg.N_expand} alternativas diversas para re-puntuación:\n{cand_block}"
         )
-
-    user_prompt = "\n\n".join(user_lines)
-
-    return [
-        {"role": "system", "content": cfg.system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+        user_prompt = "\n\n".join(user_lines)
+        return [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    else:
+        raise NotImplementedError(f"Unknown task: {cfg.task}")
 
 # ------------------------------- Model Loading --------------------------------
 
@@ -528,6 +603,46 @@ def load_model_and_tokenizer(cfg: LLMECConfig):
 
     torch_dtype = _select_dtype(cfg.dtype)
 
+    # Detect flash-attn availability.
+    def _detect_flash_attn():
+        try:
+            import flash_attn  # flash-attn v2 top-level import
+            return True
+        except Exception:
+            pass
+        try:
+            from flash_attn import flash_attn_func  # flash-attn v1 style
+            return True
+        except Exception:
+            return False
+
+    def _flash_attn_supported():
+        # 1) import flash-attn
+        flash_available = _detect_flash_attn()
+
+        if not flash_available:
+            return False
+
+        # 2) must have CUDA
+        if not torch.cuda.is_available():
+            return False
+
+        # 3) check compute capability
+        # Ampere = 8.x, Hopper = 9.x (also supported)
+        try:
+            major, minor = torch.cuda.get_device_capability()
+        except Exception:
+            return False
+
+        # flash-attn requires >= 8.0
+        if major < 8:
+            return False
+
+        return True
+
+    flash_attn_available = _flash_attn_supported()
+    print(f"Flash_attn_importable: {_detect_flash_attn()}")
+    print(f"Flash_attn_available: {flash_attn_available}")
     model_kwargs: Dict[str, Any] = {}
     if cfg.device == "auto":
         model_kwargs["device_map"] = "auto"
@@ -538,12 +653,14 @@ def load_model_and_tokenizer(cfg: LLMECConfig):
 
     if torch_dtype is not None:
         model_kwargs["torch_dtype"] = torch_dtype
+    if flash_attn_available:
+        model_kwargs["attn_implementation"] = "flash_attention_2"
 
     if getattr(config, "is_encoder_decoder", False):
         model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
     else:
         model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
-
+    print("Model loaded, use attn_implementation: ", getattr(model, "_attn_implementation", None) or getattr(model.config, "_attn_implementation", None))
     # Set pad token if missing
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token or tokenizer.cls_token
@@ -554,70 +671,55 @@ def load_model_and_tokenizer(cfg: LLMECConfig):
 # --------------------------------- Text processing ---------------------------------
 import unicodedata
 import string
-def has_punctuation(text: str) -> bool:
+def has_punctuation(text: str, skip_apostrophe: bool = False) -> bool:
+    for ch in text:
+        if skip_apostrophe and ch == "'":
+            continue
+        if unicodedata.category(ch).startswith("P"):
+            return True
+    return False
 
-    return any(unicodedata.category(ch).startswith("P") for ch in text)
 
-def strip_punctuation(text: str) -> str:
-    table = str.maketrans("", "", string.punctuation)
+def strip_punctuation(text: str, skip_apostrophe: bool = False) -> str:
+    # Build a translation table that removes punctuation except apostrophes (if requested)
+    if skip_apostrophe:
+        punct = string.punctuation.replace("'", "")
+    else:
+        punct = string.punctuation
+
+    table = str.maketrans("", "", punct)
     return text.translate(table)
 # --------------------------------- Generation ---------------------------------
 
 def _first_json_text(text: str, key: str) -> str:
-    """Extract first JSON object and return its string value under key; fallback to raw text."""
+    # 1) Try proper JSON object first
+    import ast
     m = re.search(r"\{.*?\}", text, flags=re.DOTALL)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            val = obj.get(key, "")
+            if isinstance(val, list):
+                return ",".join(map(str, val)).strip()
+            return str(val).strip()
+        except json.JSONDecodeError:
+            # fall through to more relaxed handling
+            pass
+
+    # 2) Try to find a bare list after the key name
+    m = re.search(rf'{re.escape(key)}"\s*:\s*(\[[\s\S]*?\])', text)
     if not m:
-        return text.strip()
+        m = re.search(r"\[[\s\S]*?\]", text)
+    if not m:
+        return ""
+
     try:
-        obj = json.loads(m.group(0))
+        lst = ast.literal_eval(m.group(1 if m.lastindex else 0))
+        if isinstance(lst, list):
+            return ",".join(map(str, lst)).strip()
+        return str(lst).strip()
     except Exception:
-        return text.strip()
-    val = obj.get(key, "")
-    return (val if isinstance(val, str) else str(val)).strip()
-
-
-# def generate_json_text_hf(model, tokenizer, rendered_prompt: str, cfg: LLMECConfig) -> str:
-#     if torch is None:
-#         raise RuntimeError("torch is required for HF provider path.")
-#     inputs = tokenizer(rendered_prompt, return_tensors="pt")
-#     device = next(model.parameters()).device
-#     inputs = {k: v.to(device) for k, v in inputs.items()}
-#
-#     # best-effort EOS
-#     eos_ids: List[int] = []
-#     for tok in cfg.eos_strings:
-#         try:
-#             tid = tokenizer.convert_tokens_to_ids(tok)
-#             if tid is not None and tid != tokenizer.unk_token_id:
-#                 eos_ids.append(tid)
-#         except Exception:
-#             pass
-#
-#     gen_kwargs = dict(
-#         max_new_tokens=cfg.max_new_tokens,
-#         do_sample=cfg.temperature > 0.0,
-#         temperature=cfg.temperature,
-#         top_p=cfg.top_p,
-#         repetition_penalty=cfg.repetition_penalty,
-#         eos_token_id=(eos_ids[0] if eos_ids else tokenizer.eos_token_id),
-#         pad_token_id=tokenizer.pad_token_id,
-#     )
-#
-#     with torch.no_grad():
-#         out = model.generate(**inputs, **gen_kwargs)
-#     gen = out[0][inputs["input_ids"].shape[1] :]
-#
-#     # Manual cut off at boundary - Handling cases where model does not stop at chat-boundary control token e.g Qwen models
-#     end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
-#     if end_id is not None:
-#         try:
-#             end_idx = (gen == end_id).nonzero(as_tuple=True)[0][0].item()
-#             gen = gen[:end_idx]  # cut before <|im_end|>
-#         except IndexError:
-#             pass  # no <|im_end|> found, keep all
-#
-#     text = tokenizer.decode(gen, skip_special_tokens=True)
-#     return _first_json_text(text, cfg.json_key) if cfg.expect_json else text.strip()
+        return ""
 
 def generate_json_text_hf(
     model,
@@ -693,7 +795,7 @@ def generate_json_text_hf_batch(
                 pass
 
         text = tokenizer.decode(gen_tokens, skip_special_tokens=True)
-        if not cfg.expect_json:
+        if not cfg.expect_json and cfg.task == "EC":
             flag = False
             if "-" in text:
                 print(f"Replace Unexpected - in '{text}'")
@@ -706,16 +808,19 @@ def generate_json_text_hf_batch(
                 print(f"Remove Unexpected newline in '{text}'")
                 text = text.split("\n")[-1]
                 flag = True
-            if has_punctuation(text):
+            if has_punctuation(text, skip_apostrophe=cfg.keep_apostrophe):
                 print(f"Remove Unexpected punctuation in '{text}'")
                 text = strip_punctuation(text)
                 flag = True
             if flag:
                 print(f"\n--------------------------------")
-        if cfg.expect_json:
-            text = _first_json_text(text, cfg.json_key)
-        else:
-            text = text.strip()
+        if cfg.task == "EC":
+            if cfg.expect_json:
+                text = _first_json_text(text, cfg.json_key)
+            else:
+                text = text.strip()
+        elif cfg.task == "Nbest_expand":
+            text = _first_json_text(text, cfg.json_key) # Expected hyps seperated by ,
         texts.append(text)
 
     return texts
@@ -782,16 +887,25 @@ def normalize_cfg_for_hash(cfg: LLMECConfig) -> LLMECConfig:
 
     Rules:
     - If context_mode == 'none' → context_window is irrelevant; set to 0.
+    - If strategy == 'none' → nbest_k is irrelevant; set to 3.
     - If provider != 'hf' → HF-only knobs are irrelevant; set to canonical defaults.
     """
     norm = replace(cfg)
     # Context irrelevance
     if norm.context_mode == "none":
         norm = replace(norm, context_window=0)
+    if norm.strategy == "top1_only":
+        norm = replace(norm, nbest_k=3)
     # HF-only knobs irrelevant for non-HF providers
     if norm.provider != "hf":
         norm = replace(norm, device="cpu", dtype=None, repetition_penalty=1.0, eos_strings=())
-    norm = replace(norm, hf_batch_size=8) # Batch independent
+    if norm.task != "EC" and norm.context_mode != "none":
+        if norm.context_mode != "prev_top1":
+            print(f"[Warning]: For NON-EC use case, prev_top1=On none=Off, given is {norm.context_mode}. Set to prev_top1.")
+            norm = replace(norm, context_mode="prev_top1")
+    if norm.task != "Nbest_expand":
+        norm = replace(norm, N_expand=0)
+    norm = replace(norm, hf_batch_size=8, name_focused=False) # Batch independent, name_focused can be by-hashed with prompt
     return norm
 
 # --------------------------------- Job Class ----------------------------------
@@ -820,9 +934,11 @@ class LLMErrorCorrectionJob(Job):
             tk.register_output(self.cfg.model_name, model.out_hub_cache_dir)
             self.cfg.model_dir = model.out_hub_cache_dir
         if self.cfg.system_prompt is None:
-            print("Use default system prompt!")
-            self.cfg.system_prompt = system_prompt_es if self.cfg.prompt_lang == "ES" else LLMECConfig.system_prompt
+            print(f"Use default english system prompt! Task: {self.cfg.task}")
+            self.cfg.system_prompt = LLMECConfig.system_prompt
+
         self.out_file = self.output_path("output.py.gz")
+        self.out_rejection_rate = self.output_var("rejection_rate")
         self.rqmt = {"time": 8, "cpu": 3, "mem": 12, "gpu": 1, "gpu_mem": 24}
 
     def tasks(self):
@@ -845,15 +961,15 @@ class LLMErrorCorrectionJob(Job):
         except Exception:
             pass
 
-    @staticmethod
-    def llm_update_rejection_heuristic(orig: str, corrected: str) -> bool:
-        if not orig or abs(len(orig) - len(corrected)) / len(orig) > 0.25: # Never correct empty hyp
+    def llm_update_rejection_heuristic(self, orig: str, corrected: str) -> bool:
+        factor = {"EC": 1.0, "Nbest_expand": self.cfg.N_expand}[self.cfg.task]
+        if not orig or abs(len(orig) - len(' '.join(corrected.split(',')))/factor) / len(orig) > self.cfg.rejection_ratio: # Never correct empty hyp
             return False
         return True
 
     def correct_py_nbest_dict(
             self, d_rec: Dict[str, List[Tuple[float, str]]]
-    ) -> Dict[str, List[Tuple[float, str]]]:
+    ) -> tuple[dict[str, list[tuple[float, str]]], float | Any]:
         """
         Process entries in dict order. Assumes that within a recording, segments are grouped
         and ordered. Context never crosses recording boundaries; we detect record IDs
@@ -887,6 +1003,8 @@ class LLMErrorCorrectionJob(Job):
         seg_count = 0  # number of finalized segments (for debug printing)
         total_num_seg = len(d_rec)
         processed_seg = 0
+        rejected = 0
+        empty_count = 0
         for rec_id, tags in rec2tags.items():
             # context buffers per recording
             prev_top1_buf: deque[str] = deque(maxlen=max(1, cfg.context_window))
@@ -901,7 +1019,7 @@ class LLMErrorCorrectionJob(Job):
                 batch_scores: List[float] = []
 
                 def flush_batch():
-                    nonlocal seg_count, prev_corr_buf
+                    nonlocal seg_count, prev_corr_buf, rejected
                     if not batch_prompts:
                         return
                     assert model is not None and tokenizer is not None
@@ -919,18 +1037,26 @@ class LLMErrorCorrectionJob(Job):
                             )
                             print(
                                 f"Prompt: {rendered_}\n"
-                                f"\t -> Completion: {corrected}\n"
+                                f"\t -> Completion: {corrected!r}\n"
                             )
                             if not self.llm_update_rejection_heuristic(top_text_, corrected):
                                 print("->Rejected!\n")
 
                         if not self.llm_update_rejection_heuristic(top_text_, corrected):
+                            rejected += 1
+                            if self.cfg.task == "Nbest_expand":
+                                out[seq_tag_] = []
+                                continue
                             corrected = top_text_
 
                         if cfg.context_window > 0:
                             prev_corr_buf.append(corrected)
-
-                        out[seq_tag_] = [(kept_score_, corrected)]
+                        if cfg.task == "EC":
+                            out[seq_tag_] = [(kept_score_, corrected)]
+                        elif cfg.task == "Nbest_expand":
+                            out[seq_tag_] = [(kept_score_, hyp.strip('"').strip("'")) for hyp in corrected.split(",")]
+                        else:
+                            raise NotImplementedError
 
                     # clear batch buffers
                     batch_prompts.clear()
@@ -951,7 +1077,8 @@ class LLMErrorCorrectionJob(Job):
                         context_transcripts = []
 
                     top_score, top_text = _top1_pair(pairs, cfg.order_by_score)
-
+                    if not top_text:
+                        empty_count += 1
                     if cfg.strategy == "top1_only":
                         if cfg.prompt_lang == "EN":
                             messages = build_messages_top1(cfg, top_text, context_transcripts)
@@ -1008,6 +1135,8 @@ class LLMErrorCorrectionJob(Job):
                         context_transcripts = []
 
                     top_score, top_text = _top1_pair(pairs, cfg.order_by_score)
+                    if not top_text:
+                        empty_count += 1
 
                     if cfg.strategy == "top1_only":
                         if cfg.prompt_lang == "EN":
@@ -1049,20 +1178,37 @@ class LLMErrorCorrectionJob(Job):
                             "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
                         )
                         print(f"Prompt: {rendered if cfg.provider == 'hf' else messages}\n"
-                              f"\t -> Completion: {corrected}\n")
+                              f"\t -> Completion: {corrected!r}\n")
                         if not self.llm_update_rejection_heuristic(top_text, corrected):
                             print("->Rejected!")
 
                     if not self.llm_update_rejection_heuristic(top_text, corrected):
+                        rejected += 1
+                        if self.cfg.task == "Nbest_expand":
+                            out[seq_tag] = []
+                            continue
                         corrected = top_text
 
+                    if cfg.task == "EC":
+                        out[seq_tag] = [(kept_score, corrected)]
+                    elif cfg.task == "Nbest_expand":
+                        out[seq_tag] = [(kept_score, hyp.strip('"')) for hyp in corrected.split(",")]
+                    else:
+                        raise NotImplementedError
                     if cfg.context_window > 0:
                         prev_top1_buf.append(top_text)
                         prev_corr_buf.append(corrected)
 
                     out[seq_tag] = [(kept_score, corrected)]
-
-        return out
+        del model, tokenizer
+        torch.cuda.empty_cache()
+        import gc; gc.collect()
+        print("Finished generation and cleaned up\n.")
+        rejection_rate = rejected / total_num_seg
+        self.out_rejection_rate.set(rejection_rate)
+        print(f"Rejection Rate: {rejected}/{total_num_seg} = {100*rejected/total_num_seg:.2f}%")
+        print(f"Empty hyp Rate: {empty_count}/{total_num_seg} = {100 * empty_count / total_num_seg:.2f}%")
+        return out, rejection_rate
 
     def run(self):
         from transformers import logging
@@ -1075,17 +1221,24 @@ class LLMErrorCorrectionJob(Job):
             d_rec = eval(f.read(), {"nan": float("nan"), "inf": float("inf")})
         from i6_experiments.users.zhang.datasets.utils import sort_dict_by_record
         d_rec = sort_dict_by_record(d_rec)
-        corrected = self.correct_py_nbest_dict(d_rec)
-
+        def write_entries(out, pairs):
+            for score, hyp in pairs:
+                out.write(f"  ({score!r}, {hyp!r}),\n")
+        corrected, rejection_rate = self.correct_py_nbest_dict(d_rec)
+        #self.out_rejection_rate.set(rejection_rate)
         # Write gzipped py-dict with the same style
         with gzip.open(self.out_file.get_path(), "wt") as out:
             out.write("{\n")
             for seq_tag, pairs in corrected.items():
                 out.write(f"{seq_tag!r}: [\n")
-                assert len(pairs) == 1 and isinstance(pairs[0], tuple)
-                score, hyp = pairs[0]
-                out.write(f"  ({score!r}, {hyp!r}),\n")
-                out.write("]\n")
+                if self.cfg.task == "Nbest_expand":
+                    assert isinstance(pairs, list)
+                    write_entries(out, d_rec[seq_tag] + pairs)
+                elif self.cfg.task == "EC":
+                    assert len(pairs) == 1 and isinstance(pairs[0], tuple)
+                    score, hyp = pairs[0]
+                    out.write(f"  ({score!r}, {hyp!r}),\n")
+                out.write("],\n")
             out.write("}\n")
         self._report_dev_memory_stats(device_str)
         # Cleanup

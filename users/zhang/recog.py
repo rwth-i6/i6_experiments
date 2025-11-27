@@ -73,7 +73,7 @@ def recog_exp(
     dev_sets: Optional[Sequence[str]] = None, # The naming is a bit confusing, dev or not is transparent to this method
     search_error_check: bool = False,
     search_rqmt: dict = None,
-)-> tuple[tk.Path, tk.Path, tk.Path | None, Any, tk.Path | None] | tuple[tk.Path, None, tk.Path | None, Any, tk.Path | None]:
+)-> tuple[tk.Path, tk.Path, tk.Path | None, Any, tk.Path | None] | tuple[tk.Path, None, tk.Path | None, Any, tk.Path | None, Dict[str, Any]]:
     """recog on given epoch"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
@@ -96,7 +96,7 @@ def recog_exp(
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
-    res, search_error, search_error_rescore, output_dict, rescor_ppls = get_res(epoch, recog_and_score_func)
+    res, search_error, search_error_rescore, output_dict, rescor_ppls, miscs = get_res(epoch, recog_and_score_func)
     summarize_job = GetRecogSummaryJob(scores_outputs=(res, search_error, search_error_rescore))
     # summarize_job = GetRecogExp(
     #     epoch=epoch,
@@ -106,8 +106,8 @@ def recog_exp(
     #tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     if search_error_check:
         #tk.register_output(first_pass_name + "/search_error", summarize_job.out_search_error)
-        return summarize_job.out_summary_json, search_error, search_error_rescore, output_dict, rescor_ppls
-    return summarize_job.out_summary_json, None, search_error_rescore, output_dict, rescor_ppls
+        return summarize_job.out_summary_json, search_error, search_error_rescore, output_dict, rescor_ppls, miscs
+    return summarize_job.out_summary_json, None, search_error_rescore, output_dict, rescor_ppls, miscs
 
 
 def recog_training_exp(
@@ -203,7 +203,7 @@ class _RecogAndScoreFunc:
         self.search_error_check = search_error_check
         self.search_error_version = search_error_version
 
-    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection,  Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResultCollection]]]:
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection,  Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResultCollection]], Optional[Dict[str, Any]]]:
         if isinstance(epoch_or_ckpt, int):
             model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
         elif isinstance(epoch_or_ckpt, PtCheckpoint):
@@ -229,7 +229,7 @@ class _RecogAndScoreFunc:
                 #     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
         else:
             prior_path = None
-        res, search_error_dict, search_error_rescore_dict, output, rescor_ppls = recog_model(
+        res, search_error_dict, search_error_rescore_dict, output, rescor_ppls, miscs = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
@@ -248,7 +248,7 @@ class _RecogAndScoreFunc:
         )
         #if isinstance(epoch_or_ckpt, int):
             #tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
-        return res, search_error_dict, search_error_rescore_dict, output, rescor_ppls
+        return res, search_error_dict, search_error_rescore_dict, output, rescor_ppls, miscs
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
@@ -365,7 +365,7 @@ def recog_model(
     name: Optional[str] = None,
     search_error_check: bool = False,
     search_error_version: int = 2,
-) -> Tuple[ScoreResultCollection, Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str,ScoreResult]], Optional[Dict[str, tk.Path]]]:
+) -> Tuple[ScoreResultCollection, Optional[Dict[str, tk.Path]], Optional[Dict[str, tk.Path]], Optional[Dict[str,ScoreResult]], Optional[Dict[str, tk.Path]], Optional[Dict[str, Any]]]:
     """
     Recog for some given model (a single given checkpoint / epoch).
     (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
@@ -563,6 +563,7 @@ def recog_model(
     # Just for keeping hash for some already done exps
     Returnn_py_exe = None if recog_def != model_recog_lm else tk.Path('/home/hzhang/environments/pyenvs/py_3.10_torch_2.1/bin/python3')
     search_rqmt = dict() if search_rqmt is None else search_rqmt
+    miscs = dict()
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets and dataset_name not in dev_sets:
                 continue
@@ -604,7 +605,7 @@ def recog_model(
         #         search_rqmt.update({"gpu_mem": 11, "time":2})
         #     config_ = ffnn_config
         (recog_out, hyps, search_error_rescore, oracle_res,
-         lm_rescoring_res, gt_res_one_pass, lm_rescoring_res_gt) = search_dataset( # Hyps here is raw out from first pass
+         lm_rescoring_res, gt_res_one_pass, lm_rescoring_res_gt, misc) = search_dataset( # Hyps here is raw out from first pass
             decoding_config=decoding_params,
             Returnn_python_exe=Returnn_py_exe, # None->default
             dataset=dataset,
@@ -623,6 +624,7 @@ def recog_model(
             Nbest_dataset = givenNbest,
             vocab=vocab_,
         )
+        miscs[dataset_name] = misc
         if oracle_res:
             oracle_score_out = task.score_recog_output_func(dataset,oracle_res)
             oracle_res_dict[dataset_name] = oracle_score_out
@@ -675,7 +677,7 @@ def recog_model(
         res = task.collect_score_results_func(outputs)
     else:
         res = task.default_collect_score_results(outputs)
-    return res, search_error_dict, search_error_rescore_dict, outputs, rescor_ppls#[search_error_key]
+    return res, search_error_dict, search_error_rescore_dict, outputs, rescor_ppls, miscs#[search_error_key]
 
 
 def compute_prior(
@@ -901,7 +903,7 @@ def search_dataset(
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     Nbest_dataset: Optional[DatasetConfig] = None,
     vocab: Optional[VocabConfig] = None,
-) -> Tuple[RecogOutput, tk.Path, tk.Path, RecogOutput, RecogOutput, tk.Path, tk.Path]:
+) -> Tuple[RecogOutput, tk.Path, tk.Path, RecogOutput, RecogOutput, tk.Path, tk.Path, Dict[str, Any]]:
     """
     Recog on the specific dataset using RETURNN.
 
@@ -940,6 +942,7 @@ def search_dataset(
     combine_Nlist_configs = decoding_config.pop("Nlist_configs",[])
     combine_given_Nlist = decoding_config.pop("combine_with_given_Nlist",False)
     EC_config = decoding_config.pop("EC_config",None)
+    llm_expand_Nbest = EC_config is not None and EC_config.task == "Nbest_expand"
     first_pass_lm_name = decoding_config.get("lm_order", "")
     use_word_lm_first_pass = "word" in first_pass_lm_name or combine_given_Nlist
     cheat = decoding_config.pop("cheat", False) and "aptk_leg" not in dataset.get_main_name()
@@ -1136,6 +1139,37 @@ def search_dataset(
         # cheat_job.add_alias(search_alias_name + "/search_error_job")
         raw_res_search_labels = RecogOutput(output=search_label_cheat_job.out_search_results)
 
+    # -----------------Optionally expand Nbest with LLM-------------------
+    NExpand_rejection_rate = None
+    delta_hyps = None
+    if EC_config and EC_config.task == "Nbest_expand":
+        print(f"{search_alias_name}: \n\t Do Nbest_expand with {EC_config.model_name}!")
+        from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import LLMErrorCorrectionJob, \
+            get_EC_rqmt, LLMECConfig
+        EC_config: LLMECConfig
+        for f in recog_post_proc_funcs:  # for example BPE to words
+            res = f(RecogOutput(output=res)).output
+        from i6_experiments.users.zhang.utils.stats import NBestStatsAndDedupJob
+        nbest_stats_job = NBestStatsAndDedupJob(res)
+        res = nbest_stats_job.out_nbest
+        num_eff_hyps = nbest_stats_job.out_num_eff_hyps
+        tk.register_output(search_alias_name+"/Nbest_stats", nbest_stats_job.out_stats)
+        EC_job = LLMErrorCorrectionJob(recog_out_file=res, config=EC_config)
+        EC_job.rqmt.update(get_EC_rqmt(EC_config))
+        EC_job.add_alias(search_alias_name + f"/ExpandNbest_with{os.path.basename(EC_config.model_name)}")
+        res = EC_job.out_file
+        NExpand_rejection_rate = EC_job.out_rejection_rate
+        if isinstance(vocab, Bpe):
+            from i6_experiments.users.zhang.datasets.vocab import RecogOut_words_to_BPE
+            res = RecogOut_words_to_BPE(RecogOutput(output=res), bpe=vocab).output
+        elif isinstance(vocab, SentencePieceModel):
+            from i6_experiments.users.zhang.datasets.vocab import RecogOut_words_to_spm
+            res = RecogOut_words_to_spm(RecogOutput(output=res), spm=vocab).output
+        from i6_experiments.users.zhang.datasets.vocab import FilterOOVHypsJob
+        filter_job = FilterOOVHypsJob(res, strip_punctuation=True,vocab=vocab, num_eff_hyps=num_eff_hyps)
+        res = filter_job.out_filtered_nbest
+        delta_hyps = filter_job.out_delta_hyps
+    # ----------------------------------
     #config = None # Additional config for LM RETURNN forward
     for f in recog_pre_post_proc_funcs_ext:
         # if cheat and hasattr(f, "keywords"):
@@ -1160,7 +1194,7 @@ def search_dataset(
                 ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
             ),
             #config_lm=config,
-            search_label_present= Nbest_dataset is None and not use_word_lm_first_pass,
+            search_label_present= Nbest_dataset is None and not use_word_lm_first_pass and not llm_expand_Nbest,
             alias_name=search_alias_name,
         )
         if isinstance(res, tuple):
@@ -1213,7 +1247,8 @@ def search_dataset(
         res = f(RecogOutput(output=res)).output
         if lm_rescoring_res is not None:
             lm_rescoring_res = f(RecogOutput(output=lm_rescoring_res)).output
-    if EC_config:
+    EC_rejection_rate = None
+    if EC_config and EC_config.task == "EC":
         print(f"{search_alias_name}: \n\t Do EC with {EC_config.model_name}!")
         from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import LLMErrorCorrectionJob, \
             get_EC_rqmt, LLMECConfig
@@ -1221,6 +1256,7 @@ def search_dataset(
         EC_job = LLMErrorCorrectionJob(recog_out_file=res, config=EC_config)
         EC_job.rqmt.update(get_EC_rqmt(EC_config))
         EC_job.add_alias(search_alias_name + f"/EC_with{os.path.basename(EC_config.model_name)}")
+        EC_rejection_rate = EC_job.out_rejection_rate
         res = EC_job.out_file
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
@@ -1229,7 +1265,11 @@ def search_dataset(
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
         if lm_rescoring_res is not None:
             lm_rescoring_res = SearchTakeBestJob(lm_rescoring_res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res), res_with_score, search_error_rescore, oracle_wer_res, RecogOutput(output=lm_rescoring_res), gt_res_one_pass, lm_rescoring_gt_res#search_job.out_files[_v2_forward_out_filename]
+    return (RecogOutput(output=res), res_with_score, search_error_rescore,
+            oracle_wer_res, RecogOutput(output=lm_rescoring_res),
+            gt_res_one_pass, lm_rescoring_gt_res,
+            {"NExpand_rejection_rate": NExpand_rejection_rate, "EC_rejection_rate": EC_rejection_rate, "delta_hyps": delta_hyps}
+            )#search_job.out_files[_v2_forward_out_filename]
 
 
 class SearchTakeBestWithScoreJob(sisyphus.Job):
@@ -2212,10 +2252,10 @@ def _returnn_v2_get_forward_callback():
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
-def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[Dict[str, tk.Path]],Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResult]], Optional[Dict[str, tk.Path]]]]):
-    res, search_error, search_error_rescore, output, rescor_ppls = recog_and_score_func(epoch)
+def get_res(epoch: int, recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[Dict[str, tk.Path]],Optional[Dict[str, tk.Path]], Optional[Dict[str, ScoreResult]], Optional[Dict[str, tk.Path]], Optional[Dict[str, Any]]]]):
+    res, search_error, search_error_rescore, output, rescor_ppls, miscs = recog_and_score_func(epoch)
     # assert isinstance(res, Tuple[ScoreResultCollection,Optional[tk.path]])
-    return res, search_error, search_error_rescore, output, rescor_ppls
+    return res, search_error, search_error_rescore, output, rescor_ppls, miscs
 
 PRINTED = False
 class GetRecogSummaryJob(sisyphus.Job):

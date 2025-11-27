@@ -36,9 +36,11 @@ class WER_ppl_PlotAndSummaryJob(Job):
         eval_dataset_keys: List[str] = ["test-other","dev-other"],
         include_search_error: bool = True,
         aggregated: bool = False,
+        misc: List[Dict[str, Any]] = None,
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
+        self.out_misc_summary = self.output_path("misc_summary.csv")
         self.out_plot_folder = self.output_path("plots", directory=True)
         self.out_tabel_folder = self.output_path("tables", directory=True)
         # self.out_plot1 = self.output_path("plots/dev_other.png")
@@ -51,7 +53,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.out_verbose_report = self.output_path("wer_report.json")
         self.names = names
         self.results = results
-
+        self.misc = misc
         self.lm_tunes = lm_tunes
         self.prior_tunes = prior_tunes
         self.lm_default_scales = lm_default_scales
@@ -76,6 +78,8 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.export_dataset_tables()
         self.export_metric_averages()
         self.plots()
+        if self.misc:
+            self.create_misc_table()
 
     @staticmethod
     def find_relevant_key(dict, key):
@@ -506,6 +510,31 @@ class WER_ppl_PlotAndSummaryJob(Job):
             # safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", dataset_id)
             # out_path = os.path.join()
             sub.to_csv(self.out_tables[self.find_relevant_key(self.out_tables,dataset_id)].get_path(), index=False)
+
+    def create_misc_table(self):
+        """
+        Build a CSV summary for misc infos.
+        """
+        import csv
+        names = list(self.names)  # names for each row/model
+        csv_filename = self.out_misc_summary.get_path()
+
+        # -------- Header --------
+        dataset_header = []
+        for dataset_key in self.eval_dataset_keys:
+            dataset_header.extend([f"{dataset_key} {key}" for key in self.misc[0][dataset_key].keys()])
+        table_data = [["Model Name"] + dataset_header]
+        # -------- Rows --------
+        for i, name in enumerate(names):
+            row = [name]
+            for dataset_key in self.eval_dataset_keys:
+                row.extend([v for k,v in self.misc[i][dataset_key].items()])
+            table_data.append(row)
+
+        # -------- Write CSV --------
+        with open(csv_filename, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerows(table_data)
 
     def create_table(self):
         """

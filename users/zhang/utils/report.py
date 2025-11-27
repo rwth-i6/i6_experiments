@@ -231,3 +231,4 @@ def _fmt_int(x) -> str:
     if not _is_num(x):
         return "NaN"
     return str(int(round(float(x))))
+

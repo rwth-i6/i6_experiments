@@ -67,15 +67,19 @@ DEFAULT_LM_WEIGHT = 0.5
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
 # -----------------Error Correction related-----------------
-STRATEGY = "nbest_reason_rewrite"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
-NBEST_K = 3  # Only considered when use "nbest_reason_rewrite" strategy
+TASK_instruct = "Nbest_expand" # "EC" Nbest_expand
+N_expand = 5
+REJECTION_RATIO = 0.1 # Length ratio for heuristic rejection
+STRATEGY = "top1_only"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
+NBEST_K = 5  # Only considered when use "nbest_reason_rewrite" strategy
 CONTEXT_MODE = "none"  # "none" | "prev_top1" | "prev_corrected"
 USE_TAP = False and STRATEGY == "nbest_reason_rewrite"
 CONTEXT_WINDOW = 50
 PROMPT_LANG = "ES"
-JSON_OUT = False
-FEW_SHOT = False
-DEFAULT_PROMPT = False
+FEW_SHOT = True
+JSON_OUT = False or (FEW_SHOT and TASK_instruct == "Nbest_expand")
+NAME_FOCUSED = True
+DEFAULT_PROMPT = True
 TAP_EXAMPLE = TapExample(
     hyps=[
         "déjame a seguir mirando la cuenta tú estás ahí",
@@ -89,33 +93,192 @@ TAP_EXAMPLE = TapExample(
     domain="Spanish conversational"
 )
 
-EXAMPLES = """
-Ejemplos:
+def get_example(lang: str = "EN", nbest: bool = False, json: bool = False, top_k: int = 3) -> str:
+    example = f"""{'A continuación se muestran algunos ejemplos para su tarea:' if lang == "ES" else "Below are some examples for your task:"}
+{'Ejemplos' if lang == "ES" else "Examples"}:
 
-entrada: buenos dias a todoz y todas
-salida: buenos dias a todos y todas
+{'entrada' if lang == "ES" else "input"}: {'buenos dias a todoz y todas'}
+{'salida' if lang == "ES" else "output"}: {'buenos dias a todos y todas' if not json else '{"text": "buenos dias a todos y todas"}'}
 
-entrada: el real madri a ganado la liga
-salida: el real madrid ha ganado la liga
+{'entrada' if lang == "ES" else "input"}: {'el real madri a ganado la liga'}
+{'salida' if lang == "ES" else "output"}: {'el real madrid ha ganado la liga' if not json else '{"text": "el real madrid ha ganado la liga"}'}
 """
+    hyps1 = '\n'.join("""1. hm y a sonia que tal
+    2. y a sonia que tal
+    3. hm y la sonia que tal
+    4. y a sonia que está
+    5. mhm y a sonia que tal""".split("\n")[:top_k])
+    hyps2 = '\n'.join("""1. buenos días juan que soy clara que que estoy aquí en alemania
+    2. buenos días juan soy clara que que estoy aquí en alemania
+    3. buenos días juan soy clara que que estoy aquí
+    4. buenos días juan soy clara que que estoy en alemania
+    5. buenos días juan soy clara que estoy aquí en alemania""".split("\n")[:top_k])
+    example_nbest = f"""{'A continuación se muestran algunos ejemplos para su tarea:' if lang == "ES" else "Below are some examples for your task:"}
+{'entrada' if lang == "ES" else "input"}:
+{hyps1}
+{'salida' if lang == "ES" else "output"}: 
+hm hm la sonia que está
 
-EXAMPLES_JSON = """
-Ejemplo:
+{'entrada' if lang == "ES" else "input"}:
+{hyps2}
 
-entrada: {"text": "buenos dias a todoz y todas"}
-salida: {"text": "buenos dias a todos y todas"}
-
-entrada: {"text": "el real madri a ganado la liga"}
-salida:{"text": "el real madrid ha ganado la liga"}
+{'salida' if lang == "ES" else "output"}:
+buenos días juan soy clara que que estoy aquí en alemania
 """
+    return example if not nbest else example_nbest
 
+def get_nbest_expand_examples(lang: str = "ES", json: bool = False, top_k: int = 5) -> str:
+    """
+    Few-shot examples for N-best expansion.
+    lang: 'ES' or 'EN'
+    json: if True, wrap each input in {"text": "..."}
+    top_k: number of expanded hypotheses to show (max 5)
+    """
+    # Language strings
+    if lang == "ES":
+        hdr = "A continuación se muestran algunos ejemplos para su tarea:"
+        inp = "entrada"
+        out = "salida"
+        expanded = "expanded_nbest"
+    else:
+        hdr = "Below are some examples for your task:"
+        inp = "input"
+        out = "output"
+        expanded = "expanded_nbest"
+
+    # Base ASR hypotheses
+    base1 = "tengo que ir a madrid mañana por la mañana"
+    base2 = "no sé si vamos a poder llegar a tiempo"
+    base3 = "la situación en el partido era bastante complicada"
+
+    # Expanded variants (5 per example)
+    exp1 = [
+        "tengo que ir a madrid mañana por la mañana",
+        "tengo que ir a madrid mañana por la tarde",
+        "tengo que ir a madrid mañana muy temprano",
+        "tengo que ir a madrid por la mañana mañana",
+        "tengo que ir a madrid mañana temprano"
+    ]
+    exp2 = [
+        "no sé si vamos a poder llegar a tiempo",
+        "no sé si vamos a poder llegar a buen tiempo",
+        "no sé si vamos a poder llegar justo a tiempo",
+        "no sé si vamos a poder llegar a tiempo hoy",
+        "no sé si vamos a poder llegar a tiempo al final"
+    ]
+    exp3 = [
+        "la situación en el partido era bastante complicada",
+        "la situación en el partido era muy complicada",
+        "la situación del partido era bastante complicada",
+        "la situación en el partido se veía complicada",
+        "la situación en el partido era realmente complicada"
+    ]
+
+    # Select top_k
+    exp1 = exp1[:top_k]
+    exp2 = exp2[:top_k]
+    exp3 = exp3[:top_k]
+
+    def fmt_input(text):
+        return f'{{"text": "{text}"}}' if json else text
+
+    def fmt_output(lst):
+        if json:
+            # Valid JSON with proper quoting
+            quoted = ', '.join([f'"{x}"' for x in lst])
+            return f'{{"{expanded}": [{quoted}]}}'
+        else:
+            # Plain text list
+            return "\n".join(f"- {x}" for x in lst)
+
+    # Build examples
+    ex = f"""{hdr}
+
+{inp}: {fmt_input(base1)}
+{out}:
+{fmt_output(exp1)}
+
+{inp}: {fmt_input(base2)}
+{out}:
+{fmt_output(exp2)}
+
+{inp}: {fmt_input(base3)}
+{out}:
+{fmt_output(exp3)}
+"""
+    return ex
+
+def get_system_prompt1(names_focus: bool = False, lang: str = "EN", few_shot: bool = False, task: str = "EC") -> str:
+    if task == "EC":
+        prompt_es = (
+            "Eres un transcriptor de segunda pasada que recibe la transcripción de primera pasada de un enunciado acústico. "
+            "Por favor corrige cualquier error de transcripción de la primera pasada para minimizar la distancia de edición con la "
+            "transcripción de referencia desconocida. Ten en cuenta que el original fue hablado, así que no corrijas las disfluencias "
+            f"en el texto y {'en su lugar concéntrate en corregir' if not names_focus else 'corrige únicamente'} los nombres propios. "
+            "Escribe solo la oración actualizada sin comentarios adicionales. "
+            "Escribe únicamente palabras en minúsculas y sin puntuación\n\n"
+        )
+        prompt_en = (
+                        "You are second pass transcriber that is given the first pass transcription of an acoustic utterance. "
+                        "Please fix any transcription errors of the first pass transcriber to minimize the edit distance to the "
+                        "unknown reference transcription. Note that the original was spoken, so please do not correct disfluencies "
+                        f"in the text and {'rather focus on correcting' if not names_focus else 'only'} proper names. Write only the updated sentence without any additional comments. "
+                        "Write only lowercased words without punctuation\n\n"
+                    )
+        if few_shot:
+            return (prompt_en if lang == "EN" else prompt_es) + get_example(lang=lang, json=JSON_OUT, nbest=STRATEGY=='nbest_reason_rewrite')
+        else:
+            return (prompt_en if lang == "EN" else prompt_es)
+    elif task == "Nbest_expand":
+        expand_nbest_system_en = """
+        You generate alternative hypotheses for an ASR segment.
+        Your goal is to enrich and diversify the n-best list without drifting away from the original meaning or acoustic plausibility.
+
+        Rules:
+        - Use the input hypothesis as the main anchor.
+        - Produce N alternative hypotheses that could realistically appear in an ASR n-best list.
+        - Each hypothesis must differ slightly from the others (wording, small substitutions, reorderings).
+        - Preserve plausible phonetic similarity; avoid adding new semantic content.
+        - Keep everything in lowercase.
+        - No punctuation.
+        - No explanations.
+
+        Output format:
+        Return your output using Python dict syntax:
+
+        {"expanded_nbest": ["hypothesis 1","hypothesis 2","hypothesis 3"]}
+        """.strip()
+        expand_nbest_system_es = """
+        Eres un generador de hipótesis alternativas para un segmento de ASR.
+        Tu objetivo es ampliar y diversificar la lista n-best sin alejarte demasiado del contenido ni de la plausibilidad acústica.
+
+        Reglas:
+        - Usa la hipótesis dada como base.
+        - Genera N hipótesis alternativas que puedan aparecer razonablemente en un n-best real.
+        - Cada hipótesis debe diferir ligeramente de las demás (sustituciones mínimas, pequeños cambios de orden, variantes fonéticas plausibles).
+        - No añadas información nueva.
+        - Mantén todo en minúsculas.
+        - Sin puntuación.
+        - No des explicaciones.
+
+        Formato de salida:
+        Devuelve un JSON:
+
+        {"expanded_nbest": ["hipótesis 1","hipótesis 2","hipótesis 3"]}
+        """.strip()
+        if few_shot:
+            return (expand_nbest_system_en if lang == "EN" else expand_nbest_system_es) + get_nbest_expand_examples(lang=lang, json=JSON_OUT, top_k=N_expand)
+        else:
+            return (expand_nbest_system_en if lang == "EN" else expand_nbest_system_es)
+    else:
+        raise NotImplementedError(task)
 
 SPANISH_SYSTEM_PROMPT = f"""
 Eres un corrector de errores de reconocimiento automático del habla (ASR) en español.
 Tu tarea es transformar una hipótesis de ASR en una versión corregida, realizando
 solo modificaciones mínimas y estrictamente necesarias.
 
-{(EXAMPLES_JSON if JSON_OUT else EXAMPLES) if FEW_SHOT and not USE_TAP else ''}
+{get_example(lang='ES', json=JSON_OUT, nbest=STRATEGY=='nbest_reason_rewrite') if FEW_SHOT and not USE_TAP else ''}
 """
 
 SPANISH_SYSTEM_PROMPT += """
@@ -140,33 +303,11 @@ Formato de salida:
 - no añadas comentarios ni explicaciones
 """
 
-
-EXAMPLES_EN = """
-Examples:
-
-input: buenos dias a todoz y todas
-output: buenos dias a todos y todas
-
-input: el real madri a ganado la liga
-output: el real madrid ha won the league
-"""
-
-EXAMPLES_JSON_EN = """
-Example:
-
-input: {"text": "buenos dias a todoz y todas"}
-output: {"text": "buenos dias a todos y todas"}
-
-input: {"text": "el real madri a ganado la liga"}
-output: {"text": "el real madrid ha ganado la liga"}
-"""
-
-
 ENGLISH_SYSTEM_PROMPT = f"""
 You are a corrector of automatic speech recognition (ASR) errors in Spanish.
 Your task is to transform an ASR hypothesis into a corrected version, making
 only minimal and strictly necessary modifications.
-{(EXAMPLES_JSON_EN if JSON_OUT else EXAMPLES_EN) if FEW_SHOT and not USE_TAP else ''}
+{get_example(lang='EN', json=JSON_OUT, nbest=STRATEGY=='nbest_reason_rewrite') if FEW_SHOT and not USE_TAP else ''}
 """
 ENGLISH_SYSTEM_PROMPT += """
 Correction guidelines:
@@ -212,8 +353,9 @@ LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 8
-#----------unused-----------------
 
+
+#----------unused-----------------
 LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
 CHEAT_CTX = True and LLM_PREV_ONE_CTX and seg_key == "ref"
 CTX_LEN_LIMIT = 100
@@ -311,7 +453,7 @@ def build_alias_name(lmname: str, decoding_config: dict, tune_config_updates: di
 
     EC_config = decoding_config.get("EC_config",None)
     EC_model_name = EC_config.model_name if EC_config else None
-    alias_name += f"_EC_with_{os.path.basename(EC_model_name)}" if EC_model_name else ""
+    alias_name += f"_{TASK_instruct}_with_{os.path.basename(EC_model_name)}" if EC_model_name else ""
     first_pass_name = f"{seg_key}_apptek-ctc-baseline{'_FT' if FINE_TUNED_MODEL else ''}_{encoder}_decodingWith_{lm_hyperparamters_str}_{lmname}_{'LMTune' if not TUNE_ON_GREEDY_N_LIST else ''}"
     if USE_GIVEN_NBEST:
         alias_name = f"{seg_key}_apptek-ctc-baseline{'_FT' if FINE_TUNED_MODEL else ''}_{encoder}_decodingWith_GivenNbest_2rd{lm2_hyperparamters_str}"
@@ -597,6 +739,7 @@ class SummaryEntry:
     prior_tune: Optional[dict]
     default_lm_scale: float
     default_prior_scale: float
+    miscs: Dict[str, Any]
 
 
 def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
@@ -604,11 +747,14 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
     Build all Error Correction (EC) configs.
     Returns list of (ec_name, EC_config_or_None).
     """
+    import math
+    reduce_offset = (2 if FEW_SHOT else 0) if STRATEGY == "top1_only" else math.ceil(1.5*NBEST_K*(2.2 if FEW_SHOT else 1))
+    reduce_offset *= 2 if FEW_SHOT and TASK_instruct == "Nbest_expand" else 1
     EC_LLMs_Batch_size = {
-        "meta-llama/Llama-3.2-3B-Instruct": 80 if DEFAULT_PROMPT else 50,
-        "Qwen/Qwen2.5-3B-Instruct": 100 if DEFAULT_PROMPT else 50,
-        "meta-llama/Meta-Llama-3-8B-Instruct": 100 if USE_TAP else 80,
-        #"Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": 70 if USE_TAP else 200,
+        "meta-llama/Llama-3.2-3B-Instruct": ((80 if TASK_instruct == "EC" else 60) if DEFAULT_PROMPT else 60) - reduce_offset,
+        "Qwen/Qwen2.5-3B-Instruct": (70 if DEFAULT_PROMPT else 55) - reduce_offset,
+        "meta-llama/Meta-Llama-3-8B-Instruct": ((100 if TASK_instruct == "EC" else 80) if DEFAULT_PROMPT else 80) - reduce_offset,
+        #"Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": (70 if USE_TAP else 200) - reduce_offset,
     }
     from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import get_model_size_and_quant
 
@@ -616,24 +762,29 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
         (
             os.path.basename(model_id),
             LLMECConfig(
+                task=TASK_instruct,
+                N_expand=N_expand,
                 provider="hf",
                 expect_json=JSON_OUT,
                 model_name=model_id,
                 device="auto",
                 dtype="bfloat16",
                 system_prompt=(
-                    SPANISH_SYSTEM_PROMPT if PROMPT_LANG == "ES" else ENGLISH_SYSTEM_PROMPT) if not DEFAULT_PROMPT else None,
+                    SPANISH_SYSTEM_PROMPT if PROMPT_LANG == "ES" else ENGLISH_SYSTEM_PROMPT) if not DEFAULT_PROMPT else get_system_prompt1(names_focus=NAME_FOCUSED, lang=PROMPT_LANG, few_shot=FEW_SHOT, task=TASK_instruct),
                 prompt_lang=PROMPT_LANG,
                 tap_examples=[TAP_EXAMPLE] if USE_TAP and get_model_size_and_quant(os.path.basename(model_id))[
                     0] > 10 else None,
                 strategy=STRATEGY,             # Only correct the top1
                 nbest_k=NBEST_K,               # Only considered when use "nbest_reason_rewrite" strategy
                 order_by_score=True,
+                rejection_ratio=REJECTION_RATIO,
                 score_policy="keep_top1",
+                name_focused=NAME_FOCUSED,
+                json_key='expanded_nbest',
                 context_mode=CONTEXT_MODE,     # "none" | "prev_top1" | "prev_corrected"
                 context_window=CONTEXT_WINDOW,
                 hf_batch_size=EC_LLMs_Batch_size[model_id],
-                max_new_tokens=128,
+                max_new_tokens=128 if TASK_instruct == "ES" else 1024,
                 temperature=0.0,
                 top_p=1.0,
                 repetition_penalty=1.0,       # HF only
@@ -687,7 +838,7 @@ def build_llm_configs_for_rescoring(vocab_config, lm_kinds, lm_kinds_2, word_ppl
     reduce_offset = max(0, 10 * (CTX_LEN_LIMIT // 100 - 1)) if LLM_PREV_ONE_CTX else -20
     LLM_and_Batch_size = {
         "meta-llama/Llama-3.2-1B": 40 - reduce_offset,
-        # "meta-llama/Llama-3.1-8B": 40 - reduce_offset,
+        "meta-llama/Llama-3.1-8B": 40 - reduce_offset,
         # "Qwen/Qwen3-1.7B-Base": 40 - reduce_offset,
         # "microsoft/phi-4": 40 - reduce_offset,
     }
@@ -738,10 +889,14 @@ def build_llm_name_suffix() -> str:
             llm_suffix += f"ctx{LLM_FXIED_CTX_SIZE}"
         if LLM_PREV_ONE_CTX:
             llm_suffix += f"prev_{CTX_LEN_LIMIT}ctx"
-    llm_suffix += (f'EC' + f"{'few_shot' if FEW_SHOT else ''}" +
-                   f"{'_top1_only' if STRATEGY == 'top1_only' else f'{NBEST_K}_best'}"
+    llm_suffix += (f"{TASK_instruct}" + f"{'few_shot' if FEW_SHOT else ''}"
+                   + f"{'_top1_only' if STRATEGY == 'top1_only' else f'_{NBEST_K}_best'}"
+                   + f"{f'_{N_expand}expands' if TASK_instruct == 'Nbest_expand' else f''}"
                    + f"{CONTEXT_MODE if CONTEXT_MODE != 'none' else ''}"
-                   + f"_{PROMPT_LANG}{'TAP' if USE_TAP else ''}" + f"{'default_prompt' if DEFAULT_PROMPT else ''}")
+                   + f"lenthres{REJECTION_RATIO}".replace('.','_')
+                   + f"_{PROMPT_LANG}{'TAP' if USE_TAP else ''}" + f"{'_default_prompt' if DEFAULT_PROMPT else ''}"
+                   + f"{'_name_focused' if NAME_FOCUSED and DEFAULT_PROMPT else ''}"
+                   )
     return llm_suffix
 
 
@@ -767,6 +922,7 @@ def create_summary_and_register(
 
     ppl_list = [e.ppl for e in entries]
     wer_result_paths = [e.wer_result_path for e in entries]
+    miscs = [e.miscs for e in entries]
     search_errors = [e.search_error for e in entries]
     search_errors_rescore = [e.search_error_rescore for e in entries]
     lm_tunes = [e.lm_tune for e in entries]
@@ -785,10 +941,7 @@ def create_summary_and_register(
         default_prior_scales,
         aggregated=aggregated,
         eval_dataset_keys=eval_dataset_keys,
-    )
-
-    gnuplotjob = GnuPlotJob(
-        summaryjob.out_summary, eval_dataset_keys, curve_point=CUTS[encoder]
+        misc=miscs,
     )
 
     # Suffix for LLM/context etc, still centralised
@@ -810,9 +963,11 @@ def create_summary_and_register(
     )
 
     summaryjob.add_alias(alias_prefix + "/summary_job")
+    scoring_summaryjob = GetOutPutsJob(outputs=wer_results)
+    scoring_summaryjob.add_alias(alias_prefix + "/scorer_summary_job")
     tk.register_output(
         alias_prefix + "/report_summary",
-        GetOutPutsJob(outputs=wer_results).out_report_dict,
+        scoring_summaryjob.out_report_dict,
     )
     tk.register_output(alias_prefix + "/wers", summaryjob.out_tables["wers"])
 
@@ -860,6 +1015,33 @@ def run_first_and_second_pass(
     wer_ppl_results: Dict[str, SummaryEntry] = {}
     wer_results: Dict[str, dict] = {}
 
+    def pure_greedy():
+        greedy_res = exp(
+            "NoLM",
+            None,
+            vocab,
+            encoder=encoder,
+            train=train,
+            lm_vocab=None,
+            model=model,
+            model_config=model_config,
+            vocab_config=vocab_config,
+            prior_file=PRIOR_PATH[(vocab, "ctc", encoder)],
+            i6_models=i6_models,
+        )
+        wer_ppl_results['Greedy'] = SummaryEntry(
+            ppl={k:10024.0 for k in EVAL_DATASET_KEYS},
+            wer_result_path=greedy_res[0],
+            search_error=greedy_res[1],
+            search_error_rescore=greedy_res[2],
+            lm_tune=greedy_res[3],
+            prior_tune=greedy_res[4],
+            miscs=greedy_res[7],
+            default_lm_scale=greedy_res[-2],
+            default_prior_scale=greedy_res[-1],
+        )
+        wer_results['Greedy'] = greedy_res[-6]
+    pure_greedy()
     for first_name, first_lm in lms.items():
         # ---- First pass (no EC) ----
         one_pass_res = exp(
@@ -884,17 +1066,18 @@ def run_first_and_second_pass(
             search_error_rescore=one_pass_res[2],
             lm_tune=one_pass_res[3],
             prior_tune=one_pass_res[4],
-            default_lm_scale=one_pass_res[5],
-            default_prior_scale=one_pass_res[6],
+            miscs=one_pass_res[7],
+            default_lm_scale=one_pass_res[-2],
+            default_prior_scale=one_pass_res[-1],
         )
-        wer_results[first_name] = one_pass_res[-5]
+        wer_results[first_name] = one_pass_res[-6]
 
         # ---- Second pass + EC sweep ----
         for rescore_name, rescore_lm in rescor_lms.items():
             for ec_name, ec_cfg in ec_configs:
-                # Old behaviour: when using EC (ec_cfg not None), only allow NoLM as rescore_lm
                 if ec_cfg is not None and rescore_lm is not None:
-                    continue
+                    if ec_cfg.task == "EC": # Do not combine EC with rescoring
+                        continue
 
                 print(first_name, rescore_name, ec_name)
 
@@ -906,6 +1089,7 @@ def run_first_and_second_pass(
                     prior_tune,
                     output_dict,
                     rescor_ppls,
+                    miscs,
                     lm_hyperparamters_str,
                     default_lm_scale,
                     default_prior_scale,
@@ -935,7 +1119,7 @@ def run_first_and_second_pass(
                         else rescore_name
                     )
                     if ec_cfg is not None:
-                        key_name = f"{base_key} + EC_{ec_name}"
+                        key_name = f"{base_key} + Nbest_expand_{ec_name}"
                     else:
                         key_name = base_key
 
@@ -960,6 +1144,7 @@ def run_first_and_second_pass(
                     search_error_rescore=search_error_rescore,
                     lm_tune=lm_tune,
                     prior_tune=prior_tune,
+                    miscs=miscs,
                     default_lm_scale=default_lm_scale,
                     default_prior_scale=default_prior_scale,
                 )
@@ -1016,8 +1201,12 @@ def py():
     for vocab in ["spm10k"]:
         word_ppl = True
         lm_kinds = {"trafo"}
-        lm_kinds_2 = set()  # adapt as needed
-
+        lm_kinds_2 = {
+            "LLM",
+            #"trafo",
+        }  # adapt as needed
+        if TASK_instruct == "EC":
+            lm_kinds_2 = {}
         # for build_llm_name_suffix helper
         global LM_KINDS_2_GLOBAL
         LM_KINDS_2_GLOBAL = lm_kinds_2

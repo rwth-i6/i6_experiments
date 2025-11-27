@@ -361,11 +361,22 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
     # -----------
 
     lm_dataset = get_librispeech_lm_dataset(vocab=vocab, train_epoch_split=20)
-
+    model_def_dict = {}
     if rope_ffgated:
         train_prefix_name = f"trafo-n{num_layers}-d{model_dim}-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0_1-b400_20k-bpe{vocab.dim}"
         config_80gb = config_96gb_bf16_accgrad1.copy()
         config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 96})
+        model_def_dict = {
+            "num_layers": num_layers,
+            "model_dim": model_dim,
+            "pos_enc": None,
+            "norm": rf.build_dict(rf.RMSNorm),
+            "ff": rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+            "decoder_layer_opts": dict(
+                        self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+            "dropout": 0.1,
+            "att_dropout": 0.1,
+        }
         model_with_checkpoints = train(  # set up from albert. Use same similar network for Spainish task
             f"lm/LBS/{train_prefix_name}",
             config=dict_update_deep(
@@ -398,6 +409,8 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
             ),
             train_def=lm_train_def,
         )
+        model_def_dict['class'] = "TransformerLm"
+
     else:
         train_prefix_name = f"trafo-n{num_layers}-embd128-d{model_dim}-bpe{vocab.dim}-drop{dropout}-gelu"
         deep_update = {
@@ -410,6 +423,14 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
             deep_update.update({"max_seq_length_default_target": None})
         config_80gb = config_96gb_bf16_accgrad1.copy()
         config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 60})
+        model_def_dict = {
+            "encoder_dim": None,
+            "num_layers": num_layers,
+            "model_dim": model_dim,
+            "ff_activation": rf.build_dict(rf.gelu),
+            "dropout": dropout,
+            "att_dropout": att_dropout,
+        }
         model_with_checkpoints = train(  # 12.79
             f"lm/trafo-n{num_layers}-d{model_dim}-gelu-drop0-b{max_seqs}_{bs_feat//1000}k-bpe{vocab.dim}",
             config=dict_update_deep(
@@ -433,9 +454,8 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
                 },
             ),
             train_def=lm_train_def,
-            # For test
-            # time_rqmt=2,
         )
+        model_def_dict['class'] = "TransformerLm"
 
     ppls = compute_ppl(
         prefix_name=train_prefix_name,
@@ -458,6 +478,6 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
     if epochs:
         for epoch in epochs:
             assert epoch in model_with_checkpoints.fixed_epochs
-            yield model_with_checkpoints.get_epoch(epoch), ppls[f"epoch{epoch}"], epoch
+            yield model_with_checkpoints.get_epoch(epoch), ppls[f"epoch{epoch}"], epoch, model_def_dict
     else:
-        return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
+        return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx, model_def_dict

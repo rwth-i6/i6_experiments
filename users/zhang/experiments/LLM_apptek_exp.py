@@ -82,7 +82,7 @@ LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 8
-#----------unused-----------------
+#---------------------------
 
 LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
 CHEAT_CTX = True and LLM_PREV_ONE_CTX and seg_key == "ref"
