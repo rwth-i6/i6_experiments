@@ -2862,9 +2862,9 @@ def scoring_v2(
 ) -> Tensor:
     """
     Function is run within RETURNN.
-
-    With evtl a LM interpolation and prior correction.
-
+    Mask the emission(logprob) with alignment of ground truth and get their scores (AM LM Prior)
+    Alignment is computed with torchaudio.forced_align
+    
     :return:
         scores of groundtruth(targets) {batch, beam, out_spatial},
         log probs {batch, beam},
