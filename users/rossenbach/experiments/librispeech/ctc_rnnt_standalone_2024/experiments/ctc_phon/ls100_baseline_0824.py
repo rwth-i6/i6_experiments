@@ -15,6 +15,7 @@ from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search
 from ...report import tune_and_evalue_report
+from ...storage import add_ctc_model
 
 
 
@@ -205,4 +206,5 @@ def eow_phon_ls100_0824_base():
         training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
         get_specific_checkpoint=300
     )
+    add_ctc_model(name=network_module_conv_first + name, asr_model=asr_model)
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])

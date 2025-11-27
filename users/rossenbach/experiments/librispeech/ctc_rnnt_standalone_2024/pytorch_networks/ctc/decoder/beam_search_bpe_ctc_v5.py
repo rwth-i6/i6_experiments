@@ -91,6 +91,8 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.lm_model = lm_model
 
         print("loaded external LM")
+        params = sum([parameter.data.size().numel() for parameter in lm_model.parameters()])
+        print(f"Total number of parameters: {params}")
         print()
 
     run_ctx.ctc_decoder = CTCBeamSearch(

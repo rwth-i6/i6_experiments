@@ -22,13 +22,13 @@ def add_ctc_model(name: str, asr_model: ASRModel):
 
 def get_ctc_model(name: str) -> ASRModel:
     global _ctc_models
-    try:
+    if name in _ctc_models.keys():
         return _ctc_models[name]
-    except KeyError:
-        for key in sorted(_rnnt_models.keys()):
+    else:
+        for key in sorted(_ctc_models.keys()):
             print("Found Keys")
             print(key)
-            raise KeyError("Invalid Key %s for get_ctc_model" % name)
+        raise KeyError("Invalid Key %s for get_ctc_model" % name)
 
 _rnnt_models: Dict[str, tk.Path] = {}
 
@@ -98,10 +98,20 @@ def add_vocoder(name: str, vocoder: VocoderPackage):
     vocoders[name] = vocoder
 
 
+# Alignments -----------------------------------------------------------------------------------------------------------
+
+duration_alignments = {}
+
+def add_duration(name: str, duration_hdf: tk.Path):
+    global duration_alignments
+    assert name not in duration_alignments.keys()
+    duration_alignments[name] = duration_hdf
+
 # Synthetic data -------------------------------------------------------------------------------------------------------
 
 synthetic_ogg_zip_data = {}
 synthetic_bliss_data = {}
+synthetic_data_lexica = {}
 
 
 def add_synthetic_data(name: str, ogg_zip: tk.Path, bliss: tk.Path):
@@ -116,4 +126,14 @@ def get_synthetic_data(name: str):
     global synthetic_bliss_data
     assert name in synthetic_ogg_zip_data.keys()
     return synthetic_bliss_data[name], synthetic_ogg_zip_data[name]
+
+def add_synthetic_data_lexicon(name: str, lexicon: tk.Path):
+    global synthetic_data_lexica
+    assert name not in synthetic_data_lexica.keys()
+    synthetic_data_lexica[name] = lexicon
+
+def get_synthetic_data_lexicon(name: str):
+    global synthetic_data_lexica
+    assert name in synthetic_data_lexica.keys()
+    return synthetic_data_lexica[name]
 

@@ -101,7 +101,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels_len = data["data:size1"]
     delayed_labels = data["delayed"]
 
-    lm_logits, _ = model(delayed_labels)  # (B, S, F)
+    lm_logits, _ = model(delayed_labels, states=None)  # (B, S, F)
 
     ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels.long(), reduction='none')
     seq_mask = mask_tensor(labels, labels_len)

@@ -332,6 +332,14 @@ def bpe_ls960_0924_relposencoder():
             lm_module = "pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v2.Model",
             lm_states_need_label_axis=False,
         )
+        beam_search_decoder_config_v4_lstmlm_bs32 = BeamSearchDecoderConfigv4(
+            returnn_vocab=label_datastream_bpe.vocab,
+            beam_size=32,
+            lm_model_args = lstm_2x2048.net_args,
+            lm_checkpoint = lstm_2x2048.checkpoint,
+            lm_module = "pytorch_networks.lm.lstm.kazuki_lstm_zijian_variant_v2.Model",
+            lm_states_need_label_axis=False,
+        )
         decoder_unhashed_config_v3 = DecoderExtraConfig(
             lm_package=PACKAGE,
         )
@@ -370,6 +378,11 @@ def bpe_ls960_0924_relposencoder():
             training_name + "/lstmlm_2x2048_v5", dev_dataset_tuples, test_dataset_tuples, asr_model, beam_search_decoder_config_v4_lstmlm,
             unhashed_decoder_config=decoder_unhashed_config_v3, extra_forward_config={"batch_size": 200 * 16000},
             lm_scales=[0.65, 0.7, 0.75, 0.8, 0.85], prior_scales=[0.25, 0.3, 0.35, 0.4], decoder_module="ctc.decoder.beam_search_bpe_ctc_v5", debug=True, use_gpu=True
+        )
+        tune_and_evaluate_helper(
+            training_name + "/lstmlm_2x2048_v5_bs32", dev_dataset_tuples, test_dataset_tuples, asr_model, beam_search_decoder_config_v4_lstmlm_bs32,
+            unhashed_decoder_config=decoder_unhashed_config_v3, extra_forward_config={"batch_size": 100 * 16000},
+            lm_scales=[0.8, 0.85, 0.9, 0.95, 1.0], prior_scales=[0.25, 0.3, 0.35, 0.4], decoder_module="ctc.decoder.beam_search_bpe_ctc_v5", debug=True, use_gpu=True
         )
 
         beam_search_decoder_config = BeamSearchDecoderConfig(
@@ -468,6 +481,29 @@ def bpe_ls960_0924_relposencoder():
         )
         tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
         greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+
+        tune_and_evaluate_helper(
+            training_name + "/trafolm_32x768", dev_dataset_tuples, test_dataset_tuples, asr_model, beam_search_decoder_config_v4_32lm,
+            unhashed_decoder_config=decoder_unhashed_config_v3, extra_forward_config={"batch_size": 200 * 16000},
+            lm_scales=[0.7, 0.75, 0.8, 0.85, 0.9], prior_scales=[0.3, 0.35, 0.4], decoder_module="ctc.decoder.beam_search_bpe_ctc_v5", debug=True, use_gpu=True
+        )
+        
+        tune_and_evaluate_helper(
+            training_name + "/lstmlm_2x2048_v5", dev_dataset_tuples, test_dataset_tuples, asr_model, beam_search_decoder_config_v4_lstmlm,
+            unhashed_decoder_config=decoder_unhashed_config_v3, extra_forward_config={"batch_size": 200 * 16000},
+            lm_scales=[0.7, 0.75, 0.8, 0.85, 0.9], prior_scales=[0.25, 0.3, 0.35, 0.4], decoder_module="ctc.decoder.beam_search_bpe_ctc_v5", debug=True, use_gpu=True
+        )
+
+        tune_and_evaluate_helper(
+            training_name + "/lstmlm_2x2048_v5_bs32", dev_dataset_tuples, test_dataset_tuples, asr_model, beam_search_decoder_config_v4_lstmlm_bs32,
+            unhashed_decoder_config=decoder_unhashed_config_v3, extra_forward_config={"batch_size": 100 * 16000},
+            lm_scales=[0.8, 0.85, 0.9, 0.95, 1.0], prior_scales=[0.25, 0.3, 0.35, 0.4], decoder_module="ctc.decoder.beam_search_bpe_ctc_v5", debug=True, use_gpu=True
+        )
+
+
+
+
 
         asr_model.lexicon = get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=BPE_SIZE)
         asr_model.returnn_vocab = label_datastream_bpe.vocab

@@ -62,17 +62,25 @@ class BaseTTSModelV1(nn.Module):
                 y = y.transpose(1, 2)  # [B, F, T]
         return y, y_lengths
 
-    def forward_encoder(self, phon_labels, labels_lengths, speaker_label):
+    def forward_encoder(self, phon_labels, labels_lengths, speaker_label=None, speaker_embedding=None):
         """
         :param phon_labels: [B, N]
         :param labels_lengths: [B], length of N
         :param speaker_label: [B], speaker index
         :return: h as [B, hidden_dim, N], h_mask [B, 1, N], spk as [B, F, 1] and log_durations as [B, 1, N]
         """
+        assert (speaker_label is None) ^ (speaker_embedding is None)
         h, h_mask = self.encoder(phon_labels=phon_labels, labels_lengths=labels_lengths)
-        spk = nn.functional.normalize(self.spk_emb(speaker_label.squeeze(-1))).unsqueeze(-1)
 
-        spk_exp = spk.expand(-1, -1, phon_labels.size(-1))  # [B, emb] -> [B, emb, N]
+        if speaker_label is not None:
+            spk = nn.functional.normalize(self.spk_emb(speaker_label.squeeze(-1))).unsqueeze(-1)
+
+            spk_exp = spk.expand(-1, -1, phon_labels.size(-1))  # [B, emb] -> [B, emb, N]
+        else:
+            # [B,F] -> [B,F,1]
+            spk = nn.functional.normalize(speaker_embedding).unsqueeze(-1)
+            spk_exp = spk.expand(-1, -1, phon_labels.size(-1))  # [B, emb, 1] -> [B, emb, N]
+
         # print(f"Dimension of input in Text Encoder: x.shape: {x.shape}; g: {g.shape}, g_exp: {g_exp.shape}")
         h_dp = torch.cat([torch.detach(h), spk_exp], 1)
 

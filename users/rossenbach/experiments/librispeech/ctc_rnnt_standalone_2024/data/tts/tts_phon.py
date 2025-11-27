@@ -15,7 +15,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech
 
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, HDFDataset
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-from i6_experiments.common.setups.returnn.datastreams.base import Datastream
+from i6_experiments.common.setups.returnn.datastreams.base import Datastream, FeatureDatastream
 from i6_experiments.common.setups.returnn.datastreams.audio import (
     AudioFeatureDatastream,
     DBMelFilterbankOptions,
@@ -74,7 +74,7 @@ def get_tts_extended_bliss(ls_corpus_key, lexicon_ls_corpus_key: Optional[str] =
     return tts_ls_bliss
 
 
-def make_tts_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
+def make_tts_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None, dynamic_speakers=False):
     """
     Shared function to create a metadatset with joined audio and speaker information
 
@@ -86,7 +86,7 @@ def make_tts_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None)
     data_map = {
         'raw_audio': ('audio', 'data'),
         'phonemes': ('audio', 'classes'),
-        'speaker_labels': ('speaker', 'data'),
+        'speaker_embeddings' if dynamic_speakers else 'speaker_labels': ('speaker', 'data'),
     }
     datasets = {
         'audio': audio_dataset.as_returnn_opts(),
@@ -401,6 +401,81 @@ def build_fixed_speakers_generating_dataset(
     datastreams = {
         "phonemes": vocab_datastream,
         "speaker_labels": speaker_datastream,
+    }
+
+    generating_dataset = GeneratingDataset(
+        split_datasets=datasets,
+        datastreams=datastreams,
+    )
+
+    return generating_dataset
+
+
+def build_dynamic_speakers_generating_dataset(
+        text_bliss: tk.Path,
+        speaker_embedding_hdf: tk.Path,
+        speaker_embedding_size: int,
+        num_splits: int,
+        distribute_speakers: bool = True,
+        ls_corpus_key: str = "train-clean-100",
+        seed=None,
+):
+    """
+
+    :param text_bliss:  corpus used for generation, needs to be processed for TTS
+    :param num_splits: split via segments for parallel generation
+    :param ls_corpus_key: base corpus to take speakers from
+    :param randomize_speaker: Assign shuffled speakers from refrence corpus
+    :return:
+    """
+    vocab_datastream = get_vocab_datastream(with_blank=True, corpus_key=ls_corpus_key)
+    from i6_experiments.users.rossenbach.tts.speaker_embedding import DistributeDynamicSpeakerEmbeddingsJob
+
+    if distribute_speakers:
+        distributed_speaker_embeddings = DistributeDynamicSpeakerEmbeddingsJob(
+            bliss_corpus=text_bliss,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            options=None
+        ).out
+    else:
+        distributed_speaker_embeddings = speaker_embedding_hdf
+
+
+    segments_dict = SegmentCorpusJob(text_bliss, num_segments=num_splits).out_single_segment_files
+
+    text_only_zip = BlissToOggZipJob(
+        bliss_corpus=text_bliss,
+        no_audio=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    ).out_ogg_zip
+
+    speaker_dataset = HDFDataset(
+        files=[distributed_speaker_embeddings]
+    )
+    speaker_datastream = FeatureDatastream(
+        available_for_inference=True,
+        feature_size=speaker_embedding_size,
+    )
+
+    # ----- Ogg and Meta datasets
+
+    datasets = []
+    for i in range(num_splits):
+        train_ogg_dataset = OggZipDataset(
+            files=text_only_zip,
+            audio_options=None,
+            target_options=vocab_datastream.as_returnn_targets_opts(),
+            segment_file=segments_dict[i+1],  # bullshit counting from 1 ...
+            partition_epoch=1,
+            seq_ordering="sorted_reverse"
+        )
+        train_dataset = make_tts_meta_dataset(train_ogg_dataset, speaker_dataset, dynamic_speakers=True)
+        datasets.append(train_dataset)
+
+    datastreams = {
+        "phonemes": vocab_datastream,
+        "speaker_embeddings": speaker_datastream,
     }
 
     generating_dataset = GeneratingDataset(

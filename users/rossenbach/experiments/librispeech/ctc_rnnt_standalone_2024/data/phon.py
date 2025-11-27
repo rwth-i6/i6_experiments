@@ -118,6 +118,7 @@ def synthetic_librispeech_bliss_to_ogg_zip(
         prefix: str,
         bliss: str,
         lexicon_librispeech_key,
+        custom_lexicon=None
     ) -> tk.Path:
     """
 
@@ -125,7 +126,11 @@ def synthetic_librispeech_bliss_to_ogg_zip(
     :param lexicon_librispeech_key: lexicon coverage needed for the synthetic data (train-clean-100, 460 etc...)
     :return:
     """
-    lexicon = get_eow_lexicon(g2p_librispeech_key=lexicon_librispeech_key, with_g2p=True)
+    if custom_lexicon:
+        lexicon = custom_lexicon
+        assert lexicon_librispeech_key is None
+    else:
+        lexicon = get_eow_lexicon(g2p_librispeech_key=lexicon_librispeech_key, with_g2p=True)
     converted_bliss = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
     ogg_zip = get_zip(alias_name=prefix + "/syn_ogg_zip", bliss_dataset=converted_bliss)
     return ogg_zip

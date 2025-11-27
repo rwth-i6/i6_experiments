@@ -91,6 +91,7 @@ def rnnt_bpe_ls960_0924_relposencoder():
             debug=debug,
             **default_returnn,
         )
+        return search_jobs, wers
 
     from ...pytorch_networks.rnnt.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
         SpecaugConfig,
@@ -373,6 +374,26 @@ def rnnt_bpe_ls960_0924_relposencoder():
                     debug=True,
                     with_test=False
                 )
+        # if BPE_SIZE == 128:
+        #     decoder_settings = copy.deepcopy(decoder_config_bpeany_greedy_v3)
+        #     decoder_settings.lm_scale = lm_scale
+        #     decoder_settings.zero_ilm_scale = prior_scale
+        #     search_jobs, _ = evaluate_helper(
+        #         training_name + "/amd_rtf_keep_%i_bs4_lstmlm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+        #         asr_model,
+        #         decoder_settings,
+        #         unhashed_decoder_config=decoder_unhashed_config_v3,
+        #         beam_size=4,
+        #         use_gpu=False,
+        #         decoder_module="rnnt.decoder.experimental_rnnt_decoder_v3",
+        #         debug=True,
+        #         with_test=False,
+        #         extra_forward_config = {"max_seqs": 1},
+        #     )
+        #     for search_job in search_jobs:
+        #         search_job.rqmt["sbatch_args"] = ["-A", "rescale_speed", "-p", "rescale_amd"]
+        #         search_job.rqmt["cpu"] = 2
+
 
         for lm_scale in [0.4, 0.45, 0.5, 0.55, 0.60]:
             for prior_scale in [0.3, 0.35, 0.4, 0.45]:
@@ -619,4 +640,49 @@ def rnnt_bpe_ls960_0924_relposencoder():
                     with_test=False,
                     extra_forward_config={"batch_size": 100 * 16000}
                 )
+        # best is 0.5 / 0.35, TODO: make automatic
+        lm_scale = 0.5
+        prior_scale = 0.35
+        decoder_settings = copy.deepcopy(decoder_config_trafo_32_5ep)
+        decoder_settings.lm_scale = lm_scale
+        decoder_settings.zero_ilm_scale = prior_scale
+        evaluate_helper(
+            training_name + "/keep_%i_trafolm_32x768_5ep/trafolm_%.2f_%.2f" % (1000, lm_scale, prior_scale),
+            asr_model,
+            decoder_settings,
+            unhashed_decoder_config=decoder_unhashed_config_v3,
+            beam_size=10,
+            use_gpu=True,
+            decoder_module="rnnt.decoder.experimental_rnnt_decoder_v4",
+            debug=True,
+            with_test=True,
+            extra_forward_config={"batch_size": 100 * 16000}
+        )
 
+        from ...pytorch_networks.rnnt.decoder.experimental_rnnt_decoder_v5 import DecoderConfig as DecoderConfigV5
+
+        decoder_config_trafo_special_debug = DecoderConfigV5(
+            beam_size=10,  # greedy as default
+            returnn_vocab=label_datastream_bpe.vocab,
+            lm_model_args=trafo_32x768_5ep.net_args,
+            lm_checkpoint=trafo_32x768_5ep.checkpoint,
+            lm_module="pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v2.Model",
+            lm_scale=0.5,
+            zero_ilm_scale=0.35,
+            lm_states_need_label_axis=True,
+        )
+        if BPE_SIZE == 128:
+            search_jobs, _ = evaluate_helper(
+                training_name + "/special_RTF_debug",
+                asr_model,
+                decoder_config_trafo_special_debug,
+                unhashed_decoder_config=decoder_unhashed_config_v3,
+                beam_size=10,
+                use_gpu=True,
+                decoder_module="rnnt.decoder.experimental_rnnt_decoder_v5",
+                debug=True,
+                with_test=False,
+                extra_forward_config={"batch_size": 100 * 16000}
+            )
+            for search_job in search_jobs:
+                search_job.rqmt["sbatch_args"] = ["-A", "rescale_speed", "-p", "rescale_gpu_24gb"]

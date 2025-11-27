@@ -2,6 +2,7 @@
 Dataset helpers for the BPE-based training
 """
 from sisyphus import tk
+from typing import List, Optional
 
 from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
 from i6_core.lexicon.bpe import CreateBPELexiconJob
@@ -97,12 +98,15 @@ def build_custom_bpe_lexicon(bliss_lexicon, bpe_codes, bpe_vocab):
     return word_lexicon
 
 
+
 def build_bpe_training_datasets(
     prefix: str,
     librispeech_key: str,
     bpe_size: int,
     settings: DatasetSettings,
     use_postfix: bool,
+    extra_train_ogg_zips: Optional[List[tk.Path]] = None,
+    data_repetition_factors: Optional[List[int]] = None,
 ) -> TrainingDatasets:
     """
 
@@ -110,6 +114,8 @@ def build_bpe_training_datasets(
     :param bpe_size: number of BPE splits
     :param settings: configuration object for the dataset pipeline
     :param use_postfix: True for RNN-T or Attention, False for CTC
+    :param extra_train_ogg_zips: add additional ogg zips for training, e.g. created by `synthetic_librispeech_bliss_to_ogg_zip`
+    :param data_repetition_factors: list if integers, first entry is for the original librispeech data
     """
     label_datastream = get_bpe_datastream(
         librispeech_key=librispeech_key, bpe_size=bpe_size, is_recog=False, use_postfix=use_postfix
@@ -117,11 +123,21 @@ def build_bpe_training_datasets(
 
     ogg_zip_dict = get_ogg_zip_dict(prefix, returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
     train_ogg = ogg_zip_dict[librispeech_key]
+
+    if extra_train_ogg_zips is None:
+        ogg_zips = train_ogg
+    else:
+        assert data_repetition_factors, "please provide repetition factors if you provide extra ogg zips"
+        assert len(extra_train_ogg_zips) + 1 == len(data_repetition_factors)
+        ogg_zips = [train_ogg] * data_repetition_factors[0]
+        for ogg_zip, repetition in zip(extra_train_ogg_zips, data_repetition_factors[1:]):
+            ogg_zips += [ogg_zip] * repetition
+
     dev_clean_ogg = ogg_zip_dict["dev-clean"]
     dev_other_ogg = ogg_zip_dict["dev-other"]
 
     return build_training_datasets(
-        train_ogg=train_ogg,
+        train_ogg=ogg_zips,
         dev_clean_ogg=dev_clean_ogg,
         dev_other_ogg=dev_other_ogg,
         settings=settings,

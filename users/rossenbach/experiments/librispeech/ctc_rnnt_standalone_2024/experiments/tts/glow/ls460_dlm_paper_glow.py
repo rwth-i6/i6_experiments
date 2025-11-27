@@ -2,64 +2,40 @@
 
 import copy
 import numpy as np
-from sisyphus import tk
+from sisyphus import tk, Path
 from dataclasses import asdict
 
-
-from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
+from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
+from i6_core.lib.lexicon import Lexicon, Lemma
 from i6_core.returnn.oggzip import BlissToOggZipJob
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
+from i6_experiments.users.rossenbach.setups.tts.preprocessing import process_corpus_text_with_extended_lexicon
 
-from ....data.tts.aligner import build_training_dataset
 from ....config import get_forward_config
-from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2, extract_durations
-from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
-from ....data.tts.tts_phon import build_fixed_speakers_generating_dataset
-from ....data.common import get_bliss_corpus_dict
-from ....data.tts.tts_phon import get_tts_extended_bliss
-
+from ....data.tts.aligner import build_training_dataset
+from ....data.tts.tts_phon import (
+    get_tts_log_mel_datastream,
+    build_durationtts_training_dataset,
+    build_fixed_speakers_generating_dataset,
+    GeneratingDataset
+)
 from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ....storage import vocoders, add_duration, add_synthetic_data
+from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
+from ....storage import vocoders, add_synthetic_data_lexicon, add_synthetic_data
 
 
-def build_synthetic_asr_dataset(prefix, train_name, synthesized_corpus, reference_bliss_corpus, data_name="train-clean-360"):
-    merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
-        bliss_corpus=synthesized_corpus,
-        reference_bliss_corpus=reference_bliss_corpus,
-    ).out_corpus
-    tk.register_output(prefix + "/" + train_name + "/" + f"generated_synthetic/{data_name}.xml.gz",
-                       merged_corpus_with_text)
-
-    ogg_zip_job = BlissToOggZipJob(
-        bliss_corpus=merged_corpus_with_text,
-        no_conversion=True,
-        returnn_python_exe=RETURNN_EXE,
-        returnn_root=MINI_RETURNN_ROOT,
-    )
-    ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
-    add_synthetic_data(
-        name=f"{train_name}_{data_name}",
-        ogg_zip=ogg_zip_job.out_ogg_zip,
-        bliss=merged_corpus_with_text,
-    )
-
-def run_flow_tts():
+def run_flow_tts_460h_dlm_paper():
     """
-    Baseline for the ctc aligner in returnn_common with serialization
-
-    :return: durations_hdf
+    Calls the training of a LibriSpeech 460h GlowTTS model and
+    creates all of the LibriSpeech LM data in chunks of about 100 hours each
     """
-
-
-
-    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
+    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts_460h_dlm_paper/"
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-460", partition_epoch=1)
 
     def run_exp(name, train_args, target_durations=None, num_epochs=100):
         if target_durations is not None:
-            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations,
-                                                                    ls_corpus_key="train-clean-100")
+            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-460")
         else:
             training_datasets_ = training_datasets
 
@@ -71,24 +47,9 @@ def run_flow_tts():
             returnn_root=MINI_RETURNN_ROOT,
             num_epochs=num_epochs,
         )
-
-        # tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
-        # if evaluate_swer is not None:
-        #     from ...storage import asr_recognizer_systems
-        #     from ...pipeline import run_swer_evaluation
-        #     from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
-        #     synthetic_bliss_absolute = MergeCorporaWithPathResolveJob(
-        #         bliss_corpora=[forward_job.out_files["out_corpus.xml.gz"]],
-        #         name="train-clean-100",  # important to keep the original sequence names for matching later
-        #         merge_strategy=MergeStrategy.FLAT
-        #     ).out_merged_corpus
-        #     run_swer_evaluation(
-        #         prefix_name= prefix + name + "/swer/" + evaluate_swer,
-        #         synthetic_bliss=synthetic_bliss_absolute,
-        #         system=asr_recognizer_systems[evaluate_swer]
-        #     )
         return train_job
-
+    
+    
     def eval_exp(name, tts_model: TTSModel, decoder, decoder_options):
         forward_config = get_forward_config(
             network_module=tts_model.network_module,
@@ -110,42 +71,18 @@ def run_flow_tts():
             use_gpu=True,
         )
         forward_job.add_alias(prefix + "/" + tts_model.prefix_name + "/" + name + "/forward")
-        tk.register_output(prefix + "/" + tts_model.prefix_name + "/" + name + "/audio_files",
-                           forward_job.out_files["audio_files"])
+        tk.register_output(prefix + "/" + tts_model.prefix_name + "/" + name + "/audio_files", forward_job.out_files["audio_files"])
         corpus = forward_job.out_files["out_corpus.xml.gz"]
         from ....pipeline import evaluate_nisqa
         evaluate_nisqa(prefix_name=prefix + "/" + tts_model.prefix_name + "/" + name, bliss_corpus=corpus)
         from i6_experiments.users.rossenbach.experiments.jaist_project.evaluation.swer import run_evaluate_reference_swer
         from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
         realpath_corpus = MergeCorporaWithPathResolveJob(bliss_corpora=[corpus],
-                                                         name="train-clean-100",  # important to keep the original sequence names for matching later
+                                                         name="train-clean-460",  # important to keep the original sequence names for matching later
                                                          merge_strategy=MergeStrategy.FLAT
                                                          )
-        run_evaluate_reference_swer(prefix=prefix + "/" + tts_model.prefix_name, bliss=realpath_corpus.out_merged_corpus)
-        
-    def local_extract_durations(name, tts_model: TTSModel, debug=False):
-        forward_config = get_forward_config(
-            network_module=tts_model.network_module,
-            net_args=tts_model.net_args,
-            decoder="glow_tts.duration_extraction_decoder",
-            decoder_args={},
-            config={
-                "forward": training_datasets.joint.as_returnn_opts()
-            },
-            debug=debug,
-        )
-        durations_hdf = extract_durations(
-            prefix_name=prefix + name,
-            returnn_config=forward_config,
-            checkpoint=tts_model.checkpoint,
-            returnn_exe=RETURNN_EXE,
-            returnn_root=MINI_RETURNN_ROOT,
-        )
-        tk.register_output(prefix + name + "/durations.hdf", durations_hdf)
-        add_duration(name, durations_hdf)
-        return durations_hdf
-    
-    from ....data.tts.tts_phon import GeneratingDataset
+        run_evaluate_reference_swer(prefix=prefix + "/" + tts_model.prefix_name + "/" + name, bliss=realpath_corpus.out_merged_corpus)
+
 
     def synthesize_dataset(
             name,
@@ -196,9 +133,7 @@ def run_flow_tts():
                                                          )
         return realpath_corpus.out_merged_corpus
 
-
-
-    log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100", silence_preprocessed=False)
+    log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-460", silence_preprocessed=False)
 
     # verify that normalization exists
     assert "norm_mean" in log_mel_datastream.additional_options
@@ -232,7 +167,7 @@ def run_flow_tts():
 
     net_module = "glow_tts.glow_tts_v1"
 
-    vocoder = vocoders["blstm_gl_v1"]
+    vocoder = vocoders["blstm_gl_v1_ls460"]
     decoder_options_base = {
         "norm_mean": norm[0],
         "norm_std_dev": norm[1],
@@ -245,19 +180,12 @@ def run_flow_tts():
 
     decoder_options_synthetic = copy.deepcopy(decoder_options)
     decoder_options_synthetic["glowtts_noise_scale"] = 0.7
-    decoder_options_synthetic["gl_momentum"] = 0.0
-    decoder_options_synthetic["gl_iter"] = 1
+    decoder_options_synthetic["gl_momentum"] = 0.99
+    decoder_options_synthetic["gl_iter"] = 32
     decoder_options_synthetic["create_plots"] = False
-
-    decoder_options_synthetic_hq = copy.deepcopy(decoder_options)
-    decoder_options_synthetic_hq["glowtts_noise_scale"] = 0.7
-    decoder_options_synthetic_hq["gl_momentum"] = 0.99
-    decoder_options_synthetic_hq["gl_iter"] = 32
-    decoder_options_synthetic_hq["create_plots"] = False
-    decoder_options_synthetic_hq["num_pool_processes"] = 8
+    decoder_options_synthetic["num_pool_processes"] = 8
 
     # bigger
-    
     prenet_config = TTSEncoderPreNetV1Config(
         input_embedding_size=256,
         hidden_dimension=256,
@@ -332,7 +260,7 @@ def run_flow_tts():
         "max_seqs": 200,
         "torch_amp_options": {"dtype": "bfloat16"},
     }
-    
+
     train_args = {
         "network_module": net_module,
         "net_args": params_base256,
@@ -340,54 +268,113 @@ def run_flow_tts():
         "debug": True,
     }
 
-    train_name = "ls100_" + net_module + "_base256_400eps"
-
+    train_name = net_module + "_base256_400eps"
     train_job = run_exp(train_name, train_args=train_args, num_epochs=400)
     train_job.rqmt["gpu_mem"] = 24
     tts_model = prepare_tts_model(train_name, train_job, train_args, get_specific_checkpoint=400)
     eval_exp("base", tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options)
-    
-    local_extract_durations(train_name, tts_model=tts_model)
 
-    train_clean_360_tts_bliss = get_tts_extended_bliss(ls_corpus_key="train-clean-360", lexicon_ls_corpus_key="train-clean-460")
-    train_clean_360_bliss = get_bliss_corpus_dict()["train-clean-360"]
+    for noise_scale in [0.3, 0.5, 0.7, 0.9]:
+        decoder_options_noised = copy.deepcopy(decoder_options)
+        decoder_options_noised["glowtts_noise_scale"] = noise_scale
+        eval_exp("noise_%.1f" % noise_scale, tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options_noised)
 
-    # Simple generation of ls-360 data
-    syn_name = "train_clean_360_syn"
-    dataset_part = build_fixed_speakers_generating_dataset(
-        text_bliss=train_clean_360_tts_bliss,
-        num_splits=1,  # we already splitted before
-        ls_corpus_key="train-clean-100",
-        randomize_speaker=True
-    )
-    result_corpus = synthesize_dataset(
-        syn_name,
-        tts_model=tts_model,
-        decoder="glow_tts.simple_gl_decoder",
-        decoder_options=decoder_options_synthetic,
-        corpus_name="train-clean-360",
-        dataset=dataset_part,
-    )
-    build_synthetic_asr_dataset(
-        prefix=prefix,
-        train_name=train_name,
-        synthesized_corpus=result_corpus,
-        reference_bliss_corpus=train_clean_360_bliss,
-        data_name="train-clean-360",
-    )
 
-    result_corpus = synthesize_dataset(
-        syn_name,
-        tts_model=tts_model,
-        decoder="glow_tts.simple_gl_decoder",
-        decoder_options=decoder_options_synthetic_hq,
-        corpus_name="train-clean-360",
-        dataset=dataset_part,
+    # test generation of all of librispeech data
+    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/ls_lm_data"
+    from ....data.tts.generation import create_data_lexicon, bliss_from_text
+    from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+    lm_data = get_librispeech_normalized_lm_data()
+
+    # misuse shuffle and split segments
+    from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
+    shuffle_job = ShuffleAndSplitSegmentsJob(
+        segment_file=lm_data,
+        split={"part%i" % (i + 1): 1.0/750.0 for i in range(750)}
     )
-    build_synthetic_asr_dataset(
-        prefix=prefix,
-        train_name=train_name + "_gl32",
-        synthesized_corpus=result_corpus,
-        reference_bliss_corpus=train_clean_360_bliss,
-        data_name="train-clean-360",
+    shuffle_job.add_alias(prefix + "/shuffle_job")
+
+
+    # Full lexicon
+    lm_data_bliss = bliss_from_text(prefix=prefix, name="librispeech-full", lm_text=lm_data)
+    lm_data_lexicon = create_data_lexicon(prefix=prefix + "/librispeech-full_lexicon", lexicon_bliss=lm_data_bliss)
+    l = Lexicon()
+    l.add_lemma(
+        Lemma(
+            orth=["HHHH"],
+            phon=["HH HH AH"]
+        )
     )
+    l.add_lemma(
+        Lemma(
+            orth=["HHH"],
+            phon=["HH HH AH"]
+        )
+    )
+    lexicon_edit_full = WriteLexiconJob(static_lexicon=l).out_bliss_lexicon
+    lm_data_lexicon = MergeLexiconJob(bliss_lexica=[lm_data_lexicon, lexicon_edit_full]).out_bliss_lexicon
+    tk.register_output(prefix + "librispeech-full_lexicon.xml.gz", lm_data_lexicon)
+
+    add_synthetic_data_lexicon("ls_lm_data_lexicon", lm_data_lexicon)
+
+    for i in range(750):
+        index = i+1
+        lm_data_part = shuffle_job.out_segments["part%i" % index]
+        lm_data_part_bliss = bliss_from_text(prefix=prefix, name="librispeech-lm-part%i" % index, lm_text=lm_data_part)
+
+        tk.register_output(prefix + "/lm_data_part%i.xml.gz" % index, lm_data_part_bliss)
+        lm_data_part_lexicon = create_data_lexicon(prefix=prefix + "/lm_data_part%i_lexicon" % index, lexicon_bliss=lm_data_part_bliss)
+        if index in [198, 312, 421]:
+            l = Lexicon()
+            l.add_lemma(
+                Lemma(
+                    orth=["HHHH"] if index == 198 else ["HHH"],
+                    phon=["HH HH AH"]
+                )
+            )
+            lexicon_edit = WriteLexiconJob(static_lexicon=l).out_bliss_lexicon
+            lm_data_part_lexicon = MergeLexiconJob(bliss_lexica=[lm_data_part_lexicon, lexicon_edit]).out_bliss_lexicon
+
+        tk.register_output(prefix + "/lm_data_part%i_lexicon.xml.gz" % index, lm_data_part_lexicon)
+
+        lm_data_part_tts_bliss = process_corpus_text_with_extended_lexicon(
+            bliss_corpus=lm_data_part_bliss,
+            lexicon=lm_data_part_lexicon,
+            prefix=prefix + "/processing_part%i" % index,
+        )
+        tk.register_output(prefix + "/lm_data_part%i_tts_input.xml.gz" % index, lm_data_part_tts_bliss)
+
+        dataset_part = build_fixed_speakers_generating_dataset(
+            text_bliss=lm_data_part_tts_bliss,
+            num_splits=1,  # we already splitted before
+            ls_corpus_key="train-clean-460",
+            randomize_speaker=True
+        )
+
+        result_corpus = synthesize_dataset(
+            "librispeech-lm-part%i" % index,
+            tts_model=tts_model,
+            decoder="glow_tts.simple_gl_decoder",
+            decoder_options=decoder_options_synthetic,
+            corpus_name="librispeech-lm-part%i" % index,
+            dataset=dataset_part,
+        )
+
+        from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
+        merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
+            bliss_corpus=result_corpus,
+            reference_bliss_corpus=lm_data_part_bliss,
+        ).out_corpus
+
+        tk.register_output(prefix + "/lm_data_part%i_synthesized.xml.gz" % index, merged_corpus_with_text)
+
+        ogg_zip_job = BlissToOggZipJob(
+            bliss_corpus=merged_corpus_with_text,
+            no_conversion=True,
+            returnn_python_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
+        ogg_zip_job.add_alias(prefix + "/part%i_ogg_zip" % index)
+        tk.register_output(prefix + "/lm_data_part%i_ogg.zip" % index, ogg_zip_job.out_ogg_zip)
+        add_synthetic_data("glowtts460_lm_data_%i" % i, ogg_zip_job.out_ogg_zip, bliss=merged_corpus_with_text)

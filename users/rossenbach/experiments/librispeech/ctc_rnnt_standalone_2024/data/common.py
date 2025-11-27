@@ -89,6 +89,7 @@ def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
     )
+    zip_dataset_job.rqmt = {"cpu":2, "mem": 8, "time": 12}
     zip_dataset_job.add_alias(alias_name)
 
     return zip_dataset_job.out_ogg_zip

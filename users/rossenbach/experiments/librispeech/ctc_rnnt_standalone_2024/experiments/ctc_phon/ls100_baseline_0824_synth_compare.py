@@ -18,7 +18,7 @@ from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search
 from ...report import tune_and_evalue_report
-
+from ...storage import get_synthetic_data_lexicon
 
 
 def eow_phon_ls100_0824_synth_compare():
@@ -31,6 +31,21 @@ def eow_phon_ls100_0824_synth_compare():
         train_partition_epoch=3,
         train_seq_ordering="laplace:.1000",
     )
+    train_settings_resume = DatasetSettings(
+        preemphasis=0.97,  # TODO: Check if this is really useful
+        peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+        # training
+        train_partition_epoch=12,
+        train_seq_ordering="laplace:.1000",
+    )
+    def get_training_settings_with_partition(partition):
+        return DatasetSettings(
+            preemphasis=0.97,  # TODO: Check if this is really useful
+            peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+            # training
+            train_partition_epoch=partition,
+            train_seq_ordering="laplace:.1000",
+        )
 
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data = build_eow_phon_training_datasets(
@@ -284,14 +299,66 @@ def eow_phon_ls100_0824_synth_compare():
         tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
 
 
+
+    # Take over data from JAIST experiment, combined training
+
+    synth_keys = [
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_base320_fromglowbase256_400eps_gl32_syn_train-clean-360",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360",
+        "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_glow256align_400eps_bs600_oclr_gl32_syn_train-clean-360",
+        "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-360",
+        # "glow_tts.glow_tts_v1_glow256align_400eps_oclr_nodrop_gl32_noise0.7_syn_train-clean-360",
+        # "glow_tts.glow_tts_v1_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn_train-clean-360",
+        "grad_tts.grad_tts_v2_ext_dur_bs300_newgl_extdurglowbase256_400eps_noise0.7_step10_gl32_syn_train-clean-360",
+        # ------------------------------------
+        # "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360",
+        # "glow_tts.glow_tts_v1_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn_train-clean-360",
+    ]
+
+    # resume training, this is the "reference" model for combined training, but has even worse WER than none resume
+    from ...storage import get_ctc_model
+    ctc_model = get_ctc_model("ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first.384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch")
+    train_args_resume = copy.deepcopy(train_args_conv_first)
+    train_args_resume["config"]["import_model_train_epoch1"] = ctc_model.checkpoint  # only get checkpoint, rest should be identical
+
+    for synth_key in synth_keys:
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/combine_3to1_synth/" + synth_key
+        lexicon_key = "train-clean-460" if "train-clean-360" in synth_key else "train-clean-100"
+        synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+            prefix=prefix_name + "/synth_data_prep/" + synth_key,
+            bliss=synthetic_bliss_data[synth_key],
+            lexicon_librispeech_key=lexicon_key)
+
+        train_data_synth = build_eow_phon_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-clean-100",
+            settings=train_settings_resume,
+            extra_train_ogg_zips=[synth_ogg],
+            data_repetition_factors=[3, 1], ## 3x original + 1x synth
+        )
+
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24  # just move to 24 gb, even without mixed precision training
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+
     # Data from new experiments
 
     from ...storage import get_synthetic_data
     synth_keys = [
         "glow_tts.glow_tts_v1_base256_400eps_train-clean-360", # note: trained from ls-460
+        "ls100_glow_tts.glow_tts_v1_base256_400eps_train-clean-360",
+        "ls100_glow_tts.glow_tts_v1_base256_400eps_gl32_train-clean-360",
+        "ls100_glow_tts.glow_tts_dynamic_speakers_v1_base256_400eps_train-clean-360",  # note: trained from ls-460
     ]
     for synth_key in synth_keys:
-        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/full_synth/ls460trained_" + synth_key
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/full_synth/ls460trained_" + synth_key + "-sub100"
         lexicon_key = "train-clean-460" if "train-clean-360" in synth_key else "train-clean-100"
         synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
             prefix=prefix_name + "/synth_data_prep/" + synth_key,
@@ -310,6 +377,43 @@ def eow_phon_ls100_0824_synth_compare():
         train_data_synth.train.datasets["zip_dataset"]["segment_file"] = segments
         training_name = prefix_name + "/" + network_module_conv_first + name
         train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+    # Librispeech GlowTTS 460 with Librispeech LM data experiments
+
+    # first take ls100 pure settings and scale from 1 to 10 subsets
+    lm_data_lexicon = get_synthetic_data_lexicon("ls_lm_data_lexicon")
+    from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+    lm_data_lexicon = AddEowPhonemesToLexiconJob(lm_data_lexicon).out_lexicon
+    for num_datasets in [1,2,3,4,5,6,7,8,9,10]:
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/only_lm_data/with_%i_datasets" % num_datasets
+
+        synth_oggs = []
+        for i in range(num_datasets):
+            synth_bliss, _ = get_synthetic_data("glowtts460_lm_data_%i" % i)
+            synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+                prefix=prefix_name + "/synth_data_prep/lm_data_%i" % i,
+                bliss=synth_bliss,
+                lexicon_librispeech_key=None,
+                custom_lexicon=lm_data_lexicon,
+            )
+            synth_oggs.append(synth_ogg)
+
+        train_data_synth = build_eow_phon_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-clean-100",
+            settings=get_training_settings_with_partition(3*num_datasets),
+            extra_train_ogg_zips=synth_oggs,
+            data_repetition_factors=[0] + num_datasets * [1], ## only synth
+        )
+
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24  # just move to 24 gb, even without mixed precision training
         asr_model = prepare_asr_model(
             training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
             get_specific_checkpoint=300
