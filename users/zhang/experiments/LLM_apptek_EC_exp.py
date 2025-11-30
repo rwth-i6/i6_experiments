@@ -67,7 +67,7 @@ DEFAULT_LM_WEIGHT = 0.5
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
 # -----------------Error Correction related-----------------
-TASK_instruct = "Nbest_expand" # "EC" Nbest_expand
+TASK_instruct = "EC" # "EC" Nbest_expand
 N_expand = 5
 REJECTION_RATIO = 0.1 # Length ratio for heuristic rejection
 STRATEGY = "top1_only"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
@@ -751,10 +751,12 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
     reduce_offset = (2 if FEW_SHOT else 0) if STRATEGY == "top1_only" else math.ceil(1.5*NBEST_K*(2.2 if FEW_SHOT else 1))
     reduce_offset *= 2 if FEW_SHOT and TASK_instruct == "Nbest_expand" else 1
     EC_LLMs_Batch_size = {
-        "meta-llama/Llama-3.2-3B-Instruct": ((80 if TASK_instruct == "EC" else 60) if DEFAULT_PROMPT else 60) - reduce_offset,
-        "Qwen/Qwen2.5-3B-Instruct": (70 if DEFAULT_PROMPT else 55) - reduce_offset,
-        "meta-llama/Meta-Llama-3-8B-Instruct": ((100 if TASK_instruct == "EC" else 80) if DEFAULT_PROMPT else 80) - reduce_offset,
-        #"Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": (70 if USE_TAP else 200) - reduce_offset,
+        #"meta-llama/Llama-3.2-3B-Instruct": ((80 if TASK_instruct == "EC" else 60) if DEFAULT_PROMPT else 60) - reduce_offset,
+        #"Qwen/Qwen2.5-3B-Instruct": (70 if DEFAULT_PROMPT else 55) - reduce_offset,
+        #"meta-llama/Meta-Llama-3-8B-Instruct": ((100 if TASK_instruct == "EC" else 80) if DEFAULT_PROMPT else 80) - reduce_offset,
+        "meta-llama/Llama-3.1-8B-Instruct": ((100 if TASK_instruct == "EC" else 80) if DEFAULT_PROMPT else 80) - reduce_offset,
+        "Qwen/Qwen3-4B-Instruct-2507": (60 if DEFAULT_PROMPT else 45) - reduce_offset,
+        "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": (70 if USE_TAP else 130) - reduce_offset,
     }
     from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import get_model_size_and_quant
 
@@ -1202,8 +1204,8 @@ def py():
         word_ppl = True
         lm_kinds = {"trafo"}
         lm_kinds_2 = {
-            "LLM",
-            #"trafo",
+            #"LLM",
+            "trafo",
         }  # adapt as needed
         if TASK_instruct == "EC":
             lm_kinds_2 = {}

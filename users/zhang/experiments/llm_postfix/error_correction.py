@@ -240,7 +240,7 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
     elif need_gb <= 48:
         gpu_mem = 48
     elif need_gb <= 80:
-        gpu_mem = 80
+        gpu_mem = 141
     else:
         gpu_mem = 141  #  biggest GPU
 
@@ -259,7 +259,7 @@ def get_EC_rqmt(cfg: LLMECConfig) -> dict:
     elif size_b <= 20:
         time_bucket = 5
     else:
-        time_bucket = 7
+        time_bucket = 12
 
     return {
         "cpu": cpu,
@@ -786,7 +786,7 @@ def generate_json_text_hf_batch(
         # slice generated part for sample i
         gen_tokens = out[i, seq_len :]
 
-        # Manual cut at <|im_end|>
+        # Manual cut at <|im_end|> # TODO: Maybe it is better to always manually cut at end_id?
         if end_id is not None and end_id in gen_tokens:
             try:
                 end_idx = (gen_tokens == end_id).nonzero(as_tuple=True)[0][0].item()
@@ -795,6 +795,7 @@ def generate_json_text_hf_batch(
                 pass
 
         text = tokenizer.decode(gen_tokens, skip_special_tokens=True)
+        # Some manual post-processing
         if not cfg.expect_json and cfg.task == "EC":
             flag = False
             if "-" in text:

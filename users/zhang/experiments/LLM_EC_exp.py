@@ -45,7 +45,7 @@ DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with
 TASK_instruct = "EC" # "EC"
 N_expand = 5
 REJECTION_RATIO = 0.25 # Length ratio for heuristic rejection
-STRATEGY = "top1_only"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
+STRATEGY = "nbest_reason_rewrite"  # "top1_only" Only correct the top1 or "nbest_reason_rewrite"
 NBEST_K = 5  # Only considered when use "nbest_reason_rewrite" strategy
 CONTEXT_MODE = "none"  # "none" | "prev_top1" | "prev_corrected"
 USE_TAP = False and STRATEGY == "nbest_reason_rewrite"
@@ -78,15 +78,14 @@ def get_ec_examples(nbest: bool = False, json: bool = False, top_k: int = 3) -> 
     nbest: if True, use n-best style examples; otherwise single-hyp examples
     json:  if True, wrap inputs in {"text": "..."}
     top_k: for n-best examples, number of hypotheses to show (max limited by template)
+    input: {f'{"text": "they{apostrophe}re going to meat us at the station"}' if json else f"they{apostrophe}re going to meat us at the station"}
+output: {'{"text": "they are going to meet us at the station"}' if json else "they are going to meet us at the station"}
     """
     header = "Below are some examples for your task:\nExamples:\n"
     apostrophe = "'"
     # Single-hyp examples
     if not nbest:
         ex = f"""{header}
-input: {f'{"text": "they{apostrophe}re going to meat us at the station"}' if json else f"they{apostrophe}re going to meat us at the station"}
-output: {'{"text": "they are going to meet us at the station"}' if json else "they are going to meet us at the station"}
-
 input: {'{"text": "eye have never scene anything like this befor"}' if json else "eye have never scene anything like this befor"}
 output: {'{"text": "i have never seen anything like this before"}' if json else "i have never seen anything like this before"}
 """
@@ -713,7 +712,8 @@ def build_ec_configs() -> List[Tuple[str, Optional[LLMECConfig]]]:
     EC_LLMs_Batch_size = {
         "meta-llama/Llama-3.2-3B-Instruct": ((80 if TASK_instruct == "EC" else 60) if DEFAULT_PROMPT else 60) - reduce_offset,
         "Qwen/Qwen2.5-3B-Instruct": (70 if DEFAULT_PROMPT else 55) - reduce_offset,
-        "meta-llama/Meta-Llama-3-8B-Instruct": ((100 if TASK_instruct == "EC" else 80) if DEFAULT_PROMPT else 80) - reduce_offset,
+        "meta-llama/Llama-3.1-8B-Instruct": ((100 if TASK_instruct == "EC" else 80) if DEFAULT_PROMPT else 80) - reduce_offset,
+        "Qwen/Qwen3-4B-Instruct-2507": (60 if DEFAULT_PROMPT else 45) - reduce_offset,
         #"Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4": (70 if USE_TAP else 200) - reduce_offset,
     }
     from i6_experiments.users.zhang.experiments.llm_postfix.error_correction import get_model_size_and_quant

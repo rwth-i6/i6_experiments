@@ -424,7 +424,6 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
         config_80gb = config_96gb_bf16_accgrad1.copy()
         config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 60})
         model_def_dict = {
-            "encoder_dim": None,
             "num_layers": num_layers,
             "model_dim": model_dim,
             "ff_activation": rf.build_dict(rf.gelu),
