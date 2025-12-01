@@ -1031,6 +1031,10 @@ class BASEFactoredHybridDecoder:
             if pron_scale is not None:
                 if isinstance(pron_scale, DelayedBase) and pron_scale.is_set():
                     pron_scale = pron_scale.get()
+
+            lm_scale = search_parameters.lm_scale
+            if isinstance(lm_scale, DelayedBase) and lm_scale.is_set():
+                lm_scale = lm_scale.get()
             s_kwrgs_opt = copy.copy(self.eval_args)
             s_kwrgs_opt["hyp"] = lat2ctm.out_ctm_file
 
@@ -1038,7 +1042,7 @@ class BASEFactoredHybridDecoder:
                 crp=search_crp,
                 lattice_cache=search.out_lattice_bundle,
                 initial_am_scale=pron_scale,
-                initial_lm_scale=search_parameters.lm_scale,
+                initial_lm_scale=lm_scale,#search_parameters.lm_scale,
                 scorer_cls=self.scorer,
                 scorer_kwargs=s_kwrgs_opt,
                 opt_only_lm_scale=only_lm_opt,
