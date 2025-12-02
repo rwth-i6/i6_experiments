@@ -771,8 +771,10 @@ def model_recog_with_recomb(
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
     ctc_layer_idx = model.enc_aux_logits[-1]
+    out: Tensor = enc_collected_outputs[str(ctc_layer_idx - 1)]
+    assert enc_spatial_dim in out.dims
     linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
-    ctc_logits = linear(enc_collected_outputs[str(ctc_layer_idx - 1)])
+    ctc_logits = linear(out)
     ctc_label_log_prob = rf.log_softmax(ctc_logits, axis=model.wb_target_dim)  # Batch, Spatial, VocabWB
     if ctc_soft_collapse_threshold is not None:
         ctc_label_log_prob, enc_spatial_dim = soft_collapse_repeated(
