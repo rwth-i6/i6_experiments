@@ -1174,8 +1174,10 @@ class Model(rf.Module):
         )
 
         ctc_layer_idx = self.enc_aux_logits[-1]
+        out: Tensor = enc_collected_outputs[str(ctc_layer_idx - 1)]
+        assert enc_spatial_dim in out.dims
         linear = getattr(self, f"enc_aux_logits_{ctc_layer_idx}")
-        logits = linear(enc_collected_outputs[str(ctc_layer_idx - 1)])
+        logits = linear(out)
         log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)  # Batch, Spatial, VocabWB
         if ctc_soft_collapse_threshold is not None:
             log_probs, enc_spatial_dim = soft_collapse_repeated(
