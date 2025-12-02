@@ -1161,6 +1161,9 @@ class Model(rf.Module):
         from returnn.config import get_global_config
         from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
 
+        # TODO/WARNING: many users of this function (encode_and_get_ctc_log_probs)
+        #   also do the same soft_collapse_repeated again outside,
+        #   which is redundant, inefficient, and maybe even could cause problems?
         config = get_global_config()
         ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
         ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
