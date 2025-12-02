@@ -59,6 +59,7 @@ def model_recog_with_recomb_v2(
     label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
 
+    # TODO/WARNING: some variants of encode_and_get_ctc_log_probs already have done this...
     if ctc_soft_collapse_threshold is not None:
         label_log_prob, enc_spatial_dim = soft_collapse_repeated(
             label_log_prob,
