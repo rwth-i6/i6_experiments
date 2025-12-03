@@ -703,7 +703,9 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             lambda: (input_labels, targets_w_eos, targets_w_eos_spatial_dim),
         )
 
-    collected_outputs = {}
+    collected_outputs = CollectOutputsDict(
+        allowed_key_patterns=[str(layer_idx - 1) for layer_idx in dec_aux_loss_layers]
+    )
     logits, _ = model.decoder(
         input_labels,
         spatial_dim=targets_w_eos_spatial_dim,
