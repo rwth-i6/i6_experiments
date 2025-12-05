@@ -243,6 +243,7 @@ def best_path(
     input_spatial_dim: Dim,
     fsa: FSA,
     return_transition_indices: bool = False,
+    return_state_indices: bool = False,
 ) -> Tuple[Tensor, Tensor]:
     """
     Forward score using the maximum approximation, i.e. the Viterbi algorithm,
@@ -271,6 +272,7 @@ def best_path(
     :param fsa:
     :param return_transition_indices: whether to return the transition indices of the FSA (in A)
         instead of the label indices (in L).
+    :param return_state_indices: whether to return the state indices of the FSA (in S)
     :return: tuple (best path, score).
         best path are the label indices in L if not return_transition_indices else transition indices in A.
         The score has shape [B...].
@@ -331,7 +333,7 @@ def best_path(
     best_path_: List[Tensor] = []
     for t in range(input_spatial_dim.get_dim_value() - 1, -1, -1):
         transition_idx = rf.gather(backpointers[t], indices=state_idx)  # [B] -> A
-        best_path_.append(transition_idx)
+        best_path_.append(state_idx if return_state_indices else transition_idx)
         state_idx = rf.where(
             t < input_spatial_dim.get_size_tensor(device=device),
             rf.gather(fsa.trans_prev_state, indices=transition_idx),
@@ -342,7 +344,7 @@ def best_path(
     best_path_.reverse()
     best_path__, _ = rf.stack(best_path_, out_dim=input_spatial_dim)  # [B,T]->A
 
-    if not return_transition_indices:
+    if not return_transition_indices and not return_state_indices:
         best_path__ = rf.gather(fsa.trans_batch_label_idx, indices=best_path__)  # [B,T] -> B*L
         best_path__ %= fsa.label_dim.get_dim_value_tensor()  # [B,T] -> L
         best_path__.sparse_dim = fsa.label_dim
