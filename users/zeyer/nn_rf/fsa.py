@@ -328,7 +328,7 @@ def best_path(
     # assert not final_scores_.raw_tensor.isinf().all(), "no path to final state"
 
     state_idx = rf.gather(fsa.final_states, indices=final_idx)  # [B] -> S
-    best_path_ = []
+    best_path_: List[Tensor] = []
     for t in range(input_spatial_dim.get_dim_value() - 1, -1, -1):
         transition_idx = rf.gather(backpointers[t], indices=state_idx)  # [B] -> A
         best_path_.append(transition_idx)
@@ -340,14 +340,14 @@ def best_path(
 
     # assert (state_idx == fsa_start_states).all()
     best_path_.reverse()
-    best_path_, _ = rf.stack(best_path_, out_dim=input_spatial_dim)  # [B,T]->A
+    best_path__, _ = rf.stack(best_path_, out_dim=input_spatial_dim)  # [B,T]->A
 
     if not return_transition_indices:
-        best_path_ = rf.gather(fsa.trans_batch_label_idx, indices=best_path_)  # [B,T] -> B*L
-        best_path_ %= fsa.label_dim.get_dim_value_tensor()  # [B,T] -> L
-        best_path_.sparse_dim = fsa.label_dim
+        best_path__ = rf.gather(fsa.trans_batch_label_idx, indices=best_path__)  # [B,T] -> B*L
+        best_path__ %= fsa.label_dim.get_dim_value_tensor()  # [B,T] -> L
+        best_path__.sparse_dim = fsa.label_dim
 
-    return best_path_, final_scores_
+    return best_path__, final_scores_
 
 
 def fsa_for_ctc(
