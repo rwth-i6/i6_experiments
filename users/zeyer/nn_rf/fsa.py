@@ -352,7 +352,7 @@ def best_path(
     return best_path__, final_scores_
 
 
-def transform_state_indices_to_ext(*, state_indices: Tensor, fsa: FSA) -> Tensor:
+def transform_state_indices_to_ext(state_indices: Tensor, *, fsa: FSA) -> Tensor:
     """
     :param state_indices: [B...] -> S
     :param fsa:
