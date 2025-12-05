@@ -354,18 +354,18 @@ def best_path(
 
 def transform_state_indices_to_ext(state_indices: Tensor, *, fsa: FSA) -> Tensor:
     """
-    :param state_indices: [B...] -> S
+    :param state_indices: [...] -> S
     :param fsa:
-    :return: state_indices_ext: [B...] -> S_
+    :return: state_indices_ext: [...] -> S_
     """
     device = state_indices.device
     # Like pack_padded but with batch dims.
-    mask = rf.sequence_mask(list(fsa.batch_dims) + [fsa.num_states_dim_ext], device=device)
+    mask = rf.sequence_mask(list(fsa.batch_dims) + [fsa.num_states_dim_ext], device=device)  # [B...,S_]
     indices = rf.range_over_dim(fsa.num_states_dim_ext, device=device)  # [S_]->S_
     indices, _ = rf.masked_select(
         indices, mask=mask, dims=list(fsa.batch_dims) + [fsa.num_states_dim_ext], out_dim=fsa.num_states_dim
     )  # [S]->S_
-    return rf.gather(indices, indices=state_indices)  # [B...] -> S_
+    return rf.gather(indices, indices=state_indices)  # [...] -> S_
 
 
 def fsa_for_ctc(
