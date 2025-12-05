@@ -23,6 +23,7 @@ from transformers.utils import TransformersKwargs, auto_docstring, can_return_tu
 from transformers.utils.deprecation import deprecate_kwarg
 from transformers.utils.generic import check_model_inputs
 
+# Using our own modified Qwen2Config
 from .configuration_qwen2_with_dropout import Qwen2Config
 
 
@@ -40,6 +41,11 @@ class Qwen2MLP(nn.Module):
         self.dropout: float = config.mlp_dropout if hasattr(config, 'mlp_dropout') else 0.0
 
     def forward(self, x):
+        """
+        Contains added dropout! (2 layers of functional dropout (before and after the down_projection))
+        :param x:
+        :return:
+        """
         up_proj = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
         up_proj = nn.functional.dropout(up_proj, p=self.dropout, training=self.training)
         down_proj = self.down_proj(up_proj)
@@ -211,7 +217,6 @@ class Qwen2DecoderLayer(GradientCheckpointingLayer):
 
         self.self_attn = Qwen2Attention(config=config, layer_idx=layer_idx)
 
-        # TODO: dropout here?
         self.mlp = Qwen2MLP(config)
         self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -309,6 +314,7 @@ class Qwen2RotaryEmbedding(nn.Module):
 
 @auto_docstring
 class Qwen2Model(Qwen2PreTrainedModel):
+
     def __init__(self, config: Qwen2Config):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -326,7 +332,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    @check_model_inputs
+    @check_model_inputs() #TODO: or remove this...
     @auto_docstring
     def forward(
             self,
@@ -428,7 +434,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
             use_cache: Optional[bool] = None,
             cache_position: Optional[torch.LongTensor] = None,
             logits_to_keep: Union[int, torch.Tensor] = 0,
-            **kwargs: Unpack[TransformersKwargs],
+            **kwargs: Unpack[TransformersKwargs], # TODO: check if this works
     ) -> CausalLMOutputWithPast:
         r"""
         Example:

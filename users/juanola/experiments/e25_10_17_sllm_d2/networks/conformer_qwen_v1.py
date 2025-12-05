@@ -5,11 +5,10 @@ from typing import Dict, List, Literal, Optional, Sequence, Tuple, TypedDict, Un
 import tree
 from functools import partial
 import torch
-import transformers
 from torch import Tensor, nn
-from transformers import Qwen2Config
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
+from i6_experiments.users.juanola.torch_utils.model_utils import get_model_params
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import (
     ConformerConvolutionV2Config,
     ConformerMHSARelPosV1Config,
@@ -33,6 +32,11 @@ from .interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 from .interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 from .linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling
 from .qwen2_decoder_state import Qwen2DecoderState
+
+
+#from transformers import Qwen2Config, Qwen2ForCausalLM
+from .qwen_decoder.configuration_qwen2_with_dropout import Qwen2Config
+from .qwen_decoder.modeling_qwen2_with_dropout import Qwen2ForCausalLM
 
 
 def _relu_sq(x):
@@ -112,6 +116,9 @@ class Model(nn.Module, AedCtcModelProtocol,
             using_encoder: bool = True,
             using_decoder: bool = True,
 
+            # ONLY DEFINED HERE
+            verbose: bool = True,
+
             **_kwargs_unused,
     ):
         super().__init__()
@@ -142,8 +149,10 @@ class Model(nn.Module, AedCtcModelProtocol,
         if using_encoder:
             # FEATURE EXTRACTION (used in forward encoder)
             if feature_extraction_config is None:
+                hop_size = 10 / 1000
+                window_size = 25 / 1000
                 mel_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
-                    sample_rate=sampling_rate, win_size=25 / 1000, hop_size=10 / 1000, min_amp=1e-4, num_filters=n_mels
+                    sample_rate=sampling_rate, win_size=window_size, hop_size=hop_size, min_amp=1e-4, num_filters=n_mels
                 )
                 self.mel_frontend = RasrCompatibleLogMelFeatureExtractionV1(mel_cfg)
             else:
@@ -236,8 +245,8 @@ class Model(nn.Module, AedCtcModelProtocol,
 
         if using_decoder:
             # DECODER
-            qwen2_config: Qwen2Config = transformers.Qwen2Config.from_pretrained(config_path)
-            self.decoder = transformers.Qwen2ForCausalLM(qwen2_config)
+            qwen2_config: Qwen2Config = Qwen2Config.from_pretrained(config_path)
+            self.decoder = Qwen2ForCausalLM(qwen2_config)
 
             self.num_labels = qwen2_config.vocab_size
 
@@ -249,6 +258,17 @@ class Model(nn.Module, AedCtcModelProtocol,
                 in_dim=encoder_dim,
                 out_dim=qwen2_config.hidden_size,
             )
+
+        if verbose:
+            print(" ***** MODEL PARAMETERS *****")
+            if self.encoder is not None:
+                print(f"Encoder params:", get_model_params(self.encoder))
+            if self.encoder_decoder_adapter is not None:
+                print(f"Adapter params:", get_model_params(self.encoder_decoder_adapter))
+            if self.decoder is not None:
+                print(f"Decoder params:", get_model_params(self.decoder))
+            print(" ***** MODEL PARAMETERS *****")
+
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
         """

@@ -66,7 +66,7 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         "__num_gpus": num_gpus,
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-        "torch_amp": "bfloat16",  # only for gpus > 11gb
+        "torch_amp": "bfloat16",  # only for gpus > 11gb # TODO: add some conditional thingy
     }
 
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
@@ -76,8 +76,9 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         "net_args": network_args,
 
         "train_step_module": train_step_module,
-        "train_args": {  # TODO: could also be extracted in a file
+        "train_args": {  # train step args - # TODO: could also be extracted in a file
             "aed_loss_scale": 1.0,
+            "aux_loss_scales": (1.0, 1.0),
             "label_smoothing": 0.1,
             "label_smoothing_start_epoch": 0,
         },

@@ -61,10 +61,7 @@ def sllm_ep(
         if debug:
             partition_epochs = 1
             NUM_GPUS = 1
-
-            # Test with ITC
-            # itc_training = True
-            # TRAINING_BATCH_SIZE = 20_000  # TO make it different
+            TRAINING_GPU_MEMORY = 48
 
         # INITIALIZE DATASET
         train_dataset_settings = ReturnnDatasetSettings(
