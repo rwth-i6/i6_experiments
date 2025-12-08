@@ -2,7 +2,8 @@
 Soft collapse repeated
 """
 
-from typing import Tuple
+from __future__ import annotations
+from typing import Optional, Tuple
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim
 
@@ -14,6 +15,7 @@ def soft_collapse_repeated(
     classes_dim: Dim,
     threshold: float,
     reduce_type: str = "logmeanexp",
+    alignment: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Dim]:
     """
     :param log_probs: shape {OtherDims..., Spatial, Classes}
@@ -21,10 +23,11 @@ def soft_collapse_repeated(
     :param classes_dim:
     :param threshold:
     :param reduce_type: "logmeanexp" or "max_renorm"
+    :param alignment: optional. shape {OtherDims..., Spatial} -> Classes. if given, use that instead of argmax
     :return: shape {OtherDims..., OutSpatial, Classes}, out_spatial_dim
     """
     idxs = soft_collapse_repeated_indices(
-        log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold
+        log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold, alignment=alignment
     )
     out_spatial_dim = idxs.sparse_dim
     if reduce_type == "logmeanexp":
@@ -43,16 +46,18 @@ def soft_collapse_repeated_indices(
     spatial_dim: Dim,
     classes_dim: Dim,
     threshold: float,
+    alignment: Optional[Tensor] = None,
 ) -> Tensor:
     """
     :param log_probs: shape {OtherDims..., Spatial, Classes}
     :param spatial_dim:
     :param classes_dim:
     :param threshold:
+    :param alignment: optional. shape {OtherDims..., Spatial} -> Classes. if given, use that instead of argmax
     :return: shape {OtherDims..., Spatial, Classes} -> out_spatial_dim
     """
     keep_mask = soft_collapse_repeated_keep_mask(
-        log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold
+        log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold, alignment=alignment
     )
     # To be sure.
     keep_mask = keep_mask.copy_masked(mask_value=False)  # {OtherDims..., Spatial}
@@ -71,24 +76,27 @@ def soft_collapse_repeated_keep_mask(
     spatial_dim: Dim,
     classes_dim: Dim,
     threshold: float,
+    alignment: Optional[Tensor] = None,
 ) -> Tensor:
     """
     :param log_probs: shape {OtherDims..., Spatial, Classes}
     :param spatial_dim:
     :param classes_dim:
     :param threshold:
+    :param alignment: optional. shape {OtherDims..., Spatial} -> Classes. if given, use that instead of argmax
     :return: shape {OtherDims..., Spatial} -> bool
     """
-    argmax_classes = rf.reduce_argmax(log_probs, axis=classes_dim)  # {OtherDims..., Spatial} -> Classes
-    log_probs_classes = rf.gather(log_probs, indices=argmax_classes)  # {OtherDims..., Spatial}
+    if alignment is None:
+        alignment = rf.reduce_argmax(log_probs, axis=classes_dim)  # {OtherDims..., Spatial} -> Classes
+    log_probs_classes = rf.gather(log_probs, indices=alignment)  # {OtherDims..., Spatial}
     probs_classes = rf.exp(log_probs_classes)
     mask_threshold = probs_classes >= threshold  # {OtherDims..., Spatial}
-    argmax_classes_shifted = rf.shift_right(argmax_classes, axis=spatial_dim, pad_value=-1)  # {OtherDims..., Spatial}
+    alignment_shifted = rf.shift_right(alignment, axis=spatial_dim, pad_value=-1)  # {OtherDims..., Spatial}
     mask_threshold_shifted = rf.shift_right(
         mask_threshold, axis=spatial_dim, pad_value=False
     )  # {OtherDims..., Spatial}
     # Always take the first one in mask_repeated (when going left to right).
-    mask_repeated = argmax_classes_shifted == argmax_classes  # {OtherDims..., Spatial}
+    mask_repeated = alignment_shifted == alignment  # {OtherDims..., Spatial}
     # We could also mask the first frame just to be sure, but the cases where this would go wrong are very rare.
     mask = mask_repeated & mask_threshold & mask_threshold_shifted  # {OtherDims..., Spatial}
     keep_mask = rf.logical_not(mask)  # {OtherDims..., Spatial}
