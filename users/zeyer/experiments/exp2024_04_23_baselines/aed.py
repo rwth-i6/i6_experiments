@@ -1143,11 +1143,7 @@ class Model(rf.Module):
         return enc, enc_spatial_dim
 
     def encode(
-        self,
-        source: Tensor,
-        *,
-        in_spatial_dim: Dim,
-        collected_outputs: Optional[Dict[str, Tensor]] = None,
+        self, source: Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
     ) -> Tuple[rf.State, Dim]:
         enc, enc_spatial_dim = self.encode_no_transform(
             source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
