@@ -16,6 +16,7 @@ import functools
 from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
 import numpy
 import tree
+from dataclasses import dataclass
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -1150,7 +1151,7 @@ class Model(rf.Module):
         )
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
 
-    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Tensor, Dim]:
+    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, EncoderOutput, Dim]:
         """
         :param source: [B*, in_spatial_dim, in_dim]
         :param in_spatial_dim:
@@ -1181,10 +1182,11 @@ class Model(rf.Module):
         linear = getattr(self, f"enc_aux_logits_{ctc_layer_idx}")
         logits = linear(out)
         log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)  # Batch, Spatial, VocabWB
+        log_probs_spatial_dim = enc_spatial_dim
         if ctc_soft_collapse_threshold is not None:
-            log_probs, enc_spatial_dim = soft_collapse_repeated(
+            log_probs, log_probs_spatial_dim = soft_collapse_repeated(
                 log_probs,
-                spatial_dim=enc_spatial_dim,
+                spatial_dim=log_probs_spatial_dim,
                 classes_dim=self.wb_target_dim,
                 threshold=ctc_soft_collapse_threshold,
                 reduce_type=ctc_soft_collapse_reduce_type,
@@ -1201,7 +1203,15 @@ class Model(rf.Module):
                 raise NotImplementedError(f"ctc_framewise_prior_type {self.ctc_framewise_prior_type!r}")
             log_probs -= log_prob_prior * self.ctc_framewise_prior_scale
 
-        return log_probs, enc, enc_spatial_dim
+        return log_probs, EncoderOutput(enc, enc_spatial_dim=enc_spatial_dim), log_probs_spatial_dim
+
+
+@dataclass
+class EncoderOutput:
+    """encoder output"""
+
+    enc_output: Tensor
+    enc_spatial_dim: Dim
 
 
 def log_probs_with_eos_separated(logits: Tensor, *, target_dim: Dim, eos_idx: int) -> Tensor:

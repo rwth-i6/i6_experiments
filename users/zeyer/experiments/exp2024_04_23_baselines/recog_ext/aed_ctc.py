@@ -760,10 +760,10 @@ def model_recog_with_recomb(
     else:
         batch_dims = data.remaining_dims(data_spatial_dim)
 
-    ctc_label_log_prob, enc_tensor, enc_spatial_dim = model.encode_and_get_ctc_log_probs(
+    ctc_label_log_prob, enc_out, enc_spatial_dim = model.encode_and_get_ctc_log_probs(
         data, in_spatial_dim=data_spatial_dim
     )
-    enc = model.decoder.transform_encoder(enc_tensor, axis=enc_spatial_dim)
+    enc = model.decoder.transform_encoder(enc_out.enc_output, axis=enc_out.enc_spatial_dim)
 
     # Eager-mode implementation of beam search.
     # Initial state.
