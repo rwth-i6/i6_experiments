@@ -27,7 +27,7 @@ from transformers.utils.generic import check_model_inputs
 from .configuration_qwen2_with_dropout import Qwen2Config
 
 
-class Qwen2MLP(nn.Module):
+class Qwen2MLPWithDropout(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -217,7 +217,7 @@ class Qwen2DecoderLayer(GradientCheckpointingLayer):
 
         self.self_attn = Qwen2Attention(config=config, layer_idx=layer_idx)
 
-        self.mlp = Qwen2MLP(config)
+        self.mlp = Qwen2MLPWithDropout(config)
         self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.attention_type = config.layer_types[layer_idx]
