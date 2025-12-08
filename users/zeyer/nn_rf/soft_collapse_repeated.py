@@ -51,6 +51,34 @@ def soft_collapse_repeated_indices(
     :param threshold:
     :return: shape {OtherDims..., Spatial, Classes} -> out_spatial_dim
     """
+    keep_mask = soft_collapse_repeated_keep_mask(
+        log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold
+    )
+    # To be sure.
+    keep_mask = keep_mask.copy_masked(mask_value=False)  # {OtherDims..., Spatial}
+    # Very similar to the internal masked_select code.
+    idxs = rf.cumsum(rf.cast(keep_mask, "int32"), spatial_dim=spatial_dim)  # {OtherDims..., Spatial} -> 1+OutSpatial
+    new_size = rf.gather(idxs, indices=spatial_dim.get_dim_value_tensor() - 1, axis=spatial_dim)  # {OtherDims...}
+    out_spatial_dim = Dim(new_size, name="soft_collapse_repeated")
+    idxs = idxs - 1  # {OtherDims..., Spatial} -> OutSpatial
+    idxs.sparse_dim = out_spatial_dim
+    return idxs
+
+
+def soft_collapse_repeated_keep_mask(
+    log_probs: Tensor,
+    *,
+    spatial_dim: Dim,
+    classes_dim: Dim,
+    threshold: float,
+) -> Tensor:
+    """
+    :param log_probs: shape {OtherDims..., Spatial, Classes}
+    :param spatial_dim:
+    :param classes_dim:
+    :param threshold:
+    :return: shape {OtherDims..., Spatial} -> bool
+    """
     argmax_classes = rf.reduce_argmax(log_probs, axis=classes_dim)  # {OtherDims..., Spatial} -> Classes
     log_probs_classes = rf.gather(log_probs, indices=argmax_classes)  # {OtherDims..., Spatial}
     probs_classes = rf.exp(log_probs_classes)
@@ -64,15 +92,7 @@ def soft_collapse_repeated_indices(
     # We could also mask the first frame just to be sure, but the cases where this would go wrong are very rare.
     mask = mask_repeated & mask_threshold & mask_threshold_shifted  # {OtherDims..., Spatial}
     keep_mask = rf.logical_not(mask)  # {OtherDims..., Spatial}
-    # To be sure.
-    keep_mask = keep_mask.copy_masked(mask_value=False)  # {OtherDims..., Spatial}
-    # Very similar to the internal masked_select code.
-    idxs = rf.cumsum(rf.cast(keep_mask, "int32"), spatial_dim=spatial_dim)  # {OtherDims..., Spatial} -> 1+OutSpatial
-    new_size = rf.gather(idxs, indices=spatial_dim.get_dim_value_tensor() - 1, axis=spatial_dim)  # {OtherDims...}
-    out_spatial_dim = Dim(new_size, name="soft_collapse_repeated")
-    idxs = idxs - 1  # {OtherDims..., Spatial} -> OutSpatial
-    idxs.sparse_dim = out_spatial_dim
-    return idxs
+    return keep_mask
 
 
 def test_soft_collapse_repeated():
