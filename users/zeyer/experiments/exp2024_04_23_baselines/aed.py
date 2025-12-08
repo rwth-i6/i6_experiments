@@ -1158,6 +1158,7 @@ class Model(rf.Module):
         """
         from returnn.config import get_global_config
         from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
+        from returnn.util.collect_outputs_dict import CollectOutputsDict
 
         # TODO/WARNING: many users of this function (encode_and_get_ctc_log_probs)
         #   also do the same soft_collapse_repeated again outside,
@@ -1169,12 +1170,12 @@ class Model(rf.Module):
         if source.feature_dim and source.feature_dim.dimension == 1:
             source = rf.squeeze(source, axis=source.feature_dim)
 
-        enc_collected_outputs = {}
+        ctc_layer_idx = self.enc_aux_logits[-1]
+        enc_collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(ctc_layer_idx - 1)])
         enc, enc_spatial_dim = self.encode_no_transform(
             source, in_spatial_dim=in_spatial_dim, collected_outputs=enc_collected_outputs
         )
 
-        ctc_layer_idx = self.enc_aux_logits[-1]
         out: Tensor = enc_collected_outputs[str(ctc_layer_idx - 1)]
         assert enc_spatial_dim in out.dims
         linear = getattr(self, f"enc_aux_logits_{ctc_layer_idx}")
