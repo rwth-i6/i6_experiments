@@ -1,26 +1,28 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.dataset_config import DatasetConfig, get_dataset_config_v1
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.prior_config import PriorConfig
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.search_config import SearchConfig
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.training_config import TrainingConfig
+from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.dataset_config import DatasetConfig, dataset_baseline
+from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.network_config import NetworkConfig, network_v1, \
+    network_v2
+from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.prior_config import PriorConfig, prior_v1
+from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.search_config import SearchConfig, search_baseline
+from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.training_config import TrainingConfig, training_baseline
 
 
-# TODO: add names for configs
-# TODO: inheritance from some root config to force name, or other properties?
-
-@dataclass
+@dataclass(frozen=True)
 class ExperimentConfig:
     """
     Experiment configuration base dataclass. Contains all parameters needed for the experiment.
 
     Can contain default values.
     """
-    general_config = None
-    dataset_config: DatasetConfig = None
-    training_config: TrainingConfig = None
-    prior_config: PriorConfig = None
-    search_config: SearchConfig = None
+    # general: GeneralParams # add if needed
+    dataset: DatasetConfig
+
+    network: NetworkConfig
+
+    training: TrainingConfig
+    prior: PriorConfig
+    search: SearchConfig
 
 
 """
@@ -28,21 +30,17 @@ Specific configurations set below.
 """
 
 
-def get_exp_config_v1() -> ExperimentConfig:
+def exp_v1() -> ExperimentConfig:
     return ExperimentConfig(
-        general_config=None,
-        dataset_config=get_dataset_config_v1(),
-        training_config=None,
-        prior_config=None,
-        search_config=None,
+        dataset=dataset_baseline(),
+        network=network_v1(),
+        training=training_baseline(),
+        prior=prior_v1(),
+        search=search_baseline(),
     )
 
 
-def get_exp_config_v2() -> ExperimentConfig:
-    return ExperimentConfig(
-        general_config=None,
-        dataset_config=None,
-        training_config=None,
-        prior_config=None,
-        search_config=None,
-    )
+def exp_v2() -> ExperimentConfig:
+    return replace(exp_v1, network=network_v2())
+
+# For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

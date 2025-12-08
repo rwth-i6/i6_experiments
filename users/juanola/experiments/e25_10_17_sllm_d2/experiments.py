@@ -1,6 +1,6 @@
 import copy
 from functools import partial
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union
 
 from sisyphus import tk
 
@@ -14,13 +14,14 @@ from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
 from .experiments_core.reporting.report import create_report_job, build_base_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
+from .new_configs.experiment_version import ExperimentVersion, get_experiment_config
 from .recognition.decoder_config import DecoderConfig
 from ...data.training_datasets import TrainingDatasets
 from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
-        training_batch_sizes: list[int] = [15_000],  # TODO: change with full configs
+        experiment_versions:list[ExperimentVersion] = [ExperimentVersion.V1],
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False,
         itc_training: bool = False) -> Dict[str, Any]:
@@ -35,10 +36,11 @@ def sllm_ep(
     :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
     """
-    reports = {}
+    assert experiment_versions is not None, "experiment_versions cannot be None"
+    assert len(experiment_versions) > 0, "experiment_versions cannot be empty"
 
-    # for setup in setups: # TODO: REFACTOR - use full configs instead of only batch sizes
-    for training_batch_size in training_batch_sizes:
+    reports = {}
+    for exp_name, exp_config in [(v.value, get_experiment_config(v)) for v in experiment_versions]:
 
         # GENERAL CONSTANTS
 
@@ -51,7 +53,7 @@ def sllm_ep(
         NUM_GPUS: int = 1  # Should be 1 for 48gb in i6 cluster
         partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS)  # 2000 (1GPU) | 500 (4GPU)
         TRAINING_GPU_MEMORY = 48
-        TRAINING_BATCH_SIZE = training_batch_size
+        TRAINING_BATCH_SIZE = exp_config.training.batch_size
 
         # Search
         SEARCH_GPU_MEMORY = 11  # Avoid using bigger ones

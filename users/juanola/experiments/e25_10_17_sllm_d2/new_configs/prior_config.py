@@ -1,15 +1,14 @@
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class PriorConfig:
     """
-    Dataset configuration base dataclass.
+    Prior (inference) configuration base dataclass.
 
     Can contain default values.
     """
-    # TODO: this only for example
-    epochs: int
+    batch_size:int
 
 
 """
@@ -17,5 +16,9 @@ Specific configurations set below.
 """
 
 
-def get_dataset_config_v1() -> PriorConfig:
-    return PriorConfig()
+def prior_v1() -> PriorConfig:
+    return PriorConfig(
+        batch_size=16_000
+    )
+
+# For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

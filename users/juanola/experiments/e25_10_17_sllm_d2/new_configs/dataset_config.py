@@ -1,21 +1,18 @@
 from dataclasses import dataclass
+from typing import Dict, Any, Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class DatasetConfig:
     """
     Dataset configuration base dataclass.
 
     Can contain default values.
     """
-    # TODO: this only for example
-    preemphasis = None
+    preemphasis: Optional[float]
     peak_normalization: bool
-    train_partition_epoch: int
-    train_seq_ordering = "laplace:.1000"
-    train_additional_options = {
-        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}}
-    },
+    train_seq_ordering: str
+    train_additional_options: Optional[Dict[str, Any]]
 
 
 """
@@ -23,5 +20,12 @@ Specific configurations set below.
 """
 
 
-def get_dataset_config_v1() -> DatasetConfig:
-    return DatasetConfig()
+def dataset_baseline() -> DatasetConfig:
+    return DatasetConfig(
+        preemphasis=None,
+        peak_normalization=True,
+        train_seq_ordering="laplace:.1000",
+        train_additional_options={"epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}}},
+    )
+
+# For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
