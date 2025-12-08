@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.decoder_config import DecoderConfig, \
-    decoder_baseline
+    decoder_baseline, decoder_dropout, decoder_dropout_tuned
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.encoder_config import EncoderConfig, \
     encoder_baseline
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.feature_extraction_config import \
@@ -25,7 +25,7 @@ Specific configurations set below.
 """
 
 
-def network_v1() -> NetworkConfig:
+def network_baseline() -> NetworkConfig:
     return NetworkConfig(
         feature_extraction=feature_extraction_baseline(),
         encoder=encoder_baseline(),
@@ -33,7 +33,19 @@ def network_v1() -> NetworkConfig:
     )
 
 
-def network_v2() -> NetworkConfig:
-    raise NotImplementedError
+def network_SLLM_dropout() -> NetworkConfig:
+    return NetworkConfig(
+        feature_extraction=feature_extraction_baseline(),
+        encoder=encoder_baseline(),
+        decoder=decoder_dropout(),
+    )
+
+
+def network_SLLM_tuned_dropout() -> NetworkConfig:
+    return NetworkConfig(
+        feature_extraction=feature_extraction_baseline(),
+        encoder=encoder_baseline(),
+        decoder=decoder_dropout_tuned(),
+    )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

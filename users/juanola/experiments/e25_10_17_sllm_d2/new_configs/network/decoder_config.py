@@ -6,6 +6,8 @@ class DecoderConfig:
     """
     Decoder configuration base dataclass.
 
+    Default parameters from HF Qwen-0.5B variant: https://huggingface.co/Qwen/Qwen2-0.5B/blob/main/config.json
+
     Can contain default values.
     """
     architectures = [
@@ -25,8 +27,8 @@ class DecoderConfig:
     num_hidden_layers: int = 24
     num_key_value_heads: int = 2
     rms_norm_eps: float = 1e-06
-    rope_theta: float = 1000000.0
-    sliding_window: int = 131072
+    rope_theta: float = 1_000_000.0
+    sliding_window: int = 131_072
     tie_word_embeddings: bool = True
     torch_dtype: str = "bfloat16"
     transformers_version: str = "4.40.1"
@@ -55,9 +57,21 @@ def decoder_dropout() -> DecoderConfig:
 
 
 def decoder_dropout_tuned() -> DecoderConfig:
+    """
+    Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
+    """
     return replace(decoder_baseline(),
-                   rope_theta=0.1,
-                   # TODO: check this...
+                   # bos_token_id=151643,
+                   # eos_token_id=151645,
+                   intermediate_size=11008,
+                   max_position_embeddings=8192,
+                   # model_type="qwen2",
+                   rope_theta=10_000,
+                   rms_norm_eps=1e-5,
+                   sliding_window=32_768,
+                   # torch_dtype="bfloat16",
+                   # use_mrope="false", #TODO: not used in qwen text, but since we are using audio embeddings maybe it would be interesting to use
+                   # vocab_size=156032
                    )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

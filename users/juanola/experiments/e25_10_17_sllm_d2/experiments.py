@@ -21,7 +21,7 @@ from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
-        experiment_versions:list[ExperimentVersion] = [ExperimentVersion.V1],
+        experiment_versions: list[ExperimentVersion] = [ExperimentVersion.V1_BASELINE],
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False,
         itc_training: bool = False) -> Dict[str, Any]:
@@ -33,8 +33,10 @@ def sllm_ep(
     - Prepare model config and all needed for returnn
     - Indicate wanted outputs
 
+    :param experiment_versions: list of experiment versions to run. Default baseline
     :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
+    :param itc_training: Makes return training jobs run on ITC
     """
     assert experiment_versions is not None, "experiment_versions cannot be None"
     assert len(experiment_versions) > 0, "experiment_versions cannot be empty"

@@ -1,8 +1,8 @@
 from dataclasses import dataclass, replace
 
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.dataset_config import DatasetConfig, dataset_baseline
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.network_config import NetworkConfig, network_v1, \
-    network_v2
+from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.network_config import NetworkConfig, \
+    network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.prior_config import PriorConfig, prior_v1
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.search_config import SearchConfig, search_baseline
 from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.training_config import TrainingConfig, training_baseline
@@ -30,10 +30,10 @@ Specific configurations set below.
 """
 
 
-def exp_v1() -> ExperimentConfig:
+def exp_baseline() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline(),
-        network=network_v1(),
+        network=network_baseline(),
         training=training_baseline(),
         prior=prior_v1(),
         search=search_baseline(),
@@ -41,6 +41,10 @@ def exp_v1() -> ExperimentConfig:
 
 
 def exp_v2() -> ExperimentConfig:
-    return replace(exp_v1, network=network_v2())
+    return replace(exp_baseline, network=network_SLLM_dropout())
+
+
+def exp_v3() -> ExperimentConfig:
+    return replace(exp_baseline, network=network_SLLM_tuned_dropout())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
