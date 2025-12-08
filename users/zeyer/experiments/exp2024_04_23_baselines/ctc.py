@@ -1993,7 +1993,7 @@ def model_recog(
 
     config = get_global_config()
 
-    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
     beam_size = config.int("beam_size", 12)
 

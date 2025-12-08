@@ -254,7 +254,7 @@ def model_recog_torchaudio(
     # noinspection PyTypeHints
     decoder: CTCDecoder = model.decoder
 
-    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     assert label_log_prob.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
 
     # The label log probs include the AM and the (scaled) prior.

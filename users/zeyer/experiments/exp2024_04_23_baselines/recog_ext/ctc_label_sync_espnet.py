@@ -425,7 +425,7 @@ def model_recog_label_sync_v2(
 
     neg_inf = float("-inf")
 
-    ctc_log_prob, enc_out, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    ctc_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     batch_dims = ctc_log_prob.remaining_dims((enc_spatial_dim, ctc_log_prob.feature_dim))
     print("Encoder seq lens:", enc_spatial_dim.get_size_tensor().raw_tensor)
 

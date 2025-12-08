@@ -1148,7 +1148,7 @@ def _ctc_model_softmax_prior_returnn_forward(
     source: Tensor, /, in_spatial_dim: Dim, model: Model
 ) -> Tuple[Tensor, Dim]:
     """ForwardDef API"""
-    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(source, in_spatial_dim=in_spatial_dim)
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(source, in_spatial_dim=in_spatial_dim)
     probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
     return probs, enc_spatial_dim
 
@@ -1163,7 +1163,7 @@ def ctc_model_rescore(
     targets_spatial_dim: Dim,
 ) -> Tensor:
     """RescoreDef API"""
-    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
 
@@ -1267,7 +1267,7 @@ def ctc_best_path_model_rescore_def(
         data = rf.squeeze(data, axis=data.feature_dim)
     data_batch_dims = data.remaining_dims(data_spatial_dim)
 
-    log_probs, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
     assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})

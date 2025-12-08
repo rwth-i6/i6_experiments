@@ -51,7 +51,7 @@ def model_recog(
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
 
-    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
 
     # Eager-mode implementation of beam search.
@@ -249,7 +249,7 @@ def model_recog_with_recomb(
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
 
     # The label log probs include the AM and the (scaled) prior.
-    label_log_prob, enc, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
 
     if ctc_soft_collapse_threshold is not None:
