@@ -765,6 +765,7 @@ def model_recog_with_recomb(
     ctc_layer_idx = model.enc_aux_logits[-1]
     enc_collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(ctc_layer_idx - 1)])
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
+    # TODO use encode_and_get_ctc_log_probs instead?
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -773,6 +774,7 @@ def model_recog_with_recomb(
     neg_inf = float("-inf")
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
+    # TODO use aux_logits_from_collected_outputs here. (or above, use encode_and_get_ctc_log_probs)
     out: Tensor = enc_collected_outputs[str(ctc_layer_idx - 1)]
     assert enc_spatial_dim in out.dims
     linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
