@@ -2351,7 +2351,7 @@ class Model(rf.Module):
         logits = self.enc_logits(enc)
         return logits, enc, enc_spatial_dim
 
-    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Tensor, Dim]:
+    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Any, Dim]:
         """
         :param source: [B*, in_spatial_dim, in_dim]
         :param in_spatial_dim:
