@@ -1,6 +1,7 @@
+# TODO: remove!
+
 training_configs = {
     "v1": { # TODO: order stuff here
-
         # CTC losses for encoder
         "aux_loss_layers": (4, 8),
         # "aux_loss_scales": (1.0, 1.0), # is (and needs to be) in train_step config
@@ -11,7 +12,6 @@ training_configs = {
         "vocab_size": 10_240,
         "sampling_rate": 16_000,
         "specaug_start": (5_000, 15_000, 25_000),
-        "use_rf_init": True,
         "bos_idx": 1,
         "eos_idx": 0,
         "feature_extraction_config": {

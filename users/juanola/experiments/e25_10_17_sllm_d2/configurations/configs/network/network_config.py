@@ -1,23 +1,37 @@
 from dataclasses import dataclass
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.decoder_config import DecoderConfig, \
-    decoder_baseline, decoder_dropout, decoder_dropout_tuned
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.encoder_config import EncoderConfig, \
-    encoder_baseline
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.feature_extraction_config import \
-    FeatureExtractionConfig, feature_extraction_baseline
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.decoder_config import (
+    DecoderConfig,
+    decoder_baseline,
+    decoder_dropout,
+    decoder_dropout_tuned,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.encoder_config import (
+    EncoderConfig,
+    encoder_baseline,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.feature_extraction_config import (
+    FeatureExtractionConfig,
+    feature_extraction_baseline,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import HasNameProtocol
 
 
 @dataclass(frozen=True)
-class NetworkConfig:
+class NetworkConfig(HasNameProtocol):
     """
     Network configuration base dataclass.
 
     Can contain default values.
     """
+
     feature_extraction: FeatureExtractionConfig
     encoder: EncoderConfig
     decoder: DecoderConfig
+
+    @property
+    def name(self) -> str:
+        return f"{self.encoder.name}-{self.decoder.name}"
 
 
 """
@@ -47,5 +61,6 @@ def network_SLLM_tuned_dropout() -> NetworkConfig:
         encoder=encoder_baseline(),
         decoder=decoder_dropout_tuned(),
     )
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

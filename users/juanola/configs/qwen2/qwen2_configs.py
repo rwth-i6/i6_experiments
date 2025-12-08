@@ -1,3 +1,4 @@
+# TODO: remove!
 
 qwen2_configs = {
     "Qwen2-0_5B" : {

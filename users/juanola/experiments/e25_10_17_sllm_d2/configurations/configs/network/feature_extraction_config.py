@@ -11,8 +11,9 @@ class FeatureExtractionConfig:
     """
     feature_extraction_config: Optional[Dict[str, Any]]
     sampling_rate: int
-    n_mels: int
-    num_enc_layers: int
+
+
+    n_mels: int = 80
 
 
 """
@@ -33,8 +34,6 @@ def feature_extraction_baseline() -> FeatureExtractionConfig:
             "center": False,
         },
         sampling_rate=16_000,
-        n_mels=80,
-        num_enc_layers=12,
     )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

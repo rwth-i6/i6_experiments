@@ -12,8 +12,8 @@ from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .asr_model import ASRModel
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
+from ...configurations.configs.pipeline.beam_search_config import BeamSearchConfig
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
-from ...recognition.decoder_config import DecoderConfig
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -30,7 +30,7 @@ def create_tune_and_evaluate_jobs(
         debug,
 
         train_data: TrainingDatasets,
-        decoder_config: DecoderConfig,
+        decoder_config: BeamSearchConfig,
 
         dev_dataset_tuples: Dict[str, Any],
         test_dataset_tuples: Optional[Dict[str, Any]] = None,
@@ -178,7 +178,7 @@ def prepare_asr_model(
 def tune_and_evaluate_model(
         evaluation_name: str,
         asr_model: ASRModel,
-        base_decoder_config: DecoderConfig,
+        base_decoder_config: BeamSearchConfig,
 
         lm_scales: List[float],
         prior_scales: List[float],
@@ -217,9 +217,10 @@ def tune_and_evaluate_model(
     tune_values_other = []
     for lm_weight in lm_scales:
         for prior_scale in prior_scales:
-            decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = lm_weight
-            decoder_config.prior_scale = prior_scale
+            decoder_config = copy.deepcopy(asdict(base_decoder_config))
+            decoder_config["lm_weight"] = lm_weight
+            decoder_config["prior_scale"] = prior_scale
+
             search_name = f"{evaluation_name}/search_lm{lm_weight:.1f}_prior{prior_scale:.1f}"
 
             _, wers = search(
@@ -227,7 +228,7 @@ def tune_and_evaluate_model(
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
+                decoder_args={"config": decoder_config},
                 test_dataset_tuples=dev_dataset_tuples,
                 use_gpu=use_gpu,
                 debug=debug,
@@ -251,15 +252,16 @@ def tune_and_evaluate_model(
             )
             pick_optimal_params_job.add_alias(f"{evaluation_name}/pick_best_{key}")
 
-            decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
-            decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+            decoder_config = copy.deepcopy(asdict(base_decoder_config))
+            decoder_config["lm_weight"] = pick_optimal_params_job.out_optimal_parameters[0]
+            decoder_config["prior_scale"] = pick_optimal_params_job.out_optimal_parameters[1]
+
             _, wers = search(
                 evaluation_name,
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
+                decoder_args={"config": decoder_config},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
 
                 use_gpu=use_gpu,

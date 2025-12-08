@@ -80,11 +80,11 @@ class Model(nn.Module, AedCtcModelProtocol,
             feature_extraction_config: Optional[Dict[str, Any]] = None,
             sampling_rate: int,
             n_mels: int = 80,
-            num_enc_layers: int,
 
             # ENCODER PARAMS
             encoder_dim: int,
             num_heads: int,
+            num_enc_layers: int,
 
             rel_pos_clip: int = 16,
             pos_emb_dropout: float = 0.1,

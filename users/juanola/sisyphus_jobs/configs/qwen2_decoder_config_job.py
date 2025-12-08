@@ -3,10 +3,11 @@ import json
 
 from sisyphus import *
 
-from .qwen2.qwen2_configs import qwen2_configs
+from i6_experiments.users.juanola.configs.qwen2.qwen2_configs import qwen2_configs
+
 
 class Qwen2DecoderConfigJob(Job):
-    def __init__(self, config_version:str, bos:int, eos:int, vocab_size:int, target_filename: str):
+    def __init__(self, config_version: str, bos: int, eos: int, vocab_size: int, target_filename: str):
         """
         Modify qwen2decoder configuration.
 
@@ -33,4 +34,3 @@ class Qwen2DecoderConfigJob(Job):
 
         with open(self.out_file, "w") as f:
             json.dump(config, f, indent=4)
-

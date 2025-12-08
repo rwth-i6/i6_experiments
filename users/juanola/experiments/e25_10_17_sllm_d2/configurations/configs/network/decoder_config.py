@@ -1,8 +1,11 @@
 from dataclasses import dataclass, replace
 
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import \
+    HasNameProtocol
+
 
 @dataclass(frozen=True)
-class DecoderConfig:
+class DecoderConfig(HasNameProtocol):
     """
     Decoder configuration base dataclass.
 
@@ -39,6 +42,9 @@ class DecoderConfig:
     # ADDED
     mlp_dropout: float = 0.0
 
+    @property
+    def name(self) -> str:
+        return f"Qwen2_hl_{self.num_hidden_layers}"
 
 """
 Specific configurations set below.
