@@ -67,6 +67,7 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         "torch_amp": "bfloat16",  # only for gpus > 11gb # TODO: add some conditional thingy
+        "grad_scaler": None, # Solves errors: "got inf or nan score."
     }
 
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
