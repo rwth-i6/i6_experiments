@@ -747,8 +747,6 @@ def model_recog_with_recomb(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
-    ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
-    ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
     aed_scale = config.float("aed_scale", 1.0)
     ctc_scale = config.float("ctc_scale", 1.0)
 
@@ -762,10 +760,10 @@ def model_recog_with_recomb(
     else:
         batch_dims = data.remaining_dims(data_spatial_dim)
 
-    ctc_layer_idx = model.enc_aux_logits[-1]
-    enc_collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(ctc_layer_idx - 1)])
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
-    # TODO use encode_and_get_ctc_log_probs instead?
+    ctc_label_log_prob, enc_tensor, enc_spatial_dim = model.encode_and_get_ctc_log_probs(
+        data, in_spatial_dim=data_spatial_dim
+    )
+    enc = model.decoder.transform_encoder(enc_tensor, axis=enc_spatial_dim)
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -774,20 +772,6 @@ def model_recog_with_recomb(
     neg_inf = float("-inf")
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
-    # TODO use aux_logits_from_collected_outputs here. (or above, use encode_and_get_ctc_log_probs)
-    out: Tensor = enc_collected_outputs[str(ctc_layer_idx - 1)]
-    assert enc_spatial_dim in out.dims
-    linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
-    ctc_logits = linear(out)
-    ctc_label_log_prob = rf.log_softmax(ctc_logits, axis=model.wb_target_dim)  # Batch, Spatial, VocabWB
-    if ctc_soft_collapse_threshold is not None:
-        ctc_label_log_prob, enc_spatial_dim = soft_collapse_repeated(
-            ctc_label_log_prob,
-            spatial_dim=enc_spatial_dim,
-            classes_dim=model.wb_target_dim,
-            threshold=ctc_soft_collapse_threshold,
-            reduce_type=ctc_soft_collapse_reduce_type,
-        )
     ctc_label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         ctc_label_log_prob,
