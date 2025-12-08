@@ -1,11 +1,14 @@
 from dataclasses import dataclass, replace
 
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.dataset_config import DatasetConfig, dataset_baseline
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.network_config import NetworkConfig, \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.dataset_config import DatasetConfig, \
+    dataset_baseline
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.network_config import NetworkConfig, \
     network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.prior_config import PriorConfig, prior_v1
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.search_config import SearchConfig, search_baseline
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.training_config import TrainingConfig, training_baseline
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.prior_config import PriorConfig, prior_v1
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.search_config import SearchConfig, \
+    search_baseline
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.training_config import TrainingConfig, \
+    training_baseline
 
 
 @dataclass(frozen=True)
@@ -41,10 +44,10 @@ def exp_baseline() -> ExperimentConfig:
 
 
 def exp_v2() -> ExperimentConfig:
-    return replace(exp_baseline, network=network_SLLM_dropout())
+    return replace(exp_baseline(), network=network_SLLM_dropout())
 
 
 def exp_v3() -> ExperimentConfig:
-    return replace(exp_baseline, network=network_SLLM_tuned_dropout())
+    return replace(exp_baseline(), network=network_SLLM_tuned_dropout())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -14,6 +14,7 @@ from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
 from .experiments_core.reporting.report import create_report_job, build_base_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
+from .new_configs.dataset_config import DatasetConfig
 from .new_configs.experiment_version import ExperimentVersion, get_experiment_config
 from .recognition.decoder_config import DecoderConfig
 from ...data.training_datasets import TrainingDatasets
@@ -21,7 +22,7 @@ from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def sllm_ep(
-        experiment_versions: list[ExperimentVersion] = [ExperimentVersion.V1_BASELINE],
+        experiment_versions=None,
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False,
         itc_training: bool = False) -> Dict[str, Any]:
@@ -38,11 +39,12 @@ def sllm_ep(
     :type debug: Used to set up config for debugging in one GPU
     :param itc_training: Makes return training jobs run on ITC
     """
-    assert experiment_versions is not None, "experiment_versions cannot be None"
+    assert experiment_versions is not None, "at least one of experiment_versions is required"
     assert len(experiment_versions) > 0, "experiment_versions cannot be empty"
 
     reports = {}
     for exp_name, exp_config in [(v.value, get_experiment_config(v)) for v in experiment_versions]:
+        # TODO: extract inside
 
         # GENERAL CONSTANTS
 
@@ -50,39 +52,28 @@ def sllm_ep(
         debug_returnn_param = True  # TODO: Make it depend on big debug?
 
         # Training
-        epochs: int = 100
-        partition_epoch_factor: int = 20
-        NUM_GPUS: int = 1  # Should be 1 for 48gb in i6 cluster
+        epochs: int = exp_config.training.epochs
+        partition_epoch_factor: int = exp_config.training.partition_epoch_factor
+        NUM_GPUS: int = exp_config.training.num_gpus
         partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS)  # 2000 (1GPU) | 500 (4GPU)
-        TRAINING_GPU_MEMORY = 48
+        TRAINING_GPU_MEMORY = exp_config.training.gpu_memory
         TRAINING_BATCH_SIZE = exp_config.training.batch_size
 
         # Search
-        SEARCH_GPU_MEMORY = 11  # Avoid using bigger ones
-        RECOGNITION_BATCH_SIZE = 15_000
-        PRIOR_BATCH_SIZE = 16_000
+        SEARCH_GPU_MEMORY = exp_config.search.gpu_memory
+        RECOGNITION_BATCH_SIZE = exp_config.search.batch_size
+        PRIOR_BATCH_SIZE = exp_config.prior.batch_size
 
         if debug:
+            #TRAINING_BATCH_SIZE = 20_000
             partition_epochs = 1
             NUM_GPUS = 1
             TRAINING_GPU_MEMORY = 48
 
         # INITIALIZE DATASET
-        train_dataset_settings = ReturnnDatasetSettings(
-            preemphasis=None,
-            peak_normalization=True,
-            train_partition_epoch=partition_epoch_factor,
-            train_seq_ordering="laplace:.1000",
-            train_additional_options={
-                "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
-            },
-        )
-        sampling_alpha = 0.7  # TODO: move somewhere else?!
-        vocab_size = 10_240  # TODO: TD - this should not be hardcoded
         training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(experiment_path,
-                                                                                          train_dataset_settings,
-                                                                                          vocab_size,
-                                                                                          sampling_alpha)
+                                                                                          exp_config.dataset,
+                                                                                          partition_epoch_factor)
 
         # NETWORK
         encoder_alias = "v1"  # TODO: could be imported - use enums perhaps
@@ -186,8 +177,7 @@ def get_network_args_and_alias(encoder_alias: str, decoder_alias: str) -> tuple[
     return model_alias, network_args
 
 
-def create_datasets_jobs(prefix_name: str, train_settings: ReturnnDatasetSettings, vocab_size: int,
-                         sampling_alpha: float) -> \
+def create_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, partition_epoch_factor: int) -> \
         tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
@@ -197,26 +187,34 @@ def create_datasets_jobs(prefix_name: str, train_settings: ReturnnDatasetSetting
     :param sampling_alpha:
     :return:
     """
+    train_dataset_settings = ReturnnDatasetSettings(
+        preemphasis=dataset_config.preemphasis,
+        peak_normalization=dataset_config.peak_normalization,
+        train_partition_epoch=partition_epoch_factor,
+        train_seq_ordering=dataset_config.train_seq_ordering,
+        train_additional_options=dataset_config.train_additional_options,
+    )
+
     training_datasets: TrainingDatasets = build_spm_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
-        return_settings=train_settings,
-        vocab_size=vocab_size,
+        return_settings=train_dataset_settings,
+        vocab_size=dataset_config.vocab_size,
         returnn_root=MINI_RETURNN_ROOT,  # to import ogg zip job from Nick
-        alpha=sampling_alpha,
+        alpha=dataset_config.sampling_alpha,
     )
 
     dev_dataset_tuples = {}
     for testset in ["dev-clean", "dev-other"]:
         dev_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
-            settings=train_settings,
+            settings=train_dataset_settings,
         )
 
     test_dataset_tuples = {}
     for testset in ["test-clean", "test-other"]:
         test_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
-            settings=train_settings,
+            settings=train_dataset_settings,
         )
     return training_datasets, dev_dataset_tuples, test_dataset_tuples,

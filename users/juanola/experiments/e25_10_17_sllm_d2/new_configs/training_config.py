@@ -13,7 +13,7 @@ class TrainingConfig:
 
     batch_size: int
 
-    num_gpus: int
+    num_gpus: int # Should be 1 for 48gb in i6 cluster
     gpu_memory: int
 
 

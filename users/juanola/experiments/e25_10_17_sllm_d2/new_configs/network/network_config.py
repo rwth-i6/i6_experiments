@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.decoder_config import DecoderConfig, \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.decoder_config import DecoderConfig, \
     decoder_baseline, decoder_dropout, decoder_dropout_tuned
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.encoder_config import EncoderConfig, \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.encoder_config import EncoderConfig, \
     encoder_baseline
-from users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.feature_extraction_config import \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.new_configs.network.feature_extraction_config import \
     FeatureExtractionConfig, feature_extraction_baseline
 
 
