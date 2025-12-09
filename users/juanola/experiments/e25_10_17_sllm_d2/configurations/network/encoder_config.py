@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Sequence, Union, Tuple
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import \
     HasNameProtocol
 
 

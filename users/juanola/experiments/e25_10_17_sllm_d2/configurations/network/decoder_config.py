@@ -1,9 +1,7 @@
 from dataclasses import dataclass, replace
-from typing import Sequence
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import (
-    HasNameProtocol,
-)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import \
+    HasNameProtocol
 
 
 @dataclass(frozen=True)

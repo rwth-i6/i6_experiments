@@ -3,9 +3,10 @@ from dataclasses import asdict
 
 from sisyphus import *
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.data.label_config import \
+# TODO: this dependency is not nice... either the job is from the experiment, or the configuration is more general
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import \
     LabelConfig
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.decoder_config import \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.decoder_config import \
     DecoderConfig
 
 

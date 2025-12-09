@@ -10,12 +10,11 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_helpers import get_training_config
-from ...configurations import optimizer_configs, learning_rate_configs
+from ...configurations.pipeline.training_config import TrainingConfig
 
 
 def create_training_job(training_name: str,
                         datasets: TrainingDatasets,
-                        num_gpus: int,
                         batch_size: int,
 
                         network_module: str,
@@ -26,11 +25,12 @@ def create_training_job(training_name: str,
 
                         debug_returnn_param: bool,
 
+                        training_config: TrainingConfig,
+
                         returnn_root: tk.Path) -> ReturnnTrainingJob:
     """
     :param training_name:
     :param datasets:
-    :param num_gpus:
     :param network_module:
     :param network_args:
     :param train_step_module:
@@ -38,8 +38,8 @@ def create_training_job(training_name: str,
     :param debug_returnn_param:
     :param returnn_root: Path to a checked out RETURNN repository
     """
-    train_args, training_rqmt = get_training_parameters(num_gpus, debug_returnn_param, network_args, network_module,
-                                                        returnn_root, train_epochs, train_step_module, batch_size)
+    train_args, training_rqmt = get_training_parameters(debug_returnn_param, network_args, network_module,
+                                                        returnn_root, train_epochs, train_step_module, batch_size, training_config)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
 
@@ -48,22 +48,17 @@ def create_training_job(training_name: str,
     return train_job
 
 
-def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_args: dict[str, Any], network_module: str,
-                            returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int) -> tuple[
+def get_training_parameters(debug_returnn_param: bool, network_args: dict[str, Any], network_module: str,
+                            returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int, train_config_obj: TrainingConfig) -> tuple[
     dict[str, Any], dict[str, Any]]:
-    # Some values
-    training_batch_size_factor = 160
-
-    train_config = {
-        **optimizer_configs.v1,
-        **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
-            n_ep=train_epochs,
-        ),
-        "batch_size": batch_size * training_batch_size_factor,
+    train_config = { # TODO: lots of settings could be moved to configs.
+        **train_config_obj.optimizer.get_optimizer_returnn_config(),
+        **train_config_obj.dynamic_lr.get_dynamic_lr_returnn_config(train_epochs),
+        "batch_size": batch_size * train_config_obj.batch_size_factor,
         "max_seq_length": {"raw_audio": 19.5 * network_args["sampling_rate"]},  # 19.5 seconds
         "accum_grad_multiple_step": 1,
         "gradient_clip_global_norm": 5.0,
-        "__num_gpus": num_gpus,
+        "__num_gpus": train_config_obj.num_gpus,
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         "torch_amp": "bfloat16",  # only for gpus > 11gb # TODO: add some conditional thingy
@@ -102,7 +97,7 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         "returnn_root": returnn_root,
     }
 
-    if num_gpus > 1:
+    if train_config_obj.num_gpus > 1:
         train_args["config"].update({
             "torch_distributed": {
                 "param_sync_step": 100,
@@ -112,7 +107,7 @@ def get_training_parameters(num_gpus: int, debug_returnn_param: bool, network_ar
         })
         training_rqmt.update({
             "distributed_launch_cmd": "torchrun",
-            "horovod_num_processes": num_gpus,
+            "horovod_num_processes": train_config_obj.num_gpus,
             "mem_rqmt": 20  # ??
         })
     return train_args, training_rqmt

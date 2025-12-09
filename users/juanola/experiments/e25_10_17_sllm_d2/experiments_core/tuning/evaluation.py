@@ -12,7 +12,7 @@ from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .asr_model import ASRModel
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
-from ...configurations.configs.pipeline.beam_search_config import BeamSearchConfig
+from ...configurations.pipeline.beam_search_config import BeamSearchConfig
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 
 default_returnn = {

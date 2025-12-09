@@ -1,0 +1,48 @@
+from dataclasses import dataclass
+from typing import Dict, Any
+
+from i6_experiments.users.juanola.training.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
+
+
+@dataclass(frozen=True)
+class DynamicLearningRateConfig:
+    """
+    LR configuration base dataclass.
+
+    Can contain default values.
+    """
+    base_lr: float = 1.0
+    peak_lr: float = 1e-3,
+    low_lr: float = 1e-5,
+    lowest_lr: float = 1e-6,
+
+    step_peak_fraction: float = 0.45,
+    step_finetune_fraction: float = 0.9,
+
+    def get_dynamic_lr_returnn_config(self, train_epochs: int) -> Dict[str, Any]:
+        """
+        Contains Returnn logic.
+
+        # TODO: maybe this logic should be in the experiments
+        :param train_epochs:
+        :return:
+        """
+        return {
+            "learning_rate": self.base_lr,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            "learning_rate_piecewise_by_epoch_continuous": True,
+            "learning_rate_piecewise_steps": [self.step_peak_fraction * train_epochs, self.step_finetune_fraction * train_epochs, train_epochs],
+            "learning_rate_piecewise_values": [self.low_lr, self.peak_lr, self.low_lr, self.lowest_lr],
+        }
+
+
+
+"""
+Specific configurations set below.
+"""
+
+
+def lr_baseline() -> DynamicLearningRateConfig:
+    return DynamicLearningRateConfig()
+
+# For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

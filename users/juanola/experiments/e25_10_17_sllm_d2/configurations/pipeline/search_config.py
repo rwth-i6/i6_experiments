@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.pipeline.beam_search_config import \
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.beam_search_config import \
     BeamSearchConfig, beam_search_baseline
 
 

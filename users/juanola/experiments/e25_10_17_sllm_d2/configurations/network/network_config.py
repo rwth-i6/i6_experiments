@@ -1,20 +1,20 @@
 from dataclasses import dataclass
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.decoder_config import (
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.decoder_config import (
     DecoderConfig,
     decoder_baseline,
     decoder_dropout,
     decoder_dropout_tuned,
 )
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.encoder_config import (
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.encoder_config import (
     EncoderConfig,
     encoder_baseline,
 )
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.network.feature_extraction_config import (
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.feature_extraction_config import (
     FeatureExtractionConfig,
     feature_extraction_baseline,
 )
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import HasNameProtocol
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import HasNameProtocol
 
 
 @dataclass(frozen=True)

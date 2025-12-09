@@ -12,9 +12,9 @@ from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
 from .experiments_core.reporting.report import create_report_job, build_base_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
-from .configurations.configs.data.dataset_config import DatasetConfig
-from .configurations.configs.experiment_config import ExperimentConfig
-from .configurations.configs.experiment_version import get_experiment_config
+from .configurations.data.dataset_config import DatasetConfig
+from .configurations.experiment_config import ExperimentConfig
+from .configurations.experiment_version import get_experiment_config
 from ...data.training_datasets import TrainingDatasets
 from ...sisyphus_jobs.configs.qwen2_decoder_config_job_v2 import Qwen2DecoderConfigJobV2
 from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
@@ -53,8 +53,8 @@ def sllm_ep(
         # Training
         epochs: int = exp_config.training.epochs
         partition_epoch_factor: int = exp_config.training.partition_epoch_factor
-        NUM_GPUS: int = exp_config.training.num_gpus
-        partition_epochs: int = int(epochs * partition_epoch_factor / NUM_GPUS)  # 2000 (1GPU) | 500 (4GPU)
+        partition_epochs: int = int(
+            epochs * partition_epoch_factor / exp_config.training.num_gpus)  # 2000 (1GPU) | 500 (4GPU)
         TRAINING_GPU_MEMORY = exp_config.training.gpu_memory
         TRAINING_BATCH_SIZE = exp_config.training.batch_size
 
@@ -66,9 +66,9 @@ def sllm_ep(
 
         # DEBUGGING CHANGES
         if debug:
-            #TRAINING_BATCH_SIZE = 20_000
+            TRAINING_BATCH_SIZE = 21_000
             partition_epochs = 1
-            NUM_GPUS = 1
+            # TODO: move this to config? NUM_GPUS = 1
             TRAINING_GPU_MEMORY = 48
 
 
@@ -84,10 +84,11 @@ def sllm_ep(
 
         # MODEL TRAINING
         training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}/{exp_name}"
-        train_job = create_training_job(training_name, training_datasets, NUM_GPUS, TRAINING_BATCH_SIZE,
+        train_job = create_training_job(training_name, training_datasets, TRAINING_BATCH_SIZE,
                                         NETWORK_MODULE, network_args,
                                         TRAIN_STEP_MODULE, partition_epochs,
                                         debug_returnn_param,
+                                        exp_config.training,
                                         returnn_root=RETURNN_ROOT)
         train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
 
