@@ -1,7 +1,9 @@
 from dataclasses import dataclass, replace
+from typing import Sequence
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import \
-    HasNameProtocol
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.configs.protocols.has_name_protocol import (
+    HasNameProtocol,
+)
 
 
 @dataclass(frozen=True)
@@ -13,9 +15,7 @@ class DecoderConfig(HasNameProtocol):
 
     Can contain default values.
     """
-    architectures = [
-        "Qwen2ForCausalLM"
-    ]
+    architectures = ["Qwen2ForCausalLM"]
     attention_dropout: float = 0.0
     bos_token_id: int = 151643  # Modified in runtime!
     eos_token_id: int = 151643  # Modified in runtime!
@@ -31,7 +31,7 @@ class DecoderConfig(HasNameProtocol):
     num_key_value_heads: int = 2
     rms_norm_eps: float = 1e-06
     rope_theta: float = 1_000_000.0
-    sliding_window: int = 131_072
+    #sliding_window: int = 131_072 # It's not being used because of use_sliding_window=False
     tie_word_embeddings: bool = True
     torch_dtype: str = "bfloat16"
     transformers_version: str = "4.40.1"
@@ -45,6 +45,7 @@ class DecoderConfig(HasNameProtocol):
     @property
     def name(self) -> str:
         return f"Qwen2_hl_{self.num_hidden_layers}"
+
 
 """
 Specific configurations set below.
@@ -66,18 +67,20 @@ def decoder_dropout_tuned() -> DecoderConfig:
     """
     Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
     """
-    return replace(decoder_baseline(),
-                   # bos_token_id=151643,
-                   # eos_token_id=151645,
-                   intermediate_size=11008,
-                   max_position_embeddings=8192,
-                   # model_type="qwen2",
-                   rope_theta=10_000,
-                   rms_norm_eps=1e-5,
-                   sliding_window=32_768,
-                   # torch_dtype="bfloat16",
-                   # use_mrope="false", #TODO: not used in qwen text, but since we are using audio embeddings maybe it would be interesting to use
-                   # vocab_size=156032
-                   )
+    return replace(
+        decoder_baseline(),
+        # bos_token_id=151643,
+        # eos_token_id=151645,
+        intermediate_size=11008,
+        max_position_embeddings=8192,
+        # model_type="qwen2",
+        rope_theta=10_000,
+        rms_norm_eps=1e-5,
+        #sliding_window=32_768, # It's not being used because of use_sliding_window=False
+        # torch_dtype="bfloat16",
+            # use_mrope="false", # Not available in Qwen2 (but should be already false)
+        # vocab_size=156032
+    )
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -2,7 +2,7 @@ from typing import Optional
 
 from torch import nn
 
-
+# TODO: adapt to new configs ??
 def conformer_aed_weight_decay_blacklist_v2(*, module: nn.Module, full_param_name: str, **kwargs) -> Optional[bool]:
     from torch import nn
     from i6_models.parts.conformer.mhsa_rel_pos import ConformerMHSARelPosV1
