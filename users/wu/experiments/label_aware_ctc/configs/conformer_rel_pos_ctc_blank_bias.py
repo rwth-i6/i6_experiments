@@ -141,31 +141,33 @@ def run_lbs_960_conformer_rel_pos() -> SummaryReport:
     system.setup_scoring(score_kwargs={"sctk_binary_path": SCTK_BINARY_PATH})
 
     # ********** Returnn Configs **********
-    for bias_layer_index in [6, 8]:
-        for method, scale in [("tanh", 2), ("tanh", 1)]:
-            start_step = 100 * 370 # start after 100 subepochs(20% steps) for now 
-            peak_lr = 1e-3
-            aux_losses = {"12": 1, str(bias_layer_index): 0.3}
-            network_args = {
-                "aux_losses": aux_losses,
-                "d_model": 512,
-                "bias_layer_index": bias_layer_index,
-                "compute_bias_args": {"method": method, "scale": scale, "start_step": start_step},
-            }
-            peak_lr_dict = {
-                "initial_lr": peak_lr / 100,
-                "peak_lr": peak_lr,
-                "final_lr": 1e-8,
-            }
-            str_peak_lr = str(peak_lr).replace("-", "_").replace(".", "_")
+    for bias_layer_index in [6, 8, 10]:
+    #for method, scale in [("tanh", 2), ("tanh", 1)]:
+        start_step = 100 * 370 # start after 100 subepochs(20% steps) for now 
+        peak_lr = 1e-3
+        aux_losses = {"12": 1, str(bias_layer_index): 0.3}
+        network_args = {
+            "aux_losses": aux_losses,
+            "d_model": 512,
+            "bias_layer_index": bias_layer_index,
+            "compute_bias_type": "learnable_embedding",
+            #"compute_bias_args": {"method": method, "scale": scale, "start_step": start_step},
+            "compute_bias_args": {"start_step": start_step, "embed_dim": 512//8}
+        }
+        peak_lr_dict = {
+            "initial_lr": peak_lr / 100,
+            "peak_lr": peak_lr,
+            "final_lr": 1e-8,
+        }
+        str_peak_lr = str(peak_lr).replace("-", "_").replace(".", "_")
 
-            extra_config = {}
-            system.add_experiment_configs(
-                f"from_scratch_lbs_960_lr{str_peak_lr}_biasLayer{bias_layer_index}_{method}Bias_scale{scale}",
-                get_returnn_config_collection(data.train_data_config, data.cv_data_config,
-                                                extra_config=extra_config, lr=peak_lr_dict,
-                                                batch_size=100000 * 160, network_args=network_args)
-            )
+        extra_config = {}
+        system.add_experiment_configs(
+            f"from_scratch_lbs_960_lr{str_peak_lr}_biasLayer{bias_layer_index}_learnableEmbed",
+            get_returnn_config_collection(data.train_data_config, data.cv_data_config,
+                                            extra_config=extra_config, lr=peak_lr_dict,
+                                            batch_size=100000 * 160, network_args=network_args)
+        )
 
     system.run_train_step(**train_args)
     for job in system._train_jobs.values():

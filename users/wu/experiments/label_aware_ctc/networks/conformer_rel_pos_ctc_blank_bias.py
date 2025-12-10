@@ -111,7 +111,7 @@ class SoftCTCComputeBias(AbstractComputeBias):
         
         return bias 
 
-class ContinuousEmbeddingComputeBias(AbstractComputeBias):
+class LearnableEmbeddingComputeBias(AbstractComputeBias):
     def __init__(self, embed_dim: int, start_step: int = 0):
         super().__init__(start_step=start_step)
         
@@ -127,7 +127,7 @@ class ContinuousEmbeddingComputeBias(AbstractComputeBias):
             return None
         
         blank_logits = logits[:, :, 0:1] 
-        k_bias = self.projection(clipped_logits)  # [B, T, D]
+        k_bias = self.projection(blank_logits)  # [B, T, D]
         k_bias = k_bias.unsqueeze(2)  # [B, T, 1(H), D]
         
         return k_bias
@@ -181,8 +181,8 @@ class ConformerCTCModel(torch.nn.Module):
             # Setup Bias Strategy
             if cfg.compute_bias_type == "soft_ctc":
                 self.compute_bias = SoftCTCComputeBias(**cfg.compute_bias_args)
-            elif cfg.compute_bias_type == "embedding_ctc":
-                self.compute_bias = ContinuousEmbeddingComputeBias(**cfg.compute_bias_args)
+            elif cfg.compute_bias_type == "learnable_embedding":
+                self.compute_bias = LearnableEmbeddingComputeBias(**cfg.compute_bias_args)
             else:
                 raise ValueError(f"Unknown compute bias type: {cfg.compute_bias_type}")
 
