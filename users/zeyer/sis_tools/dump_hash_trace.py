@@ -75,6 +75,9 @@ from sisyphus.hash import sis_hash_helper as _orig_sis_hash_helper
 from sisyphus.hash import _obj_type_qualname, _BasicDictTypes, _BasicSeqTypes, _BasicTypes
 
 
+_orig_sis_path_sis_hash = AbstractPath._sis_hash
+
+
 def main():
     logging.basicConfig(
         level=logging.DEBUG,
@@ -95,6 +98,8 @@ def main():
     # Do that early, such that all imports of sis_hash_helper get our patched version.
     sisyphus.hash.sis_hash_helper = _patched_sis_hash_helper
     sisyphus.job_path.sis_hash_helper = _patched_sis_hash_helper
+    # Some objects directly call this, e.g. PtCheckpoint
+    sisyphus.job_path.AbstractPath._sis_hash = _patched_sis_path_sis_hash
 
     if args.custom_sis_import_paths:
         gs.IMPORT_PATHS = args.custom_sis_import_paths
@@ -245,6 +250,12 @@ def _patched_sis_hash_helper(obj: Any) -> bytes:
     info.extend(["\n -> ", _short_hash_from_binary(hash_)])
 
     return hash_
+
+
+def _patched_sis_path_sis_hash(self: AbstractPath) -> bytes:
+    if not _enabled:
+        return _orig_sis_path_sis_hash(self)
+    return _sis_path_hash_helper(self)
 
 
 def _sis_job_hash_helper(job: Job) -> bytes:
