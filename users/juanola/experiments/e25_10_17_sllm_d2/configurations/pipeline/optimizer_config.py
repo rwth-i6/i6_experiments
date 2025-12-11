@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any, Callable
 
 from i6_experiments.users.juanola.training.optimizer.optimizer import conformer_aed_weight_decay_blacklist_v2
 
@@ -13,9 +14,9 @@ class OptimizerConfig:
 
     epsilon: float = 1e-16
     weight_decay: float = 0.01
-    weight_decay_custom_include_check = conformer_aed_weight_decay_blacklist_v2
+    weight_decay_custom_include_check: Callable = conformer_aed_weight_decay_blacklist_v2
 
-    def get_optimizer_returnn_config(self):
+    def get_optimizer_returnn_config(self) -> dict[str, dict[str, Any]]:
         """
         Contains Returnn logic.
 

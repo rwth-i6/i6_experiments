@@ -12,12 +12,12 @@ class DynamicLearningRateConfig:
     Can contain default values.
     """
     base_lr: float = 1.0
-    peak_lr: float = 1e-3,
-    low_lr: float = 1e-5,
-    lowest_lr: float = 1e-6,
+    peak_lr: float = 1e-3
+    low_lr: float = 1e-5
+    lowest_lr: float = 1e-6
 
-    step_peak_fraction: float = 0.45,
-    step_finetune_fraction: float = 0.9,
+    step_peak_fraction: float = 0.45
+    step_finetune_fraction: float = 0.9
 
     def get_dynamic_lr_returnn_config(self, train_epochs: int) -> Dict[str, Any]:
         """
