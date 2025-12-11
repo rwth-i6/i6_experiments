@@ -2,7 +2,7 @@
 Some layered structure
 """
 
-from typing import Any, Sequence, Tuple, Dict
+from typing import Any, Optional, Sequence, Tuple, Dict
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder, ISeqFramewiseEncoder, IEncoder
@@ -26,10 +26,12 @@ class Layered(ISeqDownsamplingEncoder):
             )
         self.out_dim = self.layers[-1].out_dim
 
-    def __call__(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+    def __call__(
+        self, source: Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
+    ) -> Tuple[Tensor, Dim]:
         tensor = source
         spatial_dim = in_spatial_dim
-        for layer in self.layers:
+        for name, layer in self.layers.items():
             if isinstance(layer, ISeqDownsamplingEncoder):
                 tensor, spatial_dim = layer(tensor, in_spatial_dim=spatial_dim)
             elif isinstance(layer, ISeqFramewiseEncoder):
@@ -38,4 +40,6 @@ class Layered(ISeqDownsamplingEncoder):
                 tensor = layer(tensor)
             else:
                 raise TypeError(f"Unsupported layer type: {type(layer)}")
+            if collected_outputs is not None:
+                collected_outputs[name] = tensor
         return tensor, spatial_dim
