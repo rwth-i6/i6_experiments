@@ -115,7 +115,9 @@ class CtcLoss(ILayerUsingTargets):
     ) -> Tensor:
         if targets is None:
             return source
+
         logits = self.linear(source)
+
         loss = rf.ctc_loss(
             logits=logits,
             logits_normalized=False,
@@ -130,4 +132,21 @@ class CtcLoss(ILayerUsingTargets):
             custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
             use_normalized_loss=self.use_normalized_loss,
         )
+
+        decoded, decoded_spatial_dim = rf.ctc_greedy_decode(
+            logits,
+            in_spatial_dim=spatial_dim,
+            blank_index=self.blank_index,
+            wb_target_dim=self.wb_target_dim,
+            target_dim=targets.sparse_dim,
+        )
+        error = rf.edit_distance(
+            a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
+        )
+        error.mark_as_loss(
+            f"{self.loss_name}_err",
+            as_error=True,
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+        )
+
         return source
