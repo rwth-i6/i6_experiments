@@ -12,7 +12,7 @@ import math
 from returnn.log import log
 from decimal import Decimal
 from itertools import islice
-from typing import Callable
+from typing import Any, Callable
 from collections.abc import Iterator, Sequence
 import torch
 from returnn.torch.frontend._backend import TorchBackend
@@ -20,20 +20,35 @@ from returnn.torch.frontend._backend import TorchBackend
 
 class ConcatDataPostproc(Callable[[Iterator[TensorDict]], Iterator[TensorDict]]):
     """
-    Takes two seqs, and concatenates them (sometimes)
+    Takes two seqs, and concatenates them (sometimes, randomly)
     """
 
     preserves_num_seqs = False
 
-    def __init__(self, concat_keys: Sequence[str], *, concat_prob: float = 0.1, length_key: str = "data"):
+    def __init__(
+        self,
+        concat_keys: Sequence[str],
+        *,
+        concat_prob: float = 0.1,
+        length_key: str = "data",
+        separator: list | Any | None = None,
+    ):
         """
         :param concat_keys: data keys which should be concatenated
         :param concat_prob: probability of concatenating two sequences.
         :param length_key: data key to determine the segment length from for ordering.
+        :param separator: optional list of separator tokens to insert between concatenated sequences.
         """
         self.length_key = length_key
         self.concat_prob = concat_prob
         self.concat_keys = concat_keys
+
+        if separator is None:
+            self.separator = None
+        elif not isinstance(separator, (list, tuple)):
+            self.separator = [separator]
+        else:
+            self.separator = list(separator)
 
     def __call__(self, iterator: Iterator[TensorDict], **kwargs) -> Iterator[TensorDict]:
         """:return: generator"""
@@ -51,7 +66,10 @@ class ConcatDataPostproc(Callable[[Iterator[TensorDict]], Iterator[TensorDict]])
                     for name, tensor in n.data.items():
                         print(f"ConcatDataPostproc: tensor '{name}': {tensor}")
 
+                # print("Seq tag:", n.data["seq_tag"].raw_tensor)
+
                 if random.random() > self.concat_prob:
+                    # print("  not concatenating")
                     yield n
                     continue
 
@@ -61,8 +79,11 @@ class ConcatDataPostproc(Callable[[Iterator[TensorDict]], Iterator[TensorDict]])
                     yield n
                     break
 
+                # print("Concat with:", m.data["seq_tag"].raw_tensor)
+
                 # we copy everything from m, because that tensors' complete_frac and other info is more relevant
                 x = {}
+                assert all(name in m.data for name in self.concat_keys)
                 for name, tensor in m.data.items():
                     if name in self.concat_keys:
                         assert len(n.data[name].dims_set) == 1
@@ -80,7 +101,11 @@ class ConcatDataPostproc(Callable[[Iterator[TensorDict]], Iterator[TensorDict]])
                         assert b.ndim == 1
 
                         # apparently these are numpy arrays???
-                        concat = numpy.concatenate([a, b], axis=0)
+                        if self.separator is not None and len(self.separator) > 0:
+                            concat = numpy.concatenate([a, numpy.array(self.separator, dtype=a.dtype), b], axis=0)
+                        else:
+                            concat = numpy.concatenate([a, b], axis=0)
+                        # print(f"  key '{name}': {a} + {b} -> {concat}")
                         # concat = torch.cat([a, b], dim=0)
 
                         # rf.convert_to_tensor crashes for some reason...
