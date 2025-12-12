@@ -42,7 +42,7 @@ v2 = {
     },
 }
 
-# Modified version of v2 for debugging
+# Modified version of v2 for debugging [only for testing -> worst results!!]
 v3 = {
     "aux_loss_layers": (4, 6),  # from (4, 8)
     "num_enc_layers": 6,  # from 12
