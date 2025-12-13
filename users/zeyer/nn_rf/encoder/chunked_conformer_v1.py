@@ -434,6 +434,7 @@ class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
                 key_value_spatial_dim=hist_dim_,
                 feat_dim=self.pos_emb_feat_dim,
                 query_offset=query_offset,
+                device=source.device,
             )
         if self.pos_emb_dropout:
             pos_emb = rf.dropout(pos_emb, self.pos_emb_dropout)
