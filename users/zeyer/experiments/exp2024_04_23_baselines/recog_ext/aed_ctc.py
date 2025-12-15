@@ -50,7 +50,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     prefix: str,
     task: Task,
     aed_ctc_model: ModelWithCheckpoint,
-    aux_ctc_layer: int,
+    aux_ctc_layer: Optional[int],
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,  # default
@@ -83,7 +83,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
         "recog_recomb": recomb_type,
         "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
-        "aux_loss_layers": [aux_ctc_layer],
+        "aux_loss_layers": [aux_ctc_layer] if aux_ctc_layer is not None else [],
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
