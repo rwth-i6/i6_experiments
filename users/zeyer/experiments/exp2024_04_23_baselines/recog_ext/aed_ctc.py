@@ -741,8 +741,6 @@ def model_recog_with_recomb(
     """
     import returnn
     from returnn.config import get_global_config
-    from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
-    from returnn.util.collect_outputs_dict import CollectOutputsDict
 
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
