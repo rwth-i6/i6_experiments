@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from i6_experiments.users.juanola.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
+from i6_experiments.users.juanola.training.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 
 def get_cfg_lrlin_oclr_by_bs_nep_v4(

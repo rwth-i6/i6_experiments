@@ -1,11 +1,11 @@
 import copy
 from functools import partial
 
+from sisyphus import tk
+
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.experiments.e25_09_08_demo1_sllm.aed import model_configs, optimizer_configs, \
     learning_rate_configs
-from sisyphus import tk
-
 from .tune_eval import build_base_report, eval_model
 from ..data.common import build_test_dataset
 from ..data.spm import build_spm_training_datasets
@@ -67,7 +67,7 @@ def aed_baseline():
     for model_config, model_alias in [
         # (copy.deepcopy(model_configs.v1), "v1"),  # did not converge
         (copy.deepcopy(model_configs.v2), "v2"),
-        (copy.deepcopy(model_configs.v3), "v3"),  # For testing, worst than v2
+        (copy.deepcopy(model_configs.v3), "v3"),  # For testing, worse than v2
     ]:
         # MODEL TRAINING
         sampling_rate = model_config["sampling_rate"]
