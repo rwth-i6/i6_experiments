@@ -65,7 +65,7 @@ def sllm_ep(
 
 
         # DEBUGGING CHANGES
-        if debug:
+        if debug: # TODO: this should modify the experiment object!
             TRAINING_BATCH_SIZE = 21_000
             partition_epochs = 1
             # TODO: move this to config? NUM_GPUS = 1

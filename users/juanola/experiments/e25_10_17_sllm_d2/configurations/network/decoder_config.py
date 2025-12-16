@@ -1,5 +1,7 @@
 from dataclasses import dataclass, replace
 
+from sklearn.utils import deprecated
+
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import \
     HasNameProtocol
 
@@ -49,7 +51,7 @@ class DecoderConfig(HasNameProtocol):
 Specific configurations set below.
 """
 
-
+@deprecated("Needs decoder dropout")
 def decoder_baseline() -> DecoderConfig:
     return DecoderConfig()
 
@@ -61,6 +63,7 @@ def decoder_dropout() -> DecoderConfig:
     )
 
 
+@deprecated("BUG: Doesn't use DROPOUT DROPOUT + intermediate_size too large")
 def decoder_dropout_tuned() -> DecoderConfig:
     """
     Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
@@ -69,7 +72,7 @@ def decoder_dropout_tuned() -> DecoderConfig:
         decoder_baseline(),
         # bos_token_id=151643,
         # eos_token_id=151645,
-        intermediate_size=11008,
+        intermediate_size=11008, # WAS not needed
         max_position_embeddings=8192,
         # model_type="qwen2",
         rope_theta=10_000,
@@ -80,5 +83,17 @@ def decoder_dropout_tuned() -> DecoderConfig:
         # vocab_size=156032
     )
 
+def small_decoder() -> DecoderConfig:
+    return replace(
+        decoder_dropout(),
 
+        num_hidden_layers = 6, # 24
+        hidden_size = 512, # 896
+        intermediate_size = 2048, # 4864
+        num_attention_heads = 8, # 14
+
+        max_position_embeddings=8192,
+        rope_theta=10_000,
+        rms_norm_eps=1e-5,
+    )
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
