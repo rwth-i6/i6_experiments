@@ -9,7 +9,7 @@ class LinearAdapterWithConcatDownsampling(nn.Module):
             in_dim: int,
             out_dim: int,
             *,
-            downsampling_factor: int = 2,
+            downsampling_factor: int = 1, # TODO: move
             with_bias: bool = True,
     ):
         super().__init__()

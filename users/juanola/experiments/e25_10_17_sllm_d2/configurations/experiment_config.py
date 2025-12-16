@@ -6,7 +6,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.d
     label_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import \
     NetworkConfig, \
-    network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout, network_SLLM_small_decoder
+    network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout, network_SLLM_small_decoder, network_linear_adapter
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import \
     PriorConfig, prior_v1
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import \
@@ -69,5 +69,8 @@ def exp_v4() -> ExperimentConfig:
         prior=prior_v1(),
         search=search_baseline(),
     )
+
+def exp_v5() -> ExperimentConfig:
+    return replace(exp_v4(), network=network_linear_adapter())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

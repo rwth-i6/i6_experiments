@@ -27,10 +27,11 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from i6_models.primitives.specaugment import specaugment_v1_by_length
+from .adapters.linear_adapter import LinearAdapter
+from .adapters.linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling
 
 from .interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 from .interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
-from .linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling
 from .qwen2_decoder_state import Qwen2DecoderState
 
 
@@ -101,6 +102,9 @@ class Model(nn.Module, AedCtcModelProtocol,
             bos_idx: int,
             eos_idx: int,
             blank_idx: Optional[int] = None,
+
+            # ADAPTER
+            adapter_class_path: str,
 
             # RF DEFAULTS
             dropout: float = 0.1,
@@ -254,10 +258,13 @@ class Model(nn.Module, AedCtcModelProtocol,
             self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
 
             # Adapter
-            self.encoder_decoder_adapter = LinearAdapterWithConcatDownsampling(
+            adapter_class = eval(adapter_class_path)
+            self.encoder_decoder_adapter = adapter_class(
                 in_dim=encoder_dim,
                 out_dim=qwen2_config.hidden_size,
+                # TODO: more parameters could be passed through a dict or so!
             )
+
 
         if verbose:
             print(" ***** MODEL PARAMETERS *****")

@@ -18,6 +18,7 @@ def main():
     e3_d()
     e3_td()
     e3v4()
+    e3v5()
 
     # DEBUGS
     e3d()
@@ -50,6 +51,10 @@ def e3_td():
 
 def e3v4():
     ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER], itc_training=True)
+
+
+def e3v5():
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER], itc_training=True)
 
 
 """

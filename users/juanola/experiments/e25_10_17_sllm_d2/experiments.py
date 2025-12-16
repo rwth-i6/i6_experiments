@@ -105,7 +105,8 @@ def sllm_ep(
             epochs_to_evaluate = [partition_epochs]
         else:
             run_best_4 = run_best = run_test = True
-            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs)
+            specific_epochs = set({})
+            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs) | specific_epochs
 
         # Tune-Eval
         results: Dict[Any, Any] = create_tune_and_evaluate_jobs(
@@ -164,12 +165,11 @@ def get_network_args_and_alias(config: ExperimentConfig) -> dict[str, Any]:
     label_config = asdict(config.labels)
     fe_config = asdict(config.network.feature_extraction)
     encoder_config = asdict(config.network.encoder)
+    adapter_config = asdict(config.network.adapter)
     qwen2_decoder_config_job = Qwen2DecoderConfigJobV2(config.network.decoder, config.labels, target_filename=f"config-{config.network.decoder.name}-for-i6-spm.json")
-    decoder_config ={"config_path": qwen2_decoder_config_job.out_file}
+    decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
-
-    network_args = label_config | fe_config | encoder_config | decoder_config
-
+    network_args = label_config | fe_config | encoder_config | adapter_config | decoder_config
     return network_args
 
 
