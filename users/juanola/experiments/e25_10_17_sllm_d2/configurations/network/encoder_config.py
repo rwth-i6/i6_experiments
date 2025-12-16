@@ -29,6 +29,12 @@ class EncoderConfig(HasNameProtocol):
     # Spectrogram Augmentation
     specaug_start: Union[int, Tuple[int, int, int]] = 10,
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
     @property
     def name(self) -> str:
         return f"Conformer_l{self.num_enc_layers}"

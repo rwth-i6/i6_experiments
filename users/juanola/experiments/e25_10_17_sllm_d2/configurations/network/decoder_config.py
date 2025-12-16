@@ -1,9 +1,9 @@
 from dataclasses import dataclass, replace
+import warnings
 
-from sklearn.utils import deprecated
-
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import \
-    HasNameProtocol
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import (
+    HasNameProtocol,
+)
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,7 @@ class DecoderConfig(HasNameProtocol):
 
     Can contain default values.
     """
+
     architectures = ["Qwen2ForCausalLM"]
     attention_dropout: float = 0.0
     bos_token_id: int = 151643  # Modified in runtime!
@@ -31,7 +32,7 @@ class DecoderConfig(HasNameProtocol):
     num_key_value_heads: int = 2
     rms_norm_eps: float = 1e-06
     rope_theta: float = 1_000_000.0
-    #sliding_window: int = 131_072 # It's not being used because of use_sliding_window=False
+    # sliding_window: int = 131_072 # It's not being used because of use_sliding_window=False
     tie_word_embeddings: bool = True
     torch_dtype: str = "bfloat16"
     transformers_version: str = "4.40.1"
@@ -42,6 +43,10 @@ class DecoderConfig(HasNameProtocol):
     # ADDED
     mlp_dropout: float = 0.0
 
+    def __post_init__(self):
+        assert 0 <= self.attention_dropout <= 1, f"attention_dropout ({self.attention_dropout}) should be between 0 and 1"
+        assert 0 <= self.mlp_dropout <= 1, f"mlp_dropout ({self.mlp_dropout}) should be between 0 and 1"
+
     @property
     def name(self) -> str:
         return f"Qwen2_hl_{self.num_hidden_layers}"
@@ -51,8 +56,13 @@ class DecoderConfig(HasNameProtocol):
 Specific configurations set below.
 """
 
-@deprecated("Needs decoder dropout")
+
 def decoder_baseline() -> DecoderConfig:
+    warnings.warn(
+        "[Bad Performance] Needs decoder dropout",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return DecoderConfig()
 
 
@@ -63,11 +73,15 @@ def decoder_dropout() -> DecoderConfig:
     )
 
 
-@deprecated("BUG: Doesn't use DROPOUT DROPOUT + intermediate_size too large")
 def decoder_dropout_tuned() -> DecoderConfig:
     """
     Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
     """
+    warnings.warn(
+        "[BUG] Doesn't use DROPOUT DROPOUT + intermediate_size too large",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return replace(
         decoder_baseline(),
         # bos_token_id=151643,
@@ -77,23 +91,24 @@ def decoder_dropout_tuned() -> DecoderConfig:
         # model_type="qwen2",
         rope_theta=10_000,
         rms_norm_eps=1e-5,
-        #sliding_window=32_768, # It's not being used because of use_sliding_window=False
+        # sliding_window=32_768, # It's not being used because of use_sliding_window=False
         # torch_dtype="bfloat16",
             # use_mrope="false", # Not available in Qwen2 (but should be already false)
         # vocab_size=156032
     )
 
+
 def small_decoder() -> DecoderConfig:
     return replace(
         decoder_dropout(),
-
-        num_hidden_layers = 6, # 24
-        hidden_size = 512, # 896
-        intermediate_size = 2048, # 4864
-        num_attention_heads = 8, # 14
-
+        num_hidden_layers=6,  # 24
+        hidden_size=512,  # 896
+        intermediate_size=2048,  # 4864
+        num_attention_heads=8,  # 14
         max_position_embeddings=8192,
         rope_theta=10_000,
         rms_norm_eps=1e-5,
     )
+
+
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -11,6 +11,12 @@ class PriorConfig:
 
     batch_size: int
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 """
 Specific configurations set below.

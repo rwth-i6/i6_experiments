@@ -26,6 +26,12 @@ class TrainingConfig:
     num_gpus: int # Should be 1 for 48gb in i6 cluster
     gpu_memory: int
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 """
 Specific configurations set below.

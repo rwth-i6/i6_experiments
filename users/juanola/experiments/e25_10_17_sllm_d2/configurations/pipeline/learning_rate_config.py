@@ -19,6 +19,17 @@ class DynamicLearningRateConfig:
     step_peak_fraction: float = 0.45
     step_finetune_fraction: float = 0.9
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        assert self.step_peak_fraction <= self.step_finetune_fraction, f"step_peak_fraction ({self.step_peak_fraction}) should be before step_finetune_fraction ({self.step_finetune_fraction})"
+
+        assert self.lowest_lr <= self.low_lr, f"low_lr ({self.low_lr}) should not be lower than lowest_lr ({self.lowest_lr})"
+        assert self.low_lr <= self.peak_lr, f"peak_lr ({self.peak_lr}) should not be lower than low_lr ({self.low_lr})"
+
+
+
     def get_dynamic_lr_returnn_config(self, train_epochs: int) -> Dict[str, Any]:
         """
         Contains Returnn logic.

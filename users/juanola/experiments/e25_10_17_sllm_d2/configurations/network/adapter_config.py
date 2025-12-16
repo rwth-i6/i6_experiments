@@ -13,6 +13,12 @@ class AdapterConfig(HasNameProtocol):
     """
     adapter_class_path: str
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
     # add parameters if needed
 
     @property

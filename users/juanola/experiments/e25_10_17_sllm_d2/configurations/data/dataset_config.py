@@ -16,6 +16,12 @@ class DatasetConfig:
     train_additional_options: Optional[Dict[str, Any]]
     sampling_alpha: float = 0.7
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 """
 Specific configurations set below.

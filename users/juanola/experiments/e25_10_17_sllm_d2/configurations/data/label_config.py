@@ -13,6 +13,12 @@ class LabelConfig:
     bos_idx: int
     eos_idx: int
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 """
 Specific configurations set below.

@@ -16,6 +16,13 @@ class OptimizerConfig:
     weight_decay: float = 0.01
     weight_decay_custom_include_check: Callable = conformer_aed_weight_decay_blacklist_v2
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
+
     def get_optimizer_returnn_config(self) -> dict[str, dict[str, Any]]:
         """
         Contains Returnn logic.

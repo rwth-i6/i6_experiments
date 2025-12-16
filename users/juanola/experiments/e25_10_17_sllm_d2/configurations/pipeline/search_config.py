@@ -17,6 +17,12 @@ class SearchConfig:
 
     beam_search: BeamSearchConfig
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 """
 Specific configurations set below.

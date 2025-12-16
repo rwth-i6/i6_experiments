@@ -17,6 +17,12 @@ class BeamSearchConfig:
     ilm_weight: Optional[float]
     prior_scale: Optional[float]
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 def beam_search_baseline() -> BeamSearchConfig:
     return BeamSearchConfig(

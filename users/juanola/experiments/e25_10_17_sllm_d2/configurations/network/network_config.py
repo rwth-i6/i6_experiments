@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass, replace
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.adapter_config import (
@@ -38,6 +39,12 @@ class NetworkConfig(HasNameProtocol):
     adapter: AdapterConfig
     decoder: DecoderConfig
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
     @property
     def name(self) -> str:
         return f"{self.encoder.name}-{self.adapter.name}-{self.decoder.name}"
@@ -67,6 +74,11 @@ def network_SLLM_dropout() -> NetworkConfig:
 
 
 def network_SLLM_tuned_dropout() -> NetworkConfig:
+    warnings.warn(
+        "[BUG] Doesn't use DROPOUT DROPOUT + intermediate_size too large",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return NetworkConfig(
         feature_extraction=feature_extraction_baseline(),
         encoder=encoder_baseline(),

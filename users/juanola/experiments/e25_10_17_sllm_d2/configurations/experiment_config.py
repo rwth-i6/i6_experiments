@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass, replace
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.dataset_config import DatasetConfig, \
@@ -56,6 +57,11 @@ def exp_v2() -> ExperimentConfig:
 
 
 def exp_v3() -> ExperimentConfig:
+    warnings.warn(
+        "[BUG] Doesn't use DROPOUT DROPOUT + intermediate_size too large",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return replace(exp_baseline(), network=network_SLLM_tuned_dropout())
 
 def exp_v4() -> ExperimentConfig:

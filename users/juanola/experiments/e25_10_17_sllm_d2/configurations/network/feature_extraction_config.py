@@ -15,6 +15,12 @@ class FeatureExtractionConfig:
 
     n_mels: int = 80
 
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        pass
+
 
 """
 Specific configurations set below.
