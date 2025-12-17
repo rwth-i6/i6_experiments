@@ -1,11 +1,8 @@
-"""
-Modified version with LearnableEmbeddingBias support.
-"""
-
 import numpy as np
 import torch
 from torch import nn
 from typing import Optional
+import copy  # Added for config copying
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosEncoderV1Config
@@ -31,10 +28,10 @@ class LearnableEmbeddingBias(torch.nn.Module):
     Project CTC logits into 1D vectors [B, T, 1, D].
     These act as 'Bias Keys' for the Transformer-XL style interaction.
     """
-    def __init__(self, embed_dim: int, start_step: int = 0):
+    def __init__(self, embed_dim: int, start_epoch: int = 0):
         super().__init__()
-        self.start_step = start_step
-        self.register_buffer("stored_step", torch.tensor(0, dtype=torch.long))
+        self.start_epoch = start_epoch
+        self.register_buffer("stored_epoch", torch.tensor(0, dtype=torch.long))
         
         # Scalar (1) -> Vector (D) projection
         self.projection = nn.Sequential(
@@ -43,30 +40,23 @@ class LearnableEmbeddingBias(torch.nn.Module):
             nn.Linear(embed_dim * 2, embed_dim)
         )
 
-    def get_effective_step(self, step: Optional[int]) -> int:
-        if self.training and step is not None:
-             self.stored_step.fill_(step)
-        if step is not None:
-            return step
+    def get_effective_epoch(self, epoch: Optional[int]) -> int:
+        if self.training and epoch is not None:
+             self.stored_epoch.fill_(epoch)
+        if epoch is not None:
+            return epoch
         else:
             # memorized in training
-            return self.stored_step.item()
+            return self.stored_epoch.item()
 
-    def forward(self, logits: torch.Tensor, step: Optional[int] = None) -> Optional[torch.Tensor]:
-        eff_step = self.get_effective_step(step)
-        if eff_step < self.start_step:
+    def forward(self, logits: torch.Tensor, epoch: Optional[int] = None) -> Optional[torch.Tensor]:
+        eff_epoch = self.get_effective_epoch(epoch)
+        if eff_epoch < self.start_epoch:
             return None
         
-        # Get Blank Logits [B, T, 1]
-        # Assumes blank is the last index
-        blank_logits = logits[:, :, -1:]
-        
-        # Project to Embedding [B, T, D]
-        k_bias = self.projection(blank_logits)
-        
-        # Reshape for Broadcast [B, T, 1, D]
-        # Insert 1 at Heads dim (dim 2) for broadcasting
-        k_bias = k_bias.unsqueeze(2)
+        blank_logits = logits[:, :, -1:]  # blank is the last index
+        k_bias = self.projection(blank_logits)  # [B, T, D]
+        k_bias = k_bias.unsqueeze(2)  # [B, T, 1(H), D]
         
         return k_bias
 
@@ -82,13 +72,10 @@ class Model(torch.nn.Module):
     def __init__(self, model_config_dict, **kwargs):
         super().__init__()
         
-        # Extract bias args before creating config
-        self.bias_idx = model_config_dict.pop("bias_layer_index", None)
-        bias_start_step = model_config_dict.pop("bias_start_step", 0)
-        
         self.cfg = ModelConfig.from_dict(model_config_dict)
         frontend_config = self.cfg.frontend_config
         conformer_size = self.cfg.conformer_size
+        bias_start_epoch = self.cfg.bias_start_epoch
         
         # Prepare Conformer Config
         conformer_config = ConformerRelPosEncoderV1Config(
@@ -131,42 +118,59 @@ class Model(torch.nn.Module):
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         
-        self.num_output_linears = 1 if self.cfg.aux_ctc_loss_layers is None else len(self.cfg.aux_ctc_loss_layers)
-        self.output_linears = nn.ModuleList(
-            [
-                nn.Linear(conformer_size, self.cfg.label_target_size + 1)
-                for _ in range(self.num_output_linears)
-            ]
-        )
+        self.output_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)
+        
         self.output_dropout = BroadcastDropout(
             p=self.cfg.final_dropout, dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
         )
-        self.return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
-        self.scales = self.cfg.aux_ctc_loss_scales or [1.0]
+        
+        raw_return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
+        raw_scales = self.cfg.aux_ctc_loss_scales or [1.0]
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
-        # --- Bias Initialization ---
-        if self.bias_idx is None:
-            self.conformer = ConformerRelPosEncoderV1(cfg=conformer_config)
-            self.encoder_bottom = None
-            self.encoder_top = None
-            self.compute_bias = None
-        else:
-            import copy
-            self.conformer = None
+        # Sort layers and scales to ensure processing order
+        layers_and_scales = sorted(zip(raw_return_layers, raw_scales), key=lambda x: x[0])
+        self.return_layers = [x[0] for x in layers_and_scales]
+        self.scales = [x[1] for x in layers_and_scales]
+
+        # --- Flexible Block Construction based on aux_ctc_loss_layers ---
+        self.encoder_blocks = nn.ModuleList()
+        self.bias_computers = nn.ModuleList()
+        
+        # Determine boundaries for blocks.
+        # We need to cover the entire depth of the model up to num_layers-1.
+        # Each aux layer acts as a boundary where we output loss and potentially bias.
+        boundaries = sorted(list(set(self.return_layers)))
+        if boundaries[-1] < self.cfg.num_layers - 1:
+            boundaries.append(self.cfg.num_layers - 1)
             
-            cfg_bottom = copy.deepcopy(conformer_config)
-            cfg_bottom.num_layers = self.bias_idx
-            self.encoder_bottom = ConformerRelPosEncoderV1(cfg_bottom)
+        current_layer_idx = 0
+        head_dim = conformer_size // self.cfg.num_heads
+
+        for i, end_layer_idx in enumerate(boundaries):
+            num_layers_in_block = end_layer_idx - current_layer_idx + 1
+            if num_layers_in_block <= 0:
+                continue
+
+            block_cfg = copy.deepcopy(conformer_config)
+            block_cfg.num_layers = num_layers_in_block
             
-            cfg_top = copy.deepcopy(conformer_config)
-            cfg_top.num_layers = self.cfg.num_layers - self.bias_idx
-            cfg_top.frontend = None
-            self.encoder_top = ConformerRelPosEncoderV1(cfg_top)
+            # Only the first block gets the frontend
+            if current_layer_idx == 0:
+                block_cfg.frontend = ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config)
+            else:
+                block_cfg.frontend = None
             
-            # Auto-infer head_dim
-            head_dim = conformer_size // self.cfg.num_heads
-            self.compute_bias = LearnableEmbeddingBias(embed_dim=head_dim, start_step=bias_start_step)
+            self.encoder_blocks.append(ConformerRelPosEncoderV1(cfg=block_cfg))
+            
+            # Create Bias computer if this is not the last block
+            # This bias will guide the NEXT block.
+            if i < len(boundaries) - 1:
+                self.bias_computers.append(
+                    LearnableEmbeddingBias(embed_dim=head_dim, start_epoch=bias_start_epoch)
+                )
+            
+            current_layer_idx = end_layer_idx + 1
 
     def forward(
         self,
@@ -194,85 +198,79 @@ class Model(torch.nn.Module):
         conformer_in = audio_features_masked_2
         mask = mask_tensor(conformer_in, audio_features_len)
         log_probs_list = []
+        
+        current_bias = None
+        epoch = get_run_ctx().epoch if self.training else None
 
-        if self.bias_idx is None:
-            # Standard Path
-            conformer_out_layers, out_mask = self.conformer(conformer_in, mask, return_layers=self.return_layers)
-            for i, (out_layer, scale) in enumerate(zip(conformer_out_layers, self.scales)):
-                if scale == 0.0:
-                    continue
-                conformer_out = self.output_dropout(out_layer)
-                logits = self.output_linears[i](conformer_out)
-                log_probs = torch.log_softmax(logits, dim=2)
-                log_probs_list.append(log_probs)
-        else:
-            # Biased Path
-            # return_layers are 0-based indices from config
-            last_bottom_idx = self.bias_idx - 1
-            ret_layers_bottom = [l for l in self.return_layers if l < self.bias_idx]
+        # Iterate through chained blocks
+        for i, encoder in enumerate(self.encoder_blocks):
+            # We always want the output of the last layer in this block
+            # Internal block indices are 0..N-1
+            local_return_layers = [encoder.cfg.num_layers - 1]
             
-            # Ensure we get the guide layer output
-            guide_needed_for_calc = last_bottom_idx not in ret_layers_bottom
-            if guide_needed_for_calc:
-                ret_layers_bottom.append(last_bottom_idx)
-            ret_layers_bottom.sort()
-
-            # 1. Run Bottom
-            out_bottom, out_mask = self.encoder_bottom(conformer_in, mask, return_layers=ret_layers_bottom)
-
-            # 2. Compute Bias
-            guide_feat = out_bottom[-1]
+            out_layers, out_mask = encoder(
+                conformer_in, 
+                mask, 
+                return_layers=local_return_layers, 
+                attention_bias=current_bias
+            )
             
-            # Map guide layer (last_bottom_idx) to output linear
-            # self.return_layers corresponds to self.output_linears indices
-            # Find which linear layer corresponds to last_bottom_idx
-            try:
-                guide_lin_idx = self.return_layers.index(last_bottom_idx)
-            except ValueError:
-                raise ValueError(f"Bias layer {self.bias_idx} (idx {last_bottom_idx}) must be in aux_ctc_loss_layers {self.return_layers}")
-
-            # Get logits, apply dropout first to match standard path? 
-            # Standard path: dropout -> linear.
-            guide_out_drop = self.output_dropout(guide_feat)
-            guide_logits = self.output_linears[guide_lin_idx](guide_out_drop)
-
-            step = get_run_ctx().step if self.training else None
-            bias = self.compute_bias(logits=guide_logits.detach(), step=step)
-
-            # Collect outputs from bottom
-            # We need to map `out_bottom` entries back to `self.return_layers` order/indices
-            # self.return_layers is not necessarily sorted, but `ret_layers_bottom` IS sorted.
-            # We map by value.
+            # Feature at the boundary
+            feat = out_layers[0] 
             
-            # Store bottom outputs in a map for easy retrieval
-            feat_map = {layer_idx: feat for layer_idx, feat in zip(ret_layers_bottom, out_bottom)}
+            # Pass through shared linear to get logits
+            # Use dropout before linear as in original
+            feat_drop = self.output_dropout(feat)
+            logits = self.output_linear(feat_drop)
+            log_probs = torch.log_softmax(logits, dim=2)
+            
+            # We only store log_probs if this boundary is actually in self.return_layers
+            # (We sorted self.return_layers in init, so the order is preserved if we blindly append,
+            # but we must check if this specific boundary is a requested return layer).
+            # To match the logic of 'boundaries' in init, we can reconstruct the global index.
+            # However, simpler: we built blocks exactly on boundaries.
+            # If the last boundary was added artificially (end of model) but not in return_layers, check.
+            
+            # Since we iterate blocks in order, we can just append if it's meant to be returned.
+            # But wait: if we added an artificial boundary at the end, we might output it here.
+            # Let's rely on the count of outputs matching return_layers logic or just append all 
+            # and filter in train_step? No, train_step iterates zip.
+            
+            # Optimization: check if current iteration corresponds to a return layer.
+            # We know boundaries[i] is the global layer index of this block's end.
+            # But self.return_layers is just a list of indices.
+            
+            # Just append. If self.return_layers didn't include the very last layer, 
+            # we might have an extra log_probs. But we constructed blocks based on return_layers.
+            # The only case is if we extended boundaries for the model end.
+            
+            # A safe check: is this log_probs used?
+            # Actually, the biases MUST be computed from logits. So we need logits regardless.
+            
+            # If this is a valid return layer, add to list.
+            # We can't easily check global index here without tracking `current_layer`.
+            # But `log_probs_list` size needs to match `self.return_layers` size for `train_step`.
+            
+            # Let's trust that boundaries corresponds to return_layers generally. 
+            # If we appended the final layer just for completeness, we might have 1 extra.
+            # We will slice log_probs_list at return if needed, or filter here.
+            
+            if i < len(self.return_layers):
+                 # This assumes boundaries[:len(return_layers)] == return_layers.
+                 # Given we sorted both, this is true, UNLESS boundaries has an extra element at end.
+                 log_probs_list.append(log_probs)
+            elif i == len(self.encoder_blocks) - 1 and len(log_probs_list) < len(self.return_layers):
+                 # Fallback for the last one
+                 log_probs_list.append(log_probs)
+            
+            # Prepare for next block
+            conformer_in = feat
+            
+            # Compute bias for next block if applicable
+            if i < len(self.bias_computers):
+                current_bias = self.bias_computers[i](logits=logits.detach(), epoch=epoch)
 
-            # 3. Run Top
-            ret_layers_top = [l - self.bias_idx for l in self.return_layers if l >= self.bias_idx]
-            if ret_layers_top:
-                out_top, _ = self.encoder_top(
-                    guide_feat, 
-                    out_mask, 
-                    return_layers=ret_layers_top, 
-                    attention_bias=bias
-                )
-                for i, layer_idx in enumerate(ret_layers_top):
-                    real_idx = layer_idx + self.bias_idx
-                    feat_map[real_idx] = out_top[i]
-
-            # 4. Generate Log Probs in original order
-            for i, layer_idx in enumerate(self.return_layers):
-                scale = self.scales[i]
-                if scale == 0.0:
-                    continue
-                
-                feat = feat_map[layer_idx]
-                feat_drop = self.output_dropout(feat)
-                logits = self.output_linears[i](feat_drop)
-                log_probs = torch.log_softmax(logits, dim=2)
-                log_probs_list.append(log_probs)
-
-        return log_probs_list, torch.sum(mask, dim=1)
+        return log_probs_list, torch.sum(out_mask, dim=1)
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):

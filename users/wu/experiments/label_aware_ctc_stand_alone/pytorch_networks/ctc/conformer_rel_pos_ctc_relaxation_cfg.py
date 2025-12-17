@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import torch
 from torch import nn
-from typing import Callable, List, Literal, Optional, Union
+from typing import Callable, List, Literal, Optional, Union, Dict
 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModelConfiguration
@@ -73,8 +73,11 @@ class ModelConfig:
     module_scales: List[float]
     aux_ctc_loss_layers: Optional[List[int]]
     aux_ctc_loss_scales: Optional[List[float]]
-    bias_layer_index: Optional[int]
-    bias_start_step: Optional[int]
+    enable_self_cond: bool
+    enable_attn_bias: bool
+    bias_start_epoch: Optional[int]
+    bias_compute_args: Optional[Dict]
+    share_bias_compute: bool
 
     @classmethod
     def from_dict(cls, d):

@@ -63,7 +63,8 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         run_ctx.running_audio_len_s += audio_len_batch
         am_start = time.time()
 
-    logprobs, audio_features_len = model(
+    # modification: layer-wise refinement will return one more thing
+    logprobs, audio_features_len, *_ = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
