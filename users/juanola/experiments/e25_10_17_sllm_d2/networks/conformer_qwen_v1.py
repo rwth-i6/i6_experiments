@@ -1,5 +1,6 @@
 __all__ = ["Model"]
 
+import importlib
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, TypedDict, Union, Any
 
 import tree
@@ -27,8 +28,8 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from i6_models.primitives.specaugment import specaugment_v1_by_length
-from .adapters.linear_adapter import LinearAdapter
-from .adapters.linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling
+from .adapters.linear_adapter import LinearAdapter # NEEDED!
+from .adapters.linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling # NEEDED!
 
 from .interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 from .interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
@@ -43,6 +44,11 @@ from .qwen_decoder.modeling_qwen2_with_dropout import Qwen2ForCausalLM
 def _relu_sq(x):
     """Squared ReLU."""
     return nn.functional.relu(x) ** 2.0
+
+def load_class_from_path(class_path: str): # TODO: this should be improved maybe just storing an enum in the adapters package
+    module_path, class_name = class_path.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
 
 
 class _SpecAugArgs(TypedDict):
@@ -104,7 +110,7 @@ class Model(nn.Module, AedCtcModelProtocol,
             blank_idx: Optional[int] = None,
 
             # ADAPTER
-            adapter_class_path: str,
+            adapter_class_path: str = "i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.networks.adapters.linear_adapter_with_concat_downsampling.LinearAdapterWithConcatDownsampling",
 
             # RF DEFAULTS
             dropout: float = 0.1,
@@ -258,7 +264,7 @@ class Model(nn.Module, AedCtcModelProtocol,
             self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
 
             # Adapter
-            adapter_class = eval(adapter_class_path)
+            adapter_class = load_class_from_path(adapter_class_path)
             self.encoder_decoder_adapter = adapter_class(
                 in_dim=encoder_dim,
                 out_dim=qwen2_config.hidden_size,

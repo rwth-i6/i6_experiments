@@ -41,7 +41,7 @@ def linear_adapter_with_downsampling() -> AdapterConfig:
 
 def linear_adapter() -> AdapterConfig:
     return AdapterConfig(
-        adapter_class_path="i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.networks.adapters.linear_adapter.LinearAdapter.",
+        adapter_class_path="i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.networks.adapters.linear_adapter.LinearAdapter",
     )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
