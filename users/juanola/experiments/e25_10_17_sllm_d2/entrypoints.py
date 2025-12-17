@@ -57,6 +57,10 @@ def e3v5():
     ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER], itc_training=True)
 
 
+def e3v6():
+    ex3.sllm_ep([ExperimentVersion.V6_SMALL_DECODER_150kBS], itc_training=True)
+
+
 """
 DEBUGS
 """
@@ -83,4 +87,4 @@ def t1():
     t3.hf_config_download_test()
 
 
-__all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4"]
+__all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6"]

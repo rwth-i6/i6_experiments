@@ -58,5 +58,8 @@ def training_baseline() -> TrainingConfig:
 def itc_batch_size() -> TrainingConfig:
     return replace(training_baseline(), batch_size=80_000)
 
+def itc_batch_size_v2() -> TrainingConfig:
+    return replace(training_baseline(), batch_size=150_000)
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
