@@ -97,6 +97,17 @@ def decoder_dropout_tuned() -> DecoderConfig:
         # vocab_size=156032
     )
 
+def decoder_dropout_tuned_v2() -> DecoderConfig:
+    """
+    Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
+    """
+    return replace(
+        decoder_dropout(),
+        max_position_embeddings=8192,
+        rope_theta=10_000,
+        rms_norm_eps=1e-5,
+    )
+
 
 def small_decoder() -> DecoderConfig:
     return replace(

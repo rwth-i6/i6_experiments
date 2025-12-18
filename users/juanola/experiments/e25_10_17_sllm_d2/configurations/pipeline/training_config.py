@@ -1,7 +1,7 @@
 from dataclasses import dataclass, replace
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.learning_rate_config import \
-    DynamicLearningRateConfig, lr_baseline
+    DynamicLearningRateConfig, lr_baseline, lr_baseline_v3, lr_baseline_v2
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.optimizer_config import \
     OptimizerConfig, optimizer_baseline
 
@@ -60,6 +60,12 @@ def itc_batch_size() -> TrainingConfig:
 
 def itc_batch_size_v2() -> TrainingConfig:
     return replace(training_baseline(), batch_size=150_000)
+
+def bsv2_lrv2() -> TrainingConfig:
+    return replace(itc_batch_size_v2(), dynamic_lr=lr_baseline_v2())
+
+def bsv2_lrv3() -> TrainingConfig:
+    return replace(itc_batch_size_v2(), dynamic_lr=lr_baseline_v3())
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

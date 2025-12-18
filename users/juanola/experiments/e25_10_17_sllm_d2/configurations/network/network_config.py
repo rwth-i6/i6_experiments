@@ -11,7 +11,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     decoder_baseline,
     decoder_dropout,
     decoder_dropout_tuned,
-    small_decoder,
+    small_decoder, decoder_dropout_tuned_v2,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.encoder_config import (
     EncoderConfig,
@@ -84,6 +84,14 @@ def network_SLLM_tuned_dropout() -> NetworkConfig:
         encoder=encoder_baseline(),
         adapter=linear_adapter_with_downsampling(),
         decoder=decoder_dropout_tuned(),
+    )
+
+def network_SLLM_tuned_dropout_v2() -> NetworkConfig:
+    return NetworkConfig(
+        feature_extraction=feature_extraction_baseline(),
+        encoder=encoder_baseline(),
+        adapter=linear_adapter_with_downsampling(),
+        decoder=decoder_dropout_tuned_v2(),
     )
 
 

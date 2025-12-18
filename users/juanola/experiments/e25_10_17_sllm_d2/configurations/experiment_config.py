@@ -7,13 +7,15 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.d
     label_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import \
     NetworkConfig, \
-    network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout, network_SLLM_small_decoder, network_linear_adapter
+    network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout, network_SLLM_small_decoder, \
+    network_linear_adapter, \
+    network_SLLM_tuned_dropout_v2
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import \
     PriorConfig, prior_v1
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import \
     SearchConfig, search_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import \
-    TrainingConfig, training_baseline, itc_batch_size, itc_batch_size_v2
+    TrainingConfig, training_baseline, itc_batch_size, itc_batch_size_v2, bsv2_lrv2, bsv2_lrv3
 
 
 @dataclass(frozen=True)
@@ -81,5 +83,24 @@ def exp_v5() -> ExperimentConfig:
 
 def exp_v6() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_batch_size_v2())
+
+
+def exp_v7() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline(),
+        labels=label_baseline(),
+
+        network=network_SLLM_tuned_dropout_v2(), # !!
+
+        training=itc_batch_size(),
+        prior=prior_v1(),
+        search=search_baseline(),
+    )
+
+def exp_v8() -> ExperimentConfig:
+    return replace(exp_v7(), training=bsv2_lrv2())
+
+def exp_v9() -> ExperimentConfig:
+    return replace(exp_v7(), training=bsv2_lrv3())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
