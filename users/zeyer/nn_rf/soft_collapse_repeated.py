@@ -47,6 +47,7 @@ def soft_collapse_repeated_indices(
     classes_dim: Dim,
     threshold: float,
     alignment: Optional[Tensor] = None,
+    extra_keep_mask: Optional[Tensor] = None,
 ) -> Tensor:
     """
     :param log_probs: shape {OtherDims..., Spatial, Classes}
@@ -54,11 +55,14 @@ def soft_collapse_repeated_indices(
     :param classes_dim:
     :param threshold:
     :param alignment: optional. shape {OtherDims..., Spatial} -> Classes. if given, use that instead of argmax
+    :param extra_keep_mask: optional. shape {...} -> bool. if given, OR with the computed keep_mask
     :return: shape {OtherDims..., Spatial, Classes} -> out_spatial_dim
     """
     keep_mask = soft_collapse_repeated_keep_mask(
         log_probs, spatial_dim=spatial_dim, classes_dim=classes_dim, threshold=threshold, alignment=alignment
     )
+    if extra_keep_mask is not None:
+        keep_mask = rf.logical_or(keep_mask, extra_keep_mask)
     # To be sure.
     keep_mask = keep_mask.copy_masked(mask_value=False)  # {OtherDims..., Spatial}
     # Very similar to the internal masked_select code.
