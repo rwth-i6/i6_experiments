@@ -455,7 +455,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         :param state: Decoder state
         :returns: decoder output [Batch, Beam, Time=1, L]
         """
-        qwen_input_embeds = self.decoder.get_input_embeddings()(labels)
+        qwen_input_embeds = self.decoder_embed_func(labels)
         # print("****qwen_input_embeds size", qwen_input_embeds.size())
         B, beam, T, F = qwen_input_embeds.shape  # noqa
 
