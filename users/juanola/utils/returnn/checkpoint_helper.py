@@ -3,7 +3,7 @@ from typing import Set
 from returnn.util.math import next_power_of_two
 
 
-def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
+def default_returnn_keep_epochs(num_epochs: int, keep_last_epoch: bool = False) -> Set[int]:
     """
     Default keep_epochs in RETURNN when cleanup_old_models is enabled
     but "keep" is not specified.
@@ -32,9 +32,12 @@ def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
             break
         default_keep_pattern.add(n)
     for i in count():
-        n = keep_doubles_of * (2 ** i)
+        n = keep_doubles_of * (2**i)
         if n > num_epochs:
             break
         default_keep_pattern.add(n)
+
+    if keep_last_epoch:
+        default_keep_pattern.add(num_epochs)
 
     return default_keep_pattern

@@ -106,7 +106,7 @@ def sllm_ep(
         else:
             run_best_4 = run_best = run_test = True
             specific_epochs = set({})
-            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs) | specific_epochs
+            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
         # Tune-Eval
         results: Dict[Any, Any] = create_tune_and_evaluate_jobs(
