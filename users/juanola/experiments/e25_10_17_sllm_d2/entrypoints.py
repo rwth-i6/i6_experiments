@@ -29,6 +29,7 @@ def main():
 
     # TESTS
     t1()
+    report_t1()
 
 
 """
@@ -102,6 +103,15 @@ Tests entry points
 
 def t1():
     t3.hf_config_download_test()
+
+def report_t1():
+    t3.report_job_test_with_results()
+
+def report_t2():
+    t3.report_job_test_with_results_and_template()
+
+def report_t3():
+    t3.report_job_test_register_report()
 
 
 __all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6", "e3v7", "e3v8", "e3v9"]

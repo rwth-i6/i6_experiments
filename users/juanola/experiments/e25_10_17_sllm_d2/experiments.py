@@ -2,19 +2,20 @@ from dataclasses import asdict
 from functools import partial
 from typing import Any, Dict, Tuple
 
-from sisyphus import tk
-
 from returnn_common.datasets import Dataset
-from .constants import NETWORK_MODULE, TRAIN_STEP_MODULE, RECOGNITION_PACKAGE
+from sisyphus import tk
+from .configurations.data.dataset_config import DatasetConfig
+from .configurations.experiment_config import ExperimentConfig
+from .configurations.experiment_version import get_experiment_config
+from .constants import NETWORK_MODULE, TRAIN_STEP_MODULE, RECOGNITION_PACKAGE, SIS_BASE_REPORT_EXTENSION, \
+    SIS_OUTPUTS_REPORTS
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
 from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
-from .experiments_core.reporting.report import create_report_job, build_base_report
+from .experiments_core.reporting.base_report_templates import base_report_template_v0
+from .experiments_core.reporting.report_helper import generate_experiment_results_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
-from .configurations.data.dataset_config import DatasetConfig
-from .configurations.experiment_config import ExperimentConfig
-from .configurations.experiment_version import get_experiment_config
 from ...data.training_datasets import TrainingDatasets
 from ...sisyphus_jobs.configs.qwen2_decoder_config_job_v2 import Qwen2DecoderConfigJobV2
 from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
@@ -41,7 +42,9 @@ def sllm_ep(
     assert experiment_versions is not None, "at least one of experiment_versions is required"
     assert len(experiment_versions) > 0, "experiment_versions cannot be empty"
 
-    reports = {}
+    base_exps_name = "-".join([v.value for v in experiment_versions])
+
+    results_per_experiment = {}
     for exp_name, exp_config in [(v.value, get_experiment_config(v)) for v in experiment_versions]:
         # TODO: extract inside
 
@@ -109,7 +112,7 @@ def sllm_ep(
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
         # Tune-Eval
-        results: Dict[Any, Any] = create_tune_and_evaluate_jobs(
+        results: Dict[str, Any] = create_tune_and_evaluate_jobs(
             training_name=training_name,
             train_job=train_job,
 
@@ -138,21 +141,21 @@ def sllm_ep(
             recognition_batch_size=RECOGNITION_BATCH_SIZE,
             prior_batch_size=PRIOR_BATCH_SIZE,
         )
+        results_per_experiment[exp_name] = results
 
-        # MODEL REPORTING
-        create_report_job(results=results, exp_name=training_name)
-        report = {training_name: results}
-        del results
+        # REPORTING
+        # Experiment Report
+        generate_experiment_results_report(exp_results=results, exp_name=training_name)
+
+        # Update Base Report (for all experiment results)
         tk.register_report(
-            "reports/ls_baseline_report",
-            partial(build_base_report, report),
-            required=report,
+            f"{SIS_OUTPUTS_REPORTS}/base_report-{base_exps_name}.{SIS_BASE_REPORT_EXTENSION}",
+            results_per_experiment, #partial(base_report_template_v0, results_per_experiment), # TODO: check the template
+            required=results_per_experiment,
             update_frequency=900
         )
 
-        reports[training_name] = report  # TODO:REFACTOR change with config name
-
-    return reports
+    return results_per_experiment
 
 
 def get_network_args_and_alias(config: ExperimentConfig) -> dict[str, Any]:

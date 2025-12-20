@@ -56,7 +56,7 @@ def create_tune_and_evaluate_jobs(
         run_test: bool = False,
 
         result_dict: Optional[Dict[str, Any]] = None,
-) -> Dict[Any, Any]:
+) -> Dict[str, Any]:
     """
     Run evaluation jobs for different trained models
 
