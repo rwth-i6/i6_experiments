@@ -46,7 +46,7 @@ def main():
     from sisyphus import graph
     from i6_core.returnn.training import ReturnnTrainingJob
     from i6_core.returnn.forward import ReturnnForwardJobV2, ReturnnForwardJob
-    from i6_experiments.users.zeyer.utils.job_log import get_recent_job_log_change_time
+    from i6_experiments.users.zeyer.utils.job_log import get_job_log_creation_time
 
     # First line in cleanup_unused.__doc__ indentation is broken...
     cleanup_unused_doc_lines = tk.cleaner.cleanup_unused.__doc__.splitlines()
@@ -83,15 +83,15 @@ def main():
 
     jobs = []
     for job in graph.graph.jobs():
-        if not job._sis_finished():
+        if not os.path.exists(job._sis_path()):
             continue
         if not isinstance(job, job_types):
             continue
 
-        mtime = get_recent_job_log_change_time(job)
-        if mtime < args.start_time:
+        ctime = get_job_log_creation_time(job)
+        if ctime < args.start_time:
             continue
-        print("***", job, ": mtime: ", datetime.datetime.fromtimestamp(mtime))
+        print("***", job, ": mtime: ", datetime.datetime.fromtimestamp(ctime))
         jobs.append(job)
 
     tk.remove_job_and_descendants(jobs=jobs, mode=args.mode)

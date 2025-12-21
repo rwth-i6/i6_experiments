@@ -107,3 +107,36 @@ def get_recent_job_log_change_time(job: Union[str, Job], *, task: str = "run", i
                     times.append(f.mtime)
 
     return max(times) if times else None
+
+
+def get_job_log_creation_time(job: Union[str, Job], *, task: str = "run", index: int = 1) -> Optional[float]:
+    """
+    Gets the creation time of the most recent log file for the given job, task, and index.
+    Checks both the log file in the job directory and inside the finished.tar.gz.
+
+    WARN: might not be accurate
+
+    :param job: dir or Job object
+    :param task:
+    :param index:
+    :return: last change time in seconds since epoch, or None if no log found
+    """
+    job_dir = get_job_base_dir(job)
+    log_base_fn = f"log.{task}.{index}"
+    log_fn = f"{job_dir}/{log_base_fn}"
+    times = []
+
+    if os.path.exists(log_fn):
+        times.append(os.path.getctime(log_fn))
+
+    tar_fn = f"{job_dir}/finished.tar.gz"
+    if os.path.exists(tar_fn):
+        with tarfile.open(tar_fn) as tarf:
+            while True:
+                f = tarf.next()
+                if not f:
+                    break
+                if f.name == log_base_fn:
+                    times.append(f.mtime)  # TODO warn, not ctime but mtime...
+
+    return min(times) if times else None
