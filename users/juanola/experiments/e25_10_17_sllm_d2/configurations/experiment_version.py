@@ -1,7 +1,6 @@
 from enum import Enum
 
-from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, exp_v4, exp_v5, exp_v6, exp_v7, exp_v8, \
-    exp_v9
+from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, exp_v4, exp_v5, exp_v6, exp_v7, exp_v8_1, exp_v8_2
 
 
 class ExperimentVersion(Enum):
@@ -14,8 +13,8 @@ class ExperimentVersion(Enum):
     V6_SMALL_DECODER_150kBS = "SLLM_small_decoder_150kBS"
 
     V7_TUNED_DROPOUT = "SLLM_tuned_dropout_v2"
-    V8_TD_LRV2 = "SLLM_td_lrv2"
-    V9_TD_LRV3 = "SLLM_td_lrv3"
+    V8_1_TD_LRV2 = "SLLM_td_lrv2"
+    V8_2_TD_LRV3 = "SLLM_td_lrv3"
     # Expand here
 
 
@@ -29,8 +28,8 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V6_SMALL_DECODER_150kBS: exp_v6,
 
     ExperimentVersion.V7_TUNED_DROPOUT: exp_v7,
-    ExperimentVersion.V8_TD_LRV2: exp_v8,
-    ExperimentVersion.V9_TD_LRV3: exp_v9,
+    ExperimentVersion.V8_1_TD_LRV2: exp_v8_1,
+    ExperimentVersion.V8_2_TD_LRV3: exp_v8_2,
     # Expand here
 }
 

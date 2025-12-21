@@ -23,6 +23,9 @@ def main():
     e3v5()
     e3v6()
 
+    e3v7()
+    e3v8()
+
     # DEBUGS
     e3d()
     e3d_itc()
@@ -71,11 +74,7 @@ def e3v7():
     ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT], itc_training=True)
 
 def e3v8():
-    ex3.sllm_ep([ExperimentVersion.V8_TD_LRV2], itc_training=True)
-
-def e3v9():
-    ex3.sllm_ep([ExperimentVersion.V9_TD_LRV3], itc_training=True)
-
+    ex3.sllm_ep([ExperimentVersion.V8_1_TD_LRV2, ExperimentVersion.V8_2_TD_LRV3], itc_training=True)
 
 
 
@@ -114,4 +113,4 @@ def report_t3():
     t3.report_job_test_register_report()
 
 
-__all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6", "e3v7", "e3v8", "e3v9"]
+__all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6", "e3v7", "e3v8"]

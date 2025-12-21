@@ -55,17 +55,18 @@ def training_baseline() -> TrainingConfig:
     )
 
 
-def itc_batch_size() -> TrainingConfig:
+def itc_batch_size_80k() -> TrainingConfig:
     return replace(training_baseline(), batch_size=80_000)
 
-def itc_batch_size_v2() -> TrainingConfig:
+def itc_batch_size_150k() -> TrainingConfig:
     return replace(training_baseline(), batch_size=150_000)
 
 def bsv2_lrv2() -> TrainingConfig:
-    return replace(itc_batch_size_v2(), dynamic_lr=lr_baseline_v2())
+    return replace(itc_batch_size_80k(),
+                   dynamic_lr=lr_baseline_v2())
 
 def bsv2_lrv3() -> TrainingConfig:
-    return replace(itc_batch_size_v2(), dynamic_lr=lr_baseline_v3())
+    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v3())
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
