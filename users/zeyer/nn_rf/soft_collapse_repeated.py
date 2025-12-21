@@ -107,6 +107,13 @@ def soft_collapse_repeated_keep_mask(
     return keep_mask
 
 
+def durations_from_indices(indices: Tensor, *, in_spatial_dim: Dim) -> Tensor:
+    out_spatial_dim = indices.sparse_dim
+    ones = rf.ones(dims=indices.dims, dtype="int32", device=indices.device)
+    counts = rf.scatter(ones, indices=indices, indices_dim=in_spatial_dim, fill_value=1, out_dim=out_spatial_dim)
+    return counts
+
+
 def test_soft_collapse_repeated():
     import numpy as np
 
