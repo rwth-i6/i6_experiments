@@ -21,7 +21,7 @@ from ... import PACKAGE
 
 
 def bpe128_ls960_0924_base():
-    prefix_name = "experiments/ctc/conformer_baseline_bpe_small"
+    prefix_name = "experiments/ctc/conformer_baseline_bpe"
 
     BPE_SIZE = 1024
 
@@ -268,15 +268,16 @@ def bpe128_ls960_0924_base():
         pos_emb_dropout=0.0,
     )
 
-    for peak_lr, init_lr in [(5e-4, 5e-5)]:
+    for num_layers in [16, 18]:  # slightly higher LR
+        peak_lr, init_lr = (8e-4, 8e-5)
         model_config = ModelConfig(
             feature_extraction_config=fe_config,
             frontend_config=frontend_config,
             pos_emb_config=posemb_config,
             specaug_config=specaug_config,
             label_target_size=vocab_size_without_blank,
-            conformer_size=512,
-            num_layers=12,
+            conformer_size=512,  # deeper but not wider
+            num_layers=num_layers,
             num_heads=8,
             ff_dim=2048,
             att_weights_dropout=0.1,
@@ -290,8 +291,8 @@ def bpe128_ls960_0924_base():
             dropout_broadcast_axes="T",  # Apptek version
             module_list=["ff", "conv", "mhsa", "ff"],
             module_scales=[0.5, 1.0, 1.0, 0.5],
-            aux_ctc_loss_layers=[3, 7, 11],
-            aux_ctc_loss_scales=[0.25, 0.25, 0.5],  # self-cond CTC style
+            aux_ctc_loss_layers=[3, 7, 11, 15] if num_layers == 16 else [2, 5, 8, 11, 14, 17],
+            aux_ctc_loss_scales=[0.17, 0.17, 0.17, 0.5]if num_layers == 16 else [0.1] * 5 + [0.5],  # self-cond CTC style
             enable_self_cond=False,
             enable_attn_bias=False,
             bias_start_epoch=0,
@@ -301,11 +302,11 @@ def bpe128_ls960_0924_base():
 
         train_config_amp_radam = {
             "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-            "learning_rates": list(np.linspace(init_lr, peak_lr, 240))
-            + list(np.linspace(peak_lr, init_lr, 240))
-            + list(np.linspace(init_lr, 1e-7, 20)),
+            "learning_rates": list(np.linspace(init_lr, peak_lr, 480))
+            + list(np.linspace(peak_lr, init_lr, 480))
+            + list(np.linspace(init_lr, 1e-7, 40)),
             #############
-            "batch_size": 500 * 16000,
+            "batch_size": 900 * 16000 if num_layers == 16 else 800 * 16000,
             "max_seq_length": {"audio_features": 35 * 16000},
             "accum_grad_multiple_step": 1,
             "gradient_clip_norm": 10.0,
@@ -328,16 +329,16 @@ def bpe128_ls960_0924_base():
             + "/"
             + str(BPE_SIZE)
             + network_module
-            + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
+            + f".512dim_sub4_100eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}_numLayers{num_layers}"
         )
-        train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=500, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 24
-        for epoch in [50, 100, 200, 300, 400, 450, 500]:
+        train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        for epoch in [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 1000]:
             asr_model = prepare_asr_model(
                 training_name,
                 train_job,
                 train_args_radam,
-                with_prior=True,
+                with_prior=False,
                 datasets=train_data_bpe,
                 get_specific_checkpoint=epoch,
             )

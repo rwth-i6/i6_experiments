@@ -76,14 +76,21 @@ class ModelConfig:
     
     # layer refinement
     seed: int = 42
-    num_sep_tokens: int = 15  # to avoid convolution leakage
+    num_sep_tokens: int = 0
+    mask_t2a_attn: bool = True
+    # text MLM
+    gt_prob_start: float = 0.0
+    gt_prob_end: float = 0.0
+    gt_decay_epochs: int = 250
     mlm_mask_rate: float = 0.5
     mlm_span_length: int = 3
     mlm_loss_scale: float = 0.1
-    gt_prob_start: float = 0.5
-    gt_prob_end: float = 0.0
-    text_dropout: float = 0.0
-    gt_decay_epochs: int = 250
+    # audio masking
+    audio_mask_prob_start: float = 0.0
+    audio_mask_prob_end: float = 0.0
+    audio_mask_decay_epochs: int = 250
+    audio_mask_span: int = 8
+    audio_mask_rate: float = 0.15
 
     @classmethod
     def from_dict(cls, d):

@@ -14,12 +14,14 @@ RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCH
 
 MINI_RETURNN_ROOT = CloneGitRepositoryJob(
     "https://github.com/JackTemaki/MiniReturnn", commit="f9b9be691351f0edd60f2a3d0955c25f15cc2ccb"
+    #"https://github.com/rwth-i6/returnn"
 ).out_repository.copy()
 MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/i6_models",
-    commit="1a5fe8302587d24237e2291f05b9c3ab5f01415c",
+    #commit="1a5fe8302587d24237e2291f05b9c3ab5f01415c",
+    commit="e1547d23bdb3a9761908e08dfbadf8b040df4f7f",  # add support for attention biasing
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"

@@ -21,7 +21,7 @@ from ... import PACKAGE
 
 
 def bpe128_ls960_0924_base():
-    prefix_name = "experiments/ctc/conformer_baseline_bpe_small"
+    prefix_name = "experiments/ctc/conformer_bpe_self_cond_small"
 
     BPE_SIZE = 1024
 
@@ -292,7 +292,7 @@ def bpe128_ls960_0924_base():
             module_scales=[0.5, 1.0, 1.0, 0.5],
             aux_ctc_loss_layers=[3, 7, 11],
             aux_ctc_loss_scales=[0.25, 0.25, 0.5],  # self-cond CTC style
-            enable_self_cond=False,
+            enable_self_cond=True,
             enable_attn_bias=False,
             bias_start_epoch=0,
             bias_compute_args=None,

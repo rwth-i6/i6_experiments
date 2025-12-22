@@ -1,3 +1,5 @@
+# Just for attention weights plot
+
 import numpy as np
 import torch
 from torch import nn
@@ -238,11 +240,14 @@ class Model(torch.nn.Module):
         log_probs_list = []
         next_block_mlm_target = None
         mlm_outputs_list = [] 
+        attn_weights_list = []
 
         for i, encoder in enumerate(self.encoder_blocks):
             mask = mask_tensor(conformer_in, current_lens)
             
-            out_layers, out_mask = encoder(conformer_in, mask)
+            out_layers, out_mask, attn_weights = encoder(conformer_in, mask)
+            assert len(attn_weights) == 4  # well, for a specific config it should
+            attn_weights_list += attn_weights
             feat = out_layers[0] 
             
             if i == 0:
@@ -347,7 +352,7 @@ class Model(torch.nn.Module):
                 conformer_in = next_in
                 current_lens = audio_portion_len + self.cfg.num_sep_tokens + final_lens
 
-        return log_probs_list, audio_portion_len, mlm_outputs_list
+        return log_probs_list, audio_portion_len, mlm_outputs_list, attn_weights_list
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):

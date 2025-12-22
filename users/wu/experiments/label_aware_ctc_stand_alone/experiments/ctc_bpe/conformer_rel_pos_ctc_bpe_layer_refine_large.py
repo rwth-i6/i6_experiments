@@ -21,7 +21,7 @@ from ... import PACKAGE
 
 
 def bpe128_ls960_0924_base():
-    prefix_name = "experiments/ctc/conformer_baseline_bpe_small"
+    prefix_name = "experiments/ctc/conformer_bpe_layer_refine"
 
     BPE_SIZE = 1024
 
@@ -215,7 +215,7 @@ def bpe128_ls960_0924_base():
     )
     """
 
-    from ...pytorch_networks.ctc.conformer_rel_pos_ctc_relaxation_cfg import (
+    from ...pytorch_networks.ctc.conformer_rel_pos_ctc_layer_refinement_cfg import (
         SpecaugConfig,
         VGG4LayerActFrontendV1Config_mod,
         ModelConfig,
@@ -268,78 +268,79 @@ def bpe128_ls960_0924_base():
         pos_emb_dropout=0.0,
     )
 
-    for peak_lr, init_lr in [(5e-4, 5e-5)]:
-        model_config = ModelConfig(
-            feature_extraction_config=fe_config,
-            frontend_config=frontend_config,
-            pos_emb_config=posemb_config,
-            specaug_config=specaug_config,
-            label_target_size=vocab_size_without_blank,
-            conformer_size=512,
-            num_layers=12,
-            num_heads=8,
-            ff_dim=2048,
-            att_weights_dropout=0.1,
-            conv_dropout=0.1,
-            ff_dropout=0.1,
-            mhsa_dropout=0.1,
-            mhsa_with_bias=True,
-            conv_kernel_size=31,
-            final_dropout=0.1,
-            specauc_start_epoch=11,
-            dropout_broadcast_axes="T",  # Apptek version
-            module_list=["ff", "conv", "mhsa", "ff"],
-            module_scales=[0.5, 1.0, 1.0, 0.5],
-            aux_ctc_loss_layers=[3, 7, 11],
-            aux_ctc_loss_scales=[0.25, 0.25, 0.5],  # self-cond CTC style
-            enable_self_cond=False,
-            enable_attn_bias=False,
-            bias_start_epoch=0,
-            bias_compute_args=None,
-            share_bias_compute=False,
-        )
-
-        train_config_amp_radam = {
-            "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-            "learning_rates": list(np.linspace(init_lr, peak_lr, 240))
-            + list(np.linspace(peak_lr, init_lr, 240))
-            + list(np.linspace(init_lr, 1e-7, 20)),
-            #############
-            "batch_size": 500 * 16000,
-            "max_seq_length": {"audio_features": 35 * 16000},
-            "accum_grad_multiple_step": 1,
-            "gradient_clip_norm": 10.0,
-            "torch_amp_options": {"dtype": "bfloat16"},
-            "num_workers_per_gpu": 2,
-            "log_grad_norm": True
-        }
-
-        network_module = "ctc.conformer_rel_pos_ctc_relaxation"
-        train_args_radam = {
-            "config": train_config_amp_radam,
-            "network_module": network_module,
-            "net_args": {"model_config_dict": asdict(model_config)},
-            "use_speed_perturbation": True,
-            "debug": False,
-        }
-
-        training_name = (
-            prefix_name
-            + "/"
-            + str(BPE_SIZE)
-            + network_module
-            + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
-        )
-        train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=500, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 24
-        for epoch in [50, 100, 200, 300, 400, 450, 500]:
-            asr_model = prepare_asr_model(
-                training_name,
-                train_job,
-                train_args_radam,
-                with_prior=True,
-                datasets=train_data_bpe,
-                get_specific_checkpoint=epoch,
+    for gt_prob_start in [0]:
+        for num_sep_tokens in [0]:
+            peak_lr, init_lr = (8e-4, 8e-5)
+            model_config = ModelConfig(
+                feature_extraction_config=fe_config,
+                frontend_config=frontend_config,
+                pos_emb_config=posemb_config,
+                specaug_config=specaug_config,
+                label_target_size=vocab_size_without_blank,
+                conformer_size=512,
+                num_layers=16,
+                num_heads=8,
+                ff_dim=2048,
+                att_weights_dropout=0.1,
+                conv_dropout=0.1,
+                ff_dropout=0.1,
+                mhsa_dropout=0.1,
+                mhsa_with_bias=True,
+                conv_kernel_size=31,
+                final_dropout=0.1,
+                specauc_start_epoch=11,
+                dropout_broadcast_axes="T",  # Apptek version
+                module_list=["ff", "conv", "mhsa", "ff"],
+                module_scales=[0.5, 1.0, 1.0, 0.5],
+                aux_ctc_loss_layers=[3, 7, 11, 15],
+                aux_ctc_loss_scales=[0.17, 0.17, 0.17, 0.5],  # self-cond CTC style
+                num_sep_tokens=num_sep_tokens,
+                gt_prob_start=gt_prob_start,
             )
-            greedy_search_helper(training_name + f"/greedy_ep{epoch}", asr_model, default_greedy_config)
+
+            train_config_amp_radam = {
+                "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+                "learning_rates": list(np.linspace(init_lr, peak_lr, 480))
+                + list(np.linspace(peak_lr, init_lr, 480))
+                + list(np.linspace(init_lr, 1e-7, 40)),
+                #############
+                "batch_size": 750 * 16000,
+                "max_seq_length": {"audio_features": 35 * 16000},
+                "accum_grad_multiple_step": 1,
+                "gradient_clip_norm": 10.0,
+                "torch_amp_options": {"dtype": "bfloat16"},
+                "num_workers_per_gpu": 2,
+                "log_grad_norm": True
+            }
+
+            network_module = "ctc.conformer_rel_pos_ctc_layer_refinement"
+            train_args_radam = {
+                "config": train_config_amp_radam,
+                "network_module": network_module,
+                "net_args": {"model_config_dict": asdict(model_config)},
+                "use_speed_perturbation": True,
+                "debug": False,
+            }
+
+            training_name = (
+                prefix_name
+                + "/"
+                + str(BPE_SIZE)
+                + network_module
+                + f".512dim_sub4_100eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
+                + (f"_gtInitProb{gt_prob_start}" if gt_prob_start else "")
+                + f"_numSepTokens{num_sep_tokens}"
+            )
+            train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=1000, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 48
+            for epoch in [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 1000]:
+                asr_model = prepare_asr_model(
+                    training_name,
+                    train_job,
+                    train_args_radam,
+                    with_prior=False,
+                    datasets=train_data_bpe,
+                    get_specific_checkpoint=epoch,
+                )
+                greedy_search_helper(training_name + f"/greedy_ep{epoch}", asr_model, default_greedy_config)
         
