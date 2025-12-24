@@ -15,7 +15,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import \
     SearchConfig, search_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import \
-    TrainingConfig, training_baseline, itc_batch_size_80k, itc_batch_size_150k, bsv2_lrv2, bsv2_lrv3
+    TrainingConfig, training_baseline, itc_batch_size_80k, itc_batch_size_150k, bsv2_lrv2, bsv2_lrv3, \
+    itc_batch_size_250k
 
 
 @dataclass(frozen=True)
@@ -106,5 +107,8 @@ def exp_v8_1() -> ExperimentConfig:
 
 def exp_v8_2() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv3())
+
+def exp_v9() -> ExperimentConfig:
+    return replace(exp_v4(), training=itc_batch_size_250k())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

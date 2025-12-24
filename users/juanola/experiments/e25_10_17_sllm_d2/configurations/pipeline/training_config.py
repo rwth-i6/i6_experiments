@@ -61,6 +61,9 @@ def itc_batch_size_80k() -> TrainingConfig:
 def itc_batch_size_150k() -> TrainingConfig:
     return replace(training_baseline(), batch_size=150_000)
 
+def itc_batch_size_250k() -> TrainingConfig:
+    return replace(training_baseline(), batch_size=250_000)
+
 def bsv2_lrv2() -> TrainingConfig:
     return replace(itc_batch_size_80k(),
                    dynamic_lr=lr_baseline_v2())
