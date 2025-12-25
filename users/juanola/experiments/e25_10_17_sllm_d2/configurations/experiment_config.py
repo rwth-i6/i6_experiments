@@ -16,7 +16,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     SearchConfig, search_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import \
     TrainingConfig, training_baseline, itc_batch_size_80k, itc_batch_size_150k, bsv2_lrv2, bsv2_lrv3, \
-    itc_batch_size_250k
+    itc_batch_size_250k, itc_4gpu_setup_v1, itc_4gpu_setup_v2
 
 
 @dataclass(frozen=True)
@@ -110,5 +110,17 @@ def exp_v8_2() -> ExperimentConfig:
 
 def exp_v9() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_batch_size_250k())
+
+
+def exp_v10() -> ExperimentConfig:
+    warnings.warn(
+        "[ERROR] Doesn't work, OOM error",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return replace(exp_v4(), training=itc_4gpu_setup_v1())
+
+def exp_v10_2() -> ExperimentConfig:
+    return replace(exp_v4(), training=itc_4gpu_setup_v2())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

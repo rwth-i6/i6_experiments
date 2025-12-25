@@ -2,7 +2,7 @@ from enum import Enum
 
 from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, exp_v4, exp_v5, exp_v6, exp_v7, exp_v8_1, \
     exp_v8_2, \
-    exp_v9
+    exp_v9, exp_v10, exp_v10_2
 
 
 class ExperimentVersion(Enum):
@@ -19,6 +19,8 @@ class ExperimentVersion(Enum):
     V8_2_TD_LRV3 = "SLLM_td_lrv3"
 
     V9_SMALL_DECODER_250kBS = "SLLM_small_decoder_250kBS"
+    V10_SMALL_DECODER_4GPUS = "SLLM_small_decoder_4gpus_i6"
+    V10_SMALL_DECODER_4GPUS_V2 = "SLLM_small_decoder_4gpus_i6_v2"
     # Expand here
 
 
@@ -36,6 +38,8 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V8_2_TD_LRV3: exp_v8_2,
 
     ExperimentVersion.V9_SMALL_DECODER_250kBS: exp_v9,
+    ExperimentVersion.V10_SMALL_DECODER_4GPUS: exp_v10,
+    ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2: exp_v10_2,
     # Expand here
 }
 

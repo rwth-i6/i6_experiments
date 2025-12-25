@@ -55,15 +55,18 @@ def get_training_parameters(debug_returnn_param: bool, network_args: dict[str, A
         **train_config_obj.optimizer.get_optimizer_returnn_config(),
         **train_config_obj.dynamic_lr.get_dynamic_lr_returnn_config(train_epochs),
         "batch_size": batch_size * train_config_obj.batch_size_factor,
-        "max_seq_length": {"raw_audio": 19.5 * network_args["sampling_rate"]},  # 19.5 seconds
+        "max_seq_length": {"raw_audio": train_config_obj.max_seq_length_seconds * network_args["sampling_rate"]},
         "accum_grad_multiple_step": 1,
         "gradient_clip_global_norm": 5.0,
         "__num_gpus": train_config_obj.num_gpus,
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-        "torch_amp": "bfloat16",  # only for gpus > 11gb # TODO: add some conditional thingy
-        "grad_scaler": None, # Solves errors: "got inf or nan score."
     }
+    if train_config_obj.use_torch_amp:
+        train_config["torch_amp"] = train_config_obj.torch_amp
+    if train_config_obj.use_grad_scaler:
+        train_config["grad_scaler"] = train_config_obj.grad_scaler
+
 
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
         "config": train_config,
