@@ -257,6 +257,9 @@ class Model(torch.nn.Module):
                 
                 # --- Self-Conditioning (Feature Injection) ---
                 if self.cfg.enable_self_cond:
+                    # NOTE: it's super hacky!! we use self.cfg.share_bias_compute for logits detachment control for now!
+                    if self.cfg.share_bias_compute:
+                        logits = logits.detach()
                     probs = torch.softmax(logits, dim=2)
                     cond_feat = self.self_cond_compute(probs)
                     next_in = next_in + cond_feat

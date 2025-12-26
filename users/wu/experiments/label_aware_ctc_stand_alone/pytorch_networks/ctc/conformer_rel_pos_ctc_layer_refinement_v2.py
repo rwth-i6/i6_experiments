@@ -352,6 +352,7 @@ class Model(torch.nn.Module):
                 sep_emb = self.text_embedding(sep_token).view(1, 1, -1).expand(B, self.cfg.num_sep_tokens, -1)
                 
                 # audio masking for modality matching
+                # first block will not be affected
                 next_audio_feat = audio_feat
                 
                 if self.training:

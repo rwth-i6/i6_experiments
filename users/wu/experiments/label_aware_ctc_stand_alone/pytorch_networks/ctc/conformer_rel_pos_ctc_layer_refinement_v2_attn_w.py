@@ -19,7 +19,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .conformer_rel_pos_ctc_layer_refinement_cfg import ModelConfig
+from .conformer_rel_pos_ctc_layer_refinement_v2_cfg import ModelConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -160,7 +160,7 @@ class Model(torch.nn.Module):
         
         embeddings = self.text_embedding(input_ids)
         
-        # zero out leakage
+        # avoid leakage of pad-index embedding due to convolution
         valid_len_mask = torch.arange(L, device=device)[None, :] < labels_len[:, None]
         embeddings = embeddings * valid_len_mask.unsqueeze(-1).to(dtype=embeddings.dtype)
         
@@ -180,12 +180,14 @@ class Model(torch.nn.Module):
             valid_len = audio_len[b].item()
             p = preds[b, :valid_len]
             
-            # do greedy search
+            # collapse identical consecutive labels
             if p.numel() > 0:
                 p_collapsed = torch.unique_consecutive(p)
             else:
                 p_collapsed = p
+            # remove blanks
             p_noblank = p_collapsed[p_collapsed != blank_idx]
+            # TODO: maybe separator makes more sense? Not sure
             if len(p_noblank) == 0:
                 p_noblank = torch.tensor([self.mask_token_idx], device=logits.device)
                 
@@ -243,7 +245,25 @@ class Model(torch.nn.Module):
         for i, encoder in enumerate(self.encoder_blocks):
             mask = mask_tensor(conformer_in, current_lens)
             
-            out_layers, out_mask, attn_weights = encoder(conformer_in, mask)
+            attention_bias = None
+            if self.cfg.mask_t2a_attn and (current_lens > audio_portion_len).any():
+                B, T = conformer_in.shape[:2]
+                device = conformer_in.device
+                
+                idx = torch.arange(T, device=device)
+                row_idx = idx.view(1, T, 1)  # query positions
+                col_idx = idx.view(1, 1, T)  # key positions
+                
+                a_len = audio_portion_len.view(B, 1, 1)
+                
+                is_text_query = (row_idx >= a_len) # [B, T, 1], also mask potential sep tokens
+                is_audio_key = (col_idx < a_len)        # [B, 1, T]
+                mask_condition = is_text_query & is_audio_key
+                
+                attention_bias = torch.zeros(B, 1, T, T, device=device)
+                attention_bias.masked_fill_(mask_condition.unsqueeze(1), -float('inf'))
+
+            out_layers, out_mask, attn_weights = encoder(conformer_in, mask, attention_bias=attention_bias) 
             attn_weights_list += attn_weights
             feat = out_layers[0] 
             
@@ -251,6 +271,7 @@ class Model(torch.nn.Module):
                 audio_portion_len = torch.sum(out_mask, dim=1).long()
                 max_audio_len = feat.shape[1]
             
+            # take first T features as audio-only features
             audio_feat = feat[:, :max_audio_len, :]
             
             feat_drop = self.output_dropout(audio_feat)
@@ -258,7 +279,7 @@ class Model(torch.nn.Module):
             log_probs = torch.log_softmax(logits, dim=2)
             log_probs_list.append(log_probs)
             
-            # --- Resolve MLM Loss from Previous Block ---
+            # resolve MLM output from last block
             if next_block_mlm_target is not None:
                 text_start, targets_dict = next_block_mlm_target
                 if text_start < feat.shape[1]:
@@ -273,7 +294,7 @@ class Model(torch.nn.Module):
                     })
                 next_block_mlm_target = None
 
-            # --- Prepare Next Input ---
+            # prepare input for the next block
             if i < len(self.encoder_blocks) - 1:
                 gt_emb, gt_mask_target = None, None
                 gt_lens = labels_len if labels_len is not None else torch.zeros(feat.size(0), device=feat.device)
@@ -311,41 +332,64 @@ class Model(torch.nn.Module):
                 else:
                     final_lens = greedy_lens
                 
-                # optional dropout of text tokens for robustness
-                should_drop_text = torch.zeros(B, dtype=torch.bool, device=feat.device)
-                if self.training:
-                    if self.cfg.text_dropout > 0.0:
-                        should_drop_text = torch.rand(B, device=feat.device) < self.cfg.text_dropout
-                        final_lens[should_drop_text] = 0
-
-                # Only needed if any sample in the batch used GT
+                # if gt needed, we pass the current masking decision to next block
                 if gt_emb is not None and use_gt_mask.any():
-                    # We must pad the target masks/labels to final_len as well
-                    # so they match the shape of the embeddings we just created.
-                    
                     final_loss_mask = torch.zeros(B, final_len, dtype=torch.bool, device=feat.device)
                     final_loss_mask[:, :max_gt_len] = gt_mask_target
                     
                     final_labels = torch.zeros(B, final_len, dtype=torch.long, device=feat.device) 
                     final_labels[:, :labels.size(1)] = labels
                     
-                    # avoid MLM loss for dropped out GT
-                    mlm_active_mask = use_gt_mask & (~should_drop_text)
-
                     next_block_mlm_target = (
                         max_audio_len + self.cfg.num_sep_tokens,
                         {
                             "labels": final_labels,
-                            "mask": final_loss_mask,
-                            "active_mask": mlm_active_mask 
+                            "mask": final_loss_mask,  # within seq
+                            "active_mask": use_gt_mask,  # batch level 
                         }
                     )
                 
-                # use separator to potentially avoid leakage between audio and text boundary
+                # use separator
                 sep_token = torch.tensor([self.sep_token_idx], device=feat.device)
                 sep_emb = self.text_embedding(sep_token).view(1, 1, -1).expand(B, self.cfg.num_sep_tokens, -1)
                 
-                next_in = torch.cat([audio_feat, sep_emb, final_emb], dim=1)
+                # audio masking for modality matching
+                # first block will not be affected
+                next_audio_feat = audio_feat
+                
+                if self.training:
+                    mask_decay_ep = self.cfg.audio_mask_decay_epochs
+                    progress_mask = min(1.0, max(0.0, (epoch / mask_decay_ep)))
+                    
+                    p_start = self.cfg.audio_mask_prob_start
+                    p_end = self.cfg.audio_mask_prob_end
+                    
+                    # Probability of applying mask to a candidate sample
+                    selection_prob = p_start + progress_mask * (p_end - p_start)
+                    
+                    do_audio_mask = torch.rand(B, device=feat.device) < selection_prob
+                    
+                    if do_audio_mask.any():
+                        span_len = self.cfg.audio_mask_span
+                        
+                        max_a = next_audio_feat.shape[1]
+                        keep_mask = torch.ones(B, max_a, dtype=torch.bool, device=feat.device)
+                        
+                        # span masking to mask out some non-blank positions
+                        for b_idx in range(B):
+                            if do_audio_mask[b_idx]:
+                                cur_len = audio_portion_len[b_idx].item()
+                                if cur_len > span_len:
+                                    num_tokens_to_mask = int(cur_len * self.cfg.audio_mask_rate)
+                                    num_spans = max(1, num_tokens_to_mask // span_len)
+                                    
+                                    for _ in range(num_spans):
+                                        start = torch.randint(0, cur_len - span_len, (1,), device=feat.device).item()
+                                        keep_mask[b_idx, start:start+span_len] = False
+                        
+                        next_audio_feat = next_audio_feat * keep_mask.unsqueeze(-1).type_as(next_audio_feat)
+
+                next_in = torch.cat([next_audio_feat, sep_emb, final_emb], dim=1)
                 conformer_in = next_in
                 current_lens = audio_portion_len + self.cfg.num_sep_tokens + final_lens
 
