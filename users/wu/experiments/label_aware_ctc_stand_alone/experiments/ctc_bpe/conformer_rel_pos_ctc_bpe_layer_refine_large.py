@@ -215,7 +215,7 @@ def bpe128_ls960_0924_base():
     )
     """
 
-    from ...pytorch_networks.ctc.conformer_rel_pos_ctc_layer_refinement_cfg import (
+    from ...pytorch_networks.ctc.conformer_rel_pos_ctc_layer_refinement_v2_cfg import (
         SpecaugConfig,
         VGG4LayerActFrontendV1Config_mod,
         ModelConfig,
@@ -268,8 +268,8 @@ def bpe128_ls960_0924_base():
         pos_emb_dropout=0.0,
     )
 
-    for gt_prob_start in [0]:
-        for num_sep_tokens in [0]:
+    for gt_prob_start in [0, 0.5]:
+        for num_sep_tokens in [0, 15]:
             peak_lr, init_lr = (8e-4, 8e-5)
             model_config = ModelConfig(
                 feature_extraction_config=fe_config,
@@ -278,7 +278,7 @@ def bpe128_ls960_0924_base():
                 specaug_config=specaug_config,
                 label_target_size=vocab_size_without_blank,
                 conformer_size=512,
-                num_layers=16,
+                num_layers=18,
                 num_heads=8,
                 ff_dim=2048,
                 att_weights_dropout=0.1,
@@ -292,28 +292,33 @@ def bpe128_ls960_0924_base():
                 dropout_broadcast_axes="T",  # Apptek version
                 module_list=["ff", "conv", "mhsa", "ff"],
                 module_scales=[0.5, 1.0, 1.0, 0.5],
-                aux_ctc_loss_layers=[3, 7, 11, 15],
-                aux_ctc_loss_scales=[0.17, 0.17, 0.17, 0.5],  # self-cond CTC style
+                aux_ctc_loss_layers=[2, 5, 8, 11, 14, 17],
+                aux_ctc_loss_scales=[0.1] * 5 + [0.5],  # self-cond CTC style
                 num_sep_tokens=num_sep_tokens,
                 gt_prob_start=gt_prob_start,
+                # stronger but shorter MLM learning
+                gt_decay_epochs=400,
+                mlm_mask_rate=0.3,
             )
 
+            ckpt_list = list(range(100, 1001, 100)) + [950]
             train_config_amp_radam = {
                 "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
                 "learning_rates": list(np.linspace(init_lr, peak_lr, 480))
                 + list(np.linspace(peak_lr, init_lr, 480))
                 + list(np.linspace(init_lr, 1e-7, 40)),
                 #############
-                "batch_size": 750 * 16000,
+                "batch_size": 1000 * 16000,
                 "max_seq_length": {"audio_features": 35 * 16000},
                 "accum_grad_multiple_step": 1,
                 "gradient_clip_norm": 10.0,
                 "torch_amp_options": {"dtype": "bfloat16"},
                 "num_workers_per_gpu": 2,
-                "log_grad_norm": True
+                "log_grad_norm": True,
+                "cleanup_old_models": {"keep": ckpt_list},
             }
 
-            network_module = "ctc.conformer_rel_pos_ctc_layer_refinement"
+            network_module = "ctc.conformer_rel_pos_ctc_layer_refinement_v2"
             train_args_radam = {
                 "config": train_config_amp_radam,
                 "network_module": network_module,
@@ -333,7 +338,7 @@ def bpe128_ls960_0924_base():
             )
             train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=1000, **default_returnn)
             train_job.rqmt["gpu_mem"] = 48
-            for epoch in [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 1000]:
+            for epoch in ckpt_list:
                 asr_model = prepare_asr_model(
                     training_name,
                     train_job,
