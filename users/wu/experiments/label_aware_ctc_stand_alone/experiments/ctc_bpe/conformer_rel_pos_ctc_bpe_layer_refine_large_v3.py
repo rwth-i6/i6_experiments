@@ -339,8 +339,9 @@ def bpe128_ls960_0924_base():
                     + str(BPE_SIZE)
                     + network_module
                     + f".512dim_sub4_100eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
-                    + (f"_gtInitProb{gt_prob_start}" if gt_prob_start else "")
-                    + f"_numSepTokens{num_sep_tokens}"
+                    + (f"_peakAudioMask{peak_audio_mask}" if peak_audio_mask else "")
+                    + (f"_audioMaskRate{audio_mask_rate}" if peak_audio_mask else "")
+                    + ("_audioConfidenceMask" if mask_low_confident_audio else "")
                 )
                 train_job = training(training_name, train_data_bpe, train_args_radam, num_epochs=1000, **default_returnn)
                 train_job.rqmt["gpu_mem"] = 48
