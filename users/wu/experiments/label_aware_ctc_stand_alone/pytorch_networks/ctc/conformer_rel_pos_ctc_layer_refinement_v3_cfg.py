@@ -79,12 +79,12 @@ class ModelConfig:
     num_sep_tokens: int = 0
     mask_t2a_attn: bool = True
     # text MLM
-    gt_prob_schedule: List[float] = [0.0]
+    gt_prob_schedule: List[float]
     mlm_mask_rate: float = 0.5
     mlm_span_length: int = 3
     mlm_loss_scale: float = 0.1
     # audio masking
-    audio_mask_prob_schedule: List[float] = [0.0]
+    audio_mask_prob_schedule: List[float]
     audio_mask_rate: float = 0.15
     audio_mask_span: int = 8
     mask_low_confident_audio: bool = False
