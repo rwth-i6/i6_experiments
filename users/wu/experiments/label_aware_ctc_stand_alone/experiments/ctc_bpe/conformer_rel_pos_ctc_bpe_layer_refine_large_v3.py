@@ -269,7 +269,7 @@ def bpe128_ls960_0924_base():
     )
 
     for peak_audio_mask, init_audio_mask in [(0, 0), (0, 0.3)]:
-        for audio_mask_rate in [0.1, 0.2, 0.3]
+        for audio_mask_rate in [0.1, 0.2, 0.3]:
             for mask_low_confident_audio in [True, False]:
                 if not peak_audio_mask and not init_audio_mask:
                     audio_mask_prob_schedule = [0.0]
@@ -302,6 +302,7 @@ def bpe128_ls960_0924_base():
                     module_scales=[0.5, 1.0, 1.0, 0.5],
                     aux_ctc_loss_layers=[2, 5, 8, 11, 14, 17],
                     aux_ctc_loss_scales=[0.1] * 5 + [0.5],  # self-cond CTC style
+                    gt_prob_schedule=[0.0],
                     audio_mask_prob_schedule=audio_mask_prob_schedule,
                     audio_mask_rate=audio_mask_rate,
                     mask_low_confident_audio=mask_low_confident_audio,
