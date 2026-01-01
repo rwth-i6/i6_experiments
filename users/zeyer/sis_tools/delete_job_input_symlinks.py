@@ -67,12 +67,14 @@ def main():
                         with os.scandir(job_input_dir) as it:
                             for entry in it:
                                 file_type = stat.S_IFMT(entry.stat(follow_symlinks=False).st_mode)
-                                file_type_str = {stat.S_IFLNK: "l", stat.S_IFREG: "f", stat.S_IFDIR: "d"}.get(
-                                    file_type, f"other({file_type})"
-                                )
+                                file_type_str = {
+                                    stat.S_IFLNK: "links",
+                                    stat.S_IFREG: "files",
+                                    stat.S_IFDIR: "dirs",
+                                }.get(file_type, f"other({file_type})")
                                 counts_per_type[file_type_str] += 1
                         counts_str = ", ".join(f"{k}={v}" for k, v in counts_per_type.items())
-                        print(f"[dryrun] would remove input dir in job {job_dir!r},) contents: {counts_str}")
+                        print(f"[dryrun] would remove input dir in job {job_dir!r} contents: {counts_str}")
 
                     elif args.mode == "remove":
                         shutil.rmtree(job_input_dir)
