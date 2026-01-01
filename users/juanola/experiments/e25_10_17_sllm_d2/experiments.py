@@ -25,7 +25,8 @@ def sllm_ep(
         experiment_versions=None,
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False,
-        itc_training: bool = False) -> Dict[str, Any]:
+        itc_training: bool = False,
+        specific_recognition_epochs: set[int] = set({})) -> Dict[str, Any]:
     """
     Sisyphus entry point.
 
@@ -34,10 +35,12 @@ def sllm_ep(
     - Prepare model config and all needed for returnn
     - Indicate wanted outputs
 
+
     :param experiment_versions: list of experiment versions to run. Default baseline
     :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
     :param itc_training: Makes return training jobs run on ITC
+    :param specific_recognition_epochs:
     """
     assert experiment_versions is not None, "at least one of experiment_versions is required"
     assert len(experiment_versions) > 0, "experiment_versions cannot be empty"
@@ -108,7 +111,7 @@ def sllm_ep(
             epochs_to_evaluate = [partition_epochs]
         else:
             run_best_4 = run_best = run_test = True
-            specific_epochs = set({})
+            specific_epochs = specific_recognition_epochs | set({}) # Specify here default epochs to check in multiple exps
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
         # Tune-Eval

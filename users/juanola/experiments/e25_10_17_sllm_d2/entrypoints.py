@@ -74,7 +74,8 @@ def e3v6():
 # ++++
 
 def e3v7():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT], itc_training=True,
+                specific_recognition_epochs={1542})
 
 def e3v8():
     ex3.sllm_ep([ExperimentVersion.V8_1_TD_LRV2, ExperimentVersion.V8_2_TD_LRV3], itc_training=True)
@@ -82,7 +83,8 @@ def e3v8():
 # ++++
 
 def e3v9():
-    ex3.sllm_ep([ExperimentVersion.V9_SMALL_DECODER_250kBS], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V9_SMALL_DECODER_250kBS], itc_training=True,
+                specific_recognition_epochs={1720})
 
 def e3v10():
     raise RuntimeError("THIS EXPERIMENT SHOULD PROBABLY NOT BE RUN!")
