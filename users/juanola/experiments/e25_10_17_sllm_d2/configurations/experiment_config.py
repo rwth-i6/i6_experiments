@@ -113,11 +113,6 @@ def exp_v9() -> ExperimentConfig:
 
 
 def exp_v10() -> ExperimentConfig:
-    warnings.warn(
-        "[ERROR] Doesn't work, OOM error",
-        DeprecationWarning,
-        stacklevel=2,
-    )
     return replace(exp_v4(), training=itc_4gpu_setup_v1())
 
 def exp_v10_2() -> ExperimentConfig:

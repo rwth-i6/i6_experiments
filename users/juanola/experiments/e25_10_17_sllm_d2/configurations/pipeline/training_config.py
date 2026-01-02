@@ -99,16 +99,14 @@ def itc_batch_size_250k() -> TrainingConfig:
 
 
 def itc_4gpu_setup_v1() -> TrainingConfig:
-    warnings.warn(
-        "[ERROR] Doesn't work, OOM error",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    """
+    Seemed to be failing but was because a faulty node (cn-280)
+    :return:
+    """
     return replace(
         training_baseline(),
 
-        batch_size=10_000, # failed with 15_000
-        max_seq_length_seconds=10,
+        batch_size=15_000,
         gpu_memory=11,
         num_gpus=4,
 
@@ -120,7 +118,7 @@ def itc_4gpu_setup_v2() -> TrainingConfig:
     return replace(
         training_baseline(),
 
-        batch_size=5_000, # failed with 10_000, 15_000
+        batch_size=5_000,
         gpu_memory=11,
         num_gpus=4,
 

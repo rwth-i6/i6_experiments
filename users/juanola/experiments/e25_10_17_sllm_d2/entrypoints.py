@@ -87,7 +87,6 @@ def e3v9():
                 specific_recognition_epochs={1720})
 
 def e3v10():
-    raise RuntimeError("THIS EXPERIMENT SHOULD PROBABLY NOT BE RUN!")
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS])
 
 def e3v10_2():
