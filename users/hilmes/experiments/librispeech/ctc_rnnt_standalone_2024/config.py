@@ -132,6 +132,56 @@ def get_prior_config(
     return returnn_config
 
 
+def get_mem_init_config(
+    training_datasets: TrainingDatasets,
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    debug: bool = False,
+    import_memristor: bool = False,
+):
+    """
+    Get a generic config for extracting output label priors
+
+    :param training_datasets: datasets for training
+    :param network_module: path to the pytorch config file containing Model
+    :param config: config arguments for RETURNN
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param debug: run training in debug mode (linking from recipe instead of copy)
+    """
+
+    # changing these does not change the hash
+    post_config = {
+        "num_workers_per_gpu": 2,
+    }
+
+    base_config = {
+        #############
+        "batch_size": 500 * 16000,
+        "max_seqs": 240,
+        #############
+        "forward": copy.deepcopy(training_datasets.cv.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_forward(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        forward_module=None,  # same as network
+        forward_step_name="mem",
+        forward_init_args=None,
+        unhashed_forward_init_args=None,
+        debug=debug,
+        import_memristor=import_memristor,
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config
+
+
 def get_forward_config(
     network_module: str,
     config: Dict[str, Any],
@@ -142,6 +192,7 @@ def get_forward_config(
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     import_memristor: bool = False,
     debug: bool = False,
+    run_rasr: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -176,6 +227,7 @@ def get_forward_config(
         unhashed_forward_init_args=unhashed_decoder_args,
         import_memristor=import_memristor,
         debug=debug,
+        run_rasr=run_rasr,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

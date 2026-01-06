@@ -20,7 +20,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
-from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward
+from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward, get_mem_init_config
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
 
 
@@ -100,6 +100,7 @@ def search(
     use_gpu: bool = False,
     import_memristor: bool = False,
     debug: bool = False,
+    run_rasr: bool = False,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -125,6 +126,7 @@ def search(
         decoder=decoder_module,
         debug=debug,
         import_memristor=import_memristor,
+        run_rasr=run_rasr,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -137,7 +139,7 @@ def search(
         elif "RelPosEnc" in search_name:
             mem = 16
         else:
-            mem = 12
+            mem = 16
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -149,6 +151,8 @@ def search(
             use_gpu=use_gpu,
             mem_rqmt=mem,
         )
+        if import_memristor is True:
+            search_job.rqmt["time"] += 24 * 4  # 4 additional days
         search_jobs.append(search_job)
 
     return search_jobs, wers
@@ -178,18 +182,57 @@ def compute_prior(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2,
+        time_rqmt=4,
         device="gpu",
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
+    search_job.has_priority = True
     if "hubert_tune_v2" in prefix_name:
         search_job.rqmt["time"] += 12
         search_job.rqmt["gpu_mem"] = 24
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
+
+
+@tk.block()
+def prepare_memristor(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 24,
+    cpu_rqmt: int = 32,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=72,
+        device="cpu",
+        cpu_rqmt=cpu_rqmt,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["converted_model.pt"],
+    )
+    search_job.add_alias(prefix_name + "/prepare_mem_job")
+    search_job.set_keep_value(10)
+    # search_job.set_vis_name(prefix_name + "/prior_job")
+    return search_job.out_files["converted_model.pt"]
 
 
 def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
@@ -227,6 +270,8 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
+    split_preparation: bool = False,
+    split_args: Optional[Dict[str, Any]] = None,
 ):
     """
     :param training_name:
@@ -284,6 +329,7 @@ def prepare_asr_model(
         training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
 
     prior_file = None
+    import_memristor = (prior_config or {}).pop("import_memristor", False)
     if with_prior:
         returnn_config = get_prior_config(
             training_datasets=datasets,
@@ -292,7 +338,7 @@ def prepare_asr_model(
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
-            import_memristor=(prior_config or {}).pop("import_memristor", False),
+            import_memristor=import_memristor,
         )
         prior_file = compute_prior(
             training_name,
@@ -305,6 +351,25 @@ def prepare_asr_model(
     else:
         if prior_config is not None:
             raise ValueError("prior_config can only be set if with_prior is True")
+
+    if split_preparation:
+        assert split_args is not None
+        mem_init_config = get_mem_init_config(
+            training_datasets=datasets,
+            network_module=split_args['network_module'],
+            config=prior_config if prior_config is not None else {},
+            net_args=split_args["net_args"],
+            unhashed_net_args=split_args.get("unhashed_net_args", None),
+            debug=split_args.get("debug", False),
+            import_memristor=import_memristor,
+        )
+        checkpoint = prepare_memristor(
+            training_name,
+            mem_init_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
 
     asr_model = ASRModel(
         checkpoint=checkpoint,

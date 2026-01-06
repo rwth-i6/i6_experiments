@@ -45,7 +45,7 @@ class WeightQuantizer(nn.Module):
         bit_precision: int,
         dtype: torch.dtype,
         method: str,
-        observer_only_in_train: bool,
+        observer_only_in_train: bool = False,
         reduce_range: bool = False,
     ):
         super().__init__()
@@ -108,7 +108,7 @@ class ActivationQuantizer(nn.Module):
         method: str,
         channel_axis: Optional[int],
         moving_avrg: Optional[float],  # default if enabled should be 0.01, if set enables moving average
-        observer_only_in_train: bool,
+        observer_only_in_train: bool = False,
         reduce_range: bool = False,
     ):
         super().__init__()

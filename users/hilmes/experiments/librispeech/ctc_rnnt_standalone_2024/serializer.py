@@ -8,7 +8,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH, TORCH_MEMRISTOR_PATH
+from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH, TORCH_MEMRISTOR_PATH, rasr_binary_path, I6_CORE_REPO_PATH
 
 
 def serialize_training(
@@ -74,6 +74,7 @@ def serialize_forward(
     include_native_ops=False,
     import_memristor: bool = False,
     debug: bool = False,
+    run_rasr: bool = False
 ):
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
@@ -116,6 +117,12 @@ def serialize_forward(
         i6_native_ops = ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH)
         # has to be in the beginning
         serializer_objects.insert(0, i6_native_ops)
+
+    if run_rasr is True:
+        i6_core_module = ExternalImport(import_path=I6_CORE_REPO_PATH + '/..')
+        serializer_objects.append(i6_core_module)
+        rasr_module = ExternalImport(import_path=rasr_binary_path)
+        serializer_objects.append(rasr_module)
 
     forward_module = forward_module or network_module
 

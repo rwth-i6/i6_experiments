@@ -140,6 +140,7 @@ def get_forward_config(
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     import_memristor: bool = False,
     debug: bool = False,
+    run_rasr: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -174,6 +175,7 @@ def get_forward_config(
         unhashed_forward_init_args=unhashed_decoder_args,
         import_memristor=import_memristor,
         debug=debug,
+        run_rasr=run_rasr,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

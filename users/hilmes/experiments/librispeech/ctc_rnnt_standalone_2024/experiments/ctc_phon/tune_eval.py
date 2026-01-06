@@ -1,7 +1,8 @@
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...pipeline import search, ASRModel, prepare_asr_model
 from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
-from typing import List, Optional, Dict, Any, List, Union
+from ...pytorch_networks.ctc.decoder.rasr_ctc_v1 import DecoderConfig as RasrDecoderConfig
+from typing import List, Optional, Dict, Any, List, Union, Tuple
 from ...data.common import TrainingDatasets
 from dataclasses import dataclass, asdict
 import copy
@@ -9,6 +10,7 @@ from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from sisyphus import tk
 from i6_core.returnn.training import ReturnnTrainingJob
 import os
+from i6_core.rasr.config import WriteRasrConfigJob
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -24,7 +26,7 @@ def eval_model(
     decoder_config: DecoderConfig,
     dev_dataset_tuples: Dict[str, Any],
     result_dict: Optional[Dict[str, Any]] = None,
-    lm_scales: Optional[List[float]] = None,
+    lm_scales: Optional[List[Union[float, Tuple[tk.Path, str]]]] = None,
     prior_scales: Optional[List[float]] = None,
     specific_epoch: Optional[Union[int, List]] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
@@ -38,6 +40,9 @@ def eval_model(
     prior_args: Optional[Dict[str, Any]] = None,
     import_memristor: bool = False,
     run_search_on_hpc: bool = False,
+    get_best_params: bool = False,
+    run_rasr: bool = False,
+    split_mem_init: bool = False,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -59,11 +64,15 @@ def eval_model(
             datasets=train_data,
             get_specific_checkpoint=epoch,
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            split_preparation=split_mem_init,
+            split_args=train_args if split_mem_init else None, # TODO: this means that the converter settings are actually part of the init
         )
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
             asr_model.network_module = train_args["network_module"]
-        res, _ = tune_and_evaluate_helper(
+            if split_mem_init is True:
+                asr_model.network_module += "_mem_inited"
+        res, best_params = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
             decoder_config,
@@ -78,6 +87,8 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
             import_memristor=import_memristor,
             run_search_on_hpc=run_search_on_hpc,
+            get_best_params=get_best_params,
+            run_rasr=run_rasr,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -107,6 +118,7 @@ def eval_model(
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             import_memristor=import_memristor,
+            run_rasr=run_rasr,
         )
         result_dict.update(res)
     if run_best is True:
@@ -136,21 +148,23 @@ def eval_model(
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             import_memristor=import_memristor,
+            run_rasr=run_rasr,
         )
         result_dict.update(res)
-    return result_dict
+    if get_best_params is True:
+        return result_dict, best_params
+    else:
+        return result_dict
 
 
 def tune_and_evaluate_helper(
     training_name: str,
     asr_model: ASRModel,
-    base_decoder_config: DecoderConfig,
+    base_decoder_config: Union[DecoderConfig, RasrDecoderConfig],
     lm_scales: List[float],
     prior_scales: List[float],
     dev_dataset_tuples: Dict[str, Any],
-    quant_str: Optional[str] = None,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
-    quant_args: Optional[Any] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
     extra_forward_config: Optional[dict[str, Any]] = None,
     use_gpu: bool = False,
@@ -158,6 +172,8 @@ def tune_and_evaluate_helper(
     run_test: bool = False,
     import_memristor: bool = False,
     run_search_on_hpc:bool = False,
+    get_best_params: bool = False,
+    run_rasr: bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -178,9 +194,23 @@ def tune_and_evaluate_helper(
     for lm_weight in lm_scales:
         for prior_scale in prior_scales:
             decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = lm_weight
+            if isinstance(lm_weight, tuple):
+                lm_weight, search_name = lm_weight
+            else:
+                search_name = "lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+            if not run_rasr:
+                decoder_config.lm_weight = lm_weight
+            else:
+                decoder_config.rasr_config_file.lib_rasr.lm.scale = lm_weight
+
             decoder_config.prior_scale = prior_scale
-            search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+            if run_rasr:
+                recog_rasr_config_path = WriteRasrConfigJob(
+                    decoder_config.rasr_config_file, decoder_config.rasr_post_config
+                ).out_config
+                decoder_config.rasr_config_file = recog_rasr_config_path
+                decoder_config.rasr_post_config = None
+            search_name = training_name + f"/search_{search_name}"
             search_jobs, wers = search(
                 search_name,
                 forward_config=extra_forward_config or {},
@@ -191,6 +221,7 @@ def tune_and_evaluate_helper(
                 use_gpu=use_gpu,
                 import_memristor=import_memristor,
                 debug=debug,
+                run_rasr=run_rasr,
                 **default_returnn,
             )
             if run_search_on_hpc is True:
@@ -203,67 +234,6 @@ def tune_and_evaluate_helper(
             # tune_values_clean.append((wers[search_name + "/dev-clean"]))
             tune_values_other.append((wers[search_name + "/dev-other"]))
             results.update(wers)
-    if quant_args is not None:
-        assert quant_str is not None, "You want your quant to have a name"
-        for num_samples in quant_args.sample_ls:
-            for seed in range(quant_args.num_iterations):
-                it_name = training_name + quant_str + f"/quantize_static/samples_{num_samples}/seed_{seed}"
-                quant_config = get_static_quant_config(
-                    training_datasets=quant_args.datasets,
-                    network_module=quant_args.network_module,
-                    net_args=asr_model.net_args,
-                    quant_args=quant_args.quant_config_dict,
-                    config={},
-                    num_samples=num_samples,
-                    dataset_seed=seed,
-                    debug=False,
-                    dataset_filter_args=quant_args.filter_args,
-                )
-                quant_chkpt = quantize_static(
-                    prefix_name=it_name,
-                    returnn_config=quant_config,
-                    checkpoint=asr_model.checkpoint,
-                    returnn_exe=RETURNN_EXE,
-                    returnn_root=QUANT_RETURNN,
-                )
-                quant_model = ASRModel(
-                    checkpoint=quant_chkpt,
-                    net_args=asr_model.net_args | quant_args.quant_config_dict,
-                    network_module=quant_args.network_module,
-                    prior_file=asr_model.prior_file,
-                    prefix_name=it_name,
-                )
-                for lm_weight in lm_scales:
-                    for prior_scale in prior_scales:
-                        decoder_config = copy.deepcopy(base_decoder_config)
-                        decoder_config.lm_weight = lm_weight
-                        decoder_config.prior_scale = prior_scale
-                        search_name = it_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
-                        search_jobs, wers = search(
-                            search_name,
-                            forward_config=extra_forward_config or {},
-                            asr_model=quant_model,
-                            decoder_module=quant_args.decoder,
-                            decoder_args={"config": asdict(decoder_config)},
-                            test_dataset_tuples=dev_dataset_tuples,
-                            use_gpu=use_gpu,
-                            debug=debug,
-                            **default_returnn,
-                        )
-                        results.update(wers)
-                        if test_dataset_tuples is not None and seed in [59, 11, 93, 78, 25, 11, 38, 71, 68, 66, 18, 61]:
-                            search_jobs, wers = search(
-                                search_name,
-                                forward_config={},
-                                asr_model=quant_model,
-                                decoder_module=quant_args.decoder,
-                                decoder_args={"config": asdict(decoder_config)},
-                                test_dataset_tuples=test_dataset_tuples,
-                                use_gpu=use_gpu,
-                                debug=debug,
-                                **default_returnn,
-                            )
-                            results.update(wers)
     pick_optimal_params_job = None
     if run_test is True and test_dataset_tuples is not None and False:
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
@@ -285,6 +255,11 @@ def tune_and_evaluate_helper(
                 **default_returnn,
             )
         results.update(wers)
+    if get_best_params is True:
+        pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+            parameters=tune_parameters, values=tune_values_other, mode="minimize"
+        )
+        pick_optimal_params_job.add_alias(training_name + f"/pick_best_get")
     return results, pick_optimal_params_job
 
 

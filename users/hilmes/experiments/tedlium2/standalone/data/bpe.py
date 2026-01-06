@@ -74,6 +74,35 @@ def get_text_lexicon(prefix: str, bpe_size: int) -> tk.Path:
     return word_lexicon
 
 
+def get_bpe_bliss_lexicon(bpe_size: int, add_blank: bool) -> tk.Path:
+    bpe_settings = get_subword_nmt_bpe_v2(bpe_size=bpe_size)
+    lexicon = get_bliss_lexicon()
+    bpe_lexicon_file = CreateBPELexiconJob(
+        base_lexicon_path=lexicon,
+        bpe_codes=bpe_settings.bpe_codes,
+        bpe_vocab=bpe_settings.bpe_vocab,
+        unk_label="<unk>",
+        vocab_blacklist=["</s>"],
+        subword_nmt_repo=SUBWORD_NMT_REPO,
+        keep_special_lemmas=False,
+    ).out_lexicon
+
+    from i6_core.lib.lexicon import Lemma, Lexicon
+    from i6_core.lexicon.modification import MergeLexiconJob, WriteLexiconJob
+
+    lexicon_ext = Lexicon()
+    lexicon_ext.add_lemma(Lemma(orth=["[SENTENCE-BEGIN]"], phon=["<s>"], synt=["<s>"], special="sentence-begin"))
+    lexicon_ext.add_lemma(Lemma(orth=["[SENTENCE-END]"], phon=["<s>"], synt=["</s>"], special="sentence-end"))
+    lexicon_ext.add_lemma(Lemma(orth=["[UNKNOWN]"], phon=["<unk>"], synt=["<UNK>"], special="unknown"))
+
+    if add_blank:
+        lexicon_ext.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], special="blank"))
+        lexicon_ext.add_phoneme("<blank>", variation="none")
+
+    lexicon_ext_file = WriteLexiconJob(lexicon_ext).out_bliss_lexicon
+
+    return MergeLexiconJob([bpe_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+
 def build_bpe_training_datasets(
     prefix: str,
     bpe_size: int,

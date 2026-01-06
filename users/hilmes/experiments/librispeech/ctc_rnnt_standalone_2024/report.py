@@ -278,13 +278,16 @@ def build_qat_report(report: Dict):
     import numpy as np
 
     exps = ["combined", "cycle", "smaller", "greedy"]
-
+    report = copy.deepcopy(report)
     best_dc = {}
     bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
     for exp, dic in report.items():
         instanciate_delayed(dic)
         new_dic = {k: v for k, v in dic.items() if "other" in k}
         if all(new_dic.values()):
+            if len(new_dic) == 0:
+                print(exp)
+                assert False
             best = min(new_dic, key=new_dic.get)
             if "cycle" in exp:
                 mean = np.round(np.mean(list(new_dic.values())), decimals=2)
@@ -301,6 +304,13 @@ def build_qat_report(report: Dict):
         else:
             best_dc[" ".join(exp.split("/")[3:])] = ("None", "")
     line = []
+    tmp = copy.deepcopy(best_dc)
+    for exp, value in best_dc.items():
+        if "baseline" in exp:
+            line.append(
+                f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[5:6] + value[1].split('/')[9:])}")
+            del tmp[exp]
+    best_dc = tmp
     tmp = copy.deepcopy(best_dc)
     for bit in bits:
         best_dc = tmp

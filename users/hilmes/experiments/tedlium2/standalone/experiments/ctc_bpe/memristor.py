@@ -593,7 +593,7 @@ def bpe_ted_0725_memristor():
             memristor_report[training_name + "_greedy"] = copy.deepcopy(res_seeds_greedy)
 
     tk.register_report(
-        "reports/memristor_report_bpe_ted",
+        "reports/ted/memristor_report_bpe",
         partial(build_qat_report, memristor_report),
         required=memristor_report,
         update_frequency=10,

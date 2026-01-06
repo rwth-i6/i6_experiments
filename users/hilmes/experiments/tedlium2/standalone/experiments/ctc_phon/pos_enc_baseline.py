@@ -8,9 +8,9 @@ import torch.nn
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from ...data.common import DatasetSettings, build_test_dataset
-from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
+from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon, get_bliss_phoneme_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...lm import get_4gram_binary_lm
+from ...lm import get_4gram_binary_lm, get_arpa_lm_config
 from ...pipeline import training, calculate_blank_counts
 from ...report import generate_report
 from functools import partial
@@ -34,6 +34,7 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
         prefix=prefix_name,
         settings=train_settings,
     )
+
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
 
@@ -87,6 +88,32 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,
     )
+
+    from ...pytorch_networks.ctc.decoder.rasr_ctc_v1 import DecoderConfig as RasrDecoderConfig
+    from ...rasr_recog_config import get_tree_timesync_recog_config, get_no_op_label_scorer_config
+
+    recog_rasr_config, recog_rasr_post_config = get_tree_timesync_recog_config(
+        lexicon_file=get_bliss_phoneme_lexicon(),
+        collapse_repeated_labels=True,
+        label_scorer_config=get_no_op_label_scorer_config(),
+        blank_index=vocab_size_without_blank,
+        max_beam_size=4096,
+        score_threshold=20.0,
+        logfile_suffix="recog",
+        lm_config=get_arpa_lm_config("4gram", lexicon_file=get_bliss_phoneme_lexicon(), scale=0.0),
+    )
+
+    as_training_rasr_config = RasrDecoderConfig(
+        rasr_config_file=recog_rasr_config,
+        rasr_post_config=recog_rasr_post_config,
+        blank_log_penalty=None,
+        prior_scale=0.0,  # this will be overwritten internally
+        prior_file=None,
+        turn_off_quant="leave_as_is",  # this does not have memristor
+    )
+    rasr_prior_scales = [0.5, 0.7, 0.9]
+    rasr_lm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+
     from ...pytorch_networks.ctc.conformer_0106.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1_cfg import (
         SpecaugConfig,
         VGG4LayerActFrontendV1Config_mod,
@@ -119,10 +146,144 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
         + network_module_pos_enc_v1
         + f"_500_384_8_16_1",
     ]
-    prior_scales = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9]
-    lm_scales = [1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8]
+    prior_scales = [0.5, 0.7]
+    lm_scales = [1.8, 2.0, 2.2, 2.4, 2.6]
     chkpts = {}
     new_rep = {}
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=384,
+        activation=None,
+    )
+    specaug_config_test = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=8,
+        num_repeat_feat=5,
+    )
+    pos_emb_cfg = ConformerPosEmbConfig(
+        learnable_pos_emb=False,
+        rel_pos_clip=16,
+        with_linear_pos=True,
+        with_pos_bias=True,
+        separate_pos_emb_per_head=True,
+        pos_emb_dropout=0.0,
+    )
+
+    model_config_pos_enc = RelPosModelConfig(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config_test,
+        label_target_size=vocab_size_without_blank,
+        pos_emb_config=pos_emb_cfg,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=4 * 384,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        mhsa_with_bias=True,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        dropout_broadcast_axes=None,
+        specauc_start_epoch=1,
+        module_list=["ff", "conv", "mhsa", "ff"],
+        module_scales=[0.5, 1.0, 1.0, 0.5],
+        aux_ctc_loss_layers=None,
+        aux_ctc_loss_scales=None,
+    )
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, (1000 - 30) // 2))
+                          + list(np.linspace(5e-4, 5e-5, (1000 - 30) // 2))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 180 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+        "torch_amp_options": {"dtype": "bfloat16"},
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_pos_enc_v1,
+        "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
+        "debug": False,
+        "use_speed_perturbation": True,
+        "post_config": {"num_workers_per_gpu": 8},
+    }
+    results = {}
+    training_name = (
+        prefix_name
+        + "/"
+        + network_module_pos_enc_v1
+        + f"_{1000}_{384}_{4}_{8}_{1}"
+    )
+    train_job = training(
+        training_name, train_data_4000, train_args, num_epochs=1000, **default_returnn
+    )
+    train_job.rqmt["gpu_mem"] = 48
+
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_4000,
+        decoder_config=default_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        loss_name=f"ctc_loss_layer12",
+        specific_epoch=1000,
+        prior_scales=prior_scales,
+        lm_scales=lm_scales,
+        run_test=False,
+        test_dataset_tuples=test_dataset_tuples,
+    )
+    generate_report(results=results, exp_name=training_name)
+    new_rep[training_name] = results
+
+    results = {}
+    results = eval_model(
+        training_name=training_name + "_rasr",
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_4000,
+        decoder_config=as_training_rasr_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        loss_name=f"ctc_loss_layer12",
+        specific_epoch=1000,
+        prior_scales=rasr_prior_scales,
+        lm_scales=rasr_lm_scales,
+        run_test=False,
+        test_dataset_tuples=test_dataset_tuples,
+        run_rasr=True,
+        decoder_module="ctc.decoder.rasr_ctc_v1"
+    )
+    generate_report(results=results, exp_name=training_name+ "_rasr")
+    new_rep[training_name + "_rasr"] = results
+
     # Best: 384, 1, 500, 16, 8
     for dim in [384]:
         for spec_start in [1]:
@@ -232,15 +393,46 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
                             if epochs == 1000:
                                 train_job.rqmt["gpu_mem"] = 48
 
+                            # if training_name in RTFS:
+                            #     rtf_args = RTFArgs(
+                            #         #beam_sizes=[256, 512, 1024, 4096],
+                            #         beam_sizes=[64, 128, 256, 512, 1024, 4096],
+                            #         #beam_size_tokens=[4, 6, 8, 10, 12, 20, 30],  # makes it much faster
+                            #         beam_size_tokens=[4, 8, 20, 30],
+                            #         #beam_thresholds=[8, 10, 12, 14, 20, 30],
+                            #         beam_thresholds=[8, 20, 30],
+                            #         decoder_module="ctc.decoder.flashlight_ctc_v4_rescale_measure",
+                            #         run_quant=False
+                            #     )
+                            # else:
+                            #     rtf_args = None
+                            # results = eval_model(
+                            #     training_name=training_name,
+                            #     train_job=train_job,
+                            #     train_args=train_args,
+                            #     train_data=train_data,
+                            #     decoder_config=default_decoder_config,
+                            #     dev_dataset_tuples=dev_dataset_tuples,
+                            #     result_dict=results,
+                            #     loss_name=f"ctc_loss_layer12",
+                            #     specific_epoch=epochs,
+                            #     prior_scales=prior_scales,
+                            #     lm_scales=lm_scales,
+                            #     run_test=True,
+                            #     test_dataset_tuples=test_dataset_tuples,
+                            #     run_rtf=training_name in RTFS,
+                            #     rtf_args=None,
+                            # )
                             if training_name in RTFS:
                                 rtf_args = RTFArgs(
                                     #beam_sizes=[256, 512, 1024, 4096],
                                     beam_sizes=[64, 128, 256, 512, 1024, 4096],
                                     #beam_size_tokens=[4, 6, 8, 10, 12, 20, 30],  # makes it much faster
-                                    beam_size_tokens=[4, 8, 20, 30],
+                                    beam_size_tokens=[4, 8, 20, 30, 50],
                                     #beam_thresholds=[8, 10, 12, 14, 20, 30],
-                                    beam_thresholds=[8, 20, 30],
-                                    decoder_module="ctc.decoder.flashlight_ctc_v4_rescale_measure",
+                                    beam_thresholds=[8, 20, 30, 50],
+                                    decoder_module="ctc.decoder.flashlight_ctc_v6_rescale_measure",
+                                    run_quant=False,
                                 )
                             else:
                                 rtf_args = None
@@ -276,6 +468,27 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
                             chkpts[training_name] = train_job.out_checkpoints[250]
 
                             del results
+
+                            results = {}
+                            results = eval_model(
+                                training_name=training_name + "_rasr",
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                decoder_config=as_training_rasr_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=rasr_prior_scales,
+                                lm_scales=rasr_lm_scales,
+                                run_test=False,
+                                test_dataset_tuples=test_dataset_tuples,
+                                run_rasr=True,
+                                decoder_module="ctc.decoder.rasr_ctc_v1"
+                            )
+                            generate_report(results=results, exp_name=training_name+ "_rasr")
+                            new_rep[training_name + "_rasr"] = results
 
                             train_config = {
                                 "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
@@ -331,6 +544,27 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
                             generate_report(results=results, exp_name=training_name)
                             new_rep[training_name] = results
                             del results
+
+                            results = {}
+                            results = eval_model(
+                                training_name=training_name + "_rasr",
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                decoder_config=as_training_rasr_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=rasr_prior_scales,
+                                lm_scales=rasr_lm_scales,
+                                run_test=False,
+                                test_dataset_tuples=test_dataset_tuples,
+                                run_rasr=True,
+                                decoder_module="ctc.decoder.rasr_ctc_v1"
+                            )
+                            generate_report(results=results, exp_name=training_name+ "_rasr")
+                            new_rep[training_name + "_rasr"] = results
 
                             train_config = {
                                 "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
@@ -388,7 +622,145 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
                             new_rep[training_name] = results
                             del results
 
+                            train_args = {
+                                "config": train_config,
+                                "network_module": network_module_pos_enc_v1,
+                                "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
+                                "debug": False,
+                                "use_speed_perturbation": True,
+                                "post_config": {"num_workers_per_gpu": 8},
+                            }
+
+                            results = {}
+                            training_name = (
+                                prefix_name
+                                + "/"
+                                + network_module_pos_enc_v1
+                                + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_{drop}_radam_180bs_amp_4k"
+                            )
+                            train_job = training(
+                                training_name, train_data_4000, train_args, num_epochs=epochs, **default_returnn
+                            )
+
+                            train_job.rqmt["gpu_mem"] = 24
+
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data_4000,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=prior_scales,
+                                lm_scales=lm_scales,
+                                run_test=True,
+                                test_dataset_tuples=test_dataset_tuples,
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            new_rep[training_name] = results
+                            del results
+
+                            results = {}
+                            results = eval_model(
+                                training_name=training_name + "_rasr",
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                decoder_config=as_training_rasr_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=rasr_prior_scales,
+                                lm_scales=rasr_lm_scales,
+                                run_test=False,
+                                test_dataset_tuples=test_dataset_tuples,
+                                run_rasr=True,
+                                decoder_module="ctc.decoder.rasr_ctc_v1"
+                            )
+                            generate_report(results=results, exp_name=training_name+ "_rasr")
+                            new_rep[training_name + "_rasr"] = results
+                            train_config = {
+                                "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
+                                    "decoupled_weight_decay": True},
+                                "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                                                  + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                                                  + list(np.linspace(5e-5, 1e-7, 30)),
+                                #############
+                                "batch_size": 180 * 16000,
+                                "max_seq_length": {"audio_features": 35 * 16000},
+                                "accum_grad_multiple_step": 1,
+                                "gradient_clip_norm": 1.0,
+                            }
+
+                            train_args = {
+                                "config": train_config,
+                                "network_module": network_module_pos_enc_v1,
+                                "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
+                                "debug": False,
+                                "use_speed_perturbation": True,
+                                "post_config": {"num_workers_per_gpu": 8},
+                            }
+
+                            results = {}
+                            training_name = (
+                                prefix_name
+                                + "/"
+                                + network_module_pos_enc_v1
+                                + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_{drop}_radam_180bs_4k"
+                            )
+                            train_job = training(
+                                training_name, train_data_4000, train_args, num_epochs=epochs, **default_returnn
+                            )
+
+                            train_job.rqmt["gpu_mem"] = 24
+
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data_4000,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=prior_scales,
+                                lm_scales=lm_scales,
+                                run_test=True,
+                                test_dataset_tuples=test_dataset_tuples,
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            new_rep[training_name] = results
+                            del results
+
+                            results = {}
+                            results = eval_model(
+                                training_name=training_name + "_rasr",
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                decoder_config=as_training_rasr_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=rasr_prior_scales,
+                                lm_scales=rasr_lm_scales,
+                                run_test=False,
+                                test_dataset_tuples=test_dataset_tuples,
+                                run_rasr=True,
+                                decoder_module="ctc.decoder.rasr_ctc_v1"
+                            )
+                            generate_report(results=results, exp_name=training_name + "_rasr")
+                            new_rep[training_name + "_rasr"] = results
+
+    # TODO: this can maybe be deleted
     for dim in [256, 384, 512]:
+        continue
         for ff_factor in [2, 4]:
             for layer_count in [8, 10, 12]:
                 for conv_size in [15, 31]:

@@ -121,6 +121,7 @@ def forward_init_hook(run_ctx, **kwargs):
     :param kwargs:
     :return:
     """
+    assert False, "use v6"
     import torch
     from torchaudio.models.decoder import ctc_decoder
 
