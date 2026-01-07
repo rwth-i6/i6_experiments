@@ -1,22 +1,45 @@
 import warnings
 from dataclasses import dataclass, replace
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.dataset_config import DatasetConfig, \
-    dataset_baseline
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import LabelConfig, \
-    label_baseline
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import \
-    NetworkConfig, \
-    network_baseline, network_SLLM_dropout, network_SLLM_tuned_dropout, network_SLLM_small_decoder, \
-    network_linear_adapter, \
-    network_SLLM_tuned_dropout_v2
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import \
-    PriorConfig, prior_v1
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import \
-    SearchConfig, search_baseline
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import \
-    TrainingConfig, training_baseline, itc_batch_size_80k, itc_batch_size_150k, bsv2_lrv2, bsv2_lrv3, \
-    itc_batch_size_250k, itc_4gpu_setup_v1, itc_4gpu_setup_v2
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.dataset_config import (
+    DatasetConfig,
+    dataset_baseline,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import (
+    LabelConfig,
+    label_baseline,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
+    NetworkConfig,
+    network_baseline,
+    network_SLLM_dropout,
+    network_SLLM_tuned_dropout,
+    network_SLLM_small_decoder,
+    network_small_linear_adapter,
+    network_SLLM_tuned_dropout_v2,
+    network_linear_adapter,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
+    PriorConfig,
+    prior_v1,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
+    SearchConfig,
+    search_baseline,
+)
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
+    TrainingConfig,
+    training_baseline,
+    itc_batch_size_80k,
+    itc_batch_size_150k,
+    bsv2_lrv2,
+    bsv2_lrv3,
+    itc_batch_size_250k,
+    itc_4gpu_setup_v1,
+    itc_4gpu_setup_v2,
+    bsv2_lrv4,
+    bsv2_lrv5, itc_batch_size_80k_150_epochs, itc_batch_size_80k_200_epochs,
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +49,7 @@ class ExperimentConfig:
 
     Can contain default values.
     """
+
     # general: GeneralParams # add if needed
     dataset: DatasetConfig
     labels: LabelConfig
@@ -46,9 +70,7 @@ def exp_baseline() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline(),
         labels=label_baseline(),
-
         network=network_baseline(),
-
         training=training_baseline(),
         prior=prior_v1(),
         search=search_baseline(),
@@ -67,20 +89,25 @@ def exp_v3() -> ExperimentConfig:
     )
     return replace(exp_baseline(), network=network_SLLM_tuned_dropout())
 
+
+def exp_v3_2() -> ExperimentConfig:
+    return replace(exp_baseline(), network=network_SLLM_tuned_dropout_v2())
+
+
 def exp_v4() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline(),
         labels=label_baseline(),
-
-        network=network_SLLM_small_decoder(), # !!
-
+        network=network_SLLM_small_decoder(),  # !!
         training=itc_batch_size_80k(),  # !!
         prior=prior_v1(),
         search=search_baseline(),
     )
 
+
 def exp_v5() -> ExperimentConfig:
-    return replace(exp_v4(), network=network_linear_adapter())
+    return replace(exp_v4(), network=network_small_linear_adapter())
+
 
 def exp_v6() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_batch_size_150k())
@@ -94,19 +121,20 @@ def exp_v7() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline(),
         labels=label_baseline(),
-
-        network=network_SLLM_tuned_dropout_v2(), # !!
-
+        network=network_SLLM_tuned_dropout_v2(),  # !!
         training=itc_batch_size_80k(),
         prior=prior_v1(),
         search=search_baseline(),
     )
 
+
 def exp_v8_1() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv2())
 
+
 def exp_v8_2() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv3())
+
 
 def exp_v9() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_batch_size_250k())
@@ -115,7 +143,54 @@ def exp_v9() -> ExperimentConfig:
 def exp_v10() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_4gpu_setup_v1())
 
+
 def exp_v10_2() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_4gpu_setup_v2())
+
+
+def exp_v11() -> ExperimentConfig:
+    """
+    SLLM-td-80k but without tuned params, only dropout
+    :return:
+    """
+    return replace(exp_v7(), network=network_SLLM_dropout())
+
+
+def exp_v12() -> ExperimentConfig:
+    """
+    SLLM-td-80k but without dropout, only tuned params
+    :return:
+    """
+    return replace(exp_v7(), network=network_SLLM_dropout())
+
+
+def exp_v13() -> ExperimentConfig:
+    """
+    SLLM-td-80k with linear adapter
+    :return:
+    """
+    return replace(exp_v7(), network=network_linear_adapter())
+
+
+def exp_v2_s2() -> ExperimentConfig:
+    """
+    SLLM-td-80k with linear adapter
+    :return:
+    """
+    return replace(exp_v2(), training=training_baseline(seed=1234))
+
+
+def exp_v8_3() -> ExperimentConfig:
+    return replace(exp_v7(), training=bsv2_lrv4())
+
+
+def exp_v8_4() -> ExperimentConfig:
+    return replace(exp_v7(), training=bsv2_lrv5())
+
+def exp_v7_150() -> ExperimentConfig:
+    return replace(exp_v7(), training=itc_batch_size_80k_150_epochs())
+
+def exp_v7_200() -> ExperimentConfig:
+    return replace(exp_v7(), training=itc_batch_size_80k_200_epochs())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

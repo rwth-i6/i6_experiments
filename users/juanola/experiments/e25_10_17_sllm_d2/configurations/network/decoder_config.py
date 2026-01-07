@@ -50,7 +50,20 @@ class DecoderConfig(HasNameProtocol):
     @property
     def name(self) -> str:
         return f"Qwen2_hl_{self.num_hidden_layers}"
+"""
+Parameter groups
+"""
 
+_QWEN_AUDIO_V2_DECODER_KWARGS = dict(
+    max_position_embeddings=8192,
+    rope_theta=10_000,
+    rms_norm_eps=1e-5,
+)
+
+_DROPOUT_KWARGS = dict(
+    attention_dropout=0.1,
+    mlp_dropout=0.1,
+)
 
 """
 Specific configurations set below.
@@ -58,19 +71,11 @@ Specific configurations set below.
 
 
 def decoder_baseline() -> DecoderConfig:
-    warnings.warn(
-        "[Bad Performance] Needs decoder dropout",
-        DeprecationWarning,
-        stacklevel=2,
-    )
     return DecoderConfig()
 
 
 def decoder_dropout() -> DecoderConfig:
-    return DecoderConfig(
-        attention_dropout=0.1,
-        mlp_dropout=0.1,
-    )
+    return replace(decoder_baseline(), **_DROPOUT_KWARGS)
 
 
 def decoder_dropout_tuned() -> DecoderConfig:
@@ -103,10 +108,19 @@ def decoder_dropout_tuned_v2() -> DecoderConfig:
     """
     return replace(
         decoder_dropout(),
-        max_position_embeddings=8192,
-        rope_theta=10_000,
-        rms_norm_eps=1e-5,
+        **_QWEN_AUDIO_V2_DECODER_KWARGS,
     )
+
+def decoder_v2_tuned() -> DecoderConfig:
+    """
+    Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
+    NO DROPOUT!
+    """
+    return replace(
+        decoder_baseline(),
+        **_QWEN_AUDIO_V2_DECODER_KWARGS,
+    )
+
 
 
 def small_decoder() -> DecoderConfig:
@@ -116,9 +130,7 @@ def small_decoder() -> DecoderConfig:
         hidden_size=512,  # 896
         intermediate_size=2048,  # 4864
         num_attention_heads=8,  # 14
-        max_position_embeddings=8192,
-        rope_theta=10_000,
-        rms_norm_eps=1e-5,
+        **_QWEN_AUDIO_V2_DECODER_KWARGS
     )
 
 

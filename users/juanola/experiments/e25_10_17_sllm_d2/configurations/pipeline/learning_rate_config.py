@@ -12,10 +12,10 @@ class DynamicLearningRateConfig:
     Can contain default values.
     """
 
-    base_lr: float = 1.0
-    peak_lr: float = 1e-3
-    low_lr: float = 1e-5
-    lowest_lr: float = 1e-6
+    base_lr: float
+    peak_lr: float
+    low_lr: float
+    lowest_lr: float
 
     step_peak_fraction: float = 0.45
     step_finetune_fraction: float = 0.9
@@ -55,12 +55,28 @@ class DynamicLearningRateConfig:
 
 
 """
+parameter groups
+"""
+
+_BASE_LRS_KWARGS = dict(
+    base_lr=1.0,
+    peak_lr=1e-3,
+    low_lr=1e-5,
+    lowest_lr=1e-6,
+)
+
+
+def _scale_lr_kwargs(lr_kwargs: Dict[str, float], factor: float) -> dict[str, float]:
+    return {k: v * factor for k, v in lr_kwargs.items()}
+
+
+"""
 Specific configurations set below.
 """
 
 
 def lr_baseline() -> DynamicLearningRateConfig:
-    return DynamicLearningRateConfig()
+    return DynamicLearningRateConfig(**_BASE_LRS_KWARGS)
 
 
 def lr_baseline_v2() -> DynamicLearningRateConfig:
@@ -69,6 +85,19 @@ def lr_baseline_v2() -> DynamicLearningRateConfig:
 
 def lr_baseline_v3() -> DynamicLearningRateConfig:
     return replace(lr_baseline(), peak_lr=1e-5)
+
+
+def lr_baseline_v4() -> DynamicLearningRateConfig:
+    return replace(lr_baseline(), peak_lr=0.5e-3)
+
+
+def lr_baseline_v5() -> DynamicLearningRateConfig:
+    """
+    Original values but halved.
+    :return:
+    """
+    scaled_kwargs = _scale_lr_kwargs(_BASE_LRS_KWARGS, factor=0.5)
+    return DynamicLearningRateConfig(**scaled_kwargs)
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

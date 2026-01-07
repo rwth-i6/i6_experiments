@@ -11,7 +11,9 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     decoder_baseline,
     decoder_dropout,
     decoder_dropout_tuned,
-    small_decoder, decoder_dropout_tuned_v2,
+    small_decoder,
+    decoder_dropout_tuned_v2,
+    decoder_v2_tuned,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.encoder_config import (
     EncoderConfig,
@@ -65,12 +67,11 @@ def network_baseline() -> NetworkConfig:
 
 
 def network_SLLM_dropout() -> NetworkConfig:
-    return NetworkConfig(
-        feature_extraction=feature_extraction_baseline(),
-        encoder=encoder_baseline(),
-        adapter=linear_adapter_with_downsampling(),
-        decoder=decoder_dropout(),
-    )
+    return replace(network_baseline(), decoder=decoder_dropout())
+
+
+def network_SLLM_tuned() -> NetworkConfig:
+    return replace(network_baseline(), decoder=decoder_v2_tuned())
 
 
 def network_SLLM_tuned_dropout() -> NetworkConfig:
@@ -79,33 +80,27 @@ def network_SLLM_tuned_dropout() -> NetworkConfig:
         DeprecationWarning,
         stacklevel=2,
     )
-    return NetworkConfig(
-        feature_extraction=feature_extraction_baseline(),
-        encoder=encoder_baseline(),
-        adapter=linear_adapter_with_downsampling(),
-        decoder=decoder_dropout_tuned(),
-    )
+    return replace(network_baseline(), decoder=decoder_dropout_tuned())
+
 
 def network_SLLM_tuned_dropout_v2() -> NetworkConfig:
-    return NetworkConfig(
-        feature_extraction=feature_extraction_baseline(),
-        encoder=encoder_baseline(),
-        adapter=linear_adapter_with_downsampling(),
-        decoder=decoder_dropout_tuned_v2(),
-    )
+    return replace(network_baseline(), decoder=decoder_dropout_tuned_v2())
+
+
+"""
+small decoders
+"""
 
 
 def network_SLLM_small_decoder() -> NetworkConfig:
-    return NetworkConfig(
-        feature_extraction=feature_extraction_baseline(),
-        encoder=encoder_baseline(),
-        adapter=linear_adapter_with_downsampling(),
-        decoder=small_decoder(),
-    )
+    return replace(network_baseline(), decoder=small_decoder())
 
+
+def network_small_linear_adapter() -> NetworkConfig:
+    return replace(network_SLLM_small_decoder(), adapter=linear_adapter())
 
 def network_linear_adapter() -> NetworkConfig:
-    return replace(network_SLLM_small_decoder(), adapter=linear_adapter())
+    return replace(network_SLLM_tuned_dropout_v2(), adapter=linear_adapter())
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -2,7 +2,8 @@ from enum import Enum
 
 from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, exp_v4, exp_v5, exp_v6, exp_v7, exp_v8_1, \
     exp_v8_2, \
-    exp_v9, exp_v10, exp_v10_2
+    exp_v9, exp_v10, exp_v10_2, exp_v11, exp_v12, exp_v3_2, exp_v13, exp_v2_s2, exp_v8_3, exp_v8_4, exp_v7_150, \
+    exp_v7_200
 
 
 class ExperimentVersion(Enum):
@@ -21,6 +22,16 @@ class ExperimentVersion(Enum):
     V9_SMALL_DECODER_250kBS = "SLLM_small_decoder_250kBS"
     V10_SMALL_DECODER_4GPUS = "SLLM_small_decoder_4gpus_i6"
     V10_SMALL_DECODER_4GPUS_V2 = "SLLM_small_decoder_4gpus_i6_v2"
+
+    V11_SLLM_D_80k = "SLLM_dropout_80k"
+    V12_SLLM_t_80k = "SLLM_tuned_80k"
+    V3_SLLM_td_15k = "SLLM_td_15k"
+    V13_SLLM_linear_adapter = "SLLM_linear_adapter"
+    V2_DROPOUT_s2 = "SLLM_dropout_s2"
+    V8_3_TD_LRV3 = "SLLM_td_lrv3"
+    V8_4_TD_LRV4 = "SLLM_td_lrv4"
+    V7_TUNED_DROPOUT_150= "SLLM_td_150"
+    V7_TUNED_DROPOUT_200= "SLLM_td_200"
     # Expand here
 
 
@@ -40,6 +51,16 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V9_SMALL_DECODER_250kBS: exp_v9,
     ExperimentVersion.V10_SMALL_DECODER_4GPUS: exp_v10,
     ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2: exp_v10_2,
+
+    ExperimentVersion.V11_SLLM_D_80k: exp_v11,
+    ExperimentVersion.V12_SLLM_t_80k: exp_v12,
+    ExperimentVersion.V3_SLLM_td_15k: exp_v3_2,
+    ExperimentVersion.V13_SLLM_linear_adapter: exp_v13,
+    ExperimentVersion.V2_DROPOUT_s2: exp_v2_s2,
+    ExperimentVersion.V8_3_TD_LRV3: exp_v8_3,
+    ExperimentVersion.V8_4_TD_LRV4: exp_v8_4,
+    ExperimentVersion.V7_TUNED_DROPOUT_150: exp_v7_150,
+    ExperimentVersion.V7_TUNED_DROPOUT_200: exp_v7_200,
     # Expand here
 }
 

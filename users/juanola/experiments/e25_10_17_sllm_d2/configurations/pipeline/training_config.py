@@ -1,13 +1,15 @@
 import warnings
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.learning_rate_config import (
     DynamicLearningRateConfig,
     lr_baseline,
     lr_baseline_v3,
     lr_baseline_v2,
+    lr_baseline_v4,
+    lr_baseline_v5,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.optimizer_config import (
     OptimizerConfig,
@@ -49,6 +51,8 @@ class TrainingConfig:
 
     max_seq_length_seconds: int = 19.5
 
+    random_seed: Optional[int] = None # Added to config only if specified
+
     def __post_init__(self):
         """
         Assertions for parameters.
@@ -57,8 +61,9 @@ class TrainingConfig:
             assert self.torch_amp is not None, f"If torch_amp is used it should not be None ({self.torch_amp})"
 
             if self.gpu_memory == 11:
-                assert self.torch_amp != TorchAmpTypes.BFLOAT16.value, "torch_amp with 11Gb nodes should not be bfloat16."
-
+                assert (
+                    self.torch_amp != TorchAmpTypes.BFLOAT16.value
+                ), "torch_amp with 11Gb nodes should not be bfloat16."
 
 
 """
@@ -66,23 +71,19 @@ Specific configurations set below.
 """
 
 
-def training_baseline() -> TrainingConfig:
+def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
     return TrainingConfig(
         epochs=100,
         partition_epoch_factor=20,
-
         dynamic_lr=lr_baseline(),
-
         batch_size=15_000,
         batch_size_factor=160,
-
         optimizer=optimizer_baseline(),
-
         num_gpus=1,
         gpu_memory=48,
-
         torch_amp=TorchAmpTypes.BFLOAT16.value,
-        grad_scaler=None
+        grad_scaler=None,
+        random_seed=seed,
     )
 
 
@@ -105,23 +106,20 @@ def itc_4gpu_setup_v1() -> TrainingConfig:
     """
     return replace(
         training_baseline(),
-
         batch_size=15_000,
         gpu_memory=11,
         num_gpus=4,
-
         use_torch_amp=False,
         use_grad_scaler=False,
     )
 
+
 def itc_4gpu_setup_v2() -> TrainingConfig:
     return replace(
         training_baseline(),
-
         batch_size=5_000,
         gpu_memory=11,
         num_gpus=4,
-
         use_torch_amp=False,
         use_grad_scaler=False,
     )
@@ -134,5 +132,18 @@ def bsv2_lrv2() -> TrainingConfig:
 def bsv2_lrv3() -> TrainingConfig:
     return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v3())
 
+
+def bsv2_lrv4() -> TrainingConfig:
+    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v4())
+
+
+def bsv2_lrv5() -> TrainingConfig:
+    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v5())
+
+def itc_batch_size_80k_150_epochs() -> TrainingConfig:
+    return replace(itc_batch_size_80k(), epochs=150)
+
+def itc_batch_size_80k_200_epochs() -> TrainingConfig:
+    return replace(itc_batch_size_80k(), epochs=200)
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -104,6 +104,28 @@ def e3v10_2_ctc(): # TODO: wip
 
 # ++++
 
+def e3v11():
+    ex3.sllm_ep([ExperimentVersion.V11_SLLM_D_80k], itc_training=True)
+
+def e3v12():
+    ex3.sllm_ep([ExperimentVersion.V12_SLLM_t_80k], itc_training=True)
+
+def e3v3_2():
+    ex3.sllm_ep([ExperimentVersion.V3_SLLM_td_15k], itc_training=True)
+
+def e3v13():
+    ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter], itc_training=True)
+
+def e3v2_s2():
+    ex3.sllm_ep([ExperimentVersion.V2_DROPOUT_s2], itc_training=True)
+
+def e3v8_2():
+    ex3.sllm_ep([ExperimentVersion.V8_3_TD_LRV3, ExperimentVersion.V8_4_TD_LRV4], itc_training=True)
+
+def e3v7_2():
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200], itc_training=True)
+
+
 
 """
 DEBUGS

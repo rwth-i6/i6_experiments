@@ -66,6 +66,8 @@ def get_training_parameters(debug_returnn_param: bool, network_args: dict[str, A
         train_config["torch_amp"] = train_config_obj.torch_amp
     if train_config_obj.use_grad_scaler:
         train_config["grad_scaler"] = train_config_obj.grad_scaler
+    if train_config_obj.random_seed is not None:
+        train_config["random_seed"] = train_config_obj.random_seed
 
 
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
