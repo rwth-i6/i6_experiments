@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from functools import partial
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 from returnn_common.datasets import Dataset
 from sisyphus import tk
@@ -26,7 +26,11 @@ def sllm_ep(
         experiment_path: str = "experiments/librispeech/sllm/ls960/baselines",
         debug: bool = False,
         itc_training: bool = False,
-        specific_recognition_epochs: set[int] = set({})) -> Dict[str, Any]:
+        specific_recognition_epochs: set[int] = set({}),
+        only_specific_epochs: bool = False,
+        test_forward_output_path: bool = False,
+        forward_method: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Sisyphus entry point.
 
@@ -72,10 +76,10 @@ def sllm_ep(
 
         # DEBUGGING CHANGES
         if debug: # TODO: this should modify the experiment object!
-            TRAINING_BATCH_SIZE = 21_000
-            partition_epochs = 1
+            TRAINING_BATCH_SIZE = 6_000
+            #partition_epochs = 1
             # TODO: move this to config? NUM_GPUS = 1
-            TRAINING_GPU_MEMORY = 48
+            #TRAINING_GPU_MEMORY = 48
 
 
         # INITIALIZE DATASET
@@ -114,9 +118,15 @@ def sllm_ep(
             specific_epochs = specific_recognition_epochs | set({}) # Specify here default epochs to check in multiple exps
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
+        if only_specific_epochs:
+            run_test = run_best_4 = run_best = False
+            epochs_to_evaluate = specific_recognition_epochs
+
+        forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
+
         # Tune-Eval
         results: Dict[str, Any] = create_tune_and_evaluate_jobs(
-            training_name=training_name,
+            training_name=forward_training_name,
             train_job=train_job,
 
             network_module=NETWORK_MODULE,
@@ -126,6 +136,7 @@ def sllm_ep(
             train_data=training_datasets,
             decoder_config=exp_config.search.beam_search,
             decoder_module=RECOGNITION_PACKAGE,
+            forward_method=forward_method,
 
             test_dataset_tuples=test_dataset_tuples,
             dev_dataset_tuples=dev_dataset_tuples,

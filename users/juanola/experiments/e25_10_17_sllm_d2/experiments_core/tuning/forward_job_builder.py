@@ -5,7 +5,7 @@ It uses ASRModels classes which contain the information of how to call trained m
 """
 
 import copy
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, Tuple, List, Optional
 
 from sisyphus import tk, job_path
 
@@ -66,6 +66,7 @@ def search(
         forward_config: Dict[str, Any],
         asr_model: ASRModel,
         decoder_module: str,
+        forward_method: Optional[str],
         decoder_args: Dict[str, Any],
         test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
         returnn_exe: tk.Path,
@@ -98,6 +99,7 @@ def search(
         net_args=asr_model.net_args,
         decoder_args=decoder_args,
         decoder=decoder_module,
+        forward_method=forward_method,
         debug=debug,
         vocab_opts=vocab_opts,
         batch_size= batch_size,

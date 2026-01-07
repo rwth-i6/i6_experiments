@@ -28,15 +28,15 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from i6_models.primitives.specaugment import specaugment_v1_by_length
-from .adapters.linear_adapter import LinearAdapter # NEEDED!
-from .adapters.linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling # NEEDED!
+from .adapters.linear_adapter import LinearAdapter  # NEEDED!
+from .adapters.linear_adapter_with_concat_downsampling import LinearAdapterWithConcatDownsampling  # NEEDED!
 
 from .interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 from .interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 from .qwen2_decoder_state import Qwen2DecoderState
 
 
-#from transformers import Qwen2Config, Qwen2ForCausalLM
+# from transformers import Qwen2Config, Qwen2ForCausalLM
 from .qwen_decoder.configuration_qwen2_with_dropout import Qwen2Config
 from .qwen_decoder.modeling_qwen2_with_dropout import Qwen2ForCausalLM
 
@@ -45,7 +45,10 @@ def _relu_sq(x):
     """Squared ReLU."""
     return nn.functional.relu(x) ** 2.0
 
-def load_class_from_path(class_path: str): # TODO: this should be improved maybe just storing an enum in the adapters package
+
+def load_class_from_path(
+    class_path: str,
+):  # TODO: this should be improved maybe just storing an enum in the adapters package
     module_path, class_name = class_path.rsplit(".", 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
@@ -60,8 +63,9 @@ class _SpecAugArgs(TypedDict):
     freq_mask_max_size: int
 
 
-class Model(nn.Module, AedCtcModelProtocol,
-            BaseEncoderDecoderModel[Qwen2DecoderState]):  # TODO: rename class -> will break in hardcoded places
+class Model(
+    nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel[Qwen2DecoderState]
+):  # TODO: rename class -> will break in hardcoded places
     """
     Conformer encoder + Transformer decoder AED + CTC model
     similar to the RETURNN frontend implementation but using primitives from i6_models.
@@ -262,6 +266,7 @@ class Model(nn.Module, AedCtcModelProtocol,
 
             # Embedding
             self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
+            #self.decoder_embed_func = self.decoder.get_input_embeddings() # TODO: what should be used! better inline?
 
             # Adapter
             adapter_class = load_class_from_path(adapter_class_path)
@@ -270,7 +275,6 @@ class Model(nn.Module, AedCtcModelProtocol,
                 out_dim=qwen2_config.hidden_size,
                 # TODO: more parameters could be passed through a dict or so!
             )
-
 
         if verbose:
             print(" ***** MODEL PARAMETERS *****")
@@ -281,7 +285,6 @@ class Model(nn.Module, AedCtcModelProtocol,
             if self.decoder is not None:
                 print(f"Decoder params:", get_model_params(self.decoder))
             print(" ***** MODEL PARAMETERS *****")
-
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
         """
@@ -376,10 +379,7 @@ class Model(nn.Module, AedCtcModelProtocol,
         qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output)  # [B, T, F]
 
         # Setup decoder(LLM) inputs
-        qwen_input_embeds, qwen_attention_mask = self.get_qwen_input_embeds(
-            qwen_audio_features_in,
-            x,
-            x_lens)
+        qwen_input_embeds, qwen_attention_mask = self.get_qwen_input_embeds(qwen_audio_features_in, x, x_lens)
 
         # Decoder step
         qwen_output: CausalLMOutputWithPast = self.decoder.forward(
@@ -390,8 +390,9 @@ class Model(nn.Module, AedCtcModelProtocol,
 
         return qwen_output.logits  # [B, x_lens.max(), VocabSize]
 
-    def get_qwen_input_embeds(self, audio_embeds: Tensor, text_tokens: Tensor, text_tokens_lens: Tensor) \
-            -> Tuple[Tensor, Tensor]:
+    def get_qwen_input_embeds(
+        self, audio_embeds: Tensor, text_tokens: Tensor, text_tokens_lens: Tensor
+    ) -> Tuple[Tensor, Tensor]:
         """
         For now only feeding the encoded audio and the text labels.
         No prompt for now!
@@ -417,27 +418,28 @@ class Model(nn.Module, AedCtcModelProtocol,
 
         return qwen_input_embeds, qwen_attention_mask
 
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int) -> Qwen2DecoderState:
+    def forward_encoder(
+        self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int
+    ) -> tuple[Qwen2DecoderState, Tensor, Tensor]:
         """
         Forward the raw audio data through the encoder and initialize decoder state from it. (for inference)
         batch=1 (only one encoding/decoding) || now beams in encoder (only in decoder)
         """
 
         # Forward through encoder
-        encoder_output, _, logits_lens, _ = self.forward(raw_audio, raw_audio_lens)
+        encoder_output, out_logits, logits_lens, _ = self.forward(raw_audio, raw_audio_lens)
 
         # Prepare decoder input [adapter + mix with text imput] (could be also extracted, but not needed for now)
         qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output)  # [B, T', HS']
 
-        empty_tokens = torch.empty((raw_audio.shape[0], 0), dtype=torch.long,
-                                   device=qwen_audio_features_in.device)  # [B, 0]
+        empty_tokens = torch.empty(
+            (raw_audio.shape[0], 0), dtype=torch.long, device=qwen_audio_features_in.device
+        )  # [B, 0]
         empty_tokens_len = torch.tensor([0], device=qwen_audio_features_in.device).expand(
-            qwen_audio_features_in.size(0))  # [B]
+            qwen_audio_features_in.size(0)
+        )  # [B]
 
-        qwen_input_embeds, _ = self.get_qwen_input_embeds(
-            qwen_audio_features_in,
-            empty_tokens,
-            empty_tokens_len)
+        qwen_input_embeds, _ = self.get_qwen_input_embeds(qwen_audio_features_in, empty_tokens, empty_tokens_len)
 
         # Package results in TransformerDecoderV1State
         initial_qwen2_decoder_state = {  # TODO: extract to class as initialize method
@@ -445,7 +447,7 @@ class Model(nn.Module, AedCtcModelProtocol,
             "past_key_values": None,
         }
 
-        return initial_qwen2_decoder_state
+        return initial_qwen2_decoder_state, out_logits, logits_lens
 
     def step_decoder(self, labels: Tensor, state: Qwen2DecoderState) -> Tuple[Tensor, Qwen2DecoderState]:
         """
@@ -469,12 +471,13 @@ class Model(nn.Module, AedCtcModelProtocol,
                     qwen_input_embeds_prefix,
                     qwen_input_embeds,
                 ],
-                dim=-2  # time dim
+                dim=-2,  # time dim
             )  # (B, beam, T+l, F)
             B, beam, T, F = qwen_input_embeds.shape  # noqa
         else:  # Others
             past_key_values = tree.map_structure(
-                partial(combine_batch_and_beam, batch_size=B, beam_size=beam), past_key_values,
+                partial(combine_batch_and_beam, batch_size=B, beam_size=beam),
+                past_key_values,
             )  # [B*b,T+l,F]
 
         # Decoder Forward pass
@@ -510,4 +513,3 @@ def combine_batch_and_beam(state, *, batch_size: int, beam_size: int):
 
     return state.view(batch_size * beam_size, *state.shape[2:])
 
-# print(f" XXX shape = {XXX.size()}")

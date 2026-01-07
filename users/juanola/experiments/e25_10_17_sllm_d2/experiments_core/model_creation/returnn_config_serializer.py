@@ -20,14 +20,14 @@ def serialize_extern_data(extern_data: Dict[str, Any]):
 
 
 def serialize_training(
-        network_module: str,
-        train_step_module: str,
-        net_args: Dict[str, Any],
-        train_args: Dict[str, Any],
-        extern_data: Dict[str, Any],
-        unhashed_net_args: Optional[Dict[str, Any]] = None,
-        include_native_ops=False,
-        debug: bool = False,
+    network_module: str,
+    train_step_module: str,
+    net_args: Dict[str, Any],
+    train_args: Dict[str, Any],
+    extern_data: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    include_native_ops=False,
+    debug: bool = False,
 ) -> Collection:
     """
     Helper function to create the serialization collection
@@ -47,7 +47,7 @@ def serialize_training(
         import_as="get_model",
     )
     pytorch_train_step_import = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.{train_step_module}.train_step", # TODO: conventions!
+        code_object_path=f"{ROOT_PACKAGE}.{train_step_module}.train_step",  # TODO: conventions!
         unhashed_package_root=ROOT_PACKAGE,
         hashed_arguments=train_args,
         unhashed_arguments={},
@@ -75,15 +75,16 @@ def serialize_training(
 
 
 def serialize_forward(
-        network_module: str,
-        net_args: Dict[str, Any],
-        extern_data: Dict[str, Any],
-        vocab_opts: Dict[str, Any],
-        unhashed_net_args: Optional[Dict[str, Any]] = None,
-        forward_module: Optional[str] = None,
-        forward_step_name: str = "forward",
-        include_native_ops=False,
-        debug: bool = False,
+    network_module: str,
+    net_args: Dict[str, Any],
+    extern_data: Dict[str, Any],
+    vocab_opts: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    forward_module: Optional[str] = None,
+    forward_step_name: str = "forward_step",
+    include_native_ops=False,
+    debug: bool = False,
+    forward_method: Optional[str] = None,
 ):
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
@@ -98,6 +99,9 @@ def serialize_forward(
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return:
     """
+    if forward_module is None:
+        forward_module = network_module
+
 
     pytorch_model_import = PartialImport(
         code_object_path=f"{ROOT_PACKAGE}.{network_module}.Model",
@@ -117,15 +121,18 @@ def serialize_forward(
         # has to be in the beginning
         serializer_objects.insert(0, i6_native_ops)
 
-    forward_module = forward_module or network_module
+    if forward_method is None:
+        forward_object_path =f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}" # For backward compatibility
+    else:
+        forward_object_path =f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}.{forward_method}"
 
     forward_step = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}_step", # TODO: this _step is not sane
+        code_object_path=forward_object_path,
         unhashed_package_root=ROOT_PACKAGE,
         import_as="forward_step",
         hashed_arguments={
-            "beam_size": 12, # TODO: also used in decoder COnfig
-            "max_tokens_per_sec": 20,
+            "beam_size": 12,  # TODO: get from config
+            "max_tokens_per_sec": 20, # todo: maybe these too?
             "sample_rate": 16_000,
         },
         unhashed_arguments={},
@@ -135,11 +142,11 @@ def serialize_forward(
     spm_model_file = vocab_opts["model_file"]
     vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
     callback = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.recognition.callback.RecognitionToTextDictCallback",
+        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.RecognitionToTextDictCallback",
+        unhashed_package_root=None,
         import_as="forward_callback",
         hashed_arguments={"vocab": vocab_file},
         unhashed_arguments={},
-        unhashed_package_root=None,
     )
 
     serializer_objects.extend([forward_step, callback])

@@ -123,6 +123,9 @@ def get_prior_config(
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
+
+    assert False, "Check everything. For now not being used right?"
+
     # RC - CONFIG
     prior_batch_size_factor = 500
     base_config = {
@@ -144,8 +147,7 @@ def get_prior_config(
         network_module=network_module,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
-        forward_module=None,  # same as network
-        forward_step_name="prior",
+        forward_step_name="prior_step",
         debug=debug,
     )
 
@@ -159,6 +161,7 @@ def get_forward_config(
         decoder: str,
         decoder_args: Dict[str, Any],
         vocab_opts: Dict,
+        forward_method: Optional[str] = None,
         unhashed_decoder_args: Optional[Dict[str, Any]] = None,
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         debug: bool = False,
@@ -198,6 +201,7 @@ def get_forward_config(
     }
     serializer = serialize_forward(
         network_module=network_module,
+        forward_method=forward_method,
         net_args=net_args,
         extern_data=extern_data,
         vocab_opts=vocab_opts,

@@ -39,6 +39,7 @@ def create_tune_and_evaluate_jobs(
         prior_scales: Optional[List[float]] = None,
 
         decoder_module: str = "should_not_be_default",
+        forward_method: Optional[str] = None,
         loss_name: str = "dev_loss_ce",
         use_gpu: bool = False,
         search_gpu_memory: int = 11,
@@ -106,6 +107,7 @@ def create_tune_and_evaluate_jobs(
             prior_scales=prior_scales,
             dev_dataset_tuples=dev_dataset_tuples,
             decoder_module=decoder_module,
+            forward_method=forward_method,
             use_gpu=use_gpu,
             search_gpu_memory=search_gpu_memory,
             debug=debug,
@@ -159,7 +161,6 @@ def prepare_asr_model(
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
             returnn_root=RETURNN_ROOT,
-
         )
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
     else:
@@ -187,6 +188,7 @@ def tune_and_evaluate_model(
         vocab_opts: Dict,
         test_dataset_tuples: Optional[Dict[str, Any]] = None,
         decoder_module: str = "should_not_have_default",  # TODO: fix this - import from search instead of parameter?
+        forward_method: Optional[str] = None,
         extra_forward_config: Optional[dict[str, Any]] = None,
 
         use_gpu: bool = False,
@@ -228,6 +230,7 @@ def tune_and_evaluate_model(
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
+                forward_method=forward_method,
                 decoder_args={"config": decoder_config},
                 test_dataset_tuples=dev_dataset_tuples,
                 use_gpu=use_gpu,
@@ -261,6 +264,7 @@ def tune_and_evaluate_model(
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
+                forward_method=forward_method,
                 decoder_args={"config": decoder_config},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
 

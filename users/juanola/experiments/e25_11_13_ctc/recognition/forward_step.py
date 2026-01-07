@@ -36,7 +36,8 @@ def forward_step(
     max_seq_len = define_maximum_sequence_length(max_tokens_per_sec, sample_rate, seq_len)
 
     # ENCODER (FORWARD) STEP (for inference)
-    decoder_state: Qwen2DecoderState = model.forward_encoder(data, seq_len, beam_size) # Initial beam size is beam_size
+    decoder_state: Qwen2DecoderState
+    decoder_state, _, _ = model.forward_encoder(data, seq_len, beam_size) # Initial beam size is beam_size
 
     # BEAM SEARCH DECODING (contains DECODER (FORWARD) STEPs)
     seq_targets, seq_log_prob, _, out_seq_len = beam_search_decode(
