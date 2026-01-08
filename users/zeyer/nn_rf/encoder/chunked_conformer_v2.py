@@ -418,20 +418,12 @@ class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
         k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
         v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
         if chunking:
-            k, hist_dim_ = _mem_chunks(
-                k,
-                spatial_dim=hist_dim,
-                chunked_time_dim=chunking.chunked_time_dim,
-                mem_size=chunking.chunk_history,
-                end_chunk_size_dim=chunking.end_chunk_size_dim,
-            )
-            v, _ = _mem_chunks(
+            v, hist_dim_ = _mem_chunks(
                 v,
                 spatial_dim=hist_dim,
                 chunked_time_dim=chunking.chunked_time_dim,
                 mem_size=chunking.chunk_history,
                 end_chunk_size_dim=chunking.end_chunk_size_dim,
-                out_spatial_dim=hist_dim_,
             )
         else:
             hist_dim_ = hist_dim
@@ -471,8 +463,18 @@ class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
         # compute attention score
         # first compute matrix a and matrix c
         # as described in https://arxiv.org/abs/1901.02860 Section 3.3
-        # (batch, head, time1, time2)
+        # (batch, head, time1, time2')
         matrix_ac = rf.matmul(q_with_bias_u, k, reduce=self.key_dim_per_head)
+
+        if chunking:
+            matrix_ac, _ = _mem_chunks(
+                matrix_ac,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+                out_spatial_dim=hist_dim_,
+            )
 
         # compute matrix b and matrix d
         # (batch, head, time1, 2*time1-1)
