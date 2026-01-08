@@ -199,7 +199,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
             kernel_size=conv_kernel_size,
             norm=conv_norm,
         )
-        self.conv_layer_norm = rf.LayerNorm(out_dim)
+        self.conv_layer_norm = make_norm(norm, out_dim)
 
         if self_att is None or isinstance(self_att, type):
             self_att_opts_ = dict(
@@ -218,9 +218,9 @@ class ChunkedConformerEncoderLayer(rf.Module):
                 self.self_att = self_att(**self_att_opts_)
         else:
             self.self_att = self_att
-        self.self_att_layer_norm = rf.LayerNorm(out_dim)
+        self.self_att_layer_norm = make_norm(norm, out_dim)
 
-        self.final_layer_norm = rf.LayerNorm(out_dim)
+        self.final_layer_norm = make_norm(norm, out_dim)
 
     def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunking: Optional[_BatchChunkingSettings]) -> Tensor:
         """forward"""
