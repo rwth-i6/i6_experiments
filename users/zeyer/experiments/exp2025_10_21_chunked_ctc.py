@@ -123,9 +123,29 @@ def py():
             },
         )
 
+    # Vocabs:
+    for vocab in ["spm1k", "spm5k", "spm10k"]:
+        left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
+        max_seqs = 200
+        train(
+            f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-{vocab}",
+            {
+                "vocab": vocab,
+                "model.enc_build_dict": rf.build_dict(
+                    ChunkedConformerEncoder,
+                    encoder_layer=rf.build_dict(ChunkedConformerEncoderLayer),
+                    chunk_stride=center_size * downsampling,
+                    chunk_history=left_n,
+                    input_chunk_size_dim=(center_size + right_size) * downsampling,
+                    end_chunk_size_dim=center_size,
+                ),
+                "train.batch_size": bs * configs._batch_size_factor,
+                "train.max_seqs": max_seqs,
+            },
+        )
+
     # TODO rope instead of relpos selfatt
     # TODO different left/right/center sizes per layer?
-    # TODO different vocab
 
     # TODO measure latency
 
