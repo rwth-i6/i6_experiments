@@ -46,6 +46,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 import copy as _copy
+from dataclasses import dataclass
 
 from returnn.util.basic import NotSpecified
 from returnn.tensor import Tensor, Dim
@@ -61,6 +62,15 @@ from returnn.frontend.encoder.conformer import (
 )
 
 
+@dataclass
+class _BatchChunkingSettings:
+    input_chunk_size_dim: Dim
+    chunk_stride: int
+    chunk_history: int
+    end_chunk_size_dim: Dim
+    chunked_time_dim: Dim
+
+
 class ChunkedConformerConvBlock(rf.Module):
     """
     Conformer convolution block
@@ -73,15 +83,11 @@ class ChunkedConformerConvBlock(rf.Module):
         *,
         kernel_size: int,
         norm: Union[rf.BatchNorm, Any],
-        chunk_history: int,
-        end_chunk_size_dim: Dim,
     ):
         """
         :param out_dim: output feature dimension
         :param kernel_size: kernel size of depthwise convolution
         :param norm: Batch norm originally
-        :param chunk_history:
-        :param end_chunk_size_dim:
         """
         super().__init__()
         self.out_dim = out_dim
@@ -93,27 +99,36 @@ class ChunkedConformerConvBlock(rf.Module):
         self.positionwise_conv2 = rf.Linear(out_dim, out_dim)
         self.norm = norm
 
-        self.chunk_history = chunk_history
-        self.end_chunk_size_dim = end_chunk_size_dim
-
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunking: Optional[_BatchChunkingSettings]) -> Tensor:
         """forward"""
         x_conv1 = self.positionwise_conv1(inp)
         x_act, _ = rf.gating(x_conv1)
-        x_act, ext_spatial_dim = _mem_chunks(
-            x_act,
-            spatial_dim=spatial_dim,
-            chunked_time_dim=chunked_time_dim,
-            mem_size=self.chunk_history,
-            end_chunk_size_dim=self.end_chunk_size_dim,
-        )
+        if chunking:
+            needed_left_ctx = self.depthwise_conv.filter_size // 2
+            needed_mem_size = (
+                needed_left_ctx + chunking.end_chunk_size_dim.dimension - 1
+            ) // chunking.end_chunk_size_dim.dimension
+            mem_size = min(chunking.chunk_history, needed_mem_size)
+        else:
+            mem_size = None
+        if chunking and mem_size:
+            x_act, ext_spatial_dim = _mem_chunks(
+                x_act,
+                spatial_dim=spatial_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=mem_size,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+        else:
+            ext_spatial_dim = spatial_dim
         x_depthwise_conv, _ = self.depthwise_conv(x_act, in_spatial_dim=ext_spatial_dim)
-        x_depthwise_conv, _ = rf.slice(
-            x_depthwise_conv,
-            axis=ext_spatial_dim,
-            start=self.chunk_history * self.end_chunk_size_dim.get_dim_value_tensor(),
-            out_dim=spatial_dim,
-        )
+        if chunking and mem_size:
+            x_depthwise_conv, _ = rf.slice(
+                x_depthwise_conv,
+                axis=ext_spatial_dim,
+                start=mem_size * chunking.end_chunk_size_dim.get_dim_value_tensor(),
+                out_dim=spatial_dim,
+            )
         x_normed = self.norm(x_depthwise_conv)
         x_swish = rf.swish(x_normed)
         x_conv2 = self.positionwise_conv2(x_swish)
@@ -129,8 +144,6 @@ class ChunkedConformerEncoderLayer(rf.Module):
         self,
         out_dim: Dim = Dim(512, name="conformer-enc-default-out-dim"),
         *,
-        chunk_history: int,
-        end_chunk_size_dim: Dim,
         ff: Union[type, Dict[str, Any], rf.Module] = NotSpecified,
         ff_dim: Dim = NotSpecified,
         ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
@@ -168,8 +181,6 @@ class ChunkedConformerEncoderLayer(rf.Module):
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
         self.out_dim = out_dim
-        self.chunk_history = chunk_history
-        self.end_chunk_size_dim = end_chunk_size_dim
 
         self.ffn1 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
         self.ffn1_layer_norm = make_norm(norm, out_dim)
@@ -187,8 +198,6 @@ class ChunkedConformerEncoderLayer(rf.Module):
             out_dim=out_dim,
             kernel_size=conv_kernel_size,
             norm=conv_norm,
-            chunk_history=chunk_history,
-            end_chunk_size_dim=end_chunk_size_dim,
         )
         self.conv_layer_norm = rf.LayerNorm(out_dim)
 
@@ -204,9 +213,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
             if self_att_opts:
                 self_att_opts_.update(self_att_opts)
             if self_att is None:
-                self.self_att = ChunkedRelPosSelfAttention(
-                    chunk_history=chunk_history, end_chunk_size_dim=end_chunk_size_dim, **self_att_opts_
-                )
+                self.self_att = ChunkedRelPosSelfAttention(**self_att_opts_)
             else:
                 self.self_att = self_att(**self_att_opts_)
         else:
@@ -215,7 +222,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
 
         self.final_layer_norm = rf.LayerNorm(out_dim)
 
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunking: Optional[_BatchChunkingSettings]) -> Tensor:
         """forward"""
         # FFN
         x_ffn1_ln = self.ffn1_layer_norm(inp)
@@ -224,13 +231,13 @@ class ChunkedConformerEncoderLayer(rf.Module):
 
         # MHSA
         x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
-        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunked_time_dim=chunked_time_dim)
+        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunking=chunking)
         x_mhsa = rf.dropout(x_mhsa, self.dropout, axis=self.dropout_broadcast and self.out_dim)
         x_mhsa_out = x_mhsa + x_ffn1_out
 
         # Conv
         x_conv_ln = self.conv_layer_norm(x_mhsa_out)
-        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunked_time_dim=chunked_time_dim)
+        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunking=chunking)
         x_conv_out = rf.dropout(x_conv, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_mhsa_out
 
         # FFN
@@ -402,41 +409,42 @@ class ChunkedConformerEncoder(rf.Module):
 
 
 class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
-    def __init__(self, *, chunk_history: int, end_chunk_size_dim: Dim, **kwargs):
-        super().__init__(**kwargs)
-        self.chunk_history = chunk_history
-        self.end_chunk_size_dim = end_chunk_size_dim
-
-    def __call__(self, source: Tensor, *, axis: Dim, chunked_time_dim: Dim, **_kwargs) -> Tensor:
+    def __call__(self, source: Tensor, *, axis: Dim, chunking: Optional[_BatchChunkingSettings], **_kwargs) -> Tensor:
         """forward"""
         q, k, v = self.forward_qkv(source)
         hist_dim = Dim(None, name=f"{axis.description}:kv")
         k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
         v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
-        k, hist_dim_ = _mem_chunks(
-            k,
-            spatial_dim=hist_dim,
-            chunked_time_dim=chunked_time_dim,
-            mem_size=self.chunk_history,
-            end_chunk_size_dim=self.end_chunk_size_dim,
-        )
-        v, _ = _mem_chunks(
-            v,
-            spatial_dim=hist_dim,
-            chunked_time_dim=chunked_time_dim,
-            mem_size=self.chunk_history,
-            end_chunk_size_dim=self.end_chunk_size_dim,
-            out_spatial_dim=hist_dim_,
-        )
+        if chunking:
+            k, hist_dim_ = _mem_chunks(
+                k,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+            v, _ = _mem_chunks(
+                v,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+                out_spatial_dim=hist_dim_,
+            )
+        else:
+            hist_dim_ = hist_dim
         q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
         q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
 
-        # NOTE: This changed from the earlier RF/TF implementation.
-        query_offset = self.chunk_history * (
-            self.end_chunk_size_dim.dimension
-            if self.end_chunk_size_dim.is_static()
-            else self.end_chunk_size_dim.get_size_tensor(device=source.device)
-        )
+        if chunking:
+            # NOTE: This changed from the earlier RF/TF implementation.
+            query_offset = chunking.chunk_history * (
+                chunking.end_chunk_size_dim.dimension
+                if chunking.end_chunk_size_dim.is_static()
+                else chunking.end_chunk_size_dim.get_size_tensor(device=source.device)
+            )
+        else:
+            query_offset = None
 
         if self.learned_pos_emb is not None:
             pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(
