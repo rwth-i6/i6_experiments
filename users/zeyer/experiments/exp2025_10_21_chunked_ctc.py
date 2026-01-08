@@ -124,6 +124,10 @@ def py():
         )
 
     # TODO rope instead of relpos selfatt
+    # TODO different left/right/center sizes per layer?
+    # TODO different vocab
+
+    # TODO measure latency
 
 
 _base_config = {
