@@ -40,6 +40,8 @@ TODO conv mem ctx optional
 TODO conv mem ctx only as much as we really need
 TODO abs pos enc instead (optional, configurable)
 TODO diff impl for mem ctx: separate matmuls for each prev chunk
+
+TODO self-conditioning
 """
 
 from __future__ import annotations
