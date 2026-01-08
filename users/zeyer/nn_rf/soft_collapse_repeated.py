@@ -68,7 +68,7 @@ def soft_collapse_repeated_indices(
     # Very similar to the internal masked_select code.
     idxs = rf.cumsum(rf.cast(keep_mask, "int32"), spatial_dim=spatial_dim)  # {OtherDims..., Spatial} -> 1+OutSpatial
     new_size = rf.gather(idxs, indices=spatial_dim.get_dim_value_tensor() - 1, axis=spatial_dim)  # {OtherDims...}
-    out_spatial_dim = Dim(new_size, name="soft_collapse_repeated")
+    out_spatial_dim = Dim(rf.copy_to_device(new_size, rf.get_default_dim_size_device()), name="soft_collapse_repeated")
     idxs = idxs - 1  # {OtherDims..., Spatial} -> OutSpatial
     idxs.sparse_dim = out_spatial_dim
     return idxs
