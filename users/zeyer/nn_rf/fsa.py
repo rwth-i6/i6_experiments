@@ -590,6 +590,59 @@ def best_path_ctc(
     return best_path(logits=logits, logits_normalized=logits_normalized, fsa=fsa, input_spatial_dim=input_spatial_dim)
 
 
+def best_path_ctc_durations(
+    *,
+    logits: Tensor,
+    logits_normalized: bool = False,
+    input_spatial_dim: Dim,
+    targets: Tensor,
+    targets_spatial_dim: Dim,
+    labels_with_blank_dim: Dim,
+    blank_index: int,
+    out_spatial_dim: Optional[Dim] = None,
+) -> Tuple[Tensor, Dim]:
+    # See best_path_ctc
+    fsa: FSA = fsa_for_ctc(
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+        labels_with_blank_dim=labels_with_blank_dim,
+        blank_index=blank_index,
+    )
+    alignment, _ = best_path(
+        logits=logits,
+        logits_normalized=logits_normalized,
+        input_spatial_dim=input_spatial_dim,
+        fsa=fsa,
+        return_state_indices=True,
+    )  # [batch, input_spatial_dim] -> S
+    alignment = transform_state_indices_to_ext(alignment, fsa=fsa)  # [batch, input_spatial_dim] -> S_
+
+    # Now from alignment, compute durations.
+    # Note: S_ = 2*targets_spatial_dim + 1, because of blanks, and CTC topology (see fsa_for_ctc).
+    durations = rf.scatter(
+        rf.ones(alignment.dims, device=alignment.device, dtype="int32"),
+        indices=alignment,
+        indices_dim=input_spatial_dim,
+    )  # [batch, S_] -> counts, or durations
+
+    if out_spatial_dim is None:
+        out_spatial_dim = fsa.num_states_dim_ext
+
+    else:
+        # Assume out_spatial_dim == 2 * targets_spatial_dim + 1 == S_.
+        # We have fsa.num_states_dim_ext == out_spatial_dim,
+        # but not exactly same dim tags, as dim math is slightly different.
+        durations = rf.replace_dim_v2(
+            durations,
+            in_dim=fsa.num_states_dim_ext,
+            out_dim=out_spatial_dim,
+            allow_expand=False,
+            allow_shrink=False,
+        )
+
+    return durations, out_spatial_dim
+
+
 def _safe_add(a: Tensor, b: Tensor) -> Tensor:
     """safe add, handles the case of -inf values."""
     return rf.where(rf.is_finite(a), a + b, a)
@@ -636,6 +689,10 @@ def _scatter_safe_logsumexp(
     tensor = rf.where(rf.is_neg_infinite(max_x), rf.zeros((), dtype=source.dtype, device=source.device), tensor)
     tensor += max_x
     return tensor, out_dim
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Tests
 
 
 def setup_module(**_kwargs):  # run by pytest
