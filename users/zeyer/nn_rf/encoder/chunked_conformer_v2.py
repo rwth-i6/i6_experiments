@@ -371,7 +371,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Dim]:
         """forward"""
-        if rf.get_run_ctx().step % 2 == 0:
+        if rf.get_run_ctx().step % 2 == 0 and rf.get_run_ctx().train_flag:
             chunking = None
             spatial_dim = in_spatial_dim
         else:
