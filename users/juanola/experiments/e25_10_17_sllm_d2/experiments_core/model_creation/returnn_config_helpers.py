@@ -124,10 +124,8 @@ def get_prior_config(
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
 
-    assert False, "Check everything. For now not being used right?"
-
     # RC - CONFIG
-    prior_batch_size_factor = 500
+    prior_batch_size_factor = 500 # TODO: fix this
     base_config = {
         "batch_size": prior_batch_size_factor * batch_size,
         "max_seqs": 240,
@@ -142,6 +140,12 @@ def get_prior_config(
         "forward_auto_split_batch_on_oom": True,
     }
 
+    forward_step_params = {#TODO: remove
+        "beam_size": 12, #TODO: fix this!
+        "max_tokens_per_sec": 20,
+        "sample_rate": 16_000,
+    }
+
     # RC - PYTHON EPILOG
     serializer = serialize_forward(  # TODO: fix this! 2 more params are needed
         network_module=network_module,
@@ -149,6 +153,7 @@ def get_prior_config(
         unhashed_net_args=unhashed_net_args,
         forward_step_name="prior_step",
         debug=debug,
+        forward_step_params=forward_step_params,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
@@ -165,7 +170,7 @@ def get_forward_config(
         unhashed_decoder_args: Optional[Dict[str, Any]] = None,
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         debug: bool = False,
-        batch_size: int = 15_000,
+        forward_step_params: Dict[str, Any] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -181,13 +186,7 @@ def get_forward_config(
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
     # RC - CONFIG
-
-    recognition_batch_size_factor = 160
-    base_config = {
-        "batch_size": batch_size * recognition_batch_size_factor,
-        "max_seqs": 200,
-    }
-    config = {**base_config, **copy.deepcopy(config)}
+    config = copy.deepcopy(config)
 
     # RC - POST CONFIG
     post_config = {
@@ -209,6 +208,7 @@ def get_forward_config(
         unhashed_net_args=unhashed_net_args,
         forward_module=decoder,
         debug=debug,
+        forward_step_params=forward_step_params,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

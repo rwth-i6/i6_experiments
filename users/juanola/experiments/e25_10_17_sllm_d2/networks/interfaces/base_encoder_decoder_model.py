@@ -7,6 +7,7 @@ from torch import Tensor
 
 from .label_scorer_protocol import LabelScorerProtocol, State
 
+
 class BaseEncoderDecoderModel(LabelScorerProtocol[State], Generic[State]):
     """
     Interface for an encoder and a decoder that scores labels.
@@ -17,13 +18,14 @@ class BaseEncoderDecoderModel(LabelScorerProtocol[State], Generic[State]):
     """
 
     @abstractmethod
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int) -> State:
+    def forward_encoder(
+        self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int
+    ) -> tuple[State, Tensor, Tensor]:
         """
         Forward the raw audio data through the encoder and initialize decoder state from it.
 
         :param raw_audio: audio data, shape [B,T,1]
         :param raw_audio_lens: lengths of the audio in `raw_audio`, shape [B,]
-        :return: decoder state initialized by passing the `raw_audio` through the encoder and
-            initializing a fresh decoder state with it.
+        :return: decoder state, out_logits, logits_lens
         """
         raise NotImplementedError

@@ -85,6 +85,7 @@ def serialize_forward(
     include_native_ops=False,
     debug: bool = False,
     forward_method: Optional[str] = None,
+    forward_step_params: Optional[Dict[str, Any]] = None,
 ):
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
@@ -101,6 +102,8 @@ def serialize_forward(
     """
     if forward_module is None:
         forward_module = network_module
+    if forward_step_params is None:
+        forward_step_params = {}
 
 
     pytorch_model_import = PartialImport(
@@ -130,11 +133,7 @@ def serialize_forward(
         code_object_path=forward_object_path,
         unhashed_package_root=ROOT_PACKAGE,
         import_as="forward_step",
-        hashed_arguments={
-            "beam_size": 12,  # TODO: get from config
-            "max_tokens_per_sec": 20, # todo: maybe these too?
-            "sample_rate": 16_000,
-        },
+        hashed_arguments=forward_step_params,
         unhashed_arguments={},
     )
 

@@ -19,13 +19,9 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_SLLM_tuned_dropout_v2,
     network_linear_adapter, network_SLLM_tuned,
 )
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
-    PriorConfig,
-    prior_v1,
-)
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
-    search_baseline,
+    search_baseline, greedy_search, greedy_search_v2,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -57,7 +53,6 @@ class ExperimentConfig:
     network: NetworkConfig
 
     training: TrainingConfig
-    prior: PriorConfig
     search: SearchConfig
 
 
@@ -72,7 +67,6 @@ def exp_baseline() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline(),
-        prior=prior_v1(),
         search=search_baseline(),
     )
 
@@ -100,7 +94,6 @@ def exp_v4() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_small_decoder_td(),  # !!
         training=itc_batch_size_80k(),  # !!
-        prior=prior_v1(),
         search=search_baseline(),
     )
 
@@ -123,7 +116,6 @@ def exp_v7() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_tuned_dropout_v2(),  # !!
         training=itc_batch_size_80k(),
-        prior=prior_v1(),
         search=search_baseline(),
     )
 
@@ -187,5 +179,17 @@ def exp_v7_150() -> ExperimentConfig:
 
 def exp_v7_200() -> ExperimentConfig:
     return replace(exp_v7(), training=itc_batch_size_80k_200_epochs())
+
+
+
+"""
+Tests
+"""
+
+def t_v1() -> ExperimentConfig:
+    return replace(exp_v8_2(), search=greedy_search())
+
+def t_v1_2() -> ExperimentConfig:
+    return replace(exp_v8_2(), search=greedy_search_v2())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

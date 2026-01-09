@@ -8,7 +8,7 @@ from returnn.tensor import Tensor as ReturnnTensor
 from torch import Tensor
 
 from .beam_search import beam_search_decode
-from .ctc_label_sync_espnet import ctc_label_sync_search_v1
+from .ctc.ctc_label_sync_espnet import ctc_label_sync_search_v1
 from ..networks.conformer_qwen_v1 import Qwen2DecoderState
 from ..networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 
@@ -87,7 +87,7 @@ def forward_step_ctc_greedy_decoding(
         ctc_top_k_pruning_reduce_func: str = "mean",
         ctc_scale: float = 1.0,
         prior_scale: float = 1.0,
-        lm_scale: float = 1.0,
+        lm_scale: float = 0.0, # 1.0
 
         **kwargs,
 ):

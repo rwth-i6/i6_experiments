@@ -68,12 +68,6 @@ def sllm_ep(
         TRAINING_GPU_MEMORY = exp_config.training.gpu_memory
         TRAINING_BATCH_SIZE = exp_config.training.batch_size
 
-        # Search
-        SEARCH_GPU_MEMORY = exp_config.search.gpu_memory
-        RECOGNITION_BATCH_SIZE = exp_config.search.batch_size
-        PRIOR_BATCH_SIZE = exp_config.prior.batch_size
-
-
         # DEBUGGING CHANGES
         if debug: # TODO: this should modify the experiment object!
             TRAINING_BATCH_SIZE = 6_000
@@ -134,26 +128,17 @@ def sllm_ep(
             debug=debug_returnn_param,
 
             train_data=training_datasets,
-            decoder_config=exp_config.search.beam_search,
+            search_config=exp_config.search,
             decoder_module=RECOGNITION_PACKAGE,
-            forward_method=forward_method,
+            forward_method=forward_method,# TODO: inside search config
 
             test_dataset_tuples=test_dataset_tuples,
             dev_dataset_tuples=dev_dataset_tuples,
-
-            lm_scales=[0.0],
-            prior_scales=[0.0],
 
             specific_epoch=epochs_to_evaluate,
             run_test=run_test,
             run_best=run_best,
             run_best_4=run_best_4,
-
-            use_gpu=True,  # CPU is way too slow for AED decoding
-            search_gpu_memory=SEARCH_GPU_MEMORY,  # breaks for bigger searches
-
-            recognition_batch_size=RECOGNITION_BATCH_SIZE,
-            prior_batch_size=PRIOR_BATCH_SIZE,
         )
         results_per_experiment[exp_name] = results
 

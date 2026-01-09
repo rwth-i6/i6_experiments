@@ -30,14 +30,13 @@ def main():
     e3v10()
     e3v10_2()
 
-    # DEBUGS
-    e3d()
-    e3d_itc()
-
-    # TESTS
-    t1()
-    report_t1()
-
+    e3v11()
+    e3v12()
+    e3v3_2()
+    e3v13()
+    e3v2_s2()
+    e3v8_2()
+    e3v7_2()
 
 """
 Experiments entry points
@@ -65,9 +64,6 @@ def e3_td():
 def e3v4():
     ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER], itc_training=True)
 
-def e3v4_ctc(): # TODO: wip
-    ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER], itc_training=True, test_forward_output_path=True)
-
 def e3v5():
     ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER], itc_training=True)
 
@@ -94,13 +90,6 @@ def e3v10():
 
 def e3v10_2():
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2])
-
-def e3v10_2_ctc(): # TODO: wip
-    ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2],
-                test_forward_output_path=True,
-                forward_method="forward_step_ctc_greedy_decoding",
-                only_specific_epochs=True,
-                specific_recognition_epochs={2})
 
 # ++++
 
@@ -163,5 +152,26 @@ def report_t3():
 
 def real_size_test():
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2], debug=True)
+
+
+def t2_ctc():
+    ex3.sllm_ep(
+        #[ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2],
+        [ExperimentVersion.T1_CTC_GREEDY_DECODING],
+                test_forward_output_path=True,
+                forward_method="forward_step_ctc_greedy_decoding",
+                only_specific_epochs=True,
+                specific_recognition_epochs={2000})
+
+def t2_2():
+    ex3.sllm_ep(
+        #[ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2],
+        [ExperimentVersion.T1_2_CTC_GREEDY_DECODING],
+        test_forward_output_path=True,
+        forward_method="forward_step_ctc_greedy_decoding",
+        only_specific_epochs=True,
+        specific_recognition_epochs={2000})
+
+
 
 __all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6", "e3v7", "e3v8", "e3v9", "e3v10", "e3v10_2"]
