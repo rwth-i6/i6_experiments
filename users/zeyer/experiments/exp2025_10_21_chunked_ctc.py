@@ -45,6 +45,7 @@ from returnn.frontend.encoder.conformer import (
 
 from i6_experiments.users.zeyer.nn_rf.encoder import ff
 from i6_experiments.users.zeyer.nn_rf.encoder import chunked_conformer_v1
+from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import ChunkedConformerEncoderV2
 
 __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
 
@@ -143,6 +144,23 @@ def py():
                 "train.max_seqs": max_seqs,
             },
         )
+
+    # test V2
+    left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                chunk_stride=center_size * downsampling,
+                chunk_history=left_n,
+                input_chunk_size_dim=(center_size + right_size) * downsampling,
+                end_chunk_size_dim=center_size,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
 
     # TODO rope instead of relpos selfatt
     # TODO different left/right/center sizes per layer?
