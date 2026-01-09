@@ -51,6 +51,7 @@ import copy as _copy
 from dataclasses import dataclass
 
 from returnn.util.basic import NotSpecified
+from returnn.util.math import ceil_div
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
@@ -277,6 +278,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         chunk_stride: int,
         chunk_history: int,
         end_chunk_size_dim: Union[int, Dim],
+        version: int = 1,
     ):
         """
         :param out_dim: the output feature dimension
@@ -297,6 +299,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param chunk_stride:
         :param chunk_history:
         :param end_chunk_size_dim:
+        :param version: version of chunked conformer
         """
         super().__init__()
 
@@ -316,6 +319,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.chunk_stride = chunk_stride
         self.chunk_history = chunk_history
         self.end_chunk_size_dim = end_chunk_size_dim
+        self.version = version
 
         if isinstance(input_layer, dict):
             input_layer = rf.build_from_dict(input_layer, in_dim)
@@ -376,21 +380,42 @@ class ChunkedConformerEncoderV2(rf.Module):
             spatial_dim = in_spatial_dim
         else:
             # Chunk
+            input_chunk_size_dim = self.input_chunk_size_dim
+            chunk_stride = self.chunk_stride
+            chunk_history = self.chunk_history
+            end_chunk_size_dim = self.end_chunk_size_dim
+
+            if self.version >= 2:
+                # First potentially reduce chunk sizes, history, if the input is not long enough.
+                max_input_chunk_size_dim = Dim(int(in_spatial_dim.get_dim_value()), name="max_input_chunk_size")
+                max_chunk_size_dim = (
+                    self.input_layer.get_out_spatial_dim(max_input_chunk_size_dim)
+                    if self.input_layer
+                    else max_input_chunk_size_dim
+                )
+                if end_chunk_size_dim.dimension > max_chunk_size_dim.dimension:
+                    end_chunk_size_dim = max_chunk_size_dim
+                if input_chunk_size_dim.dimension > max_input_chunk_size_dim.dimension:
+                    input_chunk_size_dim = max_input_chunk_size_dim
+                    chunk_history = 0
+                elif end_chunk_size_dim.dimension * chunk_history > max_chunk_size_dim.dimension - 1:
+                    chunk_history = ceil_div(max_chunk_size_dim.dimension - 1, end_chunk_size_dim.dimension)
+
             source, chunked_time_dim = rf.window(
                 source,
                 spatial_dim=in_spatial_dim,
-                window_dim=self.input_chunk_size_dim,
+                window_dim=input_chunk_size_dim,
                 window_left=0,
-                stride=self.chunk_stride,
+                stride=chunk_stride,
                 pad_value=0.0,
             )
-            spatial_dim = self.input_chunk_size_dim
+            spatial_dim = input_chunk_size_dim
 
             chunking = _BatchChunkingSettings(
-                input_chunk_size_dim=self.input_chunk_size_dim,
-                chunk_stride=self.chunk_stride,
-                chunk_history=self.chunk_history,
-                end_chunk_size_dim=self.end_chunk_size_dim,
+                input_chunk_size_dim=input_chunk_size_dim,
+                chunk_stride=chunk_stride,
+                chunk_history=chunk_history,
+                end_chunk_size_dim=end_chunk_size_dim,
                 chunked_time_dim=chunked_time_dim,
             )
 
