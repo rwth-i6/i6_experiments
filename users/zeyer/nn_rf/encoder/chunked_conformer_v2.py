@@ -30,7 +30,6 @@ TODO do this:
   This is used for the history context (concat prev chunks).
   default: 40
 
-TODO make it support both offline and online mode
 TODO diff kinds of overlap handling (for right ctx): concat, average, ...
    (currently it just throws it away)
 TODO overlap handling also for mem ctx?
