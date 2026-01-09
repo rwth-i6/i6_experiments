@@ -45,7 +45,10 @@ from returnn.frontend.encoder.conformer import (
 
 from i6_experiments.users.zeyer.nn_rf.encoder import ff
 from i6_experiments.users.zeyer.nn_rf.encoder import chunked_conformer_v1
-from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import ChunkedConformerEncoderV2
+from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
+    ChunkedConformerEncoderV2,
+    ChunkedConformerEncoderLayerV2,
+)
 
 __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
 
@@ -152,6 +155,7 @@ def py():
         {
             "model.enc_build_dict": rf.build_dict(
                 ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
                 chunk_stride=center_size * downsampling,
                 chunk_history=left_n,
                 input_chunk_size_dim=(center_size + right_size) * downsampling,
