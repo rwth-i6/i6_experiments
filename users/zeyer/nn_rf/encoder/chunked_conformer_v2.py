@@ -330,8 +330,6 @@ class ChunkedConformerEncoderV2(rf.Module):
         if not encoder_layer or isinstance(encoder_layer, (dict, type)):
             encoder_layer_opts_ = dict(
                 out_dim=out_dim,
-                chunk_history=self.chunk_history,
-                end_chunk_size_dim=self.end_chunk_size_dim,
                 ff_dim=ff_dim,
                 ff_activation=ff_activation,
                 dropout=dropout,
@@ -373,41 +371,60 @@ class ChunkedConformerEncoderV2(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Dim]:
         """forward"""
-        # Chunk
-        source, chunked_time_dim = rf.window(
-            source,
-            spatial_dim=in_spatial_dim,
-            window_dim=self.input_chunk_size_dim,
-            window_left=0,
-            stride=self.chunk_stride,
-            pad_value=0.0,
-        )
+        if rf.get_run_ctx().step % 2 == 0:
+            chunking = None
+            spatial_dim = in_spatial_dim
+        else:
+            # Chunk
+            source, chunked_time_dim = rf.window(
+                source,
+                spatial_dim=in_spatial_dim,
+                window_dim=self.input_chunk_size_dim,
+                window_left=0,
+                stride=self.chunk_stride,
+                pad_value=0.0,
+            )
+            spatial_dim = self.input_chunk_size_dim
+
+            chunking = _BatchChunkingSettings(
+                input_chunk_size_dim=self.input_chunk_size_dim,
+                chunk_stride=self.chunk_stride,
+                chunk_history=self.chunk_history,
+                end_chunk_size_dim=self.end_chunk_size_dim,
+                chunked_time_dim=chunked_time_dim,
+            )
 
         if self.input_layer:
-            x_subsample, chunk_size_dim = self.input_layer(source, in_spatial_dim=self.input_chunk_size_dim)
+            x_subsample, spatial_dim = self.input_layer(source, in_spatial_dim=spatial_dim)
         else:
-            x_subsample, chunk_size_dim = source, self.input_chunk_size_dim
+            x_subsample = source
         x_linear = self.input_projection(x_subsample)
 
         x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
         x = self.layers(
             x,
-            spatial_dim=chunk_size_dim,
-            chunked_time_dim=chunked_time_dim,
+            spatial_dim=spatial_dim,
+            chunking=chunking,
             collected_outputs=collected_outputs,
         )
 
-        # Unchunk
-        x, _ = rf.slice(x, axis=chunk_size_dim, size=self.end_chunk_size_dim)
-        x, out_spatial_dim_ = rf.merge_dims(x, dims=(chunked_time_dim, self.end_chunk_size_dim))
+        if chunking:
+            # Unchunk
+            x, _ = rf.slice(x, axis=spatial_dim, size=chunking.end_chunk_size_dim)
+            x, out_spatial_dim = rf.merge_dims(x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
+        else:
+            out_spatial_dim = spatial_dim
 
         if collected_outputs:
             for k, v in list(collected_outputs.items()):
-                v, _ = rf.slice(v, axis=chunk_size_dim, size=self.end_chunk_size_dim)
-                v, _ = rf.merge_dims(v, dims=(chunked_time_dim, self.end_chunk_size_dim), out_dim=out_spatial_dim_)
+                if chunking:
+                    v, _ = rf.slice(v, axis=spatial_dim, size=chunking.end_chunk_size_dim)
+                    v, _ = rf.merge_dims(
+                        v, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
+                    )
                 collected_outputs[k] = v
 
-        return x, out_spatial_dim_
+        return x, out_spatial_dim
 
 
 class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
