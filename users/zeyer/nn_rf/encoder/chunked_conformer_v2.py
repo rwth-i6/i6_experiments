@@ -36,10 +36,7 @@ TODO diff kinds of overlap handling (for right ctx): concat, average, ...
 TODO overlap handling also for mem ctx?
 TODO fix masking within chunks. set right window dim
 
-TODO conv mem ctx optional
-TODO conv mem ctx only as much as we really need
 TODO abs pos enc instead (optional, configurable)
-TODO diff impl for mem ctx: separate matmuls for each prev chunk
 
 TODO self-conditioning
 """
