@@ -162,8 +162,6 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
     ):
         """
         :param out_dim: the output feature dimension
-        :param chunk_history:
-        :param end_chunk_size_dim:
         :param ff_dim: the dimension of feed-forward layers. 2048 originally, or 4 times out_dim
         :param ff_activation: activation function for feed-forward network
         :param dropout: the dropout value for the FF block
