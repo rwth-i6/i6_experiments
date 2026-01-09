@@ -148,7 +148,7 @@ def py():
             },
         )
 
-    # test V2
+    # V2
     left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2",
@@ -160,6 +160,24 @@ def py():
                 chunk_history=left_n,
                 input_chunk_size_dim=(center_size + right_size) * downsampling,
                 end_chunk_size_dim=center_size,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # V2.2
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.2",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_stride=center_size * downsampling,
+                chunk_history=left_n,
+                input_chunk_size_dim=(center_size + right_size) * downsampling,
+                end_chunk_size_dim=center_size,
+                version=2,
             ),
             "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
