@@ -320,6 +320,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.chunk_history = chunk_history
         self.end_chunk_size_dim = end_chunk_size_dim
         self.version = version
+        assert version <= 2
 
         if isinstance(input_layer, dict):
             input_layer = rf.build_from_dict(input_layer, in_dim)
