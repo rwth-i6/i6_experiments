@@ -117,7 +117,7 @@ def e3v13():
     ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter], itc_training=True)
 
 def e3v2_s2():
-    ex3.sllm_ep([ExperimentVersion.V2_DROPOUT_s2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V2_DROPOUT_s2])
 
 def e3v8_2():
     ex3.sllm_ep([ExperimentVersion.V8_3_TD_LRV3, ExperimentVersion.V8_4_TD_LRV4], itc_training=True)

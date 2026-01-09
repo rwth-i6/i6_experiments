@@ -14,10 +14,10 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_baseline,
     network_SLLM_dropout,
     network_SLLM_tuned_dropout,
-    network_SLLM_small_decoder,
+    network_SLLM_small_decoder_td,
     network_small_linear_adapter,
     network_SLLM_tuned_dropout_v2,
-    network_linear_adapter,
+    network_linear_adapter, network_SLLM_tuned,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     PriorConfig,
@@ -98,7 +98,7 @@ def exp_v4() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline(),
         labels=label_baseline(),
-        network=network_SLLM_small_decoder(),  # !!
+        network=network_SLLM_small_decoder_td(),  # !!
         training=itc_batch_size_80k(),  # !!
         prior=prior_v1(),
         search=search_baseline(),
@@ -161,7 +161,7 @@ def exp_v12() -> ExperimentConfig:
     SLLM-td-80k but without dropout, only tuned params
     :return:
     """
-    return replace(exp_v7(), network=network_SLLM_dropout())
+    return replace(exp_v7(), network=network_SLLM_tuned())
 
 
 def exp_v13() -> ExperimentConfig:
@@ -173,16 +173,11 @@ def exp_v13() -> ExperimentConfig:
 
 
 def exp_v2_s2() -> ExperimentConfig:
-    """
-    SLLM-td-80k with linear adapter
-    :return:
-    """
     return replace(exp_v2(), training=training_baseline(seed=1234))
 
 
 def exp_v8_3() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv4())
-
 
 def exp_v8_4() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv5())

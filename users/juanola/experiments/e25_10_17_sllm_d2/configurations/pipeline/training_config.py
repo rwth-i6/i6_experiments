@@ -51,7 +51,7 @@ class TrainingConfig:
 
     max_seq_length_seconds: int = 19.5
 
-    random_seed: Optional[int] = None # Added to config only if specified
+    random_seed: Optional[int] = None  # Added to config only if specified
 
     def __post_init__(self):
         """
@@ -140,10 +140,13 @@ def bsv2_lrv4() -> TrainingConfig:
 def bsv2_lrv5() -> TrainingConfig:
     return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v5())
 
+
 def itc_batch_size_80k_150_epochs() -> TrainingConfig:
     return replace(itc_batch_size_80k(), epochs=150)
 
+
 def itc_batch_size_80k_200_epochs() -> TrainingConfig:
     return replace(itc_batch_size_80k(), epochs=200)
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

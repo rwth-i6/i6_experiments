@@ -11,7 +11,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     decoder_baseline,
     decoder_dropout,
     decoder_dropout_tuned,
-    small_decoder,
+    small_decoder_td,
     decoder_dropout_tuned_v2,
     decoder_v2_tuned,
 )
@@ -92,12 +92,12 @@ small decoders
 """
 
 
-def network_SLLM_small_decoder() -> NetworkConfig:
-    return replace(network_baseline(), decoder=small_decoder())
+def network_SLLM_small_decoder_td() -> NetworkConfig:
+    return replace(network_baseline(), decoder=small_decoder_td())
 
 
 def network_small_linear_adapter() -> NetworkConfig:
-    return replace(network_SLLM_small_decoder(), adapter=linear_adapter())
+    return replace(network_SLLM_small_decoder_td(), adapter=linear_adapter())
 
 def network_linear_adapter() -> NetworkConfig:
     return replace(network_SLLM_tuned_dropout_v2(), adapter=linear_adapter())

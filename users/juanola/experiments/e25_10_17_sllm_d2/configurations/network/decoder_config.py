@@ -123,7 +123,7 @@ def decoder_v2_tuned() -> DecoderConfig:
 
 
 
-def small_decoder() -> DecoderConfig:
+def small_decoder_td() -> DecoderConfig:
     return replace(
         decoder_dropout(),
         num_hidden_layers=6,  # 24
