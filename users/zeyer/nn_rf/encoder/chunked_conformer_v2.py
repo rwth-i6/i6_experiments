@@ -73,7 +73,7 @@ class _BatchChunkingSettings:
     chunked_time_dim: Dim
 
 
-class ChunkedConformerConvBlock(rf.Module):
+class ChunkedConformerConvBlockV2(rf.Module):
     """
     Conformer convolution block
         FF -> GLU -> depthwise conv -> BN -> Swish -> FF
@@ -137,7 +137,7 @@ class ChunkedConformerConvBlock(rf.Module):
         return x_conv2
 
 
-class ChunkedConformerEncoderLayer(rf.Module):
+class ChunkedConformerEncoderLayerV2(rf.Module):
     """
     Represents a conformer block
     """
@@ -196,7 +196,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
-        self.conv_block = ChunkedConformerConvBlock(
+        self.conv_block = ChunkedConformerConvBlockV2(
             out_dim=out_dim,
             kernel_size=conv_kernel_size,
             norm=conv_norm,
@@ -215,7 +215,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
             if self_att_opts:
                 self_att_opts_.update(self_att_opts)
             if self_att is None:
-                self.self_att = ChunkedRelPosSelfAttention(**self_att_opts_)
+                self.self_att = ChunkedRelPosSelfAttentionV2(**self_att_opts_)
             else:
                 self.self_att = self_att(**self_att_opts_)
         else:
@@ -251,7 +251,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
         return self.final_layer_norm(x_ffn2_out)
 
 
-class ChunkedConformerEncoder(rf.Module):
+class ChunkedConformerEncoderV2(rf.Module):
     """
     Represents Conformer encoder architecture
     """
@@ -344,7 +344,7 @@ class ChunkedConformerEncoder(rf.Module):
             if encoder_layer_opts:
                 encoder_layer_opts_.update(encoder_layer_opts)
             if not encoder_layer:
-                encoder_layer = ChunkedConformerEncoderLayer(**encoder_layer_opts_)
+                encoder_layer = ChunkedConformerEncoderLayerV2(**encoder_layer_opts_)
             elif isinstance(encoder_layer, type):
                 encoder_layer = encoder_layer(**encoder_layer_opts_)
             elif isinstance(encoder_layer, dict):
@@ -410,7 +410,7 @@ class ChunkedConformerEncoder(rf.Module):
         return x, out_spatial_dim_
 
 
-class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):
+class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
     def __call__(self, source: Tensor, *, axis: Dim, chunking: Optional[_BatchChunkingSettings], **_kwargs) -> Tensor:
         """forward"""
         q, k, v = self.forward_qkv(source)
