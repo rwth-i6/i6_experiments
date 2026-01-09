@@ -106,7 +106,7 @@ class ChunkedConformerConvBlockV2(rf.Module):
         x_conv1 = self.positionwise_conv1(inp)
         x_act, _ = rf.gating(x_conv1)
         if chunking:
-            needed_left_ctx = self.depthwise_conv.filter_size // 2
+            needed_left_ctx = self.depthwise_conv.filter_size[0].dimension // 2
             needed_mem_size = (
                 needed_left_ctx + chunking.end_chunk_size_dim.dimension - 1
             ) // chunking.end_chunk_size_dim.dimension
