@@ -73,8 +73,11 @@ def e3v6():
 # ++++
 
 def e3v7():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT], itc_training=True,
-                specific_recognition_epochs={1542})
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT])#, itc_training=True)
+
+def e3v7_ctc(): # TODO: WIP
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD])#, itc_training=True)
+
 
 def e3v8():
     ex3.sllm_ep([ExperimentVersion.V8_1_TD_LRV2, ExperimentVersion.V8_2_TD_LRV3], itc_training=True)
@@ -82,8 +85,7 @@ def e3v8():
 # ++++
 
 def e3v9():
-    ex3.sllm_ep([ExperimentVersion.V9_SMALL_DECODER_250kBS], itc_training=True,
-                specific_recognition_epochs={1720})
+    ex3.sllm_ep([ExperimentVersion.V9_SMALL_DECODER_250kBS])#, itc_training=True,)
 
 def e3v10():
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS])
@@ -152,25 +154,6 @@ def report_t3():
 
 def real_size_test():
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2], debug=True)
-
-
-def t2_ctc():
-    ex3.sllm_ep(
-        #[ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2],
-        [ExperimentVersion.T1_CTC_GREEDY_DECODING],
-                test_forward_output_path=True,
-                forward_method="forward_step_ctc_greedy_decoding",
-                only_specific_epochs=True,
-                specific_recognition_epochs={2000})
-
-def t2_2():
-    ex3.sllm_ep(
-        #[ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2],
-        [ExperimentVersion.T1_2_CTC_GREEDY_DECODING],
-        test_forward_output_path=True,
-        forward_method="forward_step_ctc_greedy_decoding",
-        only_specific_epochs=True,
-        specific_recognition_epochs={2000})
 
 
 

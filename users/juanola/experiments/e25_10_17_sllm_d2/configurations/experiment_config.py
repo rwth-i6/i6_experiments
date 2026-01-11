@@ -21,7 +21,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
-    search_baseline, greedy_search, greedy_search_v2,
+    search_baseline, greedy_search, greedy_search_v2, search_baseline_with_ctc_gd,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -118,6 +118,9 @@ def exp_v7() -> ExperimentConfig:
         training=itc_batch_size_80k(),
         search=search_baseline(),
     )
+
+def exp_v7_with_ctc_gd() -> ExperimentConfig:
+    return replace(exp_v7(), search=search_baseline_with_ctc_gd())
 
 
 def exp_v8_1() -> ExperimentConfig:

@@ -1,6 +1,4 @@
-import copy
 from collections import OrderedDict
-from dataclasses import asdict
 from typing import Optional, Dict, Any, Iterable
 
 from sisyphus import tk, job_path
@@ -17,6 +15,7 @@ from .asr_model import ASRModel
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
 from ...configurations.pipeline.search_config import SearchConfig
+from ...constants import RECOGNITION_PACKAGE, NETWORK_MODULE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 
 default_returnn = {
@@ -28,55 +27,47 @@ default_returnn = {
 def create_tune_and_evaluate_jobs(
     training_name: str,
     train_job: ReturnnTrainingJob,
-    network_module,
-    net_args,
-    debug,
-    train_data: TrainingDatasets,
+    net_args: dict[str, Any],
     search_config: SearchConfig,
+    train_data: TrainingDatasets,
     dev_dataset_tuples: Dict[str, Any],
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
-    decoder_module: str = "should_not_be_default",
-    forward_method: Optional[str] = None,
-    loss_name: str = "dev_loss_ce",
-    prior_args: Optional[Dict[str, Any]] = None,  # TODO: this should be removed / and in config
-    # TO RUN FLAGS
-    specific_epoch: Optional[Iterable[int]] = None,
+    specific_epochs: Optional[Iterable[int]] = None,
     run_best_4: bool = True,
     run_best: bool = True,
     run_test: bool = False,
-    result_dict: Optional[Dict[str, Any]] = None,
+    prior_args: Optional[Dict[str, Any]] = None,  # TODO: ???
 ) -> Dict[str, Any]:
     """
     Run evaluation jobs for different trained models
 
     """
     # DEFAULT PARAMETERS
-    if specific_epoch is None:
-        specific_epoch = train_job.returnn_config.post_config["num_epochs"]
+    if specific_epochs is None:
+        specific_epochs = train_job.returnn_config.post_config["num_epochs"]
 
     # Dict of all train_evals to perform (could be extended)
     checkpoint_per_evaluation = OrderedDict()
-    for epoch in specific_epoch:
+    for epoch in specific_epochs:
         evaluation_name = f"{training_name}/{epoch}"
         checkpoint_per_evaluation[evaluation_name] = get_specific_checkpoint(evaluation_name, train_job, epoch)
     if run_best_4:
         evaluation_name = f"{training_name}/best4"
         checkpoint_per_evaluation[evaluation_name] = get_best_averaged_checkpoint(
-            evaluation_name, train_job, 4, loss_name
+            evaluation_name, train_job, 4, search_config.avg_best_loss_name
         )
     if run_best:
         evaluation_name = f"{training_name}/best"
         checkpoint_per_evaluation[evaluation_name] = get_best_averaged_checkpoint(
-            evaluation_name, train_job, 1, loss_name
+            evaluation_name, train_job, 1, search_config.avg_best_loss_name
         )
 
     # Tune & Eval different models
-    result_dict = {} if result_dict is None else result_dict
+    result_dict = {}
     for evaluation_name, (checkpoint, checkpoint_name) in checkpoint_per_evaluation.items():
         asr_model = prepare_asr_model(
             checkpoint_name,
             checkpoint,
-            network_module,
             net_args,
             prior_args=prior_args,
             datasets=train_data,
@@ -88,21 +79,53 @@ def create_tune_and_evaluate_jobs(
             asr_model,
             search_config,
             dev_dataset_tuples=dev_dataset_tuples,
-            decoder_module=decoder_module,
-            forward_method=forward_method,
-            debug=debug,
+            forward_method=search_config.forward_method,
+            debug=search_config.debug_returnn_param,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
         )
         result_dict.update(res)
+
+    # TODO: maybe improve
+    if search_config.run_ctc_greedy_decoding:  # Run the last epoch with ctc greedy decoding
+        last_epoch = max(specific_epochs)
+
+        evaluation_name = f"{training_name}/ctc_greedy"
+        checkpoint, checkpoint_name = get_specific_checkpoint(evaluation_name, train_job, last_epoch)
+
+        # Changes
+        forward_method = "forward_step_ctc_decoding"
+        # Parameters could/should also be adapted
+
+        asr_model = prepare_asr_model(
+            checkpoint_name,
+            checkpoint,
+            net_args,
+            prior_args=prior_args,
+            datasets=train_data,
+            prior_batch_size=search_config.prior.batch_size,
+        )
+
+        res = tune_and_evaluate_model(
+            evaluation_name,
+            asr_model,
+            search_config,
+            dev_dataset_tuples=dev_dataset_tuples,
+            forward_method=forward_method,
+            debug=search_config.debug_returnn_param,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
+            vocab_opts=train_data.train.dataset.target_options,
+        )
+        result_dict.update(res)  # ???
+
     return result_dict
 
 
 def prepare_asr_model(
     checkpoint_name: str,
     checkpoint: PtCheckpoint,
-    network_module,
     net_args,
     prior_args: Dict[str, Any] = None,
     prior_config: Optional[Dict[str, Any]] = None,
@@ -147,7 +170,7 @@ def prepare_asr_model(
 
     return ASRModel(
         checkpoint=checkpoint,
-        network_module=network_module,
+        network_module=NETWORK_MODULE,
         net_args=net_args,
         prior_file=prior_file,
         prefix_name=checkpoint_name,
@@ -161,7 +184,6 @@ def tune_and_evaluate_model(
     dev_dataset_tuples: Dict[str, Any],
     vocab_opts: Dict,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
-    decoder_module: str = "should_not_have_default",  # TODO: fix this - import from search instead of parameter?
     forward_method: Optional[str] = None,
     debug: bool = False,
     run_test: bool = False,
@@ -175,31 +197,45 @@ def tune_and_evaluate_model(
     """
     results: Dict[str, job_path.Variable] = {}
 
+    if forward_method is "forward_step_ctc_decoding":  # TODO: improve!
+        forward_args = {
+            "beam_size": search_config.beam_search.beam_size,
+            "ctc_scale": 1.0,
+            "prior_scale": 0.0,
+            "lm_scale": 0.0,
+            #"ctc_soft_collapse_threshold": None,
+            #"ctc_top_k_pruning": None,
+            #"ctc_top_k_pruning_reduce_func": "mean",
+        }
+    else:
+        forward_args = {
+            "beam_size": search_config.beam_search.beam_size,
+            "max_tokens_per_sec": 20,  # TODO: store somewhere
+            "sample_rate": 16_000,  # TODO: get from feature extraction
+        }
+
     # TUNING
     tune_parameters = []
     tune_values_clean = []
     tune_values_other = []
-    for lm_weight in search_config.lm_scales:
+    for lm_weight in search_config.lm_scales:  # todo: NOT used for now
         for prior_scale in search_config.prior_scales:
-
-            decoder_config = {
-                "beam_size": search_config.beam_search.beam_size,
-                "lm_weight": lm_weight,
-                "ilm_weight": None,
-                "prior_scale": prior_scale,
-            }
-
             search_name = f"{evaluation_name}/search_lm{lm_weight:.1f}_prior{prior_scale:.1f}"
+            # OLD PARAMS:
+            # "lm_weight": lm_weight,
+            # "ilm_weight": None,
+            # "prior_scale": prior_scale,
+
             _, wers = search(
                 search_name,
                 search_config,
                 asr_model=asr_model,
-                decoder_module=decoder_module,
+                forward_module=RECOGNITION_PACKAGE,
                 forward_method=forward_method,
-                decoder_args={"config": decoder_config},  # Todo: not used for now...
                 test_dataset_tuples=dev_dataset_tuples,
                 debug=debug,
                 vocab_opts=vocab_opts,
+                forward_args=forward_args,
                 **default_returnn,
             )
 
@@ -216,23 +252,21 @@ def tune_and_evaluate_model(
             )
             pick_optimal_params_job.add_alias(f"{evaluation_name}/pick_best_{key}")
 
-            decoder_config = {
-                "beam_size": search_config.beam_search.beam_size,
-                "lm_weight": pick_optimal_params_job.out_optimal_parameters[0],
-                "ilm_weight": None,
-                "prior_scale": pick_optimal_params_job.out_optimal_parameters[1],
-            }
+            # OLD PARAMS:
+            # "lm_weight": pick_optimal_params_job.out_optimal_parameters[0],
+            # "ilm_weight": None,
+            # "prior_scale": pick_optimal_params_job.out_optimal_parameters[1],
 
             _, wers = search(
                 evaluation_name,
                 search_config,
                 asr_model=asr_model,
-                decoder_module=decoder_module,
+                forward_module=RECOGNITION_PACKAGE,
                 forward_method=forward_method,
-                decoder_args={"config": decoder_config},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
                 vocab_opts=vocab_opts,
                 debug=debug,
+                forward_args=forward_args,
                 **default_returnn,
             )
         results.update(wers)

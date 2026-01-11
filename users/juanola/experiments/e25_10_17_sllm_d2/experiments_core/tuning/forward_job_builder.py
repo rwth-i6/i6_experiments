@@ -66,13 +66,13 @@ def search(
     prefix_name: str,
     search_config: SearchConfig,
     asr_model: ASRModel,
-    decoder_module: str,
+    forward_module: str,
     forward_method: Optional[str],
-    decoder_args: Dict[str, Any],
     test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
     vocab_opts: Dict,
+    forward_args: Dict[str, Any],
     debug: bool = False,
 ) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
     """
@@ -81,41 +81,30 @@ def search(
     :param prefix_name: prefix folder path for alias and output files
     :param forward_config: returnn config parameter for the forward job
     :param asr_model: the ASRModel from the training
-    :param decoder_module: path to the file containing the decoder definition
+    :param forward_module: path to the file containing the decoder definition
     :param decoder_args: arguments for the decoding forward_init_hook
     :param test_dataset_tuples: tuple of (Dataset, tk.Path) for the dataset object and the reference bliss
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
     :param use_gpu: run search with GPU
     """
-    if asr_model.prior_file is not None:
-        decoder_args["config"]["prior_file"] = asr_model.prior_file
-
     forward_config = {
         "batch_size": search_config.batch_size * search_config.batch_size_factor,
-        "max_seqs": 200, # TODO: move to config
-    }
-
-    forward_step_params = { # TODO: move this in somewhere
-        "beam_size": search_config.beam_search.beam_size,
-        "max_tokens_per_sec": 20,
-        "sample_rate": 16_000,
+        "max_seqs": search_config.max_seqs,
     }
 
     returnn_search_config = get_forward_config(
         network_module=asr_model.network_module,
         config=forward_config,
         net_args=asr_model.net_args,
-        decoder_args=decoder_args,
-        decoder=decoder_module,
+        forward_module=forward_module,
         forward_method=forward_method,
         debug=debug,
         vocab_opts=vocab_opts,
-        forward_step_params=forward_step_params,
+        forward_args=forward_args,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
-
     search_jobs = []
     wers = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():

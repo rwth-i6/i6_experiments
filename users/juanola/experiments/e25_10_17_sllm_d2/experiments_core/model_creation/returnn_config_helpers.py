@@ -153,7 +153,7 @@ def get_prior_config(
         unhashed_net_args=unhashed_net_args,
         forward_step_name="prior_step",
         debug=debug,
-        forward_step_params=forward_step_params,
+        forward_args=forward_step_params,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
@@ -163,25 +163,23 @@ def get_forward_config(
         network_module: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
-        decoder: str,
-        decoder_args: Dict[str, Any],
+        forward_module: str,
         vocab_opts: Dict,
         forward_method: Optional[str] = None,
-        unhashed_decoder_args: Optional[Dict[str, Any]] = None,
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         debug: bool = False,
-        forward_step_params: Dict[str, Any] = None,
+        forward_args: Dict[str, Any] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
 
+    :param forward_method:
+    :param forward_module:
+    :param forward_args:
     :param network_module: path to the pytorch config file containing Model
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
-    :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
-    :param decoder_args: extra arguments to pass to forward_init
     :param vocab_opts: ????? vocab options
-    :param unhashed_decoder_args: unhashed extra arguments for the forward init
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
@@ -206,9 +204,9 @@ def get_forward_config(
         vocab_opts=vocab_opts,
 
         unhashed_net_args=unhashed_net_args,
-        forward_module=decoder,
+        forward_module=forward_module,
         debug=debug,
-        forward_step_params=forward_step_params,
+        forward_args=forward_args,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

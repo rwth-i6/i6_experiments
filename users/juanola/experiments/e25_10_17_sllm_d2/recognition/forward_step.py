@@ -1,4 +1,4 @@
-__all__ = ["forward_step", "forward_step_ctc_greedy_decoding"]
+__all__ = ["forward_step", "forward_step_ctc_decoding"]
 
 from typing import Optional
 
@@ -19,6 +19,7 @@ def forward_step(
     extern_data: TensorDict,
 
     beam_size: int,
+
     max_tokens_per_sec: Optional[int] = None,
     sample_rate: Optional[int] = None,
 
@@ -30,15 +31,22 @@ def forward_step(
     RETURNN ENTRYPOINT (for search/inference)!!
     """
     assert beam_size > 0
+    if max_tokens_per_sec is not None:
+        assert max_tokens_per_sec > 0, "max_tokens_per_sec needs to be > 0"
+    if sample_rate is not None:
+        assert sample_rate > 0, "sample_rate needs to be > 0"
 
     data_: ReturnnTensor = extern_data["data"]
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
-    max_seq_len = define_maximum_sequence_length(max_tokens_per_sec, sample_rate, seq_len)
+    if max_tokens_per_sec is not None and sample_rate is not None:
+        max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
+    else:
+        max_seq_len = seq_len
 
     # ENCODER (FORWARD) STEP (for inference)
     decoder_state: Qwen2DecoderState
-    decoder_state, _, _ = model.forward_encoder(data, seq_len, beam_size) # Initial beam size is beam_size
+    decoder_state, _, _ = model.forward_encoder(data, seq_len, beam_size)  # Initial beam size is beam_size
 
     # BEAM SEARCH DECODING (contains DECODER (FORWARD) STEPs)
     seq_targets, seq_log_prob, _, out_seq_len = beam_search_decode(
@@ -61,35 +69,23 @@ def forward_step(
     ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
     ctx.mark_as_output(seq_log_prob, "scores", dims=[batch_dim, beam_dim])
 
-def define_maximum_sequence_length(max_tokens_per_sec: int | None, sample_rate: int | None, seq_len: Tensor) -> Tensor:
-    max_seq_len = seq_len
-    if max_tokens_per_sec is not None and sample_rate is not None:
-        assert max_tokens_per_sec > 0 and sample_rate > 0
-        max_seq_len = max_tokens_per_sec * (seq_len / sample_rate)
-    return max_seq_len
 
+def forward_step_ctc_decoding(
+    *,
+    model: BaseEncoderDecoderModel,
+    extern_data: TensorDict,
 
+    beam_size: int,
 
-def forward_step_ctc_greedy_decoding(
-        *,
-        model: BaseEncoderDecoderModel,
-        extern_data: TensorDict,
+    ctc_scale: float = 1.0,
+    prior_scale: float = 1.0,
+    lm_scale: float = 1.0,
 
-        beam_size: int,
+    ctc_soft_collapse_threshold: Optional[float] = None,
+    ctc_top_k_pruning: Optional[int] = None,
+    ctc_top_k_pruning_reduce_func: str = "mean",
 
-        # OLD (not remove just in case)
-        max_tokens_per_sec: Optional[int] = None,
-        sample_rate: Optional[int] = None,
-
-        # CTC Search params
-        ctc_soft_collapse_threshold: Optional[float] = None,
-        ctc_top_k_pruning: Optional[int] = None,
-        ctc_top_k_pruning_reduce_func: str = "mean",
-        ctc_scale: float = 1.0,
-        prior_scale: float = 1.0,
-        lm_scale: float = 0.0, # 1.0
-
-        **kwargs,
+    **kwargs,
 ):
     """
     Runs full recognition on the given data. Using only CTC
@@ -99,7 +95,7 @@ def forward_step_ctc_greedy_decoding(
     data_: ReturnnTensor = extern_data["data"]
 
     # From robins'
-    #if data_.feature_dim and data_.feature_dim.dimension == 1:
+    # if data_.feature_dim and data_.feature_dim.dimension == 1:
     #    data_ = rf.squeeze(data_, axis=data_.feature_dim)
 
     data: Tensor = data_.raw_tensor
@@ -121,4 +117,3 @@ def forward_step_ctc_greedy_decoding(
     ctx = rf.get_run_ctx()
     ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
     ctx.mark_as_output(seq_log_prob_rf, "scores", dims=[batch_dim, beam_dim])
-

@@ -23,8 +23,6 @@ def create_training_job(training_name: str,
                         train_step_module: str,
                         train_epochs: int,
 
-                        debug_returnn_param: bool,
-
                         training_config: TrainingConfig,
 
                         returnn_root: tk.Path) -> ReturnnTrainingJob:
@@ -35,10 +33,9 @@ def create_training_job(training_name: str,
     :param network_args:
     :param train_step_module:
     :param train_epochs:
-    :param debug_returnn_param:
     :param returnn_root: Path to a checked out RETURNN repository
     """
-    train_args, training_rqmt = get_training_parameters(debug_returnn_param, network_args, network_module,
+    train_args, training_rqmt = get_training_parameters(network_args, network_module,
                                                         returnn_root, train_epochs, train_step_module, batch_size, training_config)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
@@ -48,7 +45,7 @@ def create_training_job(training_name: str,
     return train_job
 
 
-def get_training_parameters(debug_returnn_param: bool, network_args: dict[str, Any], network_module: str,
+def get_training_parameters(network_args: dict[str, Any], network_module: str,
                             returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int, train_config_obj: TrainingConfig) -> tuple[
     dict[str, Any], dict[str, Any]]:
     train_config = { # TODO: lots of settings could be moved to configs.
@@ -84,7 +81,7 @@ def get_training_parameters(debug_returnn_param: bool, network_args: dict[str, A
             "label_smoothing_start_epoch": 0,
         },
 
-        "debug": debug_returnn_param,
+        "debug": train_config_obj.debug_returnn_param,
         "use_speed_perturbation": True,
     }
 

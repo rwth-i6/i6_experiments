@@ -53,6 +53,8 @@ class TrainingConfig:
 
     random_seed: Optional[int] = None  # Added to config only if specified
 
+    debug_returnn_param: bool = True
+
     def __post_init__(self):
         """
         Assertions for parameters.
