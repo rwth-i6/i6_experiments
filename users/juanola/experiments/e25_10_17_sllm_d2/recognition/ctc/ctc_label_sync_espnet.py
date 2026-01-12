@@ -92,7 +92,7 @@ def ctc_label_sync_search_v1(
     decoder_state, aux_logits, encoder_lens = model.forward_encoder(
         data,
         data_seq_lens,
-        initial_beam_size=1,  # a bit sus
+        initial_beam_size=1,
     )
     ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1)
 

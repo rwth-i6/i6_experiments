@@ -34,9 +34,10 @@ class SearchConfig:
     # ctc scores?
     lm_scales: list[float]
     prior_scales: list[float]
+    ctc_scales: list[float]
 
     forward_method: str = None
-    run_ctc_greedy_decoding: bool = False
+    run_ctc_greedy_decoding_last_epoch: bool = False
 
     debug_returnn_param: bool = True
 
@@ -72,13 +73,24 @@ def search_baseline() -> SearchConfig:
         prior=prior_v1(),
         lm_scales=[0.0],
         prior_scales=[0.0],
+        ctc_scales=[0.0],
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )
 
 
+def search_baseline_v2() -> SearchConfig:
+    return dataclasses.replace(search_baseline(), forward_method="forward_step_v2")
+
+def search_baseline_ctc_decoding() -> SearchConfig:
+    return dataclasses.replace(search_baseline(),
+                               forward_method="forward_step_ctc_decoding",
+                               ctc_scales=[1.0],
+                               lm_scales=[0.0, 1.0])
+
+
 def search_baseline_with_ctc_gd() -> SearchConfig:
-    return dataclasses.replace(search_baseline(), run_ctc_greedy_decoding=True)
+    return dataclasses.replace(search_baseline(), run_ctc_greedy_decoding_last_epoch=True)
 
 
 def greedy_search() -> SearchConfig:

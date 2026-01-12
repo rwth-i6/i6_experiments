@@ -25,7 +25,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     search_baseline,
     greedy_search,
     greedy_search_v2,
-    search_baseline_with_ctc_gd,
+    search_baseline_with_ctc_gd, search_baseline_v2, search_baseline_ctc_decoding,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -212,6 +212,6 @@ def t_v1_2() -> ExperimentConfig:
     return replace(exp_v8_2(), search=greedy_search_v2())
 
 def n2_test() -> ExperimentConfig:
-    return replace(exp_v7(), training=training_n2_test(), network=network_baseline_v2())
+    return replace(exp_v7(), training=training_n2_test(), network=network_baseline_v2(), search=search_baseline_ctc_decoding())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

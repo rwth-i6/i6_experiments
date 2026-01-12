@@ -72,12 +72,17 @@ def search(
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
     vocab_opts: Dict,
-    forward_args: Dict[str, Any],
+    forward_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
 ) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
     """
     Run search over multiple datasets and collect statistics
 
+    :param debug:
+    :param vocab_opts:
+    :param forward_args:
+    :param forward_method:
+    :param search_config:
     :param prefix_name: prefix folder path for alias and output files
     :param forward_config: returnn config parameter for the forward job
     :param asr_model: the ASRModel from the training
@@ -88,6 +93,9 @@ def search(
     :param returnn_root: Path to a checked out RETURNN repository
     :param use_gpu: run search with GPU
     """
+    if forward_args is None:
+        forward_args = {}
+
     forward_config = {
         "batch_size": search_config.batch_size * search_config.batch_size_factor,
         "max_seqs": search_config.max_seqs,

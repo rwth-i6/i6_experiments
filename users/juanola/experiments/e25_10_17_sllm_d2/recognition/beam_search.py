@@ -244,3 +244,117 @@ def apply_length_normalization(ended: Tensor, length_norm_exponent: float, seq_l
     if step > 1 and length_norm_exponent != 0:
         seq_log_prob = seq_log_prob * torch.where(ended, (step / (step - 1)) ** length_norm_exponent, 1.0)
     return seq_log_prob
+
+def beam_search_v2( # TODO: check this!!
+        *,
+        model: LabelScorerProtocol,
+        beam_size: int,
+        batch_size: int,
+        decoder_state: State,
+        device: torch.device,
+        length_norm_exponent: float = 1.0,
+        max_seq_len: Tensor,
+        initial_target: Tensor | None = None,
+) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    """
+    Eager-mode implementation of beam search.
+
+    Fix initial beam size to be 1.
+
+    :param model: interface to the decoder model
+    :param beam_size: the beam size, 16 is a good value
+    :param batch_size: the batch size
+    :param decoder_state: initial recurrent decoder state
+    :param device: the device the computation happens on
+    :param length_norm_exponent: scaling exponent for the length normalization factor
+    :param max_seq_len: how long the decoded seqs can be at max, use e.g. encoder time dim.
+        Shape: [B,]
+    :param initial_target: start decoding with these BOS tokens.
+        Shape: [B,]
+    """
+    with torch.no_grad():
+        assert beam_size > 0
+        assert batch_size > 0
+        assert (max_seq_len > 0).all()
+
+        # First step uses beam=1, since the start state is the same for all beams, and multiple
+        # beams containing the same contents cause issues in top-k search.
+        initial_beam = 1
+        if initial_target is None:
+            target = torch.full([batch_size, initial_beam], model.bos_idx, dtype=torch.int32, device=device)  # Batch, Beam
+        else:
+            assert initial_target.shape == (batch_size,)
+            target = initial_target[:, None]  # Batch, Beam
+        ended = torch.full([batch_size, initial_beam], False, device=device)  # Batch, Beam
+        seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # Batch, Beam
+        out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # Batch, Beam
+
+        ended_default = F.one_hot(torch.tensor(model.eos_idx, device=device), num_classes=model.num_labels)
+        ended_default = torch.where(ended_default.bool(), 0.0, -1e30)
+
+        seq_targets = []
+        seq_backrefs = []
+        label_log_probs = []
+        step = torch.tensor(0, device=device, dtype=torch.int32)
+
+        while True:
+            logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)
+            label_log_prob = F.log_softmax(logits, dim=-1)  # Batch, Beam, Vocab
+            assert label_log_prob.shape[-2] == 1, f"time dim mismatch, is {label_log_prob.shape[-2]} but should be 1"
+            label_log_prob = label_log_prob.squeeze(-2)
+            label_log_prob = torch.where(
+                ended[:, :, None], ended_default[None, None, :], label_log_prob
+            )  # filter out finished beams
+
+            seq_log_prob = seq_log_prob[:, :, None] + label_log_prob  # Batch, Beam, Vocab
+            assert seq_log_prob.ndim == 3
+
+            # This runs a top-k search across all beams and across all vocab entries,
+            # returning the top `beam_size` entries per batch.
+            #
+            # `backrefs` gives us the index of the beam the top-k entry came from, while
+            # `target` gives us the index of the top-k entry label.
+            seq_log_prob, (backrefs, target) = _top_k_nd(seq_log_prob, k=beam_size, dim=[1, 2])
+
+            label_log_probs.append(label_log_prob)  # Note: this is wrong, also needs to be re-gathered by backrefs
+            seq_targets.append(target)
+            seq_backrefs.append(backrefs)
+
+            # now select from the decoder state those top-k beams
+            decoder_state = tree.map_structure(
+                partial(_gather_backrefs, backrefs=backrefs, beam_size=beam_size), decoder_state
+            )
+            ended = _gather_backrefs(ended, backrefs=backrefs, beam_size=beam_size)
+            out_seq_len = _gather_backrefs(out_seq_len, backrefs=backrefs, beam_size=beam_size)
+
+            step += 1
+
+            ended = ended | (target == model.eos_idx)
+            ended = ended | (step >= max_seq_len)[:, None]
+            if ended.all():
+                break
+
+            out_seq_len = out_seq_len + torch.where(ended, 0, 1)
+
+            # Length-normalized scores, so we evaluate score_t/len.
+            # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
+            # Because we count with EOS symbol, shifted by one.
+            if step > 1 and length_norm_exponent != 0:
+                seq_log_prob = seq_log_prob * torch.where(ended, (step / (step - 1)) ** length_norm_exponent, 1.0)
+
+        if step > 1 and length_norm_exponent != 0:
+            seq_log_prob *= (1 / step) ** length_norm_exponent
+
+        # Backtrack via backrefs, resolve beams.
+        seq_targets_ = []
+        indices = torch.arange(beam_size, device=device)[None, :].expand(batch_size, -1)  # [Batch,FinalBeam] -> FinalBeam
+        for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+            # indices: [Batch,FinalBeam] -> Beam
+            # backrefs: [Batch,Beam] -> PrevBeam
+            seq_targets_.insert(0, _batch_gather(target, indices=indices))  # [Batch,FinalBeam]
+            indices = _batch_gather(backrefs, indices=indices)  # [Batch,FinalBeam] -> PrevBeam
+
+        seq_targets = torch.stack(seq_targets_, dim=2)  # [Batch, FinalBeam, OutSeqLen]
+        label_log_probs_expanded = [l_p.expand(l_p.shape[0], beam_size, *l_p.shape[2:]) for l_p in label_log_probs]
+        label_log_probs = torch.stack(label_log_probs_expanded, dim=2)  # Batch, FinalBeam, OutSeqLen, Label
+        return seq_targets, seq_log_prob, label_log_probs, out_seq_len

@@ -20,7 +20,7 @@ class SllmV2(Model):
     New Version. Fixes Beam search and how past_key_values are handled.
     """
 
-    def step_decoder(self, labels: Tensor, state: Qwen2DecoderState) -> Tuple[Tensor, Qwen2DecoderState]: # TODO: change!
+    def step_decoder(self, labels: Tensor, state: Qwen2DecoderState) -> Tuple[Tensor, Qwen2DecoderState]:
         """
         Perform a decoder step (for inference) -> only one new label prediction
         :type labels: Tensor - Previous generated labels
@@ -33,7 +33,6 @@ class SllmV2(Model):
         B, beam, T, F = qwen_input_embeds.shape  # noqa
 
         past_key_values = state["past_key_values"]
-
         if past_key_values is None:  # First Iteration
             # First step (use BOS + audio context)
             qwen_input_embeds_prefix = state["input_embeds"]
@@ -62,7 +61,7 @@ class SllmV2(Model):
 
         # Update and return new state
         past_key_values = qwen_output.past_key_values
-        if not tree.is_nested(qwen_output.past_key_values):
+        if not tree.is_nested(past_key_values):
             # e.g., transformers.cache_utils.DynamicCache, aren't supported by tree.
             past_key_values = past_key_values.to_legacy_cache()
         past_key_values = tree.map_structure(
