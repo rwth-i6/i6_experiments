@@ -17,11 +17,15 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_SLLM_small_decoder_td,
     network_small_linear_adapter,
     network_SLLM_tuned_dropout_v2,
-    network_linear_adapter, network_SLLM_tuned,
+    network_linear_adapter,
+    network_SLLM_tuned,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
-    search_baseline, greedy_search, greedy_search_v2, search_baseline_with_ctc_gd,
+    search_baseline,
+    greedy_search,
+    greedy_search_v2,
+    search_baseline_with_ctc_gd,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -34,7 +38,10 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     itc_4gpu_setup_v1,
     itc_4gpu_setup_v2,
     bsv2_lrv4,
-    bsv2_lrv5, itc_batch_size_80k_150_epochs, itc_batch_size_80k_200_epochs,
+    bsv2_lrv5,
+    itc_batch_size_80k_150_epochs,
+    itc_batch_size_80k_200_epochs,
+    itc_4gpu_setup_v3,
 )
 
 
@@ -119,6 +126,7 @@ def exp_v7() -> ExperimentConfig:
         search=search_baseline(),
     )
 
+
 def exp_v7_with_ctc_gd() -> ExperimentConfig:
     return replace(exp_v7(), search=search_baseline_with_ctc_gd())
 
@@ -141,6 +149,10 @@ def exp_v10() -> ExperimentConfig:
 
 def exp_v10_2() -> ExperimentConfig:
     return replace(exp_v4(), training=itc_4gpu_setup_v2())
+
+
+def exp_v10_3() -> ExperimentConfig:
+    return replace(exp_v4(), training=itc_4gpu_setup_v3())
 
 
 def exp_v11() -> ExperimentConfig:
@@ -174,25 +186,30 @@ def exp_v2_s2() -> ExperimentConfig:
 def exp_v8_3() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv4())
 
+
 def exp_v8_4() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv5())
+
 
 def exp_v7_150() -> ExperimentConfig:
     return replace(exp_v7(), training=itc_batch_size_80k_150_epochs())
 
+
 def exp_v7_200() -> ExperimentConfig:
     return replace(exp_v7(), training=itc_batch_size_80k_200_epochs())
-
 
 
 """
 Tests
 """
 
+
 def t_v1() -> ExperimentConfig:
     return replace(exp_v8_2(), search=greedy_search())
 
+
 def t_v1_2() -> ExperimentConfig:
     return replace(exp_v8_2(), search=greedy_search_v2())
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

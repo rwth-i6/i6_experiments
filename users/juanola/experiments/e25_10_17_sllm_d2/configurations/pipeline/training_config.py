@@ -117,14 +117,10 @@ def itc_4gpu_setup_v1() -> TrainingConfig:
 
 
 def itc_4gpu_setup_v2() -> TrainingConfig:
-    return replace(
-        training_baseline(),
-        batch_size=5_000,
-        gpu_memory=11,
-        num_gpus=4,
-        use_torch_amp=False,
-        use_grad_scaler=False,
-    )
+    return replace(itc_4gpu_setup_v1(), batch_size=5_000)
+
+def itc_4gpu_setup_v3() -> TrainingConfig:
+    return replace(itc_4gpu_setup_v1(), batch_size=13_000)
 
 
 def bsv2_lrv2() -> TrainingConfig:

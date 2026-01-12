@@ -176,7 +176,9 @@ def ctc_label_sync_search_v1(
     # differentiate between LM and CTC targets in case of pruning
     # in case of pruning, the lm target behaves as before but the ctc prefix scorer always gets the pruned indices
     target_lm = rf.constant(
-        model.bos_idx, dims=[ctc_beam_dim] + batch_dims, sparse_dim=target_dim
+        model.bos_idx,
+        dims=[ctc_beam_dim] + batch_dims,
+        sparse_dim=target_dim
     )  # Batch, InBeam -> Vocab
     target_ctc = rf.constant(
         model.bos_idx if ctc_top_k_pruning is None else pruned_bos_idx,

@@ -23,12 +23,13 @@ def main():
     e3v5()
     e3v6()
 
-    e3v7()
+    #e3v7()
     e3v8()
 
     e3v9()
     e3v10()
     e3v10_2()
+    e3v10_3()
 
     e3v11()
     e3v12()
@@ -72,10 +73,10 @@ def e3v6():
 
 # ++++
 
-def e3v7():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT])#, itc_training=True)
+#def e3v7():
+#    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT])#, itc_training=True)
 
-def e3v7_ctc(): # TODO: WIP
+def e3v7_ctc():
     ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD])#, itc_training=True)
 
 
@@ -92,6 +93,9 @@ def e3v10():
 
 def e3v10_2():
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2])
+
+def e3v10_3():
+    ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3])
 
 # ++++
 
@@ -157,4 +161,5 @@ def real_size_test():
 
 
 
-__all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6", "e3v7", "e3v8", "e3v9", "e3v10", "e3v10_2"]
+__all__ = ["main", "e3", "e3_itc", "e3_d", "e3_td", "e3d", "e3d_itc", "e3v4", "e3v5", "e3v6", "e3v8", "e3v9", "e3v10",
+           "e3v10_2", "e3v10_3", "e3v11", "e3v12", "e3v3_2", "e3v13", "e3v2_s2", "e3v8_2", "e3v7_2"]

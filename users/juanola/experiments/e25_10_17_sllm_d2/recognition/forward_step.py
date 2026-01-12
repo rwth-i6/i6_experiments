@@ -94,8 +94,8 @@ def forward_step_ctc_decoding(
 
     data_: ReturnnTensor = extern_data["data"]
 
-    # From robins'
-    # if data_.feature_dim and data_.feature_dim.dimension == 1:
+    # From robins' should not be needed i think
+    #if data_.feature_dim and data_.feature_dim.dimension == 1:
     #    data_ = rf.squeeze(data_, axis=data_.feature_dim)
 
     data: Tensor = data_.raw_tensor

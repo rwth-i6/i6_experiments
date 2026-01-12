@@ -197,12 +197,18 @@ def tune_and_evaluate_model(
     """
     results: Dict[str, job_path.Variable] = {}
 
-    if forward_method is "forward_step_ctc_decoding":  # TODO: improve!
+    v3_ctc_scale = None
+    v3_lm_scale = None
+    v3_prior_scale = None
+    if forward_method == "forward_step_ctc_decoding":  # TODO: improve!
+        v3_ctc_scale = 1.0
+        v3_prior_scale = 0.0
+        v3_lm_scale = 1.0
         forward_args = {
             "beam_size": search_config.beam_search.beam_size,
-            "ctc_scale": 1.0,
-            "prior_scale": 0.0,
-            "lm_scale": 0.0,
+            "ctc_scale": v3_ctc_scale,
+            "prior_scale": v3_prior_scale,
+            "lm_scale": v3_lm_scale,
             #"ctc_soft_collapse_threshold": None,
             #"ctc_top_k_pruning": None,
             #"ctc_top_k_pruning_reduce_func": "mean",
@@ -218,9 +224,12 @@ def tune_and_evaluate_model(
     tune_parameters = []
     tune_values_clean = []
     tune_values_other = []
-    for lm_weight in search_config.lm_scales:  # todo: NOT used for now
+    for lm_scale in search_config.lm_scales:  # todo: NOT used for now
         for prior_scale in search_config.prior_scales:
-            search_name = f"{evaluation_name}/search_lm{lm_weight:.1f}_prior{prior_scale:.1f}"
+            search_name = f"{evaluation_name}/search_lm{lm_scale:.1f}_prior{prior_scale:.1f}" #TODO: improve names
+            if forward_method == "forward_step_ctc_decoding": # TODO: improve!
+                search_name += f"{evaluation_name}/search_lm{v3_lm_scale:.1f}_prior{v3_prior_scale:.1f}_ctc{v3_ctc_scale:.1f}"
+
             # OLD PARAMS:
             # "lm_weight": lm_weight,
             # "ilm_weight": None,
@@ -239,13 +248,13 @@ def tune_and_evaluate_model(
                 **default_returnn,
             )
 
-            tune_parameters.append((lm_weight, prior_scale))
+            tune_parameters.append((lm_scale, prior_scale))
             tune_values_clean.append((wers[f"{search_name}/dev-clean"]))
             tune_values_other.append((wers[f"{search_name}/dev-other"]))
             results.update(wers)
 
     # EVALUATION (only if run_test)
-    if run_test and test_dataset_tuples is not None:
+    if run_test and test_dataset_tuples is not None and forward_method != "forward_step_ctc_decoding":
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
             pick_optimal_params_job = GetOptimalParametersAsVariableJob(
                 parameters=tune_parameters, values=tune_values, mode="minimize"

@@ -19,13 +19,13 @@ class SearchConfig:
 
     Can contain default values.
     """
+
     batch_size: int
     batch_size_factor: int
     use_gpu: bool
     gpu_memory: int  # Avoid using bigger that 11Gb
     avg_best_loss_name: str
     max_seqs: int
-
 
     # WIP
     prior: PriorConfig
@@ -35,13 +35,8 @@ class SearchConfig:
     lm_scales: list[float]
     prior_scales: list[float]
 
-    # TODO: add somewhere the forward step params?? still in serialize_returnn
-
-
     forward_method: str = None
     run_ctc_greedy_decoding: bool = False
-
-
 
     debug_returnn_param: bool = True
 
