@@ -15,7 +15,7 @@ from .asr_model import ASRModel
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
 from ...configurations.pipeline.search_config import SearchConfig
-from ...constants import RECOGNITION_PACKAGE, NETWORK_MODULE
+from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 
 default_returnn = {
@@ -27,6 +27,7 @@ default_returnn = {
 def create_tune_and_evaluate_jobs(
     training_name: str,
     train_job: ReturnnTrainingJob,
+    network_import_path: str,
     net_args: dict[str, Any],
     search_config: SearchConfig,
     train_data: TrainingDatasets,
@@ -68,6 +69,7 @@ def create_tune_and_evaluate_jobs(
         asr_model = prepare_asr_model(
             checkpoint_name,
             checkpoint,
+            network_import_path,
             net_args,
             prior_args=prior_args,
             datasets=train_data,
@@ -101,6 +103,7 @@ def create_tune_and_evaluate_jobs(
         asr_model = prepare_asr_model(
             checkpoint_name,
             checkpoint,
+            network_import_path,
             net_args,
             prior_args=prior_args,
             datasets=train_data,
@@ -126,6 +129,7 @@ def create_tune_and_evaluate_jobs(
 def prepare_asr_model(
     checkpoint_name: str,
     checkpoint: PtCheckpoint,
+    network_import_path: str,
     net_args,
     prior_args: Dict[str, Any] = None,
     prior_config: Optional[Dict[str, Any]] = None,
@@ -135,7 +139,7 @@ def prepare_asr_model(
     """
     :param checkpoint_name:
     :param checkpoint:
-    :param network_module:
+    :param network_import_path:
     :param net_args:
     :param prior_args:
     :param datasets: Needed if with_prior == True
@@ -148,7 +152,7 @@ def prepare_asr_model(
     if prior_args is not None:
         returnn_config = get_prior_config(
             training_datasets=datasets,
-            network_module=prior_args["network_module"],
+            network_import_path=prior_args["network_import_path"],
             config=prior_config if prior_config is not None else {},
             net_args=prior_args["net_args"],
             unhashed_net_args=prior_args.get("unhashed_net_args", None),
@@ -170,7 +174,7 @@ def prepare_asr_model(
 
     return ASRModel(
         checkpoint=checkpoint,
-        network_module=NETWORK_MODULE,
+        network_import_path=network_import_path,
         net_args=net_args,
         prior_file=prior_file,
         prefix_name=checkpoint_name,

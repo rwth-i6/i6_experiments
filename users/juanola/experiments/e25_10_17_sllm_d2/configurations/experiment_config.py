@@ -18,7 +18,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_small_linear_adapter,
     network_SLLM_tuned_dropout_v2,
     network_linear_adapter,
-    network_SLLM_tuned,
+    network_SLLM_tuned, network_baseline_v2,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
@@ -41,7 +41,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     bsv2_lrv5,
     itc_batch_size_80k_150_epochs,
     itc_batch_size_80k_200_epochs,
-    itc_4gpu_setup_v3,
+    itc_4gpu_setup_v3, training_n2_test,
 )
 
 
@@ -211,5 +211,7 @@ def t_v1() -> ExperimentConfig:
 def t_v1_2() -> ExperimentConfig:
     return replace(exp_v8_2(), search=greedy_search_v2())
 
+def n2_test() -> ExperimentConfig:
+    return replace(exp_v7(), training=training_n2_test(), network=network_baseline_v2())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

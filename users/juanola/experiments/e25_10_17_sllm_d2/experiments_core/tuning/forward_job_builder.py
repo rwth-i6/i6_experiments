@@ -94,7 +94,7 @@ def search(
     }
 
     returnn_search_config = get_forward_config(
-        network_module=asr_model.network_module,
+        network_import_path=asr_model.network_import_path,
         config=forward_config,
         net_args=asr_model.net_args,
         forward_module=forward_module,

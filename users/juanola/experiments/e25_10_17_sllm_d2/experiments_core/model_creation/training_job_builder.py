@@ -17,7 +17,7 @@ def create_training_job(training_name: str,
                         datasets: TrainingDatasets,
                         batch_size: int,
 
-                        network_module: str,
+                        network_import_path: str,
                         network_args: Dict[str, Any],
 
                         train_step_module: str,
@@ -29,13 +29,13 @@ def create_training_job(training_name: str,
     """
     :param training_name:
     :param datasets:
-    :param network_module:
+    :param network_import_path:
     :param network_args:
     :param train_step_module:
     :param train_epochs:
     :param returnn_root: Path to a checked out RETURNN repository
     """
-    train_args, training_rqmt = get_training_parameters(network_args, network_module,
+    train_args, training_rqmt = get_training_parameters(network_args, network_import_path,
                                                         returnn_root, train_epochs, train_step_module, batch_size, training_config)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
@@ -45,7 +45,7 @@ def create_training_job(training_name: str,
     return train_job
 
 
-def get_training_parameters(network_args: dict[str, Any], network_module: str,
+def get_training_parameters(network_args: dict[str, Any], network_import_path: str,
                             returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int, train_config_obj: TrainingConfig) -> tuple[
     dict[str, Any], dict[str, Any]]:
     train_config = { # TODO: lots of settings could be moved to configs.
@@ -70,7 +70,7 @@ def get_training_parameters(network_args: dict[str, Any], network_module: str,
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
         "config": train_config,
 
-        "network_module": network_module,
+        "network_import_path": network_import_path,
         "net_args": network_args,
 
         "train_step_module": train_step_module,

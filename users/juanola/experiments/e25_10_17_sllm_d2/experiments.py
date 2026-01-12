@@ -8,7 +8,8 @@ from .configurations.data.dataset_config import DatasetConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
 from .configurations.pipeline import search_config
-from .constants import NETWORK_MODULE, TRAIN_STEP_MODULE, SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS
+from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, \
+    TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
 from .experiments_core.data.spm_utils import build_spm_training_datasets
@@ -79,15 +80,19 @@ def sllm_ep(
         model_alias = exp_config.network.name
         network_args = get_network_args_and_alias(exp_config)
 
+        network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
+        network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
+        train_step_module = f"{TRAIN_STEP_PACKAGE}.{exp_config.network.training_step_file_name}"
+
         # MODEL TRAINING
-        training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}/{exp_name}"
+        training_name = f"{experiment_path}/{network_module}/{model_alias}/{exp_name}"
         train_job = create_training_job(
             training_name,
             training_datasets,
             TRAINING_BATCH_SIZE,
-            NETWORK_MODULE,
+            network_import_path,
             network_args,
-            TRAIN_STEP_MODULE,
+            train_step_module,
             partition_epochs,
             exp_config.training,
             returnn_root=RETURNN_ROOT,
@@ -107,7 +112,9 @@ def sllm_ep(
             epochs_to_evaluate = [partition_epochs]
         else:
             run_best_4 = run_best = run_test = True
-            specific_epochs = specific_recognition_epochs | set({})  # Specify here default epochs to check in multiple exps
+            specific_epochs = specific_recognition_epochs | set(
+                {}
+            )  # Specify here default epochs to check in multiple exps
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
         if only_specific_epochs:
@@ -120,13 +127,12 @@ def sllm_ep(
         results: Dict[str, Any] = create_tune_and_evaluate_jobs(
             training_name=forward_training_name,
             train_job=train_job,
+            network_import_path=network_import_path,
             net_args=network_args,
             search_config=exp_config.search,
-
             train_data=training_datasets,
             dev_dataset_tuples=dev_dataset_tuples,
             test_dataset_tuples=test_dataset_tuples,
-
             specific_epochs=epochs_to_evaluate,
             run_test=run_test,
             run_best=run_best,

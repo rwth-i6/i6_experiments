@@ -16,7 +16,7 @@ from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 
 def get_training_config(
         training_datasets: TrainingDatasets,
-        network_module: str,
+        network_import_path: str,
         train_step_module: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
@@ -31,7 +31,7 @@ def get_training_config(
     Get a generic config for training a model
 
     :param training_datasets: datasets for training
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param train_step_module: ????? path to the pytorch config file containing TrainingStep
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
@@ -88,7 +88,7 @@ def get_training_config(
         },
     }
     serializer = serialize_training(
-        network_module=network_module,
+        network_import_path=network_import_path,
         train_step_module=train_step_module,
         net_args=net_args,
         train_args=train_args,
@@ -106,7 +106,7 @@ def get_training_config(
 
 def get_prior_config(
         training_datasets: TrainingDatasets,  # TODO: replace by single dataset
-        network_module: str,
+        network_import_path: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
         unhashed_net_args: Optional[Dict[str, Any]] = None,
@@ -117,7 +117,7 @@ def get_prior_config(
     Get a generic config for extracting output label priors
 
     :param training_datasets: datasets for training
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
@@ -148,7 +148,7 @@ def get_prior_config(
 
     # RC - PYTHON EPILOG
     serializer = serialize_forward(  # TODO: fix this! 2 more params are needed
-        network_module=network_module,
+        network_import_path=network_import_path,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
         forward_step_name="prior_step",
@@ -160,7 +160,7 @@ def get_prior_config(
 
 
 def get_forward_config(
-        network_module: str,
+        network_import_path: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
         forward_module: str,
@@ -176,7 +176,7 @@ def get_forward_config(
     :param forward_method:
     :param forward_module:
     :param forward_args:
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
     :param vocab_opts: ????? vocab options
@@ -197,7 +197,7 @@ def get_forward_config(
         DATA_PARAM_NAME: {"dim": 1},
     }
     serializer = serialize_forward(
-        network_module=network_module,
+        network_import_path=network_import_path,
         forward_method=forward_method,
         net_args=net_args,
         extern_data=extern_data,

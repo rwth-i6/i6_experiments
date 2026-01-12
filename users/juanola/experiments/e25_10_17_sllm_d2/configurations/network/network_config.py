@@ -41,6 +41,10 @@ class NetworkConfig(HasNameProtocol):
     adapter: AdapterConfig
     decoder: DecoderConfig
 
+    network_file_name: str
+    network_class_name: str
+    training_step_file_name: str
+
     def __post_init__(self):
         """
         Assertions for parameters.
@@ -53,6 +57,22 @@ class NetworkConfig(HasNameProtocol):
 
 
 """
+param groups
+"""
+
+_MODEL_V1_KWARGS = dict(
+    network_file_name="conformer_qwen_v1",
+    network_class_name="Model",
+    training_step_file_name="train_step",
+)
+
+_MODEL_V2_KWARGS = dict(
+    network_file_name="conformer_qwen_v2",
+    network_class_name="SllmV2",
+    training_step_file_name="train_step_v2",
+)
+
+"""
 Specific configurations set below.
 """
 
@@ -63,7 +83,11 @@ def network_baseline() -> NetworkConfig:
         encoder=encoder_baseline(),
         adapter=linear_adapter_with_downsampling(),
         decoder=decoder_baseline(),
+        **_MODEL_V1_KWARGS
     )
+
+def network_baseline_v2() -> NetworkConfig:
+    return replace(network_baseline(), **_MODEL_V2_KWARGS)
 
 
 def network_SLLM_dropout() -> NetworkConfig:

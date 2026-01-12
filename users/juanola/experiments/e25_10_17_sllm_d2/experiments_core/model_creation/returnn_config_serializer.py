@@ -20,7 +20,7 @@ def serialize_extern_data(extern_data: Dict[str, Any]):
 
 
 def serialize_training(
-    network_module: str,
+    network_import_path: str,
     train_step_module: str,
     net_args: Dict[str, Any],
     train_args: Dict[str, Any],
@@ -28,19 +28,21 @@ def serialize_training(
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
     debug: bool = False,
+    model_class_name: str = "Model",
 ) -> Collection:
     """
     Helper function to create the serialization collection
 
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param net_args: arguments for the model
     :param unhashed_net_args: as above but not hashed
     :param include_native_ops: include the i6_native_ops for e.g. Fast-Baum-Welch or Warp-RNNT
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return: Collection object to be added to the ReturnnConfig epilog
     """
-    pytorch_model_import = PartialImport(  # TODO: path is not exactly right! it adds "recipe"!!
-        code_object_path=f"{ROOT_PACKAGE}.{network_module}.Model",  # TODO: extract Model name!!
+
+    pytorch_model_import = PartialImport(
+        code_object_path=f"{ROOT_PACKAGE}.{network_import_path}",
         unhashed_package_root=ROOT_PACKAGE,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
@@ -75,7 +77,7 @@ def serialize_training(
 
 
 def serialize_forward(
-    network_module: str,
+    network_import_path: str,
     net_args: Dict[str, Any],
     extern_data: Dict[str, Any],
     vocab_opts: Dict[str, Any],
@@ -90,7 +92,7 @@ def serialize_forward(
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
 
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param net_args: arguments for the model
     :param unhashed_net_args: as above but not hashed
     :param forward_module: optionally define a module file which contains the forward definition.
@@ -101,13 +103,12 @@ def serialize_forward(
     :return:
     """
     if forward_module is None:
-        forward_module = network_module
+        forward_module = network_import_path
     if forward_args is None:
         forward_args = {}
 
-
     pytorch_model_import = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.{network_module}.Model",
+        code_object_path=f"{ROOT_PACKAGE}.{network_import_path}",
         unhashed_package_root=ROOT_PACKAGE,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
@@ -125,9 +126,9 @@ def serialize_forward(
         serializer_objects.insert(0, i6_native_ops)
 
     if forward_method is None:
-        forward_object_path =f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}" # For backward compatibility
+        forward_object_path = f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}"  # For backward compatibility
     else:
-        forward_object_path =f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}.{forward_method}"
+        forward_object_path = f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}.{forward_method}"
 
     forward_step = PartialImport(
         code_object_path=forward_object_path,

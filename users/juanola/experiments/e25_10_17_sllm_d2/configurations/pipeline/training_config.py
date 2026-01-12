@@ -147,4 +147,19 @@ def itc_batch_size_80k_200_epochs() -> TrainingConfig:
     return replace(itc_batch_size_80k(), epochs=200)
 
 
+"""
+Tests
+"""
+
+def training_n2_test() -> TrainingConfig:
+    return replace(
+        training_baseline(),
+        batch_size=3_000,
+        gpu_memory=24,
+        num_gpus=2,
+        use_torch_amp=False,
+        use_grad_scaler=False,
+        epochs=1,
+    )
+
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

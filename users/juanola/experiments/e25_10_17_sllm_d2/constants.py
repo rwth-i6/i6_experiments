@@ -1,8 +1,7 @@
 # Returnn Modules
-NETWORK_MODULE = "networks.conformer_qwen_v1"
-TRAIN_STEP_MODULE = "training.train_step"
+NETWORK_PACKAGE = "networks"
+TRAIN_STEP_PACKAGE = "training"
 RECOGNITION_PACKAGE = "recognition"
-
 
 # Returnn External Data
 DATA_PARAM_NAME = "data"
