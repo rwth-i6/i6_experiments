@@ -45,7 +45,7 @@ def _relu_sq(x):
 
 
 def load_class_from_path(
-    class_path: str,
+        class_path: str,
 ):  # TODO: this should be improved maybe just storing an enum in the adapters package
     module_path, class_name = class_path.rsplit(".", 1)
     module = importlib.import_module(module_path)
@@ -264,7 +264,7 @@ class Model(
 
             # Embedding
             self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
-            #self.decoder_embed_func = self.decoder.get_input_embeddings() # TODO: what should be used! better inline?
+            # self.decoder_embed_func = self.decoder.get_input_embeddings() # TODO: what should be used! better inline?
 
             # Adapter
             adapter_class = load_class_from_path(adapter_class_path)
@@ -390,7 +390,7 @@ class Model(
         return qwen_output.logits  # [B, x_lens.max(), VocabSize]
 
     def get_qwen_input_embeds(
-        self, audio_embeds: Tensor, text_tokens: Tensor, text_tokens_lens: Tensor
+            self, audio_embeds: Tensor, text_tokens: Tensor, text_tokens_lens: Tensor
     ) -> Tuple[Tensor, Tensor]:
         """
         For now only feeding the encoded audio and the text labels.
@@ -418,8 +418,8 @@ class Model(
         return qwen_input_embeds, qwen_attention_mask
 
     def forward_encoder(
-        self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int
-    ) -> tuple[Qwen2DecoderState, Tensor, Tensor]:
+            self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int
+    ) -> tuple[Union[Qwen2DecoderState | None], Tensor, Tensor]:
         """
         Forward the raw audio data through the encoder and initialize decoder state from it. (for inference)
         batch=1 (only one encoding/decoding) || now beams in encoder (only in decoder)
@@ -427,6 +427,9 @@ class Model(
 
         # Forward through encoder
         encoder_output, out_logits, logits_lens, _ = self.forward(raw_audio, raw_audio_lens)
+
+        if not self.using_decoder:
+            return None, out_logits, logits_lens
 
         # Prepare decoder input [adapter + mix with text imput] (could be also extracted, but not needed for now)
         qwen_audio_features_in = self.encoder_decoder_adapter(encoder_output)  # [B, T', HS']
@@ -511,4 +514,3 @@ def combine_batch_and_beam(state, *, batch_size: int, beam_size: int):
         return state
 
     return state.view(batch_size * beam_size, *state.shape[2:])
-
