@@ -190,8 +190,8 @@ def search_single(
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
-    tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
-    tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=1)
+    tk.register_output(f"{prefix_name}/sclite/wer", sclite_job.out_wer)
+    tk.register_output(f"{prefix_name}/sclite/report", sclite_job.out_report_dir)
 
     return sclite_job.out_wer, search_job
