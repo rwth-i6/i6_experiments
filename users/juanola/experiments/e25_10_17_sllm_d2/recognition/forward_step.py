@@ -1,4 +1,4 @@
-__all__ = ["forward_step", "forward_step_ctc_decoding"]
+__all__ = ["forward_step", "forward_step_v2", "forward_step_ctc_decoding", "forward_step_greedy_ctc"]
 
 from typing import Optional
 

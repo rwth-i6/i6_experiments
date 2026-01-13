@@ -78,7 +78,7 @@ def sllm_ep(
 
         # NETWORK
         model_alias = exp_config.network.name
-        network_args = get_network_args_and_alias(exp_config)
+        network_args = get_network_args(exp_config)
 
         network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
         network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
@@ -155,7 +155,7 @@ def sllm_ep(
     return results_per_experiment
 
 
-def get_network_args_and_alias(config: ExperimentConfig) -> dict[str, Any]:
+def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     """
     Builds network arguments and alias for the model.
 

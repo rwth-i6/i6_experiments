@@ -278,10 +278,11 @@ class Model(
             print(" ***** MODEL PARAMETERS *****")
             if self.encoder is not None:
                 print(f"Encoder params:", get_model_params(self.encoder))
-            if self.encoder_decoder_adapter is not None:
-                print(f"Adapter params:", get_model_params(self.encoder_decoder_adapter))
-            if self.decoder is not None:
-                print(f"Decoder params:", get_model_params(self.decoder))
+            if using_decoder:
+                if self.encoder_decoder_adapter is not None:
+                    print(f"Adapter params:", get_model_params(self.encoder_decoder_adapter))
+                if self.decoder is not None:
+                    print(f"Decoder params:", get_model_params(self.decoder))
             print(" ***** MODEL PARAMETERS *****")
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
