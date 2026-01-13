@@ -5,7 +5,7 @@ It uses ASRModels classes which contain the information of how to call trained m
 """
 
 import copy
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, Tuple, List, Optional
 
 from sisyphus import tk, job_path
 
@@ -19,17 +19,18 @@ from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_experiments.common.setups.returnn.datasets import Dataset
 from ..model_creation.returnn_config_helpers import get_forward_config
 from ..tuning.asr_model import ASRModel
+from ...configurations.pipeline.search_config import SearchConfig
 from ...default_tools import SCTK_BINARY_PATH
 
 
 @tk.block()
 def compute_prior(
-        prefix_name: str,
-        returnn_config: ReturnnConfig,
-        checkpoint: PtCheckpoint,
-        returnn_exe: tk.Path,
-        returnn_root: tk.Path,
-        mem_rqmt: int = 16,
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: PtCheckpoint,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 16,
 ):
     """
     Run search for a specific test dataset
@@ -62,55 +63,60 @@ def compute_prior(
 
 @tk.block()
 def search(
-        prefix_name: str,
-        forward_config: Dict[str, Any],
-        asr_model: ASRModel,
-        decoder_module: str,
-        decoder_args: Dict[str, Any],
-        test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
-        returnn_exe: tk.Path,
-        returnn_root: tk.Path,
-        vocab_opts: Dict,
-        use_gpu: bool = False,
-        debug: bool = False,
+    prefix_name: str,
+    search_config: SearchConfig,
+    asr_model: ASRModel,
+    forward_module: str,
+    forward_method: Optional[str],
+    test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    vocab_opts: Dict,
+    forward_args: Optional[Dict[str, Any]] = None,
+    debug: bool = False,
 ) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
     """
     Run search over multiple datasets and collect statistics
 
+    :param debug:
+    :param vocab_opts:
+    :param forward_args:
+    :param forward_method:
+    :param search_config:
     :param prefix_name: prefix folder path for alias and output files
     :param forward_config: returnn config parameter for the forward job
     :param asr_model: the ASRModel from the training
-    :param decoder_module: path to the file containing the decoder definition
+    :param forward_module: path to the file containing the decoder definition
     :param decoder_args: arguments for the decoding forward_init_hook
     :param test_dataset_tuples: tuple of (Dataset, tk.Path) for the dataset object and the reference bliss
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
     :param use_gpu: run search with GPU
     """
-    if asr_model.prior_file is not None:
-        decoder_args["config"]["prior_file"] = asr_model.prior_file
+    if forward_args is None:
+        forward_args = {}
+
+    forward_config = {
+        "batch_size": search_config.batch_size * search_config.batch_size_factor,
+        "max_seqs": search_config.max_seqs,
+    }
 
     returnn_search_config = get_forward_config(
-        network_module=asr_model.network_module,
+        network_import_path=asr_model.network_import_path,
         config=forward_config,
         net_args=asr_model.net_args,
-        decoder_args=decoder_args,
-        decoder=decoder_module,
+        forward_module=forward_module,
+        forward_method=forward_method,
         debug=debug,
         vocab_opts=vocab_opts,
+        forward_args=forward_args,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
-    wers = {}
     search_jobs = []
+    wers = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
-        search_name = prefix_name + "/%s" % key
-        if "hubert_tune" in search_name:
-            mem = 30
-        elif "RelPosEnc" in search_name:
-            mem = 16
-        else:
-            mem = 12
+        search_name = f"{prefix_name}/{key}"
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -119,8 +125,8 @@ def search(
             test_dataset_reference,
             returnn_exe,
             returnn_root,
-            use_gpu=use_gpu,
-            mem_rqmt=mem,
+            use_gpu=search_config.use_gpu,
+            search_gpu_memory=search_config.gpu_memory,
         )
         search_jobs.append(search_job)
 
@@ -128,15 +134,16 @@ def search(
 
 
 def search_single(
-        prefix_name: str,
-        returnn_config: ReturnnConfig,
-        checkpoint: tk.Path,
-        recognition_dataset: Dataset,
-        recognition_bliss_corpus: tk.Path,
-        returnn_exe: tk.Path,
-        returnn_root: tk.Path,
-        mem_rqmt: float = 14,
-        use_gpu: bool = False,
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    recognition_dataset: Dataset,
+    recognition_bliss_corpus: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: float = 12,
+    use_gpu: bool = False,
+    search_gpu_memory: int = 11,
 ) -> Tuple[job_path.Variable, ReturnnForwardJobV2]:
     """
     Run search for a specific test dataset.
@@ -157,6 +164,7 @@ def search_single(
     :param returnn_root: Path to a checked out RETURNN repository
     :param mem_rqmt: some search jobs might need more memory
     :param use_gpu: if to do GPU decoding
+    :param search_gpu_memory:
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
@@ -172,7 +180,8 @@ def search_single(
         returnn_root=returnn_root,
         output_files=["search_out.py.gz"],
     )
-    search_job.add_alias(prefix_name + "/search_job")
+    search_job.add_alias(f"{prefix_name}/search_job")
+    search_job.rqmt["gpu_mem"] = search_gpu_memory
 
     words = SearchOutputRawReplaceJob(
         search_job.out_files["search_out.py.gz"], [(" ", ""), ("▁", " ")], output_gzip=True
@@ -186,7 +195,7 @@ def search_single(
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
     sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=1)
-    tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
-    tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+    tk.register_output(f"{prefix_name}/sclite/wer", sclite_job.out_wer)
+    tk.register_output(f"{prefix_name}/sclite/report", sclite_job.out_report_dir)
 
     return sclite_job.out_wer, search_job

@@ -1,4 +1,4 @@
-# DEMO2 Notes
+# LLM Notes
 
 Author: Martí Juanola
 

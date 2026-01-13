@@ -1,28 +1,35 @@
-import copy
-from functools import partial
+from dataclasses import asdict
 from typing import Any, Dict, Tuple
 
 from sisyphus import tk
 
 from returnn_common.datasets import Dataset
-from .configurations.qwen2_decoder_config_job import Qwen2DecoderConfigJob
-from .configurations.training_configs import llm_training_configs
-from .constants import NETWORK_MODULE, TRAIN_STEP_MODULE, RECOGNITION_PACKAGE
+from .configurations.data.dataset_config import DatasetConfig
+from .configurations.data.label_config import LabelConfig
+from .configurations.experiment_config import ExperimentConfig
+from .configurations.experiment_version import get_experiment_config
+from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, \
+    TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
-from .experiments_core.data.dataset_commons import build_lm_test_dataset
+from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_lm_test_dataset
 from .experiments_core.data.spm_utils import build_spm_lm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
-from .experiments_core.reporting.report import create_report_job, build_base_report
+from .experiments_core.reporting.report_helper import generate_experiment_results_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
-from .recognition.decoder_config import DecoderConfig
-from ...data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from ...data.training_datasets import TrainingDatasets
+from ...sisyphus_jobs.configs.qwen2_decoder_config_job_v2 import Qwen2DecoderConfigJobV2
 from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
 def llm_ep(
+        experiment_versions=None,
         experiment_path: str = "experiments/librispeech/llm/ls960/baselines",
-        debug: bool = False):
+        debug: bool = False,
+        itc_training: bool = False,
+        specific_recognition_epochs: set[int] = set({}),
+        only_specific_epochs: bool = False,
+        test_forward_output_path: bool = False,
+) -> Dict[str, Any]:
     """
     Sisyphus entry point.
 
@@ -31,172 +38,178 @@ def llm_ep(
     - Prepare model config and all needed for returnn
     - Indicate wanted outputs
 
+
+    :param experiment_versions: list of experiment versions to run. Default baseline
     :param experiment_path: Used for alias creation
     :type debug: Used to set up config for debugging in one GPU
+    :param itc_training: Makes return training jobs run on ITC
+    :param specific_recognition_epochs:
     """
+    assert experiment_versions is not None, "at least one of experiment_versions is required"
+    assert len(experiment_versions) > 0, "experiment_versions cannot be empty"
 
-    # GENERAL CONSTANTS
+    base_exps_name = "-".join([v.value for v in experiment_versions])
 
-    # Returnn
-    debug_returnn_param = True  # TODO: Make it depend on big debug?
+    results_per_experiment = {}
+    for exp_name, exp_config in [(v.value, get_experiment_config(v)) for v in experiment_versions]:
+        # TODO: extract inside
 
-    # Training
-    epochs: int = 100
-    partition_epoch_factor: int = 20
-    num_gpus: int = 1 # Should be 1 for 48gb in i6 cluster
-    partition_epochs: int = int(epochs * partition_epoch_factor / num_gpus)
-    TRAINING_GPU_MEMORY = 48
+        # Training
+        epochs: int = exp_config.training.epochs
+        partition_epoch_factor: int = exp_config.training.partition_epoch_factor
+        partition_epochs: int = int(
+            epochs * partition_epoch_factor / exp_config.training.num_gpus
+        )  # 2000 (1GPU) | 500 (4GPU)
+        TRAINING_GPU_MEMORY = exp_config.training.gpu_memory
+        TRAINING_BATCH_SIZE = exp_config.training.batch_size
 
-    if debug:
-        partition_epochs = 1
-        num_gpus = 1
-        TRAINING_GPU_MEMORY = 24
+        # DEBUGGING CHANGES
+        if debug:  # TODO: this should modify the experiment object!
+            # TRAINING_BATCH_SIZE = 6_000
+            partition_epochs = 1
 
+        # INITIALIZE DATASET
+        training_datasets, dev_dataset_tuples, test_dataset_tuples = create_llm_datasets_jobs(
+            experiment_path, exp_config.dataset, exp_config.labels, partition_epoch_factor
+        )
 
+        # NETWORK
+        model_alias = exp_config.network.name
+        network_args = get_network_args(exp_config)  # TODO: LLM - maybe this fails because encoder params are needed
 
-    # TODO: probably use also search_gpu_memory > 11
+        network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
+        network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
+        train_step_module = f"{TRAIN_STEP_PACKAGE}.{exp_config.network.training_step_file_name}"
 
+        # MODEL TRAINING
+        training_name = f"{experiment_path}/{network_module}/{model_alias}/{exp_name}"
+        train_job = create_training_job(
+            training_name,
+            training_datasets,
+            TRAINING_BATCH_SIZE,
+            network_import_path,
+            network_args,
+            train_step_module,
+            partition_epochs,
+            exp_config.training,
+            returnn_root=RETURNN_ROOT,
+        )
+        train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
 
+        # ITC Training
+        if itc_training:
+            train_job.hold()
+            train_job.move_to_hpc = True
+            train_job.rqmt["time_rqmt"] = 36  # ??
 
-    # INITIALIZE DATASET
-    train_dataset_settings = ReturnnDatasetSettings(
-        preemphasis=None,
-        peak_normalization=True,
-        train_partition_epoch=partition_epoch_factor,
-        train_seq_ordering="laplace:.1000",
-        #train_additional_options={
-        #    "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
-        #},
-    )
-    sampling_alpha = 0.7
-    vocab_size = 10_240  # TODO: TD - this should not be hardcoded
-    # TODO: not using:
-    # - preemphasis=None,
-    # - peak_normalization=True,
-    # - "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
-    # - sampling_alpha = 0.7
+        # MODEL EVALUATION/INFERENCE
+        # Which evals to run
+        if debug:
+            run_test = run_best_4 = run_best = False
+            epochs_to_evaluate = [partition_epochs]
+        else:
+            run_best_4 = run_best = run_test = True
+            specific_epochs = specific_recognition_epochs | set(
+                {}
+            )  # Specify here default epochs to check in multiple exps
+            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
-    training_datasets, dev_dataset_tuples, test_dataset_tuples = create_llm_datasets_jobs(experiment_path,
-                                                                                          train_dataset_settings,
-                                                                                          vocab_size,
-                                                                                          sampling_alpha)
+        if only_specific_epochs:
+            run_test = run_best_4 = run_best = False
+            epochs_to_evaluate = specific_recognition_epochs
 
-    # NETWORK
-    training_alias = "v1"  # TODO: could be imported - use enums perhaps
-    decoder_alias = "Qwen2-0_5B" # TODO: could be imported - use enums perhaps
-    model_alias, network_args = get_network_args_and_alias(training_alias, decoder_alias)
+        forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
 
-    # MODEL TRAINING
-    training_name = f"{experiment_path}/{NETWORK_MODULE}/{model_alias}"
-    train_job = create_training_job(training_name, training_datasets, num_gpus,
-                                    NETWORK_MODULE, network_args,
-                                    TRAIN_STEP_MODULE, partition_epochs,
-                                    debug_returnn_param,
-                                    returnn_root=RETURNN_ROOT)
-    train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
+        # Tune-Eval
+        results: Dict[str, Any] = create_tune_and_evaluate_jobs(
+            training_name=forward_training_name,
+            train_job=train_job,
+            network_import_path=network_import_path,
+            net_args=network_args,
+            search_config=exp_config.search,
+            train_data=training_datasets,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=test_dataset_tuples,
+            specific_epochs=epochs_to_evaluate,
+            run_test=run_test,
+            run_best=run_best,
+            run_best_4=run_best_4,
+        )
+        results_per_experiment[exp_name] = results
 
-    # MODEL EVALUATION/INFERENCE
-    # Which evals to run
-    if debug:
-        run_test = run_best_4 = run_best = False
-        epochs_to_evaluate = [partition_epochs]
-    else:
-        run_best_4 = run_best = run_test = True
-        epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs)
+        # REPORTING
+        # Experiment Report
+        generate_experiment_results_report(exp_results=results, exp_name=training_name)
 
-    # Tune-Eval
-    results = create_tune_and_evaluate_jobs(
-        training_name=training_name,
-        train_job=train_job,
+        # Update Base Report (for all experiment results)
+        tk.register_report(
+            f"{SIS_OUTPUTS_REPORTS}/base_report-{base_exps_name}.{SIS_BASE_REPORT_EXTENSION}",
+            results_per_experiment,
+            # partial(base_report_template_v0, results_per_experiment), # TODO: check the template
+            required=results_per_experiment,
+            update_frequency=900,
+        )
 
-        network_module=NETWORK_MODULE,
-        net_args=network_args,
-        debug=debug_returnn_param,
-
-        train_data=training_datasets,
-        decoder_config=DecoderConfig(),
-        decoder_module=RECOGNITION_PACKAGE,
-
-        test_dataset_tuples=test_dataset_tuples,
-        dev_dataset_tuples=dev_dataset_tuples,
-
-        lm_scales=[0.0],
-        prior_scales=[0.0],
-
-        specific_epoch=epochs_to_evaluate,
-        run_test=run_test,
-        run_best=run_best,
-        run_best_4=run_best_4,
-
-        use_gpu=True,  # CPU is way too slow for AED decoding
-    )
-
-    # MODEL REPORTING
-    create_report_job(results=results, exp_name=training_name)
-    report = {training_name: results}
-    del results
-    tk.register_report(
-        "reports/ls_baseline_report",
-        partial(build_base_report, report),
-        required=report,
-        update_frequency=900
-    )
-
-    return report
+    return results_per_experiment
 
 
-def get_network_args_and_alias(training_alias: str, decoder_alias: str) -> tuple[str, dict[str, Any]]:
+def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     """
     Builds network arguments and alias for the model.
 
-    :param training_alias:
-    :param decoder_alias:
+    :param config:
     :return:
     """
-    # Encoder Config
-    training_config = copy.deepcopy(llm_training_configs[training_alias])  # TODO: this should be perfected
-
-    # Decoder Config
-    qwen2_decoder_config_job = Qwen2DecoderConfigJob(decoder_alias, training_config["bos_idx"],
-                                                     training_config["eos_idx"], training_config["vocab_size"],
-                                                     target_filename=f"config-{decoder_alias}-for-i6-spm.json")
+    label_config = asdict(config.labels)
+    fe_config = asdict(config.network.feature_extraction)
+    qwen2_decoder_config_job = Qwen2DecoderConfigJobV2(
+        config.network.decoder, config.labels, target_filename=f"config-{config.network.decoder.name}-for-i6-spm.json"
+    )
     decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
-    # Full Model
-    model_alias = f"LLM-{training_alias}-{decoder_alias}"
-    network_args = training_config | decoder_config  # TODO: improve, dict collisions might happen (for now only config_path)
-    return model_alias, network_args
+    network_args = label_config | fe_config | decoder_config
+    return network_args
 
 
-def create_llm_datasets_jobs(prefix_name: str, train_settings: ReturnnDatasetSettings, vocab_size: int, sampling_alpha: float) -> \
+def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, label_config: LabelConfig,
+                             partition_epoch_factor: int) -> \
         tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
+    :param partition_epoch_factor:
+    :param label_config:
+    :param dataset_config:
     :param prefix_name:
-    :param train_settings:
-    :param vocab_size:
     :return:
     """
+    train_dataset_settings = ReturnnDatasetSettings(
+        preemphasis=dataset_config.preemphasis,
+        peak_normalization=dataset_config.peak_normalization,
+        train_partition_epoch=partition_epoch_factor,
+        train_seq_ordering=dataset_config.train_seq_ordering,
+        train_additional_options=dataset_config.train_additional_options,
+    )
+
     training_datasets: TrainingDatasets = build_spm_lm_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
-        return_settings=train_settings,
-        vocab_size=vocab_size,
+        return_settings=train_dataset_settings,
+        vocab_size=label_config.vocab_size,
         returnn_root=MINI_RETURNN_ROOT,
-        alpha=sampling_alpha,
+        alpha=dataset_config.sampling_alpha,
     )
 
     dev_dataset_tuples = {}
     for testset in ["dev-clean", "dev-other"]:
         dev_dataset_tuples[testset] = build_lm_test_dataset(
             dataset_key=testset,
-            settings=train_settings,
+            settings=train_dataset_settings,
         )
 
     test_dataset_tuples = {}
     for testset in ["test-clean", "test-other"]:
         test_dataset_tuples[testset] = build_lm_test_dataset(
             dataset_key=testset,
-            settings=train_settings,
+            settings=train_dataset_settings,
         )
     return training_datasets, dev_dataset_tuples, test_dataset_tuples,

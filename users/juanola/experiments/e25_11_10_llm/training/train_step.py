@@ -15,7 +15,7 @@ from ..constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 from ..networks.interfaces.lm_decoder_model_protocol import LmDecoderModelProtocol
 
 
-def train_step(
+def train_step( # TODO: LLM
         *,
         # RETURNN PARAMS
         model: LmDecoderModelProtocol,
