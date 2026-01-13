@@ -1001,29 +1001,36 @@ def test_best_path_ctc_durations_torch_compile():
     compile_helper.setup()
     rf.select_backend_torch()
 
-    batch_dim = Dim(2, name="batch")
-    labels_dim = Dim(5, name="labels")
-    targets_spatial_dim = Dim(rf.convert_to_tensor([4, 2], dims=[batch_dim]), name="targets_spatial")
-    targets = rf.convert_to_tensor(
-        [[1, 2, 3, 3], [2, 4, 0, 0]], dims=[batch_dim, targets_spatial_dim], sparse_dim=labels_dim
-    )
-
-    time_dim = Dim(rf.convert_to_tensor([11, 7], dims=[batch_dim]), name="time")
-    logits = rf.random_normal([batch_dim, time_dim, labels_dim], stddev=2.0, feature_dim=labels_dim)
-    logits = rf.log_softmax(logits, axis=labels_dim)
-
     f = torch.compile(best_path_ctc_durations)
 
-    durations, time_ext_dim = f(
-        logits=logits,
-        input_spatial_dim=time_dim,
-        targets=targets,
-        targets_spatial_dim=targets_spatial_dim,
-        labels_with_blank_dim=labels_dim,
-        blank_index=0,
-    )
-    assert durations.dims_set == {batch_dim, time_ext_dim}, (
-        f"got {durations.dims_set}, expected {{{batch_dim}, {time_ext_dim}}}"
-    )
-    durations = durations.copy_masked(0)
-    print(durations.raw_tensor)
+    for step in range(10):
+        batch_dim = Dim(rf.random_uniform([], minval=1, maxval=5, dtype="int32"), name="batch")
+        labels_dim = Dim(5, name="labels")
+        targets_spatial_dim = Dim(
+            rf.random_uniform([batch_dim], minval=1, maxval=6, dtype="int32"), name="targets_spatial"
+        )
+        targets = rf.random_uniform(
+            [batch_dim, targets_spatial_dim],
+            minval=0,
+            maxval=labels_dim.dimension,
+            sparse_dim=labels_dim,
+            dtype="int32",
+        )
+
+        time_dim = Dim(rf.random_uniform([batch_dim], minval=3, maxval=12, dtype="int32"), name="time")
+        logits = rf.random_normal([batch_dim, time_dim, labels_dim], stddev=2.0, feature_dim=labels_dim)
+        logits = rf.log_softmax(logits, axis=labels_dim)
+
+        durations, time_ext_dim = f(
+            logits=logits,
+            input_spatial_dim=time_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            labels_with_blank_dim=labels_dim,
+            blank_index=0,
+        )
+        assert durations.dims_set == {batch_dim, time_ext_dim}, (
+            f"got {durations.dims_set}, expected {{{batch_dim}, {time_ext_dim}}}"
+        )
+        durations = durations.copy_masked(0)
+        print(durations.raw_tensor)
