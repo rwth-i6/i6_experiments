@@ -477,15 +477,22 @@ def fsa_for_ctc(
     )  # [B,ext4]->L
 
     # We want to index into the packed state indices (S), not the ext state indices (S_).
-    trans_prev_state_ext = {i: state + state_idx_offsets for i, state in trans_prev_state_ext.items()}  # [B,ext]->S
-    trans_next_state_ext = {i: state + state_idx_offsets for i, state in trans_next_state_ext.items()}  # [B,ext]->S
+    trans_prev_state_ext = {
+        i: rf.combine_bc(state, "+", state_idx_offsets) for i, state in trans_prev_state_ext.items()
+    }  # [B,ext]->S
+    trans_next_state_ext = {
+        i: rf.combine_bc(state, "+", state_idx_offsets) for i, state in trans_next_state_ext.items()
+    }  # [B,ext]->S
     for state in list(trans_prev_state_ext.values()) + list(trans_next_state_ext.values()):
         state.sparse_dim = num_states_dim
     # And also, we want to index into the merged batch_label_idx (B*L).
     batch_range = (
         rf.range_over_merged_dims(batch_dims, device=targets.device) * labels_with_blank_dim.get_dim_value_tensor()
     )
-    trans_batch_label_idx_ext = {i: batch_range + label for i, label in trans_label_idx_ext.items()}  # [B,ext]->(B*L)
+    trans_batch_label_idx_ext = {
+        i: rf.combine_bc(batch_range, "+", label) for i, label in trans_label_idx_ext.items()
+    }  # [B,ext]->(B*L)
+
     batch_label_dim = batch_range.sparse_dim * labels_with_blank_dim
     for label in trans_batch_label_idx_ext.values():
         label.sparse_dim = batch_label_dim
