@@ -985,3 +985,38 @@ def test_ctc_loss():
     )
     print(loss_ref)
     torch.testing.assert_allclose(loss.raw_tensor, loss_ref)
+
+
+def test_best_path_ctc_durations_torch_compile():
+    import torch
+    from returnn.torch.frontend import compile_helper
+
+    compile_helper.setup()
+    rf.select_backend_torch()
+
+    batch_dim = Dim(2, name="batch")
+    labels_dim = Dim(5, name="labels")
+    targets_spatial_dim = Dim(rf.convert_to_tensor([4, 2], dims=[batch_dim]), name="targets_spatial")
+    targets = rf.convert_to_tensor(
+        [[1, 2, 3, 3], [2, 4, 0, 0]], dims=[batch_dim, targets_spatial_dim], sparse_dim=labels_dim
+    )
+
+    time_dim = Dim(rf.convert_to_tensor([11, 7], dims=[batch_dim]), name="time")
+    logits = rf.random_normal([batch_dim, time_dim, labels_dim], stddev=2.0, feature_dim=labels_dim)
+    logits = rf.log_softmax(logits, axis=labels_dim)
+
+    f = torch.compile(best_path_ctc_durations)
+
+    durations, time_ext_dim = f(
+        logits=logits,
+        input_spatial_dim=time_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+        labels_with_blank_dim=labels_dim,
+        blank_index=0,
+    )
+    assert durations.dims_set == {batch_dim, time_ext_dim}, (
+        f"got {durations.dims_set}, expected {{{batch_dim}, {time_ext_dim}}}"
+    )
+    durations = durations.copy_masked(0)
+    print(durations.raw_tensor)
