@@ -12,9 +12,9 @@ from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
 from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
+from i6_experiments.users.juanola.data.multi_proc_dataset import MultiProcDataset
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .cv_segments import get_mixed_cv_segments
-from .multi_proc import MultiProcDataset
 from ..default_tools import RETURNN_ROOT, RETURNN_EXE
 
 

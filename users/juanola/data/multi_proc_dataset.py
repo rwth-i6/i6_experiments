@@ -14,12 +14,12 @@ class MultiProcDataset(Dataset):
     """
 
     def __init__(
-        self,
-        *,
-        dataset: Dataset,
-        buffer_size: int,
-        num_workers: int,
-        additional_options: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            dataset: Dataset,
+            buffer_size: int,
+            num_workers: int,
+            additional_options: Optional[Dict[str, Any]] = None,
     ):
         """
 
