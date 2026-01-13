@@ -1,10 +1,11 @@
-from typing import Dict
+from i6_core.report.report import _Report_Type
 
-from i6_core.report.report import GenerateReportStringJob, _Report_Type
-from i6_core.util import instanciate_delayed
 
-def baseline_report_format(report: _Report_Type) -> str:
+def experiment_report_template_v0(report: _Report_Type) -> str:
     """
+    Formater method to generate a report for the results of a single experiment
+
+    old text:
     Example report format for the baseline , extra ls can be set in order to filter out certain results
     :param report:
     :return:
@@ -41,29 +42,3 @@ def baseline_report_format(report: _Report_Type) -> str:
     out = best_ls + out
     out.insert(0, ("Best Results", ""))
     return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
-
-
-def create_report_job(results, exp_name: str, report_template=baseline_report_format) -> None:
-    report_job = GenerateReportStringJob(report_values=results, report_template=report_template)
-    report_job.add_alias(f"report/report/{exp_name}")
-
-
-def build_base_report(report: Dict):
-    best_dc = {}
-    for exp, dic in report.items():
-        instanciate_delayed(dic)
-        new_dic = {k: v for k, v in dic.items() if "other" in k}
-        if all(new_dic.values()):
-            best = min(new_dic, key=new_dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(new_dic[best])), best)
-            if "/".join(best.split("/")[:-2]) + "/test-other" in dic:
-                best_dc["/".join(best.split("/")[:-2]) + "/test-other"] = (
-                    "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test-other"])),
-                    best,
-                )
-        else:
-            best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
-    line = []
-    for exp, value in best_dc.items():
-        line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    return "\n".join(line)

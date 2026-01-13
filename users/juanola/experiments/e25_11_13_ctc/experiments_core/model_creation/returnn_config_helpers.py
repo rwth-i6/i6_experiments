@@ -16,7 +16,7 @@ from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 
 def get_training_config(
         training_datasets: TrainingDatasets,
-        network_module: str,
+        network_import_path: str,
         train_step_module: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
@@ -31,7 +31,7 @@ def get_training_config(
     Get a generic config for training a model
 
     :param training_datasets: datasets for training
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param train_step_module: ????? path to the pytorch config file containing TrainingStep
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
@@ -61,11 +61,11 @@ def get_training_config(
         "backend": "torch",
 
         # For better debugging
-        "torch_log_memory_usage": True,
+        "torch_log_memory_usage": True,  # GPU
         "log_batch_size": True,
         "use_tensorboard": True,
         "log_grad_norm": True,
-        "watch_memory": True,
+        "watch_memory": True,  # RAM
     }
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 
@@ -88,7 +88,7 @@ def get_training_config(
         },
     }
     serializer = serialize_training(
-        network_module=network_module,
+        network_import_path=network_import_path,
         train_step_module=train_step_module,
         net_args=net_args,
         train_args=train_args,
@@ -106,25 +106,28 @@ def get_training_config(
 
 def get_prior_config(
         training_datasets: TrainingDatasets,  # TODO: replace by single dataset
-        network_module: str,
+        network_import_path: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         debug: bool = False,
+        batch_size: int = 16_000,
 ):
     """
     Get a generic config for extracting output label priors
 
     :param training_datasets: datasets for training
-    :param network_module: path to the pytorch config file containing Model
+    :param network_import_path: path to the pytorch config file containing Model
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
+
     # RC - CONFIG
+    prior_batch_size_factor = 500 # TODO: fix this
     base_config = {
-        "batch_size": 500 * 16000,
+        "batch_size": prior_batch_size_factor * batch_size,
         "max_seqs": 240,
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
@@ -137,49 +140,51 @@ def get_prior_config(
         "forward_auto_split_batch_on_oom": True,
     }
 
+    forward_step_params = {#TODO: remove
+        "beam_size": 12, #TODO: fix this!
+        "max_tokens_per_sec": 20,
+        "sample_rate": 16_000,
+    }
+
     # RC - PYTHON EPILOG
     serializer = serialize_forward(  # TODO: fix this! 2 more params are needed
-        network_module=network_module,
+        network_import_path=network_import_path,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
-        forward_module=None,  # same as network
-        forward_step_name="prior",
+        forward_step_name="prior_step",
         debug=debug,
+        forward_args=forward_step_params,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
 
 
 def get_forward_config(
-        network_module: str,
+        network_import_path: str,
         config: Dict[str, Any],
         net_args: Dict[str, Any],
-        decoder: str,
-        decoder_args: Dict[str, Any],
+        forward_module: str,
         vocab_opts: Dict,
-        unhashed_decoder_args: Optional[Dict[str, Any]] = None,
+        forward_method: Optional[str] = None,
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         debug: bool = False,
+        forward_args: Dict[str, Any] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
 
-    :param network_module: path to the pytorch config file containing Model
+    :param forward_method:
+    :param forward_module:
+    :param forward_args:
+    :param network_import_path: path to the pytorch config file containing Model
     :param config: config arguments for RETURNN
     :param net_args: extra arguments for constructing the PyTorch model
-    :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
-    :param decoder_args: extra arguments to pass to forward_init
     :param vocab_opts: ????? vocab options
-    :param unhashed_decoder_args: unhashed extra arguments for the forward init
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
     # RC - CONFIG
-    base_config = {
-        "batch_size": 15_000 * 160,
-        "max_seqs": 200,
-    }
-    config = {**base_config, **copy.deepcopy(config)}
+    config = copy.deepcopy(config)
 
     # RC - POST CONFIG
     post_config = {
@@ -192,14 +197,16 @@ def get_forward_config(
         DATA_PARAM_NAME: {"dim": 1},
     }
     serializer = serialize_forward(
-        network_module=network_module,
+        network_import_path=network_import_path,
+        forward_method=forward_method,
         net_args=net_args,
         extern_data=extern_data,
         vocab_opts=vocab_opts,
 
         unhashed_net_args=unhashed_net_args,
-        forward_module=decoder,
+        forward_module=forward_module,
         debug=debug,
+        forward_args=forward_args,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

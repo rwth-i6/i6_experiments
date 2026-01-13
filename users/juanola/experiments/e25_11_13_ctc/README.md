@@ -1,4 +1,4 @@
-# DEMO2 Notes
+# ... Notes
 
 Author: Martí Juanola
 

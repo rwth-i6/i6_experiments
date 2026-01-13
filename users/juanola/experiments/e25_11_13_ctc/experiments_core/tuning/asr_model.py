@@ -13,6 +13,6 @@ class ASRModel:
     """
     checkpoint: PtCheckpoint
     net_args: Dict[str, Any]
-    network_module: str
+    network_import_path: str
     prior_file: Optional[tk.Path]
     prefix_name: Optional[str]

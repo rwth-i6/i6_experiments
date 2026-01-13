@@ -22,10 +22,6 @@ def train_step(
 
         # TRAIN_STEP PARAMS
         aux_loss_scales: Sequence[float],
-        aed_loss_scale: float,
-        label_smoothing: float,
-        label_smoothing_start_epoch: int,
-        num_eos_symbols: int = 1, #only defined here
 
         **_kwargs,
 ):
@@ -34,10 +30,8 @@ def train_step(
     """
     ctx: RunCtx = rf.get_run_ctx()
 
-    assert aed_loss_scale > 0 or (
-            len(aux_loss_scales) > 0 and any(scale > 0 for scale in aux_loss_scales)
-    ), "must use at least AED or CTC aux loss"
-    assert num_eos_symbols >= 1
+    assert len(aux_loss_scales) > 0 and any(scale > 0 for scale in aux_loss_scales), "must use at least one CTC aux loss"
+
 
     data_: ReturnnTensor = extern_data[DATA_PARAM_NAME]
     data: Tensor = data_.raw_tensor
