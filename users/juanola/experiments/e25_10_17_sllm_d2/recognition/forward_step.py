@@ -141,11 +141,6 @@ def forward_step_ctc_decoding(
     assert beam_size > 0
 
     data_: ReturnnTensor = extern_data["data"]
-
-    # From robins' should not be needed i think
-    # if data_.feature_dim and data_.feature_dim.dimension == 1:
-    #    data_ = rf.squeeze(data_, axis=data_.feature_dim)
-
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
@@ -191,7 +186,6 @@ def forward_step_greedy_ctc(
     greedy_log_prob = torch.gather(ctc_log_prob, dim=-1, index=greedy_ids.unsqueeze(-1)).squeeze(-1)  # [B, T]
     tokens_list, seq_log_prob = _ctc_greedy_collapse(greedy_ids, greedy_log_prob, encoder_lens, model.blank_idx)
 
-    # TODO: from here it could be improved
     max_len = max(len(t) for t in tokens_list)
     seq_targets = torch.full(
         (len(tokens_list), max_len),
@@ -199,16 +193,13 @@ def forward_step_greedy_ctc(
         device=ctc_log_prob.device,
         dtype=torch.long,
     )  # [B, T']
-
     for b, t in enumerate(tokens_list):
         seq_targets[b, : len(t)] = t
 
-    out_seq_len = torch.tensor(
-        [len(t) for t in tokens_list],
+    out_seq_len = torch.tensor([len(t) for t in tokens_list],
         device=seq_targets.device,
         dtype=torch.int32,
     )
-    # TODO: to here
 
     # Add beam dimension (beam_size=1 for greedy)
     seq_targets = seq_targets.unsqueeze(1)  # [B, 1, T']
@@ -226,7 +217,7 @@ def forward_step_greedy_ctc(
     ctx.mark_as_output(seq_log_prob, "scores", dims=[batch_dim, beam_dim])
 
 
-def _ctc_greedy_collapse(ids, logp, lens, blank_id):  # TODO: improve
+def _ctc_greedy_collapse(ids, logp, lens, blank_id):
     """
     ids:   [B, T]
     logp:  [B, T]

@@ -27,11 +27,9 @@ class SearchConfig:
     avg_best_loss_name: str
     max_seqs: int
 
-    # WIP
     prior: PriorConfig
 
     beam_search: BeamSearchConfig
-    # ctc scores?
     lm_scales: list[float]
     prior_scales: list[float]
     ctc_scales: list[float]
@@ -62,8 +60,16 @@ _LM_PRIOR_SCALES = dict(
 Specific configurations set below.
 """
 
+"""
+V1
+"""
+
 
 def search_baseline() -> SearchConfig:
+    """
+    V2 should be used!
+    :return:
+    """
     return SearchConfig(
         batch_size=15_000,
         batch_size_factor=160,
@@ -79,16 +85,6 @@ def search_baseline() -> SearchConfig:
     )
 
 
-def search_baseline_v2() -> SearchConfig:
-    return dataclasses.replace(search_baseline(), forward_method="forward_step_v2")
-
-def search_baseline_ctc_decoding() -> SearchConfig:
-    return dataclasses.replace(search_baseline(),
-                               forward_method="forward_step_ctc_decoding",
-                               ctc_scales=[1.0],
-                               lm_scales=[0.0, 1.0])
-
-
 def search_baseline_with_ctc_gd() -> SearchConfig:
     return dataclasses.replace(search_baseline(), run_ctc_greedy_decoding_last_epoch=True)
 
@@ -99,6 +95,53 @@ def greedy_search() -> SearchConfig:
 
 def greedy_search_v2() -> SearchConfig:
     return dataclasses.replace(search_baseline(), batch_size=13_000, beam_search=greedy())
+
+"""
+V2
+"""
+
+
+def search_baseline_v2() -> SearchConfig:
+    return SearchConfig(
+        forward_method="forward_step_v2",
+        batch_size=15_000,
+        batch_size_factor=160,
+        use_gpu=True,
+        gpu_memory=11,
+        beam_search=beam_search_baseline(),
+        prior=prior_v1(),
+        lm_scales=[0.0],
+        prior_scales=[0.0],
+        ctc_scales=[0.0],
+        avg_best_loss_name="dev_loss_ce",
+        max_seqs=200,
+    )
+
+
+"""
+ctc decoding
+"""
+
+
+def search_baseline_ctc_decoding_11gb() -> SearchConfig:
+    return SearchConfig(
+        forward_method="forward_step_ctc_decoding",
+        batch_size=5_000,
+        batch_size_factor=160,
+        use_gpu=True,
+        gpu_memory=11,  # TODO: perhaps increase this
+        beam_search=beam_search_baseline(),
+        prior=prior_v1(),
+        avg_best_loss_name="dev_loss_ce",
+        max_seqs=200,
+        lm_scales=[1.0],
+        ctc_scales=[1.0],
+        prior_scales=[0.0],
+    )
+
+
+def search_baseline_ctc_decoding_24gb() -> SearchConfig:
+    return dataclasses.replace(search_baseline(), batch_size=10_000, gpu_memory=24)
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

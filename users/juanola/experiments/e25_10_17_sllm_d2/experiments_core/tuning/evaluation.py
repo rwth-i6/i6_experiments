@@ -240,7 +240,6 @@ def tune_and_evaluate_model(
                         "max_tokens_per_sec": 20,  # TODO: store somewhere
                         "sample_rate": 16_000,  # TODO: get from feature extraction
                     }
-                    #search_name = f"{evaluation_name}/search_lm{lm_scale:.1f}_prior{prior_scale:.1f}" # OLD if hash breaks
                     search_name = f"{evaluation_name}/v1_beam{search_config.beam_search.beam_size}"
                 elif forward_method == "forward_step_v2":
                     forward_args = {

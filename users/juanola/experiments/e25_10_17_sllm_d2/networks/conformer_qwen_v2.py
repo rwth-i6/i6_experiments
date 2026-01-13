@@ -9,11 +9,8 @@ from torch import Tensor
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .conformer_qwen_v1 import Model, separate_batch_and_beam, combine_batch_and_beam
+from .conformer_qwen_v1 import Model, separate_batch_and_beam
 from .qwen2_decoder_state import Qwen2DecoderState
-
-
-# from transformers import Qwen2Config, Qwen2ForCausalLM
 
 class SllmV2(Model):
     """
@@ -47,7 +44,7 @@ class SllmV2(Model):
         else:  # Others
             assert tree.is_nested(past_key_values)  # e.g., transformers.cache_utils.DynamicCache, isn't supported by tree.
             past_key_values = tree.map_structure(
-                partial(combine_batch_and_beam, batch_size=B, beam_size=beam),
+                partial(combine_batch_and_beam_v2, batch_size=B, beam_size=beam),
                 past_key_values,
             )  # [B*b,T+l,F]
 
@@ -73,3 +70,12 @@ class SllmV2(Model):
         }
 
         return qwen_output.logits.view(B, beam, 1, -1), new_state
+
+def combine_batch_and_beam_v2(state, *, batch_size: int, beam_size: int):
+    if not isinstance(state, Tensor):
+        return state
+
+    if state.size(1) == 1:  # first step, expand to beam.
+        state = state.expand(batch_size, beam_size, *state.shape[2:])
+
+    return state.reshape(batch_size * beam_size, *state.shape[2:])

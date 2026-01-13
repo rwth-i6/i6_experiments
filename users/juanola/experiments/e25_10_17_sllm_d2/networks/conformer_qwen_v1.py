@@ -35,8 +35,6 @@ from .interfaces.aed_ctc_model_protocol import AedCtcModelProtocol
 from .interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 from .qwen2_decoder_state import Qwen2DecoderState
 
-
-# from transformers import Qwen2Config, Qwen2ForCausalLM
 from .qwen_decoder.configuration_qwen2_with_dropout import Qwen2Config
 from .qwen_decoder.modeling_qwen2_with_dropout import Qwen2ForCausalLM
 

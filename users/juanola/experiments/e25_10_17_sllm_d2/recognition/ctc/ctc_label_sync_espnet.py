@@ -84,7 +84,6 @@ def ctc_label_sync_search_v1(
                 ctc_top_k_with_random_sampling_opts[k] = rf.convert_to_tensor(v, device=data.device)
 
     # BASE INITS
-    batch_dims = [batch_dim]
     ctc_beam_size = beam_size
     neg_inf = float("-inf")
 
@@ -96,6 +95,7 @@ def ctc_label_sync_search_v1(
     )
     ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1)
 
+    batch_dims: Dim = [batch_dim]
     enc_spatial_dim = Dim(rf.convert_to_tensor(encoder_lens, dims=[batch_dim]), name="enc_spatial_dim")
     target_dim = Dim(model.num_labels, name="target_dim")
     wb_target_dim = Dim(model.num_labels + 1, name="wb_target_dim")  # Using num_labels + 1...
@@ -215,6 +215,7 @@ def ctc_label_sync_search_v1(
 
         if lm_scale > 0:  # Added to avoid calling decoder if using the forward pass as a CTC greedy recognition
             targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
+
             lm_logits_raw, lm_state_raw = model.step_decoder(targets_lm_raw.unsqueeze(-1), lm_state_raw)
             lm_logits_raw = lm_logits_raw.squeeze(-2)  # squeeze singleton time dim
             lm_logits = rf.convert_to_tensor(lm_logits_raw, dims=batch_dims + [ctc_beam_dim, target_dim])

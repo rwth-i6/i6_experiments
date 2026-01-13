@@ -3,7 +3,7 @@ from enum import Enum
 from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, exp_v4, exp_v5, exp_v6, exp_v7, exp_v8_1, \
     exp_v8_2, \
     exp_v9, exp_v10, exp_v10_2, exp_v11, exp_v12, exp_v3_2, exp_v13, exp_v2_s2, exp_v8_3, exp_v8_4, exp_v7_150, \
-    exp_v7_200, t_v1, t_v1_2, exp_v7_with_ctc_gd, exp_v10_3, n2_test
+    exp_v7_200, t_v1, t_v1_2, exp_v7_with_ctc_gd, exp_v10_3, n2_test, n2_test_sv2
 
 
 class ExperimentVersion(Enum):
@@ -43,6 +43,7 @@ class ExperimentVersion(Enum):
     T1_CTC_GREEDY_DECODING = "test1-ctc-greedy-decoding"
     T1_2_CTC_GREEDY_DECODING = "test1-ctc-greedy-decoding_10kBS"
     N2_TEST = "n2_test"
+    N2_TEST_SV2 = "n2_test_sv2"
 
 
 _EXPERIMENT_BUILDERS = {
@@ -79,6 +80,7 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.T1_CTC_GREEDY_DECODING: t_v1,
     ExperimentVersion.T1_2_CTC_GREEDY_DECODING: t_v1_2,
     ExperimentVersion.N2_TEST: n2_test,
+    ExperimentVersion.N2_TEST_SV2: n2_test_sv2,
 }
 
 
