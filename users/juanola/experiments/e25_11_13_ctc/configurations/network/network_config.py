@@ -1,24 +1,8 @@
 from dataclasses import dataclass
 
-from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.network.adapter_config import (
-    AdapterConfig,
-    linear_adapter_with_downsampling,
-)
-from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.network.decoder_config import (
-    DecoderConfig,
-    decoder_baseline,
-)
-from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.network.encoder_config import (
-    EncoderConfig,
-    encoder_baseline,
-)
-from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.network.feature_extraction_config import (
-    FeatureExtractionConfig,
-    feature_extraction_baseline,
-)
-from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.protocols.has_name_protocol import (
-    HasNameProtocol,
-)
+from .encoder_config import EncoderConfig, encoder_baseline
+from .feature_extraction_config import FeatureExtractionConfig, feature_extraction_baseline
+from ..protocols.has_name_protocol import HasNameProtocol
 
 
 @dataclass(frozen=True)
