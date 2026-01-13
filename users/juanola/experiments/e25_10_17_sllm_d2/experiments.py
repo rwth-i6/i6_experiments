@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple, Optional
 from returnn_common.datasets import Dataset
 from sisyphus import tk
 from .configurations.data.dataset_config import DatasetConfig
+from .configurations.data.label_config import LabelConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
 from .configurations.pipeline import search_config
@@ -73,7 +74,7 @@ def sllm_ep(
 
         # INITIALIZE DATASET
         training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(
-            experiment_path, exp_config.dataset, partition_epoch_factor, exp_config.labels.vocab_size
+            experiment_path, exp_config.dataset, exp_config.labels, partition_epoch_factor,
         )
 
         # NETWORK
@@ -178,8 +179,8 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
 def create_datasets_jobs(
     prefix_name: str,
     dataset_config: DatasetConfig,
+    label_config: LabelConfig,
     partition_epoch_factor: int,
-    vocab_size: int,
 ) -> tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
@@ -201,7 +202,7 @@ def create_datasets_jobs(
         prefix=prefix_name,
         librispeech_key="train-other-960",
         return_settings=train_dataset_settings,
-        vocab_size=vocab_size,
+        vocab_size=label_config.vocab_size,
         returnn_root=MINI_RETURNN_ROOT,  # to import ogg zip job from Nick
         alpha=dataset_config.sampling_alpha,
     )
