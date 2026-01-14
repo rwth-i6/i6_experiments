@@ -2,48 +2,43 @@
 The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
 import copy
-from functools import lru_cache
-from typing import List, Optional, Tuple, Union
+from typing import Tuple, List
 
-from sisyphus import tk
+from sisyphus import tk, Job
 
+from i6_core.text import TakeNRandomLinesJob, SplitTextFileJob, ConcatenateJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
-from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-from i6_experiments.users.juanola.data.cross_validation import get_mixed_cv_segments
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.data.lm_dataset import LmDataset
-from i6_experiments.users.juanola.data.multi_proc_dataset import MultiProcDataset
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
-
+from i6_experiments.users.juanola.sisyphus_jobs.text.ShuffleJob import ShuffleJob
+from i6_experiments.users.juanola.sisyphus_jobs.text.TwoWaySplitJob import TowWaySplitJob
 from ...default_tools import RETURNN_ROOT, RETURNN_EXE
 
 
-@lru_cache()
-def get_audio_raw_datastream(
-        preemphasis: Optional[float] = None, peak_normalization: bool = False
-) -> AudioRawDatastream:
+def get_random_subset(train_text_file: tk.Path, n_lines: int = 3000) -> tk.Path:
     """
-    Return the datastream for raw-audio input settings for RETURNN
-
-    :param preemphasis: set the pre-emphasis filter factor
-    :param peak_normalization: normalize every utterance to peak amplitude 1
+    because handling textual data we can get n random lines and this should be enough
+    :param train_text_file:
+    :param n_lines:
+    :return:
     """
-    return AudioRawDatastream(
-        available_for_inference=True,
-        options=ReturnnAudioRawOptions(peak_normalization=peak_normalization, preemphasis=preemphasis),
-    )
+    n_random_lines_job = TakeNRandomLinesJob(text_file=train_text_file, num_lines=n_lines)
+    return n_random_lines_job.out
 
 
-def make_dataset_multi_proc(dataset: Dataset):
-    return MultiProcDataset(dataset=dataset, buffer_size=10, num_workers=4)
+def split_train_test(text_file: tk.Path, cv_lines: int = 3000) -> tuple[tk.Path, tk.Path]:
+    shuffle_job = ShuffleJob(text_file=text_file)
+    split_job = TowWaySplitJob(text_file=shuffle_job.out, a_file_n_lines=cv_lines)
+    cv_split = split_job.out_a
+    train_split = split_job.out_b
+    return train_split, cv_split
 
 
 def build_lm_training_datasets(
-        train_ogg: Union[tk.Path, List[tk.Path]],
-        dev_clean_ogg: tk.Path,
-        dev_other_ogg: tk.Path,
+        text_file: tk.Path,
         label_datastream: LabelDatastream,
         returnn_settings: ReturnnDatasetSettings,
         alpha: float,
@@ -51,57 +46,52 @@ def build_lm_training_datasets(
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
 
-    :param train_ogg: path to the train zip, potentially containing altered transcriptions
-    :param dev_clean_ogg: path to the ls dev-clean zip, potentially containing altered transcriptions
-    :param dev_other_ogg: path to the ls dev-other zip, potentially containing altered transcriptions
+    :param train_file: path to the train zip, potentially containing altered transcriptions
+    :param dev_clean_file: path to the ls dev-clean zip, potentially containing altered transcriptions
+    :param dev_other_file: path to the ls dev-other zip, potentially containing altered transcriptions
     :param label_datastream: label datastream (e.g. phoneme or bpe related)
     :param returnn_settings: settings object for the RETURNN data pipeline
     """
-    audio_datastream = get_audio_raw_datastream(returnn_settings.preemphasis, returnn_settings.peak_normalization)
-
-    datastreams = {
-        "raw_audio": audio_datastream,
-        "labels": label_datastream,
-    }
-
+    # Vocab settings
     vocab_settings = label_datastream.as_returnn_targets_opts()
     vocab_settings.pop("add_eos",
                        None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
-
     training_vocab_settings = copy.deepcopy(vocab_settings)
-    training_vocab_settings.update({"alpha": alpha, "enable_sampling": True} if alpha is not None else {})
+    training_vocab_settings.update(
+        {"alpha": alpha, "enable_sampling": True} if alpha is not None else {})  # TODO: needed?
 
-    lm_train_dataset = LmDataset(
-        corpus_file=train_ogg,
+    # Data splits
+    train_text_file, cv_text_file = split_train_test(text_file, cv_lines=3000)
+    devtrain_text_file = get_random_subset(train_text_file, n_lines=3000)
+
+    train_dataset = LmDataset(
+        corpus_file=train_text_file,
         vocab_settings=training_vocab_settings,
-        partition_epoch=returnn_settings.train_partition_epoch,
         seq_ordering=returnn_settings.train_seq_ordering,
-        additional_options=returnn_settings.train_additional_options,
-    )
-    train_dataset = lm_train_dataset #make_dataset_multi_proc(lm_train_dataset) # MultiProcDataset does not work with LMDataset in returnn (hyp Robin)
 
-    cv_zip_dataset = LmDataset(
-        corpus_file=[dev_clean_ogg, dev_other_ogg],
-        vocab_settings=vocab_settings,
-        segment_file=get_mixed_cv_segments(),
-        seq_ordering="sorted_reverse",
+        partition_epoch=returnn_settings.train_partition_epoch,  # TODO: needed ??
+        additional_options=returnn_settings.train_additional_options,  # TODO: needed ??
     )
-    cv_dataset = cv_zip_dataset #make_dataset_multi_proc(cv_zip_dataset) # MultiProcDataset does not work with LMDataset in returnn (hyp Robin)
+    cv_dataset = LmDataset(
+        corpus_file=cv_text_file,
+        vocab_settings=vocab_settings,
+        seq_ordering="sorted_reverse",  # TODO: needed ??
+    )
+    devtrain_dataset = LmDataset(
+        corpus_file=devtrain_text_file,
+        vocab_settings=vocab_settings,
+        seq_ordering="sorted_reverse",  # TODO: needed ??
+    )
 
-    devtrain_zip_dataset = LmDataset(
-        corpus_file=train_ogg,
-        vocab_settings=vocab_settings,
-        seq_ordering="sorted_reverse",
-        random_subset=3000, # TODO: does not work with LMDataset in returnn
-    )
-    devtrain_dataset = devtrain_zip_dataset #make_dataset_multi_proc(devtrain_zip_dataset) # MultiProcDataset does not work with LMDataset in returnn (hyp Robin)
+    datastreams = {"labels": label_datastream}
 
     return TrainingDatasets(
         train=train_dataset,
         cv=cv_dataset,
-        devtrain=cv_dataset, # TODO: fix from rossenbach #devtrain_dataset,
+        devtrain=devtrain_dataset,
         datastreams=datastreams,
     )
+
 
 
 def build_lm_test_dataset(
@@ -115,17 +105,15 @@ def build_lm_test_dataset(
     :param settings: settings object for the RETURNN data pipeline
     :return: tuple of the test dataset and a path to the corresponding bliss corpus file
     """
+    # TODO: do we need recognition?!
+    # TODO: not addapted!
     ogg_zip_dict = get_ogg_zip_dict("corpora", returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
     bliss_dict = get_bliss_corpus_dict()
     test_ogg = ogg_zip_dict[dataset_key]
 
-    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
-
     test_zip_dataset = OggZipDataset(
         files=[test_ogg],
-        audio_options=audio_datastream.as_returnn_audio_opts(),
         seq_ordering="sorted_reverse"
     )
-    test_dataset = make_dataset_multi_proc(test_zip_dataset)
 
-    return test_dataset, bliss_dict[dataset_key]
+    return test_zip_dataset, bliss_dict[dataset_key]

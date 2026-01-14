@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .data.dataset_config import DatasetConfig, dataset_baseline
+from .data.dataset_config import DatasetConfig, dataset_baseline_train_corpus_text
 from .data.label_config import LabelConfig, label_baseline
 from .network.network_config import NetworkConfig, network_baseline
 from .pipeline.search_config import SearchConfig, search_baseline_v2
@@ -32,7 +32,7 @@ Specific configurations set below.
 
 def exp_baseline() -> ExperimentConfig:
     return ExperimentConfig(
-        dataset=dataset_baseline(),
+        dataset=dataset_baseline_train_corpus_text(),
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline(),
@@ -41,7 +41,7 @@ def exp_baseline() -> ExperimentConfig:
 
 def exp_baseline_test() -> ExperimentConfig:
     return ExperimentConfig(
-        dataset=dataset_baseline(),
+        dataset=dataset_baseline_train_corpus_text(),
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline_test(),

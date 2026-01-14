@@ -1,9 +1,7 @@
 from typing import Any, Dict, Optional
 
 from sisyphus import tk
-from sisyphus.delayed_ops import DelayedFormat
 
-from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn.datasets import ControlDataset
 
 

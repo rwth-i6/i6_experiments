@@ -76,7 +76,7 @@ def llm_ep(
 
         # NETWORK
         model_alias = exp_config.network.name
-        network_args = get_network_args(exp_config)  # TODO: LLM - maybe this fails because encoder params are needed
+        network_args = get_network_args(exp_config)
 
         network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
         network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
@@ -203,6 +203,8 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         vocab_size=label_config.vocab_size,
         returnn_root=MINI_RETURNN_ROOT,
         alpha=dataset_config.sampling_alpha,
+        use_train_corpus_text=dataset_config.use_train_corpus_text,
+        use_normalized_lm_data=dataset_config.use_normalized_lm_data,
     )
 
     dev_dataset_tuples = {}

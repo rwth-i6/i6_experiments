@@ -1,6 +1,8 @@
 from i6_experiments.users.juanola.experiments.e25_11_10_llm import experiments as ex4
 from i6_experiments.users.juanola.experiments.e25_11_10_llm.configurations.experiment_version import \
     LLMExperimentVersion
+from i6_experiments.users.juanola.experiments.e25_11_10_llm import tests as t4
+
 
 
 def main():
@@ -33,5 +35,13 @@ def e4d():
 """
 Tests entry points
 """
+
+
+def shuffle_job():
+    t4.shuffle_file_test()
+
+def split_job():
+    t4.two_way_split_file_test()
+
 
 __all__ = ["main", "e4"]
