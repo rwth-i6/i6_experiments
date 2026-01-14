@@ -27,7 +27,7 @@ DEBUGS
 
 
 def e4d():
-    ex4.llm_ep([LLMExperimentVersion.V1_BASELINE], debug=True)
+    ex4.llm_ep([LLMExperimentVersion.V1_BASELINE_TEST], debug=True)
 
 
 """

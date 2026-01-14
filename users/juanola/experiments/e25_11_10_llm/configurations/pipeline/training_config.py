@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
@@ -53,7 +54,7 @@ class TrainingConfig:
 
             if self.gpu_memory == 11:
                 assert (
-                    self.torch_amp != TorchAmpTypes.BFLOAT16.value
+                        self.torch_amp != TorchAmpTypes.BFLOAT16.value
                 ), "torch_amp with 11Gb nodes should not be bfloat16."
 
 
@@ -77,5 +78,13 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
         random_seed=seed,
     )
 
+
+def training_baseline_test(seed: Optional[int] = None) -> TrainingConfig:
+    return dataclasses.replace(training_baseline(seed=seed),
+                               epochs=1,
+                               batch_size=5_000,
+                               gpu_memory=11,
+                               use_torch_amp=False,
+                               use_grad_scaler=False,)
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

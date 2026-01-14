@@ -4,7 +4,7 @@ from .data.dataset_config import DatasetConfig, dataset_baseline
 from .data.label_config import LabelConfig, label_baseline
 from .network.network_config import NetworkConfig, network_baseline
 from .pipeline.search_config import SearchConfig, search_baseline_v2
-from .pipeline.training_config import TrainingConfig, training_baseline
+from .pipeline.training_config import TrainingConfig, training_baseline, training_baseline_test
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,15 @@ def exp_baseline() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline(),
+        search=search_baseline_v2(),
+    )
+
+def exp_baseline_test() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline(),
+        labels=label_baseline(),
+        network=network_baseline(),
+        training=training_baseline_test(),
         search=search_baseline_v2(),
     )
 

@@ -66,7 +66,8 @@ def llm_ep(
         # DEBUGGING CHANGES
         if debug:  # TODO: this should modify the experiment object!
             # TRAINING_BATCH_SIZE = 6_000
-            partition_epochs = 1
+            # partition_epochs = 1
+            pass
 
         # INITIALIZE DATASET
         training_datasets, dev_dataset_tuples, test_dataset_tuples = create_llm_datasets_jobs(
@@ -162,12 +163,18 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     """
     label_config = asdict(config.labels)
     fe_config = asdict(config.network.feature_extraction)
+    unused_but_not_optional_encoder_config = { # TODO: better fix in model, considering cases without encoder...
+        "encoder_dim" : 512,
+        "num_heads" : 8,
+        "num_enc_layers" : 12,
+        "aux_loss_layers" : (4, 8),
+    }
     qwen2_decoder_config_job = Qwen2DecoderConfigJobV2(
         config.network.decoder, config.labels, target_filename=f"config-{config.network.decoder.name}-for-i6-spm.json"
     )
     decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
-    network_args = label_config | fe_config | decoder_config
+    network_args = label_config | fe_config | decoder_config | unused_but_not_optional_encoder_config
     return network_args
 
 
@@ -187,7 +194,6 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         peak_normalization=dataset_config.peak_normalization,
         train_partition_epoch=partition_epoch_factor,
         train_seq_ordering=dataset_config.train_seq_ordering,
-        train_additional_options=dataset_config.train_additional_options,
     )
 
     training_datasets: TrainingDatasets = build_spm_lm_training_datasets(
@@ -200,16 +206,16 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
     )
 
     dev_dataset_tuples = {}
-    for testset in ["dev-clean", "dev-other"]:
-        dev_dataset_tuples[testset] = build_lm_test_dataset(
-            dataset_key=testset,
+    for dev_set in ["dev-clean", "dev-other"]:
+        dev_dataset_tuples[dev_set] = build_lm_test_dataset(
+            dataset_key=dev_set,
             settings=train_dataset_settings,
         )
 
     test_dataset_tuples = {}
-    for testset in ["test-clean", "test-other"]:
-        test_dataset_tuples[testset] = build_lm_test_dataset(
-            dataset_key=testset,
+    for test_set in ["test-clean", "test-other"]:
+        test_dataset_tuples[test_set] = build_lm_test_dataset(
+            dataset_key=test_set,
             settings=train_dataset_settings,
         )
     return training_datasets, dev_dataset_tuples, test_dataset_tuples,
