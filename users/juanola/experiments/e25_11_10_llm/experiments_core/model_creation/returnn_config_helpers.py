@@ -8,6 +8,7 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_serializer import serialize_training, serialize_forward
+from ..data.librispeech_lm_utils import get_extern_data_data
 from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 
 
@@ -76,15 +77,15 @@ def get_training_config(
     #    config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
 
     # RC - PYTHON EPILOG
-    extern_data = {
-        DATA_PARAM_NAME: {"dim": 1},
-        CLASSES_PARAM_NAME: {
-            "dim": training_datasets.datastreams["labels"].vocab_size,
-            "sparse": True,
-            # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
-            # strings. we don't want this to affect the original dictionary object
-            "vocab": copy.deepcopy(training_datasets.train.target_options),
-        },
+    extern_data = {# TODO: all should be encapsulated, not only data
+        DATA_PARAM_NAME: get_extern_data_data(), # TODO: testing
+        # CLASSES_PARAM_NAME: { # TODO: testing! don't know if needed...
+        #     "dim": training_datasets.datastreams["labels"].vocab_size,
+        #     "sparse": True,
+        #     # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
+        #     # strings. we don't want this to affect the original dictionary object
+        #     "vocab": copy.deepcopy(training_datasets.train.target_options),
+        # },
     }
     serializer = serialize_training(
         network_import_path=network_import_path,

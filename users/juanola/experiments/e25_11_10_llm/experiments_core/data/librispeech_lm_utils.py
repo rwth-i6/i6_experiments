@@ -1,7 +1,7 @@
 import os
 from functools import cache
 from functools import lru_cache
-from typing import Dict, Union
+from typing import Dict, Union, Any
 
 from sisyphus import tk
 
@@ -160,3 +160,22 @@ def get_librispeech_spm_datastream(vocab_size: int,
         spm_model=spm_model.model_file,
         vocab_size=vocab_size,
     )
+
+def get_extern_data_data() -> Dict[str, Dict[str, Any]]:
+    """
+    Get extern data
+    """
+    from returnn.tensor import Dim, batch_dim
+
+    out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+    #classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+
+    return  {
+            "dim": 10240,     # vocab size
+            "sparse": True,
+
+            #"dim_tags": [batch_dim, out_spatial_dim],
+            #"sparse": True,
+            #"sparse_dim": classes_dim,
+            #"vocab": self.vocab.get_opts(),
+        }

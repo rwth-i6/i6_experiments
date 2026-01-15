@@ -72,7 +72,7 @@ def build_lm_training_datasets(
         partition_epoch=returnn_settings.train_partition_epoch,  # TODO: needed ??
         additional_options=returnn_settings.train_additional_options,  # TODO: needed ??
     )
-    cv_dataset = LmDataset(
+    cv_dataset = LmDataset( # TODO: Robin uses cv from text from dev other and clean...??
         corpus_file=cv_text_file,
         vocab_settings=vocab_settings,
         seq_ordering="sorted_reverse",  # TODO: needed ??

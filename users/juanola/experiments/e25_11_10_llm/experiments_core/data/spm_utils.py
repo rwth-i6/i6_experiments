@@ -1,17 +1,16 @@
 """
 Dataset helpers for the SPM-based training
 """
-from typing import Optional, Dict
+from typing import Optional
 
 from sisyphus import tk
 
-from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .dataset_commons import build_lm_training_datasets
-from .librispeech_utils import get_librispeech_spm_datastream, get_librispeech_train_corpus_text, \
+from .librispeech_lm_utils import get_librispeech_spm_datastream, get_librispeech_train_corpus_text, \
     get_librispeech_normalized_lm_data, get_librispeech_lm_combined_txt
-from ...default_tools import RETURNN_ROOT, RETURNN_EXE
+from ...default_tools import RETURNN_ROOT
 
 """
 NEW LM CODE - mostly from Alberts librispeech file

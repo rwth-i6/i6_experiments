@@ -38,15 +38,25 @@ class LmDataset(ControlDataset):
     def as_returnn_opts(self) -> Dict[str, Any]:
         d = {
             "class": "LmDataset",
-            "corpus_file": self.corpus_file, # CodeWrapper(DelayedFormat('lambda: cf("{}")', self.corpus_file)),
+
+            "corpus_file": self.corpus_file,  # CodeWrapper(DelayedFormat('lambda: cf("{}")', self.corpus_file)),
+
             "orth_replace_map_file": "",
             "word_based": True,
             "seq_end_symbol": "</s>",
             "auto_replace_unknown_symbol": False,
             "unknown_symbol": "<unk>",
-            "add_delayed_seq_data": True, #creates the "delayed data!"
+            "add_delayed_seq_data": False, # True,
             "delayed_seq_data_start_symbol": "<s>",
+            "use_cache_manager": True,
         }
+
+
+        """
+        Problems with LM:
+        - hypothesis 1:
+            - Delayed data only works with orth_symbols_map_file
+        """
 
         if self.target_options is not None:
             d["orth_vocab"] = self.target_options
@@ -54,7 +64,6 @@ class LmDataset(ControlDataset):
             d["orth_symbols_map_file"] = self.vocab_file
         else:
             raise Exception("should have some vocab option!")
-
 
         sd = super().as_returnn_opts()
         assert all([k not in sd.keys() for k in d.keys()]), (
