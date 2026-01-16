@@ -36,8 +36,9 @@ param groups
 """
 
 _MODEL_V2_KWARGS = dict(
-    network_file_name="conformer_qwen_v2",
-    network_class_name="SllmV2",
+    network_file_name="lm_conformer_qwen_v2",
+    network_class_name="SllmV2Lm",
+
     training_step_file_name="train_step",
 )
 

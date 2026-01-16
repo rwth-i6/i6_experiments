@@ -5,13 +5,12 @@ from typing import Sequence
 import returnn.frontend as rf
 import torch
 import torch.nn.functional as F
+from returnn.frontend import RunCtx
 from returnn.tensor import Tensor as ReturnnTensor
 from returnn.tensor import TensorDict
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pack_sequence, unpad_sequence
-from returnn.frontend import RunCtx
 
-from ..constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 from ..networks.interfaces.lm_decoder_model_protocol import LmDecoderModelProtocol
 
 
@@ -39,39 +38,21 @@ def train_step( # TODO: LLM
 
     ctx: RunCtx = rf.get_run_ctx()
 
-    # TODO: from robin:
-    """
-    to me, it seems like "delayed" is just the labels with BOS prepended -> i.e. the actual labels are "delayed" on 
-    step to the right. in our SLLM and AED setups, we do this manually inside the train step - see the padding function 
-    which adds BOS
-    
-    +
-    
-    CHeck out albert setup https://github.com/rwth-i6/i6_experiments/blob/main/users/zeyer/experiments/exp2024_04_23_baselines/lm.py
-    """
-
-    # TODO: check that data is received correctly
-    targets_ = extern_data["data"] # Target / label / ground truth
+    targets_ = extern_data["data"] # Target / label / ground truth # TODO: extract const
     targets: Tensor = targets_.raw_tensor
     target_lens: Tensor = targets_.dims[1].dyn_size_ext.raw_tensor
-    #target_lens = extern_data["data:size1"]
-
-    data_ = extern_data["delayed"] # Already generated sequence (shifted by one position)
-    data: Tensor = data_.raw_tensor
-    data_lens: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
-    #data_lens = extern_data["delayed:size1"]
-
 
     # DECODER (FORWARD) STEP
-    # No encoder output | only delayed seq (to predict next token)
-    logits: Tensor = model.decode_seq(data, data_lens, None, None)
-    # TODO: understand exactly how delayed data looks [0, seq]? and what the model expects
+    input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx) # [B, MaxTextLen]
+    input_labels_len = target_lens + 1 # [B]
+    logits: Tensor = model.decode_seq_lm(input_labels, input_labels_len) # [B, SeqLen, vocab_size] | ex. SeqLen [TK1, TK2, EOS]
 
-    # TODO: finish below on how data is obtained and used
-    # ??? some transformations
-    logits_packed = pack_padded_sequence(logits, data_lens, batch_first=True, enforce_sorted=False)
-    single_seqs = unpad_sequence(targets, target_lens, batch_first=True)
-    eos_tensor = torch.tensor(num_eos_symbols * [model.eos_idx], device=targets.device, dtype=torch.int32)
+    # LOGITS PREP
+    logits_packed = pack_padded_sequence(logits, input_labels_len, batch_first=True, enforce_sorted=False) # Remove PAD
+
+    # TARGETS PREP
+    single_seqs = unpad_sequence(targets, target_lens, batch_first=True) # Remove padding
+    eos_tensor = torch.tensor(num_eos_symbols * [model.eos_idx], device=targets.device, dtype=torch.int32) # New EOS...
     targets_w_eos_packed = pack_sequence(
         [torch.concat((seq, eos_tensor), dim=-1) for seq in single_seqs],
         enforce_sorted=False,

@@ -42,8 +42,8 @@ def serialize_training(
     :return: Collection object to be added to the ReturnnConfig epilog
     """
     pytorch_model_import = PartialImport(  # TODO: path is not exactly right! it adds "recipe"!!
-        code_object_path=f"{SLLM_ROOT_PACKAGE}.{network_import_path}",
-        unhashed_package_root=SLLM_ROOT_PACKAGE,# TODO: big technical deb with this replace
+        code_object_path=f"{ROOT_PACKAGE}.{network_import_path}",
+        unhashed_package_root=ROOT_PACKAGE,# TODO: big technical deb with this replace
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",
@@ -70,7 +70,7 @@ def serialize_training(
         serializer_objects=serializer_objects,
         make_local_package_copy=not debug,
         packages={
-            SLLM_ROOT_PACKAGE, ROOT_PACKAGE,
+            ROOT_PACKAGE,
         },
     )
     return serializer
@@ -108,8 +108,8 @@ def serialize_forward(
         forward_args = {}
 
     pytorch_model_import = PartialImport(
-        code_object_path=f"{SLLM_ROOT_PACKAGE}.{network_import_path}",
-        unhashed_package_root=SLLM_ROOT_PACKAGE,
+        code_object_path=f"{ROOT_PACKAGE}.{network_import_path}",
+        unhashed_package_root=ROOT_PACKAGE,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",

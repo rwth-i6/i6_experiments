@@ -193,7 +193,7 @@ def get_forward_config(
     }
 
     # RC - PYTHON EPILOG
-    extern_data = {
+    extern_data = {# TODO: finish! take the one in training
         DATA_PARAM_NAME: {"dim": 1},
     }
     serializer = serialize_forward(
