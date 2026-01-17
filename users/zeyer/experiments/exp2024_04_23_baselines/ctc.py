@@ -812,14 +812,16 @@ def py():
 
     # Log prob normed gradient (lpNormedGrad)
     # Baseline without lpNormedGrad: 5.77/6.03
+    #   {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
     for name, opts in {
         # 5.71/5.87 (!!) (i.e. better than without)
+        # {"dev-clean": 2.42, "dev-other": 5.71, "test-clean": 2.64, "test-other": 5.87}
         "C05_11P1": {
             "log_prob_normed_grad": {
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
             }
         },
-        #
+        # {"dev-clean": 2.5, "dev-other": 5.87, "test-clean": 2.66, "test-other": 5.98}
         "C05_11P1-ctcFixGrad": {
             "log_prob_normed_grad": {
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
@@ -841,12 +843,14 @@ def py():
         #   "log_prob_normed_grad": {"func": {"clamp_min": 0.8, "clamp_max": 1.1,
         #   "scale_type": "inv_num_labels", "prior_exp": 1.0}}},
         # 5.83/5.91
+        # {"dev-clean": 2.46, "dev-other": 5.83, "test-clean": 2.62, "test-other": 5.91}
         "C05_11P1Seq": {
             "log_prob_normed_grad": {
                 "prior": "seq_grad",
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
             },
         },
+        # {"dev-clean": 2.37, "dev-other": 5.84, "test-clean": 2.54, "test-other": 6.11}
         "C05_11P1Seq-ctcFixGrad": {
             "log_prob_normed_grad": {
                 "prior": "seq_grad",
@@ -873,8 +877,7 @@ def py():
         },
     }.items():
         train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-            f"-speedpertV2-spm10k-bpeSample001-lpNormedGrad{name}",
+            f"v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGrad{name}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={
                 "enc_conformer_layer": enc_conformer_layer_default,
@@ -900,8 +903,7 @@ def py():
     # (Baseline without lpNormedGrad: 5.77/6.03)
     # Log prob normed gradient (lpNormedGrad) (excl blank) with blank separated (blankSep)
     train_exp(  # 6.05 (so lpNormedGrad is worse here, but specifically in combination with blankSep?)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -928,8 +930,7 @@ def py():
     # (Baseline without lpNormedGrad: 5.77/6.03)
     # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep)
     train_exp(  # 5.73/6.08
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -956,9 +957,8 @@ def py():
 
     # (Baseline without lpNormedGrad: 5.77/6.03)
     # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep) and fixed grad
-    train_exp(  # 5.73/6.08
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank-ctcFixGrad",
+    train_exp(  # 5.90/6.01
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank-ctcFixGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -1163,8 +1163,7 @@ def py():
 
     # lpNormedGrad C05_11P1 (Baseline: 5.65)
     # train_exp(  # 5.83. so made it worse.
-    #     "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
+    #     "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
     #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
     #     model_config={
     #         "enc_conformer_layer": rf.build_dict(
