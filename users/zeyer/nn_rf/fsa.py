@@ -650,6 +650,40 @@ def best_path_ctc_durations(
     return durations, out_spatial_dim
 
 
+def best_path_ctc_durations_v2(
+    *,
+    logits: Tensor,
+    logits_normalized: bool = False,
+    input_spatial_dim: Dim,
+    targets: Tensor,
+    targets_spatial_dim: Dim,
+    labels_with_blank_dim: Optional[Dim] = None,
+    blank_index: int,
+    out_spatial_dim: Optional[Dim] = None,
+) -> Tuple[Tensor, Dim]:
+    """
+    CTC durations
+    """
+    if labels_with_blank_dim is not None:
+        assert labels_with_blank_dim == logits.feature_dim
+    path = rf.ctc_best_path(
+        logits=logits,
+        logits_normalized=logits_normalized,
+        input_spatial_dim=input_spatial_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+        blank_index=blank_index,
+    )
+    durations, out_spatial_dim = rf.ctc_durations_from_path(
+        path=path,
+        path_spatial_dim=input_spatial_dim,
+        blank_index=blank_index,
+        targets_spatial_dim=targets_spatial_dim,
+        out_spatial_dim=out_spatial_dim,
+    )
+    return durations, out_spatial_dim
+
+
 def _safe_add(a: Tensor, b: Tensor) -> Tensor:
     """safe add, handles the case of -inf values."""
     return rf.where(rf.is_finite(a), a + b, a)
