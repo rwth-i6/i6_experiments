@@ -4,7 +4,6 @@ from i6_experiments.users.juanola.experiments.e25_11_10_llm.configurations.exper
 from i6_experiments.users.juanola.experiments.e25_11_10_llm import tests as t4
 
 
-
 def main():
     """
     main (called by sisyphus if nothing else is specified)
@@ -20,7 +19,8 @@ Experiments entry points
 
 
 def e4():
-    ex4.llm_ep([LLMExperimentVersion.V1_BASELINE])
+    ex4.llm_ep([LLMExperimentVersion.V1_BASELINE]
+               , only_specific_epochs=True)  # Avoid any recog for now (not implemented yet)
 
 
 """
@@ -39,6 +39,7 @@ Tests entry points
 
 def shuffle_job():
     t4.shuffle_file_test()
+
 
 def split_job():
     t4.two_way_split_file_test()

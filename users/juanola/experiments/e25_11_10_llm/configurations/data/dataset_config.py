@@ -38,18 +38,20 @@ def dataset_baseline_train_corpus_text() -> DatasetConfig:
         peak_normalization=True,
         train_seq_ordering="laplace:.1000",
         sampling_alpha=0.7,
-        use_train_corpus_text = True,
-        use_normalized_lm_data = False
+        use_train_corpus_text=True,
+        use_normalized_lm_data=False
     )
+
 
 def dataset_baseline_normalized_lm_data() -> DatasetConfig:
     return dataclasses.replace(dataset_baseline_train_corpus_text(),
-                               use_train_corpus_text = False,
-                               use_normalized_lm_data = True)
+                               use_train_corpus_text=False,
+                               use_normalized_lm_data=True)
+
 
 def dataset_baseline_all_data() -> DatasetConfig:
     return dataclasses.replace(dataset_baseline_train_corpus_text(),
-                               use_train_corpus_text = True,
-                               use_normalized_lm_data = True)
+                               use_train_corpus_text=True,
+                               use_normalized_lm_data=True)
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
