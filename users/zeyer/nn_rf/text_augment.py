@@ -147,9 +147,9 @@ def text_augment(
 
 
 def text_augment_unpaired(
-    *,
     labels: Tensor,
     spatial_dim: Dim,
+    *,
     exclude_labels: Collection[int] = (),
     ins_probs: Sequence[float] = (1.0,),
     ins_probs_last_frame: Optional[Sequence[float]] = None,
@@ -169,6 +169,7 @@ def text_augment_unpaired(
     :param keep_del_sub_probs: A sequence of probabilities for each augmentation operation [keep, delete, substitute].
     :return: tuple (new labels, new spatial_dim).
     """
+    assert isinstance(labels, Tensor) and isinstance(spatial_dim, Dim)
     assert BehaviorVersion.get() >= 23  # for correct masking, e.g. rf.pad, rf.scatter
     batch_dims = [d for d in labels.dims if d != spatial_dim]
     device = labels.device
