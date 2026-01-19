@@ -14,18 +14,18 @@ from torch.nn.utils.rnn import pack_padded_sequence, pack_sequence, unpad_sequen
 from ..networks.interfaces.lm_decoder_model_protocol import LmDecoderModelProtocol
 
 
-def train_step( # TODO: LLM
+def train_step(  # TODO: LLM
         *,
         # RETURNN PARAMS
         model: LmDecoderModelProtocol,
-        extern_data: TensorDict, #TODO: check extern_data vs data
+        extern_data: TensorDict,  # TODO: check extern_data vs data
 
         # TRAIN_STEP PARAMS
-        aux_loss_scales: Sequence[float], # not used
-        aed_loss_scale: float, # not used
         label_smoothing: float,
         label_smoothing_start_epoch: int,
-        num_eos_symbols: int = 1, #only defined here
+
+        # ONLY DEFINED HERE
+        num_eos_symbols: int = 1,
 
         **_kwargs,
 ):
@@ -38,21 +38,22 @@ def train_step( # TODO: LLM
 
     ctx: RunCtx = rf.get_run_ctx()
 
-    targets_ = extern_data["data"] # Target / label / ground truth # TODO: extract const
+    targets_ = extern_data["data"]  # Target / label / ground truth # TODO: extract const
     targets: Tensor = targets_.raw_tensor
     target_lens: Tensor = targets_.dims[1].dyn_size_ext.raw_tensor
 
     # DECODER (FORWARD) STEP
-    input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx) # [B, MaxTextLen]
-    input_labels_len = target_lens + 1 # [B]
-    logits: Tensor = model.decode_seq_lm(input_labels, input_labels_len) # [B, SeqLen, vocab_size] | ex. SeqLen [TK1, TK2, EOS]
+    input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx)  # [B, MaxTextLen]
+    input_labels_len = target_lens + 1  # [B]
+    logits: Tensor = model.decode_seq_lm(input_labels,
+                                         input_labels_len)  # [B, SeqLen, vocab_size] | ex. SeqLen [TK1, TK2, EOS]
 
     # LOGITS PREP
-    logits_packed = pack_padded_sequence(logits, input_labels_len, batch_first=True, enforce_sorted=False) # Remove PAD
+    logits_packed = pack_padded_sequence(logits, input_labels_len, batch_first=True, enforce_sorted=False)  # Remove PAD
 
     # TARGETS PREP
-    single_seqs = unpad_sequence(targets, target_lens, batch_first=True) # Remove padding
-    eos_tensor = torch.tensor(num_eos_symbols * [model.eos_idx], device=targets.device, dtype=torch.int32) # New EOS...
+    single_seqs = unpad_sequence(targets, target_lens, batch_first=True)  # Remove padding
+    eos_tensor = torch.tensor(num_eos_symbols * [model.eos_idx], device=targets.device, dtype=torch.int32)  # New EOS...
     targets_w_eos_packed = pack_sequence(
         [torch.concat((seq, eos_tensor), dim=-1) for seq in single_seqs],
         enforce_sorted=False,
