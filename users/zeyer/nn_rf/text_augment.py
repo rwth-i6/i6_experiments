@@ -146,6 +146,108 @@ def text_augment(
     return input_labels, targets_w_eos, spatial_dim
 
 
+def text_augment_unpaired(
+    *,
+    labels: Tensor,
+    spatial_dim: Dim,
+    exclude_labels: Collection[int] = (),
+    ins_probs: Sequence[float] = (1.0,),
+    ins_probs_last_frame: Optional[Sequence[float]] = None,
+    keep_del_sub_probs: Sequence[float],
+) -> Tuple[Tensor, Dim]:
+    """
+
+    :param labels: [Batch...,spatial_dim]. We assume this has BOS in the beginning.
+    :param spatial_dim: The spatial dimension of the labels.
+    :param exclude_labels: Labels to exclude from substitution on the input labels.
+        E.g. you might want to exclude the BOS and EOS labels.
+        (But this is maybe not necessary and still would have a good regularization effect.)
+    :param ins_probs: A sequence of probabilities for each augmentation operation [insert0, insert1, insert2, ...].
+        If no entries or only one entry, no insertions will be done.
+        Insertions are anyway only done after the first frame, so the first frame is always kept.
+    :param ins_probs_last_frame: If given, uses these probabilities for the last frame.
+    :param keep_del_sub_probs: A sequence of probabilities for each augmentation operation [keep, delete, substitute].
+    :return: tuple (new labels, new spatial_dim).
+    """
+    assert BehaviorVersion.get() >= 23  # for correct masking, e.g. rf.pad, rf.scatter
+    batch_dims = [d for d in labels.dims if d != spatial_dim]
+    device = labels.device
+    vocab_dim = labels.sparse_dim
+
+    # Handle insertions first because for choosing the optimal target of inserted labels,
+    # we still must know all the original targets.
+    if len(ins_probs) >= 2 or ins_probs_last_frame is not None:
+        ins_dim = Dim(len(ins_probs), name="ins")
+        ins_probs = rf.convert_to_tensor(ins_probs, dims=[ins_dim], dtype="float32", device=device)
+        ins_choices = rf.random_choice_with_replacement(
+            batch_dims + [spatial_dim], probs=ins_probs, axis=ins_dim
+        )  # e.g. [Batch,Spatial] -> ins_dim (how much to insert, 0, 1, 2, ...), each _after_ frame i in spatial
+        if ins_probs_last_frame is not None:
+            ins_last_frame_dim = (
+                ins_dim
+                if len(ins_probs_last_frame) == ins_dim.dimension
+                else Dim(len(ins_probs_last_frame), name="ins_last_frame")
+            )
+            ins_probs_last_frame = rf.convert_to_tensor(
+                ins_probs_last_frame, dims=[ins_last_frame_dim], dtype="float32", device=device
+            )
+            ins_choices_last_frame = rf.random_choice_with_replacement(
+                batch_dims, probs=ins_probs_last_frame, axis=ins_last_frame_dim
+            )
+            ins_choices = rf.where(
+                rf.range_over_dim(spatial_dim, device=device) == spatial_dim.get_dyn_size_ext_for_device(device) - 1,
+                ins_choices_last_frame,
+                ins_choices,
+            )
+        new_seq_lens = rf.reduce_sum(ins_choices, axis=spatial_dim) + spatial_dim.get_dyn_size_ext_for_device(device)
+        new_spatial_dim = Dim(rf.copy_to_device(new_seq_lens, "cpu"), name="after_insert_spatial")
+        new_indices = (
+            rf.cumsum(ins_choices + 1, spatial_dim=spatial_dim) - 1 - ins_choices
+        )  # [Batch,Spatial] -> NewSpatial
+        new_mask = rf.scatter(
+            rf.sequence_mask(spatial_dim, device=device),
+            indices=new_indices.copy_masked(0),
+            indices_dim=spatial_dim,
+            out_dim=new_spatial_dim,
+        )
+        new_rnd_input_labels = _random_uniform_exclude(
+            batch_dims + [new_spatial_dim],
+            sparse_dim=vocab_dim,
+            exclude_labels=exclude_labels,
+            device=device,
+        )
+        labels = rf.masked_scatter(
+            labels, backup=new_rnd_input_labels, mask=new_mask, dims=[new_spatial_dim], in_dim=spatial_dim
+        )
+        spatial_dim = new_spatial_dim
+
+    # Now handle the keep/delete/substitute operations.
+    keep_del_sub_dim = Dim(len(keep_del_sub_probs), name="keep_del_sub")
+    keep_del_sub_probs_ = rf.convert_to_tensor(
+        keep_del_sub_probs, dims=[keep_del_sub_dim], dtype="float32", device=device
+    )
+    keep_del_sub_choices = rf.random_choice_with_replacement(
+        batch_dims + [spatial_dim], probs=keep_del_sub_probs_, axis=keep_del_sub_dim
+    )  # e.g. [Batch,Time] -> keep_del_sub_dim
+    keep_del_sub_choices = rf.cast(keep_del_sub_choices, "int32")
+
+    # Now first handle the deletions.
+    non_del_mask = keep_del_sub_choices != 1  # 1 is delete, so we keep everything else
+    labels, new_spatial_dim = rf.masked_select(labels, mask=non_del_mask, dims=[spatial_dim])
+    keep_del_sub_choices, _ = rf.masked_select(
+        keep_del_sub_choices, mask=non_del_mask, dims=[spatial_dim], out_dim=new_spatial_dim
+    )  # [Batch,NewSpatial] -> keep_del_sub_dim (keep, substitute, no del)
+    spatial_dim = new_spatial_dim
+
+    # Handle the substitutions.
+    rand_labels = _random_uniform_exclude(
+        batch_dims + [spatial_dim], sparse_dim=vocab_dim, exclude_labels=exclude_labels, device=device
+    )
+    labels = rf.where(keep_del_sub_choices == 0, labels, rand_labels)
+
+    return labels, spatial_dim
+
+
 def _random_uniform_exclude(
     dims: Sequence[Dim], *, sparse_dim: Dim, exclude_labels: Collection[int] = (), device: Optional[str] = None
 ) -> Tensor:
