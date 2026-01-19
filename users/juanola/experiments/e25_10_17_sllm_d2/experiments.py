@@ -8,7 +8,6 @@ from .configurations.data.dataset_config import DatasetConfig
 from .configurations.data.label_config import LabelConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
-from .configurations.pipeline import search_config
 from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
@@ -33,7 +32,7 @@ def sllm_ep(
     run_test: bool = True,
     run_best: bool = True,
     run_best_4: bool = True,
-    run_only_last: bool = False,
+    run_only_last: bool = True, # !!! now only running last epochs by default!
 ) -> Dict[str, Any]:
     """
     Sisyphus entry point.
@@ -119,7 +118,9 @@ def sllm_ep(
         elif run_only_last:
             epochs_to_evaluate = [partition_epochs]
         else:
-            specific_epochs = specific_recognition_epochs | set({})  # Specify here default epochs to check in multiple exps
+            specific_epochs = specific_recognition_epochs | set(
+                {}
+            )  # Specify here default epochs to check in multiple exps
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
         if debug:  # todo. only for legacy reasons.
@@ -128,23 +129,26 @@ def sllm_ep(
 
         # Tune-Eval
         forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
-        results: Dict[str, Any] = create_tune_and_evaluate_jobs(
-            training_name=forward_training_name,
-            train_job=train_job,
-            network_import_path=network_import_path
-            if exp_config.search.forward_method is None
-            else f"networks.conformer_qwen_v2.SllmV2",  # TODO: improve?
-            net_args=network_args,
-            search_config=exp_config.search,
-            train_data=training_datasets,
-            dev_dataset_tuples=dev_dataset_tuples,
-            test_dataset_tuples=test_dataset_tuples,
-            specific_epochs=epochs_to_evaluate,
-            run_test=run_test,
-            run_best=run_best,
-            run_best_4=run_best_4,
-        )
-        results_per_experiment[exp_name] = results
+        for search_config in exp_config.search:
+            if search_config.forward_method is None:
+                network_import_path_for_forward_step = network_import_path
+            else:
+                network_import_path_for_forward_step = f"networks.conformer_qwen_v2.SllmV2"
+            results: Dict[str, Any] = create_tune_and_evaluate_jobs(
+                training_name=forward_training_name,
+                train_job=train_job,
+                network_import_path=network_import_path_for_forward_step,
+                net_args=network_args,
+                search_config=search_config,
+                train_data=training_datasets,
+                dev_dataset_tuples=dev_dataset_tuples,
+                test_dataset_tuples=test_dataset_tuples,
+                specific_epochs=epochs_to_evaluate,
+                run_test=run_test,
+                run_best=run_best,
+                run_best_4=run_best_4,
+            )
+            results_per_experiment[exp_name] = results
 
         # REPORTING
         # Experiment Report

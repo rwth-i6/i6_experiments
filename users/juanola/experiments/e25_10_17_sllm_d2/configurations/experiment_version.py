@@ -48,34 +48,34 @@ class ExperimentVersion(Enum):
 
 
 _EXPERIMENT_BUILDERS = {
-    ExperimentVersion.V1_BASELINE: exp_baseline, # TODO: use v2 search
-    ExperimentVersion.V2_DROPOUT: exp_v2, # TODO: use v2 search
-    ExperimentVersion.V3_TUNED: exp_v3, # TODO: use v2 search
+    ExperimentVersion.V1_BASELINE: exp_baseline,
+    ExperimentVersion.V2_DROPOUT: exp_v2,
+    ExperimentVersion.V3_TUNED: exp_v3,
 
-    ExperimentVersion.V4_SMALL_DECODER: exp_v4, # TODO: use v2 search
-    ExperimentVersion.V5_LINEAR_ADAPTER: exp_v5, # TODO: use v2 search
-    ExperimentVersion.V6_SMALL_DECODER_150kBS: exp_v6, # TODO: use v2 search
+    ExperimentVersion.V4_SMALL_DECODER: exp_v4,
+    ExperimentVersion.V5_LINEAR_ADAPTER: exp_v5,
+    ExperimentVersion.V6_SMALL_DECODER_150kBS: exp_v6,
 
-    #ExperimentVersion.V7_TUNED_DROPOUT: exp_v7, # TODO: use v2 search
-    ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD: exp_v7_with_ctc_gd, # TODO: use v2 search
-    ExperimentVersion.V7_TUNED_DROPOUT_BEAM: exp_v7_with_beam, # TODO: use v2 search
-    ExperimentVersion.V8_1_TD_LRV2: exp_v8_1, # TODO: use v2 search
-    ExperimentVersion.V8_2_TD_LRV3: exp_v8_2, # TODO: use v2 search
+    #ExperimentVersion.V7_TUNED_DROPOUT: exp_v7,
+    ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD: exp_v7_with_ctc_gd,
+    ExperimentVersion.V7_TUNED_DROPOUT_BEAM: exp_v7_with_beam,
+    ExperimentVersion.V8_1_TD_LRV2: exp_v8_1,
+    ExperimentVersion.V8_2_TD_LRV3: exp_v8_2,
 
-    ExperimentVersion.V9_SMALL_DECODER_250kBS: exp_v9, # TODO: use v2 search
-    ExperimentVersion.V10_SMALL_DECODER_4GPUS: exp_v10, # TODO: use v2 search
-    ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2: exp_v10_2, # TODO: use v2 search
-    ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3: exp_v10_3, # TODO: use v2 search
+    ExperimentVersion.V9_SMALL_DECODER_250kBS: exp_v9,
+    ExperimentVersion.V10_SMALL_DECODER_4GPUS: exp_v10,
+    ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2: exp_v10_2,
+    ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3: exp_v10_3,
 
-    ExperimentVersion.V11_SLLM_D_80k: exp_v11, # TODO: use v2 search
-    ExperimentVersion.V12_SLLM_t_80k: exp_v12, # TODO: use v2 search
-    ExperimentVersion.V3_SLLM_td_15k: exp_v3_2, # TODO: use v2 search
-    ExperimentVersion.V13_SLLM_linear_adapter: exp_v13, # TODO: use v2 search
-    ExperimentVersion.V2_DROPOUT_s2: exp_v2_s2, # TODO: use v2 search
-    ExperimentVersion.V8_3_TD_LRV4: exp_v8_3, # TODO: use v2 search
-    ExperimentVersion.V8_4_TD_LRV5: exp_v8_4, # TODO: use v2 search
-    ExperimentVersion.V7_TUNED_DROPOUT_150: exp_v7_150, # TODO: use v2 search
-    ExperimentVersion.V7_TUNED_DROPOUT_200: exp_v7_200, # TODO: use v2 search
+    ExperimentVersion.V11_SLLM_D_80k: exp_v11,
+    ExperimentVersion.V12_SLLM_t_80k: exp_v12,
+    ExperimentVersion.V3_SLLM_td_15k: exp_v3_2,
+    ExperimentVersion.V13_SLLM_linear_adapter: exp_v13,
+    ExperimentVersion.V2_DROPOUT_s2: exp_v2_s2,
+    ExperimentVersion.V8_3_TD_LRV4: exp_v8_3,
+    ExperimentVersion.V8_4_TD_LRV5: exp_v8_4,
+    ExperimentVersion.V7_TUNED_DROPOUT_150: exp_v7_150,
+    ExperimentVersion.V7_TUNED_DROPOUT_200: exp_v7_200,
     # Expand here
 
     # Tests

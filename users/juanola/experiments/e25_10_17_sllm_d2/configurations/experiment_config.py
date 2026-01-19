@@ -61,7 +61,7 @@ class ExperimentConfig:
     network: NetworkConfig
 
     training: TrainingConfig
-    search: SearchConfig
+    search: list[SearchConfig]
 
 
 """
@@ -75,7 +75,7 @@ def exp_baseline() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline(),
-        search=search_baseline(),
+        search=[search_baseline(), search_baseline_v2()],
     )
 
 
@@ -102,7 +102,7 @@ def exp_v4() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_small_decoder_td(),  # !!
         training=itc_batch_size_80k(),  # !!
-        search=search_baseline(),
+        search=[search_baseline(), search_baseline_v2()],
     )
 
 
@@ -124,15 +124,15 @@ def exp_v7() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_tuned_dropout_v2(),  # !!
         training=itc_batch_size_80k(),
-        search=search_baseline(),
+        search=[search_baseline(), search_baseline_v2()],
     )
 
 
 def exp_v7_with_ctc_gd() -> ExperimentConfig:
-    return replace(exp_v7(), search=search_baseline_with_ctc_gd())
+    return replace(exp_v7(), search=[search_baseline_with_ctc_gd(), search_baseline_v2()])
 
 def exp_v7_with_beam() -> ExperimentConfig:
-    return replace(exp_v7(), search=search_baseline_v2_multiple_beams())
+    return replace(exp_v7(), search=[search_baseline_v2_multiple_beams()])
 
 def exp_v8_1() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv2())
@@ -208,22 +208,22 @@ Tests
 
 
 def t_v1() -> ExperimentConfig:
-    return replace(exp_v8_2(), search=greedy_search())
+    return replace(exp_v8_2(), search=[greedy_search()])
 
 
 def t_v1_2() -> ExperimentConfig:
-    return replace(exp_v8_2(), search=greedy_search_v2())
+    return replace(exp_v8_2(), search=[greedy_search_v2()])
 
 def n2_test() -> ExperimentConfig:
     return replace(exp_v7(),
                    training=training_n2_test(),
                    network=network_baseline_v2(),
-                   search=search_baseline_ctc_decoding_11gb())
+                   search=[search_baseline_ctc_decoding_11gb()])
 
 def n2_test_sv2() -> ExperimentConfig:
     return replace(exp_v7(),
                    training=training_n2_test(),
                    network=network_baseline_v2(),
-                   search=search_baseline_v2())
+                   search=[search_baseline_v2()])
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
