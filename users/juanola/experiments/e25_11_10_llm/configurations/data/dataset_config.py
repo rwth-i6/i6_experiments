@@ -20,6 +20,9 @@ class DatasetConfig:
     use_train_corpus_text: bool = True
     use_normalized_lm_data: bool = False
 
+    cv_n_lines: int = 3000
+    devtrain_n_lines: int = 3000
+
     def __post_init__(self):
         """
         Assertions for parameters.

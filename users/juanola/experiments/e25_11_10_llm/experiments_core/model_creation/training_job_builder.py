@@ -51,7 +51,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
     train_config = { # TODO: lots of settings could be moved to configs.
         **train_config_obj.optimizer.get_optimizer_returnn_config(),
         **train_config_obj.dynamic_lr.get_dynamic_lr_returnn_config(train_epochs),
-        "batch_size": batch_size * train_config_obj.batch_size_factor,
+        "batch_size": batch_size,
         "max_seq_length": {"raw_audio": train_config_obj.max_seq_length_seconds * network_args["sampling_rate"]},
         "accum_grad_multiple_step": 1,
         "gradient_clip_global_norm": 5.0,

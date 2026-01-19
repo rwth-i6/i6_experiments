@@ -97,7 +97,7 @@ def search(
         forward_args = {}
 
     forward_config = {
-        "batch_size": search_config.batch_size * search_config.batch_size_factor,
+        "batch_size": search_config.batch_size,
         "max_seqs": search_config.max_seqs,
     }
 

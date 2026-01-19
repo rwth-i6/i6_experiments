@@ -125,9 +125,8 @@ def get_prior_config(
     """
 
     # RC - CONFIG
-    prior_batch_size_factor = 500 # TODO: fix this
     base_config = {
-        "batch_size": prior_batch_size_factor * batch_size,
+        "batch_size": batch_size,
         "max_seqs": 240,
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }

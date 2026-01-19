@@ -43,7 +43,7 @@ class LmDataset(ControlDataset):
         }
 
         if self.target_options is not None:
-            d["orth_vocab"] = self.target_options
+            d["orth_vocab"] = self.target_options # TODO: other use .get_opts().copy() ??
         elif self.vocab_file is not None:
             d["orth_symbols_map_file"] = self.vocab_file
         else:

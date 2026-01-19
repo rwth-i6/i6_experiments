@@ -2,11 +2,11 @@
 The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
 import copy
-from typing import Tuple, List
+from typing import Tuple
 
-from sisyphus import tk, Job
+from sisyphus import tk
 
-from i6_core.text import TakeNRandomLinesJob, SplitTextFileJob, ConcatenateJob
+from i6_core.text import TakeNRandomLinesJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -38,10 +38,12 @@ def split_train_test(text_file: tk.Path, cv_lines: int = 3000) -> tuple[tk.Path,
 
 
 def build_lm_training_datasets(
-        text_file: tk.Path,
+        train_text_file: tk.Path,
+        cv_text_file: tk.Path,
         label_datastream: LabelDatastream,
         returnn_settings: ReturnnDatasetSettings,
         alpha: float,
+        dev_train_lines: int
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -52,28 +54,26 @@ def build_lm_training_datasets(
     :param label_datastream: label datastream (e.g. phoneme or bpe related)
     :param returnn_settings: settings object for the RETURNN data pipeline
     """
-    # Vocab settings
+    # Vocab settings   # TODO: not sure what is and what isn't needed
     vocab_settings = label_datastream.as_returnn_targets_opts()
-    vocab_settings.pop("add_eos",
-                       None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
+    vocab_settings.pop("add_eos", None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
     training_vocab_settings = copy.deepcopy(vocab_settings)
-    training_vocab_settings.update(
-        {"alpha": alpha, "enable_sampling": True} if alpha is not None else {})  # TODO: needed?
+    training_vocab_settings.update({"alpha": alpha, "enable_sampling": True} if alpha is not None else {})
 
     # Data splits
-    train_text_file, cv_text_file = split_train_test(text_file, cv_lines=3000)
-    devtrain_text_file = get_random_subset(train_text_file, n_lines=3000)
-
     train_dataset = LmDataset(
         corpus_file=train_text_file,
         vocab_settings=training_vocab_settings,
         seq_ordering=returnn_settings.train_seq_ordering,
     )
-    cv_dataset = LmDataset( # TODO: Robin uses cv from text from dev other and clean...??
+
+    cv_dataset = LmDataset(
         corpus_file=cv_text_file,
         vocab_settings=vocab_settings,
         seq_ordering="sorted_reverse",  # TODO: needed ??
     )
+
+    devtrain_text_file = get_random_subset(train_text_file, n_lines=dev_train_lines)
     devtrain_dataset = LmDataset(
         corpus_file=devtrain_text_file,
         vocab_settings=vocab_settings,
@@ -88,7 +88,6 @@ def build_lm_training_datasets(
         devtrain=devtrain_dataset,
         datastreams=datastreams,
     )
-
 
 
 def build_lm_test_dataset(

@@ -13,7 +13,6 @@ class SearchConfig:
     """
 
     batch_size: int
-    batch_size_factor: int
     use_gpu: bool
     gpu_memory: int  # Avoid using bigger that 11Gb
     avg_best_loss_name: str
@@ -61,7 +60,6 @@ def search_baseline_v2() -> SearchConfig:
     return SearchConfig(
         forward_method="forward_step_v2",
         batch_size=15_000,
-        batch_size_factor=160,
         use_gpu=True,
         gpu_memory=11,
         beam_search=beam_search_baseline(),

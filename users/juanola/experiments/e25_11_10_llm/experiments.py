@@ -201,10 +201,8 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         librispeech_key="train-other-960",
         return_settings=train_dataset_settings,
         vocab_size=label_config.vocab_size,
+        dataset_config=dataset_config,
         returnn_root=MINI_RETURNN_ROOT,
-        alpha=dataset_config.sampling_alpha,
-        use_train_corpus_text=dataset_config.use_train_corpus_text,
-        use_normalized_lm_data=dataset_config.use_normalized_lm_data,
     )
 
     dev_dataset_tuples = {}

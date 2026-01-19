@@ -5,7 +5,8 @@ from typing import Dict, Union, Any
 
 from sisyphus import tk
 
-from i6_core.corpus import CorpusToTextDictJob
+from i6_core.corpus import CorpusToTextDictJob, CorpusToTxtJob
+from i6_core.text import ConcatenateJob, TakeNRandomLinesJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
@@ -66,6 +67,7 @@ def _get_bliss_corpus_dict() -> Dict[str, tk.Path]:
     # However, these are used later in the scoring, so when changing them, make sure it's optional,
     # to not break hashes of old setups.
     return get_bliss_corpus_dict(audio_format="ogg")
+
 
 @cache
 def _get_spm_vocab(
@@ -140,6 +142,15 @@ def _get_spm_vocab(
     return spm
 
 
+def get_cv_lm_text(n_lines: int) -> tk.Path:
+    ls_bliss_corpus_dict = get_bliss_corpus_dict()
+    dev_clean_text = CorpusToTxtJob(ls_bliss_corpus_dict["dev-clean"], gzip=True).out_txt
+    dev_other_text = CorpusToTxtJob(ls_bliss_corpus_dict["dev-other"], gzip=True).out_txt
+    cv_text_file = ConcatenateJob([dev_clean_text, dev_other_text],zip_out=True).out
+    n_random_lines_job = TakeNRandomLinesJob(cv_text_file, num_lines=n_lines)
+    return n_random_lines_job.out
+
+
 def get_librispeech_spm_datastream(vocab_size: int,
                                    use_train_corpus_text: bool = True,
                                    use_normalized_lm_data: bool = False
@@ -161,6 +172,7 @@ def get_librispeech_spm_datastream(vocab_size: int,
         vocab_size=vocab_size,
     )
 
+
 def get_extern_data_data() -> Dict[str, Dict[str, Any]]:
     """
     Get extern data
@@ -168,14 +180,14 @@ def get_extern_data_data() -> Dict[str, Dict[str, Any]]:
     from returnn.tensor import Dim, batch_dim
 
     out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
-    #classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+    # classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
 
-    return  {
-            "dim": 10240,     # vocab size
-            "sparse": True,
+    return {
+        "dim": 10240,  # vocab size
+        "sparse": True,
 
-            #"dim_tags": [batch_dim, out_spatial_dim],
-            #"sparse": True,
-            #"sparse_dim": classes_dim,
-            #"vocab": self.vocab.get_opts(),
-        }
+        # "dim_tags": [batch_dim, out_spatial_dim],
+        # "sparse": True,
+        # "sparse_dim": classes_dim,
+        # "vocab": self.vocab.get_opts(),
+    }

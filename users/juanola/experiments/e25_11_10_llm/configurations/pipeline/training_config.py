@@ -28,7 +28,6 @@ class TrainingConfig:
     optimizer: OptimizerConfig
 
     batch_size: int
-    batch_size_factor: int
 
     num_gpus: int  # Should be 1 for 48gb in i6 cluster
     gpu_memory: int
@@ -68,8 +67,7 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
         epochs=100,
         partition_epoch_factor=20,
         dynamic_lr=lr_baseline(),
-        batch_size=128,  # !!!
-        batch_size_factor=100,  # !!!
+        batch_size=15_000,  # !!!
         optimizer=optimizer_baseline(),
         num_gpus=1,
         gpu_memory=48,
