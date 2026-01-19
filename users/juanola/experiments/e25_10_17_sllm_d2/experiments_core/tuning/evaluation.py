@@ -90,19 +90,37 @@ def create_tune_and_evaluate_jobs(
         result_dict.update(res)
 
     if search_config.run_ctc_greedy_decoding_last_epoch:  # Run the last epoch with ctc greedy decoding
-        res = evaluate_greedy_ctc(dev_dataset_tuples, net_args, network_import_path, prior_args, run_test,
-                                  search_config, specific_epochs, test_dataset_tuples, train_data, train_job,
-                                  training_name)
+        res = evaluate_greedy_ctc(
+            dev_dataset_tuples,
+            net_args,
+            network_import_path,
+            prior_args,
+            run_test,
+            search_config,
+            specific_epochs,
+            test_dataset_tuples,
+            train_data,
+            train_job,
+            training_name,
+        )
         result_dict.update(res)  # ???
 
     return result_dict
 
 
-def evaluate_greedy_ctc(dev_dataset_tuples: dict[str, Any], net_args: dict[str, Any], network_import_path: str,
-                        prior_args: dict[str, Any] | None, run_test: bool,
-                        search_config: SearchConfig, specific_epochs: Iterable[int] | Any,
-                        test_dataset_tuples: dict[str, Any] | None, train_data: TrainingDatasets,
-                        train_job: ReturnnTrainingJob, training_name: str) -> dict[str, job_path.Variable]:
+def evaluate_greedy_ctc(
+    dev_dataset_tuples: dict[str, Any],
+    net_args: dict[str, Any],
+    network_import_path: str,
+    prior_args: dict[str, Any] | None,
+    run_test: bool,
+    search_config: SearchConfig,
+    specific_epochs: Iterable[int] | Any,
+    test_dataset_tuples: dict[str, Any] | None,
+    train_data: TrainingDatasets,
+    train_job: ReturnnTrainingJob,
+    training_name: str,
+) -> dict[str, job_path.Variable]:
     results: Dict[str, job_path.Variable] = {}
 
     last_epoch = max(specific_epochs)
@@ -231,54 +249,55 @@ def tune_and_evaluate_model(
     tune_parameters = []
     tune_values_clean = []
     tune_values_other = []
-    for lm_scale in search_config.lm_scales:
-        for prior_scale in search_config.prior_scales:
-            for ctc_scale in search_config.ctc_scales:
-                if forward_method is None or forward_method == "forward_step":
-                    forward_args = {
-                        "beam_size": search_config.beam_search.beam_size,
-                        "max_tokens_per_sec": 20,  # TODO: store somewhere
-                        "sample_rate": 16_000,  # TODO: get from feature extraction
-                    }
-                    search_name = f"{evaluation_name}/v1_beam{search_config.beam_search.beam_size}"
-                elif forward_method == "forward_step_v2":
-                    forward_args = {
-                        "beam_size": search_config.beam_search.beam_size,
-                        "max_tokens_per_sec": 20,  # TODO: store somewhere
-                        "sample_rate": 16_000,  # TODO: get from feature extraction
-                    }
-                    search_name = f"{evaluation_name}/v2_beam{search_config.beam_search.beam_size}"
-                elif forward_method == "forward_step_ctc_decoding":
-                    forward_args = {
-                        "beam_size": search_config.beam_search.beam_size,
-                        "ctc_scale": ctc_scale,
-                        "prior_scale": prior_scale,
-                        "lm_scale": lm_scale,
-                        #"ctc_soft_collapse_threshold": None,
-                        #"ctc_top_k_pruning": None,
-                        #"ctc_top_k_pruning_reduce_func": "mean",
-                    }
-                    search_name = f"{evaluation_name}/v1_beam{search_config.beam_search.beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
-                else:
-                    raise ValueError(f"Unknown forward method: {forward_method}")
+    for beam_size in search_config.beam_search.beam_sizes:
+        for lm_scale in search_config.lm_scales:
+            for prior_scale in search_config.prior_scales:
+                for ctc_scale in search_config.ctc_scales:
+                    if forward_method is None or forward_method == "forward_step":
+                        forward_args = {
+                            "beam_size": beam_size,
+                            "max_tokens_per_sec": 20,  # TODO: store somewhere
+                            "sample_rate": 16_000,  # TODO: get from feature extraction
+                        }
+                        search_name = f"{evaluation_name}/v1_beam{beam_size}"
+                    elif forward_method == "forward_step_v2":
+                        forward_args = {
+                            "beam_size": beam_size,
+                            "max_tokens_per_sec": 20,  # TODO: store somewhere
+                            "sample_rate": 16_000,  # TODO: get from feature extraction
+                        }
+                        search_name = f"{evaluation_name}/v2_beam{beam_size}"
+                    elif forward_method == "forward_step_ctc_decoding":
+                        forward_args = {
+                            "beam_size": beam_size,
+                            "ctc_scale": ctc_scale,
+                            "prior_scale": prior_scale,
+                            "lm_scale": lm_scale,
+                            # "ctc_soft_collapse_threshold": None,
+                            # "ctc_top_k_pruning": None,
+                            # "ctc_top_k_pruning_reduce_func": "mean",
+                        }
+                        search_name = f"{evaluation_name}/v1_beam{beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
+                    else:
+                        raise ValueError(f"Unknown forward method: {forward_method}")
 
-                _, wers = search(
-                    search_name,
-                    search_config,
-                    asr_model=asr_model,
-                    forward_module=RECOGNITION_PACKAGE,
-                    forward_method=forward_method,
-                    test_dataset_tuples=dev_dataset_tuples,
-                    debug=debug,
-                    vocab_opts=vocab_opts,
-                    forward_args=forward_args,
-                    **default_returnn,
-                )
+                    _, wers = search(
+                        search_name,
+                        search_config,
+                        asr_model=asr_model,
+                        forward_module=RECOGNITION_PACKAGE,
+                        forward_method=forward_method,
+                        test_dataset_tuples=dev_dataset_tuples,
+                        debug=debug,
+                        vocab_opts=vocab_opts,
+                        forward_args=forward_args,
+                        **default_returnn,
+                    )
 
-                tune_parameters.append((lm_scale, prior_scale, ctc_scale))
-                tune_values_clean.append((wers[f"{search_name}/dev-clean"]))
-                tune_values_other.append((wers[f"{search_name}/dev-other"]))
-                results.update(wers)
+                    tune_parameters.append((beam_size, lm_scale, prior_scale, ctc_scale))
+                    tune_values_clean.append((wers[f"{search_name}/dev-clean"]))
+                    tune_values_other.append((wers[f"{search_name}/dev-other"]))
+                    results.update(wers)
 
     # EVALUATION (only if run_test)
     if run_test and test_dataset_tuples is not None:
@@ -290,25 +309,25 @@ def tune_and_evaluate_model(
 
             if forward_method is None or forward_method == "forward_step":
                 forward_args = {
-                    "beam_size": search_config.beam_search.beam_size,
+                    "beam_size": pick_optimal_params_job.out_optimal_parameters[0],
                     "max_tokens_per_sec": 20,  # TODO: store somewhere
                     "sample_rate": 16_000,  # TODO: get from feature extraction
                 }
             elif forward_method == "forward_step_v2":
                 forward_args = {
-                    "beam_size": search_config.beam_search.beam_size,
+                    "beam_size": pick_optimal_params_job.out_optimal_parameters[0],
                     "max_tokens_per_sec": 20,  # TODO: store somewhere
                     "sample_rate": 16_000,  # TODO: get from feature extraction
                 }
             elif forward_method == "forward_step_ctc_decoding":
                 forward_args = {
-                    "beam_size": search_config.beam_search.beam_size,
-                    "ctc_scale": pick_optimal_params_job.out_optimal_parameters[2],
-                    "prior_scale": pick_optimal_params_job.out_optimal_parameters[1],
-                    "lm_scale": pick_optimal_params_job.out_optimal_parameters[0],
-                    #"ctc_soft_collapse_threshold": None,
-                    #"ctc_top_k_pruning": None,
-                    #"ctc_top_k_pruning_reduce_func": "mean",
+                    "beam_size": pick_optimal_params_job.out_optimal_parameters[0],
+                    "lm_scale": pick_optimal_params_job.out_optimal_parameters[1],
+                    "prior_scale": pick_optimal_params_job.out_optimal_parameters[2],
+                    "ctc_scale": pick_optimal_params_job.out_optimal_parameters[3],
+                    # "ctc_soft_collapse_threshold": None,
+                    # "ctc_top_k_pruning": None,
+                    # "ctc_top_k_pruning_reduce_func": "mean",
                 }
             else:
                 raise ValueError(f"Unknown forward method: {forward_method}")

@@ -1,10 +1,12 @@
 import dataclasses
+import warnings
 from dataclasses import dataclass
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.beam_search_config import (
     BeamSearchConfig,
     beam_search_baseline,
     greedy,
+    beam_search_multiple_beams,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
@@ -29,11 +31,13 @@ class SearchConfig:
 
     prior: PriorConfig
 
+    # Tunable Parameters # TODO: this could be grouped...
     beam_search: BeamSearchConfig
     lm_scales: list[float]
     prior_scales: list[float]
     ctc_scales: list[float]
 
+    # Other
     forward_method: str = None
     run_ctc_greedy_decoding_last_epoch: bool = False
 
@@ -70,6 +74,11 @@ def search_baseline() -> SearchConfig:
     V2 should be used!
     :return:
     """
+    warnings.warn(
+        "[BUG] Doesn't use beam search correctly -> essentially greedy",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return SearchConfig(
         batch_size=15_000,
         batch_size_factor=160,
@@ -86,15 +95,31 @@ def search_baseline() -> SearchConfig:
 
 
 def search_baseline_with_ctc_gd() -> SearchConfig:
+    warnings.warn(
+        "[BUG] Doesn't use beam search correctly -> essentially greedy",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return dataclasses.replace(search_baseline(), run_ctc_greedy_decoding_last_epoch=True)
 
 
 def greedy_search() -> SearchConfig:
+    warnings.warn(
+        "[BUG] Doesn't use beam search correctly -> essentially greedy",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return dataclasses.replace(search_baseline(), beam_search=greedy())
 
 
 def greedy_search_v2() -> SearchConfig:
+    warnings.warn(
+        "[BUG] Doesn't use beam search correctly -> essentially greedy",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return dataclasses.replace(search_baseline(), batch_size=13_000, beam_search=greedy())
+
 
 """
 V2
@@ -116,6 +141,10 @@ def search_baseline_v2() -> SearchConfig:
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )
+
+
+def search_baseline_v2_multiple_beams() -> SearchConfig:
+    return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams())
 
 
 """
@@ -141,7 +170,7 @@ def search_baseline_ctc_decoding_11gb() -> SearchConfig:
 
 
 def search_baseline_ctc_decoding_24gb() -> SearchConfig:
-    return dataclasses.replace(search_baseline(), batch_size=10_000, gpu_memory=24)
+    return dataclasses.replace(search_baseline_ctc_decoding_11gb(), batch_size=10_000, gpu_memory=24)
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

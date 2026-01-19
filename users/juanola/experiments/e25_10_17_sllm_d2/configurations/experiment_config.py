@@ -26,6 +26,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     greedy_search,
     greedy_search_v2,
     search_baseline_with_ctc_gd, search_baseline_v2, search_baseline_ctc_decoding_11gb,
+    search_baseline_v2_multiple_beams,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -130,6 +131,8 @@ def exp_v7() -> ExperimentConfig:
 def exp_v7_with_ctc_gd() -> ExperimentConfig:
     return replace(exp_v7(), search=search_baseline_with_ctc_gd())
 
+def exp_v7_with_beam() -> ExperimentConfig:
+    return replace(exp_v7(), search=search_baseline_v2_multiple_beams())
 
 def exp_v8_1() -> ExperimentConfig:
     return replace(exp_v7(), training=bsv2_lrv2())

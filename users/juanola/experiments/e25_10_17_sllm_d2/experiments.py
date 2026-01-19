@@ -9,8 +9,7 @@ from .configurations.data.label_config import LabelConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
 from .configurations.pipeline import search_config
-from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, \
-    TRAIN_STEP_PACKAGE
+from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
 from .experiments_core.data.spm_utils import build_spm_training_datasets
@@ -31,6 +30,10 @@ def sllm_ep(
     specific_recognition_epochs: set[int] = set({}),
     only_specific_epochs: bool = False,
     test_forward_output_path: bool = False,
+    run_test: bool = True,
+    run_best: bool = True,
+    run_best_4: bool = True,
+    run_only_last: bool = False,
 ) -> Dict[str, Any]:
     """
     Sisyphus entry point.
@@ -49,6 +52,7 @@ def sllm_ep(
     """
     assert experiment_versions is not None, "at least one of experiment_versions is required"
     assert len(experiment_versions) > 0, "experiment_versions cannot be empty"
+    assert not (only_specific_epochs and run_only_last), "only_specific_epochs and run_only_last cannot be both True"
 
     base_exps_name = "-".join([v.value for v in experiment_versions])
 
@@ -74,7 +78,10 @@ def sllm_ep(
 
         # INITIALIZE DATASET
         training_datasets, dev_dataset_tuples, test_dataset_tuples = create_datasets_jobs(
-            experiment_path, exp_config.dataset, exp_config.labels, partition_epoch_factor,
+            experiment_path,
+            exp_config.dataset,
+            exp_config.labels,
+            partition_epoch_factor,
         )
 
         # NETWORK
@@ -107,28 +114,26 @@ def sllm_ep(
             train_job.rqmt["time_rqmt"] = 36  # ??
 
         # MODEL EVALUATION/INFERENCE
-        # Which evals to run
-        if debug:
-            run_test = run_best_4 = run_best = False
+        if only_specific_epochs:
+            epochs_to_evaluate = specific_recognition_epochs
+        elif run_only_last:
             epochs_to_evaluate = [partition_epochs]
         else:
-            run_best_4 = run_best = run_test = True
-            specific_epochs = specific_recognition_epochs | set(
-                {}
-            )  # Specify here default epochs to check in multiple exps
+            specific_epochs = specific_recognition_epochs | set({})  # Specify here default epochs to check in multiple exps
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
-        if only_specific_epochs:
+        if debug:  # todo. only for legacy reasons.
             run_test = run_best_4 = run_best = False
-            epochs_to_evaluate = specific_recognition_epochs
-
-        forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
+            epochs_to_evaluate = [partition_epochs]
 
         # Tune-Eval
+        forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
         results: Dict[str, Any] = create_tune_and_evaluate_jobs(
             training_name=forward_training_name,
             train_job=train_job,
-            network_import_path=network_import_path,
+            network_import_path=network_import_path
+            if exp_config.search.forward_method is None
+            else f"networks.conformer_qwen_v2.SllmV2",  # TODO: improve?
             net_args=network_args,
             search_config=exp_config.search,
             train_data=training_datasets,
