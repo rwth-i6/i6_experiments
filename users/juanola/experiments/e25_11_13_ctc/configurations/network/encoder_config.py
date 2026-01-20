@@ -17,7 +17,7 @@ class EncoderConfig(HasNameProtocol):
     num_enc_layers: int
 
     aux_loss_layers: Sequence[int]
-    # TODO: add loss ctc values
+    # aux_loss_scales: Sequence[float]
 
     rel_pos_clip: int = 16
     pos_emb_dropout: float = 0.1
@@ -38,7 +38,7 @@ class EncoderConfig(HasNameProtocol):
     @property
     def name(self) -> str:
         return f"Conformer_l{self.num_enc_layers}"
-        #return f"Conformer_l{self.num_enc_layers}_h_{self.num_heads}_d{self.encoder_dim}"
+        # return f"Conformer_l{self.num_enc_layers}_h_{self.num_heads}_d{self.encoder_dim}"
 
 
 """
@@ -47,12 +47,16 @@ Specific configurations set below.
 
 
 def encoder_baseline() -> EncoderConfig:
+    """
+    using a final ctc layer
+    """
     return EncoderConfig(
         encoder_dim=512,
         num_heads=8,
         num_enc_layers=12,
 
-        aux_loss_layers= (4, 8),
+        aux_loss_layers=(4, 8, 12),  # !!!
+        # aux_loss_scales=(1.0, 1.0, 1.0),  # !!!
 
         specaug_start=(5_000, 15_000, 25_000),
     )

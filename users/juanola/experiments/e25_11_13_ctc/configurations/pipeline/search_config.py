@@ -65,7 +65,7 @@ def search_ctc_greedy() -> SearchConfig:
         lm_scales=[0.0],
         prior_scales=[0.0],
         ctc_scales=[0.0],
-        avg_best_loss_name="dev_loss_ctc-1",
+        avg_best_loss_name="dev_loss_ctc-2", # Third ctc loss
         max_seqs=200,
     )
 

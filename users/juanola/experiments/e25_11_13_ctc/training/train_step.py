@@ -30,8 +30,8 @@ def train_step(
     """
     ctx: RunCtx = rf.get_run_ctx()
 
-    assert len(aux_loss_scales) > 0 and any(scale > 0 for scale in aux_loss_scales), "must use at least one CTC aux loss"
-
+    assert len(aux_loss_scales) > 0 and any(
+        scale > 0 for scale in aux_loss_scales), "must use at least one CTC aux loss"
 
     data_: ReturnnTensor = extern_data[DATA_PARAM_NAME]
     data: Tensor = data_.raw_tensor
@@ -45,11 +45,10 @@ def train_step(
     # ENCODER (FORWARD) STEP
     encoder_output, aux_logits, logits_lens, _ = model.forward(data, data_lens)
 
-
     # CTC LOSSES
     assert len(aux_loss_scales) == len(aux_logits)
     if len(aux_loss_scales) == 0 or all(scale == 0 for scale in aux_loss_scales):
-        return # it is allowed to ignore the aux loss outputs of the model
+        return  # it is allowed to ignore the aux loss outputs of the model
 
     for i, (aux_logits_layer_i, scale) in enumerate(zip(aux_logits, aux_loss_scales)):
         aux_log_probs = F.log_softmax(aux_logits_layer_i, dim=-1)

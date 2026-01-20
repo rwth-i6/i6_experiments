@@ -75,7 +75,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
 
         "train_step_module": train_step_module,
         "train_args": {  # train step args - # TODO: could also be extracted in a file
-            "aux_loss_scales": (1.0, 1.0),
+            "aux_loss_scales": (1.0, 1.0, 1.0),
         },
 
         "debug": train_config_obj.debug_returnn_param,
