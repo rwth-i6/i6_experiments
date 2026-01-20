@@ -660,6 +660,8 @@ def best_path_ctc_durations_v2(
     labels_with_blank_dim: Optional[Dim] = None,
     blank_index: int,
     out_spatial_dim: Optional[Dim] = None,
+    check_dims: bool = True,
+    stop_on_failed_check: bool = True,
 ) -> Tuple[Tensor, Dim]:
     """
     CTC durations
@@ -680,6 +682,8 @@ def best_path_ctc_durations_v2(
         blank_index=blank_index,
         targets_spatial_dim=targets_spatial_dim,
         out_spatial_dim=out_spatial_dim,
+        check_dims=check_dims,
+        stop_on_failed_check=stop_on_failed_check,
     )
     return durations, out_spatial_dim
 
