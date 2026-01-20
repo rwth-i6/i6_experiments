@@ -51,10 +51,6 @@ _LM_PRIOR_SCALES = dict(
 Specific configurations set below.
 """
 
-"""
-V1
-"""
-
 
 def search_baseline_v2() -> SearchConfig:
     return SearchConfig(
@@ -70,6 +66,5 @@ def search_baseline_v2() -> SearchConfig:
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )
-
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

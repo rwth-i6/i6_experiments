@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
-from .data.dataset_config import DatasetConfig, dataset_baseline_train_corpus_text
+from .data.dataset_config import DatasetConfig, dataset_baseline_train_corpus_text, dataset_baseline_all_data
 from .data.label_config import LabelConfig, label_baseline
-from .network.network_config import NetworkConfig, network_baseline
+from .network.network_config import NetworkConfig, network_base, network_small
 from .pipeline.search_config import SearchConfig, search_baseline_v2
-from .pipeline.training_config import TrainingConfig, training_baseline, training_baseline_test
+from .pipeline.training_config import TrainingConfig, training_transcript_data, training_baseline_test, training_lm_data
 
 
 @dataclass(frozen=True)
@@ -34,16 +34,57 @@ def exp_baseline() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline_train_corpus_text(),
         labels=label_baseline(),
-        network=network_baseline(),
-        training=training_baseline(),
+        network=network_base(),
+        training=training_transcript_data(),
         search=search_baseline_v2(),
     )
+
+
+def exp_1_1() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline_train_corpus_text(),
+        labels=label_baseline(),
+        network=network_base(),
+        training=training_transcript_data(),
+        search=search_baseline_v2(),
+    )
+
+
+def exp_1_2() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline_all_data(),
+        labels=label_baseline(),
+        network=network_base(),
+        training=training_lm_data(),
+        search=search_baseline_v2(),
+    )
+
+
+def exp_1_3() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline_train_corpus_text(),
+        labels=label_baseline(),
+        network=network_small(),
+        training=training_transcript_data(),
+        search=search_baseline_v2(),
+    )
+
+
+def exp_1_4() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline_all_data(),
+        labels=label_baseline(),
+        network=network_small(),
+        training=training_lm_data(),
+        search=search_baseline_v2(),
+    )
+
 
 def exp_baseline_test() -> ExperimentConfig:
     return ExperimentConfig(
         dataset=dataset_baseline_train_corpus_text(),
         labels=label_baseline(),
-        network=network_baseline(),
+        network=network_base(),
         training=training_baseline_test(),
         search=search_baseline_v2(),
     )

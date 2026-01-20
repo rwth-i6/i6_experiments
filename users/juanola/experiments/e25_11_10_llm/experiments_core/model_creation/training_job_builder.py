@@ -52,12 +52,11 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         **train_config_obj.optimizer.get_optimizer_returnn_config(),
         **train_config_obj.dynamic_lr.get_dynamic_lr_returnn_config(train_epochs),
         "batch_size": batch_size,
-        "max_seq_length": {"raw_audio": train_config_obj.max_seq_length_seconds * network_args["sampling_rate"]},
+        "max_seqs": 200,
         "accum_grad_multiple_step": 1,
         "gradient_clip_global_norm": 5.0,
         "__num_gpus": train_config_obj.num_gpus,
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
-        "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
     }
     if train_config_obj.use_torch_amp:
         train_config["torch_amp"] = train_config_obj.torch_amp
@@ -80,7 +79,6 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         },
 
         "debug": train_config_obj.debug_returnn_param,
-        "use_speed_perturbation": True,
     }
 
     training_rqmt = {  # TODO: extract as config file?

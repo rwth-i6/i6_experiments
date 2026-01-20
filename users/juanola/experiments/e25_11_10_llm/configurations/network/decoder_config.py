@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, replace
 import warnings
 
@@ -48,6 +49,8 @@ class DecoderConfig(HasNameProtocol):
     @property
     def name(self) -> str:
         return f"Qwen2_hl_{self.num_hidden_layers}"
+
+
 """
 Parameter groups
 """
@@ -63,37 +66,24 @@ _DROPOUT_KWARGS = dict(
     mlp_dropout=0.1,
 )
 
+_SMALL_KWARGS = dict(
+    num_hidden_layers=6,  # 24
+    hidden_size=512,  # 896
+    intermediate_size=2048,  # 4864
+    num_attention_heads=8,  # 14
+)
+
 """
 Specific configurations set below.
 """
 
 
-def decoder_baseline() -> DecoderConfig:
-    return DecoderConfig()
-
-
-def decoder_dropout() -> DecoderConfig:
-    return replace(decoder_baseline(), **_DROPOUT_KWARGS)
-
-
-def decoder_dropout_tuned_v2() -> DecoderConfig:
-    """
-    Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
-    """
-    return replace(
-        decoder_dropout(),
-        **_QWEN_AUDIO_V2_DECODER_KWARGS,
-    )
-
-def decoder_v2_tuned() -> DecoderConfig:
-    """
-    Uses text params from HF Qwen-Audio-7B: https://huggingface.co/Qwen/Qwen2-Audio-7B/blob/main/config.json
-    NO DROPOUT!
-    """
-    return replace(
-        decoder_baseline(),
+def decoder_base() -> DecoderConfig:
+    return DecoderConfig(
+        **_DROPOUT_KWARGS,
         **_QWEN_AUDIO_V2_DECODER_KWARGS,
     )
 
 
-# For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
+def decoder_small() -> DecoderConfig:
+    return dataclasses.replace(decoder_base(), **_SMALL_KWARGS)

@@ -266,6 +266,7 @@ class Model(
             self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
             # self.decoder_embed_func = self.decoder.get_input_embeddings() # TODO: what should be used! better inline?
 
+        if using_encoder and using_decoder:
             # Adapter
             adapter_class = load_class_from_path(adapter_class_path)
             self.encoder_decoder_adapter = adapter_class(
@@ -276,13 +277,20 @@ class Model(
 
         if verbose:
             print(" ***** MODEL PARAMETERS *****")
-            if self.encoder is not None:
+            if using_encoder:
                 print(f"Encoder params:", get_model_params(self.encoder))
+            else:
+                print("No encoder!")
+
+            if using_encoder and using_decoder:
+                print(f"Adapter params:", get_model_params(self.encoder_decoder_adapter))
+            else:
+                print("No adapter!")
+
             if using_decoder:
-                if self.encoder_decoder_adapter is not None:
-                    print(f"Adapter params:", get_model_params(self.encoder_decoder_adapter))
-                if self.decoder is not None:
-                    print(f"Decoder params:", get_model_params(self.decoder))
+                print(f"Decoder params:", get_model_params(self.decoder))
+            else:
+                print("No decoder!")
             print(" ***** MODEL PARAMETERS *****")
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:

@@ -25,12 +25,12 @@ def get_training_config(
         unhashed_net_args: Optional[Dict[str, Any]] = None,
         include_native_ops: bool = False,
         debug: bool = False,
-        use_speed_perturbation: bool = False,
         post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
 
+    :param include_native_ops:
     :param training_datasets: datasets for training
     :param network_import_path: path to the pytorch config file containing Model
     :param train_step_module: ????? path to the pytorch config file containing TrainingStep
@@ -40,7 +40,6 @@ def get_training_config(
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :parm include_native_ops: ????
     :param debug: run training in debug mode (linking from recipe instead of copy)
-    :param use_speed_perturbation: Use speed perturbation in the training
     :param post_config: Add non-hashed arguments for RETURNN
     """
 
@@ -72,20 +71,10 @@ def get_training_config(
 
     # RC - PYTHON PROLOG
     python_prolog = None
-    # if use_speed_perturbation:
-    #    from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config #TODO: warning! external import!
-    #    config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
 
     # RC - PYTHON EPILOG
     extern_data = {# TODO: all should be encapsulated, not only data
-        DATA_PARAM_NAME: get_extern_data_data(), # TODO: testing
-        # CLASSES_PARAM_NAME: { # TODO: testing! don't know if needed...
-        #     "dim": training_datasets.datastreams["labels"].vocab_size,
-        #     "sparse": True,
-        #     # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
-        #     # strings. we don't want this to affect the original dictionary object
-        #     "vocab": copy.deepcopy(training_datasets.train.target_options),
-        # },
+        DATA_PARAM_NAME: get_extern_data_data(),
     }
     serializer = serialize_training(
         network_import_path=network_import_path,

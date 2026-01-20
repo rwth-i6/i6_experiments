@@ -1,6 +1,7 @@
+import dataclasses
 from dataclasses import dataclass
 
-from .decoder_config import DecoderConfig, decoder_baseline
+from .decoder_config import DecoderConfig, decoder_base, decoder_small
 from .feature_extraction_config import FeatureExtractionConfig, feature_extraction_baseline
 from ..protocols.has_name_protocol import HasNameProtocol
 
@@ -13,7 +14,7 @@ class NetworkConfig(HasNameProtocol):
     Can contain default values.
     """
 
-    feature_extraction: FeatureExtractionConfig  # TODO: LLM - Probably not needed...
+    feature_extraction: FeatureExtractionConfig  # Needed for model init...
     decoder: DecoderConfig
 
     network_file_name: str
@@ -47,11 +48,15 @@ Specific configurations set below.
 """
 
 
-def network_baseline() -> NetworkConfig:
+def network_base() -> NetworkConfig:
     return NetworkConfig(
         feature_extraction=feature_extraction_baseline(),
-        decoder=decoder_baseline(),
+        decoder=decoder_base(),
         **_MODEL_V2_KWARGS
     )
+
+
+def network_small() -> NetworkConfig:
+    return dataclasses.replace(network_base(), decoder=decoder_small())
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

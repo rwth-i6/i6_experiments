@@ -1,7 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable
-
-from i6_experiments.users.juanola.training.optimizer.optimizer import conformer_aed_weight_decay_blacklist_v2
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -14,7 +12,6 @@ class OptimizerConfig:
 
     epsilon: float = 1e-16
     weight_decay: float = 0.01
-    weight_decay_custom_include_check: Callable = conformer_aed_weight_decay_blacklist_v2
 
     def __post_init__(self):
         """
@@ -35,7 +32,6 @@ class OptimizerConfig:
                 "class": "adamw",
                 "epsilon": self.epsilon,
                 "weight_decay": self.weight_decay,
-                "weight_decay_custom_include_check": self.weight_decay_custom_include_check,
             },
         }
 

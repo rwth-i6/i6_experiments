@@ -62,10 +62,10 @@ Specific configurations set below.
 """
 
 
-def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
+def training_transcript_data(seed: Optional[int] = None) -> TrainingConfig:
     return TrainingConfig(
         epochs=100,
-        partition_epoch_factor=20,
+        partition_epoch_factor=1,  # !!!
         dynamic_lr=lr_baseline(),
         batch_size=15_000,  # !!!
         optimizer=optimizer_baseline(),
@@ -77,8 +77,19 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
     )
 
 
-def training_baseline_test(seed: Optional[int] = None) -> TrainingConfig:
-    return dataclasses.replace(training_baseline(seed=seed),
+def training_lm_data() -> TrainingConfig:
+    return dataclasses.replace(training_transcript_data(),
+                               epochs=5,
+                               partition_epoch_factor=20,
+                               )
+
+
+"""
+Test
+"""
+
+def training_baseline_test() -> TrainingConfig:
+    return dataclasses.replace(training_transcript_data(),
                                epochs=1,
                                batch_size=1_000,
                                gpu_memory=48)

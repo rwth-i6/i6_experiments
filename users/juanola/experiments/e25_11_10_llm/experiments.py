@@ -140,16 +140,16 @@ def llm_ep(
 
         # REPORTING
         # Experiment Report
-        generate_experiment_results_report(exp_results=results, exp_name=training_name)
+        #generate_experiment_results_report(exp_results=results, exp_name=training_name)
 
         # Update Base Report (for all experiment results)
-        tk.register_report(
-            f"{SIS_OUTPUTS_REPORTS}/base_report-{base_exps_name}.{SIS_BASE_REPORT_EXTENSION}",
-            results_per_experiment,
-            # partial(base_report_template_v0, results_per_experiment), # TODO: check the template
-            required=results_per_experiment,
-            update_frequency=900,
-        )
+        #tk.register_report(
+        #    f"{SIS_OUTPUTS_REPORTS}/base_report-{base_exps_name}.{SIS_BASE_REPORT_EXTENSION}",
+        #    results_per_experiment,
+        #    # partial(base_report_template_v0, results_per_experiment), # TODO: check the template
+        #    required=results_per_experiment,
+        #    update_frequency=900,
+        #)
 
     return results_per_experiment
 
@@ -174,7 +174,7 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     )
     decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
-    network_args = label_config | fe_config | decoder_config | unused_but_not_optional_encoder_config
+    network_args = label_config | fe_config | decoder_config | unused_but_not_optional_encoder_config  | {"using_encoder": False}
     return network_args
 
 

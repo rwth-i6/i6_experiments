@@ -65,6 +65,7 @@ def build_lm_training_datasets(
         corpus_file=train_text_file,
         vocab_settings=training_vocab_settings,
         seq_ordering=returnn_settings.train_seq_ordering,
+        partition_epoch=returnn_settings.train_partition_epoch,
     )
 
     cv_dataset = LmDataset(
