@@ -1,16 +1,80 @@
+import glob
+import soundfile
 import math
 import os
+import random
 import shutil
 import subprocess as sp
-from typing import Optional, Type, List, Dict, Any
+from typing import Optional, Type, Dict, Any
 from sisyphus import Job, Task, tk
 import logging
-from .wav2vec_data_utils import get_rvad_root, get_fairseq_root, w2v_manifest
 import i6_core.util as util
 import numpy as np
 import glob
 from sisyphus import tools
 import gc
+
+def w2v_manifest(
+    root,
+    dest,
+    ext,
+    valid_percent,
+    path_must_contain,
+    seed: Optional[int] = 42,
+    name_the_manifests_just_train_and_valid: bool = False,
+    max_n_audios_per_manifest: Optional[int] = None,
+):
+    assert valid_percent >= 0 and valid_percent <= 1.0
+
+    if not os.path.exists(dest):
+        os.makedirs(dest)
+
+    dir_path = os.path.realpath(root)
+    data_corpus = os.path.basename(dir_path.rstrip(os.sep))
+
+    search_path = os.path.join(dir_path, "**/*." + ext)
+    rand = random.Random(seed)
+
+    if name_the_manifests_just_train_and_valid:
+        valid_name = "valid.tsv"
+    else:
+        valid_name = data_corpus + "_valid.tsv"
+
+    valid_f = open(os.path.join(dest, valid_name), "w") if valid_percent > 0 else None
+
+   
+
+    if name_the_manifests_just_train_and_valid:
+        tsv_name = "train.tsv"
+    else:
+        if valid_percent == 0:
+            tsv_name = data_corpus + ".tsv"
+        else:
+            tsv_name = data_corpus + "_train.tsv"
+
+    with open(os.path.join(dest, tsv_name), "w") as train_f:
+        print(dir_path, file=train_f)
+
+        if valid_f is not None:
+            print(dir_path, file=valid_f)
+
+        for fname in glob.iglob(search_path, recursive=True):
+            file_path = os.path.realpath(fname)
+
+            if max_n_audios_per_manifest is not None and max_n_audios_per_manifest <= 0:
+                break
+
+            max_n_audios_per_manifest = max_n_audios_per_manifest - 1 if max_n_audios_per_manifest is not None else None
+
+            if path_must_contain and path_must_contain not in file_path:
+                continue
+
+            frames = soundfile.info(fname).frames
+            dest = train_f if rand.random() >= valid_percent else valid_f
+            print("{}\t{}".format(os.path.relpath(file_path, dir_path), frames), file=dest)
+    if valid_f is not None:
+        valid_f.close()
+
 
 def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root, initial_manifests_dir: Optional[tk.Path] = None, concurrent: int = 8, delete_silence_concurrent: int = None, featurize_audio_concurrent: int = None, layer, model_path, dim:Optional[int] = 512, alias_prefix, alias_delete: str = None, alias_feat : str = None, existing_clusters: Optional[tk.Path] = None, existing_pca: Optional[tk.Path] = None, max_n_audios_per_manifest: Optional[int] = None, name_the_manifests_just_train_and_valid: Optional[bool] = True):
     if alias_delete is None:
@@ -23,6 +87,7 @@ def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root
     if featurize_audio_concurrent is None:
         featurize_audio_concurrent = concurrent
 
+    
     delete_silences_job = Wav2VecUDeleteSilencesInAudioJob(
         environment=env,
         fairseq_root=fairseq_root,
@@ -46,7 +111,6 @@ def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root
         input_audio_manifests=delete_silences_job.out_preprocessed_manifest,
         concurrent=concurrent,
     )
-    print(featurize_job._sis_hash())
     featurize_job.add_alias(os.path.join(alias_prefix, alias_feat))
     return delete_silences_job, featurize_job, delete_silences_job.out_preprocessed_manifest
 
@@ -56,9 +120,7 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
     This includes generating manifests, performing VAD, and removing silence from audio files.
     """
 
-    __sis_hash_exclude__ = {"environment":"/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3", "fairseq_root":"/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq",  "rvad_root":None, "name_the_manifests_just_train_and_valid":True}
-
-    __sis_hash_constant__ = {"concurrent": 8}
+    __sis_hash_exclude__ = {"environment", "fairseq_root", "rvad_root", "extension", "name_the_manifests_just_train_and_valid", "concurrent"}
 
     def __init__(
         self,
@@ -267,15 +329,8 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
         """
         d = {}
         for k, v in parsed_args.items():
-            if k not in cls.__sis_hash_exclude__ or cls.__sis_hash_exclude__[k] != v:
+            if k not in cls.__sis_hash_exclude__:
                 d[k] = v
-
-        for k, org, replacement in cls.__sis_hash_overwrite__:
-            if k in d and d[k] == org:
-                d[k] = replacement
-
-        for k, v in cls.__sis_hash_constant__.items():
-            d[k] = v
 
         if cls.__sis_version__ is None:
             return tools.sis_hash(d)
@@ -290,9 +345,7 @@ class Wav2VecUFeaturizeAudioJob(Job):
     This job prepares audio features by running the `prepare_audio.sh` script.
     """
 
-    __sis_hash_exclude__ = {"environment":"/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3", "fairseq_root":"/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"}
-
-    __sis_hash_constant__ = {"concurrent": 8}
+    __sis_hash_exclude__ = {"environment", "fairseq_root", "concurrent"}
 
     def __init__(
         self,
@@ -621,27 +674,7 @@ class Wav2VecUFeaturizeAudioJob(Job):
                 ],
             )
 
-    # def compute_pca(self):
-    #     """
-    #     Task to compute PCA on the processed features.
-    #     """
-    #     train_split = "train"
-    #     train_split_npy = os.path.join(self.out_features.get_path(), f"{train_split}.npy")
-    #     output_pca_dir = os.path.join(self.out_features.get_path(), "pca")
-    #     script_path = os.path.join(self.fairseq_root.get_path(), "examples/wav2vec/unsupervised/scripts/pca.py")
 
-    #     self.run_python_script(
-    #         script_path,
-    #         [
-    #             train_split_npy,
-    #             "--output",
-    #             output_pca_dir,
-    #             "--dim",
-    #             str(self.dim),
-    #         ],
-    #     )
-
-    
     def compute_pca(self):
         """
         Task to compute PCA on the features of each non-validation split.
@@ -795,15 +828,8 @@ class Wav2VecUFeaturizeAudioJob(Job):
         """
         d = {}
         for k, v in parsed_args.items():
-            if k not in cls.__sis_hash_exclude__ or cls.__sis_hash_exclude__[k] != v:
+            if k not in cls.__sis_hash_exclude__:
                 d[k] = v
-
-        for k, org, replacement in cls.__sis_hash_overwrite__:
-            if k in d and d[k] == org:
-                d[k] = replacement
-
-        for k, v in cls.__sis_hash_constant__.items():
-            d[k] = v
 
         if cls.__sis_version__ is None:
             return tools.sis_hash(d)
