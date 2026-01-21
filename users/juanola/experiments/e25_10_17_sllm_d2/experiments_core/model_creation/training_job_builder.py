@@ -11,6 +11,7 @@ from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_helpers import get_training_config
 from ...configurations.pipeline.training_config import TrainingConfig
+from ...configurations.pretrained_models import PretrainedConfig, get_encoder_checkpoint, get_decoder_checkpoint
 
 
 def create_training_job(training_name: str,
@@ -24,6 +25,7 @@ def create_training_job(training_name: str,
                         train_epochs: int,
 
                         training_config: TrainingConfig,
+                        pretrained_config: PretrainedConfig,
 
                         returnn_root: tk.Path) -> ReturnnTrainingJob:
     """
@@ -36,7 +38,7 @@ def create_training_job(training_name: str,
     :param returnn_root: Path to a checked out RETURNN repository
     """
     train_args, training_rqmt = get_training_parameters(network_args, network_import_path,
-                                                        returnn_root, train_epochs, train_step_module, batch_size, training_config)
+                                                        returnn_root, train_epochs, train_step_module, batch_size, training_config, pretrained_config)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
 
@@ -46,7 +48,7 @@ def create_training_job(training_name: str,
 
 
 def get_training_parameters(network_args: dict[str, Any], network_import_path: str,
-                            returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int, train_config_obj: TrainingConfig) -> tuple[
+                            returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int, train_config_obj: TrainingConfig, pretrained_config: PretrainedConfig) -> tuple[
     dict[str, Any], dict[str, Any]]:
     train_config = { # TODO: lots of settings could be moved to configs.
         **train_config_obj.optimizer.get_optimizer_returnn_config(),
@@ -65,6 +67,23 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         train_config["grad_scaler"] = train_config_obj.grad_scaler
     if train_config_obj.random_seed is not None:
         train_config["random_seed"] = train_config_obj.random_seed
+
+    if pretrained_config.pretrained_encoder is not None or pretrained_config.pretrained_decoder is not None:
+        preload_from_files = {}
+        if pretrained_config.pretrained_encoder is not None:
+            preload_from_files["ENCODER"] = {
+                "filename": get_encoder_checkpoint(pretrained_config),
+                "init_for_train": True,
+                "ignore_missing": True,
+            }
+        if pretrained_config.pretrained_decoder is not None:
+            preload_from_files["DECODER"] = {
+                "filename": get_decoder_checkpoint(pretrained_config),
+                "init_for_train": True,
+                "ignore_missing": True,
+            }
+        train_config["preload_from_files"] = preload_from_files
+
 
 
     train_args = {  # Params for the get_training_config() method #TODO needed this way?

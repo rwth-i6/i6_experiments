@@ -254,7 +254,8 @@ def tune_and_evaluate_model(
             for prior_scale in search_config.prior_scales:
                 for ctc_scale in search_config.ctc_scales:
                     forward_args, search_name = get_forward_step_parameters_and_search_name(
-                        forward_method, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale)
+                        forward_method, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale
+                    )
 
                     _, wers = search(
                         search_name,
@@ -281,14 +282,19 @@ def tune_and_evaluate_model(
                 parameters=tune_parameters, values=tune_values, mode="minimize"
             )
             # pick_optimal_params_job.add_alias(f"{evaluation_name}/pick_best_{key}")
+            best_params = pick_optimal_params_job.out_optimal_parameters
 
             forward_args, search_name = get_forward_step_parameters_and_search_name(
-                forward_method, evaluation_name, pick_optimal_params_job.out_optimal_parameters[0],
-                pick_optimal_params_job.out_optimal_parameters[1], pick_optimal_params_job.out_optimal_parameters[2],
-                pick_optimal_params_job.out_optimal_parameters[3],)
+                forward_method,
+                evaluation_name,
+                best_params[0],
+                best_params[1],
+                best_params[2],
+                best_params[3],
+            )
 
             _, wers = search(
-                search_name, # !!! now test are stored inside some param folder (to enable multiple searches for exp)
+                search_name,  # !!! now tests are stored inside some param folder (to enable multiple searches for exp)
                 search_config,
                 asr_model=asr_model,
                 forward_module=RECOGNITION_PACKAGE,
@@ -303,11 +309,11 @@ def tune_and_evaluate_model(
 
     return results
 
-def get_forward_step_parameters_and_search_name(forward_method: str, evaluation_name: str,
-                                                beam_size: int,
-                                                lm_scale: float,
-                                                prior_scale: float,
-                                                ctc_scale: float) -> tuple[dict[str, Any], str]:
+
+def get_forward_step_parameters_and_search_name(
+    forward_method: str, evaluation_name: str, beam_size: int, lm_scale: float, prior_scale: float, ctc_scale: float
+) -> tuple[dict[str, Any], str]:
+    assert beam_size is not None, "beam_size must be set for test datasets forward pass"
     if forward_method is None or forward_method == "forward_step":
         forward_args = {
             "beam_size": beam_size,

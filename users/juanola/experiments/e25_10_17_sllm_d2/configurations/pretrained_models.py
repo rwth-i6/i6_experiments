@@ -1,0 +1,68 @@
+from dataclasses import dataclass
+
+from i6_core.returnn import PtCheckpoint
+from sisyphus import Path
+
+
+@dataclass(frozen=True)
+class PretrainedConfig:
+    """
+    Encoder configuration base dataclass.
+
+    Can contain default values.
+    """
+
+    pretrained_encoder: str = None
+    pretrained_decoder: str = None
+
+"""
+Checkpoints
+"""
+
+_encoder_checkpoints = {
+    "ctc_v1": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_13_ctc/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt"
+    # More here
+}
+
+_decoder_checkpoints = {
+    "llm_base_transcriptions": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.CNLGypuo4I0A/output/models/epoch.100.pt",
+    "llm_base_combined": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.YRfhVjefAJao/output/models/epoch.100.pt",
+    "llm_small_transcriptions": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.xqzaOV0eAJSt/output/models/epoch.100.pt",
+    "llm_small_combined": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.erL8ScQicX6D/output/models/epoch.100.pt",
+    # More here
+}
+
+def get_encoder_checkpoint(pretrained_config: PretrainedConfig):
+    model_name = pretrained_config.pretrained_encoder
+    if model_name is None:
+        raise ValueError("No encoder checkpoint specified.")
+    if model_name not in _encoder_checkpoints:
+        raise ValueError(f"Model '{model_name}' not found in encoder checkpoints.")
+    return PtCheckpoint(Path(_encoder_checkpoints[model_name]))
+
+def get_decoder_checkpoint(pretrained_config: PretrainedConfig):
+    model_name = pretrained_config.pretrained_decoder
+    if model_name is None:
+        raise ValueError("No encoder checkpoint specified.")
+    if model_name not in _decoder_checkpoints:
+        raise ValueError(f"Model '{model_name}' not found in decoder checkpoints.")
+    return PtCheckpoint(Path(_decoder_checkpoints[model_name]))
+
+"""
+Specific configurations set below.
+"""
+
+
+def no_pretrained() -> PretrainedConfig:
+    return PretrainedConfig()
+
+
+def dec_base_transcriptions() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_decoder="llm_base_transcriptions")
+
+
+def enc_dec_base_transcriptions() -> PretrainedConfig:
+    return PretrainedConfig(
+        pretrained_encoder="ctc_v1",
+        pretrained_decoder="llm_base_transcriptions",
+    )

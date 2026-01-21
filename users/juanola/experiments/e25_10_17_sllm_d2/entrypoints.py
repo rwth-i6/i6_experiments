@@ -39,6 +39,9 @@ def main():
     e3v8_2()
     e3v7_2()
 
+    e3_pre1()
+    e3_pre2()
+
 
 """
 Experiments entry points
@@ -50,14 +53,14 @@ def e3():
 
 
 def e3_itc():
-    ex3.sllm_ep([ExperimentVersion.V1_BASELINE])  #, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V1_BASELINE])  # , itc_training=True)
 
 
 # ++++
 
 
 def e3_d():
-    ex3.sllm_ep([ExperimentVersion.V2_DROPOUT])  #, itc_training=False)
+    ex3.sllm_ep([ExperimentVersion.V2_DROPOUT])  # , itc_training=False)
 
 
 def e3_td():
@@ -69,15 +72,15 @@ def e3_td():
 
 
 def e3v4():
-    ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER])  #, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER])  # , itc_training=True)
 
 
 def e3v5():
-    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER])  #, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER])  # , itc_training=True)
 
 
 def e3v6():
-    ex3.sllm_ep([ExperimentVersion.V6_SMALL_DECODER_150kBS])  #, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V6_SMALL_DECODER_150kBS])  # , itc_training=True)
 
 
 # ++++
@@ -148,19 +151,30 @@ def e3v7_2():
     ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200], itc_training=True)
 
 
+# ++++
+
+
+def e3_pre1():
+    ex3.sllm_ep([ExperimentVersion.SLLM_LINEAR_ADAPTER_PRE_D_T], itc_training=True)
+
+
+def e3_pre2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_LINEAR_ADAPTER_PRE_ED_T], itc_training=True)
+
+
 """
 SPECIAL
 """
 
 
 def v2_decoding():
-    #e3()
-    #e3_itc()
+    # e3()
+    # e3_itc()
 
     # e3_d()
     # e3_td()
 
-    #e3v4()
+    # e3v4()
     e3v5()
     e3v6()
 
@@ -254,4 +268,6 @@ __all__ = [
     "e3v2_s2",
     "e3v8_2",
     "e3v7_2",
+    "e3_pre1",
+    "e3_pre2",
 ]

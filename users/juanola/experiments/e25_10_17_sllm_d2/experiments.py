@@ -102,6 +102,7 @@ def sllm_ep(
             train_step_module,
             partition_epochs,
             exp_config.training,
+            exp_config.pretrained,
             returnn_root=RETURNN_ROOT,
         )
         train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
