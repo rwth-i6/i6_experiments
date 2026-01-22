@@ -3,9 +3,10 @@ Job/code for scale tuning
 """
 
 from __future__ import annotations
+
 from typing import Optional, Dict, Set
 import subprocess
-
+import sys
 import os
 from sisyphus import Job, Task, tk
 import i6_core.util as util
@@ -105,6 +106,7 @@ class ScaleTuningJob(Job):
             f.write("\n")
 
         print("$", " ".join(cmd))
+        sys.stdout.flush()
         subprocess.check_call(cmd)
 
         assert os.path.exists(self.out_scales.get_path())
