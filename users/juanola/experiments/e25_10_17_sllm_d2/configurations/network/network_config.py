@@ -83,8 +83,9 @@ def network_baseline() -> NetworkConfig:
         encoder=encoder_baseline(),
         adapter=linear_adapter_with_downsampling(),
         decoder=decoder_baseline(),
-        **_MODEL_V1_KWARGS
+        **_MODEL_V1_KWARGS,
     )
+
 
 def network_baseline_v2() -> NetworkConfig:
     return replace(network_baseline(), **_MODEL_V2_KWARGS)
@@ -111,6 +112,13 @@ def network_SLLM_tuned_dropout_v2() -> NetworkConfig:
     return replace(network_baseline(), decoder=decoder_dropout_tuned_v2())
 
 
+def network_baseline_v2_td() -> NetworkConfig:
+    return replace(network_baseline_v2(), decoder=decoder_dropout_tuned_v2())
+
+def network_baseline_v2_td_linear() -> NetworkConfig:
+    return replace(network_baseline_v2(), adapter=linear_adapter(), decoder=decoder_dropout_tuned_v2())
+
+
 """
 small decoders
 """
@@ -122,6 +130,7 @@ def network_SLLM_small_decoder_td() -> NetworkConfig:
 
 def network_small_linear_adapter() -> NetworkConfig:
     return replace(network_SLLM_small_decoder_td(), adapter=linear_adapter())
+
 
 def network_linear_adapter() -> NetworkConfig:
     return replace(network_SLLM_tuned_dropout_v2(), adapter=linear_adapter())

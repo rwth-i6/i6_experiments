@@ -20,6 +20,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_linear_adapter,
     network_SLLM_tuned,
     network_baseline_v2,
+    network_baseline_v2_td,
+    network_baseline_v2_td_linear,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
@@ -53,6 +55,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     no_pretrained,
     dec_base_transcriptions,
     enc_dec_base_transcriptions,
+    dec_small_combined,
 )
 
 
@@ -137,7 +140,7 @@ def exp_v7() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_tuned_dropout_v2(),  # !!
         training=itc_batch_size_80k(),
-        search=[search_baseline_v2()], #[search_baseline(), search_baseline_v2()], # OLD search removed from v7
+        search=[search_baseline_v2()],  # [search_baseline(), search_baseline_v2()], # OLD search removed from v7
     )
 
 
@@ -217,12 +220,44 @@ def exp_v7_200() -> ExperimentConfig:
     return replace(exp_v7(), training=itc_batch_size_80k_200_epochs())
 
 
-def pre_d_t_linear_adapter() -> ExperimentConfig:
-    return replace(exp_v13(), pretrained=dec_base_transcriptions())
+"""
+MODEL V2
+"""
 
 
-def pre_ed_t_linear_adapter() -> ExperimentConfig:
-    return replace(exp_v13(), pretrained=enc_dec_base_transcriptions())
+def model_v2_baseline() -> ExperimentConfig:
+    """
+    <ul>
+        <li>Model V2</li>
+        <li>Forward step 2</li>
+        <li>Dropout + v2 params</li>
+        <li>no downsampling / linear adapter</li>
+    </ul>
+    """
+    return ExperimentConfig(
+        dataset=dataset_baseline(),
+        labels=label_baseline(),
+        network=network_baseline_v2_td_linear(),  # !!
+        training=itc_batch_size_80k(),
+        search=[search_baseline_v2()],  # !!
+    )
+
+
+"""
+Pretrained models
+"""
+
+
+def bv2_pre_d_b_t() -> ExperimentConfig:
+    return replace(model_v2_baseline(), pretrained=dec_base_transcriptions())
+
+
+def bv2_pre_ed_b_t() -> ExperimentConfig:
+    return replace(model_v2_baseline(), pretrained=enc_dec_base_transcriptions())
+
+
+def bv2_pre_s_c() -> ExperimentConfig:
+    return replace(model_v2_baseline(), pretrained=dec_small_combined())
 
 
 """

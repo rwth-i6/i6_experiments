@@ -20,15 +20,15 @@ Checkpoints
 """
 
 _encoder_checkpoints = {
-    "ctc_v1": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_13_ctc/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt"
+    "ctc_v1": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt"
     # More here
 }
 
 _decoder_checkpoints = {
-    "llm_base_transcriptions": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.CNLGypuo4I0A/output/models/epoch.100.pt",
-    "llm_base_combined": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.YRfhVjefAJao/output/models/epoch.100.pt",
-    "llm_small_transcriptions": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.xqzaOV0eAJSt/output/models/epoch.100.pt",
-    "llm_small_combined": "/work/smt4/marti.juanola/sisyphus_work_dirs/25_11_10_llm/i6_core/returnn/training/ReturnnTrainingJob.erL8ScQicX6D/output/models/epoch.100.pt",
+    "llm_base_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.CNLGypuo4I0A/output/models/epoch.100.pt",
+    "llm_base_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.YRfhVjefAJao/output/models/epoch.100.pt",
+    "llm_small_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.xqzaOV0eAJSt/output/models/epoch.100.pt",
+    "llm_small_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.erL8ScQicX6D/output/models/epoch.100.pt",
     # More here
 }
 
@@ -59,6 +59,9 @@ def no_pretrained() -> PretrainedConfig:
 
 def dec_base_transcriptions() -> PretrainedConfig:
     return PretrainedConfig(pretrained_decoder="llm_base_transcriptions")
+
+def dec_small_combined() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_decoder="llm_small_combined")
 
 
 def enc_dec_base_transcriptions() -> PretrainedConfig:
