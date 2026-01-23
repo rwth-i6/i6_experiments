@@ -16,7 +16,7 @@ class ExperimentVersion(Enum):
     V3_TUNED = "SLLM_tuned_dropout"
 
     V4_SMALL_DECODER = "SLLM_small_decoder"
-    V5_LINEAR_ADAPTER = "SLLM_linear_adapter"
+    V5_LINEAR_ADAPTER = "SLLM_small_linear_adapter"
     V6_SMALL_DECODER_150kBS = "SLLM_small_decoder_150kBS"
 
     #V7_TUNED_DROPOUT = "SLLM_tuned_dropout_v2" # Use the CTC one

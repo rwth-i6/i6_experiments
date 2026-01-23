@@ -288,6 +288,7 @@ def tune_and_evaluate_model(
             # pick_optimal_params_job.add_alias(f"{evaluation_name}/pick_best_{key}")
             best_params = pick_optimal_params_job.out_optimal_parameters
 
+            # TODO: the paths is calculated before the job is run, serach_name is set with None... not goodq
             forward_args, search_name = get_forward_step_parameters_and_search_name(
                 forward_method,
                 evaluation_name,
@@ -296,6 +297,7 @@ def tune_and_evaluate_model(
                 best_params[2],
                 best_params[3],
             )
+
 
             _, wers = search(
                 search_name,  # !!! now tests are stored inside some param folder (to enable multiple searches for exp)

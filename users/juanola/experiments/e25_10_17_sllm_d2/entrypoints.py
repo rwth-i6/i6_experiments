@@ -168,13 +168,11 @@ SPECIAL
 
 
 def v2_decoding():
-    # e3()
-    # e3_itc()
+    # e3() # TODO: old commit
+    # e3_d() # Diverged
+    # e3_td() # BUG
 
-    # e3_d()
-    # e3_td()
-
-    # e3v4()
+    # e3v4() # Diverged
     e3v5()
     e3v6()
 
@@ -184,15 +182,15 @@ def v2_decoding():
     e3v9()
     e3v10()
     e3v10_2()
-    # e3v10_3() # TODO: running - do it later
+    e3v10_3()
 
     e3v11()
     e3v12()
-    # e3v3_2()
+    # e3v3_2() # Diverged
     e3v13()
-    # e3v2_s2()
+    # e3v2_s2() # Diverged
     e3v8_2()
-    # e3v7_2() # TODO: running - do it later
+    e3v7_2()
 
 
 """
