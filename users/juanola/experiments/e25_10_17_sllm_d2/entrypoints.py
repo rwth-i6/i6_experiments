@@ -148,7 +148,7 @@ def e3v8_2():
 
 
 def e3v7_2():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200])#, itc_training=True)
 
 
 # ++++

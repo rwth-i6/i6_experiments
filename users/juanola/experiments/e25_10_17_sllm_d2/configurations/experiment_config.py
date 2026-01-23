@@ -137,7 +137,7 @@ def exp_v7() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_tuned_dropout_v2(),  # !!
         training=itc_batch_size_80k(),
-        search=[search_baseline(), search_baseline_v2()],
+        search=[search_baseline_v2()], #[search_baseline(), search_baseline_v2()], # OLD search removed from v7
     )
 
 

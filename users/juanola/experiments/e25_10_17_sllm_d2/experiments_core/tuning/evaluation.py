@@ -37,6 +37,7 @@ def create_tune_and_evaluate_jobs(
     run_best_4: bool = True,
     run_best: bool = True,
     run_test: bool = False,
+    run_test_in_intermediate_epochs: bool = False,
     prior_args: Optional[Dict[str, Any]] = None,  # TODO: ???
 ) -> Dict[str, Any]:
     """
@@ -47,25 +48,28 @@ def create_tune_and_evaluate_jobs(
     if specific_epochs is None:
         specific_epochs = train_job.returnn_config.post_config["num_epochs"]
 
+    highest_epoch = max(specific_epochs)
+
     # Dict of all train_evals to perform (could be extended)
     checkpoint_per_evaluation = OrderedDict()
     for epoch in specific_epochs:
         evaluation_name = f"{training_name}/{epoch}"
-        checkpoint_per_evaluation[evaluation_name] = get_specific_checkpoint(evaluation_name, train_job, epoch)
+        run_test_on_epoch = epoch == highest_epoch or run_test_in_intermediate_epochs
+        checkpoint_per_evaluation[evaluation_name] = *get_specific_checkpoint(evaluation_name, train_job, epoch), run_test_on_epoch
     if run_best_4:
         evaluation_name = f"{training_name}/best4"
-        checkpoint_per_evaluation[evaluation_name] = get_best_averaged_checkpoint(
-            evaluation_name, train_job, 4, search_config.avg_best_loss_name
-        )
+        checkpoint_per_evaluation[evaluation_name] = *get_best_averaged_checkpoint(evaluation_name, train_job, 4, search_config.avg_best_loss_name), True
+
     if run_best:
         evaluation_name = f"{training_name}/best"
-        checkpoint_per_evaluation[evaluation_name] = get_best_averaged_checkpoint(
-            evaluation_name, train_job, 1, search_config.avg_best_loss_name
+        checkpoint_per_evaluation[evaluation_name] = (
+            *get_best_averaged_checkpoint(evaluation_name, train_job, 1, search_config.avg_best_loss_name),
+            True,
         )
 
     # Tune & Eval different models
     result_dict = {}
-    for evaluation_name, (checkpoint, checkpoint_name) in checkpoint_per_evaluation.items():
+    for evaluation_name, (checkpoint, checkpoint_name, run_test_for_eval) in checkpoint_per_evaluation.items():
         asr_model = prepare_asr_model(
             checkpoint_name,
             checkpoint,
@@ -83,7 +87,7 @@ def create_tune_and_evaluate_jobs(
             dev_dataset_tuples=dev_dataset_tuples,
             forward_method=search_config.forward_method,
             debug=search_config.debug_returnn_param,
-            run_test=run_test,
+            run_test=run_test and run_test_for_eval,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
         )
