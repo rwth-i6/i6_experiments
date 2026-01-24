@@ -21,7 +21,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_SLLM_tuned,
     network_baseline_v2,
     network_baseline_v2_td,
-    network_baseline_v2_td_linear,
+    network_baseline_v2_td_linear, network_baseline_v2_td_linear_small,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
@@ -242,6 +242,9 @@ def model_v2_baseline() -> ExperimentConfig:
         search=[search_baseline_v2()],  # !!
     )
 
+def model_v2_small_baseline() -> ExperimentConfig:
+    return replace(model_v2_baseline(), network=network_baseline_v2_td_linear_small())
+
 
 """
 Pretrained models
@@ -257,7 +260,7 @@ def bv2_pre_ed_b_t() -> ExperimentConfig:
 
 
 def bv2_pre_s_c() -> ExperimentConfig:
-    return replace(model_v2_baseline(), pretrained=dec_small_combined())
+    return replace(model_v2_small_baseline(), pretrained=dec_small_combined())
 
 
 """

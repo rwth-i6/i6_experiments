@@ -167,8 +167,6 @@ def e3_pre2():
 def e3_pre3():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C], itc_training=True)
 
-def e3_pre4():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C], itc_training=True)
 
 
 """

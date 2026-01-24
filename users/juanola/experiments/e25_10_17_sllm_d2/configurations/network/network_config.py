@@ -115,6 +115,7 @@ def network_SLLM_tuned_dropout_v2() -> NetworkConfig:
 def network_baseline_v2_td() -> NetworkConfig:
     return replace(network_baseline_v2(), decoder=decoder_dropout_tuned_v2())
 
+
 def network_baseline_v2_td_linear() -> NetworkConfig:
     return replace(network_baseline_v2(), adapter=linear_adapter(), decoder=decoder_dropout_tuned_v2())
 
@@ -134,6 +135,10 @@ def network_small_linear_adapter() -> NetworkConfig:
 
 def network_linear_adapter() -> NetworkConfig:
     return replace(network_SLLM_tuned_dropout_v2(), adapter=linear_adapter())
+
+
+def network_baseline_v2_td_linear_small() -> NetworkConfig:
+    return replace(network_baseline_v2(), adapter=linear_adapter(), decoder=small_decoder_td())
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
