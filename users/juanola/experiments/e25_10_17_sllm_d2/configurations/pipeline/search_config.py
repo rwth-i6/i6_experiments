@@ -135,9 +135,9 @@ def search_baseline_v2() -> SearchConfig:
         gpu_memory=11,
         beam_search=beam_search_baseline(),
         prior=prior_v1(),
-        lm_scales=[0.0],
-        prior_scales=[0.0],
-        ctc_scales=[0.0],
+        lm_scales=[None],  # Not used!
+        prior_scales=[None],  # Not used!
+        ctc_scales=[None],  # Not used!
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )

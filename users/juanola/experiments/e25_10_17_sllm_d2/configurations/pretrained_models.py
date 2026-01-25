@@ -15,6 +15,7 @@ class PretrainedConfig:
     pretrained_encoder: str = None
     pretrained_decoder: str = None
 
+
 """
 Checkpoints
 """
@@ -32,6 +33,7 @@ _decoder_checkpoints = {
     # More here
 }
 
+
 def get_encoder_checkpoint(pretrained_config: PretrainedConfig):
     model_name = pretrained_config.pretrained_encoder
     if model_name is None:
@@ -40,6 +42,7 @@ def get_encoder_checkpoint(pretrained_config: PretrainedConfig):
         raise ValueError(f"Model '{model_name}' not found in encoder checkpoints.")
     return PtCheckpoint(Path(_encoder_checkpoints[model_name]))
 
+
 def get_decoder_checkpoint(pretrained_config: PretrainedConfig):
     model_name = pretrained_config.pretrained_decoder
     if model_name is None:
@@ -47,6 +50,7 @@ def get_decoder_checkpoint(pretrained_config: PretrainedConfig):
     if model_name not in _decoder_checkpoints:
         raise ValueError(f"Model '{model_name}' not found in decoder checkpoints.")
     return PtCheckpoint(Path(_decoder_checkpoints[model_name]))
+
 
 """
 Specific configurations set below.
@@ -60,8 +64,21 @@ def no_pretrained() -> PretrainedConfig:
 def dec_base_transcriptions() -> PretrainedConfig:
     return PretrainedConfig(pretrained_decoder="llm_base_transcriptions")
 
+
+def dec_base_combined() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_decoder="llm_base_combined")
+
+
 def dec_small_combined() -> PretrainedConfig:
     return PretrainedConfig(pretrained_decoder="llm_small_combined")
+
+
+def enc_dec_base_combined() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_encoder="ctc_v1", pretrained_decoder="llm_base_combined")
+
+
+def enc_dec_small_combined() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_encoder="ctc_v1", pretrained_decoder="llm_small_combined")
 
 
 def enc_dec_base_transcriptions() -> PretrainedConfig:

@@ -157,16 +157,33 @@ def e3v7_2():
 
 
 def e3_pre1():
+    """
+    Not used
+    """
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_T], itc_training=True)
 
 
 def e3_pre2():
+    """
+    Not used
+    """
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_T], itc_training=True)
 
 
 def e3_pre3():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C], itc_training=True, run_only_last=False)
 
+
+def e3_pre4():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C], itc_training=True)
+
+
+def e3_pre5():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C], itc_training=True)
+
+
+def e3_pre6():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_C], itc_training=True)
 
 
 """
