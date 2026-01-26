@@ -32,10 +32,3 @@ class PerplexityCallback(ForwardCallbackIface):
         sw_ppl = torch.exp(val_loss)
         with open("sw_ppl", "wt") as f:
             f.write(f"{sw_ppl:.1f}\n")
-
-        # Word-level perplexity file
-        n_subwords = 1  # TODO: if not known do this in another job...!!!
-        n_words = 1  # TODO: !!!
-        wl_ppl = sw_ppl ** (n_subwords / n_words)
-        with open("wl_ppl", "wt") as f:
-            f.write(f"TODO!!!\n{wl_ppl:.1f}\n")

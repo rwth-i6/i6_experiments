@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from typing import Optional, Dict, Any, Iterable
-
+from sisyphus import tk
 from sisyphus import job_path
 
 from i6_core.returnn.training import (
@@ -29,13 +29,13 @@ def create_tune_and_evaluate_jobs(
         net_args: dict[str, Any],
         search_config: SearchConfig,
         train_data: TrainingDatasets,
+        spm_model: tk.Path,
         dev_dataset_tuples: Dict[str, Any],
         test_dataset_tuples: Optional[Dict[str, Any]] = None,
         specific_epochs: Optional[Iterable[int]] = None,
         run_best_4: bool = True,
         run_best: bool = True,
         run_test: bool = False,
-        prior_args: Optional[Dict[str, Any]] = None,  # TODO: ???
 ) -> Dict[str, Any]:
     """
     Run evaluation jobs for different trained models
@@ -75,6 +75,7 @@ def create_tune_and_evaluate_jobs(
             evaluation_name,
             asr_model,
             search_config,
+            spm_model=spm_model,
             dev_dataset_tuples=dev_dataset_tuples,
             forward_method=search_config.forward_method,
             debug=search_config.debug_returnn_param,
@@ -118,6 +119,7 @@ def calculate_perplexity(
         search_config: SearchConfig,
         dev_dataset_tuples: Dict[str, Any],
         vocab_opts: Dict,
+        spm_model: tk.Path,
         test_dataset_tuples: Optional[Dict[str, Any]] = None,
         forward_method: Optional[str] = None,
         debug: bool = False,
@@ -148,6 +150,7 @@ def calculate_perplexity(
         debug=debug,
         vocab_opts=vocab_opts,
         forward_args=forward_args,
+        spm_model=spm_model,
         **default_returnn,
     )
 
@@ -164,6 +167,7 @@ def calculate_perplexity(
                 vocab_opts=vocab_opts,
                 debug=debug,
                 forward_args=forward_args,
+                spm_model=spm_model,
                 **default_returnn,
             )
 

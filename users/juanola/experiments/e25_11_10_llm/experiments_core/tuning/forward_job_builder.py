@@ -16,7 +16,11 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
+from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.users.juanola.data.lm_dataset import LmDataset
+from i6_experiments.users.juanola.sisyphus_jobs.lm.ComputeWordLevelPerplexityJob import ComputeWordLevelPerplexityJob
+from i6_experiments.users.juanola.sisyphus_jobs.vocab.GetSubwordRatioJob import GetSubwordRatioJob
 from ..model_creation.returnn_config_helpers import get_forward_config
 from ..tuning.asr_model import ASRModel
 from ...configurations.pipeline.search_config import SearchConfig
@@ -71,6 +75,7 @@ def compute_ppl(
         test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
+        spm_model: tk.Path,
         vocab_opts: Dict,
         forward_args: Optional[Dict[str, Any]] = None,
         debug: bool = False,
@@ -123,6 +128,7 @@ def compute_ppl(
             test_dataset,
             returnn_exe,
             returnn_root,
+            spm_model=spm_model,
             use_gpu=search_config.use_gpu,
             search_gpu_memory=search_config.gpu_memory,
         )
@@ -135,9 +141,10 @@ def compute_ppl_single(
         prefix_name: str,
         returnn_config: ReturnnConfig,
         checkpoint: tk.Path,
-        recognition_dataset: Dataset,
+        recognition_dataset: LmDataset,
         returnn_exe: tk.Path,
         returnn_root: tk.Path,
+        spm_model: tk.Path,
         mem_rqmt: float = 12,
         use_gpu: bool = False,
         search_gpu_memory: int = 11,
@@ -162,8 +169,6 @@ def compute_ppl_single(
     :param use_gpu: if to do GPU decoding
     :param search_gpu_memory:
     """
-    # TODO: RETURNN fails because of extern_data key (has orth, expects data)...
-
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()  # TODO: change this!!!
 
@@ -177,11 +182,19 @@ def compute_ppl_single(
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["val_loss", "sw_ppl", "wl_ppl"],
+        output_files=["val_loss", "sw_ppl"],
     )
     ppl_job.add_alias(f"{prefix_name}/ppl_job")
     tk.register_output(f"{prefix_name}/val_loss", ppl_job.out_files["val_loss"])
     tk.register_output(f"{prefix_name}/sw_ppl", ppl_job.out_files["sw_ppl"])
-    tk.register_output(f"{prefix_name}/wl_ppl", ppl_job.out_files["wl_ppl"])
 
-    return ppl_job  # TODO: return something meaningfull?
+    ratio_job = GetSubwordRatioJob(
+        text_file=recognition_dataset.corpus_file,
+        spm_model=spm_model,
+    )
+    tk.register_output(f"{prefix_name}/sw_ratio", ratio_job.out_ratio)
+
+    wl_ppl_job = ComputeWordLevelPerplexityJob(sw_ppl_file=ppl_job.out_files["sw_ppl"], exponent=ratio_job.out_ratio)
+    tk.register_output(f"{prefix_name}/wl_ppl", wl_ppl_job.out_ppl)
+
+    return ppl_job

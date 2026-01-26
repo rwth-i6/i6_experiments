@@ -67,7 +67,7 @@ def llm_ep(
             pass
 
         # INITIALIZE DATASET
-        training_datasets, dev_dataset_tuples, test_dataset_tuples = create_llm_datasets_jobs(
+        training_datasets, dev_dataset_tuples, test_dataset_tuples, spm_model = create_llm_datasets_jobs(
             experiment_path, exp_config.dataset, exp_config.labels, partition_epoch_factor
         )
 
@@ -133,6 +133,7 @@ def llm_ep(
             run_test=run_test,
             run_best=run_best,
             run_best_4=run_best_4,
+            spm_model=spm_model,
         )
         results_per_experiment[exp_name] = results
 
@@ -179,7 +180,7 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
 
 def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, label_config: LabelConfig,
                              partition_epoch_factor: int) -> \
-        tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
+        tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]], tk.Path]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
     :param partition_epoch_factor:
@@ -195,7 +196,7 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         train_seq_ordering=dataset_config.train_seq_ordering,
     )
 
-    training_datasets: TrainingDatasets = build_spm_lm_training_datasets(
+    training_datasets, label_datastream = build_spm_lm_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
         return_settings=train_dataset_settings,
@@ -209,8 +210,7 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         dev_dataset_tuples[dev_set] = build_lm_test_dataset(
             dataset_key=dev_set,
             settings=train_dataset_settings,
-            vocab_size=label_config.vocab_size,
-            dataset_config=dataset_config,
+            label_datastream=label_datastream
         )
 
     test_dataset_tuples = {}
@@ -218,7 +218,6 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         test_dataset_tuples[test_set] = build_lm_test_dataset(
             dataset_key=test_set,
             settings=train_dataset_settings,
-            vocab_size=label_config.vocab_size,
-            dataset_config=dataset_config,
+            label_datastream=label_datastream
         )
-    return training_datasets, dev_dataset_tuples, test_dataset_tuples,
+    return training_datasets, dev_dataset_tuples, test_dataset_tuples, label_datastream.spm_model

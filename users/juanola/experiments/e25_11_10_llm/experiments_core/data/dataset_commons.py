@@ -10,7 +10,7 @@ from i6_core.corpus import CorpusToTxtJob
 from i6_core.text import TakeNRandomLinesJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
-from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream, SentencePieceDatastream
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.data.lm_dataset import LmDataset
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
@@ -97,8 +97,7 @@ def build_lm_training_datasets(
 def build_lm_test_dataset(
         dataset_key: str,
         settings: ReturnnDatasetSettings,
-        vocab_size,
-        dataset_config: DatasetConfig
+        label_datastream: SentencePieceDatastream
 ) -> Tuple[Dataset, Optional[tk.Path]]:
     """
     Create ASR test set that only contains the audio stream
@@ -107,9 +106,6 @@ def build_lm_test_dataset(
     :param settings: settings object for the RETURNN data pipeline
     :return: tuple of the test dataset and a path to the corresponding bliss corpus file
     """
-    label_datastream = get_librispeech_spm_datastream(
-        vocab_size, dataset_config.use_train_corpus_text, dataset_config.use_normalized_lm_data
-    )
     vocab_settings = label_datastream.as_returnn_targets_opts()
     vocab_settings.pop("add_eos", None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
 

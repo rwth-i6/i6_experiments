@@ -1,10 +1,11 @@
 """
 Dataset helpers for the SPM-based training
 """
-from typing import Optional
+from typing import Optional, Tuple
 
 from sisyphus import tk
 
+from i6_experiments.common.setups.returnn.datastreams.vocabulary import SentencePieceDatastream
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .dataset_commons import build_lm_training_datasets
@@ -25,7 +26,7 @@ def build_spm_lm_training_datasets(
         return_settings: ReturnnDatasetSettings,
         dataset_config: DatasetConfig,
         returnn_root: tk.Path = RETURNN_ROOT,
-) -> TrainingDatasets:
+) -> Tuple[TrainingDatasets, SentencePieceDatastream]:
     """
     Builds the training datasets for the SPM-based training - For LM.
     """
@@ -55,4 +56,4 @@ def build_spm_lm_training_datasets(
         dev_train_lines=dataset_config.devtrain_n_lines
     )
 
-    return training_datasets
+    return training_datasets, label_datastream
