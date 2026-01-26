@@ -201,7 +201,9 @@ def text_augment_unpaired(
                 ins_choices,
             )
         new_seq_lens = rf.reduce_sum(ins_choices, axis=spatial_dim) + spatial_dim.get_dyn_size_ext_for_device(device)
-        new_spatial_dim = Dim(rf.copy_to_device(new_seq_lens, "cpu"), name="after_insert_spatial")
+        new_spatial_dim = Dim(
+            rf.copy_to_device(new_seq_lens, rf.get_default_dim_size_device()), name="after_insert_spatial"
+        )
         new_indices = (
             rf.cumsum(ins_choices + 1, spatial_dim=spatial_dim) - 1 - ins_choices
         )  # [Batch,Spatial] -> NewSpatial
