@@ -25,10 +25,10 @@ class PerplexityCallback(ForwardCallbackIface):
     def finish(self):
         # Validation loss file
         with open("val_loss", "wt") as f:
-            f.write(f"{self.val_loss.item():.1f}\n")
+            f.write(f"{self.val_loss.item()}\n")
 
         # Sub-word perplexity file
         val_loss = self.val_loss / self.val_elements
         sw_ppl = torch.exp(val_loss)
         with open("sw_ppl", "wt") as f:
-            f.write(f"{sw_ppl:.1f}\n")
+            f.write(f"{sw_ppl}\n")
