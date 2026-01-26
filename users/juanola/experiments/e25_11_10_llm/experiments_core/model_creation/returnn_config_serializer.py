@@ -8,10 +8,8 @@ from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from i6_core.util import instanciate_delayed
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import ExternalImport, PartialImport, NonhashedCode
-
 from ... import ROOT_PACKAGE
 from ...default_tools import I6_NATIVE_OPS_REPO_PATH
-from ....e25_10_17_sllm_d2 import ROOT_PACKAGE as SLLM_ROOT_PACKAGE
 
 
 def serialize_extern_data(extern_data: Dict[str, Any]):
@@ -22,14 +20,14 @@ def serialize_extern_data(extern_data: Dict[str, Any]):
 
 
 def serialize_training(
-    network_import_path: str,
-    train_step_module: str,
-    net_args: Dict[str, Any],
-    train_args: Dict[str, Any],
-    extern_data: Dict[str, Any],
-    unhashed_net_args: Optional[Dict[str, Any]] = None,
-    include_native_ops=False,
-    debug: bool = False,
+        network_import_path: str,
+        train_step_module: str,
+        net_args: Dict[str, Any],
+        train_args: Dict[str, Any],
+        extern_data: Dict[str, Any],
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
+        include_native_ops=False,
+        debug: bool = False,
 ) -> Collection:
     """
     Helper function to create the serialization collection
@@ -43,7 +41,7 @@ def serialize_training(
     """
     pytorch_model_import = PartialImport(  # TODO: path is not exactly right! it adds "recipe"!!
         code_object_path=f"{ROOT_PACKAGE}.{network_import_path}",
-        unhashed_package_root=ROOT_PACKAGE,# TODO: big technical deb with this replace
+        unhashed_package_root=ROOT_PACKAGE,  # TODO: big technical deb with this replace
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",
@@ -125,14 +123,11 @@ def serialize_forward(
         # has to be in the beginning
         serializer_objects.insert(0, i6_native_ops)
 
-    if forward_method is None:
-        forward_object_path = f"{SLLM_ROOT_PACKAGE}.{forward_module}.{forward_step_name}"  # For backward compatibility
-    else:
-        forward_object_path = f"{SLLM_ROOT_PACKAGE}.{forward_module}.{forward_step_name}.{forward_method}"
+    forward_object_path = f"{ROOT_PACKAGE}.{forward_module}.{forward_step_name}.{forward_method}"
 
     forward_step = PartialImport(
         code_object_path=forward_object_path,
-        unhashed_package_root=SLLM_ROOT_PACKAGE,
+        unhashed_package_root=ROOT_PACKAGE,
         import_as="forward_step",
         hashed_arguments=forward_args,
         unhashed_arguments={},
@@ -142,7 +137,7 @@ def serialize_forward(
     spm_model_file = vocab_opts["model_file"]
     vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
     callback = PartialImport(
-        code_object_path=f"{SLLM_ROOT_PACKAGE}.{forward_module}.callback.RecognitionToTextDictCallback",
+        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.PerplexityCallback",
         unhashed_package_root=None,
         import_as="forward_callback",
         hashed_arguments={"vocab": vocab_file},
@@ -154,6 +149,6 @@ def serialize_forward(
     serializer = Collection(
         serializer_objects=serializer_objects,
         make_local_package_copy=not debug,
-        packages={SLLM_ROOT_PACKAGE, ROOT_PACKAGE},
+        packages={ROOT_PACKAGE},
     )
     return serializer

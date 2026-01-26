@@ -22,16 +22,16 @@ Experiments entry points
 
 
 def e4_bt():
-    ex4.llm_ep([LLMExperimentVersion.V1_1_BASE_TRANS_DATA], only_specific_epochs=True)  # Avoid any recog for now (not implemented yet)
+    ex4.llm_ep([LLMExperimentVersion.V1_1_BASE_TRANS_DATA])
 
 def e4_bc():
-    ex4.llm_ep([LLMExperimentVersion.V1_2_BASE_COMB_DATA], only_specific_epochs=True)  # Avoid any recog for now (not implemented yet)
+    ex4.llm_ep([LLMExperimentVersion.V1_2_BASE_COMB_DATA])
 
 def e4_st():
-    ex4.llm_ep([LLMExperimentVersion.V1_3_SMALL_TRANS_DATA], only_specific_epochs=True)  # Avoid any recog for now (not implemented yet)
+    ex4.llm_ep([LLMExperimentVersion.V1_3_SMALL_TRANS_DATA])
 
 def e4_sc():
-    ex4.llm_ep([LLMExperimentVersion.V1_4_SMALL_COMB_DATA], only_specific_epochs=True)  # Avoid any recog for now (not implemented yet)
+    ex4.llm_ep([LLMExperimentVersion.V1_4_SMALL_COMB_DATA])
 
 
 """

@@ -2,10 +2,11 @@
 The new version of data.py for the 2023 Slurm and Rescale/NeuroSys setups
 """
 import copy
-from typing import Tuple
+from typing import Tuple, Optional
 
 from sisyphus import tk
 
+from i6_core.corpus import CorpusToTxtJob
 from i6_core.text import TakeNRandomLinesJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset
@@ -15,6 +16,8 @@ from i6_experiments.users.juanola.data.lm_dataset import LmDataset
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from i6_experiments.users.juanola.sisyphus_jobs.text.ShuffleJob import ShuffleJob
 from i6_experiments.users.juanola.sisyphus_jobs.text.TwoWaySplitJob import TowWaySplitJob
+from .librispeech_lm_utils import get_librispeech_spm_datastream
+from ...configurations.data.dataset_config import DatasetConfig
 from ...default_tools import RETURNN_ROOT, RETURNN_EXE
 
 
@@ -71,14 +74,14 @@ def build_lm_training_datasets(
     cv_dataset = LmDataset(
         corpus_file=cv_text_file,
         vocab_settings=vocab_settings,
-        seq_ordering="sorted_reverse",  # TODO: needed ??
+        seq_ordering="sorted_reverse",
     )
 
     devtrain_text_file = get_random_subset(train_text_file, n_lines=dev_train_lines)
     devtrain_dataset = LmDataset(
         corpus_file=devtrain_text_file,
         vocab_settings=vocab_settings,
-        seq_ordering="sorted_reverse",  # TODO: needed ??
+        seq_ordering="sorted_reverse",
     )
 
     datastreams = {"labels": label_datastream}
@@ -94,7 +97,9 @@ def build_lm_training_datasets(
 def build_lm_test_dataset(
         dataset_key: str,
         settings: ReturnnDatasetSettings,
-) -> Tuple[Dataset, tk.Path]:
+        vocab_size,
+        dataset_config: DatasetConfig
+) -> Tuple[Dataset, Optional[tk.Path]]:
     """
     Create ASR test set that only contains the audio stream
 
@@ -102,15 +107,19 @@ def build_lm_test_dataset(
     :param settings: settings object for the RETURNN data pipeline
     :return: tuple of the test dataset and a path to the corresponding bliss corpus file
     """
-    # TODO: do we need recognition?!
-    # TODO: not addapted!
-    ogg_zip_dict = get_ogg_zip_dict("corpora", returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
-    bliss_dict = get_bliss_corpus_dict()
-    test_ogg = ogg_zip_dict[dataset_key]
+    label_datastream = get_librispeech_spm_datastream(
+        vocab_size, dataset_config.use_train_corpus_text, dataset_config.use_normalized_lm_data
+    )
+    vocab_settings = label_datastream.as_returnn_targets_opts()
+    vocab_settings.pop("add_eos", None)  # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
 
-    test_zip_dataset = OggZipDataset(
-        files=[test_ogg],
-        seq_ordering="sorted_reverse"
+    ls_bliss_corpus_dict = get_bliss_corpus_dict()
+    test_text = CorpusToTxtJob(ls_bliss_corpus_dict[dataset_key], gzip=True).out_txt
+
+    test_dataset = LmDataset(
+        corpus_file=test_text,
+        vocab_settings=vocab_settings,
+        seq_ordering="sorted_reverse",
     )
 
-    return test_zip_dataset, bliss_dict[dataset_key]
+    return test_dataset, None # Before ref to data was returned .. but not needed now

@@ -25,12 +25,12 @@ from ...default_tools import SCTK_BINARY_PATH
 
 @tk.block()
 def compute_prior(
-    prefix_name: str,
-    returnn_config: ReturnnConfig,
-    checkpoint: PtCheckpoint,
-    returnn_exe: tk.Path,
-    returnn_root: tk.Path,
-    mem_rqmt: int = 16,
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: PtCheckpoint,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        mem_rqmt: int = 16,
 ):
     """
     Run search for a specific test dataset
@@ -62,19 +62,19 @@ def compute_prior(
 
 
 @tk.block()
-def search(
-    prefix_name: str,
-    search_config: SearchConfig,
-    asr_model: ASRModel,
-    forward_module: str,
-    forward_method: Optional[str],
-    test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
-    returnn_exe: tk.Path,
-    returnn_root: tk.Path,
-    vocab_opts: Dict,
-    forward_args: Optional[Dict[str, Any]] = None,
-    debug: bool = False,
-) -> Tuple[List[ReturnnForwardJobV2], Dict[str, job_path.Variable]]:
+def compute_ppl(
+        prefix_name: str,
+        search_config: SearchConfig,
+        asr_model: ASRModel,
+        forward_module: str,
+        forward_method: Optional[str],
+        test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        vocab_opts: Dict,
+        forward_args: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+) -> List[ReturnnForwardJobV2]:
     """
     Run search over multiple datasets and collect statistics
 
@@ -114,15 +114,13 @@ def search(
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     search_jobs = []
-    wers = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         search_name = f"{prefix_name}/{key}"
-        wers[search_name], search_job = search_single(
+        search_job = compute_ppl_single(
             search_name,
             returnn_search_config,
             asr_model.checkpoint,
             test_dataset,
-            test_dataset_reference,
             returnn_exe,
             returnn_root,
             use_gpu=search_config.use_gpu,
@@ -130,21 +128,20 @@ def search(
         )
         search_jobs.append(search_job)
 
-    return search_jobs, wers
+    return search_jobs
 
 
-def search_single(
-    prefix_name: str,
-    returnn_config: ReturnnConfig,
-    checkpoint: tk.Path,
-    recognition_dataset: Dataset,
-    recognition_bliss_corpus: tk.Path,
-    returnn_exe: tk.Path,
-    returnn_root: tk.Path,
-    mem_rqmt: float = 12,
-    use_gpu: bool = False,
-    search_gpu_memory: int = 11,
-) -> Tuple[job_path.Variable, ReturnnForwardJobV2]:
+def compute_ppl_single(
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
+        recognition_dataset: Dataset,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        mem_rqmt: float = 12,
+        use_gpu: bool = False,
+        search_gpu_memory: int = 11,
+) -> ReturnnForwardJobV2:
     """
     Run search for a specific test dataset.
 
@@ -159,43 +156,32 @@ def search_single(
     :param returnn_config: the RETURNN config to be used for forwarding
     :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
     :param recognition_dataset: Dataset to perform recognition on
-    :param recognition_bliss_corpus: path to bliss file used as Sclite evaluation reference
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
     :param mem_rqmt: some search jobs might need more memory
     :param use_gpu: if to do GPU decoding
     :param search_gpu_memory:
     """
+    # TODO: RETURNN fails because of extern_data key (has orth, expects data)...
+
     returnn_config = copy.deepcopy(returnn_config)
-    returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
-    search_job = ReturnnForwardJobV2(
+    returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()  # TODO: change this!!!
+
+    ppl_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
-        device="gpu" if use_gpu else "cpu",
-        cpu_rqmt=8 if mem_rqmt < 30 else 16,
+        time_rqmt=1,
+        device="gpu",
+        cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["search_out.py.gz"],
+        output_files=["val_loss", "sw_ppl", "wl_ppl"],
     )
-    search_job.add_alias(f"{prefix_name}/search_job")
-    search_job.rqmt["gpu_mem"] = search_gpu_memory
+    ppl_job.add_alias(f"{prefix_name}/ppl_job")
+    tk.register_output(f"{prefix_name}/val_loss", ppl_job.out_files["val_loss"])
+    tk.register_output(f"{prefix_name}/sw_ppl", ppl_job.out_files["sw_ppl"])
+    tk.register_output(f"{prefix_name}/wl_ppl", ppl_job.out_files["wl_ppl"])
 
-    words = SearchOutputRawReplaceJob(
-        search_job.out_files["search_out.py.gz"], [(" ", ""), ("▁", " ")], output_gzip=True
-    ).out_search_results
-
-    search_ctm = SearchWordsToCTMJob(
-        recog_words_file=words,
-        bliss_corpus=recognition_bliss_corpus,
-    ).out_ctm_file
-
-    stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
-
-    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=1)
-    tk.register_output(f"{prefix_name}/sclite/wer", sclite_job.out_wer)
-    tk.register_output(f"{prefix_name}/sclite/report", sclite_job.out_report_dir)
-
-    return sclite_job.out_wer, search_job
+    return ppl_job  # TODO: return something meaningfull?

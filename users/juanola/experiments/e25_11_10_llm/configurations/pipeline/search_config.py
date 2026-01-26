@@ -18,15 +18,7 @@ class SearchConfig:
     avg_best_loss_name: str
     max_seqs: int
 
-    prior: PriorConfig
-
-    beam_search: BeamSearchConfig
-    lm_scales: list[float]
-    prior_scales: list[float]
-    ctc_scales: list[float]
-
     forward_method: str = None
-    run_ctc_greedy_decoding_last_epoch: bool = False
 
     debug_returnn_param: bool = True
 
@@ -39,32 +31,18 @@ class SearchConfig:
 
 
 """
-parameter sets
-"""
-
-_LM_PRIOR_SCALES = dict(
-    lm_scales=[2.0, 2.2, 2.4, 2.6, 2.8],
-    prior_scales=[0.7, 0.9],
-)
-
-"""
 Specific configurations set below.
 """
 
 
 def search_baseline_v2() -> SearchConfig:
     return SearchConfig(
-        forward_method="forward_step_v2",
+        forward_method="perplexity_forward_step",
         batch_size=15_000,
         use_gpu=True,
         gpu_memory=11,
-        beam_search=beam_search_baseline(),
-        prior=prior_v1(),
-        lm_scales=[0.0],
-        prior_scales=[0.0],
-        ctc_scales=[0.0],
-        avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
+        avg_best_loss_name="dev_loss_ce",
     )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

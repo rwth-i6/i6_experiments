@@ -73,7 +73,7 @@ def get_training_config(
     python_prolog = None
 
     # RC - PYTHON EPILOG
-    extern_data = {# TODO: all should be encapsulated, not only data
+    extern_data = {
         DATA_PARAM_NAME: get_extern_data_data(),
     }
     serializer = serialize_training(
@@ -181,8 +181,8 @@ def get_forward_config(
     }
 
     # RC - PYTHON EPILOG
-    extern_data = {# TODO: finish! take the one in training
-        DATA_PARAM_NAME: {"dim": 1},
+    extern_data = {
+        DATA_PARAM_NAME: get_extern_data_data(),
     }
     serializer = serialize_forward(
         network_import_path=network_import_path,
@@ -195,6 +195,7 @@ def get_forward_config(
         forward_module=forward_module,
         debug=debug,
         forward_args=forward_args,
+
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

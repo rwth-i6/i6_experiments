@@ -8,13 +8,12 @@ from .configurations.data.dataset_config import DatasetConfig
 from .configurations.data.label_config import LabelConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
-from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, \
+from .constants import NETWORK_PACKAGE, \
     TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_lm_test_dataset
 from .experiments_core.data.spm_utils import build_spm_lm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
-from .experiments_core.reporting.report_helper import generate_experiment_results_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
 from ...data.training_datasets import TrainingDatasets
 from ...sisyphus_jobs.configs.qwen2_decoder_config_job_v2 import Qwen2DecoderConfigJobV2
@@ -65,8 +64,6 @@ def llm_ep(
 
         # DEBUGGING CHANGES
         if debug:  # TODO: this should modify the experiment object!
-            # TRAINING_BATCH_SIZE = 6_000
-            # partition_epochs = 1
             pass
 
         # INITIALIZE DATASET
@@ -109,11 +106,12 @@ def llm_ep(
             run_test = run_best_4 = run_best = False
             epochs_to_evaluate = [partition_epochs]
         else:
-            run_best_4 = run_best = run_test = True
+            run_best_4 = run_best = False
+            run_test = True
             specific_epochs = specific_recognition_epochs | set(
                 {}
             )  # Specify here default epochs to check in multiple exps
-            epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
+            epochs_to_evaluate = {partition_epochs} | specific_epochs
 
         if only_specific_epochs:
             run_test = run_best_4 = run_best = False
@@ -140,16 +138,16 @@ def llm_ep(
 
         # REPORTING
         # Experiment Report
-        #generate_experiment_results_report(exp_results=results, exp_name=training_name)
+        # generate_experiment_results_report(exp_results=results, exp_name=training_name)
 
         # Update Base Report (for all experiment results)
-        #tk.register_report(
+        # tk.register_report(
         #    f"{SIS_OUTPUTS_REPORTS}/base_report-{base_exps_name}.{SIS_BASE_REPORT_EXTENSION}",
         #    results_per_experiment,
         #    # partial(base_report_template_v0, results_per_experiment), # TODO: check the template
         #    required=results_per_experiment,
         #    update_frequency=900,
-        #)
+        # )
 
     return results_per_experiment
 
@@ -163,18 +161,19 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     """
     label_config = asdict(config.labels)
     fe_config = asdict(config.network.feature_extraction)
-    unused_but_not_optional_encoder_config = { # TODO: better fix in model, considering cases without encoder...
-        "encoder_dim" : 512,
-        "num_heads" : 8,
-        "num_enc_layers" : 12,
-        "aux_loss_layers" : (4, 8),
+    unused_but_not_optional_encoder_config = {  # TODO: better fix in model, considering cases without encoder...
+        "encoder_dim": 512,
+        "num_heads": 8,
+        "num_enc_layers": 12,
+        "aux_loss_layers": (4, 8),
     }
     qwen2_decoder_config_job = Qwen2DecoderConfigJobV2(
         config.network.decoder, config.labels, target_filename=f"config-{config.network.decoder.name}-for-i6-spm.json"
     )
     decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
-    network_args = label_config | fe_config | decoder_config | unused_but_not_optional_encoder_config  | {"using_encoder": False}
+    network_args = label_config | fe_config | decoder_config | unused_but_not_optional_encoder_config | {
+        "using_encoder": False}
     return network_args
 
 
@@ -210,6 +209,8 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         dev_dataset_tuples[dev_set] = build_lm_test_dataset(
             dataset_key=dev_set,
             settings=train_dataset_settings,
+            vocab_size=label_config.vocab_size,
+            dataset_config=dataset_config,
         )
 
     test_dataset_tuples = {}
@@ -217,5 +218,7 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
         test_dataset_tuples[test_set] = build_lm_test_dataset(
             dataset_key=test_set,
             settings=train_dataset_settings,
+            vocab_size=label_config.vocab_size,
+            dataset_config=dataset_config,
         )
     return training_datasets, dev_dataset_tuples, test_dataset_tuples,
