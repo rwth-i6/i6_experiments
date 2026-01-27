@@ -47,6 +47,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ct
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw,
     get_loquacious_task_raw_v2,
+    get_loquacious_task_raw_v3,
     get_loquacious_text_only_dataset,
     get_loquacious_train_subset_dataset,
     get_loquacious_train_subset_dataset_v2,
@@ -447,7 +448,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
 
     prefix = get_setup_prefix_for_module(__name__)
     vocab = "spm10k"
-    task_spm10k = get_loquacious_task_raw(vocab=vocab)
+    task_spm10k = get_loquacious_task_raw_v3(vocab=vocab)
 
     lms = {}
     for num_full_ep, split in [(4, 25), (5, 10), (10, 10), (20, 10), (30, 10)]:
