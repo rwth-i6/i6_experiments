@@ -32,7 +32,7 @@ def sllm_ep(
     run_test: bool = True,
     run_best: bool = True,
     run_best_4: bool = True,
-    run_only_last: bool = True, # !!! now only running last epochs by default!
+    run_only_last: bool = True,  # !!! now only running last epochs by default!
 ) -> Dict[str, Any]:
     """
     Sisyphus entry point.
@@ -81,6 +81,7 @@ def sllm_ep(
             exp_config.dataset,
             exp_config.labels,
             partition_epoch_factor,
+            exp_config.training.datasets_num_workers,
         )
 
         # NETWORK
@@ -191,6 +192,7 @@ def create_datasets_jobs(
     dataset_config: DatasetConfig,
     label_config: LabelConfig,
     partition_epoch_factor: int,
+    datasets_num_workers: int,
 ) -> tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
@@ -215,6 +217,7 @@ def create_datasets_jobs(
         vocab_size=label_config.vocab_size,
         returnn_root=MINI_RETURNN_ROOT,  # to import ogg zip job from Nick
         alpha=dataset_config.sampling_alpha,
+        datasets_num_workers=datasets_num_workers,
     )
 
     dev_dataset_tuples = {}
@@ -222,6 +225,7 @@ def create_datasets_jobs(
         dev_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
             settings=train_dataset_settings,
+            datasets_num_workers=datasets_num_workers,
         )
 
     test_dataset_tuples = {}
@@ -229,7 +233,9 @@ def create_datasets_jobs(
         test_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
             settings=train_dataset_settings,
+            datasets_num_workers=datasets_num_workers,
         )
+
     return (
         training_datasets,
         dev_dataset_tuples,

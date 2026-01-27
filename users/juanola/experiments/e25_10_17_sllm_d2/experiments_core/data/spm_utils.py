@@ -37,6 +37,7 @@ def build_spm_training_datasets(
         return_settings: ReturnnDatasetSettings,
         returnn_root: tk.Path = RETURNN_ROOT,
         alpha: Optional[float] = None,
+        datasets_num_workers=int,
 ) -> TrainingDatasets:
     """
     Builds the training datasets for the SPM-based training.
@@ -51,6 +52,7 @@ def build_spm_training_datasets(
         dev_other_ogg=ogg_zip_dict["dev-other"],
         returnn_settings=return_settings,
         label_datastream=label_datastream,
+        datasets_num_workers=datasets_num_workers,
     )
 
     # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want

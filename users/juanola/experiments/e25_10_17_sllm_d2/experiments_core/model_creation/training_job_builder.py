@@ -110,8 +110,8 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         "time_rqmt": 168,
 
         # CPU
-        "cpu_rqmt": 6,  # can be increased if needed (with care)
-        "mem_rqmt": 30,  # RAM # can be increased if needed (with care) (max 64??)
+        "cpu_rqmt": train_config_obj.num_cpus, # can be increased if needed (with care)
+        "mem_rqmt": train_config_obj.cpu_memory,  # RAM # can be increased if needed (with care) (max 64??)
 
         # Other
         "log_verbosity": 5,
@@ -129,6 +129,5 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         training_rqmt.update({
             "distributed_launch_cmd": "torchrun",
             "horovod_num_processes": train_config_obj.num_gpus,
-            "mem_rqmt": 20  # ??
         })
     return train_args, training_rqmt

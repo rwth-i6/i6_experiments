@@ -29,23 +29,27 @@ class TrainingConfig:
 
     Can contain default values.
     """
-
+    # Epochs & steps
     epochs: int
     partition_epoch_factor: int
-
-    dynamic_lr: DynamicLearningRateConfig
-
-    optimizer: OptimizerConfig
-
     batch_size: int
     batch_size_factor: int
 
+    dynamic_lr: DynamicLearningRateConfig
+    optimizer: OptimizerConfig
+
+    # CPU & RAM
+    num_cpus: int
+    cpu_memory: int
+
+    # GPU
     num_gpus: int  # Should be 1 for 48gb in i6 cluster
     gpu_memory: int
 
+    datasets_num_workers: int = 4
+
     torch_amp: str = None
     grad_scaler: Any = None
-
     use_torch_amp: bool = True
     use_grad_scaler: bool = True
 
@@ -67,6 +71,15 @@ class TrainingConfig:
                     self.torch_amp != TorchAmpTypes.BFLOAT16.value
                 ), "torch_amp with 11Gb nodes should not be bfloat16."
 
+"""
+Grouped params
+"""
+
+_CPU_BASELINE_KWARGS = dict(
+    num_cpus=6,
+    cpu_memory=30,
+)
+
 
 """
 Specific configurations set below.
@@ -86,6 +99,7 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
         torch_amp=TorchAmpTypes.BFLOAT16.value,
         grad_scaler=None,
         random_seed=seed,
+        **_CPU_BASELINE_KWARGS
     )
 
 
@@ -111,6 +125,7 @@ def itc_4gpu_setup_v1() -> TrainingConfig:
         batch_size=15_000,
         gpu_memory=11,
         num_gpus=4,
+        cpu_memory=20, # a bit less that 30 !!!
         use_torch_amp=False,
         use_grad_scaler=False,
     )
@@ -146,6 +161,23 @@ def itc_batch_size_80k_150_epochs() -> TrainingConfig:
 def itc_batch_size_80k_200_epochs() -> TrainingConfig:
     return replace(itc_batch_size_80k(), epochs=200)
 
+"""
+new ITC SETUP
+"""
+
+def itc_v2() -> TrainingConfig:
+    """
+    From Robin setup to exploit full GPU power in ITC (otherwise CPU goes too slow)
+    :return:
+    """
+    return replace(training_baseline(),
+                   datasets_num_workers=25,
+                   num_cpus=24,
+                   cpu_memory=122,
+                   )
+
+def itc_v2_80k_300_epochs() -> TrainingConfig:
+    return replace(itc_v2(), batch_size=80_000, epochs=300)
 
 """
 Tests

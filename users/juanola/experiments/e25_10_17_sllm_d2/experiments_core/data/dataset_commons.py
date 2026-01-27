@@ -33,8 +33,8 @@ def get_audio_raw_datastream(
     )
 
 
-def make_multi_proc(dataset: Dataset) -> MultiProcDataset:
-    return MultiProcDataset(dataset=dataset, buffer_size=10, num_workers=4)
+def make_multi_proc(dataset: Dataset, num_workers: int) -> MultiProcDataset:
+    return MultiProcDataset(dataset=dataset, buffer_size=10, num_workers=num_workers)
 
 
 def build_training_datasets(
@@ -43,6 +43,7 @@ def build_training_datasets(
     dev_other_ogg: tk.Path,
     label_datastream: LabelDatastream,
     returnn_settings: ReturnnDatasetSettings,
+        datasets_num_workers:int,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -70,7 +71,7 @@ def build_training_datasets(
         seq_ordering=returnn_settings.train_seq_ordering,
         additional_options=returnn_settings.train_additional_options,
     )
-    train_dataset = make_multi_proc(train_zip_dataset)
+    train_dataset = make_multi_proc(train_zip_dataset, num_workers=datasets_num_workers)
 
     cv_zip_dataset = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
@@ -79,7 +80,7 @@ def build_training_datasets(
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_multi_proc(cv_zip_dataset)
+    cv_dataset = make_multi_proc(cv_zip_dataset, num_workers=datasets_num_workers)
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -88,7 +89,7 @@ def build_training_datasets(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_multi_proc(devtrain_zip_dataset)
+    devtrain_dataset = make_multi_proc(devtrain_zip_dataset, num_workers=datasets_num_workers)
 
     return TrainingDatasets(
         train=train_dataset,
@@ -101,6 +102,7 @@ def build_training_datasets(
 def build_test_dataset(
     dataset_key: str,
     settings: ReturnnDatasetSettings,
+        datasets_num_workers
 ) -> Tuple[Dataset, tk.Path]:
     """
     Create ASR test set that only contains the audio stream
@@ -116,10 +118,11 @@ def build_test_dataset(
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
     test_zip_dataset = OggZipDataset(
-        files=[test_ogg],
-        audio_options=audio_datastream.as_returnn_audio_opts(),
-        seq_ordering="sorted_reverse"
+        files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
     )
-    test_dataset = make_multi_proc(test_zip_dataset)
+    test_dataset = make_multi_proc(
+        test_zip_dataset,
+        datasets_num_workers
+    )
 
     return test_dataset, bliss_dict[dataset_key]
