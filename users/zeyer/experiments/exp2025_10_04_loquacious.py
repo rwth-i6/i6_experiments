@@ -495,13 +495,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
             task_spm10k, label_level="task", lm=exp.get_last_fixed_epoch()
         )
         for eval_set_name, ppl in perplexities_nlm.items():
-            tk.register_output(f"{prefix}/lm/{name}/ppl-{vocab}/{eval_set_name}", ppl)
-
-        perplexities_nlm = get_lm_perplexities_for_task_evals(
-            task_spm10k, label_level="word", lm=exp.get_last_fixed_epoch()
-        )
-        for eval_set_name, ppl in perplexities_nlm.items():
-            tk.register_output(f"{prefix}/lm/{name}/ppl-word/{eval_set_name}", ppl)
+            tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
 
     return lms
 
