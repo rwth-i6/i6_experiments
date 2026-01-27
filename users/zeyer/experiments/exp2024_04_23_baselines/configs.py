@@ -170,7 +170,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v4(
     step_finetune_fraction: float = 0.9,
 ) -> Dict[str, Any]:
     """
-    :param n_ep: num epochs
+    Same as v3 but without batch size.
     """
     return {
         "__num_epochs": n_ep,
