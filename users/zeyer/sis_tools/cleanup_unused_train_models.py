@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+
 """
 Cleanup unused train model checkpoints in the work dir,
 and also from active finished train jobs.
+
+You provide the Sisyphus config(s),
+which are used to determine whether a train job is active or unused.
 """
 
 import os
