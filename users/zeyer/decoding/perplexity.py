@@ -155,7 +155,6 @@ def ngram_score_single(
 
     :param ref: The format is: {"<seq_tag>": "<text>", ...}.
     :param lm: language model
-    :param vocab: labels (line-based, maybe gzipped)
     :param rescore_rqmt:
     """
     ref_as_hyps = RecogOutput(ExtendSingleRefToHypsJob(ref.output).out_hyps)

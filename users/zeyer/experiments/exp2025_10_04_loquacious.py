@@ -446,13 +446,14 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
     # Language models on train large transcriptions
 
     prefix = get_setup_prefix_for_module(__name__)
-    task_spm10k = get_loquacious_task_raw(vocab="spm10k")
+    vocab = "spm10k"
+    task_spm10k = get_loquacious_task_raw(vocab=vocab)
 
     lms = {}
     for num_full_ep, split in [(4, 25), (5, 10), (10, 10), (20, 10), (30, 10)]:
         n_ep = round(num_full_ep * split)
         # orig name: trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp...-spm10k
-        name = f"trafo-n32-d1024-nFullEp{num_full_ep}-nEp{n_ep}-spm10k"
+        name = f"trafo-n32-d1024-nFullEp{num_full_ep}-nEp{n_ep}-{vocab}"
         exp = train(
             f"{prefix}/lm/{name}",
             config=dict_update_deep(
@@ -465,7 +466,7 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
                     "calculate_exp_loss": True,
                 },
             ),
-            train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=split),
+            train_dataset=get_loquacious_text_only_dataset(vocab=vocab, train_epoch_split=split),
             model_def=ModelDefWithCfg(
                 lm_model_def,
                 {
@@ -493,7 +494,13 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
             task_spm10k, label_level="task", lm=exp.get_last_fixed_epoch()
         )
         for eval_set_name, ppl in perplexities_nlm.items():
-            tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
+            tk.register_output(f"{prefix}/lm/{name}/ppl-{vocab}/{eval_set_name}", ppl)
+
+        perplexities_nlm = get_lm_perplexities_for_task_evals(
+            task_spm10k, label_level="word", lm=exp.get_last_fixed_epoch()
+        )
+        for eval_set_name, ppl in perplexities_nlm.items():
+            tk.register_output(f"{prefix}/lm/{name}/ppl-word/{eval_set_name}", ppl)
 
     return lms
 
