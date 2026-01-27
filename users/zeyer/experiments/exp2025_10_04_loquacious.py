@@ -29,7 +29,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ae
 )
 from i6_experiments.users.zeyer.decoding.perplexity import (
     get_ngram_perplexities_for_task_evals,
-    get_lm_perplexities_for_task_evals,
+    get_lm_perplexities_for_task_evals_v2,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
@@ -491,11 +491,13 @@ def train_lms() -> Dict[str, ModelWithCheckpoint]:
         )
         lms[name] = exp.get_last_fixed_epoch()
 
-        perplexities_nlm = get_lm_perplexities_for_task_evals(
-            task_spm10k, label_level="task", lm=exp.get_last_fixed_epoch()
+        subword_ppl_nlm, word_ppl_nlm = get_lm_perplexities_for_task_evals_v2(
+            task_spm10k, lm=exp.get_last_fixed_epoch()
         )
-        for eval_set_name, ppl in perplexities_nlm.items():
-            tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
+        for eval_set_name, ppl in subword_ppl_nlm.items():
+            tk.register_output(f"{prefix}/lm/{name}/ppl-{vocab}/{eval_set_name}", ppl)
+        for eval_set_name, ppl in word_ppl_nlm.items():
+            tk.register_output(f"{prefix}/lm/{name}/ppl-word/{eval_set_name}", ppl)
 
     return lms
 

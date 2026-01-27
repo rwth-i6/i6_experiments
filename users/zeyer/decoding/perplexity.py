@@ -26,7 +26,7 @@ def get_lm_perplexities_for_task_evals(
     lm: ModelWithCheckpoint,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
     label_level: Literal["task", "word"],
-):
+) -> Dict[str, Variable]:
     """
     Compute LM word-level perplexity for all eval datasets of the task.
 
@@ -57,6 +57,38 @@ def get_lm_perplexities_for_task_evals(
         for name, ref in refs.items()
     }
     return perplexities
+
+
+def get_lm_perplexities_for_task_evals_v2(
+    task: DatasetsTask,
+    *,
+    lm: ModelWithCheckpoint,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Variable], Dict[str, Variable]]:
+    """
+    Compute LM word-level perplexity for all eval datasets of the task.
+
+    :param task: defines the eval sets. those likely have the orig vocab (BPE or so) applied already.
+    :param lm: language model. assume same vocab as in the task (BPE or so)
+    :param rescore_rqmt: rqmt for LM rescoring
+    :return: tuple of dicts of perplexities (PPL) per eval set. first is on task label level, second is on word level
+    """
+    vocab_file = ExtractVocabLabelsJob(_get_vocab_opts_from_task(task)).out_vocab
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(_get_vocab_opts_from_task(task)).out_vocab_special_labels_dict
+
+    refs = get_refs_from_task_eval_datasets(task)
+    scored = {
+        name: lm_score_single(ref, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, rescore_rqmt=rescore_rqmt)
+        for name, ref in refs.items()
+    }
+
+    word_scored = scored.copy()
+    for f in task.recog_post_proc_funcs:
+        word_scored = {name: f(score) for name, score in word_scored.items()}
+
+    task_ppl = {name: CalcPerplexityFromScoresJob(score.output).out_perplexity for name, score in scored.items()}
+    word_ppl = {name: CalcPerplexityFromScoresJob(score.output).out_perplexity for name, score in word_scored.items()}
+    return task_ppl, word_ppl
 
 
 def _get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
