@@ -57,7 +57,6 @@ def py():
     )
 
     from .exp2024_04_23_baselines.recog_ext.ctc import model_recog_with_recomb
-    from .exp2024_04_23_baselines.recog_ext.ctc_v2 import model_recog_with_recomb_v2
 
     lm_name, lm = get_lm(prefix=prefix, vocab=vocab)
     ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -69,6 +68,8 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
     )
+
+    from .exp2024_04_23_baselines.recog_ext.ctc_v2 import model_recog_with_recomb_v2
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}",
