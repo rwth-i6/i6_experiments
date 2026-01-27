@@ -179,6 +179,11 @@ def itc_v2() -> TrainingConfig:
 def itc_v2_80k_300_epochs() -> TrainingConfig:
     return replace(itc_v2(), batch_size=80_000, epochs=300)
 
+def itc_v2_80k() -> TrainingConfig:
+    return replace(itc_v2(), batch_size=80_000)
+
+
+
 """
 Tests
 """

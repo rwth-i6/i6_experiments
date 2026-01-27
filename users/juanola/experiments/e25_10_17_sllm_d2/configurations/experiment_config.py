@@ -49,7 +49,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     itc_batch_size_80k_150_epochs,
     itc_batch_size_80k_200_epochs,
     itc_4gpu_setup_v3,
-    training_n2_test, itc_v2_80k_300_epochs,
+    training_n2_test, itc_v2_80k_300_epochs, itc_v2_80k,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pretrained_models import (
     PretrainedConfig,
@@ -286,15 +286,11 @@ def bv2_pre_d_b_c() -> ExperimentConfig:
 
 
 def bv2_pre_ed_s_c() -> ExperimentConfig:
-    return replace(model_v2_small_baseline(), pretrained=enc_dec_small_combined())
+    return replace(model_v2_small_baseline(), pretrained=enc_dec_small_combined(), training=itc_v2_80k())
 
 
 def bv2_pre_ed_b_c() -> ExperimentConfig:
-    return replace(model_v2_baseline(), pretrained=enc_dec_base_combined())
-
-
-def exp_v7_200() -> ExperimentConfig:
-    return replace(exp_v7(), training=itc_batch_size_80k_200_epochs())
+    return replace(model_v2_baseline(), pretrained=enc_dec_base_combined(), training=itc_v2_80k())
 
 
 """

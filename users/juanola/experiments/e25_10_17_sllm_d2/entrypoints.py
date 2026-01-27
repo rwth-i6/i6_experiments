@@ -39,8 +39,14 @@ def main():
     e3v8_2()
     e3v7_2()
 
-    e3_pre1()
-    e3_pre2()
+    #e3_pre1()
+    #e3_pre2()
+    e3_pre3()
+    e3_pre4()
+    e3_pre5()
+    e3_pre6()
+
+    e3v7_3()
 
 
 """
@@ -295,6 +301,10 @@ __all__ = [
     "e3v2_s2",
     "e3v8_2",
     "e3v7_2",
-    "e3_pre1",
-    "e3_pre2",
+    #"e3_pre1",
+    #"e3_pre2",
+    "e3_pre3",
+    "e3_pre4",
+    "e3_pre5",
+    "e3_pre6",
 ]
