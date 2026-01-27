@@ -28,13 +28,22 @@ def get_lm_perplexities_for_task_evals(
     label_level: Literal["task", "word"],
 ):
     """
-    Returns a function that can be used in task evals to compute LM perplexity.
+    Compute LM word-level perplexity for all eval datasets of the task.
+
+    :param task: defines the eval sets. those likely have the orig vocab (BPE or so) applied already.
+    :param lm: language model. either same vocab as in the task, or word-level
+    :param rescore_rqmt: rqmt for LM rescoring
+    :param label_level: "task" if the LM is on the same level as the task labels, "word" if the LM is word-level
+    :return: dict of perplexities (PPL) per eval set. the PPL are on word-level
     """
     vocab_file = ExtractVocabLabelsJob(_get_vocab_opts_from_task(task)).out_vocab
     vocab_opts_file = ExtractVocabSpecialLabelsJob(_get_vocab_opts_from_task(task)).out_vocab_special_labels_dict
 
     refs = get_refs_from_task_eval_datasets(
-        task, post_proc_funcs=task.recog_post_proc_funcs if label_level == "word" else ()
+        task,
+        # We assume that the task eval set has applied the vocab (e.g. BPE).
+        # So if we want to evaluate the LM on word level, do the post-processing here to get out the words.
+        post_proc_funcs=task.recog_post_proc_funcs if label_level == "word" else (),
     )
     perplexities = {
         name: get_lm_perplexity(
