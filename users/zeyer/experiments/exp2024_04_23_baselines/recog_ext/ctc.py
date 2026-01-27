@@ -22,15 +22,12 @@ def model_recog(
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
+    Time-synchronous beam search decoding with CTC + neural LM.
+    No recombination here.
+
     Function is run within RETURNN.
 
     Note, for debugging, see :func:`model_recog_debug`.
-
-    Note, some potential further improvements:
-    There are many align label seqs which correspond to the same label seq,
-    but the LM score is calculated for each of them.
-    We could make this somehow unique depending on the label seq.
-    (But unclear how exactly to do this in a GPU friendly, batched way.)
 
     :return:
         recog results including beam {batch, beam, out_spatial},
@@ -217,13 +214,10 @@ def model_recog_with_recomb(
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
-    Function is run within RETURNN.
+    Time-synchronous beam search decoding with CTC + neural LM.
+    With recombination of paths with the same label seq (sum or max).
 
-    Note, some potential further improvements:
-    There are many align label seqs which correspond to the same label seq,
-    but the LM score is calculated for each of them.
-    We could make this somehow unique depending on the label seq.
-    (But unclear how exactly to do this in a GPU friendly, batched way.)
+    Function is run within RETURNN.
 
     :return:
         recog results including beam {batch, beam, out_spatial},

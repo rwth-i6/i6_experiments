@@ -22,15 +22,16 @@ def model_recog_with_recomb_v2(
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
+    Time-synchronous beam search with CTC and neural LM, with path recombination.
+    With recombination of paths with the same label sequence.
+
+    V2: Avoid some re-evaluations of the LM when not needed,
+    via better masking after the recombination.
+
+    Based on
+    :func:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc.model_recog_with_recomb`.
+
     Function is run within RETURNN.
-
-    Note, some potential further improvements:
-    There are many align label seqs which correspond to the same label seq,
-    but the LM score is calculated for each of them.
-    We could make this somehow unique depending on the label seq.
-    (But unclear how exactly to do this in a GPU friendly, batched way.)
-
-    V2: Avoid some re-evaluations of the LM when not needed.
 
     :return:
         recog results including beam {batch, beam, out_spatial},
