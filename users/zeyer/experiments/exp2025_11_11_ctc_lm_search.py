@@ -58,6 +58,10 @@ def py():
 
     from .exp2024_04_23_baselines.recog_ext.ctc import model_recog_with_recomb
 
+    # {"dev": 6.12, "dev_voxpopuli": 6.6, "dev_commonvoice": 8.35, "dev_librispeech": 3.76, "dev_yodas": 11.81,
+    #  "test": 6.94, "test_voxpopuli": 6.63, "test_commonvoice": 10.45, "test_librispeech": 4.02, "test_yodas": 11.82}
+    # dev elapsed: elapsed: 1:33:42.9703
+    # dev-yodas: elapsed: 0:06:12.8701
     lm_name, lm = get_lm(prefix=prefix, vocab=vocab)
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
@@ -71,6 +75,10 @@ def py():
 
     from .exp2024_04_23_baselines.recog_ext.ctc_v2 import model_recog_with_recomb_v2
 
+    # {"dev": 6.14, "dev_voxpopuli": 6.6, "dev_commonvoice": 8.38, "dev_librispeech": 3.77, "dev_yodas": 11.91,
+    #  "test": 6.94, "test_voxpopuli": 6.62, "test_commonvoice": 10.45, "test_librispeech": 4.02, "test_yodas": 11.89}
+    # dev elapsed: elapsed: 1:35:35.7686
+    # dev-yodas: elapsed: 0:07:33.1449
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}",
         task=task,
@@ -83,6 +91,10 @@ def py():
 
     from .exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion import model_recog_with_recomb_delayed_fusion
 
+    # {"dev": 6.14, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.41, "dev_librispeech": 3.77, "dev_yodas": 11.76,
+    #  "test": 6.98, "test_voxpopuli": 6.64, "test_commonvoice": 10.5, "test_librispeech": 4.05, "test_yodas": 12.0}
+    # dev: elapsed: 1:41:44.8639
+    # dev-yodas: elapsed: 0:06:41.7572
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed/{lm_name}",
         task=task,
