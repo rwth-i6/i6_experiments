@@ -320,3 +320,27 @@ def _same_seq_labels(seq: Tensor, *, spatial_dim: Dim, beam_dim: Dim) -> Tuple[T
         same_seq_labels_lens = rf.compare_bc(seq_labels_lens, "==", seq_labels_dual_lens)  # Batch, Beam, BeamDual
         same_seq_labels = rf.logical_and(same_seq_labels, same_seq_labels_lens)
     return same_seq_labels, beam_dual_dim
+
+
+@dataclasses.dataclass
+class _HypStates:
+    num_words: Tensor  # [batch_dims], int32. but the last one might be incomplete. not needed?
+    num_finished_words: Tensor  # [batch_dims], int32
+    have_maybe_incomplete_word: Tensor  # [batch_dims], bool
+    base_labels: Tensor  # [batch_dims, hist_dim], int64 sparse
+    base_labels_cur_word_start: Tensor  # [batch_dims], int32
+    out_labels: Tensor  # [batch_dims, out_hist_dim], int64 sparse
+
+    @classmethod
+    def initial(cls, *, batch_dims: Sequence[Dim], device: Optional[str] = None):
+        num_words = rf.zeros(batch_dims, dtype="int32", device=device)
+        num_finished_words = rf.zeros(batch_dims, device=device)
+        have_maybe_incomplete_word = rf.zeros(batch_dims, dtype="bool", device=device)
+        return cls(
+            num_words=num_words,
+            num_finished_words=num_finished_words,
+            have_maybe_incomplete_word=have_maybe_incomplete_word,
+        )
+
+    def update(self, new_label: Tensor) -> _HypStates:
+        pass
