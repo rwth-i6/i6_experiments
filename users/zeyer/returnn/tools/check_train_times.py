@@ -9,8 +9,34 @@ Call this via:
 
 from typing import Optional, Union, Any, Dict, Set, List, Tuple
 import os
+import sys
 import re
+from functools import reduce
+from typing import TypeVar
+
 import numpy as np
+
+
+_my_dir = os.path.dirname(__file__)
+_base_dir = reduce(lambda p, _: os.path.dirname(p), range(5), _my_dir)
+_sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
+
+T = TypeVar("T")
+
+
+def _setup():
+    # In case the user started this script directly.
+    if not globals().get("__package__"):
+        globals()["__package__"] = "i6_experiments.users.zeyer.returnn.tools"
+        if _base_dir not in sys.path:
+            sys.path.append(_base_dir)
+        if _sis_dir not in sys.path:
+            sys.path.append(_sis_dir)
+
+
+_setup()
+
+
 from sisyphus import Job
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
