@@ -44,7 +44,7 @@ from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
 def get_training_times_per_epoch(
     training_job: Union[str, ReturnnTrainingJob],
     *,
-    expected_gpu: str,
+    expected_gpu: Optional[str] = None,
     ignore_first_n_epochs: int = 0,
     min_required: Optional[int] = None,
 ) -> List[Union[float, int]]:
@@ -64,6 +64,10 @@ def get_training_times_per_epoch(
         scores_and_lr_filename = f"{job_dir}/output/learning_rates"
     scores = _read_scores_and_learning_rates(scores_and_lr_filename)
     scores = {epoch: v for epoch, v in scores.items() if epoch > ignore_first_n_epochs}
+    if expected_gpu is None:
+        res = {v.get(":meta:device") for epoch, v in scores.items()}
+        assert len(res) == 1, f"expected to have only one device, found: {res}"
+        expected_gpu = res.pop()
     scores, filtered_by_device = _filter_learning_rates_by_device(
         scores, device=expected_gpu, min_required=min_required or len(scores)
     )
@@ -150,7 +154,7 @@ def main():
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("job", help="job dir")
-    arg_parser.add_argument("--gpu", required=True, help="expected GPU, e.g. 'NVIDIA GeForce GTX 1080 Ti'")
+    arg_parser.add_argument("--gpu", help="expected GPU, e.g. 'NVIDIA GeForce GTX 1080 Ti'")
     arg_parser.add_argument("--ignore-first-n-epochs", type=int, default=0)
     arg_parser.add_argument("--take-n-fastest-epochs", type=int, default=None, help="take the N fastest epochs")
     args = arg_parser.parse_args()
