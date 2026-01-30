@@ -77,7 +77,12 @@ def get_training_times_per_epoch(
     epoch_steps = {ep: t for ep, t in epoch_steps.items()}
     epoch_steps_min = min(epoch_steps.values())
     epoch_steps_max = max(epoch_steps.values())
-    assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, f"epoch_steps: {epoch_steps}"  # sanity check
+    assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, (
+        f"{epoch_steps_min = }, {epoch_steps_max = }, "
+        f"{np.mean(list(epoch_steps.values())), np.std(list(epoch_steps.values())) = }, "
+        f"{epoch_steps_max - epoch_steps_min = }, "
+        f"{epoch_steps_max * 0.1 = }, {epoch_steps = }"
+    )  # sanity check
 
     if not filtered_by_device:
         # We also need to check that we have the same GPU. For that, we currently need to check the log.
