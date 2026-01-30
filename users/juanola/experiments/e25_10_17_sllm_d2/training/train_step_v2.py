@@ -1,6 +1,6 @@
 __all__ = ["train_step"]
 
-from typing import Sequence
+from typing import Sequence, Optional
 
 import returnn.frontend as rf
 import torch
@@ -28,17 +28,36 @@ def train_step(
         label_smoothing_start_epoch: int,
         num_eos_symbols: int = 1, #only defined here
 
+        # FROZEN LAYERS
+        frozen_encoder_epochs: Optional[list[int]]=None,
+        frozen_decoder_epochs: Optional[list[int]]=None,
+        frozen_adapter_epochs: Optional[list[int]]=None,
+
         **_kwargs,
 ):
     """
     RETURNN ENTRYPOINT!!
     """
+    if frozen_encoder_epochs is None:
+        frozen_encoder_epochs = []
+    if frozen_decoder_epochs is None:
+        frozen_decoder_epochs = []
+    if frozen_adapter_epochs is None:
+        frozen_adapter_epochs = []
+
     ctx: RunCtx = rf.get_run_ctx()
 
     assert aed_loss_scale > 0 or (
             len(aux_loss_scales) > 0 and any(scale > 0 for scale in aux_loss_scales)
     ), "must use at least AED or CTC aux loss"
     assert num_eos_symbols >= 1
+
+    # WARNING!! MODIFY MODEL STATE - FREEZE/UNFREEZE LAYERS
+    current_epoch = ctx.epoch
+    model.update_encoder_if_needed(should_be_frozen=current_epoch in frozen_encoder_epochs)
+    model.update_decoder_if_needed(should_be_frozen=current_epoch in frozen_decoder_epochs)
+    model.update_adapter_if_needed(should_be_frozen=current_epoch in frozen_adapter_epochs)
+
 
     data_: ReturnnTensor = extern_data[DATA_PARAM_NAME]
     data: Tensor = data_.raw_tensor

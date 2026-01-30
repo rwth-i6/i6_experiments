@@ -4,7 +4,8 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     exp_v8_2, \
     exp_v9, exp_v10, exp_v10_2, exp_v11, exp_v12, exp_v3_2, exp_v13, exp_v2_s2, exp_v8_3, exp_v8_4, exp_v7_150, \
     exp_v7_200, t_v1, t_v1_2, exp_v7_with_ctc_gd, exp_v10_3, n2_test, n2_test_sv2, exp_v7_with_beam, bv2_pre_d_b_t, \
-    bv2_pre_ed_b_t, bv2_pre_d_s_c, bv2_pre_d_b_c, bv2_pre_ed_b_c, bv2_pre_ed_s_c, exp_v7_300
+    bv2_pre_ed_b_t, bv2_pre_d_s_c, bv2_pre_d_b_c, bv2_pre_ed_b_c, bv2_pre_ed_s_c, exp_v7_300, bv2_pre_d_s_c_f1, \
+    bv2_pre_d_s_c_f2, bv2_pre_d_s_c_f5, bv2_pre_ed_s_c_f1, bv2_pre_ed_s_c_f2, bv2_with_ds_pre_d_s_c_f1
 
 
 class ExperimentVersion(Enum):
@@ -48,6 +49,15 @@ class ExperimentVersion(Enum):
     SLLM_BV2_PRE_ED_B_C = "SLLM_pretrained_ed_b_c"
 
     V7_TUNED_DROPOUT_300 = "SLLM_td_300"
+    SLLM_BV2_PRE_D_S_C_F1 = "SLLM_pretrained_d_s_c_f1"
+    SLLM_BV2_PRE_D_S_C_F2 = "SLLM_pretrained_d_s_c_f2"
+    SLLM_BV2_PRE_D_S_C_F5 = "SLLM_pretrained_d_s_c_f5"
+    SLLM_BV2_PRE_ED_S_C_F1 = "SLLM_pretrained_ed_s_c_f1"
+    SLLM_BV2_PRE_ED_S_C_F2 = "SLLM_pretrained_ed_s_c_f2"
+
+    SLLM_BV2_DS_PRE_D_S_C_F1 = "SLLM_ds_pretrained_d_s_c_f1"
+
+
     # Expand here
 
     # Tests
@@ -95,6 +105,12 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.SLLM_BV2_PRE_ED_B_C: bv2_pre_ed_b_c,
 
     ExperimentVersion.V7_TUNED_DROPOUT_300: exp_v7_300,
+    ExperimentVersion.SLLM_BV2_PRE_D_S_C_F1: bv2_pre_d_s_c_f1,
+    ExperimentVersion.SLLM_BV2_PRE_D_S_C_F2: bv2_pre_d_s_c_f2,
+    ExperimentVersion.SLLM_BV2_PRE_D_S_C_F5: bv2_pre_d_s_c_f5,
+    ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F1: bv2_pre_ed_s_c_f1,
+    ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2: bv2_pre_ed_s_c_f2,
+    ExperimentVersion.SLLM_BV2_DS_PRE_D_S_C_F1: bv2_with_ds_pre_d_s_c_f1,
     # Expand here
 
     # Tests

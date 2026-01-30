@@ -39,8 +39,8 @@ def main():
     e3v8_2()
     e3v7_2()
 
-    #e3_pre1()
-    #e3_pre2()
+    # e3_pre1()
+    # e3_pre2()
     e3_pre3()
     e3_pre4()
     e3_pre5()
@@ -177,11 +177,11 @@ def e3_pre2():
 
 
 def e3_pre3():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C], itc_training=True, run_only_last=False)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C], run_only_last=False)  # , itc_training=True)
 
 
 def e3_pre4():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C], itc_training=True, run_only_last=False)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C], run_only_last=False, itc_training=True)
 
 
 def e3_pre5():
@@ -191,10 +191,40 @@ def e3_pre5():
 def e3_pre6():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_C], itc_training=True)
 
+
 # ++++
+
 
 def e3v7_3():
     ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300], itc_training=True)
+
+
+def e3_f1():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F1], run_only_last=False)
+
+
+def e3_f2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F2], run_only_last=False)
+
+
+def e3_f3():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F5], run_only_last=False)
+
+
+def e3_f4():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F1], run_only_last=False)
+
+
+def e3_f5():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2], run_only_last=False)
+
+
+def e3_f1_ds():
+    """
+    to test that old setup with 13k bs works with DS
+    :return:
+    """
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_D_S_C_F1], run_only_last=False)
 
 
 """
@@ -301,8 +331,8 @@ __all__ = [
     "e3v2_s2",
     "e3v8_2",
     "e3v7_2",
-    #"e3_pre1",
-    #"e3_pre2",
+    # "e3_pre1",
+    # "e3_pre2",
     "e3_pre3",
     "e3_pre4",
     "e3_pre5",

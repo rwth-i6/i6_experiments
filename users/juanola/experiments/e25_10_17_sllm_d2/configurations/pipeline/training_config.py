@@ -115,7 +115,7 @@ def itc_batch_size_250k() -> TrainingConfig:
     return replace(training_baseline(), batch_size=250_000)
 
 
-def itc_4gpu_setup_v1() -> TrainingConfig:
+def i6_4gpu_setup_v1() -> TrainingConfig:
     """
     Seemed to be failing but was because a faulty node (cn-280)
     :return:
@@ -131,11 +131,14 @@ def itc_4gpu_setup_v1() -> TrainingConfig:
     )
 
 
-def itc_4gpu_setup_v2() -> TrainingConfig:
-    return replace(itc_4gpu_setup_v1(), batch_size=5_000)
+def i6_4gpu_setup_v2() -> TrainingConfig:
+    return replace(i6_4gpu_setup_v1(), batch_size=5_000)
 
-def itc_4gpu_setup_v3() -> TrainingConfig:
-    return replace(itc_4gpu_setup_v1(), batch_size=13_000)
+def i6_4gpu_setup_v3() -> TrainingConfig:
+    return replace(i6_4gpu_setup_v1(), batch_size=13_000)
+
+def i6_4gpu_setup_v4() -> TrainingConfig:
+    return replace(i6_4gpu_setup_v1(), batch_size=10_000)
 
 
 def bsv2_lrv2() -> TrainingConfig:

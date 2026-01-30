@@ -63,7 +63,7 @@ class _SpecAugArgs(TypedDict):
 
 class Model(
     nn.Module, AedCtcModelProtocol, BaseEncoderDecoderModel[Qwen2DecoderState]
-):  # TODO: rename class -> will break in hardcoded places
+):
     """
     Conformer encoder + Transformer decoder AED + CTC model
     similar to the RETURNN frontend implementation but using primitives from i6_models.
@@ -128,6 +128,11 @@ class Model(
             using_encoder: bool = True,
             using_decoder: bool = True,
 
+            # Freeze
+            freeze_encoder_from_the_start: Optional[bool] = None,
+            freeze_decoder_from_the_start: Optional[bool] = None,
+            freeze_adapter_from_the_start: Optional[bool] = None,
+
             # ONLY DEFINED HERE
             verbose: bool = True,
 
@@ -157,6 +162,8 @@ class Model(
 
         self.using_encoder = using_encoder
         self.using_decoder = using_decoder
+
+        self.verbose = verbose
 
         if using_encoder:
             # FEATURE EXTRACTION (used in forward encoder)
@@ -255,6 +262,9 @@ class Model(
             )
             self._out_fetch_layers = sorted(v - 1 for v in {*aux_loss_layers, enc_cfg.num_layers})
 
+            # For further freeze/unfreeze
+            self.encoder_modules = [self.mel_frontend, self.encoder, self.out_aux_logits]
+
         if using_decoder:
             # DECODER
             qwen2_config: Qwen2Config = Qwen2Config.from_pretrained(config_path)
@@ -266,6 +276,9 @@ class Model(
             self.decoder_embed_func = nn.Embedding(vocab_size, qwen2_config.hidden_size)
             # self.decoder_embed_func = self.decoder.get_input_embeddings() # TODO: what should be used! better inline?
 
+            # For further freeze/unfreeze
+            self.decoder_modules = [self.decoder, self.decoder_embed_func]
+
         if using_encoder and using_decoder:
             # Adapter
             adapter_class = load_class_from_path(adapter_class_path)
@@ -275,6 +288,32 @@ class Model(
                 # TODO: more parameters could be passed through a dict or so!
             )
 
+            # For further freeze/unfreeze
+            self.adapter_modules = [self.encoder_decoder_adapter]
+
+        # Freeze/Unfreeze Layers
+        if verbose:
+            print(" ***** INITIAL FROZEN LAYERS *****")
+
+        if freeze_encoder_from_the_start is None or not freeze_encoder_from_the_start:
+            self.frozen_encoder = False
+        else:
+            self._freeze_encoder_params(verbose=verbose)
+
+        if freeze_decoder_from_the_start is None or not freeze_decoder_from_the_start:
+            self.frozen_decoder = False
+        else:
+            self._freeze_decoder_params(verbose=verbose)
+
+        if freeze_adapter_from_the_start is None or not freeze_adapter_from_the_start:
+            self.frozen_adapter = False
+        else:
+            self._freeze_adapter_params(verbose=verbose)
+
+        if verbose:
+            print(" ***** INITIAL FROZEN LAYERS *****")
+
+        # PARAMETERS PRINT
         if verbose:
             print(" ***** MODEL PARAMETERS *****")
             if using_encoder:
@@ -292,6 +331,91 @@ class Model(
             else:
                 print("No decoder!")
             print(" ***** MODEL PARAMETERS *****")
+
+    def update_encoder_if_needed(self, should_be_frozen: bool):
+        if should_be_frozen and not self.frozen_encoder:
+            self._freeze_encoder_params(verbose = self.verbose)
+        elif not should_be_frozen and self.frozen_encoder:
+            self._unfreeze_encoder_params(verbose = self.verbose)
+
+    def update_decoder_if_needed(self, should_be_frozen: bool):
+        if should_be_frozen and not self.frozen_decoder:
+            self._freeze_decoder_params(verbose = self.verbose)
+        elif not should_be_frozen and self.frozen_decoder:
+            self._unfreeze_decoder_params(verbose = self.verbose)
+
+    def update_adapter_if_needed(self, should_be_frozen: bool):
+        if should_be_frozen and not self.frozen_adapter:
+            self._freeze_adapter_params(verbose = self.verbose)
+        elif not should_be_frozen and self.frozen_adapter:
+            self._unfreeze_adapter_params(verbose = self.verbose)
+
+    def _freeze_encoder_params(self, verbose: bool= False):
+        if not self.using_encoder:
+            print("WARNING! Trying to freeze non existent encoder.")
+            return
+        self.freeze_or_unfreeze_modules(self.encoder_modules, requires_grad=False)
+        self.frozen_encoder = True
+        if verbose:
+            print("Encoder Frozen!")
+
+    def _freeze_decoder_params(self, verbose: bool= False):
+        if not self.using_decoder:
+            print("WARNING! Trying to freeze non existent decoder.")
+            return
+        self.freeze_or_unfreeze_modules(self.decoder_modules, requires_grad=False)
+        self.frozen_decoder = True
+        if verbose:
+            print("Decoder Frozen!")
+
+    def _freeze_adapter_params(self, verbose: bool= False):
+        if not (self.using_encoder and self.using_decoder):
+            print("WARNING! Trying to freeze non existent adapter.")
+            return
+        self.freeze_or_unfreeze_modules(self.adapter_modules, requires_grad=False)
+        self.frozen_adapter = True
+        if verbose:
+            print("Adapter Frozen!")
+
+    def _unfreeze_encoder_params(self, verbose: bool= False):
+        if not self.using_encoder:
+            print("WARNING! Trying to unfreeze non existent encoder.")
+            return
+        self.freeze_or_unfreeze_modules(self.encoder_modules, requires_grad=True)
+        self.frozen_encoder = False
+        if verbose:
+            print("Encoder Unfrozen!")
+
+    def _unfreeze_decoder_params(self, verbose: bool= False):
+        if not self.using_decoder:
+            print("WARNING! Trying to unfreeze non existent decoder.")
+            return
+        self.freeze_or_unfreeze_modules(self.decoder_modules, requires_grad=True)
+        self.frozen_decoder = False
+        if verbose:
+            print("Decoder Unfrozen!")
+
+    def _unfreeze_adapter_params(self, verbose: bool= False):
+        if not (self.using_encoder and self.using_decoder):
+            print("WARNING! Trying to unfreeze non existent adapter.")
+            return
+        self.freeze_or_unfreeze_modules(self.adapter_modules, requires_grad=True)
+        self.frozen_adapter = False
+        if verbose:
+            print("Adapter Unfrozen!")
+
+
+    def freeze_or_unfreeze_modules(self, modules: list[nn.Module], requires_grad: bool):
+        """
+        requires_grad: false to freeze, true to unfreeze
+        :param modules:
+        :param requires_grad:
+        :return:
+        """
+        for module in modules:
+            for param in module.parameters():
+                param.requires_grad = requires_grad
+
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
         """

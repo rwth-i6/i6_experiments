@@ -10,6 +10,7 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_helpers import get_training_config
+from ...configurations.network.network_config import NetworkConfig
 from ...configurations.pipeline.training_config import TrainingConfig
 from ...configurations.pretrained_models import PretrainedConfig, get_encoder_checkpoint, get_decoder_checkpoint
 
@@ -26,6 +27,7 @@ def create_training_job(training_name: str,
 
                         training_config: TrainingConfig,
                         pretrained_config: PretrainedConfig,
+                        network_config: NetworkConfig,
 
                         returnn_root: tk.Path) -> ReturnnTrainingJob:
     """
@@ -38,7 +40,7 @@ def create_training_job(training_name: str,
     :param returnn_root: Path to a checked out RETURNN repository
     """
     train_args, training_rqmt = get_training_parameters(network_args, network_import_path,
-                                                        returnn_root, train_epochs, train_step_module, batch_size, training_config, pretrained_config)
+                                                        returnn_root, train_epochs, train_step_module, batch_size, training_config, pretrained_config, network_config)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
     train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
 
@@ -48,7 +50,9 @@ def create_training_job(training_name: str,
 
 
 def get_training_parameters(network_args: dict[str, Any], network_import_path: str,
-                            returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int, train_config_obj: TrainingConfig, pretrained_config: PretrainedConfig) -> tuple[
+                            returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int,
+                            train_config_obj: TrainingConfig, pretrained_config: PretrainedConfig, network_config: NetworkConfig,
+                            ) -> tuple[
     dict[str, Any], dict[str, Any]]:
     train_config = { # TODO: lots of settings could be moved to configs.
         **train_config_obj.optimizer.get_optimizer_returnn_config(),
@@ -84,7 +88,18 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
             }
         train_config["preload_from_files"] = preload_from_files
 
+    train_step_params = {# TODO: could also be extracted in a file
+        "aed_loss_scale": 1.0,
+        "aux_loss_scales": (1.0, 1.0),
+        "label_smoothing": 0.1,
+        "label_smoothing_start_epoch": 0,
+    }
 
+    # Freeze/unfreeze params
+    if network_config.freeze_encoder_ranges is not None:
+        train_step_params["frozen_encoder_epochs"] = network_config.get_frozen_encoder_epochs()
+    if network_config.freeze_decoder_ranges is not None:
+        train_step_params["frozen_decoder_epochs"] = network_config.get_frozen_decoder_epochs()
 
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
         "config": train_config,
@@ -93,12 +108,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         "net_args": network_args,
 
         "train_step_module": train_step_module,
-        "train_args": {  # train step args - # TODO: could also be extracted in a file
-            "aed_loss_scale": 1.0,
-            "aux_loss_scales": (1.0, 1.0),
-            "label_smoothing": 0.1,
-            "label_smoothing_start_epoch": 0,
-        },
+        "train_args": train_step_params,
 
         "debug": train_config_obj.debug_returnn_param,
         "use_speed_perturbation": True,

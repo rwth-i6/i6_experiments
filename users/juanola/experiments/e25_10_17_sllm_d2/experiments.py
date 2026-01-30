@@ -104,6 +104,7 @@ def sllm_ep(
             partition_epochs,
             exp_config.training,
             exp_config.pretrained,
+            exp_config.network,
             returnn_root=RETURNN_ROOT,
         )
         train_job.rqmt["gpu_mem"] = TRAINING_GPU_MEMORY
@@ -184,6 +185,14 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
 
     network_args = label_config | fe_config | encoder_config | adapter_config | decoder_config
+
+    # Frozen layers
+    if config.network.frozen_encoder_from_the_start():
+        network_args["freeze_encoder_from_the_start"] = True
+
+    if config.network.frozen_decoder_from_the_start():
+        network_args["freeze_decoder_from_the_start"] = True
+
     return network_args
 
 
