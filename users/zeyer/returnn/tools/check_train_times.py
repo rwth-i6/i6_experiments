@@ -47,7 +47,7 @@ def get_training_times_per_epoch(
     expected_gpu: Optional[str] = None,
     ignore_first_n_epochs: int = 0,
     min_required: Optional[int] = None,
-) -> List[Union[float, int]]:
+) -> Tuple[str, List[Union[float, int]]]:
     """
     :param training_job: reads out_learning_rates and the log from it
     :param expected_gpu: e.g. "NVIDIA GeForce GTX 1080 Ti"
@@ -55,7 +55,7 @@ def get_training_times_per_epoch(
         e.g. because we might use smaller models, or data filtering, or so,
         so they are much faster and not comparable to the others
     :param min_required:
-    :return: avg time per epoch in secs
+    :return: (gpu,times). times per epoch in secs
     """
     # We can read the learning_rates to get the time per epoch in secs.
     job_dir = get_job_base_dir(training_job)
@@ -84,7 +84,7 @@ def get_training_times_per_epoch(
         gpus = _read_used_gpus_from_log(job_dir)
         assert gpus == {expected_gpu}, f"expected GPU {expected_gpu}, found in log: {gpus}"
 
-    return list(epoch_times.values())
+    return expected_gpu, list(epoch_times.values())
 
 
 def _read_scores_and_learning_rates(filename: str) -> Dict[int, Dict[str, Union[float, Any]]]:
@@ -159,12 +159,13 @@ def main():
     arg_parser.add_argument("--take-n-fastest-epochs", type=int, default=None, help="take the N fastest epochs")
     args = arg_parser.parse_args()
 
-    times_per_epoch = get_training_times_per_epoch(
+    gpu, times_per_epoch = get_training_times_per_epoch(
         args.job,
         expected_gpu=args.gpu,
         ignore_first_n_epochs=args.ignore_first_n_epochs,
         min_required=args.take_n_fastest_epochs,
     )
+    print(f"GPU: {gpu}")
     print("times per epoch:")
     print(f"(num epochs: {len(times_per_epoch)})")
     print(f"min, max: {min(times_per_epoch):.2f}, {max(times_per_epoch):.2f}")
