@@ -323,24 +323,22 @@ def _same_seq_labels(seq: Tensor, *, spatial_dim: Dim, beam_dim: Dim) -> Tuple[T
 
 
 @dataclasses.dataclass
-class _HypStates:
-    num_words: Tensor  # [batch_dims], int32. but the last one might be incomplete. not needed?
-    num_finished_words: Tensor  # [batch_dims], int32
-    have_maybe_incomplete_word: Tensor  # [batch_dims], bool
-    base_labels: Tensor  # [batch_dims, hist_dim], int64 sparse
-    base_labels_cur_word_start: Tensor  # [batch_dims], int32
-    out_labels: Tensor  # [batch_dims, out_hist_dim], int64 sparse
+class _LabelConvertState:
+    num_base_labels_converted: Tensor  # [batch_dims], int32
+    out_labels: rf.State  # via _seq_label_history_init_state and co
+    num_out_labels_processed: Tensor  # [batch_dims], int32
 
     @classmethod
-    def initial(cls, *, batch_dims: Sequence[Dim], device: Optional[str] = None):
-        num_words = rf.zeros(batch_dims, dtype="int32", device=device)
-        num_finished_words = rf.zeros(batch_dims, device=device)
-        have_maybe_incomplete_word = rf.zeros(batch_dims, dtype="bool", device=device)
+    def initial(cls, *, out_vocab_dim: Dim, batch_dims: Sequence[Dim]):
         return cls(
-            num_words=num_words,
-            num_finished_words=num_finished_words,
-            have_maybe_incomplete_word=have_maybe_incomplete_word,
+            num_base_labels_converted=rf.zeros(batch_dims, dtype="int32"),
+            out_labels=_seq_label_history_init_state(vocab_dim=out_vocab_dim, batch_dims=batch_dims),
+            num_out_labels_processed=rf.zeros(batch_dims, dtype="int32"),
         )
 
-    def update(self, new_label: Tensor) -> _HypStates:
+    def update(self, new_label: Tensor) -> _LabelConvertState:
         pass
+
+    @property
+    def num_output_labels(self) -> Tensor:
+        return self.out_labels.hist_dim.get_size_tensor()
