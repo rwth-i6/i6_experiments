@@ -201,28 +201,28 @@ def network_baseline_v2_td_small() -> NetworkConfig:
 frozen
 """
 
-
-def network_baseline_v2_td_linear_small_frozen_n_first_epochs(
-    encoder_epochs: Optional[int] = None, decoder_epochs: Optional[int] = None
-) -> NetworkConfig:
+def network_with_frozen_layers(network: NetworkConfig, encoder_epochs: Optional[int] = None, decoder_epochs: Optional[int] = None) -> NetworkConfig:
     freeze_encoder_ranges = [(1, encoder_epochs)] if encoder_epochs is not None else None
     freeze_decoder_ranges = [(1, decoder_epochs)] if decoder_epochs is not None else None
     return replace(
-        network_baseline_v2_td_linear_small(),
+        network,
         freeze_encoder_ranges=freeze_encoder_ranges,
         freeze_decoder_ranges=freeze_decoder_ranges,
     )
 
-def network_baseline_v2_td_ds_small_frozen_n_first_epochs(
+
+def network_baseline_v2_td_frozen_n_first_epochs(
         encoder_epochs: Optional[int] = None, decoder_epochs: Optional[int] = None
 ) -> NetworkConfig:
     freeze_encoder_ranges = [(1, encoder_epochs)] if encoder_epochs is not None else None
     freeze_decoder_ranges = [(1, decoder_epochs)] if decoder_epochs is not None else None
     return replace(
-        network_baseline_v2_td_small(),
+        network_baseline_v2_td(),
         freeze_encoder_ranges=freeze_encoder_ranges,
         freeze_decoder_ranges=freeze_decoder_ranges,
     )
+
+
 
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

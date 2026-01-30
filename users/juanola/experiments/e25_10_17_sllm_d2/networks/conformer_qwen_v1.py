@@ -263,7 +263,7 @@ class Model(
             self._out_fetch_layers = sorted(v - 1 for v in {*aux_loss_layers, enc_cfg.num_layers})
 
             # For further freeze/unfreeze
-            self.encoder_modules = [self.mel_frontend, self.encoder, self.out_aux_logits]
+            self.encoder_modules = [self.encoder, self.out_aux_logits]
 
         if using_decoder:
             # DECODER

@@ -140,6 +140,9 @@ def i6_4gpu_setup_v3() -> TrainingConfig:
 def i6_4gpu_setup_v4() -> TrainingConfig:
     return replace(i6_4gpu_setup_v1(), batch_size=10_000)
 
+def i6_4gpu_setup_v4_for_n_epochs(n_epochs:int) -> TrainingConfig:
+    return replace(i6_4gpu_setup_v4(), epochs=n_epochs)
+
 
 def bsv2_lrv2() -> TrainingConfig:
     return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v2())
