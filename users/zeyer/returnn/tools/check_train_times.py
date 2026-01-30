@@ -205,4 +205,10 @@ def _debug_out_job_logs(job: str):
 
 
 if __name__ == "__main__":
+    try:
+        import better_exchook
+
+        better_exchook.install()
+    except ImportError:
+        pass  # ignore
     main()
