@@ -129,6 +129,10 @@ def py():
 
     # Vocabs:
     for vocab in ["spm1k", "spm5k", "spm10k"]:
+        # CTC-only:
+        # spm1k: 10.66
+        # spm5k: 9.52
+        # spm10k: 9.56
         left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
         max_seqs = 200
         train(
@@ -148,7 +152,9 @@ def py():
             },
         )
 
-    # V2
+    # V2: ChunkedConformerEncoderV2, more flexible, more optimized chunking
+    # epoch train time: ~3700 (v1: ~8000)
+    # CTC-only: 11.74 (v1: 9.56)
     left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2",
@@ -166,7 +172,9 @@ def py():
         },
     )
 
-    # V2.2
+    # V2.2: using ChunkedConformerEncoderV2, setting version=2:
+    #   reduce chunk sizes, history, if the input is not long enough.
+    # CTC-only: 11.67 (v1: 9.56)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.2",
         {
@@ -183,6 +191,8 @@ def py():
             "train.max_seqs": max_seqs,
         },
     )
+
+    # TODO debug why V2 is worse than V1
 
     # TODO rope instead of relpos selfatt
     # TODO different left/right/center sizes per layer?
