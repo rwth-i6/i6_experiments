@@ -7,12 +7,11 @@ Call this via:
     python3 -m i6_experiments.users.zeyer.returnn.tools.check_train_times ...
 """
 
-from typing import Optional, Union, Any, Dict, Set, List, Tuple
+from typing import Optional, Union, Any, TypeVar, Dict, Set, List, Tuple
 import os
 import sys
 import re
 from functools import reduce
-from typing import TypeVar
 
 import numpy as np
 
