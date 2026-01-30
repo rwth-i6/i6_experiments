@@ -69,12 +69,21 @@ def get_training_times_per_epoch(
         assert len(res) == 1, f"expected to have only one device, found: {res}"
         expected_gpu = res.pop()
     scores, filtered_by_device = _filter_learning_rates_by_device(
-        scores, device=expected_gpu, min_required=min_required or len(scores)
+        scores, device=expected_gpu, min_required=min_required or 1
     )
-    epoch_times = _read_epoch_times_from_scores_and_learning_rates(scores)
-    epoch_times = {ep: t for ep, t in epoch_times.items()}
+
     epoch_steps = _read_epoch_steps_from_scores_and_learning_rates(scores)
     epoch_steps = {ep: t for ep, t in epoch_steps.items()}
+
+    # filter out outliers
+    steps_values = list(epoch_steps.values())
+    filtered_steps_values = _z_score_outlier_removal(steps_values, threshold=1.0)
+    valid_steps = set(filtered_steps_values)
+    scores = {ep: v for ep, v in scores.items() if epoch_steps[ep] in valid_steps}
+    assert len(scores) >= (min_required or 1), (
+        f"not enough epochs after outlier removal, have {len(scores)}, required {min_required}"
+    )
+    epoch_steps = {ep: t for ep, t in epoch_steps.items() if ep in scores}
     epoch_steps_min = min(epoch_steps.values())
     epoch_steps_max = max(epoch_steps.values())
     assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, (
@@ -83,6 +92,9 @@ def get_training_times_per_epoch(
         f"{epoch_steps_max - epoch_steps_min = }, "
         f"{epoch_steps_max * 0.1 = }, {epoch_steps = }"
     )  # sanity check
+
+    epoch_times = _read_epoch_times_from_scores_and_learning_rates(scores)
+    epoch_times = {ep: t for ep, t in epoch_times.items()}
 
     if not filtered_by_device:
         # We also need to check that we have the same GPU. For that, we currently need to check the log.
@@ -187,7 +199,7 @@ def main():
 
 
 def _z_score_outlier_removal(ls: List[float], threshold: float = 3.0) -> List[float]:
-    ls = np.array(ls)
+    ls = np.array(ls).astype(np.float64)
     mean = np.mean(ls)
     std = np.std(ls)
     z_scores = (ls - mean) / std
