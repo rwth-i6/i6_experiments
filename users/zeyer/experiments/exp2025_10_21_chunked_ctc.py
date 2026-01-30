@@ -153,7 +153,8 @@ def py():
         )
 
     # V2: ChunkedConformerEncoderV2, more flexible, more optimized chunking
-    # epoch train time: ~3700 (v1: ~8000)
+    # epoch train time (recipe/i6_experiments/users/zeyer/returnn/tools/check_train_times.py) mean:
+    #   3738.79 (v1: 7728.30)
     # CTC-only: 11.74 (v1: 9.56)
     left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
     train(
@@ -174,6 +175,7 @@ def py():
 
     # V2.2: using ChunkedConformerEncoderV2, setting version=2:
     #   reduce chunk sizes, history, if the input is not long enough.
+    # epoch train time mean: 3726.87
     # CTC-only: 11.67 (v1: 9.56)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.2",
