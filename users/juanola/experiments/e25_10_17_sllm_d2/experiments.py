@@ -1,3 +1,4 @@
+import copy
 from dataclasses import asdict
 from functools import partial
 from typing import Any, Dict, Tuple, Optional
@@ -86,7 +87,7 @@ def sllm_ep(
 
         # NETWORK
         model_alias = exp_config.network.name
-        network_args = get_network_args(exp_config)
+        network_args, network_args_for_forward = get_network_args(exp_config)
 
         network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
         network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
@@ -141,7 +142,7 @@ def sllm_ep(
                 training_name=forward_training_name,
                 train_job=train_job,
                 network_import_path=network_import_path_for_forward_step,
-                net_args=network_args,
+                net_args=network_args_for_forward,
                 search_config=search_config,
                 train_data=training_datasets,
                 dev_dataset_tuples=dev_dataset_tuples,
@@ -168,7 +169,7 @@ def sllm_ep(
     return results_per_experiment
 
 
-def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
+def get_network_args(config: ExperimentConfig) -> Tuple[dict[str, Any], dict[str, Any]]:
     """
     Builds network arguments and alias for the model.
 
@@ -186,6 +187,9 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
 
     network_args = label_config | fe_config | encoder_config | adapter_config | decoder_config
 
+    # Get a copy before freezing params
+    network_args_for_forward = copy.deepcopy(network_args)
+
     # Frozen layers
     if config.network.frozen_encoder_from_the_start():
         network_args["freeze_encoder_from_the_start"] = True
@@ -193,7 +197,7 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     if config.network.frozen_decoder_from_the_start():
         network_args["freeze_decoder_from_the_start"] = True
 
-    return network_args
+    return network_args, network_args_for_forward
 
 
 def create_datasets_jobs(
@@ -201,7 +205,8 @@ def create_datasets_jobs(
     dataset_config: DatasetConfig,
     label_config: LabelConfig,
     partition_epoch_factor: int,
-    datasets_num_workers: int,
+    train_dataset_num_workers: int,
+    forward_dataset_num_workers: int = 4,
 ) -> tuple[TrainingDatasets, Dict[str, Tuple[Dataset, tk.Path]], Dict[str, Tuple[Dataset, tk.Path]]]:
     """
     build the training datasets object containing train, cv, dev-train and the extern_data dict
@@ -226,7 +231,7 @@ def create_datasets_jobs(
         vocab_size=label_config.vocab_size,
         returnn_root=MINI_RETURNN_ROOT,  # to import ogg zip job from Nick
         alpha=dataset_config.sampling_alpha,
-        datasets_num_workers=datasets_num_workers,
+        datasets_num_workers=train_dataset_num_workers,
     )
 
     dev_dataset_tuples = {}
@@ -234,7 +239,7 @@ def create_datasets_jobs(
         dev_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
             settings=train_dataset_settings,
-            datasets_num_workers=datasets_num_workers,
+            datasets_num_workers=forward_dataset_num_workers,
         )
 
     test_dataset_tuples = {}
@@ -242,7 +247,7 @@ def create_datasets_jobs(
         test_dataset_tuples[testset] = build_test_dataset(
             dataset_key=testset,
             settings=train_dataset_settings,
-            datasets_num_workers=datasets_num_workers,
+            datasets_num_workers=forward_dataset_num_workers,
         )
 
     return (

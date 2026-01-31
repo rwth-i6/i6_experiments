@@ -43,7 +43,7 @@ def build_training_datasets(
     dev_other_ogg: tk.Path,
     label_datastream: LabelDatastream,
     returnn_settings: ReturnnDatasetSettings,
-        datasets_num_workers:int,
+    datasets_num_workers: int,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -100,9 +100,7 @@ def build_training_datasets(
 
 
 def build_test_dataset(
-    dataset_key: str,
-    settings: ReturnnDatasetSettings,
-        datasets_num_workers
+    dataset_key: str, settings: ReturnnDatasetSettings, datasets_num_workers:int
 ) -> Tuple[Dataset, tk.Path]:
     """
     Create ASR test set that only contains the audio stream
@@ -120,9 +118,6 @@ def build_test_dataset(
     test_zip_dataset = OggZipDataset(
         files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
     )
-    test_dataset = make_multi_proc(
-        test_zip_dataset,
-        datasets_num_workers
-    )
+    test_dataset = make_multi_proc(test_zip_dataset, datasets_num_workers)
 
     return test_dataset, bliss_dict[dataset_key]
