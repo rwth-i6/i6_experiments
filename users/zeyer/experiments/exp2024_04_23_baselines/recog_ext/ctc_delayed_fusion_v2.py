@@ -88,12 +88,16 @@ def model_recog_with_recomb_delayed_fusion_v2(
     )
     label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
 
+    lm_vocab_dim = model.target_dim  # TODO other vocab
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
     target_wb = rf.constant(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
     )  # Batch, InBeam -> VocabWB
 
-    seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
+    am_seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
+    am_seq_last_converted = rf.constant(-1, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+    lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_vocab_dim, batch_dims=batch_dims_)
+    lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
 
     if getattr(model, "lm", None) is None:
         lm: Optional[TransformerDecoder] = None
@@ -147,7 +151,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         if lm is not None:
             lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
             lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
-        seq_label = rf.nested.gather_nested(seq_label, indices=backrefs)
+        am_seq_label = rf.nested.gather_nested(am_seq_label, indices=backrefs)
 
         prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
         prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
@@ -162,11 +166,11 @@ def model_recog_with_recomb_delayed_fusion_v2(
         )  # Batch, Beam -> Vocab
         got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
         if got_new_label_cpu.raw_tensor.sum().item() > 0:
-            seq_label = rf.nested.mask_nested(
-                _seq_label_append(seq_label, target),
+            am_seq_label = rf.nested.mask_nested(
+                _seq_label_append(am_seq_label, target),
                 mask=got_new_label,
                 mask_cpu=got_new_label_cpu,
-                mask_value=seq_label,
+                mask_value=am_seq_label,
             )
 
             # Recombine paths with the same label seq.
@@ -175,7 +179,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             elif recomb in ("max", "sum"):
                 # Set seq_log_prob for batch entries to neg_inf if they have the same label seq.
                 same_seq_labels, beam_dual_dim = _same_seq_labels(
-                    seq_label.history, spatial_dim=seq_label.hist_dim, beam_dim=beam_dim
+                    am_seq_label.history, spatial_dim=am_seq_label.hist_dim, beam_dim=beam_dim
                 )
                 ctc_seq_log_prob_ext = rf.where(
                     same_seq_labels,
@@ -320,25 +324,3 @@ def _same_seq_labels(seq: Tensor, *, spatial_dim: Dim, beam_dim: Dim) -> Tuple[T
         same_seq_labels_lens = rf.compare_bc(seq_labels_lens, "==", seq_labels_dual_lens)  # Batch, Beam, BeamDual
         same_seq_labels = rf.logical_and(same_seq_labels, same_seq_labels_lens)
     return same_seq_labels, beam_dual_dim
-
-
-@dataclasses.dataclass
-class _LabelConvertState:
-    num_base_labels_converted: Tensor  # [batch_dims], int32
-    out_labels: rf.State  # via _seq_label_history_init_state and co
-    num_out_labels_processed: Tensor  # [batch_dims], int32
-
-    @classmethod
-    def initial(cls, *, out_vocab_dim: Dim, batch_dims: Sequence[Dim]):
-        return cls(
-            num_base_labels_converted=rf.zeros(batch_dims, dtype="int32"),
-            out_labels=_seq_label_history_init_state(vocab_dim=out_vocab_dim, batch_dims=batch_dims),
-            num_out_labels_processed=rf.zeros(batch_dims, dtype="int32"),
-        )
-
-    def update(self, new_label: Tensor) -> _LabelConvertState:
-        pass
-
-    @property
-    def num_output_labels(self) -> Tensor:
-        return self.out_labels.hist_dim.get_size_tensor()
