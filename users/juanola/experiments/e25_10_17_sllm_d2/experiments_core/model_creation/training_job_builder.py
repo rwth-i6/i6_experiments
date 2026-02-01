@@ -12,7 +12,8 @@ from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_helpers import get_training_config
 from ...configurations.network.network_config import NetworkConfig
 from ...configurations.pipeline.training_config import TrainingConfig
-from ...configurations.pretrained_models import PretrainedConfig, get_encoder_checkpoint, get_decoder_checkpoint
+from ...configurations.pretrained_models import PretrainedConfig, get_encoder_checkpoint, get_decoder_checkpoint, \
+    get_sllm_checkpoint
 
 
 def create_training_job(training_name: str,
@@ -72,7 +73,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
     if train_config_obj.random_seed is not None:
         train_config["random_seed"] = train_config_obj.random_seed
 
-    if pretrained_config.pretrained_encoder is not None or pretrained_config.pretrained_decoder is not None:
+    if pretrained_config.pretrained_encoder is not None or pretrained_config.pretrained_decoder is not None or pretrained_config.pretrained_sllm is not None:
         preload_from_files = {}
         if pretrained_config.pretrained_encoder is not None:
             preload_from_files["ENCODER"] = {
@@ -83,6 +84,12 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         if pretrained_config.pretrained_decoder is not None:
             preload_from_files["DECODER"] = {
                 "filename": get_decoder_checkpoint(pretrained_config),
+                "init_for_train": True,
+                "ignore_missing": True,
+            }
+        if pretrained_config.pretrained_sllm is not None: # Should only happen without the other 2.
+            preload_from_files["SLLM"] = {
+                "filename": get_sllm_checkpoint(pretrained_config),
                 "init_for_train": True,
                 "ignore_missing": True,
             }

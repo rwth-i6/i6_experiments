@@ -29,6 +29,7 @@ class TrainingConfig:
 
     Can contain default values.
     """
+
     # Epochs & steps
     epochs: int
     partition_epoch_factor: int
@@ -71,6 +72,7 @@ class TrainingConfig:
                     self.torch_amp != TorchAmpTypes.BFLOAT16.value
                 ), "torch_amp with 11Gb nodes should not be bfloat16."
 
+
 """
 Grouped params
 """
@@ -99,7 +101,7 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
         torch_amp=TorchAmpTypes.BFLOAT16.value,
         grad_scaler=None,
         random_seed=seed,
-        **_CPU_BASELINE_KWARGS
+        **_CPU_BASELINE_KWARGS,
     )
 
 
@@ -125,7 +127,7 @@ def i6_4gpu_setup_v1() -> TrainingConfig:
         batch_size=15_000,
         gpu_memory=11,
         num_gpus=4,
-        cpu_memory=20, # a bit less that 30 !!!
+        cpu_memory=20,  # a bit less that 30 !!!
         use_torch_amp=False,
         use_grad_scaler=False,
     )
@@ -134,13 +136,16 @@ def i6_4gpu_setup_v1() -> TrainingConfig:
 def i6_4gpu_setup_v2() -> TrainingConfig:
     return replace(i6_4gpu_setup_v1(), batch_size=5_000)
 
+
 def i6_4gpu_setup_v3() -> TrainingConfig:
     return replace(i6_4gpu_setup_v1(), batch_size=13_000)
+
 
 def i6_4gpu_setup_v4() -> TrainingConfig:
     return replace(i6_4gpu_setup_v1(), batch_size=10_000)
 
-def i6_4gpu_setup_v4_for_n_epochs(n_epochs:int) -> TrainingConfig:
+
+def i6_4gpu_setup_v4_for_n_epochs(n_epochs: int) -> TrainingConfig:
     return replace(i6_4gpu_setup_v4(), epochs=n_epochs)
 
 
@@ -167,32 +172,37 @@ def itc_batch_size_80k_150_epochs() -> TrainingConfig:
 def itc_batch_size_80k_200_epochs() -> TrainingConfig:
     return replace(itc_batch_size_80k(), epochs=200)
 
+
 """
 new ITC SETUP
 """
+
 
 def itc_v2() -> TrainingConfig:
     """
     From Robin setup to exploit full GPU power in ITC (otherwise CPU goes too slow)
     :return:
     """
-    return replace(training_baseline(),
-                   datasets_num_workers=25,
-                   num_cpus=24,
-                   cpu_memory=122,
-                   )
+    return replace(
+        training_baseline(),
+        datasets_num_workers=25,
+        num_cpus=24,
+        cpu_memory=122,
+    )
+
 
 def itc_v2_80k_300_epochs() -> TrainingConfig:
     return replace(itc_v2(), batch_size=80_000, epochs=300)
+
 
 def itc_v2_80k() -> TrainingConfig:
     return replace(itc_v2(), batch_size=80_000)
 
 
-
 """
 Tests
 """
+
 
 def training_n2_test() -> TrainingConfig:
     return replace(
@@ -204,5 +214,6 @@ def training_n2_test() -> TrainingConfig:
         use_grad_scaler=False,
         epochs=1,
     )
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -181,7 +181,7 @@ def e3_pre3():
 
 
 def e3_pre4():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C], run_only_last=False, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C], run_only_last=False)#, itc_training=True)
 
 
 def e3_pre5():
@@ -189,7 +189,7 @@ def e3_pre5():
 
 
 def e3_pre6():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_C], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_C])#, itc_training=True)
 
 
 # ++++
@@ -200,11 +200,11 @@ def e3v7_3():
 
 
 def e3_f1_baseline():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_4GPU_10K], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_4GPU_10K], run_only_last=False)
 
 
 def e3_f1_baseline_pre():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_4GPU_10K_PRE_D_S_C], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_4GPU_10K_PRE_D_S_C], run_only_last=False)
 
 
 def e3_f1():
@@ -212,28 +212,28 @@ def e3_f1():
 
 
 def e3_f2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F2], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F2])
 
 
 def e3_f3():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F5], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_F5])
 
 
 def e3_f4():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F1], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F1])
 
 
 def e3_f5():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2])
 
 
 def e3_f5_2oclr_1():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2_2OCLR_1], run_only_last=False)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2_2OCLR_1])
 
 
 def e3_f5_2oclr_2():
     """Depends on e3_f5_2oclr_1"""
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2_2OCLR_2], run_only_last=False)   # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2_2OCLR_2])
 
 
 def e3_f1_ds():
@@ -253,11 +253,11 @@ def e3_pre8():
 
 
 def e3_pre7_f2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_D_B_C_F2], itc_training=True)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_D_B_C_F2], itc_training=True)
 
 
 def e3_pre8_f1():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_F1], itc_training=True)  # TODO: run
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_F1], itc_training=True)
 
 
 """

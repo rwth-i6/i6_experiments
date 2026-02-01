@@ -15,6 +15,16 @@ class PretrainedConfig:
     pretrained_encoder: str = None
     pretrained_decoder: str = None
 
+    pretrained_sllm: str = None
+
+    def __post_init__(self):
+        """
+        Assertions for parameters.
+        """
+        if self.pretrained_sllm is not None:
+            assert self.pretrained_encoder is None, "If using pretrained SLLM, other encoder can't be loaded"
+            assert self.pretrained_decoder is None, "If using pretrained SLLM, other decoder can't be loaded"
+
 
 """
 Checkpoints
@@ -33,7 +43,12 @@ _decoder_checkpoints = {
     # More here
 }
 
+_sllm_partial_trainings = {
+    "SLLM_pretrained_ed_s_c_f2_oclr1": "/u/marti.juanola/experiments/25_10_17_sllm_d2/work/i6_core/returnn/training/ReturnnTrainingJob.pxoTwGri6FBD/output/models/epoch.010.pt"
+}
 
+
+# TODO: extract one main method
 def get_encoder_checkpoint(pretrained_config: PretrainedConfig):
     model_name = pretrained_config.pretrained_encoder
     if model_name is None:
@@ -50,6 +65,15 @@ def get_decoder_checkpoint(pretrained_config: PretrainedConfig):
     if model_name not in _decoder_checkpoints:
         raise ValueError(f"Model '{model_name}' not found in decoder checkpoints.")
     return PtCheckpoint(Path(_decoder_checkpoints[model_name]))
+
+
+def get_sllm_checkpoint(pretrained_config: PretrainedConfig):
+    model_name = pretrained_config.pretrained_sllm
+    if model_name is None:
+        raise ValueError("No encoder checkpoint specified.")
+    if model_name not in _sllm_partial_trainings:
+        raise ValueError(f"Model '{model_name}' not found in decoder checkpoints.")
+    return PtCheckpoint(Path(_sllm_partial_trainings[model_name]))
 
 
 """
@@ -85,4 +109,15 @@ def enc_dec_base_transcriptions() -> PretrainedConfig:
     return PretrainedConfig(
         pretrained_encoder="ctc_v1",
         pretrained_decoder="llm_base_transcriptions",
+    )
+
+
+"""
+SLLM
+"""
+
+
+def load_SLLM_pretrained_ed_s_c_f2_oclr1() -> PretrainedConfig:
+    return PretrainedConfig(
+        pretrained_sllm="SLLM_pretrained_ed_s_c_f2_oclr1",
     )

@@ -64,7 +64,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     dec_small_combined,
     dec_base_combined,
     enc_dec_small_combined,
-    enc_dec_base_combined,
+    enc_dec_base_combined, load_SLLM_pretrained_ed_s_c_f2_oclr1,
 )
 
 
@@ -375,6 +375,7 @@ def bv2_pre_ed_s_c_f2_oclr1() -> ExperimentConfig:
 def bv2_pre_ed_s_c_f2_oclr2() -> ExperimentConfig:
     return replace(
         bv2_pre_ed_s_c(),
+        pretrained=load_SLLM_pretrained_ed_s_c_f2_oclr1(),
         training=i6_4gpu_setup_v4_for_n_epochs(98),
         network=network_baseline_v2_td_linear_small(),
     )
@@ -398,6 +399,7 @@ def SLLM_small_linear_4gpu_10k() -> ExperimentConfig:
 def SLLM_small_linear_4gpu_10k_pre_d() -> ExperimentConfig:
     return replace(model_v2_small_baseline(), training=i6_4gpu_setup_v4(), pretrained=dec_small_combined())
 
+# TODO: pretrained dec & enc
 
 """
 Tests
