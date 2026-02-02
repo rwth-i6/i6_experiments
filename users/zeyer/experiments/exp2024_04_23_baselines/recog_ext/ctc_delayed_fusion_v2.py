@@ -95,15 +95,17 @@ def model_recog_with_recomb_delayed_fusion_v2(
     )  # Batch, InBeam -> VocabWB
 
     am_seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
-    am_seq_last_converted = rf.constant(-1, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
-    lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_vocab_dim, batch_dims=batch_dims_)
-    lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
 
     if getattr(model, "lm", None) is None:
         lm: Optional[TransformerDecoder] = None
         lm_scale: Optional[float] = None
         lm_log_probs = None
         lm_state = None
+
+        am_seq_last_converted = None
+        lm_seq_label = None
+        lm_seq_num_consumed = None
+
         labelwise_prior = None
 
     else:
@@ -113,9 +115,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
         # noinspection PyUnresolvedReferences
         lm_scale: float = model.lm_scale
 
-        # noinspection PyUnresolvedReferences
-        labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
-
         lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
         lm_logits, lm_state = lm(
             target,
@@ -124,7 +123,23 @@ def model_recog_with_recomb_delayed_fusion_v2(
         )  # Batch, InBeam, Vocab / ...
         lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
         lm_log_probs *= lm_scale
+
+        am_seq_last_converted = rf.constant(-1, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+        lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_vocab_dim, batch_dims=batch_dims_)
+        lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+
+        # noinspection PyUnresolvedReferences
+        should_convert_labels_now_func = model.should_fuse_func
+        # (...) -> bool
+        # noinspection PyUnresolvedReferences
+        should_fuse_now_func = model.should_fuse_func
+        # (...) -> bool
+
+        # noinspection PyUnresolvedReferences
+        labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+
         if labelwise_prior is not None:
+            # TODO cannot do that?
             lm_log_probs -= labelwise_prior  # prior scale already applied
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
