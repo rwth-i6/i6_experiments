@@ -109,7 +109,7 @@ def get_prior_config(
     base_config = {
         #############
         "batch_size": 500 * 16000,
-        "max_seqs": 240,
+        "max_seqs": 1,
         #############
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }

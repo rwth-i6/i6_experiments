@@ -24,6 +24,7 @@ def get_training_config(
         network_module: str,
         net_args: Dict[str, Any],
         config: Dict[str, Any],
+        keep_epochs = None,
         extra_config: Optional[Dict[str, Any]] = None,
         debug: bool = False,
         use_custom_engine=False,
@@ -37,11 +38,18 @@ def get_training_config(
     """
 
     # changing these does not change the hash
-    post_config = {
-        "cleanup_old_models": True,
-        "stop_on_nonfinite_train_score": True,  # this might break now with True
-        "num_workers_per_gpu": 2,
-    }
+    if keep_epochs != None:
+        post_config = {
+            "cleanup_old_models": {"keep": keep_epochs},
+            "stop_on_nonfinite_train_score": True,  # this might break now with True
+            "num_workers_per_gpu": 2,
+        }
+    else:
+        post_config = {
+            "cleanup_old_models": True,
+            "stop_on_nonfinite_train_score": True,  # this might break now with True
+            "num_workers_per_gpu": 2,
+        }
 
     base_config = {
         "max_seqs": 60,

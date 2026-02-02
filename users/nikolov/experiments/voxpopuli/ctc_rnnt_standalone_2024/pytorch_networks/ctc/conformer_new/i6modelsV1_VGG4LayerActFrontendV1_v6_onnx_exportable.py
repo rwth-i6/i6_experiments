@@ -31,7 +31,8 @@ from .i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import (
         ModelConfig,
         LogMelFeatureExtractionV1Config,
     )
-
+#from returnn.datasets.util.vocabulary import Vocabulary
+#vocab = Vocabulary.create_vocab(vocab_file="/work/asr3/jxu/hiwis/nikolov/multilang_0325/vocab/bpe_4989.vocab", unknown_label=None)
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     """
@@ -216,6 +217,17 @@ def train_step(*, model: ModelConfig, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
+    np.set_printoptions(threshold=np.inf)
+    #target_labels = np.array(labels.cpu())
+    
+    #print(f"targets: {target_labels.reshape(1, -1)}") #TODO remove this 
+    #print(f"targets len: {labels_len}")
+    #print(f"targer seqTags: {data['seqTags']}")
+    #print(f"targer seqTags: {data}")
+    #print(f"target text: {[vocab.labels[idx] for idx in target_labels.reshape(1, -1)[0] if idx != 0]}")
+    #print("recognized:")
+    #print(np.argmax(logprobs.detach().cpu(), axis=2))
+    
     transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
     ctc_loss = nn.functional.ctc_loss(
         transposed_logprobs,

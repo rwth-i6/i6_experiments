@@ -170,7 +170,7 @@ def compute_prior(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=2,
+        time_rqmt=24,
         device="gpu",
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,

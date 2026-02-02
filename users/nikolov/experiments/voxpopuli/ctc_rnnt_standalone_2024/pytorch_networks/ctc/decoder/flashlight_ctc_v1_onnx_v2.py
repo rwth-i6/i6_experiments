@@ -78,6 +78,7 @@ def forward_init_hook(run_ctx, **kwargs):
     vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, vocab_as_list=False, unknown_label="UNK")
     #labels = [item[1] for item in vocab.labels]
     labels = vocab.labels
+    print(f"LEX: {config.lexicon}")
 
 
     run_ctx.ctc_decoder = ctc_decoder(
@@ -110,6 +111,8 @@ def forward_init_hook(run_ctx, **kwargs):
     dummy_data_len = torch.ones((3,), dtype=torch.int32)*16000
     
     print(f'Torch version: {torch.__version__}')
+    print(config.lexicon)
+    print(labels)
     onnx_export(
             model.eval(),
             (dummy_data, dummy_data_len),
@@ -168,10 +171,14 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     am_start = time.time()
     raw_audio=np.squeeze(raw_audio.numpy())
+    raw_audio_float = raw_audio.astype(np.float32)
+    #print(raw_audio.astype(np.float32).shape)
+    if raw_audio_float.ndim == 1:
+        raw_audio_float = raw_audio_float.reshape(1, -1)
     logprobs, audio_features_len = run_ctx.onnx_sess.run(
             None,
             {
-                'data': raw_audio.astype(np.float32),
+                'data': raw_audio_float,
                 'data_len': raw_audio_len.numpy().astype(np.int32)
             } )
 
@@ -185,6 +192,19 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     if run_ctx.prior is not None:
         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
 
+    #np.set_printoptions(threshold=np.inf)
+    #print(len(logprobs_cpu))
+    #print(np.argmax(np.array(logprobs_cpu), axis=2))
+    #sprint(audio_features_len)
+    
+    #hpy = ""
+    #for char in np.argmax(logprobs_cpu, axis=1):
+     #   if hpy[-1] != char:
+     #       if char[-2:] == "@@":
+     #          char = char[:-2]
+    #        hyp = hyp + char
+    #print(char)
+    
     am_time = time.time() - am_start
     run_ctx.total_am_time += am_time
 
