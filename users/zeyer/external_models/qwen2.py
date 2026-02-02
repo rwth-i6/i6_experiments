@@ -2,6 +2,7 @@
 Qwen2
 """
 
+import functools
 from sisyphus import Path
 from i6_experiments.common.utils.fake_job import make_fake_job
 
@@ -9,11 +10,8 @@ from i6_experiments.common.utils.fake_job import make_fake_job
 def get_lm():
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
 
-    get_model = __import__("functools").partial(
-        __import__(
-            "speech_llm.prefix_lm.model.definitions.decoders.qwen",
-            fromlist=["Qwen2DecoderV3"],
-        ).Qwen2DecoderV3,
+    get_model = functools.partial(
+        _qwen2_get_model,
         **{
             "hf_hub_cache_dir": "/rwthfs/rz/cluster/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache",
             "freeze_params": False,
@@ -38,3 +36,12 @@ def get_lm():
             "ignore_missing": True,
         }
     }
+
+
+def _qwen2_get_model(**kwargs):
+    """
+    Indirection to avoid importing Torch in the Sisyphus manager.
+    """
+    from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
+
+    return Qwen2DecoderV3(**kwargs)
