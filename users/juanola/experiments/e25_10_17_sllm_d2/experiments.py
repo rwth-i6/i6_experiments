@@ -193,9 +193,14 @@ def get_network_args(config: ExperimentConfig) -> Tuple[dict[str, Any], dict[str
     # Frozen layers
     if config.network.frozen_encoder_from_the_start():
         network_args["freeze_encoder_from_the_start"] = True
-
     if config.network.frozen_decoder_from_the_start():
         network_args["freeze_decoder_from_the_start"] = True
+
+    # Lora
+    if config.network.encoder_lora_opts is not None:
+        network_args["encoder_lora_opts"] = asdict(config.network.encoder_lora_opts)
+    if config.network.decoder_lora_opts is not None:
+        network_args["decoder_lora_opts"] = asdict(config.network.decoder_lora_opts)
 
     return network_args, network_args_for_forward
 

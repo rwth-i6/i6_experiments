@@ -5,7 +5,9 @@ import copy
 from typing import Any, Dict, Optional
 
 from i6_core.returnn.config import ReturnnConfig
+from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+from i6_experiments.common.setups.serialization import PartialImport
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_serializer import serialize_training, serialize_forward
 from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
@@ -26,6 +28,7 @@ def get_training_config(
         debug: bool = False,
         use_speed_perturbation: bool = False,
         post_config: Optional[Dict[str, Any]] = None,
+        use_lora_adapted_weights_method: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -71,6 +74,16 @@ def get_training_config(
 
     # RC - PYTHON PROLOG
     python_prolog = None
+    if use_lora_adapted_weights_method:
+        qwen_load_lora_adapted_weights = PartialImport(
+            code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.qwen_load_lora_adapted_weights",
+            import_as="qwen_load_lora_adapted_weights",
+            hashed_arguments={},
+            unhashed_arguments={},
+            unhashed_package_root=None,
+        )
+    python_prolog = [Collection([qwen_load_lora_adapted_weights])]
+
     if use_speed_perturbation:  # TODO: maybe make nice (if capability added to RETURNN itself)
         from i6_experiments.users.zeyer.speed_pert.librosa_config import \
             speed_pert_librosa_config  # TODO: warning! external import!

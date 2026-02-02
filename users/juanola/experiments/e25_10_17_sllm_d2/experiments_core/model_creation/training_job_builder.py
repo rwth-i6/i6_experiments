@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from sisyphus import tk
 
-from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_helpers import get_training_config
@@ -81,18 +81,26 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
                 "init_for_train": True,
                 "ignore_missing": True,
             }
+            if network_config.encoder_lora_opts is not None:
+                assert False, "Not implemented yet!"
         if pretrained_config.pretrained_decoder is not None:
             preload_from_files["DECODER"] = {
                 "filename": get_decoder_checkpoint(pretrained_config),
                 "init_for_train": True,
                 "ignore_missing": True,
             }
+            if network_config.decoder_lora_opts is not None:
+                preload_from_files["DECODER"]["custom_missing_load_func"] = CodeWrapper("qwen_load_lora_adapted_weights")
         if pretrained_config.pretrained_sllm is not None: # Should only happen without the other 2.
             preload_from_files["SLLM"] = {
                 "filename": get_sllm_checkpoint(pretrained_config),
                 "init_for_train": True,
                 "ignore_missing": True,
             }
+            if network_config.encoder_lora_opts is not None:
+                assert False, "Not implemented yet!"
+            if network_config.decoder_lora_opts is not None:
+                preload_from_files["DECODER"]["custom_missing_load_func"] = CodeWrapper("qwen_load_lora_adapted_weights")
         train_config["preload_from_files"] = preload_from_files
 
     train_step_params = {# TODO: could also be extracted in a file
@@ -120,6 +128,11 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         "debug": train_config_obj.debug_returnn_param,
         "use_speed_perturbation": True,
     }
+
+    if network_config.encoder_lora_opts is not None:
+        assert False, "Not implemented yet!"
+    if network_config.decoder_lora_opts is not None:
+        train_args["use_lora_adapted_weights_method"] = True
 
     training_rqmt = {  # TODO: extract as config file?
         # Experiment Length

@@ -7,7 +7,7 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     bv2_pre_ed_b_t, bv2_pre_d_s_c, bv2_pre_d_b_c, bv2_pre_ed_b_c, bv2_pre_ed_s_c, exp_v7_300, bv2_pre_d_s_c_f1, \
     bv2_pre_d_s_c_f2, bv2_pre_d_s_c_f5, bv2_pre_ed_s_c_f1, bv2_pre_ed_s_c_f2, bv2_with_ds_pre_d_s_c_f1, \
     SLLM_small_linear_4gpu_10k, SLLM_small_linear_4gpu_10k_pre_d, bv2_ds_pre_d_b_c, bv2_ds_pre_ed_b_c, \
-    bv2_ds_pre_d_b_c_f2, bv2_ds_pre_ed_b_c_f1, bv2_pre_ed_s_c_f2_oclr1, bv2_pre_ed_s_c_f2_oclr2
+    bv2_ds_pre_d_b_c_f2, bv2_ds_pre_ed_b_c_f1, bv2_pre_ed_s_c_f2_oclr1, bv2_pre_ed_s_c_f2_oclr2, bv3_ds_pre_ed_b_c_lora
 
 
 class ExperimentVersion(Enum):
@@ -67,6 +67,8 @@ class ExperimentVersion(Enum):
 
     SLLM_BV2_PRE_ED_S_C_F2_2OCLR_1 = "SLLM_pretrained_ed_s_c_f2_oclr1"
     SLLM_BV2_PRE_ED_S_C_F2_2OCLR_2 = "SLLM_pretrained_ed_s_c_f2_oclr2"
+
+    SLLM_BV3_DS_PRE_ED_B_C_LORA = "SLLM_ds_pretrained_ed_b_c_lora"
 
     # Expand here
 
@@ -131,6 +133,8 @@ _EXPERIMENT_BUILDERS = {
 
     ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2_2OCLR_1: bv2_pre_ed_s_c_f2_oclr1,
     ExperimentVersion.SLLM_BV2_PRE_ED_S_C_F2_2OCLR_2: bv2_pre_ed_s_c_f2_oclr2,
+
+    ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA: bv3_ds_pre_ed_b_c_lora,
     # Expand here
 
     # Tests

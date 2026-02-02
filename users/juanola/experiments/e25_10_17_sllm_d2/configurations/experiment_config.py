@@ -24,7 +24,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_baseline_v2_td_linear,
     network_baseline_v2_td_linear_small,
     network_with_frozen_layers,
-    network_baseline_v2_td_small,
+    network_baseline_v2_td_small, network_with_dec_lora, network_base_baseline_v3,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
@@ -400,6 +400,14 @@ def SLLM_small_linear_4gpu_10k_pre_d() -> ExperimentConfig:
     return replace(model_v2_small_baseline(), training=i6_4gpu_setup_v4(), pretrained=dec_small_combined())
 
 # TODO: pretrained dec & enc
+
+
+"""
+Pretrained LORA
+"""
+
+def bv3_ds_pre_ed_b_c_lora() -> ExperimentConfig:
+    return replace(bv2_ds_pre_ed_b_c(), network=network_with_dec_lora(network_base_baseline_v3()))
 
 """
 Tests
