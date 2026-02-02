@@ -6,12 +6,13 @@ import functools
 from sisyphus import Path
 from i6_core.returnn.training import PtCheckpoint
 from i6_experiments.common.utils.fake_job import make_fake_job
-from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
 
 
 def get_lm() -> ModelWithCheckpoint:
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
 
+    # noinspection PyTypeChecker
     get_model = functools.partial(
         _qwen2_get_model,
         **{
@@ -76,7 +77,12 @@ def get_lm() -> ModelWithCheckpoint:
         ),
     )
 
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 24
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 1
     model_with_cfg = ModelDefWithCfg(model_def=get_model, config=config)
+
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
 
