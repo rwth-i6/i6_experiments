@@ -4,7 +4,6 @@ CTC decoding with neural LM
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Optional, Sequence, Tuple
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -134,6 +133,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
         # noinspection PyUnresolvedReferences
         should_fuse_now_func = model.should_fuse_func
         # (...) -> bool
+        # noinspection PyUnresolvedReferences
+        convert_labels_func = model.convert_labels_func
+        # (...) -> Tensor
 
         # noinspection PyUnresolvedReferences
         labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
