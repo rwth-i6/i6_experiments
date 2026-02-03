@@ -44,6 +44,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     """
     import returnn
     from returnn.config import get_global_config
+    from returnn.util.basic import get_fwd_compat_kwargs
     from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
 
     config = get_global_config()
@@ -87,7 +88,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
     )
     label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
 
-    lm_vocab_dim = model.target_dim  # TODO other vocab
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
     target_wb = rf.constant(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
@@ -104,6 +104,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
         am_seq_last_converted = None
         lm_seq_label = None
         lm_seq_num_consumed = None
+
+        should_convert_labels_now_func = None
 
         labelwise_prior = None
 
@@ -124,8 +126,10 @@ def model_recog_with_recomb_delayed_fusion_v2(
         lm_log_probs *= lm_scale
 
         am_seq_last_converted = rf.constant(-1, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+        lm_vocab_dim = model.target_dim  # TODO other vocab
         lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_vocab_dim, batch_dims=batch_dims_)
-        lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+
+        lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
         # noinspection PyUnresolvedReferences
         should_convert_labels_now_func = model.should_fuse_func
@@ -136,6 +140,24 @@ def model_recog_with_recomb_delayed_fusion_v2(
         # noinspection PyUnresolvedReferences
         convert_labels_func = model.convert_labels_func
         # (...) -> Tensor
+
+        def _convert_labels_now():
+            nonlocal am_seq_last_converted
+            new_am_labels, new_am_labels_spatial_dim = rf.slice(
+                am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
+            )
+            new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
+                new_am_labels=new_am_labels,
+                new_am_labels_spatial_dim=new_am_labels_spatial_dim,
+                t=t,
+                **get_fwd_compat_kwargs(),
+            )
+            assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
+            assert new_lm_labels_spatial_dim in new_lm_labels.dims
+            am_seq_last_converted += num_am_labels_converted
+            lm_seq_label.history, lm_seq_label.hist_dim = rf.concat(
+                (lm_seq_label.history, lm_seq_label.hist_dim), (new_lm_labels, new_lm_labels_spatial_dim)
+            )
 
         # noinspection PyUnresolvedReferences
         labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
@@ -225,15 +247,28 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
         if lm is not None:
-            if got_new_label_cpu.raw_tensor.sum().item() > 0:
+            should_convert_labels_now = should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
+            assert isinstance(should_convert_labels_now, bool)
+            if should_convert_labels_now:
+                _convert_labels_now()
+
+            num_new_lm_labels = lm_seq_label.hist_dim.get_size_tensor() - lm_seq_num_consumed
+            should_fuse_now = should_fuse_now_func(num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs())
+            should_fuse_now = (num_new_lm_labels > 0) & should_fuse_now
+
+            if should_fuse_now.raw_tensor.sum().item() > 0:
+                new_lm_labels, new_lm_labels_spatial_dim = rf.slice(
+                    lm_seq_label.history, axis=lm_seq_label.hist_dim, start=lm_seq_num_consumed
+                )
+
                 (
-                    (target_, lm_state_, lm_seq_log_prob_, lm_log_probs_),
+                    (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, lm_log_probs_),
                     packed_new_label_dim,
                     packed_new_label_dim_map,
                 ) = rf.nested.masked_select_nested(
-                    (target, lm_state, lm_seq_log_prob, lm_log_probs),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
+                    (new_lm_labels, new_lm_labels_spatial_dim, lm_state, lm_seq_log_prob, lm_log_probs),
+                    mask=should_fuse_now,
+                    mask_cpu=should_fuse_now,
                     dims=batch_dims + [beam_dim],
                 )
                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
