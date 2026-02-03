@@ -262,7 +262,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 )
 
                 (
-                    (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, lm_log_probs_),
+                    (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, prev_lm_log_probs_),
                     packed_new_label_dim,
                     packed_new_label_dim_map,
                 ) = rf.nested.masked_select_nested(
@@ -274,21 +274,34 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                 assert packed_new_label_dim.get_dim_value() > 0
 
-                # Now add LM score.
-                lm_seq_log_prob_ += rf.gather(lm_log_probs_, indices=target_, axis=model.target_dim)
-
                 lm_logits_, lm_state_ = lm(
-                    target_,
-                    spatial_dim=single_step_dim,
+                    new_lm_labels_,
+                    spatial_dim=new_lm_labels_spatial_dim_,
                     state=lm_state_,
-                )  # Flat_Batch_Beam, Vocab / ...
-                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                )  # FlatBatchBeam, [NewLmSpatial], Vocab / ...
+                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # FlatBatchBeam, NewLmSpatial, Vocab
                 lm_log_probs_ *= lm_scale
-                if labelwise_prior is not None:
+
+                new_lm_log_probs_ = rf.gather(
+                    lm_log_probs_,
+                    axis=new_lm_labels_spatial_dim_,
+                    indices=rf.last_frame_position_of_dim(new_lm_labels_spatial_dim_),
+                )
+                lm_log_probs_ = rf.shift_right(
+                    lm_log_probs_, axis=new_lm_labels_spatial_dim_, pad_value=prev_lm_log_probs_
+                )
+
+                # Now add LM score.
+                lm_seq_log_prob_ += rf.reduce_sum(
+                    rf.gather(lm_log_probs_, axis=model.target_dim, indices=new_lm_labels_),
+                    axis=new_lm_labels_spatial_dim_,
+                )
+
+                if labelwise_prior is not None:  # TODO...
                     lm_log_probs_ -= labelwise_prior  # prior scale already applied
 
                 lm_seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                    (lm_seq_log_prob_, lm_log_probs_, lm_state_),
+                    (lm_seq_log_prob_, new_lm_log_probs_, lm_state_),
                     (lm_seq_log_prob, lm_log_probs, lm_state),
                     mask=got_new_label,
                     mask_cpu=got_new_label_cpu,
