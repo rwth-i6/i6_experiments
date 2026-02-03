@@ -2,11 +2,18 @@
 Qwen2
 """
 
+from __future__ import annotations
+from typing import Sequence, Tuple, Optional, Dict, Any
 import functools
+
 from sisyphus import Path
+
 from i6_core.returnn.training import PtCheckpoint
 from i6_experiments.common.utils.fake_job import make_fake_job
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
+
+import returnn.frontend as rf
+from returnn.tensor import Tensor, Dim
 
 
 def get_lm() -> ModelWithCheckpoint:
@@ -18,7 +25,7 @@ def get_lm() -> ModelWithCheckpoint:
 
     # noinspection PyTypeChecker
     get_model = functools.partial(
-        _qwen2_get_model,
+        Qwen2Model,
         **{
             # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache",
             "hf_hub_cache_dir": Path(
@@ -95,10 +102,50 @@ def get_lm() -> ModelWithCheckpoint:
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
 
-def _qwen2_get_model(**kwargs):
+class Qwen2Model(rf.Module):
     """
-    Indirection to avoid importing Torch in the Sisyphus manager.
-    """
-    from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
+    Wraps Qwen2DecoderV3.
 
-    return Qwen2DecoderV3(**kwargs)
+    Keep API compatible to how other RF LMs are expected.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
+
+        model = Qwen2DecoderV3(**kwargs)
+
+        # The order matters for the parameter names.
+        self.model = model.model
+        self._model = model
+
+    def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+        """Default initial state"""
+        state = rf.State(
+            s=self.s.default_initial_state(batch_dims=batch_dims),
+            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder_dim]),
+            # Note: enc_spatial_dim missing! (Unfortunately the API of default_initial_state does not provide it.)
+            accum_att_weights=rf.zeros(list(batch_dims) + [self.att_num_heads], feature_dim=self.att_num_heads),
+        )
+        state.att.feature_dim_axis = len(state.att.dims) - 1
+        return state
+
+    def __call__(
+        self,
+        source: Tensor,
+        *,
+        spatial_dim: Dim,
+        state: rf.State,
+        encoder: rf.State,
+        collected_outputs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Tensor, rf.State]:
+        """
+        forward, single step or whole sequence.
+
+        :param source: labels
+        :param spatial_dim: single_step_dim or spatial dim of source
+        :param state: e.g. via :func:`default_initial_state`
+        :param encoder: via :func:`transform_encoder`
+        :return: logits, new state
+        """

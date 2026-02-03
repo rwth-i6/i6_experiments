@@ -235,83 +235,80 @@ def model_recog_with_recomb_delayed_fusion_v2(
             else:
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
-        if lm is not None:
-            should_convert_labels_now = should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
-            assert isinstance(should_convert_labels_now, bool)
-            if should_convert_labels_now:
-                _convert_labels_now()
+        should_convert_labels_now = should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
+        assert isinstance(should_convert_labels_now, bool)
+        if should_convert_labels_now:
+            _convert_labels_now()
 
-            num_new_lm_labels = lm_seq_label.hist_dim.get_size_tensor() - lm_seq_num_consumed
-            should_fuse_now = should_fuse_now_func(num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs())
-            should_fuse_now = (num_new_lm_labels > 0) & should_fuse_now
+        num_new_lm_labels = lm_seq_label.hist_dim.get_size_tensor() - lm_seq_num_consumed
+        should_fuse_now = should_fuse_now_func(num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs())
+        should_fuse_now = (num_new_lm_labels > 0) & should_fuse_now
 
-            if should_fuse_now.raw_tensor.sum().item() > 0:
-                new_lm_labels, new_lm_labels_spatial_dim = rf.slice(
-                    lm_seq_label.history, axis=lm_seq_label.hist_dim, start=lm_seq_num_consumed
+        if should_fuse_now.raw_tensor.sum().item() > 0:
+            new_lm_labels, new_lm_labels_spatial_dim = rf.slice(
+                lm_seq_label.history, axis=lm_seq_label.hist_dim, start=lm_seq_num_consumed
+            )
+
+            (
+                (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, prev_lm_log_probs_),
+                packed_new_label_dim,
+                packed_new_label_dim_map,
+            ) = rf.nested.masked_select_nested(
+                (new_lm_labels, new_lm_labels_spatial_dim, lm_state, lm_seq_log_prob, lm_log_probs),
+                mask=should_fuse_now,
+                mask_cpu=should_fuse_now,
+                dims=batch_dims + [beam_dim],
+            )
+            # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+            assert packed_new_label_dim.get_dim_value() > 0
+
+            lm_logits_, lm_state_ = lm(
+                new_lm_labels_,
+                spatial_dim=new_lm_labels_spatial_dim_,
+                state=lm_state_,
+            )  # FlatBatchBeam, [NewLmSpatial], Vocab / ...
+            lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # FlatBatchBeam, NewLmSpatial, Vocab
+            lm_log_probs_ *= lm_scale
+
+            new_lm_log_probs_ = rf.gather(
+                lm_log_probs_,
+                axis=new_lm_labels_spatial_dim_,
+                indices=rf.last_frame_position_of_dim(new_lm_labels_spatial_dim_),
+            )
+            lm_log_probs_ = rf.shift_right(lm_log_probs_, axis=new_lm_labels_spatial_dim_, pad_value=prev_lm_log_probs_)
+
+            # Now add LM score.
+            lm_seq_log_prob_ += rf.reduce_sum(
+                rf.gather(lm_log_probs_, axis=model.target_dim, indices=new_lm_labels_),
+                axis=new_lm_labels_spatial_dim_,
+            )
+
+            lm_seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                (lm_seq_log_prob_, new_lm_log_probs_, lm_state_),
+                (lm_seq_log_prob, lm_log_probs, lm_state),
+                mask=got_new_label,
+                mask_cpu=got_new_label_cpu,
+                dims=batch_dims + [beam_dim],
+                in_dim=packed_new_label_dim,
+                masked_select_dim_map=packed_new_label_dim_map,
+            )  # Batch, Beam, Vocab / ...
+
+            new_am_seq_num_consumed = rf.where(
+                should_fuse_now, am_seq_last_converted, am_seq_num_consumed
+            )  # Batch, Beam -> int32
+            new_am_labels, new_am_labels_spatial_dim = rf.slice(
+                am_seq_label.history,
+                axis=am_seq_label.hist_dim,
+                start=am_seq_num_consumed,
+                end=new_am_seq_num_consumed,
+            )
+            am_seq_num_consumed = new_am_seq_num_consumed
+
+            if labelwise_prior is not None:
+                prior_log_prob += rf.reduce_sum(
+                    rf.gather(labelwise_prior, axis=model.target_dim, indices=new_am_labels),
+                    axis=new_am_labels_spatial_dim,
                 )
-
-                (
-                    (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, prev_lm_log_probs_),
-                    packed_new_label_dim,
-                    packed_new_label_dim_map,
-                ) = rf.nested.masked_select_nested(
-                    (new_lm_labels, new_lm_labels_spatial_dim, lm_state, lm_seq_log_prob, lm_log_probs),
-                    mask=should_fuse_now,
-                    mask_cpu=should_fuse_now,
-                    dims=batch_dims + [beam_dim],
-                )
-                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-                assert packed_new_label_dim.get_dim_value() > 0
-
-                lm_logits_, lm_state_ = lm(
-                    new_lm_labels_,
-                    spatial_dim=new_lm_labels_spatial_dim_,
-                    state=lm_state_,
-                )  # FlatBatchBeam, [NewLmSpatial], Vocab / ...
-                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # FlatBatchBeam, NewLmSpatial, Vocab
-                lm_log_probs_ *= lm_scale
-
-                new_lm_log_probs_ = rf.gather(
-                    lm_log_probs_,
-                    axis=new_lm_labels_spatial_dim_,
-                    indices=rf.last_frame_position_of_dim(new_lm_labels_spatial_dim_),
-                )
-                lm_log_probs_ = rf.shift_right(
-                    lm_log_probs_, axis=new_lm_labels_spatial_dim_, pad_value=prev_lm_log_probs_
-                )
-
-                # Now add LM score.
-                lm_seq_log_prob_ += rf.reduce_sum(
-                    rf.gather(lm_log_probs_, axis=model.target_dim, indices=new_lm_labels_),
-                    axis=new_lm_labels_spatial_dim_,
-                )
-
-                lm_seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
-                    (lm_seq_log_prob_, new_lm_log_probs_, lm_state_),
-                    (lm_seq_log_prob, lm_log_probs, lm_state),
-                    mask=got_new_label,
-                    mask_cpu=got_new_label_cpu,
-                    dims=batch_dims + [beam_dim],
-                    in_dim=packed_new_label_dim,
-                    masked_select_dim_map=packed_new_label_dim_map,
-                )  # Batch, Beam, Vocab / ...
-
-                new_am_seq_num_consumed = rf.where(
-                    should_fuse_now, am_seq_last_converted, am_seq_num_consumed
-                )  # Batch, Beam -> int32
-                new_am_labels, new_am_labels_spatial_dim = rf.slice(
-                    am_seq_label.history,
-                    axis=am_seq_label.hist_dim,
-                    start=am_seq_num_consumed,
-                    end=new_am_seq_num_consumed,
-                )
-                am_seq_num_consumed = new_am_seq_num_consumed
-
-                if labelwise_prior is not None:
-                    prior_log_prob += rf.reduce_sum(
-                        rf.gather(labelwise_prior, axis=model.target_dim, indices=new_am_labels),
-                        axis=new_am_labels_spatial_dim,
-                    )
 
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
