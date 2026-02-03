@@ -9,6 +9,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.d
     LabelConfig,
     label_baseline,
 )
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.lora_config import \
+    decoder_lora_v1, decoder_small_lora_v1
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
     NetworkConfig,
     network_baseline,
@@ -407,7 +409,15 @@ Pretrained LORA
 """
 
 def bv3_ds_pre_ed_b_c_lora() -> ExperimentConfig:
-    return replace(bv2_ds_pre_ed_b_c(), network=network_with_dec_lora(network_base_baseline_v3()))
+    return replace(bv2_ds_pre_ed_b_c(), network=network_with_dec_lora(network_base_baseline_v3(), decoder_lora_v1()))
+
+
+def bv3_pre_ed_s_c_lora() -> ExperimentConfig:
+    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_base_baseline_v3(), decoder_lora_v1()))
+
+
+def bv3_pre_ed_s_c_lora_small() -> ExperimentConfig:
+    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_base_baseline_v3(), decoder_small_lora_v1()))
 
 """
 Tests

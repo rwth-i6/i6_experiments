@@ -82,7 +82,7 @@ def get_training_config(
             unhashed_arguments={},
             unhashed_package_root=None,
         )
-    python_prolog = [Collection([qwen_load_lora_adapted_weights])]
+        python_prolog = [Collection([qwen_load_lora_adapted_weights])]
 
     if use_speed_perturbation:  # TODO: maybe make nice (if capability added to RETURNN itself)
         from i6_experiments.users.zeyer.speed_pert.librosa_config import \

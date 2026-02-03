@@ -48,6 +48,27 @@ def main():
 
     e3v7_3()
 
+    e3_f1_baseline_pre()
+    e3_f1_ds()
+
+    e3_f1()
+    e3_f2()
+    e3_f3()
+    e3_f4()
+    e3_f5()
+
+    e3_f5_2oclr_1()
+    e3_f5_2oclr_2()
+
+    e3_pre7()
+    e3_pre8()
+    e3_pre7_f2()
+    e3_pre8_f1()
+
+    e3_lora1()
+    e3_lora2()
+    e3_lora3()
+
 
 """
 Experiments entry points
@@ -385,4 +406,21 @@ __all__ = [
     "e3_pre4",
     "e3_pre5",
     "e3_pre6",
+    "e3v7_3",
+    "e3_f1_baseline_pre",
+    "e3_f1_ds",
+    "e3_f1",
+    "e3_f2",
+    "e3_f3",
+    "e3_f4",
+    "e3_f5",
+    "e3_f5_2oclr_1",
+    "e3_f5_2oclr_2",
+    "e3_pre7",
+    "e3_pre8",
+    "e3_pre7_f2",
+    "e3_pre8_f1",
+    "e3_lora1",
+    "e3_lora2",
+    "e3_lora3",
 ]

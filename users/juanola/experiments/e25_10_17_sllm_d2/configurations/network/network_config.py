@@ -216,6 +216,7 @@ def network_baseline_v2_td_small() -> NetworkConfig:
 MODEL V3
 """
 
+
 def network_base_baseline_v3() -> NetworkConfig:
     """
     DS
@@ -230,6 +231,7 @@ def network_base_baseline_v3() -> NetworkConfig:
         **_MODEL_V3_KWARGS,
     )
 
+
 def network_small_baseline_v3() -> NetworkConfig:
     """
     no DS
@@ -243,7 +245,6 @@ def network_small_baseline_v3() -> NetworkConfig:
         decoder=small_decoder_td(),
         **_MODEL_V3_KWARGS,
     )
-
 
 
 """
@@ -280,8 +281,8 @@ LORA
 """
 
 
-def network_with_dec_lora(network: NetworkConfig) -> NetworkConfig:
-    new_network = replace(network, encoder_lora_opts=None, decoder_lora_opts=decoder_lora_v1())
+def network_with_dec_lora(network: NetworkConfig, decoder_lora_config: LoraConfig = decoder_lora_v1()) -> NetworkConfig:
+    new_network = replace(network, encoder_lora_opts=None, decoder_lora_opts=decoder_lora_config)
     if new_network.encoder_lora_opts is None:
         assert new_network.freeze_encoder_ranges is None, "encoder with LORA ->  implicitly frozen."
     if new_network.decoder_lora_opts is None:
