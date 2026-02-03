@@ -80,6 +80,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     neg_inf = float("-inf")
     ctc_seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
     lm_seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+    prior_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
@@ -95,76 +96,63 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     am_seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
 
-    if getattr(model, "lm", None) is None:
-        lm: Optional[TransformerDecoder] = None
-        lm_scale: Optional[float] = None
-        lm_log_probs = None
-        lm_state = None
+    # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+    # noinspection PyUnresolvedReferences
+    lm: TransformerDecoder = model.lm
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = model.lm_scale
 
-        am_seq_last_converted = None
-        lm_seq_label = None
-        lm_seq_num_consumed = None
+    # noinspection PyUnresolvedReferences
+    lm_target_dim = model.lm_target_dim
+    # noinspection PyUnresolvedReferences
+    lm_eos_idx = model.lm_eos_idx
 
-        should_convert_labels_now_func = None
+    lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+    lm_logits, lm_state = lm(
+        target,
+        spatial_dim=single_step_dim,
+        state=lm_state,
+    )  # Batch, InBeam, Vocab / ...
+    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+    lm_log_probs *= lm_scale
 
-        labelwise_prior = None
+    am_seq_last_converted = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+    am_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
 
-    else:
-        # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
-        # noinspection PyUnresolvedReferences
-        lm: TransformerDecoder = model.lm
-        # noinspection PyUnresolvedReferences
-        lm_scale: float = model.lm_scale
+    lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_target_dim, batch_dims=batch_dims_)
 
-        lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-        lm_logits, lm_state = lm(
-            target,
-            spatial_dim=single_step_dim,
-            state=lm_state,
-        )  # Batch, InBeam, Vocab / ...
-        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-        lm_log_probs *= lm_scale
+    lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
-        am_seq_last_converted = rf.constant(-1, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
-        lm_vocab_dim = model.target_dim  # TODO other vocab
-        lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_vocab_dim, batch_dims=batch_dims_)
+    # noinspection PyUnresolvedReferences
+    should_convert_labels_now_func = model.should_fuse_func
+    # (...) -> bool
+    # noinspection PyUnresolvedReferences
+    should_fuse_now_func = model.should_fuse_func
+    # (...) -> bool
+    # noinspection PyUnresolvedReferences
+    convert_labels_func = model.convert_labels_func
+    # (...) -> Tensor
 
-        lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
+    def _convert_labels_now():
+        nonlocal am_seq_last_converted
+        new_am_labels, new_am_labels_spatial_dim = rf.slice(
+            am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
+        )
+        new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
+            new_am_labels=new_am_labels,
+            new_am_labels_spatial_dim=new_am_labels_spatial_dim,
+            t=t,
+            **get_fwd_compat_kwargs(),
+        )
+        assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
+        assert new_lm_labels_spatial_dim in new_lm_labels.dims
+        am_seq_last_converted += num_am_labels_converted
+        lm_seq_label.history, lm_seq_label.hist_dim = rf.concat(
+            (lm_seq_label.history, lm_seq_label.hist_dim), (new_lm_labels, new_lm_labels_spatial_dim)
+        )
 
-        # noinspection PyUnresolvedReferences
-        should_convert_labels_now_func = model.should_fuse_func
-        # (...) -> bool
-        # noinspection PyUnresolvedReferences
-        should_fuse_now_func = model.should_fuse_func
-        # (...) -> bool
-        # noinspection PyUnresolvedReferences
-        convert_labels_func = model.convert_labels_func
-        # (...) -> Tensor
-
-        def _convert_labels_now():
-            nonlocal am_seq_last_converted
-            new_am_labels, new_am_labels_spatial_dim = rf.slice(
-                am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
-            )
-            new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
-                new_am_labels=new_am_labels,
-                new_am_labels_spatial_dim=new_am_labels_spatial_dim,
-                t=t,
-                **get_fwd_compat_kwargs(),
-            )
-            assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
-            assert new_lm_labels_spatial_dim in new_lm_labels.dims
-            am_seq_last_converted += num_am_labels_converted
-            lm_seq_label.history, lm_seq_label.hist_dim = rf.concat(
-                (lm_seq_label.history, lm_seq_label.hist_dim), (new_lm_labels, new_lm_labels_spatial_dim)
-            )
-
-        # noinspection PyUnresolvedReferences
-        labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
-
-        if labelwise_prior is not None:
-            # TODO cannot do that?
-            lm_log_probs -= labelwise_prior  # prior scale already applied
+    # noinspection PyUnresolvedReferences
+    labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -173,7 +161,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        seq_log_prob = (
+            ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob + label_log_prob_ta[t]
+        )  # Batch, InBeam, VocabWB
 
         _, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
@@ -187,9 +177,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
         ctc_seq_log_prob = rf.gather(ctc_seq_log_prob, indices=backrefs)  # Batch, Beam
         ctc_seq_log_prob += rf.gather(label_log_prob_ta[t], indices=target_wb, axis=model.wb_target_dim)  # Batch, Beam
         lm_seq_log_prob = rf.gather(lm_seq_log_prob, indices=backrefs)  # Batch, Beam
-        if lm is not None:
-            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
-            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+        lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+        lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
         am_seq_label = rf.nested.gather_nested(am_seq_label, indices=backrefs)
 
         prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
@@ -297,9 +286,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
                     axis=new_lm_labels_spatial_dim_,
                 )
 
-                if labelwise_prior is not None:  # TODO...
-                    lm_log_probs_ -= labelwise_prior  # prior scale already applied
-
                 lm_seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
                     (lm_seq_log_prob_, new_lm_log_probs_, lm_state_),
                     (lm_seq_log_prob, lm_log_probs, lm_state),
@@ -310,12 +296,29 @@ def model_recog_with_recomb_delayed_fusion_v2(
                     masked_select_dim_map=packed_new_label_dim_map,
                 )  # Batch, Beam, Vocab / ...
 
-    if lm is not None:
-        # seq_log_prob, lm_log_probs: Batch, Beam
-        # Add LM EOS score at the end.
-        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
-        lm_seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
-    seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob
+                new_am_seq_num_consumed = rf.where(
+                    should_fuse_now, am_seq_last_converted, am_seq_num_consumed
+                )  # Batch, Beam -> int32
+                new_am_labels, new_am_labels_spatial_dim = rf.slice(
+                    am_seq_label.history,
+                    axis=am_seq_label.hist_dim,
+                    start=am_seq_num_consumed,
+                    end=new_am_seq_num_consumed,
+                )
+                am_seq_num_consumed = new_am_seq_num_consumed
+
+                if labelwise_prior is not None:
+                    prior_log_prob += rf.reduce_sum(
+                        rf.gather(labelwise_prior, axis=model.target_dim, indices=new_am_labels),
+                        axis=new_am_labels_spatial_dim,
+                    )
+
+    # seq_log_prob, lm_log_probs: Batch, Beam
+    # Add LM EOS score at the end.
+    lm_eos_score = rf.gather(lm_log_probs, indices=lm_eos_idx, axis=lm_target_dim)
+    lm_seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+
+    seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob  # Batch, Beam
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_wb_ = []
