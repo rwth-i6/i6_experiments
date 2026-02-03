@@ -102,10 +102,11 @@ def model_recog_with_recomb_delayed_fusion_v2(
     # noinspection PyUnresolvedReferences
     lm_scale: float = model.lm_scale
 
-    # noinspection PyUnresolvedReferences
-    lm_target_dim = model.lm_target_dim
-    # noinspection PyUnresolvedReferences
-    lm_eos_idx = model.lm_eos_idx
+    lm_target_dim = lm.vocab_dim
+    assert lm_target_dim.vocab is not None
+    lm_vocab = lm_target_dim.vocab
+    assert lm_vocab.bos_label_id is not None and lm_vocab.eos_label_id is not None
+    lm_eos_idx = lm_vocab.eos_label_id
 
     lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
     lm_logits, lm_state = lm(
@@ -123,14 +124,11 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
-    # noinspection PyUnresolvedReferences
-    should_convert_labels_now_func = model.should_fuse_func
+    should_convert_labels_now_func = config.typed_value("should_convert_labels_now_func")
     # (...) -> bool
-    # noinspection PyUnresolvedReferences
-    should_fuse_now_func = model.should_fuse_func
+    should_fuse_now_func = config.typed_value("should_fuse_now_func")
     # (...) -> bool
-    # noinspection PyUnresolvedReferences
-    convert_labels_func = model.convert_labels_func
+    convert_labels_func = config.typed_value("convert_labels_func")
     # (...) -> Tensor
 
     def _convert_labels_now():

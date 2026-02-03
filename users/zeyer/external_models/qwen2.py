@@ -3,7 +3,7 @@ Qwen2
 """
 
 from __future__ import annotations
-from typing import Sequence, Tuple, Optional, Dict, Any
+from typing import Sequence, Tuple, Dict, Any
 import functools
 
 from sisyphus import Path
@@ -39,6 +39,22 @@ def get_lm() -> ModelWithCheckpoint:
             "freeze_params": False,
             "lora_opts": None,
             "freeze_embedding_layer": True,
+            "vocab_dim": {
+                "name": "qwen_vocab",
+                "dimension": 151646,
+                "vocab": {
+                    "class": "HuggingFaceTokenizer",
+                    # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content",
+                    "huggingface_repo_dir": Path(
+                        "content",
+                        creator=make_fake_job(
+                            module="i6_experiments.users.schmitt.external_models.huggingface",
+                            name="DownloadHuggingFaceRepoJobV2",
+                            sis_hash="PUGzhO2dOEpK",
+                        ),
+                    ),
+                },
+            },
         },
     )
     config = {}
@@ -58,23 +74,6 @@ def get_lm() -> ModelWithCheckpoint:
             "custom_missing_load_func": qwen_load_tied_embedding_matrices,
             "ignore_missing": True,
         }
-    }
-
-    vocab = {
-        "dim": 151646,
-        "sparse": True,
-        "vocab": {
-            "class": "HuggingFaceTokenizer",
-            # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content",
-            "huggingface_repo_dir": Path(
-                "content",
-                creator=make_fake_job(
-                    module="i6_experiments.users.schmitt.external_models.huggingface",
-                    name="DownloadHuggingFaceRepoJobV2",
-                    sis_hash="PUGzhO2dOEpK",
-                ),
-            ),
-        },
     }
 
     # ft_qwen0_5b_v2_bs25k_epoch100_part50_wup2.5_maxlr5e-06_frz_emb_full_ft--best            14.68     67.44:
@@ -106,11 +105,13 @@ class Qwen2Model(rf.Module):
     """
     Wraps Qwen2DecoderV3.
 
-    Keep API compatible to how other RF LMs are expected.
+    Keep API compatible to how other RF LMs are expected, i.e. like RF TransformerDecoder.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, vocab_dim: Dict[str, Any], **kwargs):
         super().__init__()
+
+        self.vocab_dim = Dim(**vocab_dim)
 
         from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
 
@@ -131,21 +132,12 @@ class Qwen2Model(rf.Module):
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
-    def __call__(
-        self,
-        source: Tensor,
-        *,
-        spatial_dim: Dim,
-        state: rf.State,
-        encoder: rf.State,
-        collected_outputs: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Tensor, rf.State]:
+    def __call__(self, source: Tensor, *, spatial_dim: Dim, state: rf.State) -> Tuple[Tensor, rf.State]:
         """
         forward, single step or whole sequence.
 
         :param source: labels
         :param spatial_dim: single_step_dim or spatial dim of source
         :param state: e.g. via :func:`default_initial_state`
-        :param encoder: via :func:`transform_encoder`
         :return: logits, new state
         """
