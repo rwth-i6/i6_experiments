@@ -10,6 +10,10 @@ from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, Mod
 
 
 def get_lm() -> ModelWithCheckpoint:
+    """
+    Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
+    """
+
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
 
     # noinspection PyTypeChecker
@@ -66,14 +70,19 @@ def get_lm() -> ModelWithCheckpoint:
         },
     }
 
+    # ft_qwen0_5b_v2_bs25k_epoch100_part50_wup2.5_maxlr5e-06_frz_emb_full_ft--best            14.68     67.44:
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.biueEBxdJI4u/output/checkpoint.pt
     # from /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.4mQ2qrd6hR3a
+
+    # ft_qwen0_5b_v2_bs25k_epoch100_part50_wup2.5_maxlr5e-06_full_ft--best            14.39 65.40
+    # /rwthfs/rz/cluster/hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.xUyBGR1LEpaY/output/checkpoint.pt
+
     checkpoint = Path(
         "checkpoint.pt",
         creator=make_fake_job(
             module="i6_core.returnn.training",
             name="GetBestPtCheckpointJob",
-            sis_hash="biueEBxdJI4u",
+            sis_hash="xUyBGR1LEpaY",
         ),
     )
 
