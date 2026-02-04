@@ -16,6 +16,15 @@ from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from ..ctc import Model
 
 
+# bind interval. use as should_convert_labels_now_func, should_fuse_now_func
+def enable_by_interval(*, t: int, interval: int, **_kwargs) -> bool:
+    return t % interval == interval - 1
+
+
+def convert_labels_func():
+    pass  # TODO
+
+
 def model_recog_with_recomb_delayed_fusion_v2(
     *,
     model: Model,

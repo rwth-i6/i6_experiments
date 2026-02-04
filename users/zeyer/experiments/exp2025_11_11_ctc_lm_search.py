@@ -111,24 +111,10 @@ def py():
     from .exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2 import model_recog_with_recomb_delayed_fusion_v2
     from i6_experiments.users.zeyer.external_models.qwen2 import get_lm as get_qwen2_lm
 
-    # ft_qwen_v2_bs25k_epoch50_part5_wup2.5_maxlr5e-06_frz_emb_full_ft
-    #
-    # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/models/epoch.010.pt
-    #
-    # test_librispeech    30.95
-    # dev_librispeech     30.64
-    # dev                 24.87
-    # test_commonvoice    35.82
-    # dev_commonvoice     35.35
-    # test                25.57
-    # test_yodas          31.96
-    # dev_yodas           31.07
-    # dev_voxpopuli       14.53
-    # test_voxpopuli      15.29
     qwen2_lm = get_qwen2_lm()
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}",
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
         task=task,
         ctc_model=am,
         extra_config={"aux_loss_layers": [aux_ctc_layer]},
