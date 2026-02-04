@@ -171,8 +171,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
     lm_log_probs *= lm_scale
 
-    am_seq_last_converted = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
-    am_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32")  # Batch, InBeam -> int32
+    am_seq_last_converted = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
+    am_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
     lm_seq_label = _seq_label_history_init_state(vocab_dim=lm_target_dim, batch_dims=batch_dims_)
 
@@ -203,6 +203,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         lm_seq_label.history, lm_seq_label.hist_dim = rf.concat(
             (lm_seq_label.history, lm_seq_label.hist_dim), (new_lm_labels, new_lm_labels_spatial_dim)
         )
+        lm_seq_label.hist_dim.name = "lm_hist" + str(lm_seq_label.hist_dim.get_dim_value())
 
     # noinspection PyUnresolvedReferences
     labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
@@ -426,6 +427,7 @@ def _seq_label_history_init_state(*, vocab_dim: Dim, batch_dims: Sequence[Dim]) 
 def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
     hist_dim: Dim = state.hist_dim
     new_history, new_hist_dim = rf.cum_concat_step(new_label, prev_accum=state.history, axis=hist_dim)
+    new_hist_dim.name = "hist" + str(new_hist_dim.get_dim_value())
     return rf.State(hist_dim=new_hist_dim, history=new_history)
 
 
