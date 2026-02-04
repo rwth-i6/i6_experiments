@@ -188,6 +188,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     def _convert_labels_now():
         nonlocal am_seq_last_converted
+        _seq_label_print("am in convert", am_seq_label, dims_no_iter=batch_dims)
+        _generic_print(am_seq_last_converted, dims_no_iter=batch_dims)
         new_am_labels, new_am_labels_spatial_dim = rf.slice(
             am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
         )
