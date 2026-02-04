@@ -507,9 +507,9 @@ def _generic_seq_label_print(labels: Tensor, spatial_dim: Dim, *, dims_no_iter: 
         )
 
 
-def _generic_print(tensor: Tensor):
+def _generic_print(tensor: Tensor, *, dims_no_iter: Collection[Dim] = ()):
     tensor = rf.copy_to_device(tensor, "cpu")
-    for indices in _iter_dims_indices(tensor.dims):
+    for indices in _iter_dims_indices(tensor.dims, dims_no_iter=dims_no_iter):
         print(" ", end="")
         tensor_ = tensor
         for dim, i in zip(tensor.dims, indices):

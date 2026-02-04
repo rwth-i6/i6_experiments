@@ -100,7 +100,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     from returnn.config import get_global_config
     from returnn.util.basic import get_fwd_compat_kwargs
     from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
-    from .ctc_debugging import _seq_label_print
+    from .ctc_debugging import _seq_label_print, _generic_seq_label_print, _generic_print
 
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
@@ -191,6 +191,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
         new_am_labels, new_am_labels_spatial_dim = rf.slice(
             am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
         )
+        print("new am labels: ", end="")
+        _generic_seq_label_print(new_am_labels, new_am_labels_spatial_dim, dims_no_iter=batch_dims)
         new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
             new_am_labels=new_am_labels,
             new_am_labels_spatial_dim=new_am_labels_spatial_dim,
@@ -198,6 +200,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
             lm_target_dim=lm_target_dim,
             **get_fwd_compat_kwargs(),
         )
+        print("new lm labels: ", end="")
+        _generic_seq_label_print(new_lm_labels, new_lm_labels_spatial_dim, dims_no_iter=batch_dims)
+        _generic_print(num_am_labels_converted, dims_no_iter=batch_dims)
         assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
         assert new_lm_labels_spatial_dim in new_lm_labels.dims
         am_seq_last_converted += num_am_labels_converted
