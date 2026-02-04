@@ -3,9 +3,10 @@ Qwen2
 """
 
 from __future__ import annotations
-from typing import Sequence, Tuple, Dict, Any
+from typing import Optional, Sequence, Tuple, Dict, Any
 import functools
 
+from returnn.util.basic import prod
 from sisyphus import Path
 
 from i6_core.returnn.training import PtCheckpoint
@@ -13,7 +14,7 @@ from i6_experiments.common.utils.fake_job import make_fake_job
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
 
 import returnn.frontend as rf
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, single_step_dim
 
 
 def get_lm() -> ModelWithCheckpoint:
@@ -124,10 +125,8 @@ class Qwen2Model(rf.Module):
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
         state = rf.State(
-            s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder_dim]),
-            # Note: enc_spatial_dim missing! (Unfortunately the API of default_initial_state does not provide it.)
-            accum_att_weights=rf.zeros(list(batch_dims) + [self.att_num_heads], feature_dim=self.att_num_heads),
+            batch_dims=list(batch_dims),
+            past_key_values=None,
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
@@ -141,3 +140,57 @@ class Qwen2Model(rf.Module):
         :param state: e.g. via :func:`default_initial_state`
         :return: logits, new state
         """
+        import tree
+        import torch
+
+        batch_dims = state.batch_dims
+        merged_batch_dim: Dim = prod(batch_dims)
+        spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
+        source = source.copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
+
+        def _combine_batch_and_beam(obj: Tensor) -> Tensor:
+            assert isinstance(obj, Tensor), f"expected Tensor, got {obj} {type(obj)}"
+            for dim in batch_dims:
+                assert dim in obj.dims, f"expected {dim} in {obj.dims} for {obj}"
+            obj, _ = rf.merge_dims(obj, dims=batch_dims, out_dim=merged_batch_dim)
+            return obj.copy_compatible_to_dims(
+                [merged_batch_dim] + [dim for dim in obj.dims if dim != merged_batch_dim], add_dims=False
+            )
+
+        def _combine_batch_and_beam_raw(obj: Tensor) -> torch.Tensor:
+            assert isinstance(obj, Tensor), f"expected Tensor, got {obj} {type(obj)}"
+            obj = _combine_batch_and_beam(obj)
+            return obj.raw_tensor
+
+        def _separate_batch_and_beam(obj_raw: torch.Tensor, *, dims: Optional[Sequence[Dim]] = None) -> Tensor:
+            if dims is not None:
+                assert dims[0] == merged_batch_dim
+                assert len(dims) == obj_raw.dim()
+                assert all(dims[i].get_dim_value() == obj_raw.size(i) for i in range(obj_raw.dim()))
+            else:
+                assert merged_batch_dim.get_dim_value() == obj_raw.size(0)
+                dims = [merged_batch_dim] + [Dim(int(obj_raw.size(i)), name=f"dim{i}") for i in range(1, obj_raw.dim())]
+            obj = rf.convert_to_tensor(obj_raw, dims=dims)
+            return rf.split_dims(obj, axis=merged_batch_dim, dims=batch_dims)
+
+        source_raw = _combine_batch_and_beam_raw(source)
+        input_embeds_raw = self._model.embed_func(source_raw)
+        past_key_values_raw = tree.map_structure(_combine_batch_and_beam_raw, state.past_key_values)
+
+        output = self._model.call_func(
+            past_key_values=past_key_values_raw,
+            inputs_embeds=input_embeds_raw,
+            use_cache=True,
+            logits_to_keep=spatial_dim_.get_dim_value(),
+        )
+
+        new_state = rf.State(
+            batch_dims=batch_dims,
+            past_key_values=tree.map_structure(_separate_batch_and_beam, output.past_key_values),
+        )
+        logits = _separate_batch_and_beam(
+            output.logits, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
+        )  # (batch, beam, time, vocab)
+        if spatial_dim == single_step_dim:
+            logits = rf.squeeze(logits, spatial_dim_)
+        return logits, new_state
