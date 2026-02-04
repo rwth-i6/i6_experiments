@@ -100,6 +100,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     from returnn.config import get_global_config
     from returnn.util.basic import get_fwd_compat_kwargs
     from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
+    from .ctc_debugging import _seq_label_print
 
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
@@ -212,6 +213,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
     seq_targets_wb = []
     seq_backrefs = []
     for t in range(max_seq_len):
+        _seq_label_print("am", am_seq_label)
+        _seq_label_print("lm", lm_seq_label)
+
         prev_target = target
         prev_target_wb = target_wb
 
