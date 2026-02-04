@@ -234,6 +234,10 @@ def model_recog_with_recomb_delayed_fusion_v2(
         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
         lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
         am_seq_label = rf.nested.gather_nested(am_seq_label, indices=backrefs)
+        lm_seq_label = rf.nested.gather_nested(lm_seq_label, indices=backrefs)
+        am_seq_num_consumed = rf.gather(am_seq_num_consumed, indices=backrefs)  # Batch, Beam
+        lm_seq_num_consumed = rf.gather(lm_seq_num_consumed, indices=backrefs)  # Batch, Beam
+        am_seq_last_converted = rf.gather(am_seq_last_converted, indices=backrefs)  # Batch, Beam
 
         prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
         prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
