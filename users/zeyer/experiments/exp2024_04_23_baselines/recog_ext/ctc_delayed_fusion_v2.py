@@ -240,6 +240,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         ctc_seq_log_prob = rf.gather(ctc_seq_log_prob, indices=backrefs)  # Batch, Beam
         ctc_seq_log_prob += rf.gather(label_log_prob_ta[t], indices=target_wb, axis=model.wb_target_dim)  # Batch, Beam
         lm_seq_log_prob = rf.gather(lm_seq_log_prob, indices=backrefs)  # Batch, Beam
+        prior_log_prob = rf.gather(prior_log_prob, indices=backrefs)  # Batch, Beam
         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
         lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
         am_seq_label = rf.nested.gather_nested(am_seq_label, indices=backrefs)
