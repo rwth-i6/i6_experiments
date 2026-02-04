@@ -16,13 +16,38 @@ from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from ..ctc import Model
 
 
-# bind interval. use as should_convert_labels_now_func, should_fuse_now_func
 def enable_by_interval(*, t: int, interval: int, **_kwargs) -> bool:
+    """
+    Enable every `interval` steps, i.e. at t=interval-1, 2*interval-1, ...
+
+    Bind `interval` via `functools.partial`.
+
+    Use as `should_convert_labels_now_func`, `should_fuse_now_func` in config.
+    """
     return t % interval == interval - 1
 
 
-def convert_labels_func():
-    pass  # TODO
+def convert_labels_func(
+    *, new_am_labels: Tensor, new_am_labels_spatial_dim: Dim, lm_target_dim: Dim, **_kwargs
+) -> Tuple[Tensor, Dim, Tensor]:
+    """
+    Convert AM labels to LM labels.
+
+    Use as `convert_labels_func` in config.
+
+    :param new_am_labels: Tensor of shape {batch..., new_am_labels_spatial_dim}
+    :param new_am_labels_spatial_dim: Dim of new AM labels
+    :param lm_target_dim: target dim of the LM
+    :return: (new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted)
+        1. new_lm_labels: Tensor of shape {batch..., new_lm_labels_spatial_dim} -> lm_target_dim
+        2. new_lm_labels_spatial_dim: Dim of new LM labels
+        3. num_am_labels_converted: Tensor of shape {batch...} (int32)
+    """
+    assert new_am_labels.sparse_dim and new_am_labels.sparse_dim.vocab
+    am_vocab = new_am_labels.sparse_dim.vocab
+    assert lm_target_dim.vocab
+    lm_vocab = lm_target_dim.vocab
+    # TODO...
 
 
 def model_recog_with_recomb_delayed_fusion_v2(
@@ -149,6 +174,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             new_am_labels=new_am_labels,
             new_am_labels_spatial_dim=new_am_labels_spatial_dim,
             t=t,
+            lm_target_dim=lm_target_dim,
             **get_fwd_compat_kwargs(),
         )
         assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)

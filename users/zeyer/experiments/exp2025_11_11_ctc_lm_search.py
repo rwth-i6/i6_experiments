@@ -6,6 +6,7 @@ Also implementing delayed fusion.
 
 from __future__ import annotations
 
+import functools
 from typing import Optional, Any, Dict, Tuple
 from functools import cache
 
@@ -108,10 +109,15 @@ def py():
         recog_def=model_recog_with_recomb_delayed_fusion,
     )
 
-    from .exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2 import model_recog_with_recomb_delayed_fusion_v2
+    from .exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2 import (
+        model_recog_with_recomb_delayed_fusion_v2,
+        enable_by_interval,
+        convert_labels_func,
+    )
     from i6_experiments.users.zeyer.external_models.qwen2 import get_lm as get_qwen2_lm
 
     qwen2_lm = get_qwen2_lm()
+    enable_every20 = functools.partial(enable_by_interval, interval=20)
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
@@ -124,6 +130,11 @@ def py():
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
         recog_version=11,
         recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            "convert_labels_func": convert_labels_func,
+        },
     )
 
 

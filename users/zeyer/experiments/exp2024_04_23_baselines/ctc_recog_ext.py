@@ -1594,6 +1594,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     vocab_opts_file: Optional[tk.Path] = None,
     n_best_list_size: int = 64,
     first_pass_recog_beam_size: int = 64,
+    first_pass_extra_config: Optional[Dict[str, Any]] = None,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     recomb_type: str = "max",
     extra_config: Optional[Dict[str, Any]] = None,
@@ -1766,6 +1767,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         recog_def=recog_def,
         config={
             **base_config,
+            **(first_pass_extra_config or {}),
             "recog_version": recog_version,
             "beam_size": first_pass_recog_beam_size,
             # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
