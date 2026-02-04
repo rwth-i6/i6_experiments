@@ -29,6 +29,7 @@ from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_stati
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
+from .lm import lm_model_def
 
 
 _ctc_model_name = (
@@ -806,14 +807,20 @@ def get_ctc_with_lm_and_labelwise_prior(
 
     # Add LM.
     # LM has _model_def_dict in config. Put that as _lm_model_def_dict.
-    config.update(
-        {
-            "_lm_model_def_dict": language_model.definition.config["_model_def_dict"],
-            "lm_scale": lm_scale,
-        }
-    )
+    lm_def = language_model.definition
+    assert isinstance(lm_def, ModelDefWithCfg)
+    lm_config = lm_def.config.copy()
+    if lm_def.model_def is lm_model_def:
+        config["_lm_model_def_dict"] = lm_config.pop("_model_def_dict")
+    else:
+        config["_lm_model_def"] = lm_def.model_def
+    config["lm_scale"] = lm_scale
     config["preload_from_files"] = config["preload_from_files"].copy() if config.get("preload_from_files") else {}
     config["preload_from_files"]["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+    lm_config_preload_from_files = lm_config.pop("preload_from_files", None)
+    if lm_config_preload_from_files:
+        config["preload_from_files"].update(lm_config_preload_from_files)
+    assert not lm_config
 
     combined_model_def = ctc_model_ext_def
     if ctc_model_def_ is not ctc_model_def:
