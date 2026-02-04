@@ -27,6 +27,26 @@ def enable_by_interval(*, t: int, interval: int, **_kwargs) -> bool:
     return t % interval == interval - 1
 
 
+def convert_labels_func_no_op(
+    *, new_am_labels: Tensor, new_am_labels_spatial_dim: Dim, lm_target_dim: Dim, **_kwargs
+) -> Tuple[Tensor, Dim, Tensor]:
+    """
+    Convert AM labels to LM labels.
+
+    Use as `convert_labels_func` in config.
+
+    :param new_am_labels: Tensor of shape {batch..., new_am_labels_spatial_dim}
+    :param new_am_labels_spatial_dim: Dim of new AM labels
+    :param lm_target_dim: target dim of the LM
+    :return: (new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted)
+        1. new_lm_labels: Tensor of shape {batch..., new_lm_labels_spatial_dim} -> lm_target_dim
+        2. new_lm_labels_spatial_dim: Dim of new LM labels
+        3. num_am_labels_converted: Tensor of shape {batch...} (int32)
+    """
+    assert lm_target_dim == new_am_labels.sparse_dim
+    return new_am_labels, new_am_labels_spatial_dim, new_am_labels_spatial_dim.get_size_tensor()
+
+
 def convert_labels_func(
     *, new_am_labels: Tensor, new_am_labels_spatial_dim: Dim, lm_target_dim: Dim, **_kwargs
 ) -> Tuple[Tensor, Dim, Tensor]:
