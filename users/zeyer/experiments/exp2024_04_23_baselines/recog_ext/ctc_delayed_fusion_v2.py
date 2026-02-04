@@ -130,7 +130,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     # Eager-mode implementation of beam search.
     # Initial state.
-    beam_dim = Dim(1, name="initial-beam")
+    beam_dim = Dim(1, name="initial_beam")
     batch_dims_ = [beam_dim] + batch_dims
     neg_inf = float("-inf")
     ctc_seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
@@ -213,8 +213,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
     seq_targets_wb = []
     seq_backrefs = []
     for t in range(max_seq_len):
-        _seq_label_print("am", am_seq_label)
-        _seq_label_print("lm", lm_seq_label)
+        _seq_label_print("am", am_seq_label, dims_no_iter=batch_dims)
+        _seq_label_print("lm", lm_seq_label, dims_no_iter=batch_dims)
 
         prev_target = target
         prev_target_wb = target_wb

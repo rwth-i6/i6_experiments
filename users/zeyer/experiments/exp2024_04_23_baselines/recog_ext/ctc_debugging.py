@@ -5,7 +5,7 @@ This here has all code which was used for debugging
 """
 
 from __future__ import annotations
-from typing import Any, Sequence, Tuple, Dict, Generator
+from typing import Any, Collection, Sequence, Tuple, Dict, Generator
 import re
 import functools
 
@@ -442,11 +442,11 @@ def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
     return rf.State(hist_dim=new_hist_dim, history=new_history)
 
 
-def _seq_label_print(prefix: str, state: rf.State):
+def _seq_label_print(prefix: str, state: rf.State, *, dims_no_iter: Collection[Dim] = ()):
     hist_dim: Dim = state.hist_dim
     hist: Tensor = state.history
     print(f"* seq_label history {prefix}: {hist}:")
-    _generic_seq_label_print(hist, hist_dim)
+    _generic_seq_label_print(hist, hist_dim, dims_no_iter=dims_no_iter)
 
 
 def _seq_label_lm_score(prefix: str, state: rf.State, lm: TransformerDecoder):
@@ -488,10 +488,10 @@ def _seq_label_lm_score(prefix: str, state: rf.State, lm: TransformerDecoder):
     _generic_print(log_probs)
 
 
-def _generic_seq_label_print(labels: Tensor, spatial_dim: Dim):
+def _generic_seq_label_print(labels: Tensor, spatial_dim: Dim, *, dims_no_iter: Collection[Dim] = ()):
     labels = rf.copy_to_device(labels, "cpu")
     batch_dims = labels.remaining_dims(spatial_dim)
-    for indices in _iter_dims_indices(batch_dims):
+    for indices in _iter_dims_indices(batch_dims, dims_no_iter=dims_no_iter):
         print(" ", end="")
         hist_seq_len_ = spatial_dim.get_size_tensor()
         hist_ = labels
@@ -518,13 +518,17 @@ def _generic_print(tensor: Tensor):
         print(f": {tensor_.raw_tensor.item()}")
 
 
-def _iter_dims_indices(dims: Sequence[Dim]) -> Generator[Tuple[int, ...]]:
+def _iter_dims_indices(dims: Sequence[Dim], *, dims_no_iter: Collection[Dim] = ()) -> Generator[Tuple[int, ...]]:
     if not dims:
         yield ()
         return
     dim, rest = dims[0], dims[1:]
+    if dim in dims_no_iter:
+        for rest_indices in _iter_dims_indices(rest, dims_no_iter=dims_no_iter):
+            yield (0,) + rest_indices
+        return
     for i in range(dim.get_dim_value()):
-        for rest_indices in _iter_dims_indices(rest):
+        for rest_indices in _iter_dims_indices(rest, dims_no_iter=dims_no_iter):
             yield (i,) + rest_indices
 
 
