@@ -118,9 +118,11 @@ class Qwen2Model(rf.Module):
 
         model = Qwen2DecoderV3(**kwargs)
 
-        # The order matters for the parameter names.
+        # Directly put model.model here for compatible parameters.
         self.model = model.model
-        self._model = model
+        # Don't put the model here, to not confuse the parameters.
+        self._call_func = model.call_func
+        self._embed_func = model.embed_func
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
@@ -174,10 +176,10 @@ class Qwen2Model(rf.Module):
             return rf.split_dims(obj, axis=merged_batch_dim, dims=batch_dims)
 
         source_raw = _combine_batch_and_beam_raw(source)
-        input_embeds_raw = self._model.embed_func(source_raw)
+        input_embeds_raw = self._embed_func(source_raw)
         past_key_values_raw = tree.map_structure(_combine_batch_and_beam_raw, state.past_key_values)
 
-        output = self._model.call_func(
+        output = self._call_func(
             past_key_values=past_key_values_raw,
             inputs_embeds=input_embeds_raw,
             use_cache=True,
