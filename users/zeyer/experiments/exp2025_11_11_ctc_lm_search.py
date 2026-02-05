@@ -136,7 +136,7 @@ def py():
         },
     )
 
-    from i6_experiments.users.zeyer.external_models.qwen2 import get_lm as get_qwen2_lm
+    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm as get_qwen2_lm
 
     qwen2_lm = get_qwen2_lm()
 
