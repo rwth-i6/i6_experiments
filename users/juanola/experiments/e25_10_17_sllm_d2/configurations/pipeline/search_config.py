@@ -173,4 +173,26 @@ def search_baseline_ctc_decoding_24gb() -> SearchConfig:
     return dataclasses.replace(search_baseline_ctc_decoding_11gb(), batch_size=10_000, gpu_memory=24)
 
 
+"""
+ctc greedy
+"""
+
+
+def search_baseline_ctc_greedy_decoding() -> SearchConfig:
+    return SearchConfig(
+        forward_method="forward_step_greedy_ctc",
+        batch_size=15_000,
+        batch_size_factor=160,
+        use_gpu=True,
+        gpu_memory=11,
+        beam_search=beam_search_baseline(),
+        prior=prior_v1(),
+        lm_scales=[None],  # Not used!
+        prior_scales=[None],  # Not used!
+        ctc_scales=[None],  # Not used!
+        avg_best_loss_name="dev_loss_ce",
+        max_seqs=200,
+    )
+
+
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -36,7 +36,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     search_baseline_with_ctc_gd,
     search_baseline_v2,
     search_baseline_ctc_decoding_11gb,
-    search_baseline_v2_multiple_beams,
+    search_baseline_v2_multiple_beams, search_baseline_ctc_greedy_decoding,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -292,11 +292,13 @@ def bv2_pre_d_b_c() -> ExperimentConfig:
 
 
 def bv2_pre_ed_s_c() -> ExperimentConfig:
-    return replace(model_v2_small_baseline(), pretrained=enc_dec_small_combined(), training=itc_v2_80k())
+    return replace(model_v2_small_baseline(), pretrained=enc_dec_small_combined(), training=itc_v2_80k(),
+                   search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
 
 
 def bv2_pre_ed_b_c() -> ExperimentConfig:
-    return replace(model_v2_baseline(), pretrained=enc_dec_base_combined(), training=itc_v2_80k())
+    return replace(model_v2_baseline(), pretrained=enc_dec_base_combined(), training=itc_v2_80k(),
+                   search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
 
 
 # +++

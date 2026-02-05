@@ -93,7 +93,7 @@ def ctc_label_sync_search_v1(
         data_seq_lens,
         initial_beam_size=1,
     )
-    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1)
+    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1) # USING LAST CTC LAYER
 
     batch_dims: Dim = [batch_dim]
     enc_spatial_dim = Dim(rf.convert_to_tensor(encoder_lens, dims=[batch_dim]), name="enc_spatial_dim")

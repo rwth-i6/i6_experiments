@@ -7,8 +7,6 @@ It uses ASRModels classes which contain the information of how to call trained m
 import copy
 from typing import Any, Dict, Tuple, List, Optional
 
-from sisyphus import tk, job_path
-
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
 from i6_core.returnn import PtCheckpoint
@@ -17,6 +15,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from sisyphus import tk, job_path
 from ..model_creation.returnn_config_helpers import get_forward_config
 from ..tuning.asr_model import ASRModel
 from ...configurations.pipeline.search_config import SearchConfig

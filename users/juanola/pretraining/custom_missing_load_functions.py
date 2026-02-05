@@ -21,12 +21,15 @@ def qwen_load_lora_adapted_weights(name, shape, preload_model_state, **kwargs):
         return preload_model_state["decoder_embed_func.weight"]
 
     # Remove extra tags added by lora
-    if ".base_model.model" in name:
-        s1, s_aux = name.split(".base_model.model")
-        if ".base_layer" in name:
-            s2, s3 = s_aux.split(".base_layer")
-            return preload_model_state[f"{s1}{s2}{s3}"]
-        else:
-            return preload_model_state[f"{s1}{s_aux}"]
+    new_name = name
+    if ".base_model.model" in new_name:
+        new_name = new_name.replace(".base_model.model", "")
+
+    if ".base_layer" in new_name:
+        new_name = new_name.replace(".base_layer", "")
+
+    # Check if the transformed name exists in the checkpoint
+    if new_name in preload_model_state:
+        return preload_model_state[new_name]
 
     return None

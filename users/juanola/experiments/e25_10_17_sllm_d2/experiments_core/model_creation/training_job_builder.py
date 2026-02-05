@@ -1,7 +1,7 @@
 """
 Builder for training job.
 """
-
+from collections import OrderedDict
 from typing import Any, Dict
 
 from sisyphus import tk
@@ -74,7 +74,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         train_config["random_seed"] = train_config_obj.random_seed
 
     if pretrained_config.pretrained_encoder is not None or pretrained_config.pretrained_decoder is not None or pretrained_config.pretrained_sllm is not None:
-        preload_from_files = {}
+        preload_from_files = OrderedDict()
         if pretrained_config.pretrained_encoder is not None:
             preload_from_files["ENCODER"] = {
                 "filename": get_encoder_checkpoint(pretrained_config),
@@ -84,6 +84,10 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
             if network_config.encoder_lora_opts is not None:
                 assert False, "Not implemented yet!"
         if pretrained_config.pretrained_decoder is not None:
+
+            using_model_v1 = True
+            decoder_embedding_layer = "decoder_embed_func.weight" if using_model_v1 else "decoder.model.embed_tokens.weight"
+
             preload_from_files["DECODER"] = {
                 "filename": get_decoder_checkpoint(pretrained_config),
                 "init_for_train": True,
@@ -91,6 +95,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
             }
             if network_config.decoder_lora_opts is not None:
                 preload_from_files["DECODER"]["custom_missing_load_func"] = CodeWrapper("qwen_load_lora_adapted_weights")
+                preload_from_files["DECODER"]["var_name_mapping"] = {"decoder.base_model.model.model.embed_tokens.weight": decoder_embedding_layer}# TODO: without this the loading fails. Also
         if pretrained_config.pretrained_sllm is not None: # Should only happen without the other 2.
             preload_from_files["SLLM"] = {
                 "filename": get_sllm_checkpoint(pretrained_config),
@@ -101,6 +106,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
                 assert False, "Not implemented yet!"
             if network_config.decoder_lora_opts is not None:
                 preload_from_files["DECODER"]["custom_missing_load_func"] = CodeWrapper("qwen_load_lora_adapted_weights")
+                # TODO: also var_name_mapping???
         train_config["preload_from_files"] = preload_from_files
 
     train_step_params = {# TODO: could also be extracted in a file

@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Optional, Dict, Any, Iterable
+from typing import Optional, Dict, Any, Iterable, Union
 
 from sisyphus import tk, job_path
 
@@ -11,6 +11,8 @@ from i6_core.returnn.training import (
 )
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
+from sisyphus.delayed_ops import DelayedFormat
+from sisyphus.job_path import Variable
 from .asr_model import ASRModel
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
@@ -55,10 +57,16 @@ def create_tune_and_evaluate_jobs(
     for epoch in specific_epochs:
         evaluation_name = f"{training_name}/{epoch}"
         run_test_on_epoch = epoch == highest_epoch or run_test_in_intermediate_epochs
-        checkpoint_per_evaluation[evaluation_name] = *get_specific_checkpoint(evaluation_name, train_job, epoch), run_test_on_epoch
+        checkpoint_per_evaluation[evaluation_name] = (
+            *get_specific_checkpoint(evaluation_name, train_job, epoch),
+            run_test_on_epoch,
+        )
     if run_best_4:
         evaluation_name = f"{training_name}/best4"
-        checkpoint_per_evaluation[evaluation_name] = *get_best_averaged_checkpoint(evaluation_name, train_job, 4, search_config.avg_best_loss_name), True
+        checkpoint_per_evaluation[evaluation_name] = (
+            *get_best_averaged_checkpoint(evaluation_name, train_job, 4, search_config.avg_best_loss_name),
+            True,
+        )
 
     if run_best:
         evaluation_name = f"{training_name}/best"
@@ -288,7 +296,6 @@ def tune_and_evaluate_model(
             # pick_optimal_params_job.add_alias(f"{evaluation_name}/pick_best_{key}")
             best_params = pick_optimal_params_job.out_optimal_parameters
 
-            # TODO: the paths is calculated before the job is run, serach_name is set with None... not goodq
             forward_args, search_name = get_forward_step_parameters_and_search_name(
                 forward_method,
                 evaluation_name,
@@ -296,8 +303,8 @@ def tune_and_evaluate_model(
                 best_params[1],
                 best_params[2],
                 best_params[3],
+                for_test=True,
             )
-
 
             _, wers = search(
                 search_name,  # !!! now tests are stored inside some param folder (to enable multiple searches for exp)
@@ -317,8 +324,28 @@ def tune_and_evaluate_model(
 
 
 def get_forward_step_parameters_and_search_name(
-    forward_method: str, evaluation_name: str, beam_size: int, lm_scale: float, prior_scale: float, ctc_scale: float
+    forward_method: str,
+    evaluation_name: str,
+    beam_size: Union[int, Variable],
+    lm_scale: Union[int, Variable],
+    prior_scale: Union[int, Variable],
+    ctc_scale: Union[int, Variable],
+        for_test:bool = False
 ) -> tuple[dict[str, Any], str]:
+    """
+    TODO: strings could be use for testing with DelayedFormating, but further changes in the code would be needed...
+
+    :param forward_method:
+    :param evaluation_name:
+    :param beam_size:
+    :param lm_scale:
+    :param prior_scale:
+    :param ctc_scale:
+    :return:
+    """
+    if forward_method == "forward_step_greedy_ctc":
+        return {}, f"{evaluation_name}/ctc_greedy"
+
     assert beam_size is not None, "beam_size must be set for test datasets forward pass"
     if forward_method is None or forward_method == "forward_step":
         forward_args = {
@@ -326,14 +353,14 @@ def get_forward_step_parameters_and_search_name(
             "max_tokens_per_sec": 20,  # TODO: store somewhere
             "sample_rate": 16_000,  # TODO: get from feature extraction
         }
-        search_name = f"{evaluation_name}/v1_beam{beam_size}"
+        search_name = f"{evaluation_name}/v1_optimal_params" if for_test else f"{evaluation_name}/v1_beam{beam_size}"
     elif forward_method == "forward_step_v2":
         forward_args = {
             "beam_size": beam_size,
             "max_tokens_per_sec": 20,  # TODO: store somewhere
             "sample_rate": 16_000,  # TODO: get from feature extraction
         }
-        search_name = f"{evaluation_name}/v2_beam{beam_size}"
+        search_name = f"{evaluation_name}/v2_optimal_params" if for_test else f"{evaluation_name}/v2_beam{beam_size}"
     elif forward_method == "forward_step_ctc_decoding":
         forward_args = {
             "beam_size": beam_size,
@@ -344,7 +371,7 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning": None,
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
-        search_name = f"{evaluation_name}/v1_beam{beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
+        search_name = f"{evaluation_name}/v3_optimal_params" if for_test else f"{evaluation_name}/v3_beam{beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
     else:
         raise ValueError(f"Unknown forward method: {forward_method}")
 
