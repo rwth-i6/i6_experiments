@@ -66,7 +66,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     dec_small_combined,
     dec_base_combined,
     enc_dec_small_combined,
-    enc_dec_base_combined, load_SLLM_pretrained_ed_s_c_f2_oclr1,
+    enc_dec_base_combined, load_SLLM_pretrained_ed_s_c_f2_oclr1, enc_dec_base_lm, enc_dec_small_lm,
 )
 
 
@@ -321,6 +321,15 @@ def bv2_ds_pre_ed_b_c_f1() -> ExperimentConfig:
         bv2_ds_pre_ed_b_c(),
         network=network_with_frozen_layers(network_baseline_v2_td(), encoder_epochs=1, decoder_epochs=1),
     )
+
+# +++
+
+def bv2_ds_pre_ed_b_lm() -> ExperimentConfig:
+    return replace(model_v2_baseline_with_ds(), pretrained=enc_dec_base_lm(), training=itc_v2_80k())
+
+def bv2_pre_ed_s_lm() -> ExperimentConfig:
+        return replace(model_v2_small_baseline(), pretrained=enc_dec_small_lm(), training=itc_v2_80k())
+
 
 
 """

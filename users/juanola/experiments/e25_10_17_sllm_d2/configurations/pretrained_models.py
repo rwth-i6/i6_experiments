@@ -40,11 +40,14 @@ _decoder_checkpoints = {
     "llm_base_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.YRfhVjefAJao/output/models/epoch.100.pt",
     "llm_small_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.xqzaOV0eAJSt/output/models/epoch.100.pt",
     "llm_small_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.erL8ScQicX6D/output/models/epoch.100.pt",
+    "llm_base_lm_data": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.zBrFqc9fWOWC/output/models/epoch.100.pt",
+    "llm_small_lm_data": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.hYxc6bvgBkCT/output/models/epoch.100.pt",
     # More here
 }
 
 _sllm_partial_trainings = {
     "SLLM_pretrained_ed_s_c_f2_oclr1": "/u/marti.juanola/experiments/25_10_17_sllm_d2/work/i6_core/returnn/training/ReturnnTrainingJob.pxoTwGri6FBD/output/models/epoch.010.pt"
+    # More here
 }
 
 
@@ -111,6 +114,17 @@ def enc_dec_base_transcriptions() -> PretrainedConfig:
         pretrained_decoder="llm_base_transcriptions",
     )
 
+def enc_dec_base_lm() -> PretrainedConfig:
+    return PretrainedConfig(
+        pretrained_encoder="ctc_v1",
+        pretrained_decoder="llm_base_lm_data",
+    )
+
+def enc_dec_small_lm() -> PretrainedConfig:
+    return PretrainedConfig(
+        pretrained_encoder="ctc_v1",
+        pretrained_decoder="llm_small_lm_data",
+    )
 
 """
 SLLM

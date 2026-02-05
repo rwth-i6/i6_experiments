@@ -296,6 +296,14 @@ def e3_lora3():
 # ++++
 
 
+def e3_pre9():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM], itc_training=True)
+
+def e3_pre10():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM], itc_training=True)
+
+
+
 """
 SPECIAL
 """
