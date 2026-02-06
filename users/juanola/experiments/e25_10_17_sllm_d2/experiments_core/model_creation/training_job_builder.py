@@ -122,6 +122,9 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
     if network_config.freeze_decoder_ranges is not None:
         train_step_params["frozen_decoder_epochs"] = network_config.get_frozen_decoder_epochs()
 
+    if network_config.decoder_lora_opts is not None:
+        train_step_params["decoder_lora"] = True
+
     train_args = {  # Params for the get_training_config() method #TODO needed this way?
         "config": train_config,
 

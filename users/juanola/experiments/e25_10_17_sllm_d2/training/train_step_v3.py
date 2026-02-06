@@ -32,6 +32,7 @@ def train_step(
         frozen_encoder_epochs: Optional[list[int]]=None,
         frozen_decoder_epochs: Optional[list[int]]=None,
         frozen_adapter_epochs: Optional[list[int]]=None,
+        decoder_lora: bool = False,
 
         **_kwargs,
 ):
@@ -55,7 +56,8 @@ def train_step(
     # WARNING!! MODIFY MODEL STATE - FREEZE/UNFREEZE LAYERS
     current_epoch = ctx.epoch
     model.update_encoder_if_needed(should_be_frozen=current_epoch in frozen_encoder_epochs)
-    model.update_decoder_if_needed(should_be_frozen=current_epoch in frozen_decoder_epochs)
+    if not decoder_lora: # Else assuming frozen from start
+        model.update_decoder_if_needed(should_be_frozen=current_epoch in frozen_decoder_epochs)
     model.update_adapter_if_needed(should_be_frozen=current_epoch in frozen_adapter_epochs)
 
 

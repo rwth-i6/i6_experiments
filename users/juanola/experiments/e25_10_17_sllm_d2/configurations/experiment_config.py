@@ -9,8 +9,10 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.d
     LabelConfig,
     label_baseline,
 )
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.lora_config import \
-    decoder_lora_v1, decoder_small_lora_v1
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.lora_config import (
+    decoder_lora_v1,
+    decoder_small_lora_v1,
+)
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
     NetworkConfig,
     network_baseline,
@@ -26,7 +28,10 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_baseline_v2_td_linear,
     network_baseline_v2_td_linear_small,
     network_with_frozen_layers,
-    network_baseline_v2_td_small, network_with_dec_lora, network_base_baseline_v3,
+    network_baseline_v2_td_small,
+    network_with_dec_lora,
+    network_base_baseline_v3,
+    network_small_baseline_v3,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
@@ -36,7 +41,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     search_baseline_with_ctc_gd,
     search_baseline_v2,
     search_baseline_ctc_decoding_11gb,
-    search_baseline_v2_multiple_beams, search_baseline_ctc_greedy_decoding,
+    search_baseline_v2_multiple_beams,
+    search_baseline_ctc_greedy_decoding,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -56,7 +62,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     training_n2_test,
     itc_v2_80k_300_epochs,
     itc_v2_80k,
-    i6_4gpu_setup_v4, i6_4gpu_setup_v4_for_n_epochs,
+    i6_4gpu_setup_v4,
+    i6_4gpu_setup_v4_for_n_epochs,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pretrained_models import (
     PretrainedConfig,
@@ -66,7 +73,10 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     dec_small_combined,
     dec_base_combined,
     enc_dec_small_combined,
-    enc_dec_base_combined, load_SLLM_pretrained_ed_s_c_f2_oclr1, enc_dec_base_lm, enc_dec_small_lm,
+    enc_dec_base_combined,
+    load_SLLM_pretrained_ed_s_c_f2_oclr1,
+    enc_dec_base_lm,
+    enc_dec_small_lm,
 )
 
 
@@ -292,13 +302,21 @@ def bv2_pre_d_b_c() -> ExperimentConfig:
 
 
 def bv2_pre_ed_s_c() -> ExperimentConfig:
-    return replace(model_v2_small_baseline(), pretrained=enc_dec_small_combined(), training=itc_v2_80k(),
-                   search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
+    return replace(
+        model_v2_small_baseline(),
+        pretrained=enc_dec_small_combined(),
+        training=itc_v2_80k(),
+        search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()],
+    )
 
 
 def bv2_pre_ed_b_c() -> ExperimentConfig:
-    return replace(model_v2_baseline(), pretrained=enc_dec_base_combined(), training=itc_v2_80k(),
-                   search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
+    return replace(
+        model_v2_baseline(),
+        pretrained=enc_dec_base_combined(),
+        training=itc_v2_80k(),
+        search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()],
+    )
 
 
 # +++
@@ -322,14 +340,16 @@ def bv2_ds_pre_ed_b_c_f1() -> ExperimentConfig:
         network=network_with_frozen_layers(network_baseline_v2_td(), encoder_epochs=1, decoder_epochs=1),
     )
 
+
 # +++
+
 
 def bv2_ds_pre_ed_b_lm() -> ExperimentConfig:
     return replace(model_v2_baseline_with_ds(), pretrained=enc_dec_base_lm(), training=itc_v2_80k())
 
-def bv2_pre_ed_s_lm() -> ExperimentConfig:
-        return replace(model_v2_small_baseline(), pretrained=enc_dec_small_lm(), training=itc_v2_80k())
 
+def bv2_pre_ed_s_lm() -> ExperimentConfig:
+    return replace(model_v2_small_baseline(), pretrained=enc_dec_small_lm(), training=itc_v2_80k())
 
 
 """
@@ -412,6 +432,7 @@ def SLLM_small_linear_4gpu_10k() -> ExperimentConfig:
 def SLLM_small_linear_4gpu_10k_pre_d() -> ExperimentConfig:
     return replace(model_v2_small_baseline(), training=i6_4gpu_setup_v4(), pretrained=dec_small_combined())
 
+
 # TODO: pretrained dec & enc
 
 
@@ -419,16 +440,20 @@ def SLLM_small_linear_4gpu_10k_pre_d() -> ExperimentConfig:
 Pretrained LORA
 """
 
+
 def bv3_ds_pre_ed_b_c_lora() -> ExperimentConfig:
     return replace(bv2_ds_pre_ed_b_c(), network=network_with_dec_lora(network_base_baseline_v3(), decoder_lora_v1()))
 
 
 def bv3_pre_ed_s_c_lora() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_base_baseline_v3(), decoder_lora_v1()))
+    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_small_baseline_v3(), decoder_lora_v1()))
 
 
 def bv3_pre_ed_s_c_lora_small() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_base_baseline_v3(), decoder_small_lora_v1()))
+    return replace(
+        bv2_pre_ed_s_c(), network=network_with_dec_lora(network_small_baseline_v3(), decoder_small_lora_v1())
+    )
+
 
 """
 Tests
