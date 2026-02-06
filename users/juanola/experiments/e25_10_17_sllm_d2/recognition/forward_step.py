@@ -9,7 +9,7 @@ from returnn.tensor import Tensor as ReturnnTensor
 from torch import Tensor
 
 from .beam_search import beam_search_decode, beam_search_v2
-from .ctc.ctc_label_sync_espnet import ctc_label_sync_search_v1
+from .ctc.ctc_label_sync_espnet import ctc_label_sync_search_v1, ctc_label_sync_search_v2
 from ..networks.conformer_qwen_v1 import Qwen2DecoderState
 from ..networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
 
@@ -161,6 +161,44 @@ def forward_step_ctc_decoding(
     ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
     ctx.mark_as_output(seq_log_prob_rf, "scores", dims=[batch_dim, beam_dim])
 
+def forward_step_ctc_decoding_v2(
+        *,
+        model: BaseEncoderDecoderModel,
+        extern_data: TensorDict,
+        beam_size: int,
+        ctc_scale: float = 1.0,
+        prior_scale: float = 1.0,
+        lm_scale: float = 1.0, #TODO: ADD PARAMETERS FROM CTC_LABEL_SYNC_ESPNET CALL
+        ctc_soft_collapse_threshold: Optional[float] = None,
+        ctc_top_k_pruning: Optional[int] = None,
+        ctc_top_k_pruning_reduce_func: str = "mean",
+        **kwargs,
+):
+    """
+    Runs full recognition on the given data. Using only CTC
+    """
+    assert beam_size > 0
+
+    data_: ReturnnTensor = extern_data["data"]
+    data: Tensor = data_.raw_tensor
+    seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
+
+    seq_targets_rf, seq_log_prob_rf, lens_dim, beam_dim = ctc_label_sync_search_v2(
+        model=model,
+        data=data,
+        data_seq_lens=seq_len,
+        beam_size=beam_size,
+        ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
+        ctc_top_k_pruning=ctc_top_k_pruning,
+        ctc_top_k_pruning_reduce_func=ctc_top_k_pruning_reduce_func,
+        ctc_scale=ctc_scale,
+        prior_scale=prior_scale,
+        lm_scale=lm_scale,
+    )
+
+    ctx = rf.get_run_ctx()
+    ctx.mark_as_output(seq_targets_rf, "tokens", dims=[batch_dim, beam_dim, lens_dim])
+    ctx.mark_as_output(seq_log_prob_rf, "scores", dims=[batch_dim, beam_dim])
 
 def forward_step_greedy_ctc(
     *,
