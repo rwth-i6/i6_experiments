@@ -11,8 +11,8 @@ class PostprocessingDataset(Dataset):
             *,
             dataset: Dataset,
             map_seq_stream: Dict,
-            buf_size: int,
-            num_workers: int,
+            buf_size: Optional[int] = None,
+            num_workers: Optional[int] = None,
     ):
         super().__init__(
             additional_options=None
@@ -31,9 +31,11 @@ class PostprocessingDataset(Dataset):
             "class": "PostprocessingDataset",
             "dataset": self.dataset.as_returnn_opts(),
             "map_seq_stream": self.map_seq_stream,
-            "buf_size": self.buf_size,
-            "num_workers": self.num_workers,
         }
+        if self.buf_size is not None:
+            d["buf_size"] = self.buf_size
+        if self.num_workers is not None:
+            d["num_workers"] = self.num_workers
 
         sd = super().as_returnn_opts()
         assert all([k not in sd.keys() for k in d.keys()]), (
