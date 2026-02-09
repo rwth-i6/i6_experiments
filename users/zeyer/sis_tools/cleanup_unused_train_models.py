@@ -310,7 +310,7 @@ def main():
             print("Remove model:", fn)
             os.remove(fn)
     elif args.mode == "dryrun":
-        print("Dry-run mode, not removing.")
+        print("Dry-run mode, not removing. (use --mode remove to actually remove)")
     else:
         raise ValueError("invalid mode: %r" % args.mode)
 
