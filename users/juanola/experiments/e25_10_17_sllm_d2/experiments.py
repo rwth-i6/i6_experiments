@@ -87,7 +87,7 @@ def sllm_ep(
 
         # NETWORK
         model_alias = exp_config.network.name
-        network_args, network_args_for_forward = get_network_args(exp_config)
+        network_args = get_network_args(exp_config)
 
         network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
         network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
@@ -134,15 +134,12 @@ def sllm_ep(
         # Tune-Eval
         forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
         for search_config in exp_config.search:
-            if search_config.forward_method is None:
-                network_import_path_for_forward_step = network_import_path
-            else:
-                network_import_path_for_forward_step = f"networks.conformer_qwen_v2.SllmV2"
+            network_import_path_for_forward_step = network_import_path
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
                 training_name=forward_training_name,
                 train_job=train_job,
                 network_import_path=network_import_path_for_forward_step,
-                net_args=network_args_for_forward,
+                net_args=network_args,
                 search_config=search_config,
                 train_data=training_datasets,
                 dev_dataset_tuples=dev_dataset_tuples,
@@ -169,7 +166,7 @@ def sllm_ep(
     return results_per_experiment
 
 
-def get_network_args(config: ExperimentConfig) -> Tuple[dict[str, Any], dict[str, Any]]:
+def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     """
     Builds network arguments and alias for the model.
 
@@ -187,9 +184,6 @@ def get_network_args(config: ExperimentConfig) -> Tuple[dict[str, Any], dict[str
 
     network_args = label_config | fe_config | encoder_config | adapter_config | decoder_config
 
-    # Get a copy before freezing params
-    network_args_for_forward = copy.deepcopy(network_args)
-
     # Frozen layers
     if config.network.frozen_encoder_from_the_start():
         network_args["freeze_encoder_from_the_start"] = True
@@ -202,7 +196,7 @@ def get_network_args(config: ExperimentConfig) -> Tuple[dict[str, Any], dict[str
     if config.network.decoder_lora_opts is not None:
         network_args["decoder_lora_opts"] = asdict(config.network.decoder_lora_opts)
 
-    return network_args, network_args_for_forward
+    return network_args
 
 
 def create_datasets_jobs(

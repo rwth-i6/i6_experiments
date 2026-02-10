@@ -225,7 +225,7 @@ def e3_pre6():
 
 
 def e3v7_3():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300])#, itc_training=True)
 
 
 def e3_f1_baseline():
@@ -298,22 +298,22 @@ def e3_lora1():
 
 
 def e3_lora2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA])#, itc_training=True)
 
 
 def e3_lora3():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small])#, itc_training=True)
 
 
 # ++++
 
 
-def e3_pre9(): #TODO: run
+def e3_pre9():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM], itc_training=True)
 
 
 def e3_pre10():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM])#, itc_training=True)
 
 
 """

@@ -446,12 +446,14 @@ def bv3_ds_pre_ed_b_c_lora() -> ExperimentConfig:
 
 
 def bv3_pre_ed_s_c_lora() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_small_baseline_v3(), decoder_lora_v1()))
+    return replace(bv2_pre_ed_s_c(), network=network_with_dec_lora(network_small_baseline_v3(), decoder_lora_v1()),
+                   search=[search_baseline_v2()])
 
 
 def bv3_pre_ed_s_c_lora_small() -> ExperimentConfig:
     return replace(
-        bv2_pre_ed_s_c(), network=network_with_dec_lora(network_small_baseline_v3(), decoder_small_lora_v1())
+        bv2_pre_ed_s_c(), network=network_with_dec_lora(network_small_baseline_v3(), decoder_small_lora_v1()),
+        search=[search_baseline_v2()]
     )
 
 
