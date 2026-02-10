@@ -292,7 +292,7 @@ def e3_pre8_f1():
 def e3_lora1():
     ex3.sllm_ep(
         [ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA],
-        itc_training=True,
+        #itc_training=True,
         run_only_last=False,
     )
 
@@ -314,6 +314,21 @@ def e3_pre9():
 
 def e3_pre10():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM])#, itc_training=True)
+
+
+# +++
+
+def e3v13_2():
+    ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter_200], itc_training=True)
+
+def e3v14():
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC], itc_training=True)
+
+def e3_ft1():
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4], itc_training=True)
+
+def e3_ft2():
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5], itc_training=True)
 
 
 """

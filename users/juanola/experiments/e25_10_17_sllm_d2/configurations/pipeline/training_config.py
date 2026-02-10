@@ -198,6 +198,21 @@ def itc_v2_80k_300_epochs() -> TrainingConfig:
 def itc_v2_80k() -> TrainingConfig:
     return replace(itc_v2(), batch_size=80_000)
 
+def itc_v2_80k_200_epochs() -> TrainingConfig:
+    return replace(itc_v2_80k(), epochs=200)
+
+"""
+FINETUNING
+"""
+
+def finetuning_v1_lr4() -> TrainingConfig:
+    return replace(itc_v2_80k(), epochs=12, dynamic_lr=lr_baseline_v2())
+
+def finetuning_v2_lr5() -> TrainingConfig:
+    return replace(itc_v2_80k(), epochs=12, dynamic_lr=lr_baseline_v3())
+
+
+
 
 """
 Tests

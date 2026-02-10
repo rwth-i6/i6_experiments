@@ -1,8 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Sequence, Union, Tuple
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import \
-    HasNameProtocol
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.protocols.has_name_protocol import (
+    HasNameProtocol,
+)
 
 
 @dataclass(frozen=True)
@@ -12,12 +13,13 @@ class EncoderConfig(HasNameProtocol):
 
     Can contain default values.
     """
+
     encoder_dim: int
     num_heads: int
     num_enc_layers: int
 
     aux_loss_layers: Sequence[int]
-    # TODO: add loss ctc values
+    aux_loss_scales: Sequence[float]
 
     rel_pos_clip: int = 16
     pos_emb_dropout: float = 0.1
@@ -27,7 +29,7 @@ class EncoderConfig(HasNameProtocol):
     separate_pos_emb_per_head: bool = False
 
     # Spectrogram Augmentation
-    specaug_start: Union[int, Tuple[int, int, int]] = 10,
+    specaug_start: Union[int, Tuple[int, int, int]] = (10,)
 
     def __post_init__(self):
         """
@@ -38,7 +40,7 @@ class EncoderConfig(HasNameProtocol):
     @property
     def name(self) -> str:
         return f"Conformer_l{self.num_enc_layers}"
-        #return f"Conformer_l{self.num_enc_layers}_h_{self.num_heads}_d{self.encoder_dim}"
+        # return f"Conformer_l{self.num_enc_layers}_h_{self.num_heads}_d{self.encoder_dim}"
 
 
 """
@@ -51,10 +53,14 @@ def encoder_baseline() -> EncoderConfig:
         encoder_dim=512,
         num_heads=8,
         num_enc_layers=12,
-
-        aux_loss_layers= (4, 8),
-
+        aux_loss_layers=(4, 8),
+        aux_loss_scales=(1.0, 1.0),
         specaug_start=(5_000, 15_000, 25_000),
     )
+
+
+def encoder_3_ctc_layers() -> EncoderConfig:
+    return replace(encoder_baseline(), aux_loss_layers=(4, 8, 12), aux_loss_scales=(1.0, 1.0, 1.0))
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -32,6 +32,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_with_dec_lora,
     network_base_baseline_v3,
     network_small_baseline_v3,
+    network_base_v2_3ctc,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.search_config import (
     SearchConfig,
@@ -64,6 +65,9 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     itc_v2_80k,
     i6_4gpu_setup_v4,
     i6_4gpu_setup_v4_for_n_epochs,
+    itc_v2_80k_200_epochs,
+    finetuning_v1_lr4,
+    finetuning_v2_lr5
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pretrained_models import (
     PretrainedConfig,
@@ -219,7 +223,6 @@ def exp_v13() -> ExperimentConfig:
     :return:
     """
     return replace(exp_v7(), network=network_linear_adapter())
-
 
 def exp_v2_s2() -> ExperimentConfig:
     return replace(exp_v2(), training=training_baseline(seed=1234))
@@ -433,7 +436,35 @@ def SLLM_small_linear_4gpu_10k_pre_d() -> ExperimentConfig:
     return replace(model_v2_small_baseline(), training=i6_4gpu_setup_v4(), pretrained=dec_small_combined())
 
 
-# TODO: pretrained dec & enc
+def exp_v13_200() -> ExperimentConfig:
+    """
+    SLLM-td-80k with linear adapter
+    :return:
+    """
+    return replace(exp_v7(), network=network_linear_adapter(), training=itc_v2_80k_200_epochs())
+
+def exp_v14_3ctc() -> ExperimentConfig:
+    """
+    SLLM-td-80k with linear adapter
+    :return:
+    """
+    return replace(exp_v7(), network=network_base_v2_3ctc(), training=itc_v2_80k())
+
+
+def exp_v15_small_12ep_lr4() -> ExperimentConfig:
+    """
+    SLLM-td-80k with linear adapter
+    :return:
+    """
+    return replace(bv2_pre_ed_s_c(), training=finetuning_v1_lr4(), search=[search_baseline_v2()])
+
+def exp_v15_small_12ep_lr5() -> ExperimentConfig:
+    """
+    SLLM-td-80k with linear adapter
+    :return:
+    """
+    return replace(bv2_pre_ed_s_c(), training=finetuning_v2_lr5(), search=[search_baseline_v2()])
+
 
 
 """

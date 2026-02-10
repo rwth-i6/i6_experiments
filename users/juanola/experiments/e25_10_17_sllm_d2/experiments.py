@@ -176,6 +176,9 @@ def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
     label_config = asdict(config.labels)
     fe_config = asdict(config.network.feature_extraction)
     encoder_config = asdict(config.network.encoder)
+    if "aux_loss_scales" in encoder_config:
+        encoder_config.pop("aux_loss_scales")
+    assert "aux_loss_scales" not in encoder_config, "aux_loss_scales is only supposed to be used as a train_step param"
     adapter_config = asdict(config.network.adapter)
     qwen2_decoder_config_job = Qwen2DecoderConfigJobV2(
         config.network.decoder, config.labels, target_filename=f"config-{config.network.decoder.name}-for-i6-spm.json"

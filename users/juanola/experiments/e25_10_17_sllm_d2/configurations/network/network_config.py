@@ -19,6 +19,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.encoder_config import (
     EncoderConfig,
     encoder_baseline,
+    encoder_3_ctc_layers,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.feature_extraction_config import (
     FeatureExtractionConfig,
@@ -210,6 +211,9 @@ def network_baseline_v2_td_linear_small() -> NetworkConfig:
 
 def network_baseline_v2_td_small() -> NetworkConfig:
     return replace(network_baseline_v2(), decoder=small_decoder_td())
+
+def network_base_v2_3ctc() -> NetworkConfig:
+    return replace(network_baseline_v2(), encoder=encoder_3_ctc_layers())
 
 
 """

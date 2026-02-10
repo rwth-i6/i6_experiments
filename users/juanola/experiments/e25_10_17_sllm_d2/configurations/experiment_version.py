@@ -8,7 +8,8 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     bv2_pre_d_s_c_f2, bv2_pre_d_s_c_f5, bv2_pre_ed_s_c_f1, bv2_pre_ed_s_c_f2, bv2_with_ds_pre_d_s_c_f1, \
     SLLM_small_linear_4gpu_10k, SLLM_small_linear_4gpu_10k_pre_d, bv2_ds_pre_d_b_c, bv2_ds_pre_ed_b_c, \
     bv2_ds_pre_d_b_c_f2, bv2_ds_pre_ed_b_c_f1, bv2_pre_ed_s_c_f2_oclr1, bv2_pre_ed_s_c_f2_oclr2, bv3_ds_pre_ed_b_c_lora, \
-    bv3_pre_ed_s_c_lora, bv3_pre_ed_s_c_lora_small, bv2_ds_pre_ed_b_lm, bv2_pre_ed_s_lm
+    bv3_pre_ed_s_c_lora, bv3_pre_ed_s_c_lora_small, bv2_ds_pre_ed_b_lm, bv2_pre_ed_s_lm, exp_v13_200, exp_v14_3ctc, \
+    exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5
 
 
 class ExperimentVersion(Enum):
@@ -76,6 +77,10 @@ class ExperimentVersion(Enum):
     SLLM_BV2_DS_PRE_ED_B_LM = "SLLM_ds_pretrained_ed_b_lm"
     SLLM_BV2_PRE_ED_S_LM = "SLLM_pretrained_ed_s_lm"
 
+    V13_SLLM_linear_adapter_200 = "SLLM_linear_adapter_200"
+    V14_SLLM_3CTC = "SLLM_3CTC"
+    V15_SMALL_SLLM_LR4 = "SLLM_small_12finetuning_lr4"
+    V15_SMALL_SLLM_LR5 = "SLLM_small_12finetuning_lr5"
     # Expand here
 
     # Tests
@@ -146,6 +151,11 @@ _EXPERIMENT_BUILDERS = {
 
     ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM: bv2_ds_pre_ed_b_lm,
     ExperimentVersion.SLLM_BV2_PRE_ED_S_LM: bv2_pre_ed_s_lm,
+
+    ExperimentVersion.V13_SLLM_linear_adapter_200: exp_v13_200,
+    ExperimentVersion.V14_SLLM_3CTC: exp_v14_3ctc,
+    ExperimentVersion.V15_SMALL_SLLM_LR4: exp_v15_small_12ep_lr4,
+    ExperimentVersion.V15_SMALL_SLLM_LR5: exp_v15_small_12ep_lr5,
     # Expand here
 
     # Tests
