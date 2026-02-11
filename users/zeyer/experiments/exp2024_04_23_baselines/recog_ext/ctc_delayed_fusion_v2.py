@@ -103,7 +103,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     from returnn.config import get_global_config
     from returnn.util.basic import get_fwd_compat_kwargs
     from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
-    from .ctc_debugging import _seq_label_print, _generic_seq_label_print
+    from .ctc_debugging import _seq_label_print, _generic_seq_label_print, _generic_print
 
     config = get_global_config()
     debug = os.environ.get("DEBUG_CTC_RECOG") == "1"
@@ -183,6 +183,10 @@ def model_recog_with_recomb_delayed_fusion_v2(
     )  # Batch, InBeam, Vocab / ...
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
 
+    if debug:
+        print("initial LM log probs:", end="")
+        _generic_print(lm_log_probs, dims_no_iter=batch_dims_, max_idx=5)
+
     am_seq_last_converted = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
     am_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
@@ -204,6 +208,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
             input_labels, spatial_dim=spatial_dim, state=lm_state_debug
         )  # Batch, InBeam, Vocab / ...
         lm_log_probs_debug = rf.log_softmax(lm_logits_debug, axis=lm_target_dim)  # Batch, InBeam, Vocab
+        if debug:
+            print("debug LM log probs:", end="")
+            _generic_print(lm_log_probs_debug, dims_no_iter=batch_dims_, max_idx=5)
         lm_seq_log_prob_debug = rf.reduce_sum(
             rf.gather(lm_log_probs_debug, axis=lm_target_dim, indices=lm_seq_label.history),
             axis=spatial_dim,
@@ -269,9 +276,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = (
-            ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob + label_log_prob_ta[t]
-        )  # Batch, InBeam, VocabWB
+        seq_log_prob = (ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob) + label_log_prob_ta[
+            t
+        ]  # Batch, InBeam, VocabWB
 
         _, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
@@ -381,6 +388,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
             assert packed_new_label_dim.get_dim_value() > 0
 
             if debug:
+                print("prev LM log probs:", end="")
+                _generic_print(prev_lm_log_probs_, dims_no_iter=[packed_new_label_dim], max_idx=5)
+
                 print("new lm feed:", end="")
                 _generic_seq_label_print(
                     new_lm_labels_, new_lm_labels_spatial_dim_, dims_no_iter=[packed_new_label_dim]
@@ -399,6 +409,10 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 indices=rf.last_frame_position_of_dim(new_lm_labels_spatial_dim_),
             )
             lm_log_probs_ = rf.shift_right(lm_log_probs_, axis=new_lm_labels_spatial_dim_, pad_value=prev_lm_log_probs_)
+
+            if debug:
+                print("LM log probs:", end="")
+                _generic_print(lm_log_probs_, dims_no_iter=[packed_new_label_dim], max_idx=5)
 
             # Now add LM score.
             lm_seq_log_prob_ += (
@@ -448,7 +462,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
-    lm_eos_score = rf.gather(lm_log_probs, indices=lm_eos_idx, axis=lm_target_dim)
+    lm_eos_score = rf.gather(lm_log_probs, indices=lm_eos_idx, axis=lm_target_dim) * lm_scale  # Batch, Beam
     lm_seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
 
     seq_log_prob = ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob  # Batch, Beam

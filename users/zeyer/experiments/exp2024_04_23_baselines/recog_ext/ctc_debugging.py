@@ -5,7 +5,7 @@ This here has all code which was used for debugging
 """
 
 from __future__ import annotations
-from typing import Any, Collection, Sequence, Tuple, Dict, Generator
+from typing import Optional, Any, Collection, Sequence, Tuple, Dict, Generator
 import re
 import functools
 
@@ -507,9 +507,9 @@ def _generic_seq_label_print(labels: Tensor, spatial_dim: Dim, *, dims_no_iter: 
         )
 
 
-def _generic_print(tensor: Tensor, *, dims_no_iter: Collection[Dim] = ()):
+def _generic_print(tensor: Tensor, *, dims_no_iter: Collection[Dim] = (), max_idx: Optional[int] = None):
     tensor = rf.copy_to_device(tensor, "cpu")
-    for indices in _iter_dims_indices(tensor.dims, dims_no_iter=dims_no_iter):
+    for indices in _iter_dims_indices(tensor.dims, dims_no_iter=dims_no_iter, max_idx=max_idx):
         print(" ", end="")
         tensor_ = tensor
         for dim, i in zip(tensor.dims, indices):
@@ -518,17 +518,21 @@ def _generic_print(tensor: Tensor, *, dims_no_iter: Collection[Dim] = ()):
         print(f": {tensor_.raw_tensor.item()}")
 
 
-def _iter_dims_indices(dims: Sequence[Dim], *, dims_no_iter: Collection[Dim] = ()) -> Generator[Tuple[int, ...]]:
+def _iter_dims_indices(
+    dims: Sequence[Dim], *, dims_no_iter: Collection[Dim] = (), max_idx: Optional[int] = None
+) -> Generator[Tuple[int, ...]]:
     if not dims:
         yield ()
         return
     dim, rest = dims[0], dims[1:]
     if dim in dims_no_iter:
-        for rest_indices in _iter_dims_indices(rest, dims_no_iter=dims_no_iter):
+        for rest_indices in _iter_dims_indices(rest, dims_no_iter=dims_no_iter, max_idx=max_idx):
             yield (0,) + rest_indices
         return
     for i in range(dim.get_dim_value()):
-        for rest_indices in _iter_dims_indices(rest, dims_no_iter=dims_no_iter):
+        if max_idx is not None and i >= max_idx:
+            break
+        for rest_indices in _iter_dims_indices(rest, dims_no_iter=dims_no_iter, max_idx=max_idx):
             yield (i,) + rest_indices
 
 
