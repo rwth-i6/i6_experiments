@@ -127,7 +127,7 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=11,
+        recog_version=12,
         recog_def=model_recog_with_recomb_delayed_fusion_v2,
         first_pass_extra_config={
             "should_convert_labels_now_func": enable_every20,

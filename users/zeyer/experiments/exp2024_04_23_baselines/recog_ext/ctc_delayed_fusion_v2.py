@@ -4,7 +4,10 @@ CTC decoding with neural LM
 
 from __future__ import annotations
 
+import os
 from typing import Optional, Sequence, Tuple
+
+import numpy as np
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -103,13 +106,21 @@ def model_recog_with_recomb_delayed_fusion_v2(
     from .ctc_debugging import _seq_label_print, _generic_seq_label_print
 
     config = get_global_config()
-    debug = False
+    debug = os.environ.get("DEBUG_CTC_RECOG") == "1"
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 11
+    assert version == 12
     recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
     ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")
+
+    if debug:
+        if os.environ.get("DEBUG_CTC_RECOG_BEAM_SIZE"):
+            beam_size = int(os.environ.get("DEBUG_CTC_RECOG_BEAM_SIZE"))
+        print(f"*** Starting CTC + LM beam search recog with recomb delayed fusion v2 DEBUG MODE {beam_size=} ***")
+
+    # TODO debug variant: feed whole text seq to LM
+    # TODO debug variant: convert labels on whole seq
 
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
@@ -171,7 +182,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
         state=lm_state,
     )  # Batch, InBeam, Vocab / ...
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-    lm_log_probs *= lm_scale
 
     am_seq_last_converted = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
     am_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
@@ -180,12 +190,38 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
+    def _debug_lm():
+        batch_dims_debug = lm_seq_log_prob.dims
+        spatial_dim: Dim = lm_seq_label.hist_dim
+        if spatial_dim.dimension == 0:
+            return None
+        input_labels = rf.shift_right(lm_seq_label.history, axis=spatial_dim, pad_value=lm_vocab.bos_label_id)
+        lm_state_debug = lm.default_initial_state(batch_dims=batch_dims_debug)  # Batch, InBeam, ...
+        lm_logits_debug, lm_state_debug = lm(
+            input_labels, spatial_dim=spatial_dim, state=lm_state_debug
+        )  # Batch, InBeam, Vocab / ...
+        lm_log_probs_debug = rf.log_softmax(lm_logits_debug, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_seq_log_prob_debug = rf.reduce_sum(
+            rf.gather(lm_log_probs_debug, axis=model.target_dim, indices=lm_seq_label.history),
+            axis=spatial_dim,
+        )  # Batch, InBeam
+        lm_seq_log_prob_debug *= lm_scale
+        np.testing.assert_allclose(
+            lm_seq_log_prob.raw_tensor.cpu().numpy(),
+            lm_seq_log_prob_debug.copy_compatible_to_dims_raw(batch_dims_debug).cpu().numpy(),
+        )
+        return lm_state_debug, lm_log_probs_debug, lm_seq_log_prob_debug
+
     should_convert_labels_now_func = config.typed_value("should_convert_labels_now_func")
     # (...) -> bool
     should_fuse_now_func = config.typed_value("should_fuse_now_func")
     # (...) -> bool
     convert_labels_func = config.typed_value("convert_labels_func")
     # (...) -> Tensor
+
+    if debug and os.environ.get("DEBUG_CTC_RECOG_NO_DELAYED_FUSION") == "1":
+        should_convert_labels_now_func = lambda **kwargs: True
+        should_fuse_now_func = lambda **kwargs: True
 
     def _convert_labels_now():
         nonlocal am_seq_last_converted
@@ -223,6 +259,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         if debug:
             _seq_label_print("am", am_seq_label, dims_no_iter=batch_dims)
             _seq_label_print("lm", lm_seq_label, dims_no_iter=batch_dims)
+            _debug_lm()
 
         prev_target = target
         prev_target_wb = target_wb
@@ -339,7 +376,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 state=lm_state_,
             )  # FlatBatchBeam, [NewLmSpatial], Vocab / ...
             lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # FlatBatchBeam, NewLmSpatial, Vocab
-            lm_log_probs_ *= lm_scale
 
             new_lm_log_probs_ = rf.gather(
                 lm_log_probs_,
@@ -349,16 +385,19 @@ def model_recog_with_recomb_delayed_fusion_v2(
             lm_log_probs_ = rf.shift_right(lm_log_probs_, axis=new_lm_labels_spatial_dim_, pad_value=prev_lm_log_probs_)
 
             # Now add LM score.
-            lm_seq_log_prob_ += rf.reduce_sum(
-                rf.gather(lm_log_probs_, axis=model.target_dim, indices=new_lm_labels_),
-                axis=new_lm_labels_spatial_dim_,
+            lm_seq_log_prob_ += (
+                rf.reduce_sum(
+                    rf.gather(lm_log_probs_, axis=model.target_dim, indices=new_lm_labels_),
+                    axis=new_lm_labels_spatial_dim_,
+                )
+                * lm_scale
             )
 
             lm_seq_log_prob, lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
                 (lm_seq_log_prob_, new_lm_log_probs_, lm_state_),
                 (lm_seq_log_prob, lm_log_probs, lm_state),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
+                mask=rf.copy_to_device(should_fuse_now, lm_seq_log_prob.device),
+                mask_cpu=should_fuse_now,
                 dims=batch_dims + [beam_dim],
                 in_dim=packed_new_label_dim,
                 masked_select_dim_map=packed_new_label_dim_map,
@@ -436,6 +475,7 @@ def _target_dense_extend_blank(
 
 
 def _seq_label_history_init_state(*, vocab_dim: Dim, batch_dims: Sequence[Dim]) -> rf.State:
+    """seq label state: history, hist_dim"""
     hist_dim = Dim(0, name="hist0")
     history = rf.zeros(list(batch_dims) + [hist_dim], dtype="int64", sparse_dim=vocab_dim)
     return rf.State(hist_dim=hist_dim, history=history)
