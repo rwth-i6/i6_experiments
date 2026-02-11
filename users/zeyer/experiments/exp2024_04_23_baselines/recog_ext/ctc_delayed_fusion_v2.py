@@ -196,13 +196,16 @@ def model_recog_with_recomb_delayed_fusion_v2(
         if spatial_dim.dimension == 0:
             return None
         input_labels = rf.shift_right(lm_seq_label.history, axis=spatial_dim, pad_value=lm_vocab.bos_label_id)
+        if debug:
+            print("debug LM input labels:", end="")
+            _generic_seq_label_print(input_labels, spatial_dim=spatial_dim, dims_no_iter=batch_dims_debug)
         lm_state_debug = lm.default_initial_state(batch_dims=batch_dims_debug)  # Batch, InBeam, ...
         lm_logits_debug, lm_state_debug = lm(
             input_labels, spatial_dim=spatial_dim, state=lm_state_debug
         )  # Batch, InBeam, Vocab / ...
-        lm_log_probs_debug = rf.log_softmax(lm_logits_debug, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs_debug = rf.log_softmax(lm_logits_debug, axis=lm_target_dim)  # Batch, InBeam, Vocab
         lm_seq_log_prob_debug = rf.reduce_sum(
-            rf.gather(lm_log_probs_debug, axis=model.target_dim, indices=lm_seq_label.history),
+            rf.gather(lm_log_probs_debug, axis=lm_target_dim, indices=lm_seq_label.history),
             axis=spatial_dim,
         )  # Batch, InBeam
         lm_seq_log_prob_debug *= lm_scale
@@ -229,7 +232,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
         )
         if debug:
-            print("new am labels: ", end="")
+            print("new am labels:", end="")
             _generic_seq_label_print(new_am_labels, new_am_labels_spatial_dim, dims_no_iter=batch_dims)
         new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
             new_am_labels=new_am_labels,
@@ -240,7 +243,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             **get_fwd_compat_kwargs(),
         )
         if debug:
-            print("new lm labels: ", end="")
+            print("new lm labels:", end="")
             _generic_seq_label_print(new_lm_labels, new_lm_labels_spatial_dim, dims_no_iter=batch_dims)
         assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
         assert new_lm_labels_spatial_dim in new_lm_labels.dims
@@ -340,8 +343,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 idx = rf.reduce_argmin(got_new_label_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
                 mask = idx == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
                 ctc_seq_log_prob = rf.where(mask, ctc_seq_log_prob, neg_inf)
-                got_new_label = got_new_label & mask  # don't re-eval the LM when masked out
-                got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
             else:
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
@@ -354,7 +355,11 @@ def model_recog_with_recomb_delayed_fusion_v2(
         should_fuse_now = is_last_frame or should_fuse_now_func(
             num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs()
         )
-        should_fuse_now = (num_new_lm_labels > 0) & should_fuse_now
+        should_fuse_now = (
+            (num_new_lm_labels > 0)
+            & rf.copy_to_device(ctc_seq_log_prob > neg_inf, num_new_lm_labels.device)
+            & should_fuse_now
+        )
 
         if should_fuse_now.raw_tensor.sum().item() > 0:
             should_fuse_now_dev = rf.copy_to_device(should_fuse_now, lm_seq_log_prob.device)
@@ -374,6 +379,12 @@ def model_recog_with_recomb_delayed_fusion_v2(
             )
             # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
             assert packed_new_label_dim.get_dim_value() > 0
+
+            if debug:
+                print("new lm feed:", end="")
+                _generic_seq_label_print(
+                    new_lm_labels_, new_lm_labels_spatial_dim_, dims_no_iter=[packed_new_label_dim]
+                )
 
             lm_logits_, lm_state_ = lm(
                 new_lm_labels_,
