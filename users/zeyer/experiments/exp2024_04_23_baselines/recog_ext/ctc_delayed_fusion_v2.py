@@ -403,6 +403,17 @@ def model_recog_with_recomb_delayed_fusion_v2(
             )  # FlatBatchBeam, [NewLmSpatial], Vocab / ...
             lm_log_probs_ = rf.log_softmax(lm_logits_, axis=lm_target_dim)  # FlatBatchBeam, NewLmSpatial, Vocab
 
+            if debug:
+                padded, (padded_dim,) = rf.pad(
+                    lm_log_probs_,
+                    axes=[new_lm_labels_spatial_dim_],
+                    padding=[(1, 0)],
+                    mode="constant",
+                    value=prev_lm_log_probs_,
+                )
+                print("LM padded log probs:", end="")
+                _generic_print(padded, dims_no_iter=[packed_new_label_dim], max_idx=5)
+
             new_lm_log_probs_ = rf.gather(
                 lm_log_probs_,
                 axis=new_lm_labels_spatial_dim_,
