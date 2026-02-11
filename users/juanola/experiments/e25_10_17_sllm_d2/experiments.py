@@ -134,7 +134,15 @@ def sllm_ep(
         # Tune-Eval
         forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
         for search_config in exp_config.search:
-            network_import_path_for_forward_step = network_import_path
+
+            if search_config.forward_method is None: # Backwards compatibility (first V1 model - V1 recogs)
+                network_import_path_for_forward_step = network_import_path
+            elif network_import_path == f"networks.conformer_qwen_v1.Model": # Then for old models V1 but new configs, load model as V2
+                    network_import_path_for_forward_step = f"networks.conformer_qwen_v2.SllmV2"
+            else:
+                network_import_path_for_forward_step = network_import_path
+
+
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
                 training_name=forward_training_name,
                 train_job=train_job,

@@ -181,6 +181,7 @@ def e3v8_2():
 def e3v7_2():
     ex3.sllm_ep(
         [ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200]
+        #[ExperimentVersion.V7_TUNED_DROPOUT_200]
     )  # , itc_training=True)
 
 
@@ -325,10 +326,10 @@ def e3v14():
     ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC], itc_training=True)
 
 def e3_ft1():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4])#, itc_training=True)
 
 def e3_ft2():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5])#, itc_training=True)
 
 
 """

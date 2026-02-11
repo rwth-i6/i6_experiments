@@ -170,7 +170,7 @@ def exp_v7() -> ExperimentConfig:
 
 
 def exp_v7_with_ctc_gd() -> ExperimentConfig:
-    return replace(exp_v7(), search=[search_baseline_with_ctc_gd(), search_baseline_v2()])
+    return replace(exp_v7(), search=[search_baseline(), search_baseline_ctc_greedy_decoding()])
 
 
 def exp_v7_with_beam() -> ExperimentConfig:
@@ -237,11 +237,17 @@ def exp_v8_4() -> ExperimentConfig:
 
 
 def exp_v7_150() -> ExperimentConfig:
-    return replace(exp_v7(), training=itc_batch_size_80k_150_epochs())
+    return replace(exp_v7(), training=itc_batch_size_80k_150_epochs()
+                   #, search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding()])
+                   #, search=[search_baseline_ctc_greedy_decoding()])
+                   , search=[search_baseline_ctc_decoding_11gb()])
 
 
 def exp_v7_200() -> ExperimentConfig:
-    return replace(exp_v7(), training=itc_batch_size_80k_200_epochs())
+    return replace(exp_v7(), training=itc_batch_size_80k_200_epochs()
+                   #, search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding()])
+                   #, search=[search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
+                   , search=[search_baseline_ctc_decoding_11gb()])
 
 
 """
@@ -280,7 +286,8 @@ def model_v2_small_baseline() -> ExperimentConfig:
 
 
 def exp_v7_300() -> ExperimentConfig:
-    return replace(model_v2_baseline_with_ds(), training=itc_v2_80k_300_epochs())
+    return replace(model_v2_baseline_with_ds(), training=itc_v2_80k_300_epochs(),
+                   search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
 
 
 """
