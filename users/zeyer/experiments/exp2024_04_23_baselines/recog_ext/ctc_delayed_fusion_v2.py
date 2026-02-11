@@ -196,10 +196,12 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     def _debug_lm():
         batch_dims_debug = lm_seq_log_prob.dims
+        labels = lm_seq_label.history
         spatial_dim: Dim = lm_seq_label.hist_dim
-        if spatial_dim.dimension == 0:
+        labels, spatial_dim = rf.slice(labels, axis=spatial_dim, size=lm_seq_num_consumed)
+        if spatial_dim.get_dim_value_tensor().raw_tensor == 0:
             return None
-        input_labels = rf.shift_right(lm_seq_label.history, axis=spatial_dim, pad_value=lm_vocab.bos_label_id)
+        input_labels = rf.shift_right(labels, axis=spatial_dim, pad_value=lm_vocab.bos_label_id)
         if debug:
             print("debug LM input labels:", end="")
             _generic_seq_label_print(input_labels, spatial_dim=spatial_dim, dims_no_iter=batch_dims_debug)
@@ -212,7 +214,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             print("debug LM log probs:", end="")
             _generic_print(lm_log_probs_debug, dims_no_iter=batch_dims_, max_idx=5)
         lm_seq_log_prob_debug = rf.reduce_sum(
-            rf.gather(lm_log_probs_debug, axis=lm_target_dim, indices=lm_seq_label.history),
+            rf.gather(lm_log_probs_debug, axis=lm_target_dim, indices=labels),
             axis=spatial_dim,
         )  # Batch, InBeam
         lm_seq_log_prob_debug *= lm_scale
@@ -401,6 +403,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 _generic_seq_label_print(
                     new_lm_labels_, new_lm_labels_spatial_dim_, dims_no_iter=[packed_new_label_dim]
                 )
+                print("lm state pos:", end="")
+                _generic_print(lm_state_.pos, dims_no_iter=[packed_new_label_dim])
 
             lm_logits_, lm_state_ = lm(
                 new_lm_labels_,
@@ -498,6 +502,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
     (seq_targets_wb, seq_log_prob, out_spatial_dim), beam_dim, _ = rf.nested.masked_select_nested(
         (seq_targets_wb, seq_log_prob, out_spatial_dim), mask=mask, mask_cpu=mask_cpu, dims=[beam_dim]
     )
+
+    if debug:
+        raise Exception("success, but stop now")
 
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
 
