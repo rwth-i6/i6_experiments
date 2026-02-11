@@ -444,6 +444,10 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 masked_select_dim_map=packed_new_label_dim_map,
             )  # Batch, Beam, Vocab / ...
 
+            lm_seq_num_consumed = rf.where(
+                should_fuse_now, lm_seq_label.hist_dim.get_size_tensor(), lm_seq_num_consumed
+            )  # Batch, Beam -> int32
+
             new_am_seq_num_consumed = rf.where(
                 should_fuse_now, am_seq_last_converted, am_seq_num_consumed
             )  # Batch, Beam -> int32
