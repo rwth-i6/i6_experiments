@@ -397,9 +397,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
             assert packed_new_label_dim.get_dim_value() > 0
 
             if debug:
-                print("prev LM log probs:", end="")
-                _generic_print(prev_lm_log_probs_, dims_no_iter=[packed_new_label_dim], max_idx=5)
-
                 print("new lm feed:", end="")
                 _generic_seq_label_print(
                     new_lm_labels_, new_lm_labels_spatial_dim_, dims_no_iter=[packed_new_label_dim]
