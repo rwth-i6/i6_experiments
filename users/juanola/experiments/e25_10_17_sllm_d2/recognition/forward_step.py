@@ -12,6 +12,7 @@ from .beam_search import beam_search_decode, beam_search_v2
 from .ctc.ctc_label_sync_espnet import ctc_label_sync_search_v1, ctc_label_sync_search_v2
 from ..networks.conformer_qwen_v1 import Qwen2DecoderState
 from ..networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
+from ..networks.sllm_with_ext_modules import SllmV4
 
 
 def forward_step(
@@ -163,7 +164,7 @@ def forward_step_ctc_decoding(
 
 def forward_step_ctc_decoding_v2(
         *,
-        model: BaseEncoderDecoderModel,
+        model: SllmV4,
         extern_data: TensorDict,
         beam_size: int,
         ctc_scale: float = 1.0,

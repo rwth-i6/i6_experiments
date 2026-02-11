@@ -137,11 +137,12 @@ def sllm_ep(
 
             if search_config.forward_method is None: # Backwards compatibility (first V1 model - V1 recogs)
                 network_import_path_for_forward_step = network_import_path
-            elif network_import_path == f"networks.conformer_qwen_v1.Model": # Then for old models V1 but new configs, load model as V2
-                    network_import_path_for_forward_step = f"networks.conformer_qwen_v2.SllmV2"
+            elif network_import_path == "networks.conformer_qwen_v1.Model": # Then for old models V1 but new configs, load model as V2
+                    network_import_path_for_forward_step = "networks.conformer_qwen_v2.SllmV2"
             else:
                 network_import_path_for_forward_step = network_import_path
 
+            assert network_import_path_for_forward_step != "networks.conformer_qwen_v1.Model", f"Running a recognition with model V1!! Beam seach does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
 
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
                 training_name=forward_training_name,

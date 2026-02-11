@@ -170,7 +170,9 @@ def exp_v7() -> ExperimentConfig:
 
 
 def exp_v7_with_ctc_gd() -> ExperimentConfig:
-    return replace(exp_v7(), search=[search_baseline(), search_baseline_ctc_greedy_decoding()])
+    return replace(exp_v7(),
+                   #search=[search_baseline(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
+                   search=[search_baseline_ctc_decoding_11gb()])
 
 
 def exp_v7_with_beam() -> ExperimentConfig:

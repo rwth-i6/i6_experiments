@@ -22,6 +22,7 @@ from i6_experiments.users.zeyer.nn_rf.top_k_and_random_choice_without_replacemen
 from .ctc_prefix_scorer import CtcPrefixScorer
 from ..beam_search import _gather_backrefs
 from ...networks.interfaces.base_encoder_decoder_model import BaseEncoderDecoderModel
+from ...networks.sllm_with_ext_modules import SllmV4
 
 if TYPE_CHECKING:
     import torch
@@ -306,7 +307,7 @@ def ctc_label_sync_search_v1(
 
 def ctc_label_sync_search_v2( #TODO: in progress!!
         *,
-        model: BaseEncoderDecoderModel, # TODO: Add external LM to model??
+        model: SllmV4,
         data: torch.Tensor,
 
         data_seq_lens: torch.Tensor,
@@ -314,6 +315,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         ctc_soft_collapse_threshold: Optional[float] = None,
         ctc_top_k_pruning: Optional[int] = None,
         ctc_top_k_pruning_reduce_func: str = "mean",
+
         ctc_scale: float = 1.0,
         prior_scale: float = 0.0,  # TODO: unused
         sllm_scale: float = 0.0,
@@ -353,16 +355,27 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     ctc_beam_size = beam_size
     neg_inf = float("-inf")
 
-    ## ENCODING
+    ## CTC LOGITS
+
+    ### SLLM CALL (always necessary)
     decoder_state, aux_logits, encoder_lens = model.forward_encoder(
         data,
         data_seq_lens,
         initial_beam_size=1,
     )
-    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1) # USING LAST CTC LAYER
+
+    if model.has_external_ctc():
+        ext_ctc_decoder_state, ext_ctc_aux_logits, ext_ctc_encoder_lens = model.external_ctc_forward_encoder(
+            data,
+            data_seq_lens,
+            initial_beam_size=1,
+        )
+        ctc_log_prob = torch.nn.functional.log_softmax(ext_ctc_aux_logits[-1], dim=-1) # USING EXT CTC LOGITS
+    else:
+        ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1) # USING LAST SLLM CTC LAYER
 
     batch_dims: Dim = [batch_dim]
-    enc_spatial_dim = Dim(rf.convert_to_tensor(encoder_lens, dims=[batch_dim]), name="enc_spatial_dim")
+    enc_spatial_dim = Dim(rf.convert_to_tensor(encoder_lens, dims=[batch_dim]), name="enc_spatial_dim") #TODO: this should be changed if ext CTC??
     target_dim = Dim(model.num_labels, name="target_dim")
     wb_target_dim = Dim(model.num_labels + 1, name="wb_target_dim")  # Using num_labels + 1...
 
@@ -459,6 +472,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)
 
     lm_state_raw = decoder_state
+    ext_lm_state = None # TODO: initialize with no encoder output
 
     # BEAM SEARCH LOOP / STEP
     i = 0
@@ -482,10 +496,10 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
                 mode="max",
             )
 
+        targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
+
         # --- SLLM DECODER SCORING ---
         if sllm_scale > 0:  # Added to avoid calling decoder if using the forward pass as a CTC greedy recognition
-            targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
-
             lm_logits_raw, lm_state_raw = model.step_decoder(targets_lm_raw.unsqueeze(-1), lm_state_raw)
             lm_logits_raw = lm_logits_raw.squeeze(-2)  # squeeze singleton time dim
             lm_logits = rf.convert_to_tensor(lm_logits_raw, dims=batch_dims + [ctc_beam_dim, target_dim])
@@ -507,11 +521,24 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
                 )
             lm_log_probs = rf.log_softmax(lm_logits, axis=target_dim)  # Batch, InBeam, Vocab
             lm_log_probs *= sllm_scale
+
+            # MERGE POINT 1: Add SLLM to the accumulation
             label_log_prob += lm_log_probs  # Batch, InBeam, Vocab
 
         # --- EXTERNAL LM ---
-        if external_lm_scale > 0:
-            pass #TODO: !!!!
+        if external_lm_scale > 0: # TODO: finish this!!
+            # Note: External LMs usually don't need encoder context
+            # Assuming external_lm has a similar step interface
+            ext_logits_raw, ext_lm_state = model.external_llm_step_decoder(targets_lm_raw.unsqueeze(-1), ext_lm_state)
+            # TODO: things are missing here
+            # TODO: update ext_lm state after this!
+            ext_logits = rf.convert_to_tensor(ext_logits_raw, dims=batch_dims + [ctc_beam_dim, target_dim])
+
+            # Re-normalize external LM
+            ext_log_probs = rf.log_softmax(ext_logits, axis=target_dim) # Batch, InBeam, Vocab
+
+            # MERGE POINT 2: Add External LM to the accumulation
+            label_log_prob += external_lm_scale * ext_log_probs
 
         # --- PRIOR SCORING ??? ---
         if labelwise_prior is not None:
