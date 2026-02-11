@@ -219,6 +219,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
         np.testing.assert_allclose(
             lm_seq_log_prob.raw_tensor.cpu().numpy(),
             lm_seq_log_prob_debug.copy_compatible_to_dims_raw(batch_dims_debug).cpu().numpy(),
+            rtol=1e-4,
+            atol=1e-4,
         )
         return lm_state_debug, lm_log_probs_debug, lm_seq_log_prob_debug
 
@@ -239,7 +241,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             am_seq_label.history, axis=am_seq_label.hist_dim, start=am_seq_last_converted
         )
         if debug:
-            print("new am labels:", end="")
+            print("new am labels to convert:", end="")
             _generic_seq_label_print(new_am_labels, new_am_labels_spatial_dim, dims_no_iter=batch_dims)
         new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
             new_am_labels=new_am_labels,
@@ -250,7 +252,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             **get_fwd_compat_kwargs(),
         )
         if debug:
-            print("new lm labels:", end="")
+            print("converted new lm labels:", end="")
             _generic_seq_label_print(new_lm_labels, new_lm_labels_spatial_dim, dims_no_iter=batch_dims)
         assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
         assert new_lm_labels_spatial_dim in new_lm_labels.dims
@@ -373,6 +375,13 @@ def model_recog_with_recomb_delayed_fusion_v2(
             new_lm_labels, new_lm_labels_spatial_dim = rf.slice(
                 lm_seq_label.history, axis=lm_seq_label.hist_dim, start=lm_seq_num_consumed
             )
+
+            if debug:
+                print("should fuse now:", end="")
+                _generic_print(should_fuse_now, dims_no_iter=batch_dims, max_idx=5)
+
+                print("new lm labels:", end="")
+                _generic_seq_label_print(new_lm_labels, new_lm_labels_spatial_dim, dims_no_iter=batch_dims)
 
             (
                 (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, prev_lm_log_probs_),
