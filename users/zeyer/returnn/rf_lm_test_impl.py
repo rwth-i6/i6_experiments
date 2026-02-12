@@ -27,7 +27,7 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     batch_dim = Dim(5, name="batch")
     beam1_dim = Dim(3, name="beam1")
     beam2_dim = Dim(2, name="beam2")
-    backrefs = rf.convert_to_tensor([2, 1], dims=[beam2_dim], dtype="int32", sparse_dim=beam1_dim)
+    backrefs = rf.convert_to_tensor([2, 1], dims=[beam2_dim], dtype="int32", sparse_dim=beam1_dim, device="cpu")
 
     time1_dim = Dim(
         rf.random_uniform([batch_dim, beam1_dim], dtype="int32", minval=3, maxval=14, device="cpu"), name="time1"
@@ -200,6 +200,8 @@ def _init():
 
 
 def tests():
+    import torch
+
     _init()
 
     print("* Test Transformer++")
@@ -207,7 +209,7 @@ def tests():
 
     if torch.cuda.is_available():
         print("* Test Transformer++ on GPU")
-        with rf.set_default_device("cuda"):
+        with rf.set_default_device_ctx("cuda"):
             test_rf_transformer_llama()
 
 
