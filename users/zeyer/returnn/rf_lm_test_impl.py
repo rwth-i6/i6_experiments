@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any
 import sys
+from returnn.util.basic import BehaviorVersion
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -66,7 +67,13 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     res1 = []
     for t in range(time1_dim.get_dim_value()):
         x_t = rf.gather(data1, axis=time1_dim, indices=t)
-        res_t, state = lm(x_t, spatial_dim=single_step_dim, state=state)
+        res_t, state_ = lm(x_t, spatial_dim=single_step_dim, state=state)
+        state = rf.nested.where_nested(
+            state_,
+            state,
+            condition=t < time1_dim.get_size_tensor(device=x_t.device),
+            condition_cpu=t < time1_dim.get_size_tensor(),
+        )
         res1.append(res_t)
     res1_stack, _ = rf.stack(res1, out_dim=time1_dim)
     res1_stack = rf.nested.gather_nested(res1_stack, indices=backrefs, dim_map={time1_dim: time1_dim_beam2})
@@ -183,4 +190,5 @@ def assert_all_close(
 if __name__ == "__main__":
     # Fixup sys.path for local testing
     sys.path = [path for path in sys.path if not path.endswith("i6_experiments/users/zeyer/returnn")]
+    BehaviorVersion.set_min_behavior_version(24)
     test_rf_transformer_llama()
