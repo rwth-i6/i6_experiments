@@ -138,6 +138,7 @@ class Qwen2Model(rf.Module):
         :param state: e.g. via :func:`default_initial_state`
         :return: logits, new state
         """
+        from transformers.cache_utils import DynamicCache
         import tree
         import torch
 
@@ -181,15 +182,17 @@ class Qwen2Model(rf.Module):
         past_key_values_raw = tree.map_structure(_combine_batch_and_beam_raw, state.past_key_values)
 
         output = self._call_func(
-            past_key_values=past_key_values_raw,
+            past_key_values=DynamicCache.from_legacy_cache(past_key_values_raw),
             inputs_embeds=input_embeds_raw,
             use_cache=True,
             logits_to_keep=slice(None),
         )
+        past_key_values_raw_ = output.past_key_values
+        assert isinstance(past_key_values_raw_, DynamicCache)
 
         new_state = rf.State(
             batch_dims=batch_dims,
-            past_key_values=tree.map_structure(_separate_batch_and_beam, output.past_key_values),
+            past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
         logits = _separate_batch_and_beam(
             output.logits, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
