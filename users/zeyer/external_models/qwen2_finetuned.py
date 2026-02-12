@@ -126,7 +126,13 @@ class Qwen2Model(rf.Module):
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
-        state = rf.State(batch_dims=list(batch_dims), past_key_values=None, past_key_values_dims=None)
+        state = rf.State(
+            batch_dims=list(batch_dims),
+            pos=rf.constant(0, dims=batch_dims, dtype="int32", device="cpu"),
+            hist_dim=Dim(0, name="history"),
+            past_key_values=None,
+            past_key_values_dims=None,
+        )
         return state
 
     def __call__(self, source: Tensor, *, spatial_dim: Dim, state: rf.State) -> Tuple[Tensor, rf.State]:
@@ -146,6 +152,9 @@ class Qwen2Model(rf.Module):
         merged_batch_dim: Dim = prod(batch_dims)
         spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
         source = source.copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
+        new_pos = state.pos + spatial_dim_.get_size_tensor()
+        # We just keep all the padding. The explicit pos ids and masks handle the rest.
+        new_hist_dim = Dim(state.hist_dim.get_dim_value_tensor(), name="padded_history") + spatial_dim_
 
         def _combine_batch_and_beam(obj: Optional[Tensor]) -> Optional[Tensor]:
             if obj is None:
@@ -171,8 +180,12 @@ class Qwen2Model(rf.Module):
         def _make_dim_from_raw(obj_raw: torch.Tensor, i: int) -> Dim:
             raw_size = int(obj_raw.size(i))
             if obj_raw.dim() == 4 and i == 2:  # assume (batch*beam, num_heads, time, head_dim)
-                assert raw_size == spatial_dim_.get_dim_value()
-                return spatial_dim_
+                assert raw_size == new_hist_dim.get_dim_value(), (
+                    f"expected time dim {new_hist_dim.get_dim_value()=} at dim 2,"
+                    f" got {raw_size=} for {obj_raw.shape=},"
+                    f" {state.hist_dim=} {state.hist_dim.get_size_tensor().raw_tensor.numpy()=}"
+                )
+                return new_hist_dim
             cache_key = (i, raw_size)
             if cache_key in dim_cache:
                 return dim_cache[cache_key]
@@ -214,6 +227,8 @@ class Qwen2Model(rf.Module):
 
         new_state = rf.State(
             batch_dims=batch_dims,
+            pos=new_pos,
+            hist_dim=new_hist_dim,
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
         new_state.past_key_values_dims = tree.map_structure(_get_dims_from_tensor, new_state.past_key_values)
