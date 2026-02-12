@@ -1,10 +1,15 @@
 """LM test. See :func:`test_lm`"""
 
-from typing import Union, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, Union, Any
 import sys
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
+
+if TYPE_CHECKING:
+    import torch
+    import numpy
 
 
 def test_lm(lm: Union[TransformerDecoder, Any]):
@@ -17,15 +22,20 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
         The language model decoder to be tested. Can be of type TransformerDecoder,
         or any other type which implements the same interface.
     """
-    import numpy as np
 
     batch_dim = Dim(5, name="batch")
     beam1_dim = Dim(3, name="beam1")
     beam2_dim = Dim(2, name="beam2")
     backrefs = rf.convert_to_tensor([2, 1], dims=[beam2_dim], dtype="int32", sparse_dim=beam1_dim)
 
-    time1_dim = Dim(rf.random_uniform([batch_dim, beam1_dim], dtype="int32", minval=3, maxval=14), name="time1")
-    time2_dim = Dim(rf.random_uniform([batch_dim, beam2_dim], dtype="int32", minval=2, maxval=12), name="time2")
+    time1_dim = Dim(
+        rf.random_uniform([batch_dim, beam1_dim], dtype="int32", minval=3, maxval=14, device="cpu"), name="time1"
+    )
+    time2_dim = Dim(
+        rf.random_uniform([batch_dim, beam2_dim], dtype="int32", minval=2, maxval=12, device="cpu"), name="time2"
+    )
+    _print_dim("** time1_dim:", time1_dim)
+    _print_dim("** time2_dim:", time2_dim)
 
     data1 = rf.random_uniform(
         [batch_dim, beam1_dim, time1_dim],
@@ -43,6 +53,8 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     )
     data1_beam2, time1_dim_beam2 = rf.nested.gather_nested((data1, time1_dim), indices=backrefs)
     data, time_dim = rf.concat((data1_beam2, time1_dim_beam2), (data2, time2_dim))
+    _print_dim("** time2_dim_beam2:", time1_dim_beam2)
+    _print_dim("** time_dim:", time_dim)
 
     # First on the whole seq
     state = lm.default_initial_state(batch_dims=[batch_dim, beam2_dim])
@@ -80,22 +92,13 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     out_step_by_step = out_step_by_step.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
     out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
 
-    np.testing.assert_allclose(
-        out_whole_seq.raw_tensor.cpu().detach().numpy(),
-        out_step_by_step.raw_tensor.cpu().detach().numpy(),
-        rtol=1e-5,
-        atol=1e-5,
-    )
-    np.testing.assert_allclose(
-        out_whole_seq.raw_tensor.cpu().detach().numpy(),
-        out_two_halves.raw_tensor.cpu().detach().numpy(),
-        rtol=1e-5,
-        atol=1e-5,
-    )
+    assert_equal(out_whole_seq, out_step_by_step)
+    assert_equal(out_whole_seq, out_two_halves)
 
 
 def test_rf_transformer_llama():
     rf.select_backend_torch()
+    rf.set_random_seed(42)
 
     lm = TransformerDecoder(
         encoder_dim=None,
@@ -112,6 +115,70 @@ def test_rf_transformer_llama():
     )
 
     test_lm(lm)
+
+
+def _print_dim(prefix: str, dim: Dim):
+    print(prefix, dim, int(dim.get_dim_value()), dim.get_size_tensor().raw_tensor.numpy())
+
+
+def assert_equal(
+    x: Union[Tensor, torch.Tensor, numpy.ndarray],
+    y: Union[Tensor, torch.Tensor, numpy.ndarray],
+    *,
+    rtol=1e-5,
+    atol=1e-5,
+):
+    import numpy as np
+    import torch
+
+    shape_info = None
+    if isinstance(x, Tensor):
+        assert isinstance(y, Tensor)
+        shape_info = "(%s)" % ", ".join(
+            d.short_repr() + (f"={int(d.get_dim_value())}" if d.dimension is None else "") for d in x.dims
+        )
+        x = x.copy_masked(0)
+        y = y.copy_masked(0)
+        y = y.copy_transpose(x.dims)
+        x = x.raw_tensor
+        y = y.raw_tensor
+
+    if isinstance(x, torch.Tensor):
+        assert isinstance(y, torch.Tensor)
+        x = x.detach().cpu().numpy()
+        y = y.detach().cpu().numpy()
+
+    assert isinstance(x, np.ndarray)
+    assert isinstance(y, np.ndarray)
+    if shape_info is None:
+        shape_info = x.shape
+
+    assert x.shape == y.shape, "Shapes do not match: %s vs %s" % (shape_info or x.shape, y.shape)
+
+    # Using equal_nan=False because we do not want any nan in any of the values.
+    if np.allclose(x, y, rtol=rtol, atol=atol):
+        return
+    print(f"** not all close. shape: {shape_info}. close:")
+    # Iterate over all indices, and check if the values are close.
+    # If not, add the index to the mismatches list.
+    remarks = []
+    count_mismatches = 0
+    for idx in sorted(np.ndindex(x.shape), key=sum):
+        if np.isnan(x[idx]) and np.isnan(y[idx]):
+            remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
+            count_mismatches += 1
+            continue
+        close = np.allclose(x[idx], y[idx], rtol=rtol, atol=atol)
+        if not close:
+            count_mismatches += 1
+        remarks.append(
+            "[%s]:" % ",".join([str(i) for i in idx]) + ("✓" if close else "✗ (%.5f diff)" % abs(x[idx] - y[idx]))
+        )
+        if len(remarks) >= 50 and count_mismatches > 0:
+            remarks.append("...")
+            break
+    print("\n".join(remarks))
+    np.testing.assert_allclose(x, y, rtol=rtol, atol=atol)
 
 
 if __name__ == "__main__":
