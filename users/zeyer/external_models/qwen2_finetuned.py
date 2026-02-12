@@ -157,9 +157,10 @@ class Qwen2Model(rf.Module):
         new_pos = state.pos + spatial_dim_.get_size_tensor(device=state.pos.device)
         # We just keep all the padding. The explicit pos ids and masks handle the rest.
         hist_padded_dim = Dim(state.hist_dim.get_dim_value_tensor(), name="padded_history")
+        range_over_spatial = rf.range_over_dim(spatial_dim_, device=source.device)
         new_mask, new_hist_dim = rf.concat(
             (rf.replace_dim(state.mask, in_dim=state.hist_dim, out_dim=hist_padded_dim)[0], hist_padded_dim),
-            (rf.sequence_mask(spatial_dim_, device=state.mask.device), spatial_dim_),
+            (range_over_spatial < spatial_dim_.get_size_tensor(device=source.device), spatial_dim_),
             allow_broadcast=True,
         )
 
@@ -225,11 +226,9 @@ class Qwen2Model(rf.Module):
         )
         # position_ids: (batch_size, query_length)
         position_ids_raw = _combine_batch_and_beam_raw(
-            rf.combine_bc(
-                state.pos,
-                "+",
-                rf.range_over_dim(spatial_dim_, device=source.device),
-            ).copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
+            rf.combine_bc(state.pos, "+", range_over_spatial).copy_compatible_to_dims(
+                batch_dims + [spatial_dim_], unbroadcast=True
+            )
         )
         output = self._call_func(
             past_key_values=DynamicCache.from_legacy_cache(past_key_values_raw),
