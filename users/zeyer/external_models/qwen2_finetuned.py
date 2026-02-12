@@ -146,7 +146,9 @@ class Qwen2Model(rf.Module):
         spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
         source = source.copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
 
-        def _combine_batch_and_beam(obj: Tensor) -> Tensor:
+        def _combine_batch_and_beam(obj: Optional[Tensor]) -> Optional[Tensor]:
+            if obj is None:
+                return None
             assert isinstance(obj, Tensor), f"expected Tensor, got {obj} {type(obj)}"
             for dim in batch_dims:
                 assert dim in obj.dims, f"expected {dim} in {obj.dims} for {obj}"
@@ -155,7 +157,9 @@ class Qwen2Model(rf.Module):
                 [merged_batch_dim] + [dim for dim in obj.dims if dim != merged_batch_dim], add_dims=False
             )
 
-        def _combine_batch_and_beam_raw(obj: Tensor) -> torch.Tensor:
+        def _combine_batch_and_beam_raw(obj: Optional[Tensor]) -> Optional[torch.Tensor]:
+            if obj is None:
+                return None
             assert isinstance(obj, Tensor), f"expected Tensor, got {obj} {type(obj)}"
             obj = _combine_batch_and_beam(obj)
             return obj.raw_tensor
