@@ -127,8 +127,9 @@ def assert_all_close(
     *,
     rtol: float = 1e-5,
     atol: float = 1e-5,
-    ndindex_shape_slice_end: Optional[int] = None,
     equal_nan: bool = True,
+    ndindex_shape_slice_end: Optional[int] = None,
+    remarks_limit: int = 100,
 ):
     import numpy as np
     import torch
@@ -172,7 +173,7 @@ def assert_all_close(
             remarks.append(f"{idx_str}:? (have nan)")
             continue
         remarks.append(f"{idx_str}:" + ("✓" if close else "✗ (%.5f diff)" % np.abs(x[idx] - y[idx]).sum()))
-        if len(remarks) >= 50 and count_mismatches > 0:
+        if len(remarks) >= remarks_limit and count_mismatches > 0:
             remarks.append("...")
             break
     print("\n".join(remarks))
