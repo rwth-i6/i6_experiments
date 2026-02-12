@@ -4,10 +4,12 @@ CTC decoding with neural LM
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Callable, Sequence, Tuple
 import os
 import numpy as np
+import itertools
 
+from returnn.datasets.util.vocabulary import Vocabulary
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
@@ -49,8 +51,22 @@ def convert_labels_func_no_op(
     return new_am_labels, new_am_labels_spatial_dim, new_am_labels_spatial_dim.get_size_tensor()
 
 
+def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary) -> bool:
+    """SPM with space-first, return whether the label is a word start (i.e. starts with "▁")"""
+    label = vocab.id_to_label(label_idx)
+    return label.startswith("▁")
+
+
+# bind is_am_label_word_start or is_am_label_word_end via functools.partial
 def convert_labels_func(
-    *, new_am_labels: Tensor, new_am_labels_spatial_dim: Dim, lm_target_dim: Dim, last_am_frame: bool, **_kwargs
+    *,
+    new_am_labels: Tensor,
+    new_am_labels_spatial_dim: Dim,
+    lm_target_dim: Dim,
+    last_am_frame: bool,
+    is_am_label_word_start: Optional[Callable] = None,
+    is_am_label_word_end: Optional[Callable] = None,
+    **_kwargs,
 ) -> Tuple[Tensor, Dim, Tensor]:
     """
     Convert AM labels to LM labels.
@@ -61,16 +77,83 @@ def convert_labels_func(
     :param new_am_labels_spatial_dim: Dim of new AM labels
     :param lm_target_dim: target dim of the LM
     :param last_am_frame:
+    :param is_am_label_word_start:
+    :param is_am_label_word_end:
     :return: (new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted)
         1. new_lm_labels: Tensor of shape {batch..., new_lm_labels_spatial_dim} -> lm_target_dim
         2. new_lm_labels_spatial_dim: Dim of new LM labels
         3. num_am_labels_converted: Tensor of shape {batch...} (int32)
     """
+    assert is_am_label_word_start or is_am_label_word_end
+    new_am_labels = rf.copy_to_device(new_am_labels, "cpu")
     assert new_am_labels.sparse_dim and new_am_labels.sparse_dim.vocab
     am_vocab = new_am_labels.sparse_dim.vocab
     assert lm_target_dim.vocab
     lm_vocab = lm_target_dim.vocab
-    # TODO...
+
+    debug = os.environ.get("DEBUG_CTC_RECOG") == "1"
+    from .ctc_debugging import _generic_seq_label_print
+
+    batch_dims = new_am_labels.remaining_dims(new_am_labels_spatial_dim)
+    lm_labels_list_by_bs = {}  # batch index -> list of new LM labels
+    num_am_labels_converted_by_bs = {}  # batch index -> num AM labels converted
+    for bs in itertools.product(*(range(d.get_dim_value()) for d in batch_dims)):
+        am_labels_ = new_am_labels
+        am_lens = new_am_labels_spatial_dim.get_size_tensor()
+        for d, idx in zip(batch_dims, bs):
+            am_labels_ = rf.gather(am_labels_, axis=d, indices=idx)
+            if d in am_lens.dims:
+                am_lens = rf.gather(am_lens, axis=d, indices=idx)
+        assert am_labels_.dims == (new_am_labels_spatial_dim,) and am_lens.dims == ()
+        am_labels_, am_spatial_dim = rf.slice(am_labels_, axis=new_am_labels_spatial_dim, start=0, end=am_lens)
+        if debug:
+            print(f"batch index {bs}: new AM labels:", end="")
+            _generic_seq_label_print(am_labels_, spatial_dim=am_spatial_dim)
+        am_labels_raw = am_labels_.raw_tensor
+        am_lens_raw = am_lens.raw_tensor.item()
+        if last_am_frame:
+            am_full_words_len = am_lens_raw
+        else:
+            am_full_words_len = 0
+            for i in reversed(range(am_lens_raw)):
+                if is_am_label_word_end and is_am_label_word_end(am_lens_raw[i], vocab=am_vocab):
+                    am_full_words_len = i + 1
+                    break
+                if is_am_label_word_start and is_am_label_word_start(am_lens_raw[i], vocab=am_vocab):
+                    am_full_words_len = i
+                    break
+        num_am_labels_converted_by_bs[bs] = am_full_words_len
+        if am_full_words_len > 0:
+            am_labels_raw = am_labels_raw[:am_full_words_len]
+            am_seq_str = am_vocab.get_seq_labels(am_labels_raw)
+            lm_labels_list = lm_vocab.get_seq(am_seq_str)
+        else:
+            lm_labels_list = []
+        if debug:
+            print(
+                f"batch index {bs}: converted new LM labels:",
+                lm_labels_list,
+                [lm_vocab.id_to_label(lidx) for lidx in lm_labels_list],
+            )
+        lm_labels_list_by_bs[bs] = lm_labels_list
+
+    new_lm_labels_lens = rf.zeros(batch_dims, dtype="int32", device="cpu")
+    for bs in lm_labels_list_by_bs:
+        new_lm_labels_lens.raw_tensor[bs] = len(lm_labels_list_by_bs[bs])
+    new_lm_labels_spatial_dim = Dim(
+        new_lm_labels_lens, name=f"new_lm_labels_spatial{int(new_am_labels_spatial_dim.get_dim_value())}"
+    )
+    new_lm_labels = rf.zeros(
+        batch_dims + [new_lm_labels_spatial_dim], dtype="int32", sparse_dim=lm_target_dim, device="cpu"
+    )
+    for bs in lm_labels_list_by_bs:
+        lm_labels_list = lm_labels_list_by_bs[bs]
+        new_lm_labels.raw_tensor[bs][: len(lm_labels_list)] = lm_labels_list
+    num_am_labels_converted = rf.zeros(batch_dims, dtype="int32", device="cpu")
+    for bs in num_am_labels_converted_by_bs:
+        num_am_labels_converted.raw_tensor[bs] = num_am_labels_converted_by_bs[bs]
+
+    return new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted
 
 
 def model_recog_with_recomb_delayed_fusion_v2(
@@ -259,6 +342,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             print("converted new lm labels:", end="")
             _generic_seq_label_print(new_lm_labels, new_lm_labels_spatial_dim, dims_no_iter=batch_dims)
         assert isinstance(new_lm_labels, Tensor) and isinstance(new_lm_labels_spatial_dim, Dim)
+        new_lm_labels = rf.copy_to_device(new_lm_labels, lm_seq_label.history.device)
         assert new_lm_labels_spatial_dim in new_lm_labels.dims
         am_seq_last_converted += num_am_labels_converted
         lm_seq_label.history, lm_seq_label.hist_dim = rf.concat(
