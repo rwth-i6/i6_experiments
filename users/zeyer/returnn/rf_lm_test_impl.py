@@ -68,12 +68,15 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     for t in range(time1_dim.get_dim_value()):
         x_t = rf.gather(data1, axis=time1_dim, indices=t)
         res_t, state_ = lm(x_t, spatial_dim=single_step_dim, state=state)
-        state = rf.nested.where_nested(
-            state_,
-            state,
-            condition=t < time1_dim.get_size_tensor(device=x_t.device),
-            condition_cpu=t < time1_dim.get_size_tensor(),
-        )
+        if t > 0:
+            state = rf.nested.where_nested(
+                state_,
+                state,
+                condition=t < time1_dim.get_size_tensor(device=x_t.device),
+                condition_cpu=t < time1_dim.get_size_tensor(),
+            )
+        else:
+            state = state_
         res1.append(res_t)
     res1_stack, _ = rf.stack(res1, out_dim=time1_dim)
     res1_stack = rf.nested.gather_nested(res1_stack, indices=backrefs, dim_map={time1_dim: time1_dim_beam2})
