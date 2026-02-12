@@ -126,11 +126,7 @@ class Qwen2Model(rf.Module):
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
-        state = rf.State(
-            batch_dims=list(batch_dims),
-            past_key_values=None,
-        )
-        state.att.feature_dim_axis = len(state.att.dims) - 1
+        state = rf.State(batch_dims=list(batch_dims), past_key_values=None)
         return state
 
     def __call__(self, source: Tensor, *, spatial_dim: Dim, state: rf.State) -> Tuple[Tensor, rf.State]:
