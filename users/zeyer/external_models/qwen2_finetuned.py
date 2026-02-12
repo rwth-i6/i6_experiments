@@ -160,6 +160,7 @@ class Qwen2Model(rf.Module):
         new_mask, new_hist_dim = rf.concat(
             (rf.replace_dim(state.mask, in_dim=state.hist_dim, out_dim=hist_padded_dim)[0], hist_padded_dim),
             (rf.sequence_mask(spatial_dim_, device=state.mask.device), spatial_dim_),
+            allow_broadcast=True,
         )
 
         def _combine_batch_and_beam(obj: Optional[Tensor]) -> Optional[Tensor]:
