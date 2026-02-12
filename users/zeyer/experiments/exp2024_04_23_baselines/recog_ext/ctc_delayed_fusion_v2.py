@@ -443,8 +443,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
             else:
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
-        if should_convert_labels_now_func:
-            should_convert_labels_now = is_last_frame or should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
+        if not is_last_frame and should_convert_labels_now_func:
+            should_convert_labels_now = should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
         else:
             should_convert_labels_now = True
         assert isinstance(should_convert_labels_now, bool)
@@ -452,10 +452,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
             _convert_labels_now()
 
         num_new_lm_labels = lm_seq_label.hist_dim.get_size_tensor() - lm_seq_num_consumed
-        if should_fuse_now_func:
-            should_fuse_now = is_last_frame or should_fuse_now_func(
-                num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs()
-            )
+        if not is_last_frame and should_fuse_now_func:
+            should_fuse_now = should_fuse_now_func(num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs())
         else:
             should_fuse_now = True
         should_fuse_now = (
