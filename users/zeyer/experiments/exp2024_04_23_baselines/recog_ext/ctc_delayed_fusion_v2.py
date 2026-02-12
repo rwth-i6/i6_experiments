@@ -370,6 +370,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
         )
         should_fuse_now = (
             (num_new_lm_labels > 0)
+            # No need to fuse if masked out due to CTC recombination.
+            # However, anyway do it in last frame, to make the final check happy that all labels are consumed.
             & (True if is_last_frame else rf.copy_to_device(ctc_seq_log_prob > neg_inf, num_new_lm_labels.device))
             & should_fuse_now
         )
