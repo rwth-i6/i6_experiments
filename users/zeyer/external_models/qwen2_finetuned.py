@@ -168,6 +168,16 @@ class Qwen2Model(rf.Module):
         # dims must be equal for rf.nested.where_nested etc, thus reuse them
         dim_cache = {}
 
+        def _make_dim_from_raw(obj_raw: torch.Tensor, i: int) -> Dim:
+            raw_size = int(obj_raw.size(i))
+            if obj_raw.dim() == 4 and i == 2:  # assume (batch*beam, num_heads, time, head_dim)
+                assert raw_size == spatial_dim_.get_dim_value()
+                return spatial_dim_
+            cache_key = (i, raw_size)
+            if cache_key in dim_cache:
+                return dim_cache[cache_key]
+            return dim_cache.setdefault(cache_key, Dim(raw_size, name=f"dim{i}_{raw_size}"))
+
         def _separate_batch_and_beam(obj_raw: torch.Tensor, *, dims: Optional[Sequence[Dim]] = None) -> Tensor:
             assert isinstance(obj_raw, torch.Tensor), f"expected torch.Tensor, got {obj_raw} {type(obj_raw)}"
             if dims is not None:
@@ -178,10 +188,7 @@ class Qwen2Model(rf.Module):
                 )
             else:
                 assert merged_batch_dim.get_dim_value() == obj_raw.size(0)
-                dims = [merged_batch_dim] + [
-                    dim_cache.setdefault((i, int(obj_raw.size(i))), Dim(int(obj_raw.size(i)), name=f"dim{i}"))
-                    for i in range(1, obj_raw.dim())
-                ]
+                dims = [merged_batch_dim] + [_make_dim_from_raw(obj_raw, i) for i in range(1, obj_raw.dim())]
             obj = rf.convert_to_tensor(obj_raw, dims=dims)
             return rf.split_dims(obj, axis=merged_batch_dim, dims=batch_dims)
 
@@ -202,14 +209,14 @@ class Qwen2Model(rf.Module):
         assert logits_raw.shape[-1] >= self.vocab_dim.dimension  # it might be larger due to optimization
         logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
 
-        def _get_dims(tensor: Tensor) -> Sequence[Dim]:
+        def _get_dims_from_tensor(tensor: Tensor) -> Sequence[Dim]:
             return tensor.dims
 
         new_state = rf.State(
             batch_dims=batch_dims,
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
-        new_state.past_key_values_dims = tree.map_structure(_get_dims, new_state.past_key_values)
+        new_state.past_key_values_dims = tree.map_structure(_get_dims_from_tensor, new_state.past_key_values)
         logits = _separate_batch_and_beam(
             logits_raw, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
         )  # (batch, beam, time, vocab)
