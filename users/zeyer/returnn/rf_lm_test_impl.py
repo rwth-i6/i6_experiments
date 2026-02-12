@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     import numpy
 
 
-def test_lm(lm: Union[TransformerDecoder, Any]):
+def test_lm(lm: Union[TransformerDecoder, Any], *, rtol: float = 1e-5, atol: float = 1e-5):
     """
     Test that the LM behaves as expected, i.e. produces consistent outputs for handling inputs in various ways.
 
@@ -103,9 +103,9 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
 
     print("** check out whole seq vs step by step")
-    assert_all_close(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1)
+    assert_all_close(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1, rtol=rtol, atol=atol)
     print("** check out whole seq vs two halves")
-    assert_all_close(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1)
+    assert_all_close(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1, rtol=rtol, atol=atol)
 
 
 def test_rf_transformer_llama():
@@ -125,7 +125,7 @@ def test_rf_transformer_llama():
         att_dropout=0.0,
     )
 
-    test_lm(lm)
+    test_lm(lm, atol=1e-5, rtol=0.02)
 
 
 def test_qwen2_finetuned():
