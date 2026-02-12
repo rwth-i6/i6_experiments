@@ -92,8 +92,8 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     out_step_by_step = out_step_by_step.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
     out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
 
-    assert_equal(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1)
-    assert_equal(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1)
+    assert_all_close(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1)
+    assert_all_close(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1)
 
 
 def test_rf_transformer_llama():
@@ -121,12 +121,12 @@ def _print_dim(prefix: str, dim: Dim):
     print(prefix, dim, int(dim.get_dim_value()), dim.get_size_tensor().raw_tensor.numpy())
 
 
-def assert_equal(
+def assert_all_close(
     x: Union[Tensor, torch.Tensor, numpy.ndarray],
     y: Union[Tensor, torch.Tensor, numpy.ndarray],
     *,
-    rtol=1e-5,
-    atol=1e-5,
+    rtol: float = 1e-5,
+    atol: float = 1e-5,
     ndindex_shape_slice_end: Optional[int] = None,
     equal_nan: bool = True,
 ):
