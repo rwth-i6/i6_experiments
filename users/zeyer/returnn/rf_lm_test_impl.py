@@ -123,6 +123,45 @@ def test_rf_transformer_llama():
     test_lm(lm)
 
 
+def test_qwen2_finetuned():
+    from sisyphus import Path
+    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm, Qwen2Model
+    import tree
+    import functools
+
+    _init()
+
+    lm = get_lm()
+    get_model = lm.definition.model_def
+    assert isinstance(get_model, functools.partial)
+    assert get_model.func is Qwen2Model and get_model.keywords
+    print("** get_model.keywords:", get_model.keywords)
+
+    flat_opts = tree.flatten(get_model.keywords)
+    paths = [obj for obj in flat_opts if isinstance(obj, Path)]
+    assert paths, f"Expected to find at least one Path in the model definition options {get_model.keywords}"
+    print(f"** Found {len(paths)} file paths")
+
+    if any(not path.available() for path in paths):
+        print("** Warning: Some model files are not available. Skipping the test.")
+        for path in paths:
+            if not path.available():
+                print(f"   - {path} is not available.")
+        return
+
+    def _convert_path(obj):
+        if isinstance(obj, Path):
+            return obj.get_path()
+        return obj
+
+    opts = tree.map_structure(_convert_path, get_model.keywords)
+    model = Qwen2Model(**opts)
+    print("Model:", model.model)
+    print("Vocab:", model.vocab_dim)
+
+    test_lm(model)
+
+
 def _print_dim(prefix: str, dim: Dim):
     print(prefix, dim, int(dim.get_dim_value()), dim.get_size_tensor().raw_tensor.numpy())
 
@@ -211,6 +250,10 @@ def tests():
         print("* Test Transformer++ on GPU")
         with rf.set_default_device_ctx("cuda"):
             test_rf_transformer_llama()
+
+    with rf.set_default_device_ctx("cuda" if torch.cuda.is_available() else "cpu"):
+        print("* Test Qwen2 finetuned")
+        test_qwen2_finetuned()
 
 
 if __name__ == "__main__":
