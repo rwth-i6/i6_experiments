@@ -165,6 +165,9 @@ class Qwen2Model(rf.Module):
             obj = _combine_batch_and_beam(obj)
             return obj.raw_tensor
 
+        # dims must be equal for rf.nested.where_nested etc, thus reuse them
+        dim_cache = {}
+
         def _separate_batch_and_beam(obj_raw: torch.Tensor, *, dims: Optional[Sequence[Dim]] = None) -> Tensor:
             assert isinstance(obj_raw, torch.Tensor), f"expected torch.Tensor, got {obj_raw} {type(obj_raw)}"
             if dims is not None:
@@ -175,7 +178,10 @@ class Qwen2Model(rf.Module):
                 )
             else:
                 assert merged_batch_dim.get_dim_value() == obj_raw.size(0)
-                dims = [merged_batch_dim] + [Dim(int(obj_raw.size(i)), name=f"dim{i}") for i in range(1, obj_raw.dim())]
+                dims = [merged_batch_dim] + [
+                    dim_cache.setdefault((i, int(obj_raw.size(i))), Dim(int(obj_raw.size(i)), name=f"dim{i}"))
+                    for i in range(1, obj_raw.dim())
+                ]
             obj = rf.convert_to_tensor(obj_raw, dims=dims)
             return rf.split_dims(obj, axis=merged_batch_dim, dims=batch_dims)
 
