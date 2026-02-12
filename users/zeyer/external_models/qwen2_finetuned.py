@@ -126,10 +126,12 @@ class Qwen2Model(rf.Module):
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
+        hist_dim = Dim(0, name="history")
         state = rf.State(
             batch_dims=list(batch_dims),
-            pos=rf.constant(0, dims=batch_dims, dtype="int32", device="cpu"),
-            hist_dim=Dim(0, name="history"),
+            pos=rf.constant(0, dims=batch_dims, dtype="int32"),
+            hist_dim=hist_dim,
+            mask=rf.constant(True, dims=batch_dims + [hist_dim], dtype="bool"),
             past_key_values=None,
             past_key_values_dims=None,
         )
@@ -152,9 +154,13 @@ class Qwen2Model(rf.Module):
         merged_batch_dim: Dim = prod(batch_dims)
         spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
         source = source.copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
-        new_pos = state.pos + spatial_dim_.get_size_tensor()
+        new_pos = state.pos + spatial_dim_.get_size_tensor(device=state.pos.device)
         # We just keep all the padding. The explicit pos ids and masks handle the rest.
-        new_hist_dim = Dim(state.hist_dim.get_dim_value_tensor(), name="padded_history") + spatial_dim_
+        hist_padded_dim = Dim(state.hist_dim.get_dim_value_tensor(), name="padded_history")
+        new_mask, new_hist_dim = rf.concat(
+            (rf.replace_dim(state.mask, in_dim=state.hist_dim, out_dim=hist_padded_dim)[0], hist_padded_dim),
+            (rf.sequence_mask(spatial_dim_, device=state.mask.device), spatial_dim_),
+        )
 
         def _combine_batch_and_beam(obj: Optional[Tensor]) -> Optional[Tensor]:
             if obj is None:
@@ -209,9 +215,26 @@ class Qwen2Model(rf.Module):
         input_embeds_raw = self._embed_func(source_raw)
         past_key_values_raw = tree.map_structure(_combine_batch_and_beam_raw, state.past_key_values)
 
+        # See transformers.masking_utils.create_causal_mask for doc.
+        # attention_mask: (batch_size, number_of_seen_tokens+q_length)
+        attention_mask_raw = _combine_batch_and_beam_raw(
+            rf.where(new_mask, 0.0, float("-inf")).copy_compatible_to_dims(
+                batch_dims + [new_hist_dim], unbroadcast=True
+            )
+        )
+        # position_ids: (batch_size, query_length)
+        position_ids_raw = _combine_batch_and_beam_raw(
+            rf.combine_bc(
+                state.pos,
+                "+",
+                rf.range_over_dim(spatial_dim_, device=source.device),
+            ).copy_compatible_to_dims(batch_dims, unbroadcast=True)
+        )
         output = self._call_func(
             past_key_values=DynamicCache.from_legacy_cache(past_key_values_raw),
             inputs_embeds=input_embeds_raw,
+            attention_mask=attention_mask_raw,
+            position_ids=position_ids_raw,
             use_cache=True,
             logits_to_keep=slice(None),
         )
@@ -229,6 +252,7 @@ class Qwen2Model(rf.Module):
             batch_dims=batch_dims,
             pos=new_pos,
             hist_dim=new_hist_dim,
+            mask=new_mask,
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
         new_state.past_key_values_dims = tree.map_structure(_get_dims_from_tensor, new_state.past_key_values)
