@@ -1,7 +1,7 @@
 """LM test. See :func:`test_lm`"""
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Any
+from typing import TYPE_CHECKING, Optional, Union, Any
 import sys
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -53,7 +53,7 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     )
     data1_beam2, time1_dim_beam2 = rf.nested.gather_nested((data1, time1_dim), indices=backrefs)
     data, time_dim = rf.concat((data1_beam2, time1_dim_beam2), (data2, time2_dim))
-    _print_dim("** time2_dim_beam2:", time1_dim_beam2)
+    _print_dim("** time1_dim_beam2:", time1_dim_beam2)
     _print_dim("** time_dim:", time_dim)
 
     # First on the whole seq
@@ -92,8 +92,8 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     out_step_by_step = out_step_by_step.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
     out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
 
-    assert_equal(out_whole_seq, out_step_by_step)
-    assert_equal(out_whole_seq, out_two_halves)
+    assert_equal(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1)
+    assert_equal(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1)
 
 
 def test_rf_transformer_llama():
@@ -127,6 +127,8 @@ def assert_equal(
     *,
     rtol=1e-5,
     atol=1e-5,
+    ndindex_shape_slice_end: Optional[int] = None,
+    equal_nan: bool = True,
 ):
     import numpy as np
     import torch
@@ -155,25 +157,21 @@ def assert_equal(
 
     assert x.shape == y.shape, "Shapes do not match: %s vs %s" % (shape_info or x.shape, y.shape)
 
-    # Using equal_nan=False because we do not want any nan in any of the values.
-    if np.allclose(x, y, rtol=rtol, atol=atol):
+    if np.allclose(x, y, rtol=rtol, atol=atol, equal_nan=equal_nan):
         return
     print(f"** not all close. shape: {shape_info}. close:")
     # Iterate over all indices, and check if the values are close.
     # If not, add the index to the mismatches list.
     remarks = []
     count_mismatches = 0
-    for idx in sorted(np.ndindex(x.shape), key=sum):
-        if np.isnan(x[idx]) and np.isnan(y[idx]):
-            remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
-            count_mismatches += 1
+    for idx in sorted(np.ndindex(x.shape[:ndindex_shape_slice_end]), key=sum):
+        close = np.allclose(x[idx], y[idx], rtol=rtol, atol=atol, equal_nan=equal_nan)
+        count_mismatches += 1 if close else 0
+        idx_str = "[%s]" % ",".join([str(i) for i in idx])
+        if np.isnan(x[idx]).any() or np.isnan(x[idx]).any():
+            remarks.append(f"{idx_str}:? (have nan)")
             continue
-        close = np.allclose(x[idx], y[idx], rtol=rtol, atol=atol)
-        if not close:
-            count_mismatches += 1
-        remarks.append(
-            "[%s]:" % ",".join([str(i) for i in idx]) + ("✓" if close else "✗ (%.5f diff)" % abs(x[idx] - y[idx]))
-        )
+        remarks.append(f"{idx_str}:" + ("✓" if close else "✗ (%.5f diff)" % np.abs(x[idx] - y[idx]).sum()))
         if len(remarks) >= 50 and count_mismatches > 0:
             remarks.append("...")
             break
