@@ -165,6 +165,7 @@ class Qwen2Model(rf.Module):
             return obj.raw_tensor
 
         def _separate_batch_and_beam(obj_raw: torch.Tensor, *, dims: Optional[Sequence[Dim]] = None) -> Tensor:
+            assert isinstance(obj_raw, torch.Tensor), f"expected torch.Tensor, got {obj_raw} {type(obj_raw)}"
             if dims is not None:
                 assert dims[0] == merged_batch_dim
                 assert len(dims) == obj_raw.dim()
@@ -183,7 +184,7 @@ class Qwen2Model(rf.Module):
             past_key_values=past_key_values_raw,
             inputs_embeds=input_embeds_raw,
             use_cache=True,
-            logits_to_keep=spatial_dim_.get_dim_value(),
+            logits_to_keep=slice(None),
         )
 
         new_state = rf.State(
