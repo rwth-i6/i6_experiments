@@ -104,8 +104,7 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
 
 
 def test_rf_transformer_llama():
-    rf.select_backend_torch()
-    rf.set_random_seed(42)
+    _init()
 
     lm = TransformerDecoder(
         encoder_dim=None,
@@ -187,8 +186,32 @@ def assert_all_close(
     np.testing.assert_allclose(x, y, rtol=rtol, atol=atol)
 
 
+_is_initialized = False
+
+
+def _init():
+    global _is_initialized
+    if _is_initialized:
+        return
+    rf.select_backend_torch()
+    rf.set_random_seed(42)
+    BehaviorVersion.set_min_behavior_version(24)
+    _is_initialized = True
+
+
+def tests():
+    _init()
+
+    print("* Test Transformer++")
+    test_rf_transformer_llama()
+
+    if torch.cuda.is_available():
+        print("* Test Transformer++ on GPU")
+        with rf.set_default_device("cuda"):
+            test_rf_transformer_llama()
+
+
 if __name__ == "__main__":
     # Fixup sys.path for local testing
     sys.path = [path for path in sys.path if not path.endswith("i6_experiments/users/zeyer/returnn")]
-    BehaviorVersion.set_min_behavior_version(24)
-    test_rf_transformer_llama()
+    tests()
