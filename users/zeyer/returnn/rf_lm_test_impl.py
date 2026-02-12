@@ -61,6 +61,7 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     state = lm.default_initial_state(batch_dims=[batch_dim, beam2_dim])
     out_whole_seq, _ = lm(data, spatial_dim=time_dim, state=state)
     assert isinstance(out_whole_seq, Tensor)
+    print("state:", state)
 
     # Now step-by-step
     state = lm.default_initial_state(batch_dims=[batch_dim, beam1_dim])
@@ -102,7 +103,9 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     out_step_by_step = out_step_by_step.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
     out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
 
+    print("** check out whole seq vs step by step")
     assert_all_close(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1)
+    print("** check out whole seq vs two halves")
     assert_all_close(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1)
 
 
@@ -243,6 +246,7 @@ def _init():
     _is_initialized = True
 
     try:
+        # noinspection PyUnusedImports
         import better_exchook
 
         better_exchook.install()
