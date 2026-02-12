@@ -126,7 +126,7 @@ class Qwen2Model(rf.Module):
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
-        state = rf.State(batch_dims=list(batch_dims), past_key_values=None)
+        state = rf.State(batch_dims=list(batch_dims), past_key_values=None, past_key_values_dims=None)
         return state
 
     def __call__(self, source: Tensor, *, spatial_dim: Dim, state: rf.State) -> Tuple[Tensor, rf.State]:
@@ -202,10 +202,14 @@ class Qwen2Model(rf.Module):
         assert logits_raw.shape[-1] >= self.vocab_dim.dimension  # it might be larger due to optimization
         logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
 
+        def _get_dims(tensor: Tensor) -> Sequence[Dim]:
+            return tensor.dims
+
         new_state = rf.State(
             batch_dims=batch_dims,
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
+        new_state.past_key_values_dims = tree.map_structure(_get_dims, new_state.past_key_values)
         logits = _separate_batch_and_beam(
             logits_raw, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
         )  # (batch, beam, time, vocab)
