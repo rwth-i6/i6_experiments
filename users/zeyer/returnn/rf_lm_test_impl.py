@@ -233,10 +233,19 @@ def _init():
     global _is_initialized
     if _is_initialized:
         return
+
     rf.select_backend_torch()
     rf.set_random_seed(42)
     BehaviorVersion.set_min_behavior_version(24)
     _is_initialized = True
+
+    try:
+        import better_exchook
+
+        better_exchook.install()
+
+    except ImportError:
+        pass
 
 
 def tests():
