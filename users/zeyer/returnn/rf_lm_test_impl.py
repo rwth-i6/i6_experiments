@@ -158,6 +158,7 @@ def test_qwen2_finetuned():
     model = Qwen2Model(**opts)
     print("Model:", model.model)
     print("Vocab:", model.vocab_dim)
+    model.model.to(rf.get_default_device())
 
     test_lm(model)
 
