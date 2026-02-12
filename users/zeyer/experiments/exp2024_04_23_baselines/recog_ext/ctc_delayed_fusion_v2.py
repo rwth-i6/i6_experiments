@@ -311,16 +311,16 @@ def model_recog_with_recomb_delayed_fusion_v2(
         )
         return lm_state_debug, lm_log_probs_debug, lm_seq_log_prob_debug
 
-    should_convert_labels_now_func = config.typed_value("should_convert_labels_now_func")
+    should_convert_labels_now_func = config.typed_dict["should_convert_labels_now_func"]
     # (...) -> bool
-    should_fuse_now_func = config.typed_value("should_fuse_now_func")
+    should_fuse_now_func = config.typed_dict["should_fuse_now_func"]
     # (...) -> bool
-    convert_labels_func = config.typed_value("convert_labels_func")
+    convert_labels_func = config.typed_dict["convert_labels_func"]
     # (...) -> Tensor
 
     if debug and os.environ.get("DEBUG_CTC_RECOG_NO_DELAYED_FUSION") == "1":
-        should_convert_labels_now_func = lambda **kwargs: True
-        should_fuse_now_func = lambda **kwargs: True
+        should_convert_labels_now_func = None
+        should_fuse_now_func = None
 
     def _convert_labels_now():
         nonlocal am_seq_last_converted
@@ -443,15 +443,21 @@ def model_recog_with_recomb_delayed_fusion_v2(
             else:
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
-        should_convert_labels_now = is_last_frame or should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
+        if should_convert_labels_now_func:
+            should_convert_labels_now = is_last_frame or should_convert_labels_now_func(t=t, **get_fwd_compat_kwargs())
+        else:
+            should_convert_labels_now = True
         assert isinstance(should_convert_labels_now, bool)
         if should_convert_labels_now:
             _convert_labels_now()
 
         num_new_lm_labels = lm_seq_label.hist_dim.get_size_tensor() - lm_seq_num_consumed
-        should_fuse_now = is_last_frame or should_fuse_now_func(
-            num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs()
-        )
+        if should_fuse_now_func:
+            should_fuse_now = is_last_frame or should_fuse_now_func(
+                num_new_lm_labels=num_new_lm_labels, t=t, **get_fwd_compat_kwargs()
+            )
+        else:
+            should_fuse_now = True
         should_fuse_now = (
             (num_new_lm_labels > 0)
             # No need to fuse if masked out due to CTC recombination.
