@@ -119,8 +119,10 @@ def model_recog_with_recomb_delayed_fusion_v2(
             beam_size = int(os.environ.get("DEBUG_CTC_RECOG_BEAM_SIZE"))
         print(f"*** Starting CTC + LM beam search recog with recomb delayed fusion v2 DEBUG MODE {beam_size=} ***")
 
-    # TODO debug variant: feed whole text seq to LM
-    # TODO debug variant: convert labels on whole seq
+    if debug and os.environ.get("DEBUG_CTC_RECOG_SHORTEN_INPUT"):  # maybe cut for faster debugging
+        shorten_len = int(os.environ.get("DEBUG_CTC_RECOG_SHORTEN_INPUT"))
+        print("size:", data_spatial_dim.get_size_tensor().raw_tensor.numpy(), "->", shorten_len)
+        data, data_spatial_dim = rf.slice(data, axis=data_spatial_dim, size=shorten_len)
 
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
@@ -368,7 +370,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         )
         should_fuse_now = (
             (num_new_lm_labels > 0)
-            & rf.copy_to_device(ctc_seq_log_prob > neg_inf, num_new_lm_labels.device)
+            & (True if is_last_frame else rf.copy_to_device(ctc_seq_log_prob > neg_inf, num_new_lm_labels.device))
             & should_fuse_now
         )
 
@@ -471,8 +473,19 @@ def model_recog_with_recomb_delayed_fusion_v2(
         )
         .raw_tensor.all()
         .item()
+    ), (
+        f"seq len mismatch: {am_seq_last_converted=}\n"
+        f" {am_seq_last_converted.raw_tensor.numpy()=}\n"
+        f" vs {am_seq_num_consumed.raw_tensor.numpy()=}\n"
+        f" vs {am_seq_label.hist_dim.get_size_tensor().copy_transpose(am_seq_last_converted.dims).raw_tensor.numpy()=},\n"
+        f" {(am_seq_num_consumed == am_seq_label.hist_dim.get_size_tensor()).raw_tensor.numpy()=}"
     )
-    assert (lm_seq_num_consumed == lm_seq_label.hist_dim.get_size_tensor()).raw_tensor.all().item()
+    assert (lm_seq_num_consumed == lm_seq_label.hist_dim.get_size_tensor()).raw_tensor.all().item(), (
+        f"seq len mismatch: {lm_seq_num_consumed.raw_tensor.numpy()=}\n"
+        f" vs {lm_seq_label.hist_dim.get_size_tensor().copy_transpose(lm_seq_num_consumed.dims).raw_tensor.numpy()=},\n"
+        f" {am_seq_last_converted.raw_tensor.numpy()=}\n"
+        f" {(lm_seq_num_consumed == lm_seq_label.hist_dim.get_size_tensor()).raw_tensor.numpy()=}"
+    )
 
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
@@ -504,7 +517,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     )
 
     if debug:
-        raise Exception("success, but stop now")
+        raise Exception("success, but stop now (use hot reloading for easier debugging)")
 
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
 
