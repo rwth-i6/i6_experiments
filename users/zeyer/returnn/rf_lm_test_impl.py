@@ -247,6 +247,13 @@ def _init():
     except ImportError:
         pass
 
+    try:
+        import lovely_tensors
+
+        lovely_tensors.monkey_patch()
+    except ImportError:
+        pass
+
 
 def tests():
     import torch
