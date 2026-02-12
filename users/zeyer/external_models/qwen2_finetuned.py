@@ -228,7 +228,7 @@ class Qwen2Model(rf.Module):
                 state.pos,
                 "+",
                 rf.range_over_dim(spatial_dim_, device=source.device),
-            ).copy_compatible_to_dims(batch_dims, unbroadcast=True)
+            ).copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
         )
         output = self._call_func(
             past_key_values=DynamicCache.from_legacy_cache(past_key_values_raw),
