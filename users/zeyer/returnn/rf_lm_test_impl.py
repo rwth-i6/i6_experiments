@@ -59,7 +59,7 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
 
     # First on the whole seq
     state = lm.default_initial_state(batch_dims=[batch_dim, beam2_dim])
-    out_whole_seq, _ = lm(data, spatial_dim=time_dim, state=state)
+    out_whole_seq, state = lm(data, spatial_dim=time_dim, state=state)
     assert isinstance(out_whole_seq, Tensor)
     print("state:", state)
 
