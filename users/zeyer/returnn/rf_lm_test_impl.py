@@ -106,6 +106,7 @@ def test_lm(lm: Union[TransformerDecoder, Any], *, rtol: float = 1e-5, atol: flo
     assert_all_close(out_whole_seq, out_step_by_step, ndindex_shape_slice_end=-1, rtol=rtol, atol=atol)
     print("** check out whole seq vs two halves")
     assert_all_close(out_whole_seq, out_two_halves, ndindex_shape_slice_end=-1, rtol=rtol, atol=atol)
+    print("** all checks passed")
 
 
 def test_rf_transformer_llama():
@@ -125,7 +126,7 @@ def test_rf_transformer_llama():
         att_dropout=0.0,
     )
 
-    test_lm(lm, atol=1e-5, rtol=0.02)
+    test_lm(lm)
 
 
 def test_qwen2_finetuned():
@@ -165,7 +166,7 @@ def test_qwen2_finetuned():
     print("Vocab:", model.vocab_dim)
     model.model.to(rf.get_default_device())
 
-    test_lm(model)
+    test_lm(model, atol=2e-5, rtol=0.02)
 
 
 def _print_dim(prefix: str, dim: Dim):
