@@ -170,7 +170,9 @@ class Qwen2Model(rf.Module):
             if dims is not None:
                 assert dims[0] == merged_batch_dim
                 assert len(dims) == obj_raw.dim()
-                assert all(dims[i].get_dim_value() == obj_raw.size(i) for i in range(obj_raw.dim()))
+                assert all(dims[i].get_dim_value() == obj_raw.size(i) for i in range(obj_raw.dim())), (
+                    f"expected dims {[(d, d.get_dim_value()) for d in dims]} to match obj_raw {obj_raw.shape}"
+                )
             else:
                 assert merged_batch_dim.get_dim_value() == obj_raw.size(0)
                 dims = [merged_batch_dim] + [Dim(int(obj_raw.size(i)), name=f"dim{i}") for i in range(1, obj_raw.dim())]
@@ -189,13 +191,17 @@ class Qwen2Model(rf.Module):
         )
         past_key_values_raw_ = output.past_key_values
         assert isinstance(past_key_values_raw_, DynamicCache)
+        logits_raw = output.logits
+        assert isinstance(logits_raw, torch.Tensor)
+        assert logits_raw.shape[-1] >= self.vocab_dim.dimension  # it might be larger due to optimization
+        logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
 
         new_state = rf.State(
             batch_dims=batch_dims,
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
         logits = _separate_batch_and_beam(
-            output.logits, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
+            logits_raw, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
         )  # (batch, beam, time, vocab)
         if spatial_dim == single_step_dim:
             logits = rf.squeeze(logits, spatial_dim_)
