@@ -1,5 +1,7 @@
-from typing import Union, Any
+"""LM test. See :func:`test_lm`"""
 
+from typing import Union, Any
+import sys
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -25,13 +27,26 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     time1_dim = Dim(rf.random_uniform([batch_dim, beam1_dim], dtype="int32", minval=3, maxval=14), name="time1")
     time2_dim = Dim(rf.random_uniform([batch_dim, beam2_dim], dtype="int32", minval=2, maxval=12), name="time2")
 
-    data1 = rf.random_uniform([batch_dim, beam1_dim, time1_dim], dtype="int32", minval=0, maxval=lm.vocab_dim.dimension)
-    data2 = rf.random_uniform([batch_dim, beam2_dim, time2_dim], dtype="int32", minval=0, maxval=lm.vocab_dim.dimension)
+    data1 = rf.random_uniform(
+        [batch_dim, beam1_dim, time1_dim],
+        dtype="int32",
+        minval=0,
+        maxval=lm.vocab_dim.dimension,
+        sparse_dim=lm.vocab_dim,
+    )
+    data2 = rf.random_uniform(
+        [batch_dim, beam2_dim, time2_dim],
+        dtype="int32",
+        minval=0,
+        maxval=lm.vocab_dim.dimension,
+        sparse_dim=lm.vocab_dim,
+    )
     data1_beam2, time1_dim_beam2 = rf.nested.gather_nested((data1, time1_dim), indices=backrefs)
     data, time_dim = rf.concat((data1_beam2, time1_dim_beam2), (data2, time2_dim))
 
     # First on the whole seq
-    out_whole_seq, _ = lm(data, spatial_dim=time_dim, state=lm.get_initial_state([batch_dim, beam2_dim]))
+    state = lm.default_initial_state(batch_dims=[batch_dim, beam2_dim])
+    out_whole_seq, _ = lm(data, spatial_dim=time_dim, state=state)
     assert isinstance(out_whole_seq, Tensor)
 
     # Now step-by-step
@@ -53,19 +68,53 @@ def test_lm(lm: Union[TransformerDecoder, Any]):
     out_step_by_step, _ = rf.concat((res1_stack, time1_dim_beam2), (res2_stack, time2_dim), out_dim=time_dim)
 
     # Now concat the two halves
-    res1, state = lm(data1, spatial_dim=time1_dim, state=lm.get_initial_state([batch_dim, beam1_dim]))
+    state = lm.default_initial_state(batch_dims=[batch_dim, beam1_dim])
+    res1, state = lm(data1, spatial_dim=time1_dim, state=state)
     res1 = rf.nested.gather_nested(res1, indices=backrefs, dim_map={time1_dim: time1_dim_beam2})
     state = rf.nested.gather_nested(state, indices=backrefs)
     res2, _ = lm(data2, spatial_dim=time2_dim, state=state)
     out_two_halves, _ = rf.concat((res1, time1_dim_beam2), (res2, time2_dim), out_dim=time_dim)
 
-    out_whole_seq = out_whole_seq.copy_transpose([batch_dim, beam2_dim, time_dim]).copy_masked(0)
-    out_step_by_step = out_step_by_step.copy_transpose([batch_dim, beam2_dim, time_dim]).copy_masked(0)
-    out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim]).copy_masked(0)
+    # Make consistent, and compare
+    out_whole_seq = out_whole_seq.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
+    out_step_by_step = out_step_by_step.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
+    out_two_halves = out_two_halves.copy_transpose([batch_dim, beam2_dim, time_dim, lm.vocab_dim]).copy_masked(0)
 
     np.testing.assert_allclose(
-        out_whole_seq.raw_tensor.numpy(), out_step_by_step.raw_tensor.numpy(), rtol=1e-5, atol=1e-5
+        out_whole_seq.raw_tensor.cpu().detach().numpy(),
+        out_step_by_step.raw_tensor.cpu().detach().numpy(),
+        rtol=1e-5,
+        atol=1e-5,
     )
     np.testing.assert_allclose(
-        out_whole_seq.raw_tensor.numpy(), out_two_halves.raw_tensor.numpy(), rtol=1e-5, atol=1e-5
+        out_whole_seq.raw_tensor.cpu().detach().numpy(),
+        out_two_halves.raw_tensor.cpu().detach().numpy(),
+        rtol=1e-5,
+        atol=1e-5,
     )
+
+
+def test_rf_transformer_llama():
+    rf.select_backend_torch()
+
+    lm = TransformerDecoder(
+        encoder_dim=None,
+        vocab_dim=Dim(32, name="vocab"),
+        num_layers=4,
+        model_dim=32,
+        num_heads=2,
+        pos_enc=None,
+        norm=rf.build_dict(rf.RMSNorm),
+        ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+        decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        dropout=0.0,
+        att_dropout=0.0,
+    )
+
+    test_lm(lm)
+
+
+if __name__ == "__main__":
+    # Fixup sys.path for local testing
+    sys.path = [path for path in sys.path if not path.endswith("i6_experiments/users/zeyer/returnn")]
+    test_rf_transformer_llama()
