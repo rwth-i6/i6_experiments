@@ -110,9 +110,15 @@ class Qwen2Model(rf.Module):
     Keep API compatible to how other RF LMs are expected, i.e. like RF TransformerDecoder.
     """
 
-    def __init__(self, *, vocab_dim: Dict[str, Any], **kwargs):
+    def __init__(self, *, vocab_dim: Dict[str, Any], target_dim: Optional[Dim] = None, **kwargs):
+        """
+        :param vocab_dim: bind via functools.partial. the vocab dim of Qwen
+        :param target_dim: when called as model_def via _returnn_v2_get_model.
+            We can use this for auto-translation of vocab.
+        """
         super().__init__()
 
+        self.data_dim = target_dim
         self.vocab_dim = Dim(**vocab_dim)
 
         from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
@@ -132,6 +138,18 @@ class Qwen2Model(rf.Module):
         self.head_dim = Dim(
             getattr(config, "head_dim", config.hidden_size // config.num_attention_heads), name="head_dim"
         )
+
+        from returnn.config import get_global_config
+
+        returnn_config = get_global_config(return_empty_if_none=True)
+        # This is supposed to follow the same API as used in
+        # i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2.
+        self.default_data_convert_labels_func = returnn_config.typed_dict.get("default_data_convert_labels_func")
+        if self.default_data_convert_labels_func:
+            assert self.data_dim, (
+                "if default_data_convert_labels_func is configured,"
+                " then target_dim must be provided to convert to vocab_dim"
+            )
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
@@ -164,6 +182,31 @@ class Qwen2Model(rf.Module):
         import torch
 
         assert encoder is None  # this opt is just there for compat with RF TransformerDecoder
+        assert source.sparse_dim
+        if source.sparse_dim != self.vocab_dim and source.sparse_dim == self.data_dim:
+            assert self.default_data_convert_labels_func is not None, (
+                f"source.sparse_dim {source.sparse_dim} matches data_dim {self.data_dim},"
+                f" but no default_data_convert_labels_func is configured to convert it to vocab_dim {self.vocab_dim}"
+            )
+            new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = self.default_data_convert_labels_func(
+                new_am_labels=source,
+                new_am_labels_spatial_dim=spatial_dim,
+                lm_target_dim=self.vocab_dim,
+                last_am_frame=True,
+            )
+            assert (
+                isinstance(new_lm_labels, Tensor)
+                and isinstance(new_lm_labels_spatial_dim, Dim)
+                and isinstance(num_am_labels_converted, Tensor)
+            )
+            assert new_lm_labels.sparse_dim == self.vocab_dim
+            assert (num_am_labels_converted == spatial_dim.get_size_tensor()).raw_tensor.all(), (
+                f"expected all {spatial_dim} {spatial_dim.get_size_tensor().raw_tensor} AM labels to be converted,"
+                f" got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
+                f" converted via {self.default_data_convert_labels_func}"
+            )
+            source, spatial_dim = new_lm_labels, new_lm_labels_spatial_dim
+
         assert source.sparse_dim == self.vocab_dim
 
         batch_dims = state.batch_dims
