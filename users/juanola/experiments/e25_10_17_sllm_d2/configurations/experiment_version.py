@@ -9,7 +9,7 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     SLLM_small_linear_4gpu_10k, SLLM_small_linear_4gpu_10k_pre_d, bv2_ds_pre_d_b_c, bv2_ds_pre_ed_b_c, \
     bv2_ds_pre_d_b_c_f2, bv2_ds_pre_ed_b_c_f1, bv2_pre_ed_s_c_f2_oclr1, bv2_pre_ed_s_c_f2_oclr2, bv3_ds_pre_ed_b_c_lora, \
     bv3_pre_ed_s_c_lora, bv3_pre_ed_s_c_lora_small, bv2_ds_pre_ed_b_lm, bv2_pre_ed_s_lm, exp_v13_200, exp_v14_3ctc, \
-    exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5
+    exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5, exp_v5_s2, exp_v7_s2, exp_v10_3_s2
 
 
 class ExperimentVersion(Enum):
@@ -34,6 +34,7 @@ class ExperimentVersion(Enum):
     V10_SMALL_DECODER_4GPUS = "SLLM_small_decoder_4gpus_i6"
     V10_SMALL_DECODER_4GPUS_V2 = "SLLM_small_decoder_4gpus_i6_v2"
     V10_SMALL_DECODER_4GPUS_V3 = "SLLM_small_decoder_4gpus_i6_v3"
+    V10_SMALL_DECODER_4GPUS_V3_S2 = "SLLM_small_decoder_4gpus_i6_v3_s2"
 
     V11_SLLM_D_80k = "SLLM_dropout_80k"
     V12_SLLM_t_80k = "SLLM_tuned_80k"
@@ -81,6 +82,9 @@ class ExperimentVersion(Enum):
     V14_SLLM_3CTC = "SLLM_3CTC"
     V15_SMALL_SLLM_LR4 = "SLLM_small_12finetuning_lr4"
     V15_SMALL_SLLM_LR5 = "SLLM_small_12finetuning_lr5"
+
+    V7_S2 = "SLLM_td_s2"
+    V5_LINEAR_ADAPTER_S2 = "SLLM_small_linear_adapter_s2"
     # Expand here
 
     # Tests
@@ -109,6 +113,7 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V10_SMALL_DECODER_4GPUS: exp_v10,
     ExperimentVersion.V10_SMALL_DECODER_4GPUS_V2: exp_v10_2,
     ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3: exp_v10_3,
+    ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3_S2: exp_v10_3_s2,
 
     ExperimentVersion.V11_SLLM_D_80k: exp_v11,
     ExperimentVersion.V12_SLLM_t_80k: exp_v12,
@@ -156,6 +161,9 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V14_SLLM_3CTC: exp_v14_3ctc,
     ExperimentVersion.V15_SMALL_SLLM_LR4: exp_v15_small_12ep_lr4,
     ExperimentVersion.V15_SMALL_SLLM_LR5: exp_v15_small_12ep_lr5,
+
+    ExperimentVersion.V7_S2: exp_v7_s2,
+    ExperimentVersion.V5_LINEAR_ADAPTER_S2: exp_v5_s2,
     # Expand here
 
     # Tests

@@ -591,6 +591,8 @@ class Model(
         :param state: Decoder state
         :returns: decoder output [Batch, Beam, Time=1, L]
         """
+        raise Exception("should not be called anymore. Call V2 model!")
+
         qwen_input_embeds = self.decoder_embed_func(labels)
         # print("****qwen_input_embeds size", qwen_input_embeds.size())
         B, beam, T, F = qwen_input_embeds.shape  # noqa

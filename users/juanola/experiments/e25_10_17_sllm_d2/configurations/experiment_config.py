@@ -202,6 +202,10 @@ def exp_v10_2() -> ExperimentConfig:
 def exp_v10_3() -> ExperimentConfig:
     return replace(exp_v4(), training=i6_4gpu_setup_v3())
 
+def exp_v10_3_s2() -> ExperimentConfig:
+    return replace(exp_v4(),
+                   network=network_baseline_v2_td_small(), #TO use new v2 model
+                   training=replace(i6_4gpu_setup_v3(), random_seed=1234))
 
 def exp_v11() -> ExperimentConfig:
     """
@@ -474,6 +478,25 @@ def exp_v15_small_12ep_lr5() -> ExperimentConfig:
     """
     return replace(bv2_pre_ed_s_c(), training=finetuning_v2_lr5(), search=[search_baseline_v2()])
 
+
+def exp_v7_s2() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline(),
+        labels=label_baseline(),
+        network=network_baseline_v2_td(),
+        training=replace(itc_v2_80k(), random_seed=1234),
+        search=[search_baseline_v2()],
+    )
+
+
+def exp_v5_s2() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline(),
+        labels=label_baseline(),
+        network=network_baseline_v2_td_linear_small(),
+        training=replace(itc_v2_80k(), random_seed=1234),
+        search=[search_baseline_v2()],
+    )
 
 
 """

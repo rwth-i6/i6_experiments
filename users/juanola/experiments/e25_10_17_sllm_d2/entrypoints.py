@@ -310,7 +310,7 @@ def e3_lora3():
 
 
 def e3_pre9():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM])#, itc_training=True)
 
 
 def e3_pre10():
@@ -330,6 +330,21 @@ def e3_ft1():
 
 def e3_ft2():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5])#, itc_training=True)
+
+# +++
+
+def e3v7_s2():
+    ex3.sllm_ep([ExperimentVersion.V7_S2], itc_training=True)
+
+
+def e3v5_s2():
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2], itc_training=True)
+
+
+def e3v10_3_s2():
+    ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3_S2])
+
+# +++
 
 
 """
