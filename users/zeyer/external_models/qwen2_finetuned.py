@@ -149,18 +149,22 @@ class Qwen2Model(rf.Module):
         )
         return state
 
-    def __call__(self, source: Tensor, *, spatial_dim: Dim, state: rf.State) -> Tuple[Tensor, rf.State]:
+    def __call__(self, source: Tensor, *, spatial_dim: Dim, state: rf.State, encoder=None) -> Tuple[Tensor, rf.State]:
         """
         forward, single step or whole sequence.
 
         :param source: labels
         :param spatial_dim: single_step_dim or spatial dim of source
         :param state: e.g. via :func:`default_initial_state`
+        :param encoder:
         :return: logits, new state
         """
         from transformers.cache_utils import DynamicCache
         import tree
         import torch
+
+        assert encoder is None  # this opt is just there for compat with RF TransformerDecoder
+        assert source.sparse_dim == self.vocab_dim
 
         batch_dims = state.batch_dims
         merged_batch_dim: Dim = prod(batch_dims)
