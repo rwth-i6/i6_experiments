@@ -57,6 +57,11 @@ def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary, **_kwarg
     return label.startswith("▁")
 
 
+def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, **_kwargs) -> str:
+    """SPM label merge function, convert a list of SPM labels to a string"""
+    return "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ").strip()
+
+
 # bind is_am_label_word_start or is_am_label_word_end via functools.partial
 def convert_labels_func(
     *,

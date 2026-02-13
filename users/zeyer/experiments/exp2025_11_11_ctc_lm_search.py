@@ -115,6 +115,7 @@ def py():
         convert_labels_func,
         convert_labels_func_no_op,
         spm_space_first_is_word_start,
+        spm_label_merge,
     )
 
     for interval in [1, 5, 10, 20]:
@@ -143,7 +144,9 @@ def py():
 
     enable_every20 = functools.partial(enable_by_interval, interval=20)
     convert_labels_func_spm = functools.partial(
-        convert_labels_func, is_am_label_word_start=spm_space_first_is_word_start
+        convert_labels_func,
+        is_am_label_word_start=spm_space_first_is_word_start,
+        custom_am_label_merge=spm_label_merge,
     )
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
