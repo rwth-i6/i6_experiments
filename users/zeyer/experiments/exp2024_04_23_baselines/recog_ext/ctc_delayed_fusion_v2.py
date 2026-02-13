@@ -51,7 +51,7 @@ def convert_labels_func_no_op(
     return new_am_labels, new_am_labels_spatial_dim, new_am_labels_spatial_dim.get_size_tensor()
 
 
-def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary) -> bool:
+def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary, **_kwargs) -> bool:
     """SPM with space-first, return whether the label is a word start (i.e. starts with "▁")"""
     label = vocab.id_to_label(label_idx)
     return label.startswith("▁")
@@ -66,6 +66,7 @@ def convert_labels_func(
     last_am_frame: bool,
     is_am_label_word_start: Optional[Callable] = None,
     is_am_label_word_end: Optional[Callable] = None,
+    custom_am_label_merge: Optional[Callable] = None,
     **_kwargs,
 ) -> Tuple[Tensor, Dim, Tensor]:
     """
@@ -79,6 +80,7 @@ def convert_labels_func(
     :param last_am_frame:
     :param is_am_label_word_start:
     :param is_am_label_word_end:
+    :param custom_am_label_merge:
     :return: (new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted)
         1. new_lm_labels: Tensor of shape {batch..., new_lm_labels_spatial_dim} -> lm_target_dim
         2. new_lm_labels_spatial_dim: Dim of new LM labels
@@ -116,16 +118,20 @@ def convert_labels_func(
         else:
             am_full_words_len = 0
             for i in reversed(range(am_lens_raw)):
-                if is_am_label_word_end and is_am_label_word_end(am_lens_raw[i], vocab=am_vocab):
+                if is_am_label_word_end and is_am_label_word_end(am_lens_raw[i], vocab=am_vocab, **_kwargs):
                     am_full_words_len = i + 1
                     break
-                if is_am_label_word_start and is_am_label_word_start(am_lens_raw[i], vocab=am_vocab):
+                if is_am_label_word_start and is_am_label_word_start(am_lens_raw[i], vocab=am_vocab, **_kwargs):
                     am_full_words_len = i
                     break
         num_am_labels_converted_by_bs[bs] = am_full_words_len
         if am_full_words_len > 0:
             am_labels_raw = am_labels_raw[:am_full_words_len]
-            am_seq_str = am_vocab.get_seq_labels(am_labels_raw)
+            if custom_am_label_merge:
+                am_seq_str = custom_am_label_merge(am_labels_raw, vocab=am_vocab, **_kwargs)
+                assert isinstance(am_seq_str, str)
+            else:
+                am_seq_str = am_vocab.get_seq_labels(am_labels_raw)
             lm_labels_list = lm_vocab.get_seq(am_seq_str)
         else:
             lm_labels_list = []
