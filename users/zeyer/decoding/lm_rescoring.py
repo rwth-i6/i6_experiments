@@ -427,6 +427,7 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
             f" to be converted, got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
             f" converted via {default_data_convert_labels_func}"
         )
+        new_lm_labels = rf.copy_to_device(new_lm_labels, device=targets.device)
         targets, targets_spatial_dim = new_lm_labels, new_lm_labels_spatial_dim
 
     assert targets.sparse_dim == model.vocab_dim
