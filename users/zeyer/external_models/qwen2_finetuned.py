@@ -110,22 +110,18 @@ class Qwen2Model(rf.Module):
     Keep API compatible to how other RF LMs are expected, i.e. like RF TransformerDecoder.
     """
 
-    def __init__(self, *, vocab_dim: Dict[str, Any], target_dim: Optional[Dim] = None, **kwargs):
+    def __init__(self, *, vocab_dim: Dict[str, Any], **kwargs):
         """
         :param vocab_dim: bind via functools.partial. the vocab dim of Qwen
-        :param target_dim: when called as model_def via _returnn_v2_get_model.
-            We can use this for auto-translation of vocab.
         """
         super().__init__()
 
-        self.data_dim = target_dim
-        self.lm_vocab_dim = Dim(**vocab_dim)
-
-        # This is what i6_experiments.users.zeyer.decoding.lm_rescoring.lm_rescore_def and potentially other code
+        # This vocab_dim is what
+        # i6_experiments.users.zeyer.decoding.lm_rescoring.lm_rescore_def and potentially other code
         # will use to get the EOS/BOS indices.
         # Such code might also check for the expected input of this module.
         # Also, such code might use it to extract the vocab, e.g. for serialization.
-        self.vocab_dim = self.lm_vocab_dim
+        self.vocab_dim = Dim(**vocab_dim)
 
         from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
 
@@ -176,7 +172,7 @@ class Qwen2Model(rf.Module):
         import torch
 
         assert encoder is None  # this opt is just there for compat with RF TransformerDecoder
-        assert source.sparse_dim and source.sparse_dim == self.lm_vocab_dim
+        assert source.sparse_dim and source.sparse_dim == self.vocab_dim
 
         batch_dims = state.batch_dims
         merged_batch_dim: Dim = prod(batch_dims)
@@ -268,8 +264,8 @@ class Qwen2Model(rf.Module):
         assert isinstance(past_key_values_raw_, DynamicCache)
         logits_raw = output.logits
         assert isinstance(logits_raw, torch.Tensor)
-        assert logits_raw.shape[-1] >= self.lm_vocab_dim.dimension  # it might be larger due to optimization
-        logits_raw = logits_raw[..., : self.lm_vocab_dim.dimension]  # (batch*beam, time, vocab)
+        assert logits_raw.shape[-1] >= self.vocab_dim.dimension  # it might be larger due to optimization
+        logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
 
         new_state = rf.State(
             batch_dims=batch_dims,
@@ -279,7 +275,7 @@ class Qwen2Model(rf.Module):
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
         logits = _separate_batch_and_beam(
-            logits_raw, dims=[merged_batch_dim, spatial_dim_, self.lm_vocab_dim]
+            logits_raw, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
         )  # (batch, beam, time, vocab)
         if spatial_dim == single_step_dim:
             logits = rf.squeeze(logits, spatial_dim_)
