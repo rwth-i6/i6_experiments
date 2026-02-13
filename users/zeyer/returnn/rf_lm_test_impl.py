@@ -168,18 +168,40 @@ def test_qwen2_finetuned():
     model.model.to(rf.get_default_device())
 
     if sys.stdin.isatty():
-        hot_reloader = ConfigHotReloader({"Qwen2Model": Qwen2Model, "test_lm": test_lm})
+        # noinspection PyUnresolvedReferences
+        from i6_experiments.users.zeyer.returnn.rf_lm_test_impl import test_lm as _test_lm
+        from returnn.util.better_exchook import debug_shell
+
+        hot_reloader = ConfigHotReloader({"Qwen2Model": Qwen2Model, "test_lm": _test_lm})
         while True:
+            rf.set_random_seed(42)
             _test_lm = hot_reloader.config["test_lm"]
             try:
                 _test_lm(model, atol=2e-5, rtol=0.02)
-                break
             except Exception as exc:
                 print("Exception with hot reloading enabled:")
                 sys.excepthook(type(exc), exc, exc.__traceback__)
                 hot_reloader.wait_for_user()
                 hot_reloader.reload_changed_modules()
                 model.__class__ = hot_reloader.config["Qwen2Model"]
+                continue
+            print("Success. What now?")
+            while True:
+                choices = {"r": "reload modules and try again", "s": "shell", "q": "quit", "c": "continue"}
+                answer = input("Hot reloading: " + ", ".join(f"'{k}' to {v}" for k, v in choices.items()) + ": ")
+                if answer == "r":
+                    if hot_reloader.any_module_changed():
+                        hot_reloader.reload_changed_modules()
+                        break
+                    print("No changes detected? Please change the source code:", hot_reloader._modules)
+                elif answer == "s":
+                    debug_shell({}, {})
+                elif answer == "q":
+                    sys.exit(1)
+                elif answer == "c":
+                    return
+                else:
+                    print(f"Invalid choice {answer!r}")
 
     else:  # not interactive
         test_lm(model, atol=2e-5, rtol=0.02)
