@@ -52,6 +52,26 @@ class _FakeJobBase(sisyphus.Job):
         """
         return parsed_args["sis_hash"]
 
+    def tasks(self):
+        """tasks
+
+        This is the same as the base job class.
+        This is just here to make this clear that we have this task.
+        We must have at least one task, otherwise Job._sis_tasks will raise an error.
+        This here will just be a dummy task.
+
+        SISGraph.get_jobs_by_status.<locals>.get_unfinished_jobs will call Job._sis_tasks.
+        """
+        yield sisyphus.Task("run")
+
+    def run(self):
+        """dummy method for the dummy "run" task. See doc in :func:`tasks` above.
+
+        This method must exist because Job._sis_tasks / Task.set_job checks for it.
+
+        """
+        raise Exception("Fake job should never be run.")
+
     def __reduce__(self):
         return _make_fake_job, (self.__class__.__module__, self.__class__.__name__, self.sis_hash)
 
