@@ -176,6 +176,7 @@ def test_qwen2_finetuned():
         while True:
             rf.set_random_seed(42)
             _test_lm = hot_reloader.config["test_lm"]
+            model.__class__ = hot_reloader.config["Qwen2Model"]
             try:
                 _test_lm(model, atol=2e-5, rtol=0.02)
             except Exception as exc:
@@ -183,7 +184,6 @@ def test_qwen2_finetuned():
                 sys.excepthook(type(exc), exc, exc.__traceback__)
                 hot_reloader.wait_for_user()
                 hot_reloader.reload_changed_modules()
-                model.__class__ = hot_reloader.config["Qwen2Model"]
                 continue
             print("Success. What now?")
             while True:
@@ -192,7 +192,7 @@ def test_qwen2_finetuned():
                 if answer == "r":
                     if hot_reloader.any_module_changed():
                         hot_reloader.reload_changed_modules()
-                        break
+                        break  # break inner loop, retry test_lm
                     print("No changes detected? Please change the source code:", hot_reloader._modules)
                 elif answer == "s":
                     debug_shell({}, {})
