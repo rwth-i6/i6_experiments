@@ -119,7 +119,13 @@ class Qwen2Model(rf.Module):
         super().__init__()
 
         self.data_dim = target_dim
-        self.vocab_dim = Dim(**vocab_dim)
+        self.lm_vocab_dim = Dim(**vocab_dim)
+
+        # This is what i6_experiments.users.zeyer.decoding.lm_rescoring.lm_rescore_def and potentially other code
+        # will use to get the EOS/BOS indices.
+        # Such code might also check for the expected input of this module.
+        # Also, such code might use it to extract the vocab, e.g. for serialization.
+        self.vocab_dim = self.lm_vocab_dim
 
         from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
 
@@ -183,15 +189,16 @@ class Qwen2Model(rf.Module):
 
         assert encoder is None  # this opt is just there for compat with RF TransformerDecoder
         assert source.sparse_dim
-        if source.sparse_dim != self.vocab_dim and source.sparse_dim == self.data_dim:
+        if source.sparse_dim != self.lm_vocab_dim and source.sparse_dim == self.data_dim:
             assert self.default_data_convert_labels_func is not None, (
                 f"source.sparse_dim {source.sparse_dim} matches data_dim {self.data_dim},"
-                f" but no default_data_convert_labels_func is configured to convert it to vocab_dim {self.vocab_dim}"
+                f" but no default_data_convert_labels_func is configured"
+                f" to convert it to LM vocab_dim {self.lm_vocab_dim}"
             )
             new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = self.default_data_convert_labels_func(
                 new_am_labels=source,
                 new_am_labels_spatial_dim=spatial_dim,
-                lm_target_dim=self.vocab_dim,
+                lm_target_dim=self.lm_vocab_dim,
                 last_am_frame=True,
             )
             assert (
@@ -199,7 +206,7 @@ class Qwen2Model(rf.Module):
                 and isinstance(new_lm_labels_spatial_dim, Dim)
                 and isinstance(num_am_labels_converted, Tensor)
             )
-            assert new_lm_labels.sparse_dim == self.vocab_dim
+            assert new_lm_labels.sparse_dim == self.lm_vocab_dim
             assert (num_am_labels_converted == spatial_dim.get_size_tensor()).raw_tensor.all(), (
                 f"expected all {spatial_dim} {spatial_dim.get_size_tensor().raw_tensor} AM labels to be converted,"
                 f" got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
@@ -207,7 +214,7 @@ class Qwen2Model(rf.Module):
             )
             source, spatial_dim = new_lm_labels, new_lm_labels_spatial_dim
 
-        assert source.sparse_dim == self.vocab_dim
+        assert source.sparse_dim == self.lm_vocab_dim
 
         batch_dims = state.batch_dims
         merged_batch_dim: Dim = prod(batch_dims)
@@ -299,8 +306,8 @@ class Qwen2Model(rf.Module):
         assert isinstance(past_key_values_raw_, DynamicCache)
         logits_raw = output.logits
         assert isinstance(logits_raw, torch.Tensor)
-        assert logits_raw.shape[-1] >= self.vocab_dim.dimension  # it might be larger due to optimization
-        logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
+        assert logits_raw.shape[-1] >= self.lm_vocab_dim.dimension  # it might be larger due to optimization
+        logits_raw = logits_raw[..., : self.lm_vocab_dim.dimension]  # (batch*beam, time, vocab)
 
         new_state = rf.State(
             batch_dims=batch_dims,
@@ -310,7 +317,7 @@ class Qwen2Model(rf.Module):
             past_key_values=tree.map_structure(_separate_batch_and_beam, past_key_values_raw_.to_legacy_cache()),
         )
         logits = _separate_batch_and_beam(
-            logits_raw, dims=[merged_batch_dim, spatial_dim_, self.vocab_dim]
+            logits_raw, dims=[merged_batch_dim, spatial_dim_, self.lm_vocab_dim]
         )  # (batch, beam, time, vocab)
         if spatial_dim == single_step_dim:
             logits = rf.squeeze(logits, spatial_dim_)
