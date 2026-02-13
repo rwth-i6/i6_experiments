@@ -168,10 +168,11 @@ def test_qwen2_finetuned():
     model.model.to(rf.get_default_device())
 
     if sys.stdin.isatty():
-        hot_reloader = ConfigHotReloader({"Qwen2Model": Qwen2Model})
+        hot_reloader = ConfigHotReloader({"Qwen2Model": Qwen2Model, "test_lm": test_lm})
         while True:
+            _test_lm = hot_reloader.config["test_lm"]
             try:
-                test_lm(model, atol=2e-5, rtol=0.02)
+                _test_lm(model, atol=2e-5, rtol=0.02)
                 break
             except Exception as exc:
                 print("Exception with hot reloading enabled:")
