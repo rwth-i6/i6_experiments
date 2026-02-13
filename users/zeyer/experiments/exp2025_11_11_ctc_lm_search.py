@@ -142,6 +142,9 @@ def py():
     qwen2_lm = get_qwen2_lm()
 
     enable_every20 = functools.partial(enable_by_interval, interval=20)
+    convert_labels_func_spm = functools.partial(
+        convert_labels_func, is_am_label_word_start=spm_space_first_is_word_start
+    )
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
         task=task,
@@ -157,9 +160,7 @@ def py():
             "should_convert_labels_now_func": enable_every20,
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
-            "convert_labels_func": functools.partial(
-                convert_labels_func, is_am_label_word_start=spm_space_first_is_word_start
-            ),
+            "convert_labels_func": convert_labels_func_spm,
         },
     )
 
