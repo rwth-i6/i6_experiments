@@ -258,9 +258,6 @@ class Qwen2Model(rf.Module):
         assert logits_raw.shape[-1] >= self.vocab_dim.dimension  # it might be larger due to optimization
         logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
 
-        def _get_dims_from_tensor(tensor: Tensor) -> Sequence[Dim]:
-            return tensor.dims
-
         new_state = rf.State(
             batch_dims=batch_dims,
             pos=new_pos,
