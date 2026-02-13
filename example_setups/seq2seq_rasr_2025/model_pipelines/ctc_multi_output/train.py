@@ -4,15 +4,16 @@ __all__ = ["train"]
 from dataclasses import dataclass
 from typing import List
 import torch
-from i6_core.returnn.training import ReturnnTrainingJob
 from minireturnn.torch.context import RunCtx
 
 from i6_experiments.common.setups.serialization import PartialImport
 
 from ..common.serializers import get_model_serializers
-from ..common.train import TrainOptions
+from ..common.train import TrainOptions, TrainedModel
 from ..common.train import train as train_
 from .pytorch_modules import ConformerCTCMultiOutputConfig, ConformerCTCMultiOutputModel
+
+TrainedCTCMultiOutputModel = TrainedModel[ConformerCTCMultiOutputConfig]
 
 
 @dataclass
@@ -48,7 +49,9 @@ def _train_step(*, model: ConformerCTCMultiOutputModel, data: dict, run_ctx: Run
         run_ctx.mark_as_loss(name=f"CTC_{target_name}", loss=loss, inv_norm_factor=torch.sum(targets_size))
 
 
-def train(options: CTCMultiOutputTrainOptions, model_config: ConformerCTCMultiOutputConfig) -> ReturnnTrainingJob:
+def train(
+    options: CTCMultiOutputTrainOptions, model_config: ConformerCTCMultiOutputConfig
+) -> TrainedCTCMultiOutputModel:
     model_serializers = get_model_serializers(model_class=ConformerCTCMultiOutputModel, model_config=model_config)
     train_step_import = PartialImport(
         code_object_path=f"{_train_step.__module__}.{_train_step.__name__}",
@@ -58,4 +61,5 @@ def train(options: CTCMultiOutputTrainOptions, model_config: ConformerCTCMultiOu
         import_as="train_step",
     )
 
-    return train_(options=options, model_serializers=model_serializers, train_step_import=train_step_import)
+    train_job = train_(options=options, model_serializers=model_serializers, train_step_import=train_step_import)
+    return TrainedModel(model_config=model_config, train_job=train_job)

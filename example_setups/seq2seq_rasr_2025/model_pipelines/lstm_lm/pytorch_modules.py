@@ -77,7 +77,10 @@ class LstmLmStateInitializer(LstmLm):
         c_0 = torch.zeros((self.lstm.num_layers, 1, self.lstm.hidden_size), dtype=torch.float32)  # [L, 1, H]
 
         lstm_out, (h_0, c_0) = self.lstm.forward(embed, (h_0, c_0))  # [1, 1, H], [L, 1, H], [L, 1, H]
-        lstm_out = lstm_out.reshape([1, self.lstm.hidden_size])
+        lstm_out = lstm_out.reshape([1, self.lstm.hidden_size])  # [1, H]
+
+        h_0 = h_0.transpose(0, 1)  # [1, L, H]
+        c_0 = c_0.transpose(0, 1)  # [1, L, H]
 
         return lstm_out, h_0, c_0
 
@@ -85,15 +88,21 @@ class LstmLmStateInitializer(LstmLm):
 class LstmLmStateUpdater(LstmLm):
     def forward(
         self,
-        token: torch.Tensor,  # [1]
-        lstm_h: torch.Tensor,  # [L, 1, H]
-        lstm_c: torch.Tensor,  # [L, 1, H]
+        token: torch.Tensor,  # [B]
+        lstm_h: torch.Tensor,  # [B, L, H]
+        lstm_c: torch.Tensor,  # [B, L, H]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        embed = self.embed.forward(token)  # [1, E]
-        embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [1, 1, E]
+        embed = self.embed.forward(token)  # [B, E]
+        embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [B, 1, E]
 
-        lstm_out, (new_lstm_h, new_lstm_c) = self.lstm.forward(embed, (lstm_h, lstm_c))  # [1, 1, H] [L, 1, H] [L, 1, H]
+        lstm_h = lstm_h.transpose(0, 1)  # [L, B, H]
+        lstm_c = lstm_c.transpose(0, 1)  # [L, B, H]
 
-        lstm_out = lstm_out.reshape([-1, self.lstm.hidden_size])  # [1, H]
+        lstm_out, (new_lstm_h, new_lstm_c) = self.lstm.forward(embed, (lstm_h, lstm_c))  # [B, 1, H] [L, B, H] [L, B, H]
+
+        lstm_out = lstm_out.reshape([-1, self.lstm.hidden_size])  # [B, H]
+
+        new_lstm_h = new_lstm_h.transpose(0, 1)  # [B, L, H]
+        new_lstm_c = new_lstm_c.transpose(0, 1)  # [B, L, H]
 
         return lstm_out, new_lstm_h, new_lstm_c

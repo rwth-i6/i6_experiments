@@ -1,12 +1,12 @@
+from dataclasses import dataclass
+from typing import Union
 from i6_core.lm.lm_image import CreateLmImageJob
 from i6_core.rasr.config import RasrConfig
 from i6_core.rasr.crp import CommonRasrParameters, crp_add_default_output
 from i6_core.returnn import Checkpoint, PtCheckpoint
-from i6_experiments.common.baselines.tedlium2.data import get_corpus_data_inputs
 from i6_experiments.common.datasets.librispeech.language_model import get_arpa_lm_dict
 from sisyphus import tk
 
-from ...data.base import UppercaseARPAFileJob
 from ...experiments.librispeech import bpe_lstm_lm, word_transformer_lm
 from ...model_pipelines.lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
 from ...model_pipelines.transformer_lm.export import export_model
@@ -14,12 +14,17 @@ from ...model_pipelines.transformer_lm.lm_config import get_lm_config
 from ...tools import rasr_binary_path
 
 
-def get_arpa_lm_config(lm_name: str, lexicon_file: tk.Path, scale: float = 1.0) -> RasrConfig:
-    arpa_lm = get_arpa_lm_dict()[lm_name]
+@dataclass
+class ArpaLmParams:
+    scale: float = 1.0
+
+
+def _get_arpa_lm_config(lexicon_file: tk.Path, params: ArpaLmParams) -> RasrConfig:
+    arpa_lm = get_arpa_lm_dict()["4gram"]
     rasr_config = RasrConfig()
     rasr_config.type = "ARPA"
     rasr_config.file = arpa_lm
-    rasr_config.scale = scale
+    rasr_config.scale = params.scale
 
     crp = CommonRasrParameters()
     crp_add_default_output(crp)
@@ -32,26 +37,13 @@ def get_arpa_lm_config(lm_name: str, lexicon_file: tk.Path, scale: float = 1.0) 
     return rasr_config
 
 
-def get_tedlium2_arpa_lm_config(lm_name: str, lexicon_file: tk.Path, scale: float = 1.0) -> RasrConfig:
-    lm_dict = {"4gram": get_corpus_data_inputs()["dev"]["dev"].lm["filename"]}
-    arpa_lm = lm_dict[lm_name]
-    rasr_config = RasrConfig()
-    rasr_config.type = "ARPA"
-    rasr_config.file = UppercaseARPAFileJob(arpa_lm).out_arpa_file
-    rasr_config.scale = scale
-
-    crp = CommonRasrParameters()
-    crp_add_default_output(crp)
-    crp.lm_util_exe = rasr_binary_path.join_right("lm-util.linux-x86_64-standard")
-    crp.language_model_config = rasr_config
-    crp.lexicon_config = RasrConfig()
-    crp.lexicon_config.file = lexicon_file
-    rasr_config.image = CreateLmImageJob(crp, mem=8).out_image
-
-    return rasr_config
+@dataclass
+class TransformerLmParams:
+    scale: float = 1.0
+    use_gpu: bool = False
 
 
-def get_transformer_lm_config(lm_scale: float = 1.0) -> RasrConfig:
+def _get_transformer_lm_config(params: TransformerLmParams) -> RasrConfig:
     # train_job, model_config = word_transformer_lm.run_training()
     # checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
     # vocab_file = get_lm_vocab(output_prefix="").vocab
@@ -66,18 +58,21 @@ def get_transformer_lm_config(lm_scale: float = 1.0) -> RasrConfig:
         "/work/asr4/berger/dependencies/librispeech/lm/kazuki_transformerlm_2019interspeech/vocabulary"
     )
 
-    return get_lm_config(
-        onnx_model=onnx_model, vocab_file=vocab_file, lm_scale=lm_scale, execution_provider_type="cuda"
-    )
+    return get_lm_config(onnx_model=onnx_model, vocab_file=vocab_file, lm_scale=params.scale, use_gpu=params.use_gpu)
 
 
-def get_kazuki_trafo_lm_config(lm_scale: float = 1.0) -> RasrConfig:
+@dataclass
+class KazukiTrafoLmParams:
+    scale: float = 1.0
+
+
+def _get_kazuki_trafo_lm_config(params: KazukiTrafoLmParams) -> RasrConfig:
     dependency_path = tk.Path("/work/asr4/berger/dependencies/librispeech/lm", hash_overwrite="DEPDENDENCY_LBS_LM")
     kazuki_transformer_path = dependency_path.join_right("kazuki_transformerlm_2019interspeech")
 
     config = RasrConfig()
     config.type = "simple-transformer"
-    config.scale = lm_scale
+    config.scale = params.scale
     config.vocab_file = kazuki_transformer_path.join_right("vocabulary")
     config.transform_output_negate = True
     config.vocab_unknown_word = "<UNK>"
@@ -101,7 +96,19 @@ def get_kazuki_trafo_lm_config(lm_scale: float = 1.0) -> RasrConfig:
     return config
 
 
-def get_bpe_lstm_label_scorer_config(bpe_size: int = 128, use_gpu: bool = False) -> RasrConfig:
+WordLmParams = Union[ArpaLmParams, TransformerLmParams, KazukiTrafoLmParams]
+
+
+def get_word_lm_config(lexicon_file: tk.Path, params: WordLmParams) -> RasrConfig:
+    if isinstance(params, ArpaLmParams):
+        return _get_arpa_lm_config(lexicon_file=lexicon_file, params=params)
+    if isinstance(params, TransformerLmParams):
+        return _get_transformer_lm_config(params=params)
+    if isinstance(params, KazukiTrafoLmParams):
+        return _get_kazuki_trafo_lm_config(params=params)
+
+
+def get_bpe_lstm_label_scorer_config(bpe_size: int = 128, use_gpu: bool = False, scale: float = 1.0) -> RasrConfig:
     assert bpe_size == 128
     model_config = bpe_lstm_lm.get_model_config(bpe_size=bpe_size)
 
@@ -112,5 +119,8 @@ def get_bpe_lstm_label_scorer_config(bpe_size: int = 128, use_gpu: bool = False)
     )
 
     return get_lstm_lm_label_scorer_config(
-        model_config=model_config, checkpoint=lstm_lm_checkpoint, execution_provider_type="cuda" if use_gpu else None
+        model_config=model_config,
+        checkpoint=lstm_lm_checkpoint,
+        scale=scale,
+        execution_provider_type="cuda" if use_gpu else None,
     )

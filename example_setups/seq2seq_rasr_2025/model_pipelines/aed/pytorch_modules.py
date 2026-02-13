@@ -342,6 +342,25 @@ class AEDEncoder(AEDModel):
         return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2)  # [B, T, E+A+1]
 
 
+class AEDExportEncoder(AEDModel):
+    def forward(
+        self,
+        features: torch.Tensor,  # [B, T', F]
+        features_size: torch.Tensor,  # [B]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T, E+A+1], [B]
+        # create the mask for the conformer input
+        mask = lengths_to_padding_mask(features_size)
+
+        conformer_out, out_mask = self.conformer.forward(features, mask)
+        conformer_out = conformer_out[-1]
+        enc_ctx = self.decoder.enc_ctx.forward(conformer_out)  # [B, T, A]
+        enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility.forward(conformer_out))  # [B,T,1]
+
+        encoder_seq_len = torch.sum(out_mask, dim=1)
+
+        return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2), encoder_seq_len  # [B, T, E+A+1], [B]
+
+
 class AEDScorer(AEDModel):
     def forward(
         self,
@@ -366,7 +385,7 @@ class AEDScorer(AEDModel):
 class AEDStateInitializer(AEDModel):
     def forward(
         self,
-        encoder_states: torch.Tensor,  # [1, T, E + A]
+        encoder_states: torch.Tensor,  # [1, T, E + A + 1]
         encoder_states_size: torch.Tensor,  # [1]
     ) -> Tuple[torch.Tensor, ...]:
         encoder_out, enc_ctx, enc_inv_fertility = torch.split(
@@ -410,14 +429,16 @@ class AEDStateInitializer(AEDModel):
 class AEDStateUpdater(AEDModel):
     def forward(
         self,
-        encoder_states: torch.Tensor,  # [T, E + A]
-        encoder_states_size: torch.Tensor,  # []
-        token: torch.Tensor,  # [1j
-        lstm_state_h: torch.Tensor,  # [1, H]
-        lstm_state_c: torch.Tensor,  # [1, H]
-        att_context: torch.Tensor,  # [1, E]
-        accum_att_weights: torch.Tensor,  # [1, T, 1]
+        encoder_states: torch.Tensor,  # [1, T, E + A + 1]
+        encoder_states_size: torch.Tensor,  # [1]
+        token: torch.Tensor,  # [B]
+        lstm_state_h: torch.Tensor,  # [B, H]
+        lstm_state_c: torch.Tensor,  # [B, H]
+        att_context: torch.Tensor,  # [B, E]
+        accum_att_weights: torch.Tensor,  # [B, T, 1]
     ) -> Tuple[torch.Tensor, ...]:
+        encoder_states = encoder_states.expand(token.size(0), -1, -1)  # [B, T, E + A + 1]
+        encoder_states_size = encoder_states_size.expand(token.size(0))
         encoder_out, enc_ctx, enc_inv_fertility = torch.split(
             encoder_states,
             [
@@ -426,17 +447,17 @@ class AEDStateUpdater(AEDModel):
                 1,
             ],
             dim=2,
-        )  # [1, T, E], [1, T, A], [1, T, 1]
+        )  # [B, T, E], [B, T, A], [B, T, 1]
 
-        new_token_embedding = self.decoder.target_embed.forward(token)  # [1, M]
+        new_token_embedding = self.decoder.target_embed.forward(token)  # [B, M]
 
         new_lstm_state_h, new_lstm_state_c = self.decoder.s.forward(
             torch.cat([new_token_embedding, att_context], dim=1),
             (lstm_state_h, lstm_state_c),
-        )  # [1, H], [1, H]
-        s_transformed = self.decoder.s_transformed.forward(new_lstm_state_h)  # [1, A]
+        )  # [B, H], [B, H]
+        s_transformed = self.decoder.s_transformed.forward(new_lstm_state_h)  # [B, A]
 
-        weight_feedback = self.decoder.weight_feedback.forward(accum_att_weights)  # [1, T, A]
+        weight_feedback = self.decoder.weight_feedback.forward(accum_att_weights)  # [B, T, A]
 
         new_att_context, new_att_weights = self.decoder.attention(
             key=enc_ctx,
@@ -444,8 +465,27 @@ class AEDStateUpdater(AEDModel):
             query=s_transformed,
             weight_feedback=weight_feedback,
             enc_seq_len=encoder_states_size,
-        )  # [1, E], [1, T, 1]
+        )  # [B, E], [B, T, 1]
 
-        new_accum_att_weights = accum_att_weights + new_att_weights * enc_inv_fertility * 0.5  # [T, 1]
+        new_accum_att_weights = accum_att_weights + new_att_weights * enc_inv_fertility * 0.5  # [B, T, 1]
 
         return new_token_embedding, new_lstm_state_h, new_lstm_state_c, new_att_context, new_accum_att_weights
+
+
+class AEDCTCScorer(AEDModel):
+    def forward(
+        self,
+        encoder_state: torch.Tensor,  # [1, E + A + 1]
+    ) -> torch.Tensor:
+        encoder_out, _ = torch.split(
+            encoder_state,
+            [
+                self.enc_dim,
+                self.decoder.attention_dim + 1,
+            ],
+            dim=1,
+        )  # [1, E], [1, A + 1]
+
+        logits = self.final_linear.forward(encoder_out)
+
+        return -torch.log_softmax(logits, dim=1)

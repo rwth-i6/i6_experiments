@@ -1,4 +1,5 @@
-from typing import List, Literal, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Literal, Optional, Tuple, Union
 
 import torch
 from i6_core.returnn import PtCheckpoint, ReturnnTrainingJob
@@ -12,35 +13,22 @@ from i6_models.parts.conformer import (
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
-from sisyphus import gs, tk
 
 from ...data.librispeech import datasets as librispeech_datasets
 from ...data.librispeech import lm as librispeech_lm
 from ...data.librispeech.bpe import bpe_to_vocab_size, get_bpe_vocab_file, vocab_to_bpe_size
-from ...data.librispeech.lexicon import get_bpe_bliss_lexicon, get_tedlium2_bpe_bliss_lexicon
-from ...data.tedlium2 import datasets as tedlium2_datasets
-from ...model_pipelines.common.experiment_context import ExperimentContext
+from ...data.librispeech.lexicon import get_bpe_bliss_lexicon
 from ...model_pipelines.common.learning_rates import OCLRConfig
 from ...model_pipelines.common.optimizer import RAdamConfig
 from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ...model_pipelines.common.recog import (
-    OfflineRecogResult,
-    OfflineRecogResultWithSearchErrors,
     RecogResult,
-    StreamingRecogResult,
     recog_rasr_offline,
-    recog_rasr_offline_with_search_errors,
     recog_rasr_streaming,
 )
 from ...model_pipelines.common.recog_rasr_config import (
-    get_combine_label_scorer_config,
     get_lexiconfree_timesync_recog_config,
     get_tree_timesync_recog_config,
-)
-from ...model_pipelines.common.report import (
-    create_base_recog_report,
-    create_offline_recog_report_with_search_errors,
-    create_streaming_recog_report,
 )
 from ...model_pipelines.common.serializers import get_model_serializers
 from ...model_pipelines.ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
@@ -51,7 +39,7 @@ from ...model_pipelines.ffnn_transducer.pytorch_modules import (
 from ...model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, train
 
 
-def get_model_config() -> FFNNTransducerConfig:
+def get_model_config(bpe_size: int = 128) -> FFNNTransducerConfig:
     return FFNNTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
@@ -143,14 +131,14 @@ def get_model_config() -> FFNNTransducerConfig:
         context_embedding_dim=256,
         joiner_dim=1024,
         joiner_activation=torch.nn.Tanh(),
-        target_size=bpe_to_vocab_size(bpe_size=128) + 1,
+        target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
     )
 
 
-def get_train_options() -> FFNNTransducerTrainOptions:
+def get_train_options(bpe_size: int = 128) -> FFNNTransducerTrainOptions:
     return FFNNTransducerTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=128),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=128),
+        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
+        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=12_000 * 160,
         accum_grad_multiple_step=2,
@@ -193,846 +181,307 @@ def run_training(
     return train_job, model_config
 
 
-def run_recognitions_offline_lexiconfree(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.0,
-    max_beam_size: int = 256,
-    score_threshold: float = 14.0,
-) -> List[OfflineRecogResult]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
+@dataclass
+class RecogVariant:
+    descriptor: str = "recog"
+    use_streaming: bool = False
+    tree_search: bool = False
+    compute_search_errors: bool = False
+    ilm_scale: float = 0.0
+    blank_penalty: float = 0.0
+    bpe_lstm_lm_scale: float = 0.0
+    word_lm: Optional[Literal["4gram", "trafo", "kazuki-trafo"]] = None
+    word_lm_scale: float = 0.0
+    max_beam_sizes: Union[int, List[int]] = 256
+    max_word_end_beam_size: Optional[int] = None
+    score_thresholds: Union[float, List[float]] = 14.0
+    word_end_score_threshold: Optional[float] = None
+    maximum_stable_delay: int = 15
+    maximum_stable_delay_pruning_interval: int = 5
+    chunk_history_seconds: float = 10.0
+    chunk_center_seconds: float = 1.0
+    chunk_future_seconds: float = 1.0
+    encoder_frame_shift_seconds: float = 0.04
+    mem_rqmt: int = 16
+    gpu_mem_rqmt: int = 0
 
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
+
+def default_offline_lexfree_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_lexfree",
+        use_streaming=False,
+        tree_search=False,
     )
 
-    rasr_config_file = get_lexiconfree_timesync_recog_config(
-        vocab_file=get_bpe_vocab_file(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True),
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        score_threshold=score_threshold,
+
+def default_offline_lexfree_lstm_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_lexfree_bpe-LSTM",
+        use_streaming=False,
+        tree_search=False,
+        ilm_scale=0.2,
+        bpe_lstm_lm_scale=0.8,
+        max_beam_sizes=[30, 20],
+        score_thresholds=[8.0, 8.0],
     )
 
-    recog_results = []
 
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline(
-                descriptor=f"{descriptor}_lexiconfree",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                rasr_config_file=rasr_config_file,
-                sample_rate=16000,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_offline_lexiconfree_lstm(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.2,
-    lm_scale: float = 0.8,
-    max_beam_size: int = 20,
-    score_threshold: float = 8.0,
-    intermediate_score_threshold: float = 8.0,
-    intermediate_max_beam_size: int = 30,
-) -> List[OfflineRecogResult]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    transducer_label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-        execution_provider_type="cuda",
+def default_offline_tree_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_tree",
+        use_streaming=False,
+        tree_search=True,
     )
 
-    lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
-        bpe_size=vocab_to_bpe_size(model_config.target_size - 1),
-        use_gpu=True,
+
+def default_offline_tree_4gram_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_tree_word-4gram",
+        use_streaming=False,
+        tree_search=True,
+        ilm_scale=0.2,
+        word_lm="4gram",
+        word_lm_scale=0.6,
+        max_word_end_beam_size=16,
+        word_end_score_threshold=0.5,
     )
 
-    recog_rasr_config_file = get_lexiconfree_timesync_recog_config(
-        vocab_file=get_bpe_vocab_file(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True),
-        collapse_repeated_labels=True,
-        label_scorer_config=get_combine_label_scorer_config(
-            sub_scorers=[
-                (transducer_label_scorer_config, 1.0),
-                (lstm_lm_config, lm_scale),
-            ]
-        ),
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        score_threshold=score_threshold,
-        intermediate_score_threshold=intermediate_score_threshold,
-        intermediate_max_beam_size=intermediate_max_beam_size,
+
+def default_offline_tree_lstm_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_tree_bpe-LSTM",
+        use_streaming=False,
+        tree_search=True,
+        bpe_lstm_lm_scale=0.8,
+        max_beam_sizes=[40, 20],
+        score_thresholds=[8.0, 8.0],
     )
 
-    recog_results = []
 
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline(
-                descriptor=f"{descriptor}_lexiconfree_bpe-lstmLM",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                rasr_config_file=recog_rasr_config_file,
-                sample_rate=16000,
-                gpu_mem_rqmt=24,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_offline_tree(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.0,
-    max_beam_size: int = 1024,
-    score_threshold: float = 14.0,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-    )
-
-    recog_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        score_threshold=score_threshold,
-        logfile_suffix="recog",
-    )
-
-    align_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=1024,
-        score_threshold=20.0,
-        logfile_suffix="align",
-    )
-
-    recog_results = []
-
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline_with_search_errors(
-                descriptor=f"{descriptor}_tree",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                recog_rasr_config_file=recog_rasr_config_file,
-                align_rasr_config_file=align_rasr_config_file,
-                sample_rate=16000,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_offline_tree_lstm(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.0,
-    lm_scale: float = 0.8,
-    max_beam_size: int = 20,
-    score_threshold: float = 8.0,
-    intermediate_score_threshold: float = 8.0,
-    intermediate_max_beam_size: int = 40,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    transducer_label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-        execution_provider_type="cuda",
-    )
-
-    lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
-        bpe_size=vocab_to_bpe_size(model_config.target_size - 1),
-        use_gpu=True,
-    )
-
-    label_scorer_config = get_combine_label_scorer_config(
-        sub_scorers=[
-            (transducer_label_scorer_config, 1.0),
-            (lstm_lm_config, lm_scale),
-        ]
-    )
-
-    recog_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        score_threshold=score_threshold,
-        intermediate_score_threshold=intermediate_score_threshold,
-        intermediate_max_beam_size=intermediate_max_beam_size,
-        logfile_suffix="recog",
-    )
-
-    align_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=1024,
-        score_threshold=20.0,
-        logfile_suffix="align",
-    )
-
-    recog_results = []
-
-    # for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-    for recog_corpus in corpora or ["dev-other", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline_with_search_errors(
-                descriptor=f"{descriptor}_tree_bpe-lstmLM",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                recog_rasr_config_file=recog_rasr_config_file,
-                align_rasr_config_file=align_rasr_config_file,
-                sample_rate=16000,
-                gpu_mem_rqmt=24,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_offline_tree_4gram(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.2,
-    lm_scale: float = 0.6,
-    max_beam_size: int = 256,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
-    word_end_score_threshold: float = 0.5,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-    )
-
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-    arpa_lm_config = librispeech_lm.get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file, scale=lm_scale)
-
-    recog_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=arpa_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
-        score_threshold=score_threshold,
-        word_end_score_threshold=word_end_score_threshold,
-        logfile_suffix="recog",
-    )
-
-    align_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=arpa_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=1024,
-        score_threshold=20.0,
-        logfile_suffix="align",
-    )
-
-    recog_results = []
-
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline_with_search_errors(
-                descriptor=f"{descriptor}_tree_word-4gram",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                recog_rasr_config_file=recog_rasr_config_file,
-                align_rasr_config_file=align_rasr_config_file,
-                sample_rate=16000,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_offline_tree_4gram_lstm(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.0,
-    lm_scale: float = 0.3,
-    lstm_lm_scale: float = 0.4,
-    max_beam_size: int = 20,
-    score_threshold: float = 8.0,
-    intermediate_score_threshold: float = 12.0,
-    intermediate_max_beam_size: int = 40,
-    word_end_score_threshold: float = 1.0,
-    max_word_end_beam_size: int = 10,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    transducer_label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-        execution_provider_type="cuda",
-    )
-
-    lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
-        bpe_size=vocab_to_bpe_size(model_config.target_size - 1),
-        use_gpu=True,
-    )
-
-    label_scorer_config = get_combine_label_scorer_config(
-        sub_scorers=[
-            (transducer_label_scorer_config, 1.0),
-            (lstm_lm_config, lstm_lm_scale),
-        ]
-    )
-
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-    arpa_lm_config = librispeech_lm.get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file, scale=lm_scale)
-
-    recog_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=arpa_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
-        score_threshold=score_threshold,
-        intermediate_score_threshold=intermediate_score_threshold,
-        intermediate_max_beam_size=intermediate_max_beam_size,
-        word_end_score_threshold=word_end_score_threshold,
-        logfile_suffix="recog",
-    )
-
-    align_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=arpa_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=1024,
-        score_threshold=20.0,
-        logfile_suffix="align",
-    )
-
-    recog_results = []
-
-    # for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-    for recog_corpus in corpora or ["dev-other", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline_with_search_errors(
-                descriptor=f"{descriptor}_tree_word-4gram_bpe-lstmLM",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                recog_rasr_config_file=recog_rasr_config_file,
-                align_rasr_config_file=align_rasr_config_file,
-                sample_rate=16000,
-                gpu_mem_rqmt=24,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_offline_tree_trafo(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.2,
-    lm_scale: float = 0.8,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
-    word_end_score_threshold: float = 0.5,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-        execution_provider_type="cuda",
-    )
-
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-    trafo_lm_config = librispeech_lm.get_transformer_lm_config(lm_scale=lm_scale)
-
-    recog_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=trafo_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
-        score_threshold=score_threshold,
-        word_end_score_threshold=word_end_score_threshold,
-        logfile_suffix="recog",
-    )
-
-    align_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=trafo_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=1024,
-        score_threshold=20.0,
-        logfile_suffix="align",
-    )
-
-    recog_results = []
-
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline_with_search_errors(
-                descriptor=f"{descriptor}_tree_word-trafoLM",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                recog_rasr_config_file=recog_rasr_config_file,
-                align_rasr_config_file=align_rasr_config_file,
-                sample_rate=16000,
-                gpu_mem_rqmt=24,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_streaming_lexiconfree(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    max_beam_size: int = 1024,
-    score_threshold: float = 14.0,
-    maximum_stable_delay: int = 15,
-    chunk_history_seconds: float = 10.0,
-    chunk_center_seconds: float = 1.0,
-    chunk_future_seconds: float = 1.0,
-    encoder_frame_shift_seconds: float = 0.04,
-) -> List[StreamingRecogResult]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
+def default_offline_tree_lstm_4gram_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_tree_word-4gram_bpe-LSTM",
+        use_streaming=False,
+        tree_search=True,
         ilm_scale=0.0,
-        blank_penalty=0.0,
+        bpe_lstm_lm_scale=0.6,
+        word_lm="4gram",
+        word_lm_scale=0.2,
+        max_beam_sizes=[150, 100],
+        max_word_end_beam_size=30,
+        score_thresholds=[10.0, 10.0],
+        word_end_score_threshold=1.0,
     )
 
-    vocab_file = get_bpe_vocab_file(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
 
-    rasr_config_file = get_lexiconfree_timesync_recog_config(
-        vocab_file=vocab_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        score_threshold=score_threshold,
-        maximum_stable_delay=maximum_stable_delay,
+def default_offline_tree_trafo_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_tree_word-trafoLM",
+        use_streaming=False,
+        tree_search=True,
+        ilm_scale=0.2,
+        word_lm="kazuki-trafo",
+        word_lm_scale=0.8,
+        max_beam_sizes=512,
+        max_word_end_beam_size=16,
+        score_thresholds=14.0,
+        word_end_score_threshold=0.5,
+        gpu_mem_rqmt=24,
     )
 
-    recog_results = []
 
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_streaming(
-                descriptor=f"{descriptor}_lexiconfree_stream",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                rasr_config_file=rasr_config_file,
-                encoder_frame_shift_seconds=encoder_frame_shift_seconds,
-                chunk_history_seconds=chunk_history_seconds,
-                chunk_center_seconds=chunk_center_seconds,
-                chunk_future_seconds=chunk_future_seconds,
-                sample_rate=16000,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_streaming_tree_4gram(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.2,
-    lm_scale: float = 0.6,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
-    word_end_score_threshold: float = 0.5,
-    maximum_stable_delay: int = 15,
-    chunk_history_seconds: float = 10.0,
-    chunk_center_seconds: float = 1.0,
-    chunk_future_seconds: float = 1.0,
-    encoder_frame_shift_seconds: float = 0.04,
-) -> List[StreamingRecogResult]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
+def default_streaming_lexfree_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_streaming_lexfree",
+        use_streaming=True,
+        tree_search=False,
     )
 
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-    arpa_lm_config = librispeech_lm.get_arpa_lm_config(lm_name="4gram", lexicon_file=lexicon_file, scale=lm_scale)
 
-    rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=arpa_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
-        score_threshold=score_threshold,
-        word_end_score_threshold=word_end_score_threshold,
-        maximum_stable_delay=maximum_stable_delay,
+def default_streaming_tree_4gram_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_streaming_tree_word-4gram",
+        use_streaming=True,
+        tree_search=True,
+        ilm_scale=0.2,
+        word_lm="4gram",
+        word_lm_scale=0.6,
+        max_beam_sizes=1024,
+        max_word_end_beam_size=16,
+        score_thresholds=14.0,
+        word_end_score_threshold=0.5,
     )
 
-    recog_results = []
 
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_streaming(
-                descriptor=f"{descriptor}_tree_word-4gram_stream",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                rasr_config_file=rasr_config_file,
-                encoder_frame_shift_seconds=encoder_frame_shift_seconds,
-                chunk_history_seconds=chunk_history_seconds,
-                chunk_center_seconds=chunk_center_seconds,
-                chunk_future_seconds=chunk_future_seconds,
-                sample_rate=16000,
-            )
-        )
-
-    return recog_results
+def default_recog_variants() -> List[RecogVariant]:
+    return [
+        default_offline_lexfree_recog_variant(),
+        default_offline_lexfree_lstm_recog_variant(),
+        default_offline_tree_recog_variant(),
+        default_offline_tree_4gram_recog_variant(),
+        default_offline_tree_lstm_recog_variant(),
+        default_offline_tree_lstm_4gram_recog_variant(),
+        # default_offline_tree_trafo_recog_variant(),
+        default_streaming_lexfree_recog_variant(),
+        default_streaming_tree_4gram_recog_variant(),
+    ]
 
 
-def run_recognitions_offline_tree_trafo_kazuki(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev-clean", "dev-other", "test-clean", "test-other"]]] = None,
-    ilm_scale: float = 0.2,
-    lm_scale: float = 0.8,
-    max_beam_size: int = 512,
-    score_threshold: float = 16.0,
-    word_end_score_threshold: float = 0.5,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-        execution_provider_type="cuda",
-    )
-
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=vocab_to_bpe_size(model_config.target_size - 1), add_blank=True)
-    trafo_lm_config = librispeech_lm.get_kazuki_trafo_lm_config(lm_scale=lm_scale)
-
-    recog_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=trafo_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        score_threshold=score_threshold,
-        word_end_score_threshold=word_end_score_threshold,
-        logfile_suffix="recog",
-    )
-
-    align_rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=trafo_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=1024,
-        score_threshold=20.0,
-        logfile_suffix="align",
-    )
-
-    recog_results = []
-
-    for recog_corpus in corpora or ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        recog_results.append(
-            recog_rasr_offline_with_search_errors(
-                descriptor=f"{descriptor}_tree_word-trafoLM-kazuki",
-                checkpoint=checkpoint,
-                recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                recog_rasr_config_file=recog_rasr_config_file,
-                align_rasr_config_file=align_rasr_config_file,
-                sample_rate=16000,
-                mem_rqmt=24,
-                gpu_mem_rqmt=24,
-            )
-        )
-
-    return recog_results
-
-
-def run_recognitions_tedlium_offline_tree_4gram(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    corpora: Optional[List[Literal["dev", "test"]]] = None,
-    ilm_scale: float = 0.2,
-    lm_scale: float = 0.6,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: int = 16,
-    score_threshold: float = 14.0,
-    word_end_score_threshold: float = 0.5,
-) -> List[OfflineRecogResultWithSearchErrors]:
-    model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
-
-    label_scorer_config = get_ffnn_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=0.0,
-    )
-
-    lexicon_file = get_tedlium2_bpe_bliss_lexicon(
-        bpe_size=vocab_to_bpe_size(model_config.target_size - 1),
-        add_blank=True,
-    )
-    arpa_lm_config = librispeech_lm.get_tedlium2_arpa_lm_config(
-        lm_name="4gram", lexicon_file=lexicon_file, scale=lm_scale
-    )
-
-    rasr_config_file = get_tree_timesync_recog_config(
-        lexicon_file=lexicon_file,
-        collapse_repeated_labels=True,
-        label_scorer_config=label_scorer_config,
-        lm_config=arpa_lm_config,
-        blank_index=model_config.target_size - 1,
-        max_beam_size=max_beam_size,
-        max_word_end_beam_size=max_word_end_beam_size,
-        score_threshold=score_threshold,
-        word_end_score_threshold=word_end_score_threshold,
-    )
-
-    recog_results = []
-
-    for recog_corpus in corpora or ["dev", "test"]:
-        recog_results.append(
-            recog_rasr_offline(
-                descriptor=f"{descriptor}_tree_word-4gram",
-                checkpoint=checkpoint,
-                recog_data_config=tedlium2_datasets.get_default_recog_data(recog_corpus),
-                recog_corpus=tedlium2_datasets.get_default_score_corpus(recog_corpus),
-                encoder_serializers=model_serializers,
-                rasr_config_file=rasr_config_file,
-                sample_rate=16000,
-            )
-        )
-
-    for recog_result in recog_results:
-        recog_result.corpus_name = "tedlium-" + recog_result.corpus_name
-
-    return recog_results
-
-
-def run_base_recognition_suite(
-    checkpoint: PtCheckpoint,
-    model_config: FFNNTransducerConfig,
-    descriptor: str = "recog",
-    greedy_search: bool = True,
-    lexiconfree_search: bool = True,
-    lexiconfree_lstm_search: bool = True,
-    tree_search: bool = True,
-    tree_lstm_search: bool = True,
-    tree_4gram_search: bool = True,
-    tree_4gram_lstm_search: bool = True,
-    tree_trafo_search: bool = True,
-    tree_trafo_kazuki_search: bool = True,
-    lexiconfree_streaming_search: bool = True,
-    tree_streaming_search: bool = True,
-    tree_4gram_tedlium_search: bool = True,
+def run_recog_variants(
+    checkpoint: Optional[PtCheckpoint] = None,
+    model_config: Optional[FFNNTransducerConfig] = None,
+    train_options: Optional[FFNNTransducerTrainOptions] = None,
+    variants: Optional[List[RecogVariant]] = None,
+    corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
 ) -> List[RecogResult]:
-    offline_recog_results = []
-    streaming_recog_results = []
+    if model_config is None:
+        model_config = get_model_config()
+    if checkpoint is None:
+        train_job, _ = run_training(model_config=model_config, train_options=train_options)
+        checkpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
+        assert checkpoint is not None
 
-    if greedy_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_lexiconfree(
-                checkpoint=checkpoint,
-                model_config=model_config,
-                descriptor=f"{descriptor}_greedy",
-                max_beam_size=1,
-                score_threshold=0.0,
-            )
-        )
-    if lexiconfree_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_lexiconfree(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
-        )
-    if lexiconfree_lstm_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_lexiconfree_lstm(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
-        )
-    if tree_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_tree(checkpoint=checkpoint, model_config=model_config, descriptor=descriptor)
-        )
-    if tree_lstm_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_tree_lstm(checkpoint=checkpoint, model_config=model_config, descriptor=descriptor)
-        )
-    if tree_4gram_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_tree_4gram(checkpoint=checkpoint, model_config=model_config, descriptor=descriptor)
-        )
-    if tree_4gram_lstm_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_tree_4gram_lstm(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
-        )
-    if tree_trafo_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_tree_trafo(checkpoint=checkpoint, model_config=model_config, descriptor=descriptor)
-        )
-    if tree_trafo_kazuki_search:
-        offline_recog_results.extend(
-            run_recognitions_offline_tree_trafo_kazuki(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
-        )
-    if tree_4gram_tedlium_search:
-        offline_recog_results.extend(
-            run_recognitions_tedlium_offline_tree_4gram(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
-        )
-    if lexiconfree_streaming_search:
-        streaming_recog_results.extend(
-            run_recognitions_streaming_lexiconfree(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
-        )
-    if tree_streaming_search:
-        streaming_recog_results.extend(
-            run_recognitions_streaming_tree_4gram(
-                checkpoint=checkpoint, model_config=model_config, descriptor=descriptor
-            )
+    if variants is None:
+        variants = default_recog_variants()
+
+    if corpora is None:
+        corpora = librispeech_datasets.EVAL_SETS
+
+    recog_results = []
+
+    bpe_size = vocab_to_bpe_size(model_config.target_size - 1)
+    blank_index = model_config.target_size - 1
+
+    for variant in variants:
+        model_serializers = get_model_serializers(FFNNTransducerEncoder, model_config)
+
+        label_scorer_config = get_ffnn_transducer_label_scorer_config(
+            model_config=model_config,
+            checkpoint=checkpoint,
+            ilm_scale=variant.ilm_scale,
+            blank_penalty=variant.blank_penalty,
+            execution_provider_type="cuda" if variant.gpu_mem_rqmt > 0 else None,
         )
 
-    all_recog_results = offline_recog_results + streaming_recog_results
+        use_lstm_lm = variant.bpe_lstm_lm_scale != 0.0
 
-    if offline_recog_results:
-        tk.register_report(
-            f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report_offline.txt",
-            values=create_offline_recog_report_with_search_errors(offline_recog_results),
-            required=True,
-        )
-    if streaming_recog_results:
-        tk.register_report(
-            f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report_streaming.txt",
-            values=create_streaming_recog_report(streaming_recog_results),
-            required=True,
-        )
-    if all_recog_results:
-        tk.register_report(
-            f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/report.txt",
-            values=create_base_recog_report(all_recog_results),
-            required=True,
-        )
+        if use_lstm_lm:
+            lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
+                bpe_size=bpe_size, scale=variant.bpe_lstm_lm_scale, use_gpu=variant.gpu_mem_rqmt > 0
+            )
+            label_scorer_config = [label_scorer_config, lstm_lm_config]
 
-    return all_recog_results
+        align_rasr_config_file = None
+
+        if variant.tree_search:
+            lexicon_file = get_bpe_bliss_lexicon(
+                bpe_size=bpe_size, add_blank=True, add_sentence_end_pron=(variant.bpe_lstm_lm_scale != 0)
+            )
+            if variant.word_lm == "4gram":
+                lm_config = librispeech_lm.get_arpa_lm_config(
+                    lm_name="4gram", lexicon_file=lexicon_file, scale=variant.word_lm_scale
+                )
+            elif variant.word_lm == "trafo":
+                lm_config = librispeech_lm.get_transformer_lm_config(lm_scale=variant.word_lm_scale)
+            elif variant.word_lm == "kazuki-trafo":
+                lm_config = librispeech_lm.get_kazuki_trafo_lm_config(lm_scale=variant.word_lm_scale)
+            else:
+                lm_config = None
+
+            recog_rasr_config_file = get_tree_timesync_recog_config(
+                lexicon_file=lexicon_file,
+                collapse_repeated_labels=False,
+                label_scorer_config=label_scorer_config,
+                lm_config=lm_config,
+                blank_index=blank_index,
+                max_beam_sizes=variant.max_beam_sizes,
+                max_word_end_beam_size=variant.max_word_end_beam_size,
+                score_thresholds=variant.score_thresholds,
+                word_end_score_threshold=variant.word_end_score_threshold,
+                maximum_stable_delay=variant.maximum_stable_delay if variant.use_streaming else None,
+                maximum_stable_delay_pruning_interval=(
+                    variant.maximum_stable_delay_pruning_interval if variant.use_streaming else None
+                ),
+                logfile_suffix="recog",
+            )
+
+            if variant.compute_search_errors:
+                align_rasr_config_file = get_tree_timesync_recog_config(
+                    lexicon_file=lexicon_file,
+                    collapse_repeated_labels=False,
+                    label_scorer_config=label_scorer_config,
+                    lm_config=lm_config,
+                    blank_index=blank_index,
+                    max_beam_sizes=[2048, 1024] if use_lstm_lm else 1024,
+                    score_thresholds=[20.0, 16.0] if use_lstm_lm else 16.0,
+                    logfile_suffix="align",
+                )
+        else:
+            vocab_file = get_bpe_vocab_file(bpe_size=bpe_size, add_blank=True)
+            recog_rasr_config_file = get_lexiconfree_timesync_recog_config(
+                vocab_file=vocab_file,
+                collapse_repeated_labels=False,
+                label_scorer_config=label_scorer_config,
+                blank_index=blank_index,
+                sentence_end_index=0 if use_lstm_lm else None,
+                max_beam_sizes=variant.max_beam_sizes,
+                score_thresholds=variant.score_thresholds,
+                maximum_stable_delay=variant.maximum_stable_delay if variant.use_streaming else None,
+                maximum_stable_delay_pruning_interval=(
+                    variant.maximum_stable_delay_pruning_interval if variant.use_streaming else None
+                ),
+                logfile_suffix="recog",
+            )
+            if variant.compute_search_errors:
+                align_rasr_config_file = get_lexiconfree_timesync_recog_config(
+                    vocab_file=vocab_file,
+                    collapse_repeated_labels=False,
+                    label_scorer_config=label_scorer_config,
+                    blank_index=blank_index,
+                    sentence_end_index=0 if use_lstm_lm else None,
+                    max_beam_sizes=[2048, 1024] if use_lstm_lm else 1024,
+                    score_thresholds=[20.0, 16.0] if use_lstm_lm else 16.0,
+                    logfile_suffix="align",
+                )
+
+        for recog_corpus in corpora:
+            if variant.use_streaming:
+                recog_results.append(
+                    recog_rasr_streaming(
+                        descriptor=variant.descriptor,
+                        checkpoint=checkpoint,
+                        recog_rasr_config_file=recog_rasr_config_file,
+                        recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
+                        recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
+                        encoder_serializers=model_serializers,
+                        encoder_frame_shift_seconds=variant.encoder_frame_shift_seconds,
+                        chunk_history_seconds=variant.chunk_history_seconds,
+                        chunk_center_seconds=variant.chunk_center_seconds,
+                        chunk_future_seconds=variant.chunk_future_seconds,
+                        sample_rate=16000,
+                        gpu_mem_rqmt=variant.gpu_mem_rqmt,
+                        mem_rqmt=variant.mem_rqmt,
+                    )
+                )
+            else:
+                recog_results.append(
+                    recog_rasr_offline(
+                        descriptor=variant.descriptor,
+                        checkpoint=checkpoint,
+                        recog_rasr_config_file=recog_rasr_config_file,
+                        align_rasr_config_file=align_rasr_config_file,
+                        recog_data_config=librispeech_datasets.get_default_recog_data(recog_corpus),
+                        recog_corpus=librispeech_datasets.get_default_score_corpus(recog_corpus),
+                        encoder_serializers=model_serializers,
+                        sample_rate=16000,
+                        gpu_mem_rqmt=variant.gpu_mem_rqmt,
+                        mem_rqmt=variant.mem_rqmt,
+                    )
+                )
+    return recog_results
 
 
 def run_all() -> List[RecogResult]:
-    with ExperimentContext("bpe_ffnn_transducer"):
-        train_job, model_config = run_training()
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
-        recog_results = run_base_recognition_suite(
-            checkpoint=checkpoint,
-            model_config=model_config,
-            descriptor="bpe_ffnn_transducer",
-            tree_trafo_search=False,
-            # tree_trafo_kazuki_search=False,
-        )
-    return recog_results
+    train_job, model_config = run_training()
+    checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
+    return run_recog_variants(checkpoint=checkpoint, model_config=model_config)

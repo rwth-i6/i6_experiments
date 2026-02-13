@@ -20,7 +20,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, L
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from sisyphus import tk
 
-from ..bpe_aed.pytorch_modules import AttentionLSTMDecoderV1, AttentionLSTMDecoderV1Config
+from ..aed.pytorch_modules import AttentionLSTMDecoderV1, AttentionLSTMDecoderV1Config
 from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
 
 

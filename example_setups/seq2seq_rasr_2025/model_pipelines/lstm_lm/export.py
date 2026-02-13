@@ -114,14 +114,12 @@ def export_state_initializer(model_config: LstmLmConfig, checkpoint: PtCheckpoin
                     "dim": model_config.lstm_hidden_size,
                     "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
                     "time_dim_axis": None,
-                    "batch_dim_axis": 1,
                     "dtype": "float32",
                 },
                 "lstm_h": {
                     "dim": model_config.lstm_hidden_size,
                     "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
                     "time_dim_axis": None,
-                    "batch_dim_axis": 1,
                     "dtype": "float32",
                 },
                 "lstm_out": {
@@ -157,14 +155,12 @@ def export_state_updater(model_config: LstmLmConfig, checkpoint: PtCheckpoint) -
                     "dim": model_config.lstm_hidden_size,
                     "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
                     "time_dim_axis": None,
-                    "batch_dim_axis": 1,
                     "dtype": "float32",
                 },
                 "lstm_h_in": {
                     "dim": model_config.lstm_hidden_size,
                     "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
                     "time_dim_axis": None,
-                    "batch_dim_axis": 1,
                     "dtype": "float32",
                 },
                 "token": {
@@ -179,14 +175,12 @@ def export_state_updater(model_config: LstmLmConfig, checkpoint: PtCheckpoint) -
                     "dim": model_config.lstm_hidden_size,
                     "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
                     "time_dim_axis": None,
-                    "batch_dim_axis": 1,
                     "dtype": "float32",
                 },
                 "lstm_h_out": {
                     "dim": model_config.lstm_hidden_size,
                     "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
                     "time_dim_axis": None,
-                    "batch_dim_axis": 1,
                     "dtype": "float32",
                 },
                 "lstm_out": {

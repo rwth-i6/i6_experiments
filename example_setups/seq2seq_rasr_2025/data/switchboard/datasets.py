@@ -42,7 +42,7 @@ def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
             "switchboard-1/sw02986A/sw2986A-ms98-a-0013",
         ],
     ).out_single_segment_files[1]
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[train_corpus_file],
         speed_perturbation=True,
         ogg_segments=50,
@@ -56,7 +56,7 @@ def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
 def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
     corpus_file = get_train_bliss_corpus_i6_legacy()
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[corpus_file],
             speed_perturbation=True,
             ogg_segments=50,
@@ -73,7 +73,7 @@ def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
 def get_default_bpe_phoneme_train_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
     corpus_file = get_train_bliss_corpus_i6_legacy()
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[corpus_file],
             speed_perturbation=True,
             ogg_segments=50,
@@ -240,7 +240,7 @@ def _get_hub5e00_cv_file() -> tk.Path:
 
 
 def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[_get_hub5e00_cv_file()],
         speed_perturbation=False,
         ogg_segments=1,
@@ -253,7 +253,7 @@ def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
 def get_default_phoneme_cv_data() -> MetaOggZipHdfTargetDataConfig:
     corpus_file = _get_hub5e00_cv_file()
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[_get_hub5e00_cv_file()],
             speed_perturbation=False,
             ogg_segments=1,
@@ -270,7 +270,7 @@ def get_default_phoneme_cv_data() -> MetaOggZipHdfTargetDataConfig:
 def get_default_bpe_phoneme_cv_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
     corpus_file = _get_hub5e00_cv_file()
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[corpus_file],
             speed_perturbation=False,
             ogg_segments=1,
@@ -310,7 +310,7 @@ def get_default_prior_data() -> MetaOggZipDataConfig:
     train_corpus_file = get_train_bliss_corpus_i6_legacy()
     segment_file = SegmentCorpusJob(train_corpus_file, 3).out_single_segment_files[1]
 
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[train_corpus_file],
         speed_perturbation=False,
         ogg_segments=50,
@@ -328,7 +328,7 @@ def get_default_recog_data(corpus_name: str) -> OggZipDataConfig:
     else:
         raise ValueError(f"Recog corpus name '{corpus_name}' not known.")
 
-    return OggZipDataConfig(
+    return OggZipDataConfig.from_bliss(
         bliss_corpus_files=[corpus_file],
         speed_perturbation=False,
         ogg_segments=1,

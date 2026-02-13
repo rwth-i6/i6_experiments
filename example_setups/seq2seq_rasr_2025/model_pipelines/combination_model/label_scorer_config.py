@@ -8,9 +8,6 @@ __all__ = [
 
 from dataclasses import fields
 from typing import Optional
-from ...model_pipelines.common.recog_rasr_config import (
-    get_combine_label_scorer_config as _get_combine_label_scorer_config,
-)
 from ..bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
 from ..bpe_lstm_lm.pytorch_modules import LstmLmConfig
 from sisyphus import tk

@@ -1,10 +1,17 @@
-__all__ = ["NoConfig", "PassSamplesModel", "SpecaugmentByLengthConfig", "lengths_to_padding_mask"]
+__all__ = [
+    "NoConfig",
+    "PassSamplesModel",
+    "LogMelFeatureExtractionV1Model",
+    "SpecaugmentByLengthConfig",
+    "lengths_to_padding_mask",
+]
 
 from dataclasses import dataclass
 from typing import Tuple
 
 import torch
 from i6_models.config import ModelConfiguration
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 
 
 @dataclass
@@ -26,6 +33,20 @@ class PassSamplesModel(torch.nn.Module):
             audio_samples = audio_samples.squeeze(-1)  # [B, T]
 
             return audio_samples, audio_samples_size
+
+
+class LogMelFeatureExtractionV1Model(LogMelFeatureExtractionV1):
+    def __init__(self, cfg: LogMelFeatureExtractionV1Config, **_):
+        super().__init__(cfg=cfg)
+
+    def forward(
+        self,
+        audio_samples: torch.Tensor,  # [B, T, 1]
+        audio_samples_size: torch.Tensor,  # [B]
+    ) -> torch.Tensor:  # [B, F]
+        squeezed_samples = audio_samples.squeeze(-1)  # [B, T]
+        features, _ = super().forward(raw_audio=squeezed_samples, length=audio_samples_size)  # [B, F]
+        return features
 
 
 @dataclass
