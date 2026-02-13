@@ -161,8 +161,6 @@ class Qwen2Model(rf.Module):
         import tree
         import torch
 
-        print("state pos:", state.pos, state.pos.raw_tensor, state.pos.raw_tensor.cpu().numpy())
-
         batch_dims = state.batch_dims
         merged_batch_dim: Dim = prod(batch_dims)
         spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
@@ -183,7 +181,6 @@ class Qwen2Model(rf.Module):
             assert isinstance(obj, Tensor), f"expected Tensor, got {obj} {type(obj)}"
             for dim in batch_dims:
                 assert dim in obj.dims, f"expected {dim} in {obj.dims} for {obj}"
-            # obj = obj.copy_masked(0)
             obj, _ = rf.merge_dims(obj, dims=batch_dims, out_dim=merged_batch_dim)
             return obj.copy_transpose([merged_batch_dim] + [dim for dim in obj.dims if dim != merged_batch_dim])
 
@@ -234,18 +231,14 @@ class Qwen2Model(rf.Module):
         # See transformers.masking_utils.create_causal_mask for doc.
         # attention_mask: (batch_size, number_of_seen_tokens+q_length)
         attention_mask_raw = _combine_batch_and_beam_raw(
-            new_mask.copy_compatible_to_dims(  #  rf.where(new_mask, 0.0, float("-inf"))
-                batch_dims + [new_hist_dim], unbroadcast=True
-            )
+            new_mask.copy_compatible_to_dims(batch_dims + [new_hist_dim], unbroadcast=True)
         )
-        print(f"attention_mask_raw\n{attention_mask_raw.detach().cpu().numpy()}")
         # position_ids: (batch_size, query_length)
         position_ids_raw = _combine_batch_and_beam_raw(
             rf.combine_bc(state.pos, "+", range_over_spatial).copy_compatible_to_dims(
                 batch_dims + [spatial_dim_], unbroadcast=True
             )
         )
-        print(f"position_ids_raw\n{position_ids_raw.detach().cpu().numpy()}")
         output = self._call_func(
             past_key_values=DynamicCache.from_legacy_cache(past_key_values_raw),
             inputs_embeds=input_embeds_raw,
