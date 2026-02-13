@@ -112,6 +112,7 @@ def lm_labelwise_prior_rescore(
     orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
     lm_scale: Union[float, tk.Variable, DelayedBase],
+    lm_rescore_config: Optional[Dict[str, Any]] = None,
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
@@ -133,6 +134,7 @@ def lm_labelwise_prior_rescore(
     :param orig_scale: scale for the original scores
     :param lm: language model
     :param lm_scale: scale for the LM scores
+    :param lm_rescore_config:
     :param lm_rescore_rqmt:
     :param vocab: for LM labels in res / raw_res_labels
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
@@ -142,7 +144,12 @@ def lm_labelwise_prior_rescore(
     """
     dataset, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
     res_labels_lm_scores = lm_score(
-        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+        raw_res_labels,
+        lm=lm,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        config=lm_rescore_config,
+        rescore_rqmt=lm_rescore_rqmt,
     )
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
@@ -360,6 +367,7 @@ def lm_score(
     lm: ModelWithCheckpoint,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
+    config: Optional[Dict[str, Any]] = None,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
@@ -372,6 +380,7 @@ def lm_score(
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param config: additional config
     :param rescore_rqmt:
     """
     return rescore(
@@ -380,6 +389,7 @@ def lm_score(
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_def=lm_rescore_def,
+        config=config,
         forward_rqmt=rescore_rqmt,
     )
 

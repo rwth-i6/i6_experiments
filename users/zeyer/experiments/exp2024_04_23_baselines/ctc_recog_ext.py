@@ -1597,6 +1597,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     labelwise_prior: Optional[Prior] = None,
     prior_dataset: Optional[DatasetConfig] = None,
     lm: ModelWithCheckpoint,
+    lm_rescore_config: Optional[Dict[str, Any]] = None,
     vocab_file: Optional[tk.Path] = None,
     vocab_opts_file: Optional[tk.Path] = None,
     n_best_list_size: int = 64,
@@ -1700,7 +1701,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         keep_beam=True,
     )
     prior_scores = prior_score(asr_scores, prior=labelwise_prior)
-    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, config=lm_rescore_config)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
@@ -1749,6 +1750,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
                 prior_scale=prior_scale,
                 lm=lm,
                 lm_scale=lm_scale,
+                lm_rescore_config=lm_rescore_config,
                 lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
