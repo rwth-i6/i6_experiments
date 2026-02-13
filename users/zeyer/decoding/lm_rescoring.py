@@ -396,11 +396,37 @@ def lm_score(
 
 def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
     import returnn.frontend as rf
+    from returnn.config import get_global_config
 
     targets_beam_dim  # noqa  # unused here
 
     # noinspection PyTypeChecker
     model: TransformerDecoder
+
+    returnn_config = get_global_config(return_empty_if_none=True)
+
+    # This is supposed to follow the same API as used in
+    # i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2.
+    default_data_convert_labels_func = returnn_config.typed_dict.get("default_data_convert_labels_func")
+    if default_data_convert_labels_func:
+        new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = default_data_convert_labels_func(
+            new_am_labels=targets,
+            new_am_labels_spatial_dim=targets_spatial_dim,
+            lm_target_dim=model.vocab_dim,
+            last_am_frame=True,
+        )
+        assert (
+            isinstance(new_lm_labels, Tensor)
+            and isinstance(new_lm_labels_spatial_dim, Dim)
+            and isinstance(num_am_labels_converted, Tensor)
+        )
+        assert new_lm_labels.sparse_dim == model.vocab_dim
+        assert (num_am_labels_converted == targets_spatial_dim.get_size_tensor()).raw_tensor.all(), (
+            f"expected all {targets_spatial_dim} {targets_spatial_dim.get_size_tensor().raw_tensor} AM labels"
+            f" to be converted, got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
+            f" converted via {default_data_convert_labels_func}"
+        )
+        targets, targets_spatial_dim = new_lm_labels, new_lm_labels_spatial_dim
 
     assert targets.sparse_dim == model.vocab_dim
 
