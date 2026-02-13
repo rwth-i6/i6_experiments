@@ -134,6 +134,7 @@ def test_qwen2_finetuned():
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm, Qwen2Model
     import tree
     import functools
+    from returnn.util.hot_reload import ConfigHotReloader
 
     _init()
 
@@ -166,7 +167,21 @@ def test_qwen2_finetuned():
     print("Vocab:", model.vocab_dim)
     model.model.to(rf.get_default_device())
 
-    test_lm(model, atol=2e-5, rtol=0.02)
+    if sys.stdin.isatty():
+        hot_reloader = ConfigHotReloader({"Qwen2Model": Qwen2Model})
+        while True:
+            try:
+                test_lm(model, atol=2e-5, rtol=0.02)
+                break
+            except Exception as exc:
+                print("Exception with hot reloading enabled:")
+                sys.excepthook(type(exc), exc, exc.__traceback__)
+                hot_reloader.wait_for_user()
+                hot_reloader.reload_changed_modules()
+                model.__class__ = hot_reloader.config["Qwen2Model"]
+
+    else:  # not interactive
+        test_lm(model, atol=2e-5, rtol=0.02)
 
 
 def _print_dim(prefix: str, dim: Dim):
