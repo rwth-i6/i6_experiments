@@ -160,7 +160,7 @@ class Qwen2Model(rf.Module):
         range_over_spatial = rf.range_over_dim(spatial_dim_, device=source.device)
         new_mask, new_hist_dim = rf.concat(
             (rf.replace_dim(state.mask, in_dim=state.hist_dim, out_dim=hist_padded_dim)[0], hist_padded_dim),
-            (range_over_spatial < spatial_dim_.get_size_tensor(device=source.device), spatial_dim_),
+            (rf.compare_bc(range_over_spatial, "<", spatial_dim_.get_size_tensor(device=source.device)), spatial_dim_),
             allow_broadcast=True,
         )
 
