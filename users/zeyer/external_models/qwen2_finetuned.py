@@ -54,6 +54,7 @@ def get_lm() -> ModelWithCheckpoint:
                             sis_hash="PUGzhO2dOEpK",
                         ),
                     ),
+                    "map_bos_to_eos": True,
                 },
             },
         },
