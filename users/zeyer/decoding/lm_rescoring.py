@@ -401,6 +401,9 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
 
     # noinspection PyTypeChecker
     model: TransformerDecoder
+
+    assert targets.sparse_dim == model.vocab_dim
+
     vocab = model.vocab_dim.vocab
     assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
 
