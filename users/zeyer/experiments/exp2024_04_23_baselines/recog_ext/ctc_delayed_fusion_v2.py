@@ -159,7 +159,7 @@ def convert_labels_func(
     )
     for bs in lm_labels_list_by_bs:
         lm_labels_list = lm_labels_list_by_bs[bs]
-        new_lm_labels.raw_tensor[bs][: len(lm_labels_list)] = lm_labels_list
+        new_lm_labels.raw_tensor[bs][: len(lm_labels_list)] = rf.convert_to_tensor(lm_labels_list).raw_tensor
     num_am_labels_converted = rf.zeros(batch_dims, dtype="int32", device="cpu")
     for bs in num_am_labels_converted_by_bs:
         num_am_labels_converted.raw_tensor[bs] = num_am_labels_converted_by_bs[bs]
