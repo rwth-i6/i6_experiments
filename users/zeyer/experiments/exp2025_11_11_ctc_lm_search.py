@@ -151,6 +151,7 @@ def py():
         ctc_model=am,
         extra_config={"aux_loss_layers": [aux_ctc_layer]},
         lm=qwen2_lm,
+        lm_rescore_config={"default_data_convert_labels_func": convert_labels_func_spm},
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
