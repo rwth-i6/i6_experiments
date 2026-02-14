@@ -1,5 +1,7 @@
 """
-CTC decoding with neural LM
+CTC decoding with neural LM.
+
+See :func:`model_recog_with_recomb_delayed_fusion_v2`.
 """
 
 from __future__ import annotations
@@ -184,6 +186,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
     Based on
     :func:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_v2.model_recog_with_recomb_v2`,
     :func:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion.model_recog_with_recomb_delayed_fusion`.
+
+    Note: It is recommended to test the LM API for correctness first, like in
+    :func:`i6_experiments.users.zeyer.returnn.rf_lm_test_impl.test_qwen2_finetuned`.
 
     Function is run within RETURNN.
 
