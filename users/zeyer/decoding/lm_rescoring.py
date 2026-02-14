@@ -422,6 +422,8 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
             and isinstance(num_am_labels_converted, Tensor)
         )
         assert new_lm_labels.sparse_dim == model.vocab_dim
+        print(f"seq lens {targets}: {targets_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
+        print(f"seq lens {new_lm_labels}: {new_lm_labels_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
         assert (num_am_labels_converted == targets_spatial_dim.get_size_tensor()).raw_tensor.all(), (
             f"expected all {targets_spatial_dim} {targets_spatial_dim.get_size_tensor().raw_tensor} AM labels"
             f" to be converted, got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
