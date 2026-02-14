@@ -190,6 +190,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
     Note: It is recommended to test the LM API for correctness first, like in
     :func:`i6_experiments.users.zeyer.returnn.rf_lm_test_impl.test_qwen2_finetuned`.
 
+    Also, there are several debug mechanisms in this code here,
+    which can be enabled via environment variables, see the code below.
+
     Function is run within RETURNN.
 
     :return:
