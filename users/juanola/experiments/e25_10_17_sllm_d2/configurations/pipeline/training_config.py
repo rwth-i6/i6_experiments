@@ -1,9 +1,10 @@
-import warnings
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
-from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.learning_rate_config import (
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.learning_rate.cosine_annealing_lr_config import \
+    CosineAnnealingLearningRateConfig, ca_lr_baseline_pk4, ca_lr_baseline_pk5
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.learning_rate.dynamic_lr_config import (
     DynamicLearningRateConfig,
     lr_baseline,
     lr_baseline_v3,
@@ -36,7 +37,7 @@ class TrainingConfig:
     batch_size: int
     batch_size_factor: int
 
-    dynamic_lr: DynamicLearningRateConfig
+    lr_config: Union[DynamicLearningRateConfig, CosineAnnealingLearningRateConfig]
     optimizer: OptimizerConfig
 
     # CPU & RAM
@@ -92,7 +93,7 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
     return TrainingConfig(
         epochs=100,
         partition_epoch_factor=20,
-        dynamic_lr=lr_baseline(),
+        lr_config=lr_baseline(),
         batch_size=15_000,
         batch_size_factor=160,
         optimizer=optimizer_baseline(),
@@ -150,19 +151,19 @@ def i6_4gpu_setup_v4_for_n_epochs(n_epochs: int) -> TrainingConfig:
 
 
 def bsv2_lrv2() -> TrainingConfig:
-    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v2())
+    return replace(itc_batch_size_80k(), lr_config=lr_baseline_v2())
 
 
 def bsv2_lrv3() -> TrainingConfig:
-    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v3())
+    return replace(itc_batch_size_80k(), lr_config=lr_baseline_v3())
 
 
 def bsv2_lrv4() -> TrainingConfig:
-    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v4())
+    return replace(itc_batch_size_80k(), lr_config=lr_baseline_v4())
 
 
 def bsv2_lrv5() -> TrainingConfig:
-    return replace(itc_batch_size_80k(), dynamic_lr=lr_baseline_v5())
+    return replace(itc_batch_size_80k(), lr_config=lr_baseline_v5())
 
 
 def itc_batch_size_80k_150_epochs() -> TrainingConfig:
@@ -206,10 +207,26 @@ FINETUNING
 """
 
 def finetuning_v1_lr4() -> TrainingConfig:
-    return replace(itc_v2_80k(), epochs=12, dynamic_lr=lr_baseline_v2())
+    return replace(itc_v2_80k(), epochs=12, lr_config=lr_baseline_v2())
 
 def finetuning_v2_lr5() -> TrainingConfig:
-    return replace(itc_v2_80k(), epochs=12, dynamic_lr=lr_baseline_v3())
+    return replace(itc_v2_80k(), epochs=12, lr_config=lr_baseline_v3())
+
+
+def finetuning_v3_ca_lr4() -> TrainingConfig:
+    return replace(itc_v2_80k(), epochs=12, lr_config=ca_lr_baseline_pk4())
+
+
+def finetuning_v4_ca_lr5() -> TrainingConfig:
+    return replace(itc_v2_80k(), epochs=12, lr_config=ca_lr_baseline_pk5())
+
+
+def finetuning_v3_ca_lr4_i6() -> TrainingConfig:
+    return replace(training_baseline(), epochs=12, lr_config=ca_lr_baseline_pk4())
+
+
+def finetuning_v4_ca_lr5_i6() -> TrainingConfig:
+    return replace(training_baseline(), epochs=12, lr_config=ca_lr_baseline_pk5())
 
 
 

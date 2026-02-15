@@ -11,10 +11,11 @@ from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_helpers import get_training_config
 from ...configurations.network.network_config import NetworkConfig
+from ...configurations.pipeline.learning_rate.cosine_annealing_lr_config import CosineAnnealingLearningRateConfig
+from ...configurations.pipeline.learning_rate.dynamic_lr_config import DynamicLearningRateConfig
 from ...configurations.pipeline.training_config import TrainingConfig
 from ...configurations.pretrained_models import PretrainedConfig, get_encoder_checkpoint, get_decoder_checkpoint, \
     get_sllm_checkpoint
-
 
 def create_training_job(training_name: str,
                         datasets: TrainingDatasets,
@@ -40,10 +41,16 @@ def create_training_job(training_name: str,
     :param train_epochs:
     :param returnn_root: Path to a checked out RETURNN repository
     """
-    train_args, training_rqmt = get_training_parameters(network_args, network_import_path,
+    train_args, training_job_rqmt, extra_return_configs = get_training_parameters(network_args, network_import_path,
                                                         returnn_root, train_epochs, train_step_module, batch_size, training_config, pretrained_config, network_config)
     returnn_config: ReturnnConfig = get_training_config(training_datasets=datasets, **train_args)
-    train_job = ReturnnTrainingJob(returnn_config, **training_rqmt)
+
+    # Add extra returnn_configs
+    for extra_return_config in extra_return_configs:
+        returnn_config.update(extra_return_config)
+
+
+    train_job = ReturnnTrainingJob(returnn_config, **training_job_rqmt)
 
     train_job.add_alias(f"{training_name}/training")
     tk.register_output(f"{training_name}/learning_rates", train_job.out_learning_rates)
@@ -54,10 +61,13 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
                             returnn_root: tk.Path, train_epochs: int, train_step_module: str, batch_size: int,
                             train_config_obj: TrainingConfig, pretrained_config: PretrainedConfig, network_config: NetworkConfig,
                             ) -> tuple[
-    dict[str, Any], dict[str, Any]]:
+    dict[str, Any], dict[str, Any], list[ReturnnConfig]]:
+    extra_return_configs = []
+
+    # TODO: consider different types of LR schedules
+
     train_config = { # TODO: lots of settings could be moved to configs.
         **train_config_obj.optimizer.get_optimizer_returnn_config(),
-        **train_config_obj.dynamic_lr.get_dynamic_lr_returnn_config(train_epochs),
         "batch_size": batch_size * train_config_obj.batch_size_factor,
         "max_seq_length": {"raw_audio": train_config_obj.max_seq_length_seconds * network_args["sampling_rate"]},
         "accum_grad_multiple_step": 1,
@@ -66,6 +76,15 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
     }
+
+    # LR
+    if isinstance(train_config_obj.lr_config, DynamicLearningRateConfig):
+        train_config.update(train_config_obj.lr_config.get_dynamic_lr_returnn_config(train_epochs))
+    elif isinstance(train_config_obj.lr_config, CosineAnnealingLearningRateConfig):
+        extra_return_configs.append(train_config_obj.lr_config.get_cosine_annealing_lr_config(epochs=train_epochs, debug = train_config_obj.debug_returnn_param))
+    else:
+        raise ValueError(f"unknown train_config_obj.lr_config {train_config_obj.lr_config}")
+
     if train_config_obj.use_torch_amp:
         train_config["torch_amp"] = train_config_obj.torch_amp
     if train_config_obj.use_grad_scaler:
@@ -143,7 +162,7 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
     if network_config.decoder_lora_opts is not None:
         train_args["use_lora_adapted_weights_method"] = True
 
-    training_rqmt = {  # TODO: extract as config file?
+    training_job_rqmt = {  # TODO: extract as config file?
         # Experiment Length
         "num_epochs": train_epochs,
         "time_rqmt": 168,
@@ -165,8 +184,8 @@ def get_training_parameters(network_args: dict[str, Any], network_import_path: s
             },
             "use_horovod": True,
         })
-        training_rqmt.update({
+        training_job_rqmt.update({
             "distributed_launch_cmd": "torchrun",
             "horovod_num_processes": train_config_obj.num_gpus,
         })
-    return train_args, training_rqmt
+    return train_args, training_job_rqmt, extra_return_configs

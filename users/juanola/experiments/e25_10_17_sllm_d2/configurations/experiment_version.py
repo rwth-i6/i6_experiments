@@ -9,7 +9,8 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     SLLM_small_linear_4gpu_10k, SLLM_small_linear_4gpu_10k_pre_d, bv2_ds_pre_d_b_c, bv2_ds_pre_ed_b_c, \
     bv2_ds_pre_d_b_c_f2, bv2_ds_pre_ed_b_c_f1, bv2_pre_ed_s_c_f2_oclr1, bv2_pre_ed_s_c_f2_oclr2, bv3_ds_pre_ed_b_c_lora, \
     bv3_pre_ed_s_c_lora, bv3_pre_ed_s_c_lora_small, bv2_ds_pre_ed_b_lm, bv2_pre_ed_s_lm, exp_v13_200, exp_v14_3ctc, \
-    exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5, exp_v5_s2, exp_v7_s2, exp_v10_3_s2
+    exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5, exp_v5_s2, exp_v7_s2, exp_v10_3_s2, exp_v15_small_12ep_ca_lr4, \
+    exp_v15_small_12ep_ca_lr5, exp_v15_small_12ep_ca_lr4_i6, exp_v15_small_12ep_ca_lr5_i6
 
 
 class ExperimentVersion(Enum):
@@ -85,6 +86,11 @@ class ExperimentVersion(Enum):
 
     V7_S2 = "SLLM_td_s2"
     V5_LINEAR_ADAPTER_S2 = "SLLM_small_linear_adapter_s2"
+
+    V15_SMALL_SLLM_CA4 = "SLLM_small_12finetuning_ca_lr4"
+    V15_SMALL_SLLM_CA5 = "SLLM_small_12finetuning_ca_lr5"
+    V15_SMALL_SLLM_CA4_I6 = "SLLM_small_12finetuning_ca_lr4_i6"
+    V15_SMALL_SLLM_CA5_I6 = "SLLM_small_12finetuning_ca_lr5_i6"
     # Expand here
 
     # Tests
@@ -164,6 +170,11 @@ _EXPERIMENT_BUILDERS = {
 
     ExperimentVersion.V7_S2: exp_v7_s2,
     ExperimentVersion.V5_LINEAR_ADAPTER_S2: exp_v5_s2,
+
+    ExperimentVersion.V15_SMALL_SLLM_CA4: exp_v15_small_12ep_ca_lr4,
+    ExperimentVersion.V15_SMALL_SLLM_CA5: exp_v15_small_12ep_ca_lr5,
+    ExperimentVersion.V15_SMALL_SLLM_CA4_I6: exp_v15_small_12ep_ca_lr4_i6,
+    ExperimentVersion.V15_SMALL_SLLM_CA5_I6: exp_v15_small_12ep_ca_lr5_i6,
     # Expand here
 
     # Tests

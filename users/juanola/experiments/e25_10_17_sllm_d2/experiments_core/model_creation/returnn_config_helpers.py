@@ -2,7 +2,7 @@
 Universal helpers to create configuration objects (i6_core ReturnnConfig) for RETURNN training/forwarding
 """
 import copy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
