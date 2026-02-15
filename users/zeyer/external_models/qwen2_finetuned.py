@@ -85,7 +85,7 @@ def get_lm() -> ModelWithCheckpoint:
     # ft_qwen0_5b_v2_bs25k_epoch100_part50_wup2.5_maxlr5e-06_full_ft--best            14.39 65.40
     # /rwthfs/rz/cluster/hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.xUyBGR1LEpaY/output/checkpoint.pt
 
-    # ft_qwen0_5b_v2_bs25k_epoch100_part50_wup2.5_maxlr5e-06_full_ft--best | test  | 43.38   | 59.54 |
+    # ft_qwen0_5b_v2_bs1.8k_epoch100_part50_wup2.5_maxlr1e-05_full_ft_lc--best | test  | 43.38   | 59.54 |
     # /rwthfs/rz/cluster/hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.41gWXslCurXV/output/checkpoint.pt
 
     checkpoint = Path(
