@@ -31,7 +31,8 @@ Checkpoints
 """
 
 _encoder_checkpoints = {
-    "ctc_v1": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt"
+    "ctc_v1": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt",
+    "ctc_v1-3": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt", # duplicate of 1 but to have different keys and call it with the 3rd layer in search
     # More here
 }
 

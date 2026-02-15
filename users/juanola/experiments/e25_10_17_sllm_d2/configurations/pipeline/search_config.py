@@ -9,7 +9,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.n
     network_baseline,
     NetworkConfig,
     network_baseline_v2_td,
-    network_base_v2_3ctc, network_baseline_v2_td_linear_small,
+    network_base_v2_3ctc,
+    network_baseline_v2_td_linear_small,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.beam_search_config import (
     BeamSearchConfig,
@@ -80,22 +81,23 @@ class PretrainedExternalModules(Enum):
         "label_config": label_baseline(),
     }
     CTC_STANDALONE_3_LAYERS = {
-        "checkpoint_key": "ctc_v1",
+        "checkpoint_key": "ctc_v1-3",
         "network_config": network_base_v2_3ctc(),
         "label_config": label_baseline(),
     }
 
     # Decoders
     LLM_BASE_COMBINED = {
-       "checkpoint_key": "llm_base_combined",
-       "network_config": network_baseline_v2_td(),
-       "label_config": label_baseline(),
+        "checkpoint_key": "llm_base_combined",
+        "network_config": network_baseline_v2_td(),
+        "label_config": label_baseline(),
     }
     LLM_SMALL_COMBINED = {
-       "checkpoint_key": "llm_small_combined",
-       "network_config": network_baseline_v2_td_linear_small(),
-       "label_config": label_baseline(),
+        "checkpoint_key": "llm_small_combined",
+        "network_config": network_baseline_v2_td_linear_small(),
+        "label_config": label_baseline(),
     }
+
 
 """
 parameter sets
@@ -248,27 +250,18 @@ def search_baseline_ctc_decoding_11gb_v2(
         ext_decoder=ext_decoder,
     )
 
+
 def search_ctc_decoding_11gb_v2_grid_search(
-        ext_encoder: Optional[tuple[str, NetworkConfig]] = None, ext_decoder: Optional[tuple[str, NetworkConfig]] = None
+    ext_encoder: Optional[tuple[str, NetworkConfig]] = None, ext_decoder: Optional[tuple[str, NetworkConfig]] = None
 ) -> SearchConfig:
-    return SearchConfig(
-        forward_method="forward_step_ctc_decoding_v2",
-        batch_size=5_000,
-        batch_size_factor=160,
-        use_gpu=True,
-        gpu_memory=11,  # TODO: perhaps increase this
-        beam_search=beam_search_baseline(),
-        prior=prior_v1(),
-        avg_best_loss_name="dev_loss_ce",
-        max_seqs=200,
-        lm_scales=[0.0,1.0],
-        sllm_scales=[0.0,1.0],
+    return dataclasses.replace(
+        search_baseline_ctc_decoding_11gb_v2(),
+        lm_scales=[0.0, 1.0],
+        sllm_scales=[0.0, 1.0],
         ctc_scales=[1.0],
-        prior_scales=[0.0],
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
     )
-
 
 
 """
