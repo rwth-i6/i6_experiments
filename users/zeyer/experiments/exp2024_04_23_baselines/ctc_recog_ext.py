@@ -912,10 +912,13 @@ def ctc_model_ext_def(
     assert isinstance(lm_scale, (int, float))
     model.lm_scale = lm_scale
     lm_model_def_dict = config.typed_value("_lm_model_def_dict", None)
+    lm_model_def = config.typed_value("_lm_model_def", None)
     lm_ngram_file = config.typed_value("lm_ngram_file", None)
     ctc_decoder_opts = config.typed_value("ctc_decoder_opts", None)
     if lm_model_def_dict:
         model.lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
+    elif lm_model_def:
+        model.lm = lm_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
     elif lm_ngram_file or ctc_decoder_opts is not None:
         assert isinstance(ctc_decoder_opts, dict)  # e.g. lexicon, nbest, beam_size, etc, see below
 
