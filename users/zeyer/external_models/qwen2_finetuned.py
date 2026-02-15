@@ -270,7 +270,6 @@ class Qwen2Model(rf.Module):
         logits_raw = logits_raw[..., : self.vocab_dim.dimension]  # (batch*beam, time, vocab)
 
         new_state = rf.State(
-            batch_dims=batch_dims,
             pos=new_pos,
             hist_dim=new_hist_dim,
             mask=new_mask,
