@@ -239,7 +239,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
-    # 1.20260212.101626: RF PT pad, fix left pad for non-scalar value
+    # 1.20260212.101626: RF PT pad, fix left pad for non-scalar value / RF fix causal self att with concat state
     # 1.20260215.233656: fix in gather_nested.
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20260215, 233656), returnn.__version__
 
