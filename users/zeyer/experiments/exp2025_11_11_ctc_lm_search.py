@@ -158,6 +158,7 @@ def py():
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
         },
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
@@ -169,6 +170,7 @@ def py():
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
         },
     )
 
