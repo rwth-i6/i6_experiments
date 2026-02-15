@@ -295,7 +295,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         spatial_dim=single_step_dim,
         state=lm_state,
     )  # Batch, InBeam, Vocab / ...
-    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+    lm_log_probs = rf.log_softmax(lm_logits, axis=lm_target_dim)  # Batch, InBeam, Vocab
 
     if debug:
         print("initial LM log probs:", end="")
