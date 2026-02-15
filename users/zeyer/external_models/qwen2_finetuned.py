@@ -149,7 +149,6 @@ class Qwen2Model(rf.Module):
         hist_dim = Dim(0, name="history")
         batch_dims = list(batch_dims)
         state = rf.State(
-            batch_dims=batch_dims,
             pos=rf.constant(0, dims=batch_dims, dtype="int32"),
             hist_dim=hist_dim,
             mask=rf.constant(True, dims=batch_dims + [hist_dim], dtype="bool"),
@@ -177,7 +176,7 @@ class Qwen2Model(rf.Module):
         assert encoder is None  # this opt is just there for compat with RF TransformerDecoder
         assert source.sparse_dim and source.sparse_dim == self.vocab_dim
 
-        batch_dims = state.batch_dims
+        batch_dims = source.dims if spatial_dim == single_step_dim else source.remaining_dims(spatial_dim)
         merged_batch_dim: Dim = prod(batch_dims)
         spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
         source = source.copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
