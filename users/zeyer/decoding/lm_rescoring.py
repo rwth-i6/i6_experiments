@@ -400,6 +400,7 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
     from returnn.config import get_global_config
 
     targets_beam_dim  # noqa  # unused here
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
 
     # noinspection PyTypeChecker
     model: TransformerDecoder
@@ -410,6 +411,11 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
     # i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2.
     default_data_convert_labels_func = returnn_config.typed_dict.get("default_data_convert_labels_func")
     if default_data_convert_labels_func:
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_debugging import (
+            _generic_seq_label_print,
+        )
+
+        _generic_seq_label_print(targets, targets_spatial_dim, prefix="AM labels", dims_no_iter=batch_dims)
         new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = default_data_convert_labels_func(
             new_am_labels=targets,
             new_am_labels_spatial_dim=targets_spatial_dim,
@@ -422,8 +428,8 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
             and isinstance(num_am_labels_converted, Tensor)
         )
         assert new_lm_labels.sparse_dim == model.vocab_dim
-        print(f"seq lens {targets}: {targets_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
-        print(f"seq lens {new_lm_labels}: {new_lm_labels_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
+        # print(f"seq lens {targets_spatial_dim}: {targets_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
+        # print(f"seq lens {new_lm_labels_spatial_dim}: {new_lm_labels_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
         assert (num_am_labels_converted == targets_spatial_dim.get_size_tensor()).raw_tensor.all(), (
             f"expected all {targets_spatial_dim} {targets_spatial_dim.get_size_tensor().raw_tensor} AM labels"
             f" to be converted, got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
@@ -431,6 +437,7 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
         )
         new_lm_labels = rf.copy_to_device(new_lm_labels, device=targets.device)
         targets, targets_spatial_dim = new_lm_labels, new_lm_labels_spatial_dim
+        _generic_seq_label_print(targets, targets_spatial_dim, prefix="LM labels", dims_no_iter=batch_dims)
 
     assert targets.sparse_dim == model.vocab_dim
 
@@ -440,6 +447,7 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
     )
+    targets_w_eos_spatial_dim: Dim
     targets_w_eos, _ = rf.pad(
         targets,
         axes=[targets_spatial_dim],
@@ -448,18 +456,33 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
         out_dims=[targets_w_eos_spatial_dim],
     )
 
-    batch_dims = targets.remaining_dims(targets_spatial_dim)
-    logits, _ = model(
-        input_labels,
-        spatial_dim=targets_w_eos_spatial_dim,
-        encoder=None,
-        state=model.default_initial_state(batch_dims=batch_dims),
-    )
+    chunk_size = returnn_config.typed_value("chunk_size_for_lm_rescoring", None)
 
-    log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
-    log_prob_targets = rf.gather(
-        log_prob, indices=targets_w_eos, axis=model.vocab_dim
-    )  # [batch,beam,targets_spatial_w_eos]
+    state = model.default_initial_state(batch_dims=batch_dims)
+    if chunk_size:
+        log_prob_targets_collected = []
+        for chunk_start in range(0, targets_w_eos_spatial_dim.get_dim_value(), chunk_size):
+            end = rf.minimum(targets_w_eos_spatial_dim.get_size_tensor(), chunk_start + chunk_size)
+            input_labels_chunk, chunk_spatial_dim = rf.slice(
+                input_labels, axis=targets_w_eos_spatial_dim, start=chunk_start, end=end
+            )
+            targets_w_eos_chunk, _ = rf.slice(
+                targets_w_eos, axis=targets_w_eos_spatial_dim, start=chunk_start, end=end, out_dim=chunk_spatial_dim
+            )
+            logits_chunk, state = model(input_labels_chunk, spatial_dim=chunk_spatial_dim, encoder=None, state=state)
+            log_prob_chunk = rf.log_softmax(logits_chunk, axis=model.vocab_dim)
+            log_prob_targets_chunk = rf.gather(
+                log_prob_chunk, indices=targets_w_eos_chunk, axis=model.vocab_dim
+            )  # [batch,beam,chunk_spatial_dim]
+            log_prob_targets_collected.append((log_prob_targets_chunk, chunk_spatial_dim))
+        log_prob_targets, _ = rf.concat(*log_prob_targets_collected, out_dim=targets_w_eos_spatial_dim)
+    else:
+        logits, _ = model(input_labels, spatial_dim=targets_w_eos_spatial_dim, encoder=None, state=state)
+        log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
+        log_prob_targets = rf.gather(
+            log_prob, indices=targets_w_eos, axis=model.vocab_dim
+        )  # [batch,beam,targets_spatial_w_eos]
+
     log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
     assert log_prob_targets_seq.dims_set == set(batch_dims)
     return log_prob_targets_seq

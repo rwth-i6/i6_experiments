@@ -488,7 +488,11 @@ def _seq_label_lm_score(prefix: str, state: rf.State, lm: TransformerDecoder):
     _generic_print(log_probs)
 
 
-def _generic_seq_label_print(labels: Tensor, spatial_dim: Dim, *, dims_no_iter: Collection[Dim] = ()):
+def _generic_seq_label_print(
+    labels: Tensor, spatial_dim: Dim, *, dims_no_iter: Collection[Dim] = (), prefix: Optional[str] = None
+):
+    if prefix is not None:
+        print(prefix, end="")
     labels = rf.copy_to_device(labels, "cpu")
     batch_dims = labels.remaining_dims(spatial_dim)
     for indices in _iter_dims_indices(batch_dims, dims_no_iter=dims_no_iter):
