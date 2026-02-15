@@ -348,10 +348,10 @@ def e3v10_3_s2():
 
 
 def e3_ft3_i6():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5])
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5_I6])
 
 def e3_ft4_i6():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4])
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4_I6])
 
 def e3_ft3():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5], itc_training=True)
