@@ -126,6 +126,7 @@ def convert_labels_func(
         if debug:
             print(f"batch index {bs}: new AM labels:", end="")
             _generic_seq_label_print(am_labels_, spatial_dim=am_spatial_dim)
+        assert am_labels_.dims == (am_spatial_dim,) and am_lens.dims == ()
         am_labels_raw = am_labels_.raw_tensor
         am_lens_raw = am_lens.raw_tensor.item()
         if last_am_frame:
@@ -133,10 +134,10 @@ def convert_labels_func(
         else:
             am_full_words_len = 0
             for i in reversed(range(am_lens_raw)):
-                if is_am_label_word_end and is_am_label_word_end(am_lens_raw[i], vocab=am_vocab, **_kwargs):
+                if is_am_label_word_end and is_am_label_word_end(am_labels_raw[i], vocab=am_vocab, **_kwargs):
                     am_full_words_len = i + 1
                     break
-                if is_am_label_word_start and is_am_label_word_start(am_lens_raw[i], vocab=am_vocab, **_kwargs):
+                if is_am_label_word_start and is_am_label_word_start(am_labels_raw[i], vocab=am_vocab, **_kwargs):
                     am_full_words_len = i
                     break
         num_am_labels_converted_by_bs[bs] = am_full_words_len
