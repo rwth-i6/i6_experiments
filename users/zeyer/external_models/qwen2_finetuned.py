@@ -176,7 +176,7 @@ class Qwen2Model(rf.Module):
         assert encoder is None  # this opt is just there for compat with RF TransformerDecoder
         assert source.sparse_dim and source.sparse_dim == self.vocab_dim
 
-        batch_dims = source.dims if spatial_dim == single_step_dim else source.remaining_dims(spatial_dim)
+        batch_dims = list(source.dims) if spatial_dim == single_step_dim else source.remaining_dims(spatial_dim)
         merged_batch_dim: Dim = prod(batch_dims)
         spatial_dim_ = spatial_dim if spatial_dim != single_step_dim else Dim(1, name="time_single_step")
         source = source.copy_compatible_to_dims(batch_dims + [spatial_dim_], unbroadcast=True)
