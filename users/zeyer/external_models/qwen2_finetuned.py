@@ -61,22 +61,22 @@ def get_lm() -> ModelWithCheckpoint:
     )
     config = {}
 
-    from speech_llm.prefix_lm.model.custom_missing_load_funcs.qwen import qwen_load_tied_embedding_matrices
-
-    config["preload_from_files"] = {
-        "qwen": {
-            # /home/hq237549/experiments/2026-01-20--llm/work/i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors
-            "filename": Path(
-                "qwen2-0_5b_model.safetensors",
-                creator=make_fake_job(module="i6_core.tools.download", name="DownloadJob", sis_hash="6SV1LOlUtQMG"),
-            ),
-            "init_for_train": True,
-            "checkpoint_key": None,
-            "prefix": "model.",
-            "custom_missing_load_func": qwen_load_tied_embedding_matrices,
-            "ignore_missing": True,
-        }
-    }
+    # from speech_llm.prefix_lm.model.custom_missing_load_funcs.qwen import qwen_load_tied_embedding_matrices
+    #
+    # config["preload_from_files"] = {
+    #     "qwen": {
+    #         # /home/hq237549/experiments/2026-01-20--llm/work/i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors
+    #         "filename": Path(
+    #             "qwen2-0_5b_model.safetensors",
+    #             creator=make_fake_job(module="i6_core.tools.download", name="DownloadJob", sis_hash="6SV1LOlUtQMG"),
+    #         ),
+    #         "init_for_train": True,
+    #         "checkpoint_key": None,
+    #         "prefix": "model.",
+    #         "custom_missing_load_func": qwen_load_tied_embedding_matrices,
+    #         "ignore_missing": True,
+    #     }
+    # }
 
     # ft_qwen0_5b_v2_bs25k_epoch100_part50_wup2.5_maxlr5e-06_frz_emb_full_ft--best            14.68     67.44:
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.biueEBxdJI4u/output/checkpoint.pt
