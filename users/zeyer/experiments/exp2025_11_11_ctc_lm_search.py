@@ -116,6 +116,7 @@ def py():
         convert_labels_func_no_op,
         spm_space_first_is_word_start,
         spm_label_merge,
+        seq_str_postprocess_lower_case,
     )
 
     for interval in [1, 5, 10, 20]:
@@ -147,7 +148,7 @@ def py():
         convert_labels_func,
         is_am_label_word_start=spm_space_first_is_word_start,
         custom_am_label_merge=spm_label_merge,
-        seq_str_postprocess_func=str.lower,
+        seq_str_postprocess_func=seq_str_postprocess_lower_case,
     )
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",

@@ -64,6 +64,11 @@ def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, **_kwargs) -> str:
     return "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ").strip()
 
 
+def seq_str_postprocess_lower_case(seq_str: str, **_kwargs) -> str:
+    """convert to lower case"""
+    return seq_str.lower()
+
+
 # bind is_am_label_word_start or is_am_label_word_end via functools.partial
 def convert_labels_func(
     *,
