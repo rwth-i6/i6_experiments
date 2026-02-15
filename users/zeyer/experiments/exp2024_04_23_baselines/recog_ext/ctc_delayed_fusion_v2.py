@@ -74,6 +74,7 @@ def convert_labels_func(
     is_am_label_word_start: Optional[Callable] = None,
     is_am_label_word_end: Optional[Callable] = None,
     custom_am_label_merge: Optional[Callable] = None,
+    seq_str_postprocess_func: Optional[Callable] = None,
     **_kwargs,
 ) -> Tuple[Tensor, Dim, Tensor]:
     """
@@ -88,6 +89,8 @@ def convert_labels_func(
     :param is_am_label_word_start:
     :param is_am_label_word_end:
     :param custom_am_label_merge:
+    :param seq_str_postprocess_func: optional. func (seq_str: str, vocab: Vocabulary, ...) -> str,
+        postprocess the converted seq_str before converting to LM labels
     :return: (new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted)
         1. new_lm_labels: Tensor of shape {batch..., new_lm_labels_spatial_dim} -> lm_target_dim
         2. new_lm_labels_spatial_dim: Dim of new LM labels
@@ -135,11 +138,13 @@ def convert_labels_func(
         if am_full_words_len > 0:
             am_labels_raw = am_labels_raw[:am_full_words_len]
             if custom_am_label_merge:
-                am_seq_str = custom_am_label_merge(am_labels_raw, vocab=am_vocab, **_kwargs)
-                assert isinstance(am_seq_str, str)
+                seq_str = custom_am_label_merge(am_labels_raw, vocab=am_vocab, **_kwargs)
+                assert isinstance(seq_str, str)
             else:
-                am_seq_str = am_vocab.get_seq_labels(am_labels_raw)
-            lm_labels_list = lm_vocab.get_seq(am_seq_str)
+                seq_str = am_vocab.get_seq_labels(am_labels_raw)
+            if seq_str_postprocess_func is not None:
+                seq_str = seq_str_postprocess_func(seq_str=seq_str, vocab=am_vocab, **_kwargs)
+            lm_labels_list = lm_vocab.get_seq(seq_str)
         else:
             lm_labels_list = []
         if debug:
