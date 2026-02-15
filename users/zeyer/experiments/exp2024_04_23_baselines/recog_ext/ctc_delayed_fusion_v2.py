@@ -127,7 +127,7 @@ def convert_labels_func(
             print(f"batch index {bs}: new AM labels:", end="")
             _generic_seq_label_print(am_labels_, spatial_dim=am_spatial_dim)
         assert am_labels_.dims == (am_spatial_dim,) and am_lens.dims == ()
-        am_labels_raw = am_labels_.raw_tensor
+        am_labels_raw = am_labels_.raw_tensor.tolist()
         am_lens_raw = am_lens.raw_tensor.item()
         if last_am_frame:
             am_full_words_len = am_lens_raw
