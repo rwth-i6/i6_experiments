@@ -265,27 +265,31 @@ def tune_and_evaluate_model(
         for lm_scale in search_config.lm_scales:
             for prior_scale in search_config.prior_scales:
                 for ctc_scale in search_config.ctc_scales:
-                    forward_args, search_name = get_forward_step_parameters_and_search_name(
-                        forward_method, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale
-                    )
+                    for sllm_scale in search_config.sllm_scales:
+                        forward_args, search_name = get_forward_step_parameters_and_search_name(
+                            search_config, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale, sllm_scale
+                        )
 
-                    _, wers = search(
-                        search_name,
-                        search_config,
-                        asr_model=asr_model,
-                        forward_module=RECOGNITION_PACKAGE,
-                        forward_method=forward_method,
-                        test_dataset_tuples=dev_dataset_tuples,
-                        debug=debug,
-                        vocab_opts=vocab_opts,
-                        forward_args=forward_args,
-                        **default_returnn,
-                    )
+                        _, wers = search(
+                            search_name,
+                            search_config,
+                            asr_model=asr_model,
+                            forward_module=RECOGNITION_PACKAGE,
+                            forward_method=forward_method,
+                            test_dataset_tuples=dev_dataset_tuples,
+                            debug=debug,
+                            vocab_opts=vocab_opts,
+                            forward_args=forward_args,
+                            **default_returnn,
+                        )
 
-                    tune_parameters.append((beam_size, lm_scale, prior_scale, ctc_scale))
-                    tune_values_clean.append((wers[f"{search_name}/dev-clean"]))
-                    tune_values_other.append((wers[f"{search_name}/dev-other"]))
-                    results.update(wers)
+                        params = (beam_size, lm_scale, prior_scale, ctc_scale)
+                        if forward_method  == "forward_step_ctc_decoding_v2":
+                            params += (sllm_scale,)
+                        tune_parameters.append(params)
+                        tune_values_clean.append((wers[f"{search_name}/dev-clean"]))
+                        tune_values_other.append((wers[f"{search_name}/dev-other"]))
+                        results.update(wers)
 
     # EVALUATION (only if run_test)
     if run_test and test_dataset_tuples is not None:
@@ -297,12 +301,13 @@ def tune_and_evaluate_model(
             best_params = pick_optimal_params_job.out_optimal_parameters
 
             forward_args, search_name = get_forward_step_parameters_and_search_name(
-                forward_method,
+                search_config,
                 evaluation_name,
                 best_params[0],
                 best_params[1],
                 best_params[2],
                 best_params[3],
+                best_params[4] if forward_method == "forward_step_ctc_decoding_v2" else None,
                 for_test=True,
             )
 
@@ -324,13 +329,14 @@ def tune_and_evaluate_model(
 
 
 def get_forward_step_parameters_and_search_name(
-    forward_method: str,
+        search_config: SearchConfig,
     evaluation_name: str,
-    beam_size: Union[int, Variable],
-    lm_scale: Union[int, Variable],
-    prior_scale: Union[int, Variable],
-    ctc_scale: Union[int, Variable],
-        for_test:bool = False
+    beam_size: Union[int, Variable] = None,
+    lm_scale: Union[float, Variable] = None,
+    prior_scale: Union[float, Variable] = None,
+    ctc_scale: Union[float, Variable] = None,
+    sllm_scale: Union[float, Variable] = None,
+    for_test:bool = False
 ) -> tuple[dict[str, Any], str]:
     """
     TODO: strings could be use for testing with DelayedFormating, but further changes in the code would be needed...
@@ -343,6 +349,8 @@ def get_forward_step_parameters_and_search_name(
     :param ctc_scale:
     :return:
     """
+    forward_method = search_config.forward_method
+
     if forward_method == "forward_step_greedy_ctc":
         return {}, f"{evaluation_name}/ctc_greedy"
 
@@ -372,6 +380,25 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
         search_name = f"{evaluation_name}/v3_optimal_params" if for_test else f"{evaluation_name}/v3_beam{beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
+    elif forward_method == "forward_step_ctc_decoding_v2":
+        prefix = "v4"
+        if search_config.ext_encoder is not None:
+            prefix = prefix + f"-{search_config.ext_encoder['checkpoint_key']}"
+        if search_config.ext_encoder is not None:
+            prefix = prefix + f"-{search_config.ext_decoder['checkpoint_key']}"
+
+        forward_args = {
+            "beam_size": beam_size,
+            "ctc_scale": ctc_scale,
+            "prior_scale": prior_scale,
+            "lm_scale": lm_scale,
+            "sllm_scale": sllm_scale,
+            # "ctc_soft_collapse_threshold": None,
+            # "ctc_top_k_pruning": None,
+            # "ctc_top_k_pruning_reduce_func": "mean",
+        }
+        # TODO: make the name depend on the external ctc + lm checkpoints
+        search_name = f"{evaluation_name}/{prefix}_optimal_params" if for_test else f"{evaluation_name}/{prefix}_beam{beam_size}_sllm{sllm_scale:.1f}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
     else:
         raise ValueError(f"Unknown forward method: {forward_method}")
 

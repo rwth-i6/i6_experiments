@@ -8,11 +8,20 @@ from .qwen2_decoder_state import Qwen2DecoderState
 
 
 class SllmV4(SllmV3):
+    """
+    SLLM with external modules:
+    - self.external_ctc
+    - self.external_lm
+    """
+
+    external_ctc: Optional[SllmV3]
+    external_lm: Optional[SllmV3]
+
     def __init__(
         self,
         # Path to checkpoint or a dict containing the full SllmV3 kwargs
-        external_ctc_setup: Optional[Dict[str, Any]] = None,
-        external_lm_setup: Optional[Dict[str, Any]] = None,
+        external_ctc_args: Optional[Dict[str, Any]] = None,
+        external_lm_args: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
         # Initialize the main model (Encoder + Decoder + Adapter)
@@ -20,19 +29,33 @@ class SllmV4(SllmV3):
 
         # 1. Initialize External CTC (Encoder-only SllmV3)
         self.external_ctc = None
-        if external_ctc_setup:
+        if external_ctc_args:
             # We enforce using_decoder=False to keep it a 'Black Box' CTC
-            external_ctc_setup.update({"using_encoder": True, "using_decoder": False})
-            self.external_ctc = SllmV3(**external_ctc_setup)
+            external_ctc_args.update({
+                "epoch": None,
+                "step": None,
+
+                "using_encoder": True,
+                "using_decoder": False,
+                "verbose": True}
+            )
+            self.external_ctc = SllmV3(**external_ctc_args)
             if self.verbose:
                 print("--- External CTC Module Initialized ---")
 
         # 2. Initialize External LM (Decoder-only SllmV3)
         self.external_lm = None
-        if external_lm_setup:
+        if external_lm_args:
             # We enforce using_encoder=False to keep it a 'Black Box' LM
-            external_lm_setup.update({"using_encoder": False, "using_decoder": True})
-            self.external_lm = SllmV3(**external_lm_setup)
+            external_lm_args.update({
+                "epoch": None,
+                "step": None,
+
+                "using_encoder": False,
+                "using_decoder": True,
+                "verbose": True
+            })
+            self.external_lm = SllmV3(**external_lm_args)
             if self.verbose:
                 print("--- External LM Module Initialized ---")
 

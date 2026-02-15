@@ -33,3 +33,28 @@ def qwen_load_lora_adapted_weights(name, shape, preload_model_state, **kwargs):
         return preload_model_state[new_name]
 
     return None
+
+def adapt_extern_decoder_embedding(name, shape, preload_model_state, **kwargs):
+    """
+    FROM: SLLM robin repo
+    Tie embedding matrices by loading the output embedding matrix from the input embedding matrix.
+
+    :param name: name of the parameter to load (missing_keys_preload)
+    :preload_model_state: dict of pretrained weights (with prefixes is added in config)
+    """
+
+    # TODO: !!! doesn't work with prefixes!!!
+    print(name, end="")
+
+    if name == "decoder.model.embed_tokens.weight":
+        print(preload_model_state.keys())
+        print(f"Loading embedding layer from decoder_embed_func instead from decoder.model.embed_tokens.weight!!!")
+        return preload_model_state["decoder_embed_func.weight"]
+
+    if name in preload_model_state.keys():
+        print("loaded")
+        return preload_model_state[name]
+
+    print("skiped")
+
+    return None

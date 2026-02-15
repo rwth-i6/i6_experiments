@@ -50,6 +50,18 @@ _sllm_partial_trainings = {
     # More here
 }
 
+def get_encoder_checkpoint_from_str(model_name: str):
+    if model_name not in _encoder_checkpoints:
+        raise ValueError(f"Model '{model_name}' not found in encoder checkpoints.")
+    return PtCheckpoint(Path(_encoder_checkpoints[model_name]))
+
+
+def get_decoder_checkpoint_from_str(model_name: str):
+    if model_name not in _decoder_checkpoints:
+        raise ValueError(f"Model '{model_name}' not found in decoder checkpoints.")
+    return PtCheckpoint(Path(_decoder_checkpoints[model_name]))
+
+
 
 # TODO: extract one main method
 def get_encoder_checkpoint(pretrained_config: PretrainedConfig):

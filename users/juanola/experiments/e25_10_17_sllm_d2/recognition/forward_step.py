@@ -166,13 +166,16 @@ def forward_step_ctc_decoding_v2(
         *,
         model: SllmV4,
         extern_data: TensorDict,
+
         beam_size: int,
         ctc_scale: float = 1.0,
         prior_scale: float = 1.0,
         lm_scale: float = 1.0, #TODO: ADD PARAMETERS FROM CTC_LABEL_SYNC_ESPNET CALL
+
         ctc_soft_collapse_threshold: Optional[float] = None,
         ctc_top_k_pruning: Optional[int] = None,
         ctc_top_k_pruning_reduce_func: str = "mean",
+
         **kwargs,
 ):
     """
@@ -194,7 +197,7 @@ def forward_step_ctc_decoding_v2(
         ctc_top_k_pruning_reduce_func=ctc_top_k_pruning_reduce_func,
         ctc_scale=ctc_scale,
         prior_scale=prior_scale,
-        lm_scale=lm_scale,
+        external_lm_scale=lm_scale,
     )
 
     ctx = rf.get_run_ctx()

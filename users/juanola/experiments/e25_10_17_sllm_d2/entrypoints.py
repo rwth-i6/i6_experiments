@@ -215,11 +215,15 @@ def e3_pre4():
 
 
 def e3_pre5():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C] ,
+                run_best=False,
+                run_best_4=False,
+                run_test=False
+                )  # , itc_training=True) # TODO: new recognitions here!
 
 
 def e3_pre6():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_C])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_C])  # , itc_training=True) # TODO: new recognitions here!
 
 
 # ++++

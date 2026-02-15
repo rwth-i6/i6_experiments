@@ -10,7 +10,7 @@ from typing import Any, Dict, Tuple, List, Optional
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
 from i6_core.returnn import PtCheckpoint
-from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
@@ -19,7 +19,13 @@ from sisyphus import tk, job_path
 from ..model_creation.returnn_config_helpers import get_forward_config
 from ..tuning.asr_model import ASRModel
 from ...configurations.pipeline.search_config import SearchConfig
+from ...configurations.pretrained_models import get_encoder_checkpoint, get_decoder_checkpoint, \
+    get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
 from ...default_tools import SCTK_BINARY_PATH
+from ...utils_network_args import get_network_args
+from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+from i6_experiments.common.setups.serialization import PartialImport
+
 
 
 @tk.block()
@@ -100,16 +106,66 @@ def search(
         "max_seqs": search_config.max_seqs,
     }
 
+    net_args = asr_model.net_args
+    extra_returnn_configs = []
+
+    if forward_method == "forward_step_ctc_decoding_v2":
+        preloading = {}
+        python_prolog = None
+
+        if search_config.ext_encoder is not None:
+            net_args["external_ctc_args"] = get_network_args(search_config.ext_encoder["network_config"], search_config.ext_encoder["label_config"])
+            preloading[f"EXT_ENCODER-{search_config.ext_encoder['checkpoint_key']}"] = {
+                "filename": get_encoder_checkpoint_from_str(search_config.ext_encoder["checkpoint_key"]),
+                "prefix": "external_ctc.",
+                "init_for_train": False,
+                "ignore_missing": True,
+                "ignore_params_prefixes": ["decoder_embed_func", "decoder"]
+            }
+
+        if search_config.ext_decoder is not None:
+            net_args["external_lm_args"] = get_network_args(search_config.ext_decoder["network_config"], search_config.ext_decoder["label_config"])
+            preloading[f"EXT_DECODER-{search_config.ext_decoder['checkpoint_key']}"] = {
+                "filename": get_decoder_checkpoint_from_str(search_config.ext_decoder["checkpoint_key"]),
+                "prefix": "external_lm.",
+                "init_for_train": False,
+                "ignore_missing": True,
+                "ignore_params_prefixes": ["encoder", "mel_frontend"],
+                "var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
+                #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
+            }
+
+            # qwen_load_lora_adapted_weights = PartialImport(
+            #     code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",
+            #     import_as="adapt_extern_decoder_embedding",
+            #     hashed_arguments={},
+            #     unhashed_arguments={},
+            #     unhashed_package_root=None,
+            # )
+            # python_prolog = [Collection([qwen_load_lora_adapted_weights])]
+
+        if preloading:
+            preloading_config = {
+                "preload_from_files": preloading,
+            }
+            extra_returnn_configs.append(ReturnnConfig(config=preloading_config, python_prolog=python_prolog))
+
+
+
     returnn_search_config = get_forward_config(
         network_import_path=asr_model.network_import_path,
         config=forward_config,
-        net_args=asr_model.net_args,
+        net_args=net_args,
         forward_module=forward_module,
         forward_method=forward_method,
         debug=debug,
         vocab_opts=vocab_opts,
         forward_args=forward_args,
     )
+
+    for extra_returnn_config in extra_returnn_configs:
+        returnn_search_config.update(extra_returnn_config)
+
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     search_jobs = []

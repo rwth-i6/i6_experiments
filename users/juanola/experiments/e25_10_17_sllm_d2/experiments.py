@@ -9,6 +9,7 @@ from .configurations.data.dataset_config import DatasetConfig
 from .configurations.data.label_config import LabelConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
+from .configurations.network.network_config import NetworkConfig
 from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
@@ -17,6 +18,7 @@ from .experiments_core.model_creation.training_job_builder import create_trainin
 from .experiments_core.reporting.base_report_templates import base_report_template_v0
 from .experiments_core.reporting.report_helper import generate_experiment_results_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
+from .utils_network_args import get_network_args
 from ...data.training_datasets import TrainingDatasets
 from ...sisyphus_jobs.configs.qwen2_decoder_config_job_v2 import Qwen2DecoderConfigJobV2
 from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
@@ -87,7 +89,7 @@ def sllm_ep(
 
         # NETWORK
         model_alias = exp_config.network.name
-        network_args = get_network_args(exp_config)
+        network_args = get_network_args(exp_config.network, exp_config.labels)
 
         network_module = f"{NETWORK_PACKAGE}.{exp_config.network.network_file_name}"
         network_import_path = f"{network_module}.{exp_config.network.network_class_name}"
@@ -142,6 +144,10 @@ def sllm_ep(
             else:
                 network_import_path_for_forward_step = network_import_path
 
+            # added for ctc decoding v2
+            if search_config.forward_method == "forward_step_ctc_decoding_v2":
+                network_import_path_for_forward_step = "networks.sllm_with_ext_modules.SllmV4"
+
             assert network_import_path_for_forward_step != "networks.conformer_qwen_v1.Model", f"Running a recognition with model V1!! Beam seach does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
 
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
@@ -175,40 +181,6 @@ def sllm_ep(
     return results_per_experiment
 
 
-def get_network_args(config: ExperimentConfig) -> dict[str, Any]:
-    """
-    Builds network arguments and alias for the model.
-
-    :param config:
-    :return:
-    """
-    label_config = asdict(config.labels)
-    fe_config = asdict(config.network.feature_extraction)
-    encoder_config = asdict(config.network.encoder)
-    if "aux_loss_scales" in encoder_config:
-        encoder_config.pop("aux_loss_scales")
-    assert "aux_loss_scales" not in encoder_config, "aux_loss_scales is only supposed to be used as a train_step param"
-    adapter_config = asdict(config.network.adapter)
-    qwen2_decoder_config_job = Qwen2DecoderConfigJobV2(
-        config.network.decoder, config.labels, target_filename=f"config-{config.network.decoder.name}-for-i6-spm.json"
-    )
-    decoder_config = {"config_path": qwen2_decoder_config_job.out_file}
-
-    network_args = label_config | fe_config | encoder_config | adapter_config | decoder_config
-
-    # Frozen layers
-    if config.network.frozen_encoder_from_the_start():
-        network_args["freeze_encoder_from_the_start"] = True
-    if config.network.frozen_decoder_from_the_start():
-        network_args["freeze_decoder_from_the_start"] = True
-
-    # Lora
-    if config.network.encoder_lora_opts is not None:
-        network_args["encoder_lora_opts"] = asdict(config.network.encoder_lora_opts)
-    if config.network.decoder_lora_opts is not None:
-        network_args["decoder_lora_opts"] = asdict(config.network.decoder_lora_opts)
-
-    return network_args
 
 
 def create_datasets_jobs(

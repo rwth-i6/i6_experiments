@@ -1,7 +1,16 @@
 import dataclasses
 import warnings
 from dataclasses import dataclass
+from enum import Enum
+from typing import Optional, Any
 
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import label_baseline
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
+    network_baseline,
+    NetworkConfig,
+    network_baseline_v2_td,
+    network_base_v2_3ctc, network_baseline_v2_td_linear_small,
+)
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.beam_search_config import (
     BeamSearchConfig,
     beam_search_baseline,
@@ -33,15 +42,21 @@ class SearchConfig:
 
     # Tunable Parameters # TODO: this could be grouped...
     beam_search: BeamSearchConfig
+
     lm_scales: list[float]
     prior_scales: list[float]
     ctc_scales: list[float]
+    sllm_scales: list[float]  # Only used in new decodings
 
     # Other
     forward_method: str = None
     run_ctc_greedy_decoding_last_epoch: bool = False
 
     debug_returnn_param: bool = True
+
+    # External modules
+    ext_encoder: dict[str, Any] = None
+    ext_decoder: dict[str, Any] = None
 
     def __post_init__(self):
         """
@@ -50,6 +65,37 @@ class SearchConfig:
         if self.use_gpu:
             assert self.gpu_memory is not None, "if use_gpu is set please set gpu_memory variable."
 
+
+"""
+PRETIRAINED PAIRS
+"""
+
+
+class PretrainedExternalModules(Enum):
+
+    # Encoders
+    CTC_STANDALONE_2_LAYERS = {
+        "checkpoint_key": "ctc_v1",
+        "network_config": network_baseline_v2_td(),
+        "label_config": label_baseline(),
+    }
+    CTC_STANDALONE_3_LAYERS = {
+        "checkpoint_key": "ctc_v1",
+        "network_config": network_base_v2_3ctc(),
+        "label_config": label_baseline(),
+    }
+
+    # Decoders
+    LLM_BASE_COMBINED = {
+       "checkpoint_key": "llm_base_combined",
+       "network_config": network_baseline_v2_td(),
+       "label_config": label_baseline(),
+    }
+    LLM_SMALL_COMBINED = {
+       "checkpoint_key": "llm_small_combined",
+       "network_config": network_baseline_v2_td_linear_small(),
+       "label_config": label_baseline(),
+    }
 
 """
 parameter sets
@@ -89,6 +135,7 @@ def search_baseline() -> SearchConfig:
         lm_scales=[0.0],
         prior_scales=[0.0],
         ctc_scales=[0.0],
+        sllm_scales=[None],  # Not used!
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )
@@ -138,6 +185,7 @@ def search_baseline_v2() -> SearchConfig:
         lm_scales=[None],  # Not used!
         prior_scales=[None],  # Not used!
         ctc_scales=[None],  # Not used!
+        sllm_scales=[None],  # Not used!
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )
@@ -158,7 +206,7 @@ def search_baseline_ctc_decoding_11gb() -> SearchConfig:
         batch_size=5_000,
         batch_size_factor=160,
         use_gpu=True,
-        gpu_memory=11,  # TODO: perhaps increase this
+        gpu_memory=11,
         beam_search=beam_search_baseline(),
         prior=prior_v1(),
         avg_best_loss_name="dev_loss_ce",
@@ -166,11 +214,61 @@ def search_baseline_ctc_decoding_11gb() -> SearchConfig:
         lm_scales=[1.0],
         ctc_scales=[1.0],
         prior_scales=[0.0],
+        sllm_scales=[None],  # Not used!
     )
 
 
 def search_baseline_ctc_decoding_24gb() -> SearchConfig:
     return dataclasses.replace(search_baseline_ctc_decoding_11gb(), batch_size=10_000, gpu_memory=24)
+
+
+"""
+ctc decoding v2 (with external modules)
+"""
+
+
+def search_baseline_ctc_decoding_11gb_v2(
+    ext_encoder: Optional[tuple[str, NetworkConfig]] = None, ext_decoder: Optional[tuple[str, NetworkConfig]] = None
+) -> SearchConfig:
+    return SearchConfig(
+        forward_method="forward_step_ctc_decoding_v2",
+        batch_size=5_000,
+        batch_size_factor=160,
+        use_gpu=True,
+        gpu_memory=11,  # TODO: perhaps increase this
+        beam_search=beam_search_baseline(),
+        prior=prior_v1(),
+        avg_best_loss_name="dev_loss_ce",
+        max_seqs=200,
+        lm_scales=[1.0],
+        sllm_scales=[1.0],
+        ctc_scales=[1.0],
+        prior_scales=[0.0],
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+    )
+
+def search_ctc_decoding_11gb_v2_grid_search(
+        ext_encoder: Optional[tuple[str, NetworkConfig]] = None, ext_decoder: Optional[tuple[str, NetworkConfig]] = None
+) -> SearchConfig:
+    return SearchConfig(
+        forward_method="forward_step_ctc_decoding_v2",
+        batch_size=5_000,
+        batch_size_factor=160,
+        use_gpu=True,
+        gpu_memory=11,  # TODO: perhaps increase this
+        beam_search=beam_search_baseline(),
+        prior=prior_v1(),
+        avg_best_loss_name="dev_loss_ce",
+        max_seqs=200,
+        lm_scales=[0.0,1.0],
+        sllm_scales=[0.0,1.0],
+        ctc_scales=[1.0],
+        prior_scales=[0.0],
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+    )
+
 
 
 """
@@ -190,6 +288,7 @@ def search_baseline_ctc_greedy_decoding() -> SearchConfig:
         lm_scales=[None],  # Not used!
         prior_scales=[None],  # Not used!
         ctc_scales=[None],  # Not used!
+        sllm_scales=[None],  # Not used!
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
     )

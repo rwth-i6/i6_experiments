@@ -472,7 +472,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)
 
     lm_state_raw = decoder_state
-    ext_lm_state = None # TODO: initialize with no encoder output
+    ext_lm_state = model.get_empty_qwen_input_embeds(decoder_state["input_embeds"], initial_beam_size=1)
 
     # BEAM SEARCH LOOP / STEP
     i = 0
@@ -530,10 +530,24 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
             # Note: External LMs usually don't need encoder context
             # Assuming external_lm has a similar step interface
             ext_logits_raw, ext_lm_state = model.external_llm_step_decoder(targets_lm_raw.unsqueeze(-1), ext_lm_state)
-            # TODO: things are missing here
-            # TODO: update ext_lm state after this!
+            ext_logits_raw = ext_logits_raw.squeeze(-2)  # squeeze singleton time dim
             ext_logits = rf.convert_to_tensor(ext_logits_raw, dims=batch_dims + [ctc_beam_dim, target_dim])
-
+            if ctc_top_k_pruning is not None:
+                # gather selected lm logits
+                ext_logits = rf.gather(
+                    ext_logits,
+                    indices=pruned_indices_rf,
+                    axis=target_dim,
+                )
+                # scatter back to original vocab size with -inf for non-selected
+                ext_logits = rf.scatter(
+                    ext_logits,
+                    fill_value=neg_inf,
+                    indices=pruned_indices_rf,
+                    indices_dim=pruned_target_dim,
+                    out_dim=target_dim,
+                    mode="max",
+                )
             # Re-normalize external LM
             ext_log_probs = rf.log_softmax(ext_logits, axis=target_dim) # Batch, InBeam, Vocab
 
