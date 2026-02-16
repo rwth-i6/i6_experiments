@@ -159,7 +159,10 @@ def py():
     )
 
     # beam sizes for reference/comparison
-    for beam_size in [1, 64]:
+    # Note: this is delayed fusion.
+    # I.e. the LM score is always only applied after the topk pruning, at some delayed time.
+    # But for beam size 1, it means, this will never have any effect.
+    for beam_size in [1, 2, 4, 64]:
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-beamSize{beam_size}/{lm_name}",
             task=task,
@@ -176,6 +179,7 @@ def py():
                 "should_fuse_now_func": enable_every20,
                 "convert_labels_func": convert_labels_func_no_op,
             },
+            first_pass_recog_beam_size=beam_size,
         )
 
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm as get_qwen2_lm
