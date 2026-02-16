@@ -213,7 +213,7 @@ def py():
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 32,
+            "max_seqs": 1,  # TODO testing... 32,
         },
         # first_pass_recog_beam_size=1,  # for debugging
     )
