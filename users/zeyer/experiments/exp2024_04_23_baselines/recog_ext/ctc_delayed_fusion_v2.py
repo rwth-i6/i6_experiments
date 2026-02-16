@@ -298,7 +298,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         spatial_dim=single_step_dim,
         state=lm_state,
     )  # Batch, InBeam, Vocab / ...
-    lm_log_probs = rf.log_softmax(lm_logits, axis=lm_target_dim)  # Batch, InBeam, Vocab
+    lm_log_probs = rf.log_softmax(lm_logits, axis=lm_target_dim)  # Batch, InBeam, LmVocab
 
     if debug:
         print("initial LM log probs:", end="")
@@ -326,13 +326,12 @@ def model_recog_with_recomb_delayed_fusion_v2(
         lm_logits_debug, lm_state_debug = lm(
             input_labels, spatial_dim=spatial_dim, state=lm_state_debug
         )  # Batch, InBeam, Vocab / ...
-        lm_log_probs_debug = rf.log_softmax(lm_logits_debug, axis=lm_target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs_debug = rf.log_softmax(lm_logits_debug, axis=lm_target_dim)  # Batch, InBeam, LmVocab
         if debug:
             print("debug LM log probs:", end="")
             _generic_print(lm_log_probs_debug, dims_no_iter=batch_dims_, max_idx=5)
         lm_seq_log_prob_debug = rf.reduce_sum(
-            rf.gather(lm_log_probs_debug, axis=lm_target_dim, indices=labels),
-            axis=spatial_dim,
+            rf.gather(lm_log_probs_debug, axis=lm_target_dim, indices=labels), axis=spatial_dim
         )  # Batch, InBeam
         lm_seq_log_prob_debug *= lm_scale
         np.testing.assert_allclose(
@@ -415,7 +414,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
         ctc_seq_log_prob += rf.gather(label_log_prob_ta[t], indices=target_wb, axis=model.wb_target_dim)  # Batch, Beam
         lm_seq_log_prob = rf.gather(lm_seq_log_prob, indices=backrefs)  # Batch, Beam
         prior_log_prob = rf.gather(prior_log_prob, indices=backrefs)  # Batch, Beam
-        lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+        lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, LmVocab
         backref_dim_map = {backrefs.sparse_dim: beam_dim}
         lm_state = rf.nested.gather_nested(lm_state, indices=backrefs, dim_map=backref_dim_map)
         am_seq_label = rf.nested.gather_nested(am_seq_label, indices=backrefs, dim_map=backref_dim_map)
