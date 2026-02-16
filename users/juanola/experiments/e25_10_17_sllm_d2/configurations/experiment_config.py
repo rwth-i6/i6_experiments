@@ -155,7 +155,23 @@ def exp_v4() -> ExperimentConfig:
 
 
 def exp_v5() -> ExperimentConfig:
-    return replace(exp_v4(), network=network_small_linear_adapter())
+    return replace(
+        exp_v4(),
+        network=network_small_linear_adapter(),
+        search=[
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            search_baseline_ctc_decoding_11gb(),
+            search_baseline_ctc_decoding_11gb_v2(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
+            ),
+            search_ctc_decoding_11gb_v2_grid_search(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
+            ),
+        ],
+    )
 
 
 def exp_v6() -> ExperimentConfig:
@@ -181,15 +197,15 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
         exp_v7(),
         # search=[search_baseline(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
         search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb(),
-                search_baseline_ctc_decoding_11gb_v2(
-                    ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-                ),
-                search_ctc_decoding_11gb_v2_grid_search(
-                    ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-                )],
-
+            search_baseline_ctc_decoding_11gb_v2(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            ),
+            search_ctc_decoding_11gb_v2_grid_search(
+                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                 ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            ),
+        ],
     )
 
 
@@ -253,19 +269,6 @@ def exp_v13() -> ExperimentConfig:
     return replace(
         exp_v7(),
         network=network_linear_adapter(),
-        search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            search_baseline_ctc_decoding_11gb(),
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
-            ),
-            search_ctc_decoding_11gb_v2_grid_search(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
-            ),
-        ],
     )
 
 

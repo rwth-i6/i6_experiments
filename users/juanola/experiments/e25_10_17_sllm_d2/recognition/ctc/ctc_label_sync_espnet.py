@@ -526,7 +526,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
             label_log_prob += lm_log_probs  # Batch, InBeam, Vocab
 
         # --- EXTERNAL LM ---
-        if external_lm_scale > 0: # TODO: finish this!!
+        if external_lm_scale > 0:
             # Note: External LMs usually don't need encoder context
             # Assuming external_lm has a similar step interface
             ext_logits_raw, ext_lm_state = model.external_llm_step_decoder(targets_lm_raw.unsqueeze(-1), ext_lm_state)
@@ -603,9 +603,14 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         ctc_prefix_scorer_state = rf.nested.gather_nested(ctc_prefix_scorer_state, indices=backrefs)
 
-        lm_state_raw = tree.map_structure(
-            partial(_gather_backrefs, backrefs=backrefs.raw_tensor, beam_size=beam_size), lm_state_raw
-        )
+        if sllm_scale > 0:
+            lm_state_raw = tree.map_structure(
+                partial(_gather_backrefs, backrefs=backrefs.raw_tensor, beam_size=beam_size), lm_state_raw
+            )
+        if external_lm_scale > 0:
+            ext_lm_state = tree.map_structure(
+                partial(_gather_backrefs, backrefs=backrefs.raw_tensor, beam_size=beam_size), ext_lm_state
+            )
 
         i += 1
         ended = rf.logical_or(ended, target_lm == model.eos_idx)
