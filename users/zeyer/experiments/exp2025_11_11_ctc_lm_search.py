@@ -219,10 +219,10 @@ def py():
         },
         # first_pass_recog_beam_size=1,  # for debugging
     )
-    for eval_set_name, value in res.individual_results.items():
-        tk.register_output(
-            f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/results/{eval_set_name}", value.main_measure_value
-        )
+    tk.register_output(
+        f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
+        res.individual_results["dev_yodas"].main_measure_value,
+    )
 
 
 _base_config = {
