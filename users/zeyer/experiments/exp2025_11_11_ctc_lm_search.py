@@ -216,6 +216,7 @@ def py():
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,  #  1,  # TODO testing... 32,
             # "__batch_size_dependent": True,  # for debugging
+            "___debug": 1,  # force new hash
         },
         # first_pass_recog_beam_size=1,  # for debugging
     )
