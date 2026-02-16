@@ -139,11 +139,49 @@ def py():
             },
         )
 
+    enable_every20 = functools.partial(enable_by_interval, interval=20)
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            "convert_labels_func": convert_labels_func_no_op,
+        },
+    )
+
+    # beam sizes for reference/comparison
+    for beam_size in [1, 64]:
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-beamSize{beam_size}/{lm_name}",
+            task=task,
+            ctc_model=am,
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            lm=lm,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+            ctc_only_recog_version=10,
+            ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+            recog_version=12,
+            recog_def=model_recog_with_recomb_delayed_fusion_v2,
+            first_pass_extra_config={
+                "should_convert_labels_now_func": enable_every20,
+                "should_fuse_now_func": enable_every20,
+                "convert_labels_func": convert_labels_func_no_op,
+            },
+        )
+
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm as get_qwen2_lm
 
     qwen2_lm = get_qwen2_lm()
 
-    enable_every20 = functools.partial(enable_by_interval, interval=20)
     convert_labels_func_spm = functools.partial(
         convert_labels_func,
         is_am_label_word_start=spm_space_first_is_word_start,
@@ -173,6 +211,7 @@ def py():
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,
         },
+        # first_pass_recog_beam_size=1,  # for debugging
     )
 
 
