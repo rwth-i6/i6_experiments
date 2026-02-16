@@ -10,6 +10,7 @@ import functools
 from typing import Optional, Any, Dict, Tuple
 from functools import cache
 
+from sisyphus import tk
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
@@ -192,7 +193,7 @@ def py():
         custom_am_label_merge=spm_label_merge,
         seq_str_postprocess_func=seq_str_postprocess_lower_case,
     )
-    ctc_recog_recomb_labelwise_prior_auto_scale(
+    res = ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
         task=task,
         ctc_model=am,
@@ -213,10 +214,15 @@ def py():
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 1,  # TODO testing... 32,
+            "max_seqs": 32,  #  1,  # TODO testing... 32,
+            # "__batch_size_dependent": True,  # for debugging
         },
         # first_pass_recog_beam_size=1,  # for debugging
     )
+    for eval_set_name, value in res.individual_results.items():
+        tk.register_output(
+            f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/results/{eval_set_name}", value.main_measure_value
+        )
 
 
 _base_config = {
