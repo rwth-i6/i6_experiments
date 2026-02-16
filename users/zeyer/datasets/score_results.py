@@ -39,6 +39,8 @@ class ScoreResultCollection:
     "single float value, as text. e.g. the best WER% on dev-other, defined by task.collect_score_results_func"
     output: tk.Path
     "JSON dict with all score outputs for each eval dataset"
+    individual_results: Optional[Dict[str, ScoreResult]] = None
+    "optional dict of individual score results for each eval dataset, e.g. WER%"
 
     def get_main_measure_value_as_variable(self) -> tk.Variable:
         return tk.Variable(path=self.main_measure_value.path, creator=self.main_measure_value.creator)
@@ -85,4 +87,5 @@ def join_score_results(score_results: Dict[str, ScoreResult], main_measure_key: 
     return ScoreResultCollection(
         main_measure_value=score_results[main_measure_key].main_measure_value,
         output=JoinScoreResultsJob(score_results).out_score_results,
+        individual_results=score_results,
     )
