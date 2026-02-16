@@ -589,22 +589,20 @@ def model_recog_with_recomb_delayed_fusion_v2(
                     axis=new_am_labels_spatial_dim,
                 )
 
+    assert (am_seq_last_converted == am_seq_label.hist_dim.get_size_tensor()).raw_tensor.all().item(), (
+        f"seq len mismatch: {am_seq_last_converted=}\n"
+        f" {am_seq_last_converted.raw_tensor.numpy()=}\n"
+        f" vs {am_seq_label.hist_dim.get_size_tensor().copy_transpose(am_seq_last_converted.dims).raw_tensor.numpy()=},\n"
+        f" {(am_seq_last_converted == am_seq_label.hist_dim.get_size_tensor()).raw_tensor.numpy()=}"
+    )
     # TODO there is a rare edge case where this check is violated:
     #   the last AM token was just "▁".
     #   we should make a better check for this...
-    # assert (
-    #     (
-    #         (am_seq_last_converted == am_seq_num_consumed)
-    #         & (am_seq_last_converted == am_seq_label.hist_dim.get_size_tensor())
-    #     )
-    #     .raw_tensor.all()
-    #     .item()
-    # ), (
-    #     f"seq len mismatch: {am_seq_last_converted=}\n"
+    # assert (am_seq_last_converted == am_seq_num_consumed).raw_tensor.all().item(), (
+    #     f"seq len mismatch: {am_seq_last_converted=} {am_seq_num_consumed=}\n"
     #     f" {am_seq_last_converted.raw_tensor.numpy()=}\n"
-    #     f" vs {am_seq_num_consumed.raw_tensor.numpy()=}\n"
-    #     f" vs {am_seq_label.hist_dim.get_size_tensor().copy_transpose(am_seq_last_converted.dims).raw_tensor.numpy()=},\n"
-    #     f" {(am_seq_num_consumed == am_seq_label.hist_dim.get_size_tensor()).raw_tensor.numpy()=}"
+    #     f" vs {am_seq_num_consumed.raw_tensor.numpy()=},\n"
+    #     f" {(am_seq_last_converted == am_seq_num_consumed).raw_tensor.numpy()=}"
     # )
     assert (lm_seq_num_consumed == lm_seq_label.hist_dim.get_size_tensor()).raw_tensor.all().item(), (
         f"seq len mismatch: {lm_seq_num_consumed.raw_tensor.numpy()=}\n"
