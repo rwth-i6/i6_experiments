@@ -1597,6 +1597,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     prefix: str,
     task: Task,
     ctc_model: ModelWithCheckpoint,
+    use_prior: bool = True,
     labelwise_prior: Optional[Prior] = None,
     prior_dataset: Optional[DatasetConfig] = None,
     lm: ModelWithCheckpoint,
@@ -1649,7 +1650,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
         vocab_opts_file = get_vocab_opts_file_from_task(task)
 
-    if labelwise_prior is None:
+    if labelwise_prior is None and use_prior:
         from i6_experiments.users.zeyer.datasets.utils.vocab import ExtendVocabLabelsByNewLabelJob
         from i6_experiments.users.zeyer.decoding.prior_rescoring import PriorRemoveLabelRenormJob
 
@@ -1703,7 +1704,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         config={**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size},
         keep_beam=True,
     )
-    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
+    prior_scores = prior_score(asr_scores, prior=labelwise_prior) if use_prior else None
     lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, config=lm_rescore_config)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
@@ -1717,26 +1718,35 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
     for f in task.recog_post_proc_funcs:  # BPE to words or so
         asr_scores = f(asr_scores)
-        prior_scores = f(prior_scores)
+        prior_scores = f(prior_scores) if use_prior else None
         lm_scores = f(lm_scores)
         ref = f(ref)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
-    opt_scales_job = ScaleTuningJob(
-        scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
-        ref=ref.output,
-        fixed_scales={"am": 1.0},
-        negative_scales={"prior"},
-        scale_relative_to={"prior": "lm"},
-        evaluation="edit_distance",
+    opt_scales_job = (
+        ScaleTuningJob(
+            scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+            ref=ref.output,
+            fixed_scales={"am": 1.0},
+            negative_scales={"prior"},
+            scale_relative_to={"prior": "lm"},
+            evaluation="edit_distance",
+        )
+        if use_prior
+        else ScaleTuningJob(
+            scores={"am": asr_scores.output, "lm": lm_scores.output},
+            ref=ref.output,
+            fixed_scales={"am": 1.0},
+            evaluation="edit_distance",
+        )
     )
     tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
     tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
     # We use the real scales.
     # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
     # (The DelayedBase logic on the Sis Variable should handle this.)
-    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1) if use_prior else 0
     lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
 
     # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
@@ -1764,9 +1774,9 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
     model = get_ctc_with_lm_and_labelwise_prior(
         ctc_model=ctc_model,
-        prior=labelwise_prior.file,
-        prior_type=labelwise_prior.type,
-        prior_scale=prior_scale,
+        prior=labelwise_prior.file if use_prior else None,
+        prior_type=labelwise_prior.type if use_prior else "none",
+        prior_scale=prior_scale if use_prior else None,
         language_model=lm,
         lm_scale=lm_scale,
     )

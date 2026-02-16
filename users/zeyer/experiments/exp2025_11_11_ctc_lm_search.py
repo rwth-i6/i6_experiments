@@ -183,6 +183,24 @@ def py():
             first_pass_recog_beam_size=beam_size,
         )
 
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}-noPrior",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=lm,
+        use_prior=False,
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            "convert_labels_func": convert_labels_func_no_op,
+        },
+    )
+
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm as get_qwen2_lm
 
     qwen2_lm = get_qwen2_lm()
@@ -216,7 +234,37 @@ def py():
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,  #  1,  # TODO testing... 32,
             # "__batch_size_dependent": True,  # for debugging
-            "___debug": 1,  # force new hash
+        },
+        # first_pass_recog_beam_size=1,  # for debugging
+    )
+    tk.register_output(
+        f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
+        res.individual_results["dev_yodas"].main_measure_value,
+    )
+
+    res = ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2-noPrior",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        use_prior=False,
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,  #  1,  # TODO testing... 32,
+            # "__batch_size_dependent": True,  # for debugging
         },
         # first_pass_recog_beam_size=1,  # for debugging
     )
