@@ -1,4 +1,4 @@
-from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.lstm_lm.i6_model_export import (
+from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.lstm_lm.i6_model_export_v2 import (
     export_scorer,
     export_state_initializer,
     export_state_updater,
@@ -24,7 +24,15 @@ def py():
     #epoch = checkpoint["epoch"]
     #loss = checkpoint["loss"]
 
-    ckpt_path = tk.Path("/nas/models/asr/hyoshimochi/setups/2025-09-lstm-lm-rasr/rasr_setup/lstm-lm.pt")
+    #ckpt_path = tk.Path("/nas/models/asr/hyoshimochi/setups/2025-09-lstm-lm-rasr/rasr_setup/lstm-lm.pt")
+    # new one with the same output label order as AM
+    ckpt_path = tk.Path("/nas/models/asr/lm/ES/2025-09-01-mzeineldeen-neural-lm/work/i6_core/returnn/training/ReturnnTrainingJob.cDZ01HGcL3L9/output/models/epoch.122.pt")
+
+    # copy of /nas/models/asr/lm/ES/2025-09-01-mzeineldeen-neural-lm/work/i6_core/returnn/training/ReturnnTrainingJob.cDZ01HGcL3L9/output/models/epoch.122.pt
+    ckpt_path = tk.Path(
+        "/nas/models/asr/hyoshimochi/setups/2025-09-lstm-lm-rasr/setup/mzeineldeen_epoch.122.pt"
+    )
+
     # Checkpoint object pointing to a PyTorch checkpoint .pt file
     ckpt = PtCheckpoint(ckpt_path)
 
@@ -57,7 +65,7 @@ def py():
 
     lstm_block_config_dict = {
         "input_dim": 512,
-        "hidden_dim": 2048,
+        "hidden_dim": 4096,
         "num_layers": 2,
         "bias": True,
         "dropout": 0.2,
