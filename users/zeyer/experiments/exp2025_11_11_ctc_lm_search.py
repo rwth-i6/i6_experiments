@@ -270,14 +270,39 @@ def py():
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 32,  #  1,  # TODO testing... 32,
-            # "__batch_size_dependent": True,  # for debugging
+            "max_seqs": 32,
         },
-        # first_pass_recog_beam_size=1,  # for debugging
     )
     tk.register_output(
         f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
         res.individual_results["dev_yodas"].main_measure_value,
+    )
+
+    # batch size 1
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-batchSize1/qwen2",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 1,
+            "__batch_size_dependent": True,
+        },
     )
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
