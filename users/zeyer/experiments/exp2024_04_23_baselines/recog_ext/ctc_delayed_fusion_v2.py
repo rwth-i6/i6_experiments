@@ -22,6 +22,14 @@ from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from ..ctc import Model
 
 
+def never_enable(**_kwargs) -> bool:
+    """
+    Never enable. This is a sanity experiment which should give the same results as standard rescoring.
+    Note that the search will anyway convert labels and fuse LM scores at the very end for all the remaining labels.
+    """
+    return False
+
+
 def enable_by_interval(*, t: int, interval: int, **_kwargs) -> bool:
     """
     Enable every `interval` steps, i.e. at t=interval-1, 2*interval-1, ...
