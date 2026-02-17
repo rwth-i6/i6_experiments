@@ -266,6 +266,13 @@ def tune_and_evaluate_model(
             for prior_scale in search_config.prior_scales:
                 for ctc_scale in search_config.ctc_scales:
                     for sllm_scale in search_config.sllm_scales:
+
+                        if (ctc_scale is not None and ctc_scale > 0 and
+                                (lm_scale is None or lm_scale == 0) and
+                                (prior_scale is None or prior_scale == 0) and
+                                (sllm_scale is None or sllm_scale == 0)):
+                            continue # This can be computed with CTC greedy more efficentlly!
+
                         forward_args, search_name = get_forward_step_parameters_and_search_name(
                             search_config, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale, sllm_scale
                         )
