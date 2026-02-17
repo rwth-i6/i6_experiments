@@ -234,6 +234,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
     recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
     ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")
+    delayed_prior = config.bool("delayed_prior", True)  # synced with LM or not
 
     if debug:
         if os.environ.get("DEBUG_CTC_RECOG_BEAM_SIZE"):
@@ -442,7 +443,14 @@ def model_recog_with_recomb_delayed_fusion_v2(
             ),
             prev_target,
         )  # Batch, Beam -> Vocab
+
         got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+
+        if labelwise_prior is not None and not delayed_prior and got_new_label_cpu.raw_tensor.sum().item() > 0:
+            prior_log_prob += rf.where(
+                got_new_label, rf.gather(labelwise_prior, axis=model.target_dim, indices=target), 0.0
+            )
+
         if got_new_label_cpu.raw_tensor.sum().item() > 0:
             am_seq_label = rf.nested.mask_nested(
                 _seq_label_append(am_seq_label, target),
@@ -590,7 +598,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             )
             am_seq_num_consumed = new_am_seq_num_consumed
 
-            if labelwise_prior is not None:
+            if labelwise_prior is not None and delayed_prior:
                 prior_log_prob += rf.reduce_sum(
                     rf.gather(labelwise_prior, axis=model.target_dim, indices=new_am_labels),
                     axis=new_am_labels_spatial_dim,
