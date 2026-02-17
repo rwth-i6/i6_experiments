@@ -39,7 +39,7 @@ def get_model_serializers(model_class: Type[ModuleType], model_config: ModelConf
     model_serializers.append(
         PyTorchModel(
             model_class_name=model_class.__name__,
-            model_kwargs={"model_cfg": CodeWrapper("cfg")},
+            model_kwargs={"cfg": CodeWrapper("cfg")},
         )
     )
 
