@@ -105,8 +105,9 @@ def py():
                 dataset_keys=DEV_KEYS+TEST_KEYS,
             )
 
-def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
-    #from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
+def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False, old:bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+    'Old -> get the trafo trained on old dataset, wo transcription'
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset as old_LmDataset
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import SpanishLmDataset
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
     _, spm, _ = get_model_and_vocab()
@@ -120,17 +121,19 @@ def get_ES_ffnn(epochs: list[int] = None, word_ppl: bool = False, only_transcrip
     # from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
     #
     # lm_dataset = LibrispeechLmDataset(vocab=get_vocab_by_str("bpe10k")) #get_librispeech_lm_dataset(vocab=vocab)
-    lm_dataset = SpanishLmDataset(vocab=spm_config, train_epoch_split=20, only_transcripts=only_transcript)
+    lm_dataset = SpanishLmDataset(vocab=spm_config, train_epoch_split=20, only_transcripts=only_transcript) \
+        if not old else old_LmDataset(vocab=spm_config, train_epoch_split=20)
     # num_layers = 2
     # context_size = 4
     ff_hidden_dim = 1024
+    name_ext = "_old" if old else ('_trans' if only_transcript else '') #Default train + trans
     # TODO: make sure the params here match the naming in lm_getter
     for context_size, num_layers, embeding_size, batch_size, max_seq, drop_out in [#(128, 30_000, 200, 0), Overfit
                                                     (4, 2, 256, 80_000, None, 0.1),
                                                     #(6, 2, 256, 120_000, None, 0.1),
                                                    #(128, 10_000, 200)# More than this does not have corresponding step entry in _get_cfg_lrlin_oclr_by_bs_nep
                                                    ]:
-        train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu_{'trans' if only_transcript else 'train_trans'}"
+        train_prefix_name = f"ES/ffnn-n{num_layers}-ctx{context_size}-embd{embeding_size}-d{ff_hidden_dim}-spm10k-drop{drop_out}-relu{name_ext}"
         conf = _get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 50, batch_size_factor=1)
         #conf = _get_cfg_lrlin_oclr_by_bs_nep(max_seq, batch_size, 50) #ms_200, b10_000
         #conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
@@ -271,7 +274,7 @@ def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_di
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
-        dataset_keys=["transcriptions-test-other", "transcriptions-dev-other"],
+        dataset_keys=["transcriptions-test-other", "transcriptions-dev-other","transcriptions-test-clean", "transcriptions-dev-clean"],
         exponent=bpe_ratio if word_ppl else 1.0,
         epochs=epochs,
     )

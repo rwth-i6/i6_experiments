@@ -31,12 +31,12 @@ def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: Ten
     )
 
     run_ctx.mark_as_output(
-        name="scores",
+        name="enc_out",
         tensor=scores,
     )
     if run_ctx.expected_outputs is not None:
-        run_ctx.expected_outputs["scores"].dims[1].dyn_size_ext = rf.Tensor(
-            "scores_time", dims=[batch_dim], raw_tensor=scores_size.long(), dtype="int64"
+        run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext = rf.Tensor(
+            "enc_out_time", dims=[batch_dim], raw_tensor=scores_size.long(), dtype="int64"
         )
 
 
@@ -50,8 +50,8 @@ def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
-            "dim_scores_time": CodeWrapper('Dim(name="scores_time", dimension=None)'),
-            "dim_scores_feature": CodeWrapper(f'Dim(name="scores_feature", dimension={model_config.target_size})'),
+            "dim_enc_out_time": CodeWrapper('Dim(name="enc_out_time", dimension=None)'),
+            "dim_enc_out_feature": CodeWrapper(f'Dim(name="enc_out_feature", dimension={model_config.target_size})'),
             "extern_data": {
                 "features": {
                     "dim": model_config.logmel_cfg.num_filters,
@@ -59,12 +59,12 @@ def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint
                 },
             },
             "model_outputs": {
-                "scores": {
-                    "dim_tags": CodeWrapper("(batch_dim, dim_scores_time, dim_scores_feature)"),
+                "enc_out": {
+                    "dim_tags": CodeWrapper("(batch_dim, dim_enc_out_time, dim_enc_out_feature)"),
                     "dtype": "float32",
                 },
             },
         },
         input_names=["features", "features:size1"],
-        output_names=["scores"],
+        output_names=["enc_out"],
     )

@@ -13,7 +13,7 @@ from .bpe import get_default_bpe_target_config
 
 
 def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")["train"]],
         speed_perturbation=True,
         ogg_segments=40,
@@ -48,7 +48,7 @@ def get_default_bpe_lm_train_data(bpe_size: int) -> LmDataConfig:
 
 
 def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")["dev"]],
         speed_perturbation=False,
         ogg_segments=1,
@@ -83,7 +83,7 @@ def get_default_prior_data() -> MetaOggZipDataConfig:
     train_corpus_file = get_bliss_corpus_dict("wav")["train"]
     segment_file = SegmentCorpusJob(train_corpus_file, 2).out_single_segment_files[1]
 
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[train_corpus_file],
         speed_perturbation=False,
         ogg_segments=40,
@@ -94,7 +94,7 @@ def get_default_prior_data() -> MetaOggZipDataConfig:
 
 
 def get_default_recog_data(corpus_name: str) -> OggZipDataConfig:
-    return OggZipDataConfig(
+    return OggZipDataConfig.from_bliss(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")[corpus_name]],
         speed_perturbation=False,
         ogg_segments=1,

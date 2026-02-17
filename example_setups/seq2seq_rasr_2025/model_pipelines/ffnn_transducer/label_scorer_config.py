@@ -1,7 +1,6 @@
 __all__ = ["get_ffnn_transducer_label_scorer_config"]
 
 from dataclasses import fields
-from typing import Optional
 
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
@@ -15,7 +14,8 @@ def get_ffnn_transducer_label_scorer_config(
     checkpoint: PtCheckpoint,
     ilm_scale: float = 0.0,
     blank_penalty: float = 0.0,
-    execution_provider_type: Optional[str] = None,
+    scale: float = 1.0,
+    use_gpu: bool = False,
 ) -> RasrConfig:
     recog_model_config = FFNNTransducerRecogConfig(
         **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
@@ -36,12 +36,15 @@ def get_ffnn_transducer_label_scorer_config(
     rasr_config.onnx_model.session.inter_op_num_threads = 2
     rasr_config.onnx_model.session.intra_op_num_threads = 2
 
-    if execution_provider_type:
-        rasr_config.onnx_model.session.execution_provider_type = execution_provider_type
-
     rasr_config.onnx_model.io_map = RasrConfig()
     rasr_config.onnx_model.io_map.input_feature = "encoder_state"
     rasr_config.onnx_model.io_map.history = "history"
     rasr_config.onnx_model.io_map.scores = "scores"
+
+    if scale != 1:
+        rasr_config.scale = scale
+
+    if use_gpu:
+        rasr_config.onnx_model.session.execution_provider_type = "cuda"
 
     return rasr_config

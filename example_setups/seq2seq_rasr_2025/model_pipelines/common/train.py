@@ -1,11 +1,13 @@
 __all__ = ["TrainOptions", "train"]
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Generic, List, Optional, TypeVar
 
+from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import
+from i6_models.config import ModelConfiguration
 from sisyphus import tk
 
 from ...data.base import DataConfig
@@ -32,6 +34,20 @@ class TrainOptions:
     max_seq_length: Optional[int]
 
 
+ModelConfigType = TypeVar("ModelConfigType", bound=ModelConfiguration)
+
+
+@dataclass
+class TrainedModel(Generic[ModelConfigType]):
+    model_config: ModelConfigType
+    train_job: ReturnnTrainingJob
+
+    def get_checkpoint(self, epoch: Optional[int] = None) -> PtCheckpoint:
+        if epoch is None:
+            epoch = max(self.train_job.out_checkpoints)
+        return self.train_job.out_checkpoints[epoch]  # type: ignore
+
+
 def train(options: TrainOptions, model_serializers: Collection, train_step_import: Import) -> ReturnnTrainingJob:
     num_epochs = options.save_epochs[-1]
 
@@ -39,7 +55,7 @@ def train(options: TrainOptions, model_serializers: Collection, train_step_impor
         "backend": "torch",
         "batch_size": options.batch_size,
         "accum_grad_multiple_step": options.accum_grad_multiple_step,
-        "cleanup_old_models": {
+        "cleanup_old_models": {  # TODO: This should be moved to post-config and `keep_epochs` in ReturnnTrainingJob should be utilized
             "keep_last_n": 1,
             "keep_best_n": 0,
             "keep": options.save_epochs,

@@ -2,300 +2,372 @@ from __future__ import annotations
 
 from sisyphus.delayed_ops import DelayedBase
 #from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob, GnuPlotJob
-from typing import Tuple, Dict, Set, List, Optional, Union
+from typing import Tuple, Dict, Set, List, Optional, Union, Iterator, Any
 from sisyphus import Job, Task, tk, gs
 #from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
-#import i6_core.util as util
+# import i6_core.util as util
 #from i6_experiments.users.zhang.experiments.exp_wer_ppl import EVAL_DATASET_KEYS
 #from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import _get_lm_model
 #from collections import namedtuple
+import os, io, gzip, json, ast
+from contextlib import ExitStack
+
+GZIP_MAGIC = b"\x1f\x8b"
+# ---------- helpers: tiny streaming parser for your current input format ----------
+def _smart_text_open(fn: str, mode: str = "rt", encoding: str = "utf-8"):
+    """
+    Open as gzip if the magic header matches; otherwise open as plain text.
+    Works even if the extension is misleading.
+    """
+    assert "t" in mode, "use text mode (e.g., 'rt')"
+    # Open the file once in binary to sniff the magic
+    fb = open(fn, "rb")
+    head = fb.read(2)
+    fb.seek(0)
+    if head == GZIP_MAGIC:
+        # Let gzip read from the existing file object
+        return io.TextIOWrapper(gzip.GzipFile(fileobj=fb, mode="rb"), encoding=encoding)
+    else:
+        # Wrap the same fb in a text wrapper; no second OS open
+        return io.TextIOWrapper(fb, encoding=encoding)
+
+def _next_char(stream: io.TextIOBase) -> str:
+    return stream.read(1)
+
+def _consume_ws(stream: io.TextIOBase) -> str:
+    c = _next_char(stream)
+    while c and c.isspace():
+        c = _next_char(stream)
+    return c
+
+def _read_quoted(stream: io.TextIOBase, quote: str) -> str:
+    # returns the full quoted literal including quotes
+    out = [quote]
+    esc = False
+    while True:
+        c = _next_char(stream)
+        if not c:
+            raise ValueError("unterminated string")
+        out.append(c)
+        if esc:
+            esc = False
+        elif c == "\\":
+            esc = True
+        elif c == quote:
+            break
+    return "".join(out)
+
+def _read_balanced_list_literal(stream: io.TextIOBase) -> str:
+    # reads a list literal "[ ... ]" including nested () and [] and quoted strings
+    c = _consume_ws(stream)
+    if c != "[":
+        raise ValueError("expected list literal starting with '['")
+    out = [c]
+    depth = 1
+    in_str = False
+    quote = ""
+    esc = False
+    while depth > 0:
+        c = _next_char(stream)
+        if not c:
+            raise ValueError("unterminated list literal")
+        out.append(c)
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == quote:
+                in_str = False
+        else:
+            if c in ("'", '"'):
+                in_str = True
+                quote = c
+            elif c in "[(":
+                depth += 1
+            elif c in "])":
+                depth -= 1
+    return "".join(out)
+
+def _peek_non_ws(stream: io.TextIOBase) -> str:
+    # peek the next non-ws char by reading one char and pushing back via tell/seek if possible
+    pos = stream.tell()
+    c = _consume_ws(stream)
+    # restore pointer for caller
+    try:
+        stream.seek(pos)
+    except (io.UnsupportedOperation, OSError):
+        # If underlying stream doesn't support seek (rare for files),
+        # you can wrap with io.BufferedRandom; for our usage we have file handles -> seekable.
+        pass
+    return c
+
+def iter_py_dict_items(stream: io.TextIOBase) -> Iterator[Tuple[str, List[Tuple[float, str]]]]:
+    """
+    Stream (seq_tag, nbest_list) from a top-level Python dict literal:
+    {
+      'tag': [(score, 'hyp'), ...],
+      ...
+    }
+    """
+    # Expect opening "{"
+    c = _consume_ws(stream)
+    if c != "{":
+        raise ValueError("expected '{' at start of dict")
+    while True:
+        # Look ahead for "}" (end) or next quoted key
+        c = _consume_ws(stream)
+        if not c:
+            raise ValueError("unexpected EOF (missing closing '}')")
+        if c == "}":
+            return
+        if c not in ("'", '"'):
+            raise ValueError(f"expected quoted key, got {c!r}")
+        key_lit = c + _read_quoted(stream, c)[1:]  # include both quotes
+        key = ast.literal_eval(key_lit)
+
+        # expect colon
+        c = _consume_ws(stream)
+        if c != ":":
+            raise ValueError("expected ':' after key")
+
+        # parse list literal value
+        val_lit = _read_balanced_list_literal(stream)
+        try:
+            val = ast.literal_eval(val_lit)
+        except Exception as e:
+            raise ValueError(f"failed to parse value for key {key!r}: {e}") from e
+
+        # After value, consume optional trailing comma (and allow trailing '}' in next loop)
+        # Move cursor to the next significant token
+        # We’ll try to consume a comma if present; if not, the loop's opening consume_ws will handle '}'.
+        pos = stream.tell()
+        c = _consume_ws(stream)
+        if c != ",":
+            # Not a comma: rewind so outer loop can see '}' or next key
+            try:
+                stream.seek(pos)
+            except (io.UnsupportedOperation, OSError):
+                pass
+
+        yield key, val
+
+# ---------- conversion: Python-dict-literal -> NDJSON(.gz) per input file ----------
+
+def _ndjson_path_for(fn: str) -> str:
+    # keep alongside original, but make it deterministic
+    base = os.path.basename(fn)
+    # drop trailing .gz if present
+    if base.endswith(".gz"):
+        base = base[:-3]
+    # replace common extensions
+    for ext in (".py", ".txt", ".json", ".data"):
+        if base.endswith(ext):
+            base = base[: -len(ext)]
+            break
+    return os.path.join(os.path.dirname(fn), base + ".ndjson.gz")
+
+def _is_probably_ndjson(fn: str) -> bool:
+    # very light heuristic: .ndjson(.gz) or .jsonl(.gz)
+    bn = os.path.basename(fn)
+    return bn.endswith(".ndjson") or bn.endswith(".ndjson.gz") or bn.endswith(".jsonl") or bn.endswith(".jsonl.gz")
 
 
+# ---------- NDJSON streamer ----------
+
+def iter_ndjson(fn: str) -> Iterator[Tuple[str, List[Tuple[float, str]]]]:
+    with _smart_text_open(fn, "rt") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            obj = json.loads(line)
+            # Convert lists back to tuples for your downstream code style
+            nbest = [(float(s), h) for s, h in obj["nbest"]]
+            yield obj["seq_tag"], nbest
+
+
+class ConvertPyLiteralToNDJSONJob(Job):
+    """
+    One input file (Python dict literal or .py.gz) -> one output .ndjson.gz
+    Output path is stable so downstream jobs can depend on it.
+
+    Guarantees a deterministic global order: lines are sorted by seq_tag.
+    """
+    def __init__(self, in_file: tk.Path):
+        self.in_file = in_file  # tk.Path or string path
+        self.out = self.output_path("converted.ndjson.gz")
+
+    def tasks(self):
+        yield Task("run")
+
+    def run(self):
+        import os, io, gzip, json
+        src = self.in_file.get_path()
+        dst = self.out.get_path()
+        os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+        tmp = dst + ".tmp"
+
+        GZIP_MAGIC = b"\x1f\x8b"
+
+        def _open_text_auto_in(path: str, mode: str = "rt", encoding: str = "utf-8"):
+            """
+            Robust text opener for inputs: detect gzip by magic, ignore misleading suffixes.
+            """
+            assert "t" in mode, "Use text mode for readers"
+            fb = open(path, "rb")
+            head = fb.read(2)
+            fb.seek(0)
+            if head == GZIP_MAGIC:
+                return io.TextIOWrapper(gzip.GzipFile(fileobj=fb, mode="rb"), encoding=encoding)
+            # not gzip: wrap the same fb in a text wrapper so we don’t reopen
+            return io.TextIOWrapper(fb, encoding=encoding)
+
+        def _open_text_auto_out(path: str, mode: str = "wt", encoding: str = "utf-8"):
+            """
+            Text opener for outputs: respect .gz suffix; fix mtime for reproducibility.
+            """
+            if path.endswith(".gz"):
+                # Python’s gzip supports mtime=0 for reproducible archives
+                gf = gzip.open(path, mode, mtime=0)
+                if "t" in mode:
+                    return io.TextIOWrapper(gf, encoding=encoding)
+                return gf
+            return open(path, mode, encoding=encoding)
+
+        # ---- Read all items, then sort by seq_tag to guarantee identical order
+        items = []
+        with _open_text_auto_in(src, "rt") as inp:
+            for seq_tag, nbest in iter_py_dict_items(inp):
+                items.append((seq_tag, nbest))
+
+        # Deterministic global order
+        items.sort(key=lambda x: x[0])
+
+        # ---- Write as NDJSON (one object per line), keys always in the same order
+        with _open_text_auto_out(tmp, "wt") as out:
+            for seq_tag, nbest in items:
+                # keep nbest order as-is; only tuples->lists + float cast
+                nbest_json = [[float(score), hyp] for (score, hyp) in nbest]
+                # construct in desired key order
+                obj = {"seq_tag": seq_tag, "nbest": nbest_json}
+                json.dump(obj, out, ensure_ascii=False, separators=(",", ":"))
+                out.write("\n")
+
+        os.replace(tmp, dst)
+
+#less work/i6_experiments/users/zhang/experiments/decoding/rescoring/SearchCombineScoresJob.tRgOj7WckLOE/log.run.1
+#work/i6_experiments/users/zhang/experiments/decoding/rescoring/SearchCombineScoresJob.eDm9woEaR1Ju
 class SearchCombineScoresJob(Job):
     """
-    Takes a number of files, each with the same N-best list, including scores,
-    and combines the scores with some weights.
+    Expects:
+      self.search_py_output: List[Tuple[float|DelayedBase, str]]  # (weight, path_to_input)
+      self.out_search_results: object with get_path()
+      util.uopen: text open that handles gz transparently
+      DelayedBase: (optional) lazy wrapper for weights
     """
 
     def __init__(self, search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]], *, output_gzip: bool = True):
-        """
-        :param search_py_output: list of tuple (search output file from RETURNN in python format (n-best list), weight)
-        :param output_gzip: gzip the output
-        """
-        assert len(search_py_output) > 0
         self.search_py_output = search_py_output
         self.out_search_results = self.output_path("search_results.py" + (".gz" if output_gzip else ""))
-        self.rqmt = {"time": 1, "cpu": 1, "mem": 12}  # TODO: dynamically determine mem_rqmt
+
+        # --- conversion from py dict to json ---
+        converted = []
+        for weight, fn in self.search_py_output:
+            src = fn
+
+            if _is_probably_ndjson(src):
+                # already NDJSON
+                converted.append((weight, src))
+                continue
+            converted.append((weight, ConvertPyLiteralToNDJSONJob(in_file=src).out))
+        # replace inputs with ndjson paths
+        self.search_ndjson_inputs = converted
 
     def tasks(self):
-        """task"""
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run")
 
     def run(self):
-        """
-        Stream-merge N-best lists without requiring same seq_tag order or same N-best order.
-        - Output preserves the first file's seq_tag order and hypothesis order.
-        - Other files are scanned lazily; each block is spilled to a temp .jsonl.gz and looked up by seq_tag.
-        - Hypotheses inside a block are aligned by text; sets can be enforced equal or unioned.
-        """
-        import ast
+        """Streaming merge over NDJSON; writes gzipped Python-dict-literal (your old output)."""
         import gzip
-        import io
-        import os
-        import re
-        import json
-        import tempfile
-        from typing import Iterator, Tuple, List, Dict
 
-        # ---- knobs ---------------------------------------------------------------
-        STRICT_EQUAL_TEXT_SETS = True
-        # If True: all files must have identical hypothesis-text sets per seq_tag.
-        # If False: we take the union; missing texts in a file contribute 0.0.
-
-        DETECT_DUPLICATE_TEXTS = True
-
-        # If True: error out if a file has duplicate hypothesis texts within the same seq_tag.
-
-        # ---- helpers -------------------------------------------------------------
-
-        def _to_path(p):
-            # Try i6/sisyphus Path.get_path(), fall back to str
-            return p.get_path() if hasattr(p, "get_path") else str(p)
-
-        # Open .gz or plain text transparently, *text* mode with buffering
-        def _open_text(path: str):
-            if path.endswith(".gz"):
-                return io.TextIOWrapper(gzip.open(path, "rb"), encoding="utf-8")
-            return open(path, "rt", encoding="utf-8")
-
-        # Matches a line starting a block like: 'seq_tag': [
-        _seq_start_re = re.compile(r"""^\s*(['"])(?P<tag>.*?)\1\s*:\s*\[\s*$""")
-
-        def _skip_until_open_brace(f):
-            """Advance the stream to the first '{' (start of the dict)."""
-            for line in f:
-                if "{" in line:
-                    break
-
-        def _iter_blocks(stream) -> Iterator[Tuple[str, Iterator[Tuple[float, str]]]]:
-            """
-            Yield (seq_tag, tuple_iter) for each block:
-              'seq_tag': [
-                (score, text),
-                ...
-              ],
-            Does not materialize the whole list; tuple_iter streams tuples.
-            """
-            _skip_until_open_brace(stream)
-
-            for line in stream:
-                line_strip = line.strip()
-
-                # End of outer dict
-                if line_strip.startswith("}"):
-                    return
-
-                # Try to match block start
-                m = _seq_start_re.match(line)
-                if not m:
-                    # Lines like empty, comments, or commas between entries
-                    continue
-
-                seq_tag = m.group("tag")
-
-                def tuple_iter():
-                    # Stream until matching closing "],"
-                    for inner in stream:
-                        s = inner.strip()
-                        if s == "],":
-                            return
-                        if not s or s == ",":
-                            continue
-                        # Lines are "(score, text)," – strip trailing comma
-                        trailing_comma = s.endswith(",")
-                        if trailing_comma:
-                            s = s[:-1]
-
-                        # Fast path: single-line tuple "(..., ...)"
-                        if s.startswith("(") and s.endswith(")"):
-                            tup = ast.literal_eval(s)
-                            yield float(tup[0]), tup[1]
-                            continue
-
-                        # Fallback: accumulate until balanced parentheses
-                        buf = [s]
-                        balance = s.count("(") - s.count(")")
-                        while balance > 0:
-                            nxt = next(stream)
-                            t = nxt.strip()
-                            if t == "],":
-                                # Malformed; bail gracefully
-                                return
-                            if t.endswith(","):
-                                t = t[:-1]
-                            buf.append(t)
-                            balance += t.count("(") - t.count(")")
-                        tup = ast.literal_eval(" ".join(buf))
-                        yield float(tup[0]), tup[1]
-
-                yield seq_tag, tuple_iter()
-
-        # Lazy block fetcher that tolerates different seq_tag *order*
-        class BlockFetcher:
-            """
-            Reads a file forward once. Each encountered block is written to a temp .jsonl.gz.
-            fetch(seq_tag) returns the temp path (or None if not present).
-            """
-
-            def __init__(self, path: str):
-                self._stream = _open_text(path)
-                self._cache: Dict[str, str] = {}  # seq_tag -> temp file path
-                self._finished = False
-
-            def _spill_block(self, seq_tag: str, tuple_iter):
-                # Write this block as JSONL: [score, text]
-                fd, temp_path = tempfile.mkstemp(suffix=".jsonl.gz")
-                os.close(fd)  # we'll reopen with gzip
-                with gzip.open(temp_path, "wt", encoding="utf-8") as out:
-                    for score, text in tuple_iter:
-                        out.write(json.dumps([float(score), text]))
-                        out.write("\n")
-                self._cache[seq_tag] = temp_path
-
-            def fetch(self, want_tag: str) -> str | None:
-                """Return temp path for want_tag, reading forward and caching as needed."""
-                if want_tag in self._cache:
-                    return self._cache[want_tag]
-                if self._finished:
-                    return None
-
-                for seq_tag, tuple_iter in _iter_blocks(self._stream):
-                    self._spill_block(seq_tag, tuple_iter)
-                    if seq_tag == want_tag:
-                        return self._cache[seq_tag]
-
-                # EOF
-                self._finished = True
-                return None
-
-            def close(self):
-                try:
-                    self._stream.close()
-                except Exception:
-                    pass
-
-            def cached_paths(self):
-                return list(self._cache.values())
-
-        # ---- load weights and file paths ----------------------------------------
-
+        # Resolve weights and input list
         weights: List[float] = []
-        files: List[str] = []
-
-        DelayedCls = globals().get("DelayedBase", None)  # avoid NameError if not present
-
-        for weight, fn in self.search_py_output:
-            if DelayedCls is not None and isinstance(weight, DelayedCls):
+        ndjson_files: List[str] = []
+        for weight, fn in self.search_ndjson_inputs:
+            if isinstance(weight, tk.Variable):
                 weight = weight.get()
-            if not isinstance(weight, (int, float)):
-                raise TypeError(f"invalid weight {weight!r} type {type(weight)}")
+            assert isinstance(weight, (int, float)), f"invalid weight {weight!r} type {type(weight)}"
             weights.append(float(weight))
-            files.append(_to_path(fn))
+            ndjson_files.append(fn)
 
-        if not files:
-            raise AssertionError("No input files")
-
-        driver_path = files[0]
-        other_paths = files[1:]
-
-        # Build lazy fetchers for non-driver files
-        fetchers = [BlockFetcher(p) for p in other_paths]
-
-        # ---- write output --------------------------------------------------------
-
+        # Prepare output
         tmp_filename = "tmp.py" + (".gz" if self.out_search_results.get_path().endswith(".gz") else "")
-        if not tmp_filename.endswith(".gz"):
-            raise AssertionError("should have .gz extension")
+        assert tmp_filename.endswith(".gz"), "should have .gz extension"
 
-        try:
-            with gzip.open(tmp_filename, "wt", encoding="utf-8") as out:
-                out.write("{\n")
+        from contextlib import ExitStack
+        with ExitStack() as stack, gzip.open(tmp_filename, "wt") as out:
+            gens: List[Iterator[Tuple[str, List[Tuple[float, str]]]]] = [
+                iter_ndjson(fn) for fn in ndjson_files
+            ]
 
-                # Drive seq_tag order from the first file
-                with _open_text(driver_path) as driver_stream:
-                    for seq_tag, driver_tuples in _iter_blocks(driver_stream):
-                        # Materialize driver list to keep order; map for O(1) lookups
-                        driver_list: List[Tuple[float, str]] = list(driver_tuples)
-                        driver_map = {t: s for (s, t) in driver_list}
-                        driver_order = [t for _, t in driver_list]
-                        driver_text_set = set(driver_order)
+            out.write("{\n")
+            first = True
+            item_idx = 0
 
-                        if DETECT_DUPLICATE_TEXTS and len(driver_text_set) != len(driver_order):
-                            raise AssertionError(f"Duplicate hypothesis texts in first file for {seq_tag!r}")
-
-                        # For every other file, fetch this seq_tag block (order-independent)
-                        others_dicts: List[Dict[str, float]] = []
-                        for fx in fetchers:
-                            temp_path = fx.fetch(seq_tag)
-                            d: Dict[str, float] = {}
-                            if temp_path is not None:
-                                with gzip.open(temp_path, "rt", encoding="utf-8") as f:
-                                    for line in f:
-                                        score_i, text_i = json.loads(line)
-                                        if DETECT_DUPLICATE_TEXTS and text_i in d:
-                                            raise AssertionError(
-                                                f"Duplicate hypothesis text in an input for {seq_tag!r}: {text_i!r}"
-                                            )
-                                        d[text_i] = float(score_i)
-                            # If missing entirely (seq_tag not present), leave as empty dict (treated as 0.0)
-                            others_dicts.append(d)
-
-                        # Reconcile sets
-                        if STRICT_EQUAL_TEXT_SETS:
-                            for idx, d in enumerate(others_dicts, start=1):
-                                if set(d.keys()) != driver_text_set:
-                                    missing = driver_text_set - set(d.keys())
-                                    extra = set(d.keys()) - driver_text_set
-                                    raise AssertionError(
-                                        f"Different hypothesis text sets for {seq_tag!r} in file #{idx + 1}. "
-                                        f"Missing: {len(missing)}, Extra: {len(extra)}"
-                                    )
-                            final_order = driver_order
-                        else:
-                            final_order = list(driver_order)
-                            seen = set(final_order)
-                            # Append extras in first-appearance order across other files
-                            for d in others_dicts:
-                                for t in d.keys():
-                                    if t not in seen:
-                                        final_order.append(t)
-                                        seen.add(t)
-
-                        # Combine and write block
-                        out.write(f"{seq_tag!r}: [\n")
-                        for text in final_order:
-                            acc = weights[0] * driver_map.get(text, 0.0)
-                            for w, d in zip(weights[1:], others_dicts):
-                                acc += w * d.get(text, 0.0)
-                            out.write(f"({acc!r}, {text!r}),\n")
-                        out.write("],\n")
-
-                out.write("}\n")
-
-            # Atomic move into place
-            os.replace(tmp_filename, self.out_search_results.get_path())
-        finally:
-            # Close fetchers and clean up temp files
-            for fx in fetchers:
-                try:
-                    fx.close()
-                except Exception:
-                    pass
-                for p in fx.cached_paths():
+            while True:
+                rows: List[Any] = []
+                for g in gens:
                     try:
-                        os.remove(p)
-                    except Exception:
-                        pass
+                        rows.append(next(g))
+                    except StopIteration:
+                        rows.append(None)
+
+                if any(r is None for r in rows):
+                    if not all(r is None for r in rows):
+                        raise AssertionError("inconsistent number of seq_tags across files")
+                    break  # all exhausted simultaneously
+
+                tag0, nb0 = rows[0]
+                # enforce same tag order across files for O(1) memory
+                for i, (tag_i, nb_i) in enumerate(rows[1:], start=1):
+                    if tag_i != tag0:
+                        raise AssertionError(f"[Seq tag order] mismatch at item {item_idx}: {tag_i!r} != {tag0!r}")
+
+                # sanity: same n-best length and same hypotheses (order)
+                hyp_list0 = [hyp.strip().replace("<unk>", "@@") for _, hyp in nb0]
+                for i, (_, nb_i) in enumerate(rows[1:], start=1):
+                    if len(nb_i) != len(nb0):
+                        raise AssertionError(
+                            f"[Same n-best & order] length mismatch at {tag0} file_index {i}, lengths ({len(nb_i)},{len(nb0)})"
+                        )
+                    hyp_list_i = [hyp.strip().replace("<unk>", "@@") for _, hyp in nb_i]
+                    if hyp_list_i != hyp_list0:
+                        j = next((j for j, (a, b) in enumerate(zip(hyp_list0, hyp_list_i)) if a != b), -1)
+                        mism_pair = (hyp_list0[j] if j >= 0 else None, hyp_list_i[j] if j >= 0 else None)
+                        raise AssertionError(
+                            f"[Same n-best & order] mismatch at {tag0} file_index {i}, inner index {j} pair {mism_pair}"
+                        )
+
+                # write this block
+                if not first:
+                    out.write(",\n")
+                first = False
+                out.write(f"{tag0!r}: [\n")
+
+                for hyp_idx in range(len(nb0)):
+                    hyp_text = nb0[hyp_idx][1]  # only from first file to avoid dup strings
+                    acc = 0.0
+                    for file_idx, (_, nb_i) in enumerate(rows):
+                        acc += float(nb_i[hyp_idx][0]) * weights[file_idx]
+                    out.write(f"({acc!r}, {hyp_text!r}),\n")
+                out.write("]")
+
+                item_idx += 1
+
+            out.write("\n}\n")
+
+        os.replace(tmp_filename, self.out_search_results.get_path())
+
 
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 from i6_experiments.users.zhang.recog import clean_RecogOut
@@ -313,13 +385,25 @@ def _spm_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 def py():
-    # from i6_experiments.users.zhang.experiments.decoding.rescoring import SearchCombineScoresJob as SearchCombineScoresJob1
-    # file1 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.9jP8jxwUa00b/output/output.py.gz"
-    # file2 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.mpz441VR58h4/output/output.py.gz"
-    # file3 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.4NMJDjOSJzr2/output/search_results.py.gz"
-    # input = [(1.0, tk.Path(file1)), (0.5, tk.Path(file2)), (-0.3, tk.Path(file3))]
-    # #job = SearchCombineScoresJob(search_py_output=input)
-    # tk.register_output("test/combinescores", SearchCombineScoresJob(search_py_output=input).out_search_results)
+    #work/i6_experiments/users/zhang/experiments/decoding/rescoring/SearchCombineScoresJob.eDm9woEaR1Ju
+    '''[(1.0,
+    <Path /nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.YohrR9yvfN5D/output/output.py.gz>),
+
+    (<Variable work/i6_experiments/users/zhang/recog/GetBestTuneValue.3VwqN9VjeM39/output/best_scale 0.26999999999999996>,
+    <Path /nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_experiments/users/zhang/experiments/decoding/lm_rescoring/LmRescoringJob.8qrtQT52an78/output/output.py.gz>),
+
+    (-0.13999999999999999,
+    <Path /nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.8sfI0LNbeG8p/output/search_results.py.gz>)]'''
+    from i6_experiments.users.zhang.experiments.decoding.rescoring import SearchCombineScoresJob as SearchCombineScoresJob1
+    file1 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/forward/ReturnnForwardJobV2.YohrR9yvfN5D/output/output.py.gz"
+    file2 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_experiments/users/zhang/experiments/decoding/lm_rescoring/LmRescoringJob.8qrtQT52an78/output/output.py.gz"
+    file3 = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchRemoveLabelJob.8sfI0LNbeG8p/output/search_results.py.gz"
+    input = [(1.0, tk.Path(file1)), (0.26999999999999996, tk.Path(file2)), (-0.13999999999999999, tk.Path(file3))]
+    job = SearchCombineScoresJob(search_py_output=input)
+    tk.register_output("test/combinescores", SearchCombineScoresJob(search_py_output=input).out_search_results)
+
+
+def llmppl_py():
     from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size_PPL, HuggingFaceLmPerplexityJobV2, LLM_rqmt
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import \
         get_corpus_text_dict as ES_get_corpus_text_dict
@@ -333,11 +417,11 @@ def py():
 
     ppl_job = HuggingFaceLmPerplexityJobV2(
         model_dir=llm_config["model_dir"],
-        text_file=[ES_get_corpus_text_dict(key=ds_name)],  # get_test_corpus_text(keys=[ds_name])
+        text_file=[tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/corpus/convert/CorpusToTextDictJob.neCUj8m5VRif/output/text_dictionary.py.gz")],#[ES_get_corpus_text_dict(key=ds_name)],  # get_test_corpus_text(keys=[ds_name])
         batch_size=llm_config["batch_size"],
         lower_case=True,
         word_ppl=True,
-        prompt=lm_rescore_res,
+        prompt=tk.Path("/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/returnn/search/SearchTakeBestJob.jJiw86R2keDE/output/best_search_results.py.gz"),#lm_rescore_res,
         eos_symbol="\n",
         use_prev_context=True, # For now only check for this setting
         context_len_limit=llm_config["ctx_len_limit"],

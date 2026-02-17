@@ -31,12 +31,14 @@ from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import seg_key
 DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key]# or seg_key == "ref"] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
 EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
 DEFAULT_PRIOR_WEIGHT = 0.3
+DEFAULT_LM_SCALE_DICT = {"Llama-3.1-8B": 0.35, "Qwen3-1.7B-Base": 0.3, "phi-4": 0.45, "Llama-3.2-1B": 0.3}
+DEFAULT_PRIOR_SCALE_DICT = {"Llama-3.1-8B": 0.22, "Qwen3-1.7B-Base": 0.18, "phi-4": 0.26, "Llama-3.2-1B": 0.2}
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
 # !! PLOT need to be set in main exp
-CHEAT_CTX = True
+
 CHEAT_N_BEST = True and seg_key == "ref"
 TUNE_WITH_CHEAT = True and CHEAT_N_BEST
 TUNE_TWO_ROUND = True
@@ -51,9 +53,11 @@ from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import TUNE_ON_GR
 LLM_WITH_PROMPT = False
 LLM_WITH_PROMPT_EXAMPLE = True and LLM_WITH_PROMPT
 
+
 LLM_FXIED_CTX = False and not LLM_WITH_PROMPT# Will be Imported by llm.get_llm()
 LLM_FXIED_CTX_SIZE = 8
 LLM_PREV_ONE_CTX = True and not LLM_FXIED_CTX
+CHEAT_CTX = True and LLM_PREV_ONE_CTX
 CTX_LEN_LIMIT = 100
 # --- Helpers for ctc_exp ---
 
@@ -244,26 +248,30 @@ def ctc_exp(
             tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
 
         elif any(llmname in rescore_lm_name for llmname in ["Llama", "Qwen", "phi"]):
-            tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2)]
-            tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
+            if CHEAT_CTX or not LLM_PREV_ONE_CTX:
+                tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2) if default_lm + scale / 100 > 0]
+                tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2) if default_prior + scale / 100 > 0]
+            else:
+                tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-5, 6, 5)]
+                tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-2, 3, 2)]
 
     recog_def = select_recog_def(lmname, USE_flashlight_decoder)
     tune_rescore_scale = False
 
-    if not TUNE_ON_GREEDY_N_LIST:  # TODO: Warning, very unclean, when use this with given rescore_lm..->
-        # branch in the below will be exc, and same setting will be repeated
-        # Make sure they are the same
-        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
-        decoding_config["rescore_priorscale"] = 0.30
-        decoding_config["tune_with_rescoring"] = True
-
-        ## Just safe guard, for now need them to be same
-        decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]
-        decoding_config["lm_weight"] = decoding_config["rescore_lmscale"]
-        set_tune_range_by_name(lmname, tune_config_updates,
-                               default_lm=decoding_config["lm_weight"],
-                               default_prior=decoding_config["prior_weight"],
-                               first_pass=True)  # !!This overwrites the setting done in get_decoding_config
+    # if not TUNE_ON_GREEDY_N_LIST:  # TODO: Warning, very unclean, when use this with given rescore_lm..->
+    #     # branch in the below will be exc, and same setting will be repeated
+    #     # Make sure they are the same
+    #     decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
+    #     decoding_config["rescore_priorscale"] = 0.30
+    #     decoding_config["tune_with_rescoring"] = True
+    #
+    #     # ## Just safe guard, for now need them to be same
+    #     # decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]
+    #     # decoding_config["lm_weight"] = decoding_config["rescore_lmscale"]
+    #     set_tune_range_by_name(lmname, tune_config_updates,
+    #                            default_lm=decoding_config["lm_weight"],
+    #                            default_prior=decoding_config["prior_weight"],
+    #                            first_pass=True)  # !!This overwrites the setting done in get_decoding_config
 
     if rescore_lm is None and lm is None:
         print("Pure greedy!!")
@@ -281,21 +289,22 @@ def ctc_exp(
         decoding_config["check_search_error_rescore"] = True
         decoding_config["rescoring"] = True
         decoding_config["lm_rescore"] = rescore_lm
-        decoding_config["rescore_lmscale"] = DEFAUL_RESCOR_LM_SCALE  # 0.5
-        decoding_config["rescore_priorscale"] = 0.30
+        decoding_config["rescore_lmscale"] = DEFAULT_LM_SCALE_DICT.get(rescore_lm_name,None) or DEFAUL_RESCOR_LM_SCALE  # 0.5
+        decoding_config["rescore_priorscale"] = DEFAULT_PRIOR_SCALE_DICT.get(rescore_lm_name,None) or 0.30
+        print(f"Default scales for {rescore_lm_name}: LM{decoding_config['rescore_lmscale']}, prior{decoding_config['rescore_priorscale']}")
         decoding_config["rescore_lm_name"] = rescore_lm_name
-        decoding_config["lm_vocab"] = get_vocab_by_str(lm_vocab)
+        decoding_config["lm_vocab"] = vocab_config if "ES" in rescore_lm_name else get_vocab_by_str(lm_vocab)
         set_tune_range_by_name(rescore_lm_name, tune_config_updates,
+                               default_lm=decoding_config["rescore_lmscale"],
+                               default_prior=decoding_config["rescore_priorscale"], first_pass=False)
+
+    if lm is not None:  # First pass with a LM, tuned it with rescoring
+        decoding_config["tune_with_rescoring"] = True  # Set to false if do one pass tuning
+        #decoding_config["prior_weight"] = decoding_config["rescore_priorscale"]  # Just safe guard, for now need them to be same
+        set_tune_range_by_name(lmname, tune_config_updates,
                                default_lm=decoding_config["lm_weight"],
-                               default_prior=decoding_config["prior_weight"], first_pass=False)
-        if lm is not None:  # First pass with a LM
-            decoding_config["tune_with_rescoring"] = True  # Set to false if do one pass tuning
-            decoding_config["prior_weight"] = decoding_config[
-                "rescore_priorscale"]  # Just safe guard, for now need them to be same
-            set_tune_range_by_name(lmname, tune_config_updates,
-                                   default_lm=decoding_config["rescore_lmscale"],
-                                   default_prior=decoding_config["rescore_priorscale"],
-                                   first_pass=True)  # !!This overwrites the setting done in get_decoding_config
+                               default_prior=decoding_config["prior_weight"],
+                               first_pass=True)
 
     if train:
         decoding_config = {
@@ -391,6 +400,7 @@ def py():
     encoder = "conformer"
     train = False
     insert_spm10k_lm = False
+    trans_only_LM = True
     cuts = {"conformer": 65, "blstm":37}
     # ---- Set up model and config ----
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, \
@@ -431,14 +441,14 @@ def py():
             word_ppl = True
             #lm_kinds = ["ffnn"]
             #lm_kinds_2 = ["trafo", "LLM"]
-        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True,
+        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True, only_transcript=trans_only_LM,
                                             task_name="ES")  # NEW
         #lms = {}
         #ppl_results = {}
         lms.update({"NoLM": None})
         # if not greedy_first_pass:
         #     lm_kinds_2.update(lm_kinds) # Redundant setting for get first pass result
-        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, only_best=True,
+        rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, only_best=True, only_transcript=trans_only_LM,
                                                      task_name="ES")
         rescor_lms.update({"NoLM": None})
         if insert_spm10k_lm:
@@ -654,11 +664,12 @@ def py():
                             f"wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
                             + ("n_best_cheat" if CHEAT_N_BEST else "")
                             + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
+                    summaryjob.add_alias(alias_prefix+"/summary_job")
                     tk.register_output(alias_prefix + "/report_summary",
                                        GetOutPutsJob(outputs=wer_results).out_report_dict)
                     tk.register_output(alias_prefix + "/summary", summaryjob.out_summary)
                     for i, key in enumerate(EVAL_DATASET_KEYS):
-                        tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
+                        #tk.register_output(alias_prefix + f"/{key}.png", summaryjob.out_plots[i])
                         tk.register_output(alias_prefix + f"/gnuplot/{key}.pdf", gnuplotjob.out_plots[key])
                         tk.register_output(alias_prefix + f"/gnuplot/{key}_regression", gnuplotjob.out_equations[key])
 

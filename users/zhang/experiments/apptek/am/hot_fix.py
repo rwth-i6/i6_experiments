@@ -1,5 +1,6 @@
 # Permute the output logits to match the vocabulary
 from ast import literal_eval
+from functools import cache
 from typing import Dict, List, Tuple
 import sentencepiece as spm
 import torch
@@ -11,9 +12,10 @@ def load_py_dict_literal(path: str) -> Dict[str, int]:
     with open(path, "rt", encoding="utf-8") as f:
         return literal_eval(f.read())
 
+@cache
 def build_reco2sp(spm_path: str, reco_vocab_path: str) -> Tuple[List[int], Dict[str, int]]:
     """
-    reco_vocab_path: Python dict literal token->reco_id (your lexicon-ordered vocab).
+    reco_vocab_path: Python dict literal token->reco_id (The lexicon-ordered vocab, what matches the vocab during model training).
     Returns:
       reco2sp: length = |reco|, each entry is the SP id to map into, or -1 if none
       sp_tok2id: {token: sp_id}

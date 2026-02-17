@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 import torch
-from torchaudio.models import RNNT
+# from torchaudio.models import RNNT
 
 
 @dataclass

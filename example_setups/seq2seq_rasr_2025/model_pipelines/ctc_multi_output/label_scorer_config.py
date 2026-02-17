@@ -1,6 +1,7 @@
 __all__ = ["get_ctc_label_scorer_config"]
 
 from dataclasses import fields
+from typing import Optional
 
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
@@ -17,6 +18,8 @@ def get_ctc_label_scorer_config(
     prior_file: tk.Path,
     prior_scale: float = 0.0,
     blank_penalty: float = 0.0,
+    scale: float = 1.0,
+    execution_provider_type: Optional[str] = None,
 ) -> RasrConfig:
     recog_model_config = ConformerCTCMultiOutputScorerConfig(
         **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
@@ -41,5 +44,11 @@ def get_ctc_label_scorer_config(
     rasr_config.onnx_model.io_map = RasrConfig()
     rasr_config.onnx_model.io_map.input_feature = "encoder_state"
     rasr_config.onnx_model.io_map.scores = "scores"
+
+    if execution_provider_type:
+        rasr_config.onnx_model.session.execution_provider_type = execution_provider_type
+
+    if scale != 1:
+        rasr_config.scale = scale
 
     return rasr_config

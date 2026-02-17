@@ -220,7 +220,7 @@ class FFNNTransducerScorer(FFNNTransducerModel):
             non_blank_log_probs = ilm_log_probs[:, :-1]  # [B, V-1]
             ilm_log_probs = torch.concat(
                 [
-                    non_blank_log_probs + torch.log(1.0 - torch.exp(blank_log_probs)),
+                    non_blank_log_probs - torch.log1p(-torch.exp(blank_log_probs)),
                     torch.zeros_like(blank_log_probs),
                 ],
                 dim=-1,

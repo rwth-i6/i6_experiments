@@ -1,10 +1,11 @@
+import functools
 from typing import Tuple, Dict, Set, List, Optional, Union, Type
 
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 from returnn_common.datasets_old_2022_10.interface import VocabConfig
 
-from .language_models.n_gram import get_count_based_n_gram, get_apptek_ES_n_gram
+from .language_models.n_gram import get_count_based_n_gram
 from .lm.ffnn import get_ffnn_lm
 from .lm.trafo import get_trafo_lm
 import re
@@ -85,6 +86,7 @@ def build_word_ngram_lms(word_ppl: bool = False, task_name: str = "LBS", only_tr
     return lms, ppl_results, lm_types
 
 def build_apptek_ES_word_ngram_lms(word_ppl: bool = False, task_name: str = "LBS") -> Tuple[Dict, Dict, Set[str]]:
+    from i6_experiments.users.zhang.experiments.language_models.n_gram import get_apptek_ES_n_gram
     word_ppl # noqa
     lms = {}
     ppl_results = {}
@@ -101,7 +103,7 @@ def build_apptek_ES_word_ngram_lms(word_ppl: bool = False, task_name: str = "LBS
             lm_types.add(f"{n_order}gram")
     return lms, ppl_results, lm_types
 
-def build_ffnn_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False) -> Tuple[Dict, Dict, Set[str]]:
+def build_ffnn_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, old: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}
     ppl_results = {}
     lm_types = {"ffnn"}
@@ -113,10 +115,11 @@ def build_ffnn_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: bo
                 "ff_hidden_dim": 1024,
                 "num_layers": 2,
                }
+    name_ext = "_old" if old else ('_trans' if only_transcript else '') #Default train + trans
     epochs = [50] if only_best else [1, 10 , 20, 50] #[] -> last_fixed_epoch
     from i6_experiments.users.zhang.experiments.lm.ffnn import get_ES_ffnn
-    for checkpoint, ppl, epoch in get_ES_ffnn(word_ppl=word_ppl, epochs=epochs, only_transcript=only_transcript):
-        name = f"ffnn{config['context_size']}_{epoch}_spm10k_{task_name}{'_trans' if only_transcript else ''}"
+    for checkpoint, ppl, epoch in get_ES_ffnn(word_ppl=word_ppl, epochs=epochs, only_transcript=only_transcript, old=old):
+        name = f"ffnn{config['context_size']}_{epoch}_spm10k_{task_name}{name_ext}"
         lms[name] = {
             "preload_from_files": {
                 "recog_lm": {
@@ -131,9 +134,9 @@ def build_ffnn_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: bo
     return lms, ppl_results, lm_types
 
 @lru_cache(maxsize=None)
-def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False) -> Tuple[Dict, Dict, Set[str]]:
+def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, old: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     if task_name == "ES":
-        return build_ffnn_ES_lms(as_ckpt=as_ckpt, word_ppl=word_ppl, only_best=only_best, task_name=task_name, only_transcript = only_transcript)
+        return build_ffnn_ES_lms(as_ckpt=as_ckpt, word_ppl=word_ppl, only_best=only_best, task_name=task_name, only_transcript = only_transcript, old = old)
     else:
         assert task_name == "LBS", "LBS or ES"
     lms = {}
@@ -167,9 +170,10 @@ def build_ffnn_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only
 
 def get_lm_by_name(lm_name:str, task_name: str = "LBS", as_ckpt: bool = True) -> Tuple[Dict, Dict, Set[str]]:
     if 'ffnn' in lm_name:
-        return build_ffnn_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=True, task_name=task_name, only_transcript=True if "trans" in lm_name else False)[0][lm_name] # for now ES LMs getter does not depend on vocab
+        # print(build_ffnn_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=True, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name)[0])
+        return build_ffnn_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=True, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name)[0][lm_name] # for now ES LMs getter does not depend on vocab
     elif "trafo" in lm_name:
-        return build_trafo_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=True, task_name=task_name, only_transcript=True if "trans" in lm_name else False)[0][lm_name]  # for now ES LMs getter does not depend on vocab
+        return build_trafo_lms(vocab="bpe128", as_ckpt=as_ckpt, only_best=True, task_name=task_name, only_transcript="trans" in lm_name, old="old" in lm_name)[0][lm_name]  # for now ES LMs getter does not depend on vocab
 
 
 _Lm = namedtuple("Lm", ["name", "train_version", "setup"])
@@ -200,7 +204,7 @@ def build_trafo_lm_spm(as_ckpt: bool=True, word_ppl: bool = True):
     lms = {}
     ppl_results = {}
     lm_types = {"trafo"}
-    rqmts = {"n32-d1024": {}, "n32-d1280-claix2023": {"gpu_mem": 24}}
+    rqmts = {"n32-d1024": {}, "n32-d1280-claix2023": {"mem":16,"gpu_mem": 24}}
     for lm_name in ["n32-d1024", "n32-d1280-claix2023"]:
         name = "trafo_spm10k" + lm_name
         lms[name] = _get_lm_model(_lms[lm_name])
@@ -211,8 +215,9 @@ def build_trafo_lm_spm(as_ckpt: bool=True, word_ppl: bool = True):
             model_with_checkpoint=lms[name],
             epoch="epoch_unk",
             dataset=lm_dataset,
-            dataset_keys=["transcriptions-test-other", "transcriptions-dev-other"],
+            dataset_keys=["transcriptions-test-other", "transcriptions-dev-other","transcriptions-test-clean", "transcriptions-dev-clean"],
             #exponent=ratio,
+            vocab=get_vocab_by_str(vocab),
             word_ppl=word_ppl,
             same_seq=True,
             batch_size=10_000,
@@ -222,7 +227,7 @@ def build_trafo_lm_spm(as_ckpt: bool=True, word_ppl: bool = True):
     #print(ppl_results)
     return lms, ppl_results, lm_types
 
-def build_trafo_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False) -> Tuple[Dict, Dict, Set[str]]:
+def build_trafo_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, old: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     lms = {}
     ppl_results = {}
     lm_types = {"trafo"}
@@ -238,10 +243,11 @@ def build_trafo_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: b
                },
                "dropout": 0.0,
                "att_dropout": 0.0,}
-    epochs = [40] if only_best else [10, 40] # 1, 10, 40
+    epochs = [100] if only_best else [40, 100] # 1, 10, 40
+    name_ext = "_old" if old else ('_trans' if only_transcript else '') #Default train + trans
     from i6_experiments.users.zhang.experiments.lm.trafo import get_ES_trafo
-    for checkpoint, ppl, epoch in get_ES_trafo(word_ppl=word_ppl, epochs=epochs, only_transcript=only_transcript):
-        name = f"trafo_{epoch}_spm10k_{task_name}{'_trans' if only_transcript else ''}"
+    for checkpoint, ppl, epoch in get_ES_trafo(word_ppl=word_ppl, epochs=epochs, only_transcript=only_transcript, old=old):
+        name = f"trafo_{epoch}_spm10k_{task_name}{name_ext}"
         lms[name] = {
             "preload_from_files": {
                 "recog_lm": {
@@ -255,9 +261,10 @@ def build_trafo_ES_lms(as_ckpt: bool=False, word_ppl: bool = False, only_best: b
     #print(f"trafos:{lms}")
     return lms, ppl_results, lm_types
 
-def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False) -> Tuple[Dict, Dict, Set[str]]:
+
+def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, old: bool = False) -> Tuple[Dict, Dict, Set[str]]:
     if task_name == "ES":
-        return build_trafo_ES_lms(as_ckpt=as_ckpt, word_ppl=word_ppl, only_best=only_best, task_name=task_name,only_transcript=only_transcript)
+        return build_trafo_ES_lms(as_ckpt=as_ckpt, word_ppl=word_ppl, only_best=only_best, task_name=task_name,only_transcript=only_transcript, old=old)
     else:
         assert task_name == "LBS", "LBS or ES"
     lms = {}
@@ -285,15 +292,15 @@ def build_trafo_lms(vocab: str, as_ckpt: bool=False, word_ppl: bool = False, onl
         ppl_results[name] = ppl
     return lms, ppl_results, lm_types
 
-def build_llms(word_ppl: bool = False, task_name: str = "LBS") -> Tuple[Dict, Dict, Set[str]]:
+def build_llms(word_ppl: bool = False, task_name: str = "LBS", model_ids: List[str] = None, batch_sizes: List[int] = None,) -> Tuple[Dict, Dict, Set[str]]:
     from i6_experiments.users.zhang.experiments.lm.llm import get_llm, LLM_Batch_size
     lm_types = {"LLM"}
-    model_ids = LLM_Batch_size.keys()
-    llms, ppl_llms = get_llm(model_ids=model_ids, batch_sizes=[LLM_Batch_size[key] for key in model_ids], task_name=task_name, word_ppl=word_ppl)
+    model_ids = model_ids or LLM_Batch_size.keys()
+    llms, ppl_llms = get_llm(model_ids=model_ids, batch_sizes=batch_sizes, task_name=task_name, word_ppl=word_ppl)
     return llms, ppl_llms, lm_types
 
 def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt: bool = False, word_ppl: bool = False,
-                  only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False) -> Tuple[Dict, Dict, Set[str]]:
+                  only_best: bool = False, task_name: str = "LBS", only_transcript: bool = False, llmids_batch_sizes: Dict[str, int] = None) -> Tuple[Dict, Dict, Set[str]]:
     lms, ppl, types = {}, {}, set()
     if lm_kinds is None:
         lm_kinds = {"ngram", "word_ngram", "ffnn", "trafo"}
@@ -305,7 +312,10 @@ def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt
         "word_ngram_apptek": build_apptek_ES_word_ngram_lms,
         "ffnn": build_ffnn_lms,
         "trafo": build_trafo_lms,
-        "LLM": build_llms,
+        "trafo_ES_wo_trans": functools.partial(build_trafo_lms,old=True),
+        "ffnn_ES_wo_trans": functools.partial(build_ffnn_lms,old=True),
+        "LLM": build_llms if llmids_batch_sizes is None
+        else functools.partial(build_llms,model_ids=llmids_batch_sizes.keys(),batch_sizes=llmids_batch_sizes.values()),
     }
     # if word_ppl:
     #     bpe_ratio = None # This should be done in compute_ppl
@@ -318,6 +328,8 @@ def build_all_lms(vocab: [str | VocabConfig], lm_kinds: Set[str] = None, as_ckpt
         if kind not in lm_kinds:
             continue
         #try:
+        if "ES" in kind:
+            assert task_name == "ES", f"Try to get ES LM in {task_name}"
         l, p, t = builder(vocab, as_ckpt, word_ppl, only_best, task_name, only_transcript) if kind not in ["word_ngram", "word_ngram_apptek", "LLM"] else builder(word_ppl=word_ppl, task_name=task_name)
         lms.update(l)
         ppl.update(p)

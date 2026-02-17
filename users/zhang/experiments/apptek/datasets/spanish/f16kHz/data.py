@@ -468,8 +468,8 @@ def _get_ogg_zip(
     #print(name)
     if any(name_prefix in name for name_prefix in NEED_FIX_OGG_ZIP_DATASET_NAME):
         oggzip_job = OggZipFixTxtTextualJob(oggzip_job.out_ogg_zip)
-    oggzip_job.add_alias(f"{alias_prefix}/oggzip/{name}")
-    tk.register_output(f"{alias_prefix}/oggzip/{name}.ogg.zip", oggzip_job.out_ogg_zip)
+    oggzip_job.add_alias(f"{alias_prefix}/oggzip{'_old' if keep_training_hash else ''}/{name}")
+    tk.register_output(f"{alias_prefix}/oggzip{'_old' if keep_training_hash else ''}/{name}.ogg.zip", oggzip_job.out_ogg_zip)
     return oggzip_job.out_ogg_zip
 
 def get_spm_lexicon() -> tk.Path:

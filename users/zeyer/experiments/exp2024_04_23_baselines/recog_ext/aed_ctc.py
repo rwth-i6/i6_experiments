@@ -551,6 +551,7 @@ def get_aed_ctc_and_labelwise_prior(
     prior_type: str = "prob",
     prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
     aed_scale: Union[float, tk.Variable],
+    ctc_scale: Union[float, tk.Variable] = 1.0,
 ) -> ModelWithCheckpoint:
     """Combined CTC model with LM and prior"""
     # Keep CTC model config as-is, extend below for prior and LM.
@@ -569,6 +570,8 @@ def get_aed_ctc_and_labelwise_prior(
         config.update({"labelwise_prior": {"type": prior_type, "file": prior, "scale": prior_scale}})
 
     config.update({"aed_scale": aed_scale})
+    if ctc_scale != 1.0:  # dont break hash...
+        config.update({"ctc_scale": ctc_scale})
 
     # Also see: denoising_lm_2024.sis_recipe.tts_model.get_asr_with_tts_model_def
     # noinspection PyTypeChecker
@@ -660,13 +663,17 @@ def model_recog_with_recomb(
     ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
     aed_scale = config.float("aed_scale", 1.0)
+    ctc_scale = config.float("ctc_scale", 1.0)
 
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    if data.feature_dim is not None:
+        batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    else:
+        batch_dims = data.remaining_dims(data_spatial_dim)
     enc_collected_outputs = {}
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
 
@@ -739,7 +746,7 @@ def model_recog_with_recomb(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = seq_log_prob + ctc_label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        seq_log_prob = seq_log_prob + ctc_scale * ctc_label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
         if decoder is not None:
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.

@@ -126,5 +126,6 @@ def compute_priors(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
+    prior_job.rqmt["gpu_mem"] = 24
 
     return prior_job.out_files["prior.txt"]

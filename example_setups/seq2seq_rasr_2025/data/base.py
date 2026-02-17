@@ -4,6 +4,11 @@ from random import Random
 import textwrap
 from typing import Dict, Iterator, List, Literal, Optional, Protocol, Set
 
+try:
+    from typing import Self
+except ImportError:
+    from typing import Any as Self
+
 import numpy as np
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.lib.lexicon import Lexicon
@@ -34,23 +39,28 @@ class DataConfig(Protocol):
 
 @dataclass
 class OggZipDataConfig:
-    bliss_corpus_files: List[tk.Path]
+    oggzip_files: List[tk.Path]
     speed_perturbation: bool = False
-    ogg_segments: int = 1
     partition_epoch: int = 1
     seq_ordering: str = "sorted"
     target_config: Optional[dict] = None
     segment_file: Optional[tk.Path] = None
 
-    def get_returnn_data(self, dataset_type: Literal["train", "dev", "forward_data"]) -> ReturnnConfig:
+    @classmethod
+    def from_bliss(
+        cls,
+        bliss_corpus_files: List[tk.Path],
+        ogg_segments: int = 1,
+        **kwargs,
+    ) -> Self:
         oggzip_files = []
 
-        for corpus_file in self.bliss_corpus_files:
+        for corpus_file in bliss_corpus_files:
             oggzip_job = BlissToOggZipJob(
                 bliss_corpus=corpus_file,
                 segments=(
-                    SegmentCorpusJob(bliss_corpus=corpus_file, num_segments=self.ogg_segments).out_segment_path
-                    if self.ogg_segments > 1
+                    SegmentCorpusJob(bliss_corpus=corpus_file, num_segments=ogg_segments).out_segment_path
+                    if ogg_segments > 1
                     else None
                 ),
                 returnn_root=returnn_root,
@@ -60,6 +70,9 @@ class OggZipDataConfig:
             oggzip_job.merge_rqmt = {"cpu": 1, "mem": 16, "time": 24}
             oggzip_files.append(oggzip_job.out_ogg_zip)
 
+        return cls(oggzip_files=oggzip_files, **kwargs)
+
+    def get_returnn_data(self, dataset_type: Literal["train", "dev", "forward_data"]) -> ReturnnConfig:
         audio_config = {
             "features": "raw",
             "peak_normalization": True,
@@ -72,7 +85,7 @@ class OggZipDataConfig:
         dataset_config_dict = {
             "class": "OggZipDataset",
             "use_cache_manager": True,
-            "path": oggzip_files,
+            "path": self.oggzip_files,
             "audio": audio_config,
             "targets": self.target_config,
             "partition_epoch": self.partition_epoch,

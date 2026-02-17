@@ -1,4 +1,4 @@
-__all__ = ["export_encoder", "export_scorer", "export_state_initializer", "export_state_updater"]
+__all__ = ["export_encoder", "export_scorer", "export_state_initializer", "export_state_updater", "export_ctc_scorer"]
 
 from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import CodeWrapper
@@ -9,31 +9,36 @@ from i6_experiments.common.setups.serialization import Import
 
 from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
-from .pytorch_modules import AEDConfig, AEDEncoder, AEDScorer, AEDStateInitializer, AEDStateUpdater
+from .pytorch_modules import AEDCTCScorer, AEDConfig, AEDExportEncoder, AEDScorer, AEDStateInitializer, AEDStateUpdater
 
 # -----------------------
 # --- Forward steps -----
 # -----------------------
 
 
-def _encoder_forward_step(*, model: AEDEncoder, extern_data: TensorDict, **_):
+def _encoder_forward_step(*, model: AEDExportEncoder, extern_data: TensorDict, **_):
     import returnn.frontend as rf
+    from returnn.tensor.dim import batch_dim
 
     run_ctx = rf.get_run_ctx()
 
-    audio_samples = extern_data["audio_samples"].raw_tensor  # [B, T, 1]
-    assert audio_samples is not None
+    features = extern_data["features"].raw_tensor  # [B, T, F]
+    assert features is not None
 
-    assert extern_data["audio_samples"].dims[1].dyn_size_ext is not None
-    audio_samples_size = extern_data["audio_samples"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert audio_samples_size is not None
+    assert extern_data["features"].dims[1].dyn_size_ext is not None
+    features_size = extern_data["features"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert features_size is not None
 
-    encoder_states = model.forward(
-        audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size,
+    encoder_states, encoder_states_size = model.forward(
+        features=features,
+        features_size=features_size,
     )
 
-    run_ctx.mark_as_output(name="encoder_states", tensor=encoder_states)
+    run_ctx.mark_as_output(name="enc_out", tensor=encoder_states)
+    if run_ctx.expected_outputs is not None:
+        run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext = rf.Tensor(
+            "enc_out_time", dims=[batch_dim], raw_tensor=encoder_states_size.long(), dtype="int64"
+        )
 
 
 def _scorer_forward_step(*, model: AEDScorer, extern_data: TensorDict, **_):
@@ -127,13 +132,26 @@ def _state_updater_forward_step(*, model: AEDStateUpdater, extern_data: TensorDi
     run_ctx.mark_as_output(name="token_embedding_out", tensor=token_embedding_out)
 
 
+def _ctc_scorer_forward_step(*, model: AEDCTCScorer, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    encoder_state = extern_data["encoder_state"].raw_tensor
+    assert encoder_state is not None
+
+    scores = model.forward(encoder_state=encoder_state)
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)
+
+
 # -----------------------
 # --- Export routines ---
 # -----------------------
 
 
 def export_encoder(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=AEDEncoder, model_config=model_config)
+    model_serializers = get_model_serializers(model_class=AEDExportEncoder, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -142,21 +160,25 @@ def export_encoder(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "dim_enc_out_time": CodeWrapper('Dim(name="enc_out_time", dimension=None)'),
+            "dim_enc_out_feature": CodeWrapper(
+                f'Dim(name="enc_out_feature", dimension={model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1})'
+            ),
             "extern_data": {
-                "audio_samples": {
-                    "dim": 1,
+                "features": {
+                    "dim": model_config.logmel_cfg.num_filters,
                     "dtype": "float32",
                 },
             },
             "model_outputs": {
-                "encoder_states": {
-                    "dim": model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1,
+                "enc_out": {
+                    "dim_tags": CodeWrapper("(batch_dim, dim_enc_out_time, dim_enc_out_feature)"),
                     "dtype": "float32",
                 },
             },
         },
-        input_names=["audio_samples", "audio_samples:size1"],
-        output_names=["encoder_states"],
+        input_names=["features", "features:size1"],
+        output_names=["enc_out"],
     )
 
 
@@ -218,7 +240,7 @@ def export_state_initializer(model_config: AEDConfig, checkpoint: PtCheckpoint) 
         returnn_config_dict={
             "encoder_time_dim": CodeWrapper('Dim(dimension=None, description="EncTime")'),
             "encoder_feature_dim": CodeWrapper(
-                f'Dim(dimension={model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1}, description="EncTime")'
+                f'Dim(dimension={model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1}, description="EncFeature")'
             ),
             "accum_att_weights_dim": CodeWrapper('Dim(dimension=1, description="AttWeights")'),
             "extern_data": {
@@ -283,10 +305,14 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
             import_as="forward_step",
         ),
         checkpoint=checkpoint,
+        extra_imports=[Import("returnn.tensor.Tensor")],
         returnn_config_dict={
-            "encoder_time_dim": CodeWrapper('Dim(dimension=None, description="EncTime")'),
+            "encoder_batch_dim": CodeWrapper('Dim(dimension=1, description="EncBatch")'),
+            "encoder_time_dim": CodeWrapper(
+                'Dim(dimension=None, dyn_size_ext=Tensor("EncTime", dims=[encoder_batch_dim], dtype="int32"), description="EncTime")'
+            ),
             "encoder_feature_dim": CodeWrapper(
-                f'Dim(dimension={model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1}, description="EncTime")'
+                f'Dim(dimension={model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1}, description="EncFeature")'
             ),
             "accum_att_weights_dim": CodeWrapper('Dim(dimension=1, description="AttWeights")'),
             "extern_data": {
@@ -300,7 +326,7 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
                     "dtype": "float32",
                 },
                 "encoder_states": {
-                    "dim_tags": CodeWrapper("(batch_dim, encoder_time_dim, encoder_feature_dim)"),
+                    "dim_tags": CodeWrapper("(encoder_batch_dim, encoder_time_dim, encoder_feature_dim)"),
                     "dtype": "float32",
                 },
                 "lstm_state_c_in": {
@@ -375,4 +401,37 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
             "lstm_state_h_out": "lstm_state_h",
             "token_embedding_out": "token_embedding",
         },
+    )
+
+
+def export_ctc_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
+    model_serializers = get_model_serializers(model_class=AEDCTCScorer, model_config=model_config)
+
+    return _export_model(
+        model_serializers=model_serializers,
+        forward_step_import=Import(
+            f"{_ctc_scorer_forward_step.__module__}.{_ctc_scorer_forward_step.__name__}", import_as="forward_step"
+        ),
+        checkpoint=checkpoint,
+        returnn_config_dict={
+            "encoder_feature_dim": CodeWrapper(
+                f'Dim(dimension={model_config.enc_dim + model_config.decoder_config.attention_cfg.attention_dim + 1}, description="EncFeature")'
+            ),
+            "extern_data": {
+                "encoder_state": {
+                    "dim_tags": CodeWrapper("(batch_dim, encoder_feature_dim)"),
+                    "time_dim_axis": None,
+                    "dtype": "float32",
+                },
+            },
+            "model_outputs": {
+                "scores": {
+                    "dim": model_config.label_target_size + 1,
+                    "time_dim_axis": None,
+                    "dtype": "float32",
+                },
+            },
+        },
+        input_names=["encoder_state"],
+        output_names=["scores"],
     )

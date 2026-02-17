@@ -206,20 +206,23 @@ def py():
     #     ),
     #     train_def=lm_train_def,
     # )
-def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
-    #from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import SpanishLmDataset
-    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
+def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False, old:bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+    'Old -> get the trafo trained on old dataset, wo transcription'
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.lm.data import SpanishLmDataset
+    from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset as old_LmDataset
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
     _, spm, _ = get_model_and_vocab()
     # for k, v in spm["vocabulary"].items():
     #     print(f"{k}: {v}")
     # print(f"vocab setting: {spm}")
     spm_config = SentencePieceModel(dim=spm["vocabulary"]["vocabulary_size"], model_file=spm["spm"])
-    lm_dataset = SpainishLmDataset(vocab=spm_config, train_epoch_split=20)#, only_transcripts=only_transcript)
+    lm_dataset = SpanishLmDataset(vocab=spm_config, train_epoch_split=20, only_transcripts=only_transcript) \
+        if not old else old_LmDataset(vocab=spm_config, train_epoch_split=20)
+    name_ext = "_old" if old else ('_trans' if only_transcript else '') #Default train + trans
     config_80gb = config_96gb_bf16_accgrad1.copy()
     config_80gb.update({"__gpu_mem": 80, "__mem_rqmt": 96})
     model_with_checkpoints = train(  # 32.88 LBS, set up from albert. Use same network for Spainish task
-        f"lm/ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",#_{'trans' if only_transcript else 'train_trans'}",
+        f"lm/ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k{name_ext}",
         config=dict_update_deep(
             config_80gb,
             {
@@ -251,7 +254,7 @@ def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcri
     )
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import DEV_KEYS, TEST_KEYS
     ppls = compute_ppl(
-        prefix_name="ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+        prefix_name=f"ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k_{name_ext}",
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
         same_seq=True,
@@ -271,7 +274,7 @@ def get_ES_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcri
         return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
 
 
-def get_ES__old_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
+def get_ES_old_trafo(epochs: list[int] = None, word_ppl: bool = False, only_transcript: bool = False)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import SpainishLmDataset
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab
     _, spm, _ = get_model_and_vocab()
@@ -399,10 +402,11 @@ def get_trafo_lm(vocab: Bpe, num_layers: int = 24, model_dim: int = 1024,
         prefix_name=train_prefix_name,
         model_with_checkpoints=model_with_checkpoints,
         dataset=lm_dataset,
-        dataset_keys=["transcriptions-test-other", "transcriptions-dev-other"],
+        dataset_keys=["transcriptions-test-other", "transcriptions-dev-other","transcriptions-test-clean", "transcriptions-dev-clean"],
         exponent=bpe_ratio if word_ppl else 1.0,
         epochs=epochs,
         same_seq=True,
+        word_ppl=word_ppl,
         batch_size=10_000,
     )
     print(f"------fixed epochs of trafo_lm---------\n {model_with_checkpoints.fixed_epochs}\n--------------")

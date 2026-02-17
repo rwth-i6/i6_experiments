@@ -1,3 +1,4 @@
+from typing import List, Literal, get_args
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
@@ -12,9 +13,13 @@ from ..base import HdfDataConfig, LmDataConfig, MetaOggZipDataConfig, MetaOggZip
 from .bpe import get_default_bpe_target_config
 from .phoneme import get_phoneme_target_hdf_file
 
+EvalSet = Literal["dev-clean", "dev-other", "test-clean", "test-other"]
+
+EVAL_SETS: List[EvalSet] = get_args(EvalSet)  # type: ignore
+
 
 def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")["train-other-960"]],
         speed_perturbation=True,
         ogg_segments=200,
@@ -26,7 +31,7 @@ def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
 
 def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[get_bliss_corpus_dict("wav")["train-other-960"]],
             speed_perturbation=True,
             ogg_segments=200,
@@ -42,7 +47,7 @@ def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
 
 def get_default_bpe_phoneme_train_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[get_bliss_corpus_dict("wav")["train-other-960"]],
             speed_perturbation=True,
             ogg_segments=200,
@@ -107,7 +112,7 @@ def get_default_word_lm_train_data() -> LmDataConfig:
 
 def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
     bliss_corpus_dict = get_bliss_corpus_dict("wav")
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[bliss_corpus_dict["dev-clean"], bliss_corpus_dict["dev-other"]],
         speed_perturbation=False,
         ogg_segments=1,
@@ -120,7 +125,7 @@ def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
 def get_default_phoneme_cv_data() -> MetaOggZipHdfTargetDataConfig:
     bliss_corpus_dict = get_bliss_corpus_dict("wav")
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[bliss_corpus_dict["dev-clean"], bliss_corpus_dict["dev-other"]],
             speed_perturbation=False,
             ogg_segments=1,
@@ -139,7 +144,7 @@ def get_default_phoneme_cv_data() -> MetaOggZipHdfTargetDataConfig:
 def get_default_bpe_phoneme_cv_data(bpe_size: int) -> MetaOggZipHdfTargetDataConfig:
     bliss_corpus_dict = get_bliss_corpus_dict("wav")
     return MetaOggZipHdfTargetDataConfig(
-        oggzip_config=OggZipDataConfig(
+        oggzip_config=OggZipDataConfig.from_bliss(
             bliss_corpus_files=[bliss_corpus_dict["dev-clean"], bliss_corpus_dict["dev-other"]],
             speed_perturbation=False,
             ogg_segments=1,
@@ -203,7 +208,7 @@ def get_default_prior_data() -> MetaOggZipDataConfig:
     train_corpus_file = get_bliss_corpus_dict("wav")["train-other-960"]
     segment_file = SegmentCorpusJob(train_corpus_file, 10).out_single_segment_files[1]
 
-    return MetaOggZipDataConfig(
+    return MetaOggZipDataConfig.from_bliss(
         bliss_corpus_files=[train_corpus_file],
         speed_perturbation=False,
         ogg_segments=200,
@@ -214,7 +219,7 @@ def get_default_prior_data() -> MetaOggZipDataConfig:
 
 
 def get_default_recog_data(corpus_name: str) -> OggZipDataConfig:
-    return OggZipDataConfig(
+    return OggZipDataConfig.from_bliss(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")[corpus_name]],
         speed_perturbation=False,
         ogg_segments=1,

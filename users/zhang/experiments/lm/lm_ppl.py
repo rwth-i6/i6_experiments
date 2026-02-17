@@ -1,5 +1,5 @@
 import copy
-from typing import Union, Optional, List
+from typing import Union, Optional, List, Dict, Tuple, Any, Callable
 
 from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
@@ -21,7 +21,7 @@ from i6_core.text.label.sentencepiece.apply import ApplySentencepieceToTextJob
 from i6_experiments.users.zhang.datasets.vocab import GetSubwordRatioJob, ApplyBPEToTextJob
 from i6_experiments.users.zhang.datasets.librispeech import get_test_corpus_text
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
-from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
+
 
 from returnn_common import nn
 
@@ -204,6 +204,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
         if task_name == "LBS":
             text_data = get_test_corpus_text(keys=[dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key])
         elif task_name == "ES":
+            from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
             text_data = get_lm_eval_text(key = dataset_key)
         else:
             raise ValueError("task_name must be 'LBS' or 'ES'")
@@ -247,7 +248,7 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             # if dataset_key_ == "test-other":
             #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
     for epoch in check_epochs:
-        tk.register_output(f"ppl/{prefix_name}/{epoch}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
+        tk.register_output(f"ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
     return ppls
 
 def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab: [str | VocabConfig] = "bpe128", task_name: str = "LBS", **kwargs_unused):
@@ -261,6 +262,7 @@ def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, datas
         if task_name == "LBS":
             text_data = get_test_corpus_text(keys=[dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key])
         elif task_name == "ES":
+            from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.data import get_lm_eval_text
             text_data = get_lm_eval_text(key = dataset_key)
         else:
             raise ValueError("task_name must be 'LBS' or 'ES'")
@@ -301,7 +303,7 @@ class ComputePerplexityJob(Job):
         self.scores_and_lens_file = scores_and_lens_file
 
         self.out_ppl = self.output_path("ppl")
-        self.exponent = exponent.get() if isinstance(exponent, tk.Variable) else exponent
+        self.exponent = exponent
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
@@ -328,10 +330,144 @@ class ComputePerplexityJob(Job):
             lens += v[0]
 
         ppl = math.exp(-1.0 * scores / lens)
-
+        exponent = self.exponent.get() if isinstance(self.exponent, tk.Variable) else self.exponent
         with open(self.out_ppl.get_path(), "w+") as f:
-            if self.exponent > 1:
-                f.write("Original level: %f ratio: %f \n" % (ppl, self.exponent))
-                print(f"ori_ppl:{ppl}, exponent:{self.exponent}")
-                ppl = math.pow(ppl, self.exponent)
+            if exponent > 1:
+                f.write("Original level: %f ratio: %f \n" % (ppl, exponent))
+                print(f"ori_ppl:{ppl}, exponent:{exponent}")
+                ppl = math.pow(ppl, exponent)
             f.write("Perplexity: %f" % ppl)
+
+class ComputePPLOnRecogOutJob(tk.Job):
+    """
+    Read a dumped Python dict of the form:
+        {
+          'utt_id1': [ (seq_logprob, 'tokenized text with spaces'), ... ],
+          'utt_id2': [ (seq_logprob, '...'), ... ],
+          ...
+        }
+    and compute overall (length-normalized) perplexity.
+
+    Defaults:
+      - log base e (natural log)
+      - do NOT add EOS artificially (counts exactly the tokens found by str.split())
+      - LM scores are unscaled (lm_weight = 1.0)
+
+    Outputs:
+      - output/report.txt  : human-readable summary
+      - output/per_utt.tsv : per-utterance stats (utt_id, tokens, seq_logprob, ppl_per_utt)
+    """
+
+    def __init__(
+        self,
+        input_scores: Union[str, tk.Path],
+        *,
+        log_base: str = "e",       # "e" or "10" or any floatable string
+        lm_weight: float = 1.0,    # divide stored scores by this if they were scaled
+        include_eos_per_seq: int = 1,  # add this many tokens per hypothesis (e.g., 1 to count EOS if score included it)
+        allow_inf_nan: bool = True,    # allow 'inf', 'nan' in the dict
+        to_word_func: Callable[[list[str]],str] = None,
+    ):
+        super().__init__()
+        self.input_scores = input_scores if isinstance(input_scores, tk.Path) else tk.Path(input_scores)
+        self.log_base = log_base
+        self.lm_weight = lm_weight
+        self.include_eos_per_seq = include_eos_per_seq
+        self.allow_inf_nan = allow_inf_nan
+        self.to_word_func = to_word_func
+
+        # outputs
+        self.out_report = self.output_path("report.txt")
+        self.out_per_utt = self.output_path("per_utt.tsv")
+        self.out_ppl = self.output_var("ppl")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def _parse_py_dict(self, s: str) -> Dict[str, List[Tuple[float, str]]]:
+        """
+        Parse the dumped Python dict string safely.
+        If allow_inf_nan is True, support 'inf'/'nan' via eval with a restricted globals.
+        """
+        if self.allow_inf_nan:
+            # Limited eval context to allow inf/nan literals if present.
+            return eval(s, {"__builtins__": {}}, {"inf": float("inf"), "nan": float("nan")})
+        else:
+            # Strict literal eval (no inf/nan in older Python)
+            import ast
+            return ast.literal_eval(s)
+
+    def run(self):
+        # Read input dict
+        import i6_core.util as cutil
+        import math
+        with cutil.uopen(self.input_scores.get_path(), "rt") as f:
+            raw = f.read()
+        data = self._parse_py_dict(raw)
+
+        # Decide log base
+        if self.log_base == "e":
+            b = math.e
+        elif self.log_base == "10":
+            b = 10.0
+        else:
+            b = float(self.log_base)
+
+        # Aggregate
+        total_logprob = 0.0  # summed (unscaled) sequence log-probs across all hyps
+        total_tokens = 0     # total token count across all hyps
+        n_hyps = 0
+        skipped_empty = 0
+        # Write per-utt diagnostics
+        with open(self.out_per_utt.get_path(), "w", encoding="utf-8") as fout:
+            fout.write("utt_id\t#hyps\thyp_idx\ttokens\tseq_logprob\tppl_per_hyp\n")
+            for utt_id, entries in data.items():
+                # entries: list[(seq_logprob, text)]
+                for idx, (seq_lp, txt) in enumerate(entries):
+                    if not txt or not txt.strip():
+                        skipped_empty += 1
+                        fout.write(f"{utt_id}\t{len(entries)}\t{idx}\t0\t{seq_lp_unscaled}\tNaN\tNaN\tempty_text\n")
+                        continue
+                    n_hyps += 1
+                    # de-scale if an LM weight was applied when storing
+                    seq_lp_unscaled = float(seq_lp) / float(self.lm_weight)
+
+                    # token count: split on whitespace; add EOS if requested
+                    if self.to_word_func:
+                        txt = self.to_word_func(txt.split())
+                    tokens = txt.split()
+                    T = len(tokens) + int(self.include_eos_per_seq)
+
+                    # Guard: skip empty if T==0 to avoid div-by-zero
+                    if T <= 0:
+                        # still record row with NaN ppl
+                        fout.write(f"{utt_id}\t{len(entries)}\t{idx}\t{T}\t{seq_lp_unscaled}\tNaN\n")
+                        continue
+
+                    # per-hyp perplexity (optional diagnostic)
+                    ppl_hyp = b ** (-(seq_lp_unscaled / T))
+
+                    total_logprob += seq_lp_unscaled
+                    total_tokens += T
+
+                    fout.write(f"{utt_id}\t{len(entries)}\t{idx}\t{T}\t{seq_lp_unscaled}\t{ppl_hyp}\n")
+
+        # Overall PPL
+        if total_tokens == 0:
+            ppl_overall = float("nan")
+        else:
+            ppl_overall = b ** (-(total_logprob / total_tokens))
+        self.out_ppl.set(ppl_overall)
+        # Report
+        with open(self.out_report.get_path(), "w", encoding="utf-8") as r:
+            r.write("=== Perplexity Report ===\n")
+            r.write(f"Input file          : {self.input_scores}\n")
+            r.write(f"To_word_func        : {self.to_word_func}\n")
+            r.write(f"Log base            : {self.log_base} (b={b})\n")
+            r.write(f"LM weight (divisor) : {self.lm_weight}\n")
+            r.write(f"Skipped empty text  : {skipped_empty}\n")
+            r.write(f"Extra EOS per hyp   : {self.include_eos_per_seq}\n")
+            r.write(f"#hypotheses         : {n_hyps}\n")
+            r.write(f"Total tokens (N)    : {total_tokens}\n")
+            r.write(f"Sum log-probs (S)   : {total_logprob}\n")
+            r.write(f"PPL (overall)       : {ppl_overall}\n")

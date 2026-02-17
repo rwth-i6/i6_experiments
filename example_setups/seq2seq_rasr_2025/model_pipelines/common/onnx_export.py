@@ -54,8 +54,11 @@ def export_model(
     returnn_config_dict: dict,
     input_names: List[str],
     output_names: List[str],
+    extra_imports: Optional[List[Import]] = None,
     metadata: Optional[dict] = None,
 ) -> tk.Path:
+    if extra_imports is None:
+        extra_imports = []
     returnn_config = ReturnnConfig(
         config={
             **returnn_config_dict,
@@ -65,21 +68,23 @@ def export_model(
         + [
             Import("returnn.tensor.dim.Dim"),
             Import("returnn.tensor.dim.batch_dim"),
-        ],
+        ]
+        + extra_imports,
         python_epilog=[
             model_serializers,
             forward_step_import,
         ],  # type: ignore
     )
-
-    exported_model = TorchOnnxExportJob(
+    export_job = TorchOnnxExportJob(
         returnn_config=returnn_config,
         checkpoint=checkpoint,
         input_names=input_names,
         output_names=output_names,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-    ).out_onnx_model
+    )
+
+    exported_model = export_job.out_onnx_model
 
     if metadata is not None:
         exported_model = AddOnnxMetadataJob(model_path=exported_model, metadata=metadata).out_model

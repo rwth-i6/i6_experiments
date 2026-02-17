@@ -19,11 +19,8 @@ def get_lstm_lm_label_scorer_config(
     state_updater_onnx_model = export_state_updater(model_config=model_config, checkpoint=checkpoint)
 
     rasr_config = RasrConfig()
-    rasr_config.type = "full-input-stateful-onnx"
-    if scale != 1:
-        rasr_config.scale = scale
-
-    rasr_config.max_cached_scores = 20000
+    rasr_config.type = "stateful-onnx"
+    rasr_config.max_cached_score_vectors = 100000
 
     rasr_config.scorer_model = RasrConfig()
     rasr_config.scorer_model.session = RasrConfig()
@@ -48,6 +45,9 @@ def get_lstm_lm_label_scorer_config(
 
     rasr_config.state_updater_model.io_map = RasrConfig()
     rasr_config.state_updater_model.io_map.token = "token"
+
+    if scale != 1:
+        rasr_config.scale = scale
 
     if execution_provider_type:
         rasr_config.scorer_model.session.execution_provider_type = execution_provider_type
