@@ -495,6 +495,7 @@ def py():
     )
 
     # TODO new prior on LM vocab but ASR transcriptions...
+    # TODO not fixed interval but condition like in delayed fusion paper
 
 
 _base_config = {
