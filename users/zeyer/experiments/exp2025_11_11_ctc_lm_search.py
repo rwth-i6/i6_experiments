@@ -417,6 +417,10 @@ def py():
     #     },
     # )
 
+    # Always (every1) (no delayed fusion, or only until word end):
+    # {"dev": 9.99, "dev_voxpopuli": 10.69, "dev_commonvoice": 12.52, "dev_librispeech": 6.58, "dev_yodas": 21.71,
+    #  "test": 10.98, "test_voxpopuli": 10.52, "test_commonvoice": 15.07, "test_librispeech": 6.58, "test_yodas": 21.39}
+    # TODO why is this even worse?
     enable_always = functools.partial(enable_by_interval, interval=1)
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-always/qwen2",
@@ -443,6 +447,12 @@ def py():
         },
     )
 
+    # Never (delay until end), i.e. should be like rescoring:
+    # {"dev": 6.26, "dev_voxpopuli": 6.61, "dev_commonvoice": 8.83, "dev_librispeech": 3.85, "dev_yodas": 11.47,
+    #  "test": 7.0, "test_voxpopuli": 6.67, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.1}
+    # Rescoring:
+    # {"dev": 6.26, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.84, "dev_librispeech": 3.84, "dev_yodas": 11.54,
+    #  "test": 7.0, "test_voxpopuli": 6.66, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.11}
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/qwen2",
         task=task,
@@ -467,6 +477,8 @@ def py():
             "max_seqs": 32,
         },
     )
+
+    # TODO new prior on LM vocab but ASR transcriptions...
 
 
 _base_config = {
