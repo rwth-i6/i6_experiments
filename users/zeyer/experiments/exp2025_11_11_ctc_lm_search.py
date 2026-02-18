@@ -284,6 +284,17 @@ def py():
     log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
     tk.register_output(f"{prefix}/lm/qwen2/log_lm_vocab_log_prior.txt", log_lm_vocab_log_prior)
 
+    # for testing
+    transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
+        vocab=get_qwen2_vocab(),
+        take_random_sorted_subset=5000,
+        take_random_sorted_subset_version=2,
+    )
+    log_lm_vocab_log_prior_small = compute_label_prior_log_probs(
+        transcriptions_dataset_small, forward_rqmt={"mem": 12, "time": 24}
+    )
+    tk.register_output(f"{prefix}/lm/qwen2/log_lm_vocab_log_prior_small.txt", log_lm_vocab_log_prior_small)
+
     qwen2_lm = get_qwen2_lm()
 
     # rescore:

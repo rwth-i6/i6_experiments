@@ -832,9 +832,7 @@ def get_loquacious_text_only_dataset_v2(
 
 
 def get_loquacious_text_only_dataset_for_forward(
-    *,
-    vocab: Union[str, VocabConfig],
-    multi_proc: int = 2,
+    *, vocab: Union[str, VocabConfig], multi_proc: int = 2, split: str = "train", **kwargs
 ) -> DatasetConfigStatic:
     """
     text for forwarding, e.g. stats
@@ -850,11 +848,12 @@ def get_loquacious_text_only_dataset_for_forward(
 
     return _make_hf_dataset_text_only(
         hf_data_dir=hf_data_dir,
-        split="train",
+        split=split,
         # Don't use_distrib_files, we only have 5 shard files, but we might want partition epoch 25.
         # use_distrib_files=True,
         vocab=vocab,
         multi_proc_dataset=multi_proc_dataset,
+        **kwargs,
     )
 
 
