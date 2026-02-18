@@ -282,7 +282,7 @@ def py():
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
     from i6_experiments.users.zeyer.decoding.convert_labels import (
-        spm_merge_and_lower_case,
+        spm_merge_and_lower_case_v2,
         SearchOutputConvertLabelsJob,
     )
 
@@ -306,7 +306,7 @@ def py():
 
     def _prior_convert_labels(out: tk.Path) -> tk.Path:
         return SearchOutputConvertLabelsJob(
-            out, source_text_post_process=spm_merge_and_lower_case, target_vocab=get_qwen2_vocab().get_opts()
+            out, source_text_post_process=spm_merge_and_lower_case_v2, target_vocab=get_qwen2_vocab().get_opts()
         ).out_search_results
 
     qwen2_vocab_prior = Prior(file=log_lm_vocab_log_prior, type="log_prob", vocab=qwen2_vocab_file)

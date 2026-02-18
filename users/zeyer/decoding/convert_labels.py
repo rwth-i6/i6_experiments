@@ -10,20 +10,20 @@ from sisyphus import Job, Task, tk
 from i6_core import util
 
 
-def spm_merge(text: str) -> str:
+def spm_merge_v2(text: str) -> str:
     """
     Merge SPM text.
     E.g. "▁This ▁is ▁a ▁test" -> "This is a test"
     """
-    return text.replace("▁", " ").strip()
+    return text.replace("▁", "").strip()
 
 
-def spm_merge_and_lower_case(text: str) -> str:
+def spm_merge_and_lower_case_v2(text: str) -> str:
     """
     Merge SPM text and lower case.
     E.g. "▁This ▁is ▁a ▁test" -> "this is a test"
     """
-    return text.replace("▁", " ").strip().lower()
+    return text.replace("▁", "").strip().lower()
 
 
 class SearchOutputConvertLabelsJob(Job):
@@ -92,6 +92,8 @@ class CombineScoresAndSeparateSearchOutputJob(Job):
     Combine scores and separate search output.
     """
 
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -136,9 +138,10 @@ class CombineScoresAndSeparateSearchOutputJob(Job):
                 )
                 # n-best list as [(score, text), ...]
                 out.write(f"{seq_tag!r}: [\n")
-                for i, (score, text) in enumerate(entry):
+                for i, (_, text) in enumerate(entry):
                     assert isinstance(text, str)
-                    score = scores_entry[i]
+                    score, _ = scores_entry[i]
+                    assert isinstance(score, float)
                     out.write(f"({score}, {text!r}),\n")
                 out.write("],\n")
             out.write("}\n")
