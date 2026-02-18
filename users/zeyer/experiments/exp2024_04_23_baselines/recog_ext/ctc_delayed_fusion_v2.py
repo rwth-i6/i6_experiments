@@ -321,7 +321,27 @@ def model_recog_with_recomb_delayed_fusion_v2(
     lm_seq_num_consumed = rf.constant(0, dims=batch_dims_, dtype="int32", device="cpu")  # Batch, InBeam -> int32
 
     def _debug_lm():
-        batch_dims_debug = lm_seq_log_prob.dims
+        batch_dims_debug = list(lm_seq_log_prob.dims)
+
+        # Convert again, check same
+        am_labels, am_spatial_dim = rf.slice(am_seq_label.history, axis=am_seq_label.hist_dim, size=am_seq_num_consumed)
+        lm_labels, lm_spatial_dim, num_am_labels_converted = convert_labels_func(
+            new_am_labels=am_labels,
+            new_am_labels_spatial_dim=am_spatial_dim,
+            lm_target_dim=lm_target_dim,
+            last_am_frame=True,
+        )
+        lm_labels: Tensor
+        lm_labels = lm_labels.copy_transpose(batch_dims_debug + [lm_spatial_dim]).copy_masked(0)
+        lm_labels_actual = lm_seq_label.history
+        lm_labels_actual = lm_labels_actual.copy_transpose(batch_dims_debug + [lm_seq_label.hist_dim]).copy_masked(0)
+        if not (lm_labels.raw_tensor.cpu().numpy() == lm_labels_actual.raw_tensor.cpu().numpy()).all():
+            print("debug LM labels:", end="")
+            _generic_seq_label_print(lm_labels, spatial_dim=lm_spatial_dim, dims_no_iter=batch_dims_debug)
+            print("debug LM labels actual:", end="")
+            _generic_seq_label_print(lm_labels_actual, spatial_dim=lm_seq_label.hist_dim, dims_no_iter=batch_dims_debug)
+        np.testing.assert_equal(lm_labels.raw_tensor.cpu().numpy(), lm_labels_actual.raw_tensor.cpu().numpy())
+
         labels = lm_seq_label.history
         spatial_dim: Dim = lm_seq_label.hist_dim
         labels, spatial_dim = rf.slice(labels, axis=spatial_dim, size=lm_seq_num_consumed)
@@ -373,7 +393,6 @@ def model_recog_with_recomb_delayed_fusion_v2(
         new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = convert_labels_func(
             new_am_labels=new_am_labels,
             new_am_labels_spatial_dim=new_am_labels_spatial_dim,
-            t=t,
             lm_target_dim=lm_target_dim,
             last_am_frame=is_last_frame,
             **get_fwd_compat_kwargs(),
