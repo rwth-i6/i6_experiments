@@ -17,7 +17,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
-from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
+from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 from i6_experiments.users.zeyer import tools_paths
@@ -37,6 +37,18 @@ class StatisticsOutput:
     min: tk.Path
     max: tk.Path
     info: tk.Path
+
+
+@dataclass
+class SparseStatisticsOutput:
+    """sparse statistics, as txt files. numpy.loadtxt can be used to read them."""
+
+    mean: tk.Path
+    log_mean: tk.Path
+    sum: tk.Path
+    total_label_count: tk.Path
+    total_seq_count: tk.Path
+    vocab_size: tk.Path
 
 
 def collect_log_mel_feature_statistics(
@@ -79,6 +91,10 @@ def compute_model_softmax_prior_statistics(
     """
     Calculate model softmax prior average.
 
+    Also see:
+    :func:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext.get_ctc_prior_probs`
+    and :func:`compute_label_prior_log_probs`.
+
     :param model: after construction, the model will be called as:
         ``out, out_spatial_dim = model(input, in_spatial_dim=in_spatial_dim)``
         (This is the RETURNN ISeqDownsamplingEncoder interface.)
@@ -106,6 +122,18 @@ def compute_model_softmax_prior_statistics(
     )
 
 
+def compute_label_prior_log_probs(dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None) -> tk.Path:
+    """
+    :return: label prior, in prob space (not log prob)
+    """
+    # You probably want to pass a dataset which only has text targets.
+    # However, if you pass a normal ASR dataset, make sure we take the targets.
+    dataset = dataset.copy_main_as_static()
+    if dataset.default_target:
+        dataset.default_input = dataset.default_target
+    return collect_statistics_sparse(dataset=dataset, forward_def=_label_prior_returnn_forward, config=config).log_mean
+
+
 def collect_statistics(
     *,
     dataset: DatasetConfig,
@@ -116,6 +144,7 @@ def collect_statistics(
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
+    serialization_version: Optional[int] = None,
 ) -> StatisticsOutput:
     """
     recog on the specific dataset
@@ -134,10 +163,21 @@ def collect_statistics(
         "max": _prior_max_out_filename,
         "info": _prior_info_out_filename,
     }
+    if serialization_version is None:
+        serialization_version = get_from_config((config, model), "__serialization_version", None)
+    if serialization_version is None:
+        serialization_version = 1  # don't break hashes for existing setups
+    make_config_func = {1: _collect_stats_returnn_forward_config, 2: _collect_stats_returnn_forward_config_v2}[
+        serialization_version
+    ]
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint if model else None,
-        returnn_config=_collect_stats_returnn_forward_config(
-            dataset, model.definition if model else None, forward_def, config=config, post_config=forward_post_config
+        returnn_config=make_config_func(
+            dataset,
+            model.definition if model else None,
+            forward_def,
+            config=config,
+            post_config=forward_post_config,
         ),
         output_files=list(out_files.values()),
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -152,6 +192,67 @@ def collect_statistics(
     if forward_alias_name:
         forward_job.add_alias(forward_alias_name)
     return StatisticsOutput(**{k: forward_job.out_files[v] for k, v in out_files.items()})
+
+
+def collect_statistics_sparse(
+    *,
+    dataset: DatasetConfig,
+    model: Optional[ModelWithCheckpoint] = None,
+    forward_def: ForwardDef,
+    config: Optional[Dict[str, Any]] = None,
+    forward_post_config: Optional[Dict[str, Any]] = None,
+    forward_mem_rqmt: Union[int, float] = 6,
+    forward_rqmt: Optional[Dict[str, Any]] = None,
+    forward_alias_name: Optional[str] = None,
+    serialization_version: Optional[int] = None,
+) -> SparseStatisticsOutput:
+    """
+    recog on the specific dataset
+    """
+    env_updates = None
+    config = config.copy() if config else {}
+    forward_post_config = forward_post_config.copy() if forward_post_config else {}
+    if (config and config.get("__env_updates")) or (forward_post_config and forward_post_config.get("__env_updates")):
+        env_updates = (config and config.pop("__env_updates", None)) or (
+            forward_post_config and forward_post_config.pop("__env_updates", None)
+        )
+    out_files = {
+        "mean": _counts_mean_out_filename,
+        "log_mean": _counts_log_mean_out_filename,
+        "sum": _counts_sum_filename,
+        "total_label_count": _counts_total_label_count_filename,
+        "total_seq_count": _counts_toal_seq_count_filename,
+        "vocab_size": _counts_vocab_size_filename,
+    }
+    if serialization_version is None:
+        serialization_version = get_from_config((config, model), "__serialization_version", None)
+    if serialization_version is None:
+        serialization_version = 2
+    # no need to support serialization_version 1 here
+    make_config_func = {2: _collect_stats_returnn_forward_config_v2}[serialization_version]
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=model.checkpoint if model else None,
+        returnn_config=make_config_func(
+            dataset,
+            model.definition if model else None,
+            forward_def,
+            config=config,
+            sparse_data=True,
+            post_config=forward_post_config,
+        ),
+        output_files=list(out_files.values()),
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+        mem_rqmt=forward_mem_rqmt,
+    )
+    if forward_rqmt:
+        forward_job.rqmt.update(forward_rqmt)
+    if env_updates:
+        for k, v in env_updates.items():
+            forward_job.set_env(k, v)
+    if forward_alias_name:
+        forward_job.add_alias(forward_alias_name)
+    return SparseStatisticsOutput(**{k: forward_job.out_files[v] for k, v in out_files.items()})
 
 
 def _log_mel_stats_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model: Any) -> Tuple[Tensor, Dim]:
@@ -199,6 +300,13 @@ def _model_softmax_prior_returnn_forward(source: Tensor, /, in_spatial_dim: Dim,
     return out, out_spatial_dim
 
 
+def _label_prior_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model: Any) -> Tuple[Tensor, Dim]:
+    """ForwardDef API"""
+    model  # noqa # unused
+    assert source.sparse_dim and not source.feature_dim
+    return source, in_spatial_dim
+
+
 _prior_mean_out_filename = "stats.mean.txt"
 _prior_std_dev_out_filename = "stats.std_dev.txt"
 _prior_min_out_filename = "stats.min.txt"
@@ -207,7 +315,6 @@ _prior_info_out_filename = "stats.info.txt"
 
 
 def _returnn_get_forward_callback():
-    from returnn.tensor import Tensor, TensorDict
     from returnn.forward_iface import ForwardCallbackIface
     from returnn.util.basic import Stats
 
@@ -220,7 +327,9 @@ def _returnn_get_forward_callback():
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             # see _returnn_forward_step
-            out: Tensor = outputs["output"].copy_with_feature_last()
+            out: Tensor = outputs["output"]
+            assert out.feature_dim
+            out: Tensor = out.copy_with_feature_last()
             assert out.batch_ndim == 2  # (time,feature)
             self.stats.collect(out.raw_tensor)
 
@@ -228,6 +337,59 @@ def _returnn_get_forward_callback():
             self.stats.dump("stats")
 
     return _ReturnnCollectStatsForwardCallbackIface()
+
+
+_counts_mean_out_filename = "counts_stats.mean.txt"
+_counts_log_mean_out_filename = "counts_stats.log_mean.txt"
+_counts_sum_filename = "counts_stats.sum.txt"
+_counts_total_label_count_filename = "counts_stats.total_label_count.txt"
+_counts_toal_seq_count_filename = "counts_stats.total_seq_count.txt"
+_counts_vocab_size_filename = "counts_stats.vocab_size.txt"
+
+
+def _returnn_get_forward_callback_sparse_data():
+    from returnn.forward_iface import ForwardCallbackIface
+    import numpy
+
+    class _ReturnnCollectCountsForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.counts: Optional[numpy.ndarray] = None
+            self.total_label_count = 0
+            self.total_seq_count = 0
+
+        def init(self, *, model):
+            pass
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            # see _returnn_forward_step
+            out: Tensor = outputs["output"]
+            assert out.sparse_dim
+            if self.counts is None:
+                self.counts = numpy.zeros(out.sparse_dim.dimension, dtype="int64")
+            assert len(out.dims) == 1  # only spatial dim, no feature dim
+            numpy.add.at(self.counts, out.raw_tensor, 1)
+            self.total_label_count += out.raw_tensor.shape[0]
+            self.total_seq_count += 1
+
+        def finish(self):
+            assert self.total_seq_count > 0 and self.total_label_count > 0
+            assert self.total_label_count == self.counts.sum()
+            with open(_counts_mean_out_filename, "w") as f:
+                numpy.savetxt(f, self.counts / self.total_label_count)
+            with open(_counts_log_mean_out_filename, "w") as f:
+                log_label_count = numpy.log(self.total_label_count)
+                with numpy.errstate(divide="ignore"):
+                    numpy.savetxt(f, numpy.log(self.counts) - log_label_count)
+            with open(_counts_sum_filename, "w") as f:
+                numpy.savetxt(f, self.counts)
+            with open(_counts_total_label_count_filename, "w") as f:
+                f.write(f"{self.total_label_count}\n")
+            with open(_counts_toal_seq_count_filename, "w") as f:
+                f.write(f"{self.total_seq_count}\n")
+            with open(_counts_vocab_size_filename, "w") as f:
+                f.write(f"{len(self.counts)}\n")
+
+    return _ReturnnCollectCountsForwardCallbackIface()
 
 
 # Those are applied for both training, recog and potential others.
@@ -245,6 +407,7 @@ def _collect_stats_returnn_forward_config(
     model_def: Union[None, ModelDef, ModelDefWithCfg],
     forward_def: ForwardDef,
     *,
+    sparse_data: bool = False,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
@@ -254,6 +417,7 @@ def _collect_stats_returnn_forward_config(
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+    from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
     from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
     returnn_recog_config_dict = dict(
@@ -300,7 +464,10 @@ def _collect_stats_returnn_forward_config(
                     serialization.Import(_returnn_get_model, import_as="get_model"),
                     serialization.Import(forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_forward_step, import_as="forward_step"),
-                    serialization.Import(_returnn_get_forward_callback, import_as="forward_callback"),
+                    serialization.Import(
+                        _returnn_get_forward_callback_sparse_data if sparse_data else _returnn_get_forward_callback,
+                        import_as="forward_callback",
+                    ),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
@@ -363,6 +530,92 @@ def _collect_stats_returnn_forward_config(
     return returnn_forward_config
 
 
+def _collect_stats_returnn_forward_config_v2(
+    dataset: DatasetConfig,
+    model_def: Union[None, ModelDef, ModelDefWithCfg],
+    forward_def: ForwardDef,
+    *,
+    sparse_data: bool = False,
+    config: Optional[Dict[str, Any]] = None,
+    post_config: Optional[Dict[str, Any]] = None,
+) -> ReturnnConfig:
+    """
+    Create config for collecting stats.
+    """
+    from i6_core.returnn.config import ReturnnConfigV2
+    from i6_experiments.users.zeyer.returnn.config import config_dict_update_
+
+    returnn_recog_config_dict: Dict[str, Any] = dict(
+        # dataset
+        default_input=dataset.get_default_input(),
+        target=dataset.get_default_target(),  # only for get_model with model_def
+        forward_data=dataset.get_main_dataset(),
+    )
+    if model_def:
+        config_dict_update_(
+            returnn_recog_config_dict,
+            dict(
+                backend=model_def.backend,
+                behavior_version=model_def.behavior_version,
+            ),
+        )
+    else:
+        assert config and config.get("backend") and config.get("behavior_version")
+    if config:
+        config_dict_update_(returnn_recog_config_dict, config)
+    if isinstance(model_def, ModelDefWithCfg):
+        config_dict_update_(returnn_recog_config_dict, model_def.config)
+
+    returnn_recog_config_dict["extern_data"] = dataset.get_extern_data()
+    returnn_recog_config_dict["_model_def"] = model_def
+    returnn_recog_config_dict["get_model"] = _returnn_get_model
+    returnn_recog_config_dict["_forward_def"] = forward_def
+    returnn_recog_config_dict["forward_step"] = _returnn_forward_step
+    returnn_recog_config_dict["forward_callback"] = (
+        _returnn_get_forward_callback_sparse_data if sparse_data else _returnn_get_forward_callback
+    )
+
+    returnn_forward_config = ReturnnConfigV2(
+        config=returnn_recog_config_dict,
+        post_config=dict(  # not hashed
+            log_batch_size=True,
+            # debug_add_check_numerics_ops = True
+            # debug_add_check_numerics_on_output = True
+            # flat_net_construction=True,
+            torch_log_memory_usage=True,
+            watch_memory=True,
+            use_lovely_tensors=True,
+        ),
+        sort_config=False,
+    )
+
+    batch_size_dependent = False
+    if "__batch_size_dependent" in returnn_forward_config.config:
+        batch_size_dependent = returnn_forward_config.config.pop("__batch_size_dependent")
+    if "__batch_size_dependent" in returnn_forward_config.post_config:
+        batch_size_dependent = returnn_forward_config.post_config.pop("__batch_size_dependent")
+    for k, v in dict(
+        batching="sorted",
+        batch_size=(20000 * model_def.batch_size_factor) if model_def else (20000 * 160),
+        max_seqs=200,
+    ).items():
+        if k in returnn_forward_config.config:
+            v = returnn_forward_config.config.pop(k)
+        if k in returnn_forward_config.post_config:
+            v = returnn_forward_config.post_config.pop(k)
+        (returnn_forward_config.config if batch_size_dependent else returnn_forward_config.post_config)[k] = v
+
+    if post_config:
+        returnn_forward_config.post_config.update(post_config)
+
+    for k, v in SharedPostConfig.items():
+        if k in returnn_forward_config.config or k in returnn_forward_config.post_config:
+            continue
+        returnn_forward_config.post_config[k] = v
+
+    return returnn_forward_config
+
+
 def _returnn_get_model(*, epoch: int, **_kwargs_unused):
     from returnn.tensor import Tensor
     from returnn.config import get_global_config
@@ -393,7 +646,7 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         batch_size = int(batch_dim.get_dim_value())
         for batch_idx in range(batch_size):
             seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
-            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+            print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
@@ -402,5 +655,9 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     forward_def: ForwardDef = config.typed_value("_forward_def")
     out, out_spatial_dim = forward_def(data, in_spatial_dim=data_spatial_dim, model=model)
     assert isinstance(out, Tensor) and isinstance(out_spatial_dim, Dim)
-    assert out.feature_dim  # we expect a feature dim
-    rf.get_run_ctx().mark_as_output(out, "output", dims=[batch_dim, out_spatial_dim, out.feature_dim])
+    if out.feature_dim:
+        rf.get_run_ctx().mark_as_output(out, "output", dims=[batch_dim, out_spatial_dim, out.feature_dim])
+    elif out.sparse_dim:
+        rf.get_run_ctx().mark_as_output(out, "output", dims=[batch_dim, out_spatial_dim])
+    else:
+        raise ValueError(f"{out=} must have either feature_dim or sparse_dim")
