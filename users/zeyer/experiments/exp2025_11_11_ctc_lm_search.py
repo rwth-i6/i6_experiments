@@ -356,7 +356,7 @@ def py():
 
     # Using the Qwen2-vocab prior
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-qwenPrior/qwen2",
         task=task,
         ctc_model=am,
         extra_config={"aux_loss_layers": [aux_ctc_layer]},
