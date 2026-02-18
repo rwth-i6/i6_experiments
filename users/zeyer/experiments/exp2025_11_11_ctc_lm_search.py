@@ -281,6 +281,10 @@ def py():
     from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
+    from i6_experiments.users.zeyer.decoding.convert_labels import (
+        spm_merge_and_lower_case,
+        SearchOutputConvertLabelsJob,
+    )
 
     transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(vocab=get_qwen2_vocab())
     log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
@@ -300,7 +304,12 @@ def py():
     qwen2_vocab_file = ExtractVocabLabelsJob(get_qwen2_vocab().get_opts()).out_vocab
     tk.register_output(f"{prefix}/lm/qwen2/vocab.txt", qwen2_vocab_file)
 
-    Prior(file=log_lm_vocab_log_prior, type="log_prob", vocab=qwen2_vocab_file)
+    def _prior_convert_labels(out: tk.Path) -> tk.Path:
+        return SearchOutputConvertLabelsJob(
+            out, source_text_post_process=spm_merge_and_lower_case, target_vocab=get_qwen2_vocab().get_opts()
+        ).out_search_results
+
+    qwen2_vocab_prior = Prior(file=log_lm_vocab_log_prior, type="log_prob", vocab=qwen2_vocab_file)
 
     qwen2_lm = get_qwen2_lm()
 
@@ -343,6 +352,34 @@ def py():
     tk.register_output(
         f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
         res.individual_results["dev_yodas"].main_measure_value,
+    )
+
+    # Using the Qwen2-vocab prior
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        labelwise_prior=qwen2_vocab_prior,
+        prior_custom_vocab_convert_labels=_prior_convert_labels,
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            # TODO somehow fix the prior...?
+            "max_seqs": 32,
+        },
     )
 
     # batch size 1
