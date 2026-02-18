@@ -123,7 +123,12 @@ def compute_model_softmax_prior_statistics(
     )
 
 
-def compute_label_prior_log_probs(dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None) -> tk.Path:
+def compute_label_prior_log_probs(
+    dataset: DatasetConfig,
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    forward_rqmt: Optional[Dict[str, Any]] = None,
+) -> tk.Path:
     """
     :return: label prior, in prob space (not log prob)
     """
@@ -139,7 +144,11 @@ def compute_label_prior_log_probs(dataset: DatasetConfig, config: Optional[Dict[
     if config.get("behavior_version") is None:
         config["behavior_version"] = 24
     return collect_statistics_sparse(
-        dataset=dataset, forward_def=_label_prior_returnn_forward, config=config, forward_device="cpu"
+        dataset=dataset,
+        forward_def=_label_prior_returnn_forward,
+        config=config,
+        forward_device="cpu",
+        forward_rqmt=forward_rqmt,
     ).log_mean
 
 
