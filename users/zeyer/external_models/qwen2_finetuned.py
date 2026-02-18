@@ -40,7 +40,7 @@ def get_vocab_dict(*, text_preprocess_lower_case: bool = False) -> Dict[str, Any
         "map_bos_to_eos": True,
     }
     if text_preprocess_lower_case:
-        d["text_preprocess"] = str.lower
+        d["text_preprocessing"] = str.lower
     return d
 
 
