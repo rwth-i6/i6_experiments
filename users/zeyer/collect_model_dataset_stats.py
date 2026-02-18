@@ -131,6 +131,12 @@ def compute_label_prior_log_probs(dataset: DatasetConfig, config: Optional[Dict[
     dataset = dataset.copy_main_as_static()
     if dataset.default_target:
         dataset.default_input = dataset.default_target
+    if config is None:
+        config = {}
+    if config.get("backend") is None:
+        config["backend"] = "torch"  # doesn't really matter here...
+    if config.get("behavior_version") is None:
+        config["behavior_version"] = 24
     return collect_statistics_sparse(dataset=dataset, forward_def=_label_prior_returnn_forward, config=config).log_mean
 
 
