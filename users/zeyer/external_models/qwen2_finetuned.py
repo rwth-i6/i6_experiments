@@ -12,9 +12,37 @@ from sisyphus import Path
 from i6_core.returnn.training import PtCheckpoint
 from i6_experiments.common.utils.fake_job import make_fake_job
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
+from returnn_common.datasets_old_2022_10.interface import VocabConfigStatic
+
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
+
+
+def get_vocab_size() -> int:
+    # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache",
+    return 151646
+
+
+def get_vocab_dict() -> Dict[str, Any]:
+    # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
+    return {
+        "class": "HuggingFaceTokenizer",
+        # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content",
+        "huggingface_repo_dir": Path(
+            "content",
+            creator=make_fake_job(
+                module="i6_experiments.users.schmitt.external_models.huggingface",
+                name="DownloadHuggingFaceRepoJobV2",
+                sis_hash="PUGzhO2dOEpK",
+            ),
+        ),
+        "map_bos_to_eos": True,
+    }
+
+
+def get_vocab() -> VocabConfigStatic:
+    return VocabConfigStatic(num_classes=get_vocab_size(), opts=get_vocab_dict())
 
 
 def get_lm() -> ModelWithCheckpoint:
@@ -40,23 +68,7 @@ def get_lm() -> ModelWithCheckpoint:
             "freeze_params": False,
             "lora_opts": None,
             "freeze_embedding_layer": True,
-            "vocab_dim": {
-                "name": "qwen_vocab",
-                "dimension": 151646,
-                "vocab": {
-                    "class": "HuggingFaceTokenizer",
-                    # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content",
-                    "huggingface_repo_dir": Path(
-                        "content",
-                        creator=make_fake_job(
-                            module="i6_experiments.users.schmitt.external_models.huggingface",
-                            name="DownloadHuggingFaceRepoJobV2",
-                            sis_hash="PUGzhO2dOEpK",
-                        ),
-                    ),
-                    "map_bos_to_eos": True,
-                },
-            },
+            "vocab_dim": {"name": "qwen_vocab", "dimension": get_vocab_size(), "vocab": get_vocab_dict()},
         },
     )
     config = {}
