@@ -8,7 +8,7 @@ import functools
 from sisyphus import Job, Task, tk
 from i6_core import util
 
-from i6_experiments.users.zeyer.datasets.task import Task as DatasetsTask
+from i6_experiments.users.zeyer.datasets.task import Task as DatasetsTask, DatasetConfig
 
 
 def get_vocab_file_from_task(task: DatasetsTask) -> tk.Path:
@@ -24,17 +24,31 @@ def get_vocab_w_blank_file_from_task(task: DatasetsTask, *, blank_label: str, bl
     return vocab_w_blank_file
 
 
-def get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
-    dataset = task.dev_dataset
-    extern_data_dict = dataset.get_extern_data()
-    target_dict = extern_data_dict[dataset.get_default_target()]
-    return target_dict["vocab"]
-
-
 def get_vocab_opts_file_from_task(task: DatasetsTask) -> tk.Path:
     vocab_opts = get_vocab_opts_from_task(task)
     vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_opts).out_vocab_special_labels_dict
     return vocab_opts_file
+
+
+def get_vocab_file_from_dataset(dataset: DatasetConfig) -> tk.Path:
+    vocab_file = ExtractVocabLabelsJob(get_vocab_opts_from_dataset(dataset)).out_vocab
+    return vocab_file
+
+
+def get_vocab_opts_file_from_dataset(dataset: DatasetConfig) -> tk.Path:
+    vocab_opts = get_vocab_opts_from_dataset(dataset)
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_opts).out_vocab_special_labels_dict
+    return vocab_opts_file
+
+
+def get_vocab_opts_from_task(task: DatasetsTask) -> Dict[str, Any]:
+    return get_vocab_opts_from_dataset(task.dev_dataset)
+
+
+def get_vocab_opts_from_dataset(dataset: DatasetConfig) -> Dict[str, Any]:
+    extern_data_dict = dataset.get_extern_data()
+    target_dict = extern_data_dict[dataset.get_default_target()]
+    return target_dict["vocab"]
 
 
 def get_vocab_opts_from_dataset_dict(dataset_dict: Dict[str, Any], data_key: str = "classes") -> Dict[str, Any]:
