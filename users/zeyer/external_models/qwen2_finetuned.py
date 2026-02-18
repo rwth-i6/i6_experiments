@@ -24,9 +24,9 @@ def get_vocab_size() -> int:
     return 151646
 
 
-def get_vocab_dict() -> Dict[str, Any]:
+def get_vocab_dict(*, text_preprocess_lower_case: bool = False) -> Dict[str, Any]:
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
-    return {
+    d: Dict[str, Any] = {
         "class": "HuggingFaceTokenizer",
         # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content",
         "huggingface_repo_dir": Path(
@@ -39,10 +39,15 @@ def get_vocab_dict() -> Dict[str, Any]:
         ),
         "map_bos_to_eos": True,
     }
+    if text_preprocess_lower_case:
+        d["text_preprocess"] = str.lower
+    return d
 
 
-def get_vocab() -> VocabConfigStatic:
-    return VocabConfigStatic(num_classes=get_vocab_size(), opts=get_vocab_dict())
+def get_vocab(*, text_preprocess_lower_case: bool = False) -> VocabConfigStatic:
+    return VocabConfigStatic(
+        num_classes=get_vocab_size(), opts=get_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case)
+    )
 
 
 def get_lm() -> ModelWithCheckpoint:
