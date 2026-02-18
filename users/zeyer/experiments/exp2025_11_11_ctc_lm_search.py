@@ -121,26 +121,8 @@ def py():
         seq_str_postprocess_lower_case,
     )
 
-    for interval in [1, 5, 10, 20]:
-        enable_every_n = functools.partial(enable_by_interval, interval=interval)
-        ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-every{interval}/{lm_name}",
-            task=task,
-            ctc_model=am,
-            extra_config={"aux_loss_layers": [aux_ctc_layer]},
-            lm=lm,
-            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-            ctc_only_recog_version=10,
-            ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-            recog_version=12,
-            recog_def=model_recog_with_recomb_delayed_fusion_v2,
-            first_pass_extra_config={
-                "should_convert_labels_now_func": enable_every_n,
-                "should_fuse_now_func": enable_every_n,
-                "convert_labels_func": convert_labels_func_no_op,
-            },
-        )
-
+    # {"dev": 6.23, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.74, "dev_librispeech": 3.84, "dev_yodas": 11.42,
+    #  "test": 7.05, "test_voxpopuli": 6.65, "test_commonvoice": 10.89, "test_librispeech": 4.13, "test_yodas": 11.46}
     enable_every20 = functools.partial(enable_by_interval, interval=20)
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}",
@@ -160,25 +142,44 @@ def py():
         },
     )
 
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-noDelayedPrior/{lm_name}",
-        task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
-        lm=lm,
-        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-        ctc_only_recog_version=10,
-        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=12,
-        recog_def=model_recog_with_recomb_delayed_fusion_v2,
-        first_pass_extra_config={
-            "should_convert_labels_now_func": enable_every20,
-            "should_fuse_now_func": enable_every20,
-            "convert_labels_func": convert_labels_func_no_op,
-            "delayed_prior": False,
-        },
-    )
+    for interval in [1, 5, 10, 20]:
+        # 1:
+        # {"dev": 6.14, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.41, "dev_librispeech": 3.77, "dev_yodas": 11.76,
+        #  "test": 6.98, "test_voxpopuli": 6.64, "test_commonvoice": 10.5, "test_librispeech": 4.05, "test_yodas": 12.0}
+        # 5:
+        # {"dev": 6.16, "dev_voxpopuli": 6.6, "dev_commonvoice": 8.52, "dev_librispeech": 3.79, "dev_yodas": 11.51,
+        #  "test": 6.99, "test_voxpopuli": 6.65, "test_commonvoice": 10.63, "test_librispeech": 4.08, "test_yodas": 11.61}
+        # 10:
+        # {"dev": 6.19, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.59, "dev_librispeech": 3.81, "dev_yodas": 11.42,
+        #  "test": 7.0, "test_voxpopuli": 6.66, "test_commonvoice": 10.67, "test_librispeech": 4.1, "test_yodas": 11.54}
+        # 20:
+        # {"dev": 6.23, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.74, "dev_librispeech": 3.84, "dev_yodas": 11.42,
+        #  "test": 7.05, "test_voxpopuli": 6.65, "test_commonvoice": 10.89, "test_librispeech": 4.13, "test_yodas": 11.46}
+        enable_every_n = functools.partial(enable_by_interval, interval=interval)
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-every{interval}/{lm_name}",
+            task=task,
+            ctc_model=am,
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            lm=lm,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+            ctc_only_recog_version=10,
+            ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+            recog_version=12,
+            recog_def=model_recog_with_recomb_delayed_fusion_v2,
+            first_pass_extra_config={
+                "should_convert_labels_now_func": enable_every_n,
+                "should_fuse_now_func": enable_every_n,
+                "convert_labels_func": convert_labels_func_no_op,
+            },
+        )
 
+    # never, i.e. delay until the end. this should be like rescoring:
+    # {"dev": 6.33, "dev_voxpopuli": 6.66, "dev_commonvoice": 8.96, "dev_librispeech": 3.91, "dev_yodas": 11.6,
+    #  "test": 7.1, "test_voxpopuli": 6.65, "test_commonvoice": 11.14, "test_librispeech": 4.19, "test_yodas": 11.14}
+    # rescore:
+    # {"dev": 6.34, "dev_voxpopuli": 6.66, "dev_commonvoice": 8.97, "dev_librispeech": 3.91, "dev_yodas": 11.63,
+    #  "test": 7.1, "test_voxpopuli": 6.64, "test_commonvoice": 11.14, "test_librispeech": 4.19, "test_yodas": 11.15}
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/{lm_name}",
         task=task,
@@ -196,6 +197,32 @@ def py():
             "convert_labels_func": convert_labels_func_no_op,
         },
     )
+
+    # no delayed prior:
+    # {"dev": 6.34, "dev_voxpopuli": 6.66, "dev_commonvoice": 9.02, "dev_librispeech": 3.87, "dev_yodas": 11.81,
+    #  "test": 7.16, "test_voxpopuli": 6.69, "test_commonvoice": 11.26, "test_librispeech": 4.21, "test_yodas": 11.37}
+    # with delayed prior (default/baseline):
+    # {"dev": 6.23, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.74, "dev_librispeech": 3.84, "dev_yodas": 11.42,
+    #  "test": 7.05, "test_voxpopuli": 6.65, "test_commonvoice": 10.89, "test_librispeech": 4.13, "test_yodas": 11.46}
+    # So no delayed prior makes it worse.
+    # ctc_recog_recomb_labelwise_prior_auto_scale(
+    #     prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-noDelayedPrior/{lm_name}",
+    #     task=task,
+    #     ctc_model=am,
+    #     extra_config={"aux_loss_layers": [aux_ctc_layer]},
+    #     lm=lm,
+    #     prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+    #     ctc_only_recog_version=10,
+    #     ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+    #     recog_version=12,
+    #     recog_def=model_recog_with_recomb_delayed_fusion_v2,
+    #     first_pass_extra_config={
+    #         "should_convert_labels_now_func": enable_every20,
+    #         "should_fuse_now_func": enable_every20,
+    #         "convert_labels_func": convert_labels_func_no_op,
+    #         "delayed_prior": False,
+    #     },
+    # )
 
     # beam sizes for reference/comparison
     # Note: this is delayed fusion.
@@ -243,6 +270,12 @@ def py():
 
     qwen2_lm = get_qwen2_lm()
 
+    # rescore:
+    # {"dev": 6.26, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.84, "dev_librispeech": 3.84, "dev_yodas": 11.54,
+    #  "test": 7.0, "test_voxpopuli": 6.66, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.11}
+    # recog-1stpass:
+    # {"dev": 6.57, "dev_voxpopuli": 6.82, "dev_commonvoice": 9.3, "dev_librispeech": 4.07, "dev_yodas": 12.0,
+    #  "test": 7.33, "test_voxpopuli": 6.92, "test_commonvoice": 11.23, "test_librispeech": 4.32, "test_yodas": 11.81}
     convert_labels_func_spm = functools.partial(
         convert_labels_func,
         is_am_label_word_start=spm_space_first_is_word_start,
@@ -279,6 +312,12 @@ def py():
     )
 
     # batch size 1
+    # {"dev": 6.41, "dev_voxpopuli": 6.73, "dev_commonvoice": 9.03, "dev_librispeech": 3.98, "dev_yodas": 11.91,
+    #  "test": 7.15, "test_voxpopuli": 6.82, "test_commonvoice": 10.91, "test_librispeech": 4.19, "test_yodas": 11.62}
+    # baseline with batch size 32 is:
+    # {"dev": 6.57, "dev_voxpopuli": 6.82, "dev_commonvoice": 9.3, "dev_librispeech": 4.07, "dev_yodas": 12.0,
+    #  "test": 7.33, "test_voxpopuli": 6.92, "test_commonvoice": 11.23, "test_librispeech": 4.32, "test_yodas": 11.81}
+    # TODO figure out where the inconsistency comes from...
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-batchSize1/qwen2",
         task=task,
