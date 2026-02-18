@@ -76,6 +76,7 @@ def collect_log_mel_feature_statistics(
             "_audio_feature_dim": dim,
             "_audio_feature_opts": kwargs,
         },
+        forward_device="cpu",
     )
 
 
@@ -137,7 +138,9 @@ def compute_label_prior_log_probs(dataset: DatasetConfig, config: Optional[Dict[
         config["backend"] = "torch"  # doesn't really matter here...
     if config.get("behavior_version") is None:
         config["behavior_version"] = 24
-    return collect_statistics_sparse(dataset=dataset, forward_def=_label_prior_returnn_forward, config=config).log_mean
+    return collect_statistics_sparse(
+        dataset=dataset, forward_def=_label_prior_returnn_forward, config=config, forward_device="cpu"
+    ).log_mean
 
 
 def collect_statistics(
@@ -147,6 +150,7 @@ def collect_statistics(
     forward_def: ForwardDef,
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
+    forward_device: str = "gpu",
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
@@ -190,6 +194,7 @@ def collect_statistics(
             post_config=forward_post_config,
         ),
         output_files=list(out_files.values()),
+        device=forward_device,
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         mem_rqmt=forward_mem_rqmt,
@@ -211,6 +216,7 @@ def collect_statistics_sparse(
     forward_def: ForwardDef,
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
+    forward_device: str = "gpu",
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
@@ -253,6 +259,7 @@ def collect_statistics_sparse(
         output_files=list(out_files.values()),
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
+        device=forward_device,
         mem_rqmt=forward_mem_rqmt,
     )
     if forward_rqmt:
