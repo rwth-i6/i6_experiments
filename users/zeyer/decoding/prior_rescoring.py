@@ -207,3 +207,48 @@ class PriorRemoveLabelRenormJob(Job):
         else:
             raise ValueError(f"invalid out_prior_type {self.out_prior_type!r}")
         np.savetxt(self.out_prior.get_path(), prior)
+
+
+class PriorLabelSmoothingJob(Job):
+    """
+    Gets some prior, apply label smoothing
+    """
+
+    def __init__(self, *, prior_file: tk.Path, prior_type: str, uniform_weight: float, out_prior_type: str):
+        self.prior_file = prior_file
+        self.prior_type = prior_type
+        self.uniform_weight = uniform_weight
+        self.out_prior_type = out_prior_type
+
+        self.out_prior = self.output_path("prior.txt")
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import numpy as np
+
+        prior = np.loadtxt(self.prior_file.get_path())
+        assert prior.ndim == 1, f"prior shape {prior.shape} is not 1D"
+        # The `type` is about what is stored in the file.
+        # We always want it in log prob here, so we potentially need to convert it.
+        if self.prior_type == "log_prob":
+            pass  # already log prob
+        elif self.prior_type == "prob":
+            prior = np.log(prior)
+        else:
+            raise ValueError(f"invalid static_prior type {self.prior_type!r}")
+        vocab_size = prior.shape[0]
+
+        uniform_log_prob = -np.log(vocab_size)
+        prior = np.logaddexp(prior + np.log(1 - self.uniform_weight), uniform_log_prob + np.log(self.uniform_weight))
+
+        if self.out_prior_type == "log_prob":
+            pass
+        elif self.out_prior_type == "prob":
+            prior = np.exp(prior)
+        else:
+            raise ValueError(f"invalid out_prior_type {self.out_prior_type!r}")
+        np.savetxt(self.out_prior.get_path(), prior)
