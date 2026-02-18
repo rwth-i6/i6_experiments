@@ -150,7 +150,11 @@ def collect_statistics(
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
-    serialization_version: Optional[int] = None,
+    # Note: the default is not None but 1, which overwrites if there is sth else in the config or model config.
+    # This is because there are existing setups where __serialization_version is set,
+    # but previously this was ignored here.
+    # So if we consider this now, it would break the hash of existing setups...
+    serialization_version: Optional[int] = 1,
 ) -> StatisticsOutput:
     """
     recog on the specific dataset
@@ -172,7 +176,7 @@ def collect_statistics(
     if serialization_version is None:
         serialization_version = get_from_config((config, model), "__serialization_version", None)
     if serialization_version is None:
-        serialization_version = 1  # don't break hashes for existing setups
+        serialization_version = 2
     make_config_func = {1: _collect_stats_returnn_forward_config, 2: _collect_stats_returnn_forward_config_v2}[
         serialization_version
     ]
