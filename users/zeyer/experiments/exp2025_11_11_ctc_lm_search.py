@@ -344,85 +344,78 @@ def py():
         },
     )
 
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-noDelayedPrior/qwen2",
-        task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
-        lm=qwen2_lm,
-        lm_rescore_config={
-            "default_data_convert_labels_func": convert_labels_func_spm,
-            "chunk_size_for_lm_rescoring": 16,
-            "max_seqs": 32,
-        },
-        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-        ctc_only_recog_version=10,
-        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=12,
-        recog_def=model_recog_with_recomb_delayed_fusion_v2,
-        first_pass_extra_config={
-            "should_convert_labels_now_func": enable_every20,
-            "should_fuse_now_func": enable_every20,
-            # specific to the AM SPM that we have here...
-            "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 32,
-            "delayed_prior": False,
-        },
-    )
+    # no delayed prior:
+    # {"dev": 6.61, "dev_voxpopuli": 6.78, "dev_commonvoice": 9.55, "dev_librispeech": 4.08, "dev_yodas": 12.23,
+    #  "test": 7.41, "test_voxpopuli": 6.95, "test_commonvoice": 11.62, "test_librispeech": 4.36, "test_yodas": 11.66}
+    # with delayed prior (default/baseline):
+    # {"dev": 6.57, "dev_voxpopuli": 6.82, "dev_commonvoice": 9.3, "dev_librispeech": 4.07, "dev_yodas": 12.0,
+    #  "test": 7.33, "test_voxpopuli": 6.92, "test_commonvoice": 11.23, "test_librispeech": 4.32, "test_yodas": 11.81}
+    # So for qwen same as for our LM, no delayed prior makes it worse.
+    # ctc_recog_recomb_labelwise_prior_auto_scale(
+    #     prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-noDelayedPrior/qwen2",
+    #     task=task,
+    #     ctc_model=am,
+    #     extra_config={"aux_loss_layers": [aux_ctc_layer]},
+    #     lm=qwen2_lm,
+    #     lm_rescore_config={
+    #         "default_data_convert_labels_func": convert_labels_func_spm,
+    #         "chunk_size_for_lm_rescoring": 16,
+    #         "max_seqs": 32,
+    #     },
+    #     prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+    #     ctc_only_recog_version=10,
+    #     ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+    #     recog_version=12,
+    #     recog_def=model_recog_with_recomb_delayed_fusion_v2,
+    #     first_pass_extra_config={
+    #         "should_convert_labels_now_func": enable_every20,
+    #         "should_fuse_now_func": enable_every20,
+    #         # specific to the AM SPM that we have here...
+    #         "convert_labels_func": convert_labels_func_spm,
+    #         "max_seqs": 32,
+    #         "delayed_prior": False,
+    #     },
+    # )
 
-    res = ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2-noPrior",
-        task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
-        lm=qwen2_lm,
-        lm_rescore_config={
-            "default_data_convert_labels_func": convert_labels_func_spm,
-            "chunk_size_for_lm_rescoring": 16,
-            "max_seqs": 32,
-        },
-        use_prior=False,
-        ctc_only_recog_version=10,
-        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=12,
-        recog_def=model_recog_with_recomb_delayed_fusion_v2,
-        first_pass_extra_config={
-            "should_convert_labels_now_func": enable_every20,
-            "should_fuse_now_func": enable_every20,
-            # specific to the AM SPM that we have here...
-            "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 32,
-        },
-    )
-    tk.register_output(
-        f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
-        res.individual_results["dev_yodas"].main_measure_value,
-    )
-
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/qwen2",
-        task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
-        lm=qwen2_lm,
-        lm_rescore_config={
-            "default_data_convert_labels_func": convert_labels_func_spm,
-            "chunk_size_for_lm_rescoring": 16,
-            "max_seqs": 32,
-        },
-        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-        ctc_only_recog_version=10,
-        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=12,
-        recog_def=model_recog_with_recomb_delayed_fusion_v2,
-        first_pass_extra_config={
-            "should_convert_labels_now_func": never_enable,
-            "should_fuse_now_func": never_enable,
-            # specific to the AM SPM that we have here...
-            "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 32,
-        },
-    )
+    # No prior:
+    # rescore:
+    # {"dev": 6.5, "dev_voxpopuli": 6.84, "dev_commonvoice": 9.19, "dev_librispeech": 4.01, "dev_yodas": 12.01,
+    #  "test": 7.26, "test_voxpopuli": 6.79, "test_commonvoice": 11.28, "test_librispeech": 4.28, "test_yodas": 11.73}
+    # recog-1stpass:
+    # {"dev": 6.79, "dev_voxpopuli": 6.98, "dev_commonvoice": 9.62, "dev_librispeech": 4.16, "dev_yodas": 13.18,
+    #  "test": 7.65, "test_voxpopuli": 7.07, "test_commonvoice": 11.63, "test_librispeech": 4.48, "test_yodas": 13.21}
+    # With prior:
+    # rescore:
+    # {"dev": 6.26, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.84, "dev_librispeech": 3.84, "dev_yodas": 11.54,
+    #  "test": 7.0, "test_voxpopuli": 6.66, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.11}
+    # recog-1stpass:
+    # {"dev": 6.57, "dev_voxpopuli": 6.82, "dev_commonvoice": 9.3, "dev_librispeech": 4.07, "dev_yodas": 12.0,
+    #  "test": 7.33, "test_voxpopuli": 6.92, "test_commonvoice": 11.23, "test_librispeech": 4.32, "test_yodas": 11.81}
+    # So without prior makes it clearly worse.
+    # ctc_recog_recomb_labelwise_prior_auto_scale(
+    #     prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2-noPrior",
+    #     task=task,
+    #     ctc_model=am,
+    #     extra_config={"aux_loss_layers": [aux_ctc_layer]},
+    #     lm=qwen2_lm,
+    #     lm_rescore_config={
+    #         "default_data_convert_labels_func": convert_labels_func_spm,
+    #         "chunk_size_for_lm_rescoring": 16,
+    #         "max_seqs": 32,
+    #     },
+    #     use_prior=False,
+    #     ctc_only_recog_version=10,
+    #     ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+    #     recog_version=12,
+    #     recog_def=model_recog_with_recomb_delayed_fusion_v2,
+    #     first_pass_extra_config={
+    #         "should_convert_labels_now_func": enable_every20,
+    #         "should_fuse_now_func": enable_every20,
+    #         # specific to the AM SPM that we have here...
+    #         "convert_labels_func": convert_labels_func_spm,
+    #         "max_seqs": 32,
+    #     },
+    # )
 
     enable_always = functools.partial(enable_by_interval, interval=1)
     ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -444,6 +437,31 @@ def py():
         first_pass_extra_config={
             "should_convert_labels_now_func": enable_always,
             "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+    )
+
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/qwen2",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": never_enable,
+            "should_fuse_now_func": never_enable,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,
