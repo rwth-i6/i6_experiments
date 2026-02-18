@@ -287,14 +287,14 @@ def py():
     )
 
     transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(
-        vocab=get_qwen2_vocab(text_preprocess_lower_case=True)
+        vocab=get_qwen2_vocab(text_preprocess_lower_case=True, bpe_dropout=0.1)
     )
     log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
     tk.register_output(f"{prefix}/lm/qwen2/log_lm_vocab_log_prior.txt", log_lm_vocab_log_prior)
 
     # for testing
     transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
-        vocab=get_qwen2_vocab(text_preprocess_lower_case=True),
+        vocab=get_qwen2_vocab(text_preprocess_lower_case=True, bpe_dropout=0.1),
         take_random_sorted_subset=5000,
         take_random_sorted_subset_version=2,
     )
@@ -349,6 +349,7 @@ def py():
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,
+            # "___debug": 2,  # add something new random to get new hashes for debugging
         },
     )
     tk.register_output(

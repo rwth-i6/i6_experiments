@@ -24,7 +24,7 @@ def get_vocab_size() -> int:
     return 151646
 
 
-def get_vocab_dict(*, text_preprocess_lower_case: bool = False) -> Dict[str, Any]:
+def get_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> Dict[str, Any]:
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
     d: Dict[str, Any] = {
         "class": "HuggingFaceTokenizer",
@@ -41,12 +41,15 @@ def get_vocab_dict(*, text_preprocess_lower_case: bool = False) -> Dict[str, Any
     }
     if text_preprocess_lower_case:
         d["text_preprocessing"] = str.lower
+    if bpe_dropout:
+        d["bpe_dropout"] = bpe_dropout
     return d
 
 
-def get_vocab(*, text_preprocess_lower_case: bool = False) -> VocabConfigStatic:
+def get_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> VocabConfigStatic:
     return VocabConfigStatic(
-        num_classes=get_vocab_size(), opts=get_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case)
+        num_classes=get_vocab_size(),
+        opts=get_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case, bpe_dropout=bpe_dropout),
     )
 
 
