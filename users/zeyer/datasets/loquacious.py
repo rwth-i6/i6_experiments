@@ -831,6 +831,33 @@ def get_loquacious_text_only_dataset_v2(
     )
 
 
+def get_loquacious_text_only_dataset_for_forward(
+    *,
+    vocab: Union[str, VocabConfig],
+    multi_proc: int = 2,
+) -> DatasetConfigStatic:
+    """
+    text for forwarding, e.g. stats
+    """
+    if isinstance(vocab, VocabConfig):
+        pass
+    elif isinstance(vocab, str):
+        vocab: VocabConfig = get_vocab_by_str(vocab)
+    else:
+        raise TypeError(f"invalid vocab type {type(vocab)}")
+    hf_data_dir = get_hf_text_only()
+    multi_proc_dataset = {"num_workers": multi_proc} if multi_proc >= 2 else None
+
+    return _make_hf_dataset_text_only(
+        hf_data_dir=hf_data_dir,
+        split="train",
+        # Don't use_distrib_files, we only have 5 shard files, but we might want partition epoch 25.
+        # use_distrib_files=True,
+        vocab=vocab,
+        multi_proc_dataset=multi_proc_dataset,
+    )
+
+
 def _make_hf_dataset_text_only(
     *,
     hf_data_dir: Path,

@@ -29,6 +29,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ex
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw_v2,
     get_loquacious_train_subset_dataset_v2,
+    get_loquacious_text_only_dataset_for_forward,
 )
 
 import returnn.frontend as rf
@@ -273,7 +274,15 @@ def py():
         },
     )
 
-    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_lm as get_qwen2_lm
+    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
+        get_lm as get_qwen2_lm,
+        get_vocab as get_qwen2_vocab,
+    )
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
+
+    transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(vocab=get_qwen2_vocab())
+    log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset)
+    tk.register_output(f"{prefix}/lm/qwen2/log_lm_vocab_log_prior.txt", log_lm_vocab_log_prior)
 
     qwen2_lm = get_qwen2_lm()
 
