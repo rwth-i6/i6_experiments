@@ -51,6 +51,13 @@ def py():
     vocab = "spm10k"
     task = get_loquacious_task_raw_v2(vocab=vocab)
 
+    # ASR baseline.
+    # CTC-only:
+    # {"dev": 7.32, "dev_voxpopuli": 7.11, "dev_commonvoice": 11.13, "dev_librispeech": 4.8, "dev_yodas": 11.49,
+    #  "test": 8.1, "test_voxpopuli": 7.28, "test_commonvoice": 13.29, "test_librispeech": 5.07, "test_yodas": 11.2}
+    # AED+CTC 1st pass:
+    # {"dev": 6.49, "dev_voxpopuli": 6.62, "dev_commonvoice": 9.29, "dev_librispeech": 4.22, "dev_yodas": 10.96,
+    #  "test": 7.31, "test_voxpopuli": 6.79, "test_commonvoice": 11.61, "test_librispeech": 4.48, "test_yodas": 10.62}
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
         task=task,
