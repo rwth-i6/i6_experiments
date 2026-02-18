@@ -5,7 +5,7 @@ CTC recognition with LM
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import Optional, Union, Any, Tuple, Dict
+from typing import Optional, Union, Any, Tuple, Dict, Callable
 import functools
 import numpy as np
 
@@ -1600,6 +1600,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     use_prior: bool = True,
     labelwise_prior: Optional[Prior] = None,
     prior_dataset: Optional[DatasetConfig] = None,
+    prior_custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None,
     lm: ModelWithCheckpoint,
     lm_rescore_config: Optional[Dict[str, Any]] = None,
     vocab_file: Optional[tk.Path] = None,
@@ -1704,7 +1705,11 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         config={**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size},
         keep_beam=True,
     )
-    prior_scores = prior_score(asr_scores, prior=labelwise_prior) if use_prior else None
+    prior_scores = (
+        prior_score(asr_scores, prior=labelwise_prior, custom_vocab_convert_labels=prior_custom_vocab_convert_labels)
+        if use_prior
+        else None
+    )
     lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, config=lm_rescore_config)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
@@ -1761,6 +1766,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
                 # framewise standard prior
                 prior=labelwise_prior,
                 prior_scale=prior_scale,
+                prior_custom_vocab_convert_labels=prior_custom_vocab_convert_labels,
                 lm=lm,
                 lm_scale=lm_scale,
                 lm_rescore_config=lm_rescore_config,

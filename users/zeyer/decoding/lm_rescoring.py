@@ -118,6 +118,7 @@ def lm_labelwise_prior_rescore(
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
+    prior_custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -140,6 +141,7 @@ def lm_labelwise_prior_rescore(
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param prior:
     :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param prior_custom_vocab_convert_labels:
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     dataset, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
@@ -153,7 +155,9 @@ def lm_labelwise_prior_rescore(
     )
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
-        res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
+        res_labels_prior_scores = prior_score(
+            raw_res_labels, prior=prior, custom_vocab_convert_labels=prior_custom_vocab_convert_labels
+        )
         scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0

@@ -3,7 +3,7 @@ Use a prior to rescore some recog output.
 """
 
 from __future__ import annotations
-from typing import Dict, List
+from typing import Optional, Dict, List, Callable
 from dataclasses import dataclass
 
 from sisyphus import Job, Task, tk
@@ -11,6 +11,7 @@ from i6_core import util
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 from .rescoring import combine_scores
+from .convert_labels import CombineScoresAndSeparateSearchOutputJob
 
 
 @dataclass
@@ -23,19 +24,29 @@ class Prior:
     vocab_is_chars: bool = False
 
 
-def prior_score(res: RecogOutput, *, prior: Prior) -> RecogOutput:
+def prior_score(
+    res: RecogOutput, *, prior: Prior, custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None
+) -> RecogOutput:
     """
     Use prior to score some recog output.
 
     :param res: previous recog output, some hyps to rescore. the score in those hyps is ignored
     :param prior:
+    :param custom_vocab_convert_labels:
     :return: recog output with prior scores instead
     """
-    return RecogOutput(
-        output=SearchPriorRescoreJob(
-            res.output, prior=prior.file, prior_type=prior.type, vocab=prior.vocab, vocab_is_chars=prior.vocab_is_chars
+    hyps = res.output
+    if custom_vocab_convert_labels:
+        hyps = custom_vocab_convert_labels(hyps)
+    result = SearchPriorRescoreJob(
+        hyps, prior=prior.file, prior_type=prior.type, vocab=prior.vocab, vocab_is_chars=prior.vocab_is_chars
+    ).out_search_results
+    if custom_vocab_convert_labels:
+        # Convert hypotheses back to the original format, and keep the scores from the prior.
+        result = CombineScoresAndSeparateSearchOutputJob(
+            search_py_output=res.output, scores_py_output=result
         ).out_search_results
-    )
+    return RecogOutput(output=result)
 
 
 def prior_rescore(res: RecogOutput, *, prior: Prior, prior_scale: float, orig_scale: float = 1.0) -> RecogOutput:
