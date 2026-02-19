@@ -125,7 +125,7 @@ def py():
         convert_labels_func,
         convert_labels_func_no_op,
         spm_space_first_is_word_start,
-        spm_label_merge,
+        spm_label_merge_v2,
         seq_str_postprocess_lower_case,
     )
 
@@ -332,7 +332,7 @@ def py():
     convert_labels_func_spm = functools.partial(
         convert_labels_func,
         is_am_label_word_start=spm_space_first_is_word_start,
-        custom_am_label_merge=spm_label_merge,
+        custom_am_label_merge=spm_label_merge_v2,
         seq_str_postprocess_func=seq_str_postprocess_lower_case,
     )
     res = ctc_recog_recomb_labelwise_prior_auto_scale(
