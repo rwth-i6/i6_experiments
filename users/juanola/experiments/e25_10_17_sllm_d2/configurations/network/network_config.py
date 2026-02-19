@@ -257,10 +257,10 @@ frozen
 
 
 def network_with_frozen_layers(
-    network: NetworkConfig, encoder_epochs: Optional[int] = None, decoder_epochs: Optional[int] = None
+    network: NetworkConfig, encoder_partial_epochs: Optional[int] = None, decoder_partial_epochs: Optional[int] = None
 ) -> NetworkConfig:
-    freeze_encoder_ranges = [(1, encoder_epochs)] if encoder_epochs is not None else None
-    freeze_decoder_ranges = [(1, decoder_epochs)] if decoder_epochs is not None else None
+    freeze_encoder_ranges = [(1, encoder_partial_epochs)] if encoder_partial_epochs is not None else None
+    freeze_decoder_ranges = [(1, decoder_partial_epochs)] if decoder_partial_epochs is not None else None
     return replace(
         network,
         freeze_encoder_ranges=freeze_encoder_ranges,

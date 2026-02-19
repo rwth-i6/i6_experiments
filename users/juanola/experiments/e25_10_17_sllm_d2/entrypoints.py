@@ -117,7 +117,11 @@ def e3v6():
 
 
 def e3v7_ctc():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
+                run_test=False,
+                run_best=False,
+                run_best_4=False,
+                run_only_dev_other=True)  # , itc_training=True)
 
 
 def e3v7_beam():
@@ -323,7 +327,7 @@ def e3v13_2():
     ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter_200], itc_training=True)
 
 def e3v14():
-    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC])#, itc_training=True)
 
 def e3_ft1():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4])#, itc_training=True)
@@ -354,11 +358,21 @@ def e3_ft4_i6():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4_I6])
 
 def e3_ft3():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5])#, itc_training=True)
 
 def e3_ft4():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4])#, itc_training=True)
 
+# +++
+
+def e3_pre11():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_FE], itc_training=True)
+
+def e3_pre12():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_FE])
+
+def e3_itc_config_test():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_1], itc_training=True)
 
 
 

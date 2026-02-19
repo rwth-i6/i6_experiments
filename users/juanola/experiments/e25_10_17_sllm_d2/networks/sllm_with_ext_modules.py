@@ -42,6 +42,8 @@ class SllmV4(SllmV3):
             self.external_ctc = SllmV3(**external_ctc_args)
             if self.verbose:
                 print("--- External CTC Module Initialized ---")
+        else:
+            print("--- NO EXTERNAL ENCODER ---")
 
         # 2. Initialize External LM (Decoder-only SllmV3)
         self.external_lm = None
@@ -58,6 +60,8 @@ class SllmV4(SllmV3):
             self.external_lm = SllmV3(**external_lm_args)
             if self.verbose:
                 print("--- External LM Module Initialized ---")
+        else:
+            print("--- NO EXTERNAL DECODER ---")
 
     def has_external_ctc(self):
         return self.external_ctc is not None

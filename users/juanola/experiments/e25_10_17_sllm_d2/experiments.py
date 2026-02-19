@@ -35,6 +35,7 @@ def sllm_ep(
     run_test: bool = True,
     run_best: bool = True,
     run_best_4: bool = True,
+    run_only_dev_other: bool = False,
     run_only_last: bool = True,  # !!! now only running last epochs by default!
 ) -> Dict[str, Any]:
     """
@@ -86,6 +87,8 @@ def sllm_ep(
             partition_epoch_factor,
             exp_config.training.datasets_num_workers,
         )
+        if run_only_dev_other:
+            dev_dataset_tuples.pop("dev-clean")
 
         # NETWORK
         model_alias = exp_config.network.name

@@ -569,8 +569,8 @@ class SllmV3(
 
         # Build attention mask
         if qwen_input_embeds.size(1) > 0:
-            qwen_input_lens_range = torch.arange(0, qwen_input_embeds.size(1), device=device)[None].expand(qwen_input_lens.size(0), -1)
-            qwen_attention_mask = qwen_input_lens_range < qwen_input_lens
+            qwen_input_lens_range = torch.range(0, qwen_input_embeds.size(1) - 1)[None].expand(qwen_input_lens.size(0), -1)
+            qwen_attention_mask = qwen_input_lens_range.to(device) < qwen_input_lens.to(device)
         else:
             # Empty sequence: create empty attention mask
             qwen_attention_mask = torch.empty(qwen_input_lens.size(0), 0, dtype=torch.bool, device=device)

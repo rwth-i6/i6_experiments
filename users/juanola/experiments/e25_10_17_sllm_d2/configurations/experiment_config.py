@@ -74,7 +74,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     finetuning_v3_ca_lr4,
     finetuning_v4_ca_lr5,
     finetuning_v3_ca_lr4_i6,
-    finetuning_v4_ca_lr5_i6,
+    finetuning_v4_ca_lr5_i6, itc_batch_size_80k_1e,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pretrained_models import (
     PretrainedConfig,
@@ -196,14 +196,33 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
     return replace(
         exp_v7(),
         # search=[search_baseline(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
-        search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb(),
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
-            search_ctc_decoding_11gb_v2_grid_search(
-                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                 ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+        search=[ # TODO: uncomment!
+            # search_baseline_v2(),
+            # search_baseline_ctc_greedy_decoding(),
+            # search_baseline_ctc_decoding_11gb(),
+            # search_baseline_ctc_decoding_11gb_v2(
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            # ),
+            # search_ctc_decoding_11gb_v2_grid_search(
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            # ),
+            # replace(
+            #     search_baseline_ctc_decoding_11gb_v2(  # To test against v3
+            #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            #     ),
+            #     lm_scales=[0.0],
+            #     sllm_scales=[1.0],
+            #     ctc_scales=[1.0],
+            # ),
+            replace(
+                search_baseline_ctc_decoding_11gb_v2(  # To test against v3
+                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+                ),
+                lm_scales=[0.0],
+                sllm_scales=[1.0],
+                ctc_scales=[0.0],
             ),
         ],
     )
@@ -418,6 +437,8 @@ def bv2_pre_ed_b_c() -> ExperimentConfig:
 def bv2_ds_pre_d_b_c() -> ExperimentConfig:
     return replace(model_v2_baseline_with_ds(), pretrained=dec_base_combined(), training=itc_v2_80k())
 
+def bv2_ds_pre_d_b_c_1() -> ExperimentConfig:
+    return replace(bv2_ds_pre_d_b_c(), training=itc_batch_size_80k_1e())
 
 def bv2_ds_pre_ed_b_c() -> ExperimentConfig:
     return replace(
@@ -441,13 +462,13 @@ def bv2_ds_pre_ed_b_c() -> ExperimentConfig:
 
 
 def bv2_ds_pre_d_b_c_f2() -> ExperimentConfig:
-    return replace(bv2_ds_pre_d_b_c(), network=network_with_frozen_layers(network_baseline_v2_td(), decoder_epochs=2))
+    return replace(bv2_ds_pre_d_b_c(), network=network_with_frozen_layers(network_baseline_v2_td(), decoder_partial_epochs=2))
 
 
 def bv2_ds_pre_ed_b_c_f1() -> ExperimentConfig:
     return replace(
         bv2_ds_pre_ed_b_c(),
-        network=network_with_frozen_layers(network_baseline_v2_td(), encoder_epochs=1, decoder_epochs=1),
+        network=network_with_frozen_layers(network_baseline_v2_td(), encoder_partial_epochs=1, decoder_partial_epochs=1),
     )
 
 
@@ -462,6 +483,21 @@ def bv2_pre_ed_s_lm() -> ExperimentConfig:
     return replace(model_v2_small_baseline(), pretrained=enc_dec_small_lm(), training=itc_v2_80k())
 
 
+# +++
+
+
+def bv2_ds_pre_ed_b_fe() -> ExperimentConfig:
+    return replace(model_v2_baseline_with_ds(),
+                   network=network_with_frozen_layers(network_baseline_v2_td(), encoder_partial_epochs=2000),
+                   pretrained=enc_dec_base_combined(), training=itc_v2_80k())
+
+
+def bv2_pre_ed_s_fe() -> ExperimentConfig:
+    return replace(model_v2_small_baseline(),
+                   network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_partial_epochs=2000),
+                   pretrained=enc_dec_small_combined(), training=i6_4gpu_setup_v4())
+
+
 """
 Pretrained frozen
 """
@@ -471,7 +507,7 @@ def bv2_pre_d_s_c_f1() -> ExperimentConfig:
     return replace(
         bv2_pre_d_s_c(),
         training=i6_4gpu_setup_v4(),
-        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), decoder_epochs=1),
+        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), decoder_partial_epochs=1),
     )
 
 
@@ -479,7 +515,7 @@ def bv2_pre_d_s_c_f2() -> ExperimentConfig:
     return replace(
         bv2_pre_d_s_c(),
         training=i6_4gpu_setup_v4(),
-        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), decoder_epochs=2),
+        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), decoder_partial_epochs=2),
     )
 
 
@@ -487,7 +523,7 @@ def bv2_pre_d_s_c_f5() -> ExperimentConfig:
     return replace(
         bv2_pre_d_s_c(),
         training=i6_4gpu_setup_v4(),
-        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), decoder_epochs=5),
+        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), decoder_partial_epochs=5),
     )
 
 
@@ -495,7 +531,7 @@ def bv2_pre_ed_s_c_f1() -> ExperimentConfig:
     return replace(
         bv2_pre_ed_s_c(),
         training=i6_4gpu_setup_v4(),
-        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_epochs=1, decoder_epochs=1),
+        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_partial_epochs=1, decoder_partial_epochs=1),
     )
 
 
@@ -503,7 +539,8 @@ def bv2_pre_ed_s_c_f2() -> ExperimentConfig:
     return replace(
         bv2_pre_ed_s_c(),
         training=i6_4gpu_setup_v4(),
-        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_epochs=2, decoder_epochs=2),
+        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_partial_epochs=2, decoder_partial_epochs=2),
+        search=[search_baseline_v2()]
     )
 
 
@@ -511,7 +548,7 @@ def bv2_pre_ed_s_c_f2_oclr1() -> ExperimentConfig:
     return replace(
         bv2_pre_ed_s_c(),
         training=i6_4gpu_setup_v4_for_n_epochs(2),
-        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_epochs=2, decoder_epochs=2),
+        network=network_with_frozen_layers(network_baseline_v2_td_linear_small(), encoder_partial_epochs=2, decoder_partial_epochs=2),
     )
 
 
@@ -528,7 +565,7 @@ def bv2_with_ds_pre_d_s_c_f1() -> ExperimentConfig:
     return replace(
         bv2_pre_d_s_c(),
         training=i6_4gpu_setup_v3(),
-        network=network_with_frozen_layers(network_baseline_v2_td_small(), decoder_epochs=1),
+        network=network_with_frozen_layers(network_baseline_v2_td_small(), decoder_partial_epochs=1),
     )
 
 
@@ -556,7 +593,8 @@ def exp_v14_3ctc() -> ExperimentConfig:
     SLLM-td-80k with linear adapter
     :return:
     """
-    return replace(exp_v7(), network=network_base_v2_3ctc(), training=itc_v2_80k())
+    return replace(exp_v7(), network=network_base_v2_3ctc(), training=itc_v2_80k(),
+                   search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
 
 
 def exp_v15_small_12ep_lr4() -> ExperimentConfig:

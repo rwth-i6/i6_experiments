@@ -42,7 +42,23 @@ def adapt_extern_decoder_embedding(name, shape, preload_model_state, **kwargs):
     :param name: name of the parameter to load (missing_keys_preload)
     :preload_model_state: dict of pretrained weights (with prefixes is added in config)
     """
+    # TODO: !!! doesn't work with prefixes!!!
 
+    if name.startswith("external_lm"): # TODO: only for now
+        return None
+
+
+    print(f"Custom processing of {name}")
+
+    if name == "decoder.model.embed_tokens.weight":
+        print("changing key")
+        print(preload_model_state["decoder_embed_func.weight"])
+        return preload_model_state["decoder_embed_func.weight"]
+
+    return None
+
+
+"""
     # TODO: !!! doesn't work with prefixes!!!
     print(name, end="")
 
@@ -55,6 +71,4 @@ def adapt_extern_decoder_embedding(name, shape, preload_model_state, **kwargs):
         print("loaded")
         return preload_model_state[name]
 
-    print("skiped")
-
-    return None
+    print("skiped")"""

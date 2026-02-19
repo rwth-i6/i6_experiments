@@ -108,10 +108,23 @@ def search(
 
     net_args = asr_model.net_args
     extra_returnn_configs = []
+    model_checkpoint = asr_model.checkpoint
 
     if forward_method == "forward_step_ctc_decoding_v2":
         preloading = {}
         python_prolog = None
+        model_checkpoint = None
+
+        # TODO: conditional to avoid loading in certain cases...
+        preloading["SLLM"] = {
+            "filename": asr_model.checkpoint,
+            "init_for_train": False,
+            "ignore_missing": True,
+            "ignore_params_prefixes": ["decoder.model.embed_tokens"], # Avoid loading untrained decoder embedding
+            "custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
+
+            #"var_name_mapping": {"decoder.model.embed_tokens.weight": "decoder_embed_func.weight"},
+        }
 
         if search_config.ext_encoder is not None:
             net_args["external_ctc_args"] = get_network_args(search_config.ext_encoder["network_config"], search_config.ext_encoder["label_config"])
@@ -120,7 +133,7 @@ def search(
                 "prefix": "external_ctc.",
                 "init_for_train": False,
                 "ignore_missing": True,
-                "ignore_params_prefixes": ["decoder_embed_func", "decoder"]
+                "ignore_params_prefixes": ["external_lm.", "decoder_embed_func", "decoder"]
             }
 
         if search_config.ext_decoder is not None:
@@ -130,19 +143,19 @@ def search(
                 "prefix": "external_lm.",
                 "init_for_train": False,
                 "ignore_missing": True,
-                "ignore_params_prefixes": ["encoder", "mel_frontend"],
+                "ignore_params_prefixes": ["external_ctc.", "encoder", "mel_frontend", "external_lm.decoder.model.embed_tokens"],
                 "var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
                 #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
             }
 
-            # qwen_load_lora_adapted_weights = PartialImport(
-            #     code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",
-            #     import_as="adapt_extern_decoder_embedding",
-            #     hashed_arguments={},
-            #     unhashed_arguments={},
-            #     unhashed_package_root=None,
-            # )
-            # python_prolog = [Collection([qwen_load_lora_adapted_weights])]
+            qwen_load_lora_adapted_weights = PartialImport(
+                code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",
+                import_as="adapt_extern_decoder_embedding",
+                hashed_arguments={},
+                unhashed_arguments={},
+                unhashed_package_root=None,
+            )
+            python_prolog = [Collection([qwen_load_lora_adapted_weights])]
 
         if preloading:
             preloading_config = {
@@ -175,7 +188,7 @@ def search(
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
-            asr_model.checkpoint,
+            model_checkpoint,
             test_dataset,
             test_dataset_reference,
             returnn_exe,

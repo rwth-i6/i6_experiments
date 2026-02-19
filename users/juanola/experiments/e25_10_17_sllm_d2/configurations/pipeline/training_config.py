@@ -109,6 +109,9 @@ def training_baseline(seed: Optional[int] = None) -> TrainingConfig:
 def itc_batch_size_80k() -> TrainingConfig:
     return replace(training_baseline(), batch_size=80_000)
 
+def itc_batch_size_80k_1e() -> TrainingConfig:
+    return replace(training_baseline(), batch_size=80_000, epochs=1)
+
 
 def itc_batch_size_150k() -> TrainingConfig:
     return replace(training_baseline(), batch_size=150_000)

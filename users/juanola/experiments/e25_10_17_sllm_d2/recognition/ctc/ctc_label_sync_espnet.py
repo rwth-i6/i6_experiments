@@ -365,7 +365,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     )
 
     if model.has_external_ctc():
-        ext_ctc_decoder_state, ext_ctc_aux_logits, ext_ctc_encoder_lens = model.external_ctc_forward_encoder(
+        _, ext_ctc_aux_logits, ext_ctc_encoder_lens = model.external_ctc_forward_encoder(
             data,
             data_seq_lens,
             initial_beam_size=1,
@@ -471,6 +471,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
 
     max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)
 
+    # TODO: wrap in conditionals
     lm_state_raw = decoder_state
     ext_lm_state = model.get_empty_qwen_input_embeds(decoder_state["input_embeds"], initial_beam_size=1)
 
@@ -480,6 +481,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     seq_backrefs = []
     while True:  # TODO: step could be extracted (probably would need a better beam struct
 
+        # todo: add conditional for ctc run (init label_log_prob before)
         # --- CTC SCORING (Calculated first as the anchor) ---
         label_log_prob, ctc_prefix_scorer_state = ctc_prefix_scorer.score_and_update_state(
             prev_state=ctc_prefix_scorer_state, prev_label=target_ctc, beam_dim=ctc_beam_dim
