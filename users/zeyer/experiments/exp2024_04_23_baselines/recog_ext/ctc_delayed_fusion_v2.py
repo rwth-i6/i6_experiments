@@ -323,7 +323,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
         lm_labels = lm_labels.copy_transpose(batch_dims_debug + [lm_spatial_dim]).copy_masked(0)
         lm_labels_actual = lm_seq_label.history
         lm_labels_actual = lm_labels_actual.copy_transpose(batch_dims_debug + [lm_seq_label.hist_dim]).copy_masked(0)
-        if not (lm_labels.raw_tensor.cpu().numpy() == lm_labels_actual.raw_tensor.cpu().numpy()).all():
+        if (lm_labels.raw_tensor.shape != lm_labels_actual.raw_tensor.shape) or (
+            lm_labels.raw_tensor.cpu().numpy() != lm_labels_actual.raw_tensor.cpu().numpy()
+        ).any():
             print("debug LM labels:", end="")
             _generic_seq_label_print(lm_labels, spatial_dim=lm_spatial_dim, dims_no_iter=batch_dims_debug)
             print("debug LM labels actual:", end="")
