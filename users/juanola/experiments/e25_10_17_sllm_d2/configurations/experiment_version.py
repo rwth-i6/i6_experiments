@@ -11,7 +11,8 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     bv3_pre_ed_s_c_lora, bv3_pre_ed_s_c_lora_small, bv2_ds_pre_ed_b_lm, bv2_pre_ed_s_lm, exp_v13_200, exp_v14_3ctc, \
     exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5, exp_v5_s2, exp_v7_s2, exp_v10_3_s2, exp_v15_small_12ep_ca_lr4, \
     exp_v15_small_12ep_ca_lr5, exp_v15_small_12ep_ca_lr4_i6, exp_v15_small_12ep_ca_lr5_i6, bv2_pre_ed_s_fe, \
-    bv2_ds_pre_ed_b_fe, bv2_ds_pre_d_b_c_1
+    bv2_ds_pre_ed_b_fe, bv2_ds_pre_d_b_c_1, exp_v14_3ctc_b_pre_ed, exp_v14_3ctc_s_pre_ed, bv2_pre_ed_s_c_4gpu, \
+    exp_v14_3ctc_b_pre_ed_f20, exp_v14_3ctc_s_pre_ed_f10
 
 
 class ExperimentVersion(Enum):
@@ -96,6 +97,12 @@ class ExperimentVersion(Enum):
     SLLM_BV2_PRE_ED_B_FE = "SLLM_pretrained_ed_b_fe"
     SLLM_BV2_PRE_ED_S_FE = "SLLM_pretrained_ed_s_fe"
     SLLM_BV2_DS_PRE_ED_B_C_1 = "SLLM_ds_pretrained_ed_b_c_1"
+
+    V14_SLLM_3CTC_B_PRE_ED = "SLLM_3CTC_b_pre_ed"
+    V14_SLLM_3CTC_S_PRE_ED = "SLLM_3CTC_s_pre_ed"
+    SLLM_BV2_PRE_ED_S_C_I6 = "SLLM_pretrained_ed_s_c_4gpu"
+    SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20 = "SLLM_3CTC_ds_pretrained_ed_b_c_f20" # full epoch
+    SLLM_3CTC_BV2_PRE_ED_S_C_F10 = "SLLM_3CTC_pretrained_ed_s_c_f10" # 2 full epochs
 
     # Expand here
 
@@ -185,6 +192,13 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.SLLM_BV2_PRE_ED_B_FE: bv2_ds_pre_ed_b_fe,
     ExperimentVersion.SLLM_BV2_PRE_ED_S_FE: bv2_pre_ed_s_fe,
     ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_1: bv2_ds_pre_d_b_c_1,
+
+    ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED: exp_v14_3ctc_b_pre_ed,
+    ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED: exp_v14_3ctc_s_pre_ed,
+    ExperimentVersion.SLLM_BV2_PRE_ED_S_C_I6: bv2_pre_ed_s_c_4gpu,
+
+    ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20: exp_v14_3ctc_b_pre_ed_f20,
+    ExperimentVersion.SLLM_3CTC_BV2_PRE_ED_S_C_F10: exp_v14_3ctc_s_pre_ed_f10,
 
     # Expand here
 

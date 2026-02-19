@@ -215,6 +215,9 @@ def network_baseline_v2_td_small() -> NetworkConfig:
 def network_base_v2_3ctc() -> NetworkConfig:
     return replace(network_baseline_v2(), encoder=encoder_3_ctc_layers())
 
+def network_small_v2_3ctc() -> NetworkConfig:
+    return replace(network_baseline_v2_td_linear_small(), encoder=encoder_3_ctc_layers())
+
 
 """
 MODEL V3

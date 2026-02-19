@@ -117,11 +117,13 @@ def e3v6():
 
 
 def e3v7_ctc():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
-                run_test=False,
-                run_best=False,
-                run_best_4=False,
-                run_only_dev_other=True)  # , itc_training=True)
+    ex3.sllm_ep(
+        [ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
+        run_test=False,
+        run_best=False,
+        run_best_4=False,
+        run_only_dev_other=True,
+    )  # , itc_training=True)
 
 
 def e3v7_beam():
@@ -185,7 +187,7 @@ def e3v8_2():
 def e3v7_2():
     ex3.sllm_ep(
         [ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200]
-        #[ExperimentVersion.V7_TUNED_DROPOUT_200]
+        # [ExperimentVersion.V7_TUNED_DROPOUT_200]
     )  # , itc_training=True)
 
 
@@ -230,7 +232,7 @@ def e3_pre6():
 
 
 def e3v7_3():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300])  # , itc_training=True)
 
 
 def e3_f1_baseline():
@@ -297,45 +299,53 @@ def e3_pre8_f1():
 def e3_lora1():
     ex3.sllm_ep(
         [ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA],
-        #itc_training=True,
+        # itc_training=True,
         run_only_last=False,
     )
 
 
 def e3_lora2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA])  # , itc_training=True)
 
 
 def e3_lora3():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small])#, itc_training=True)
+    ex3.sllm_ep(
+        [ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small]
+    )  # , itc_training=True)
 
 
 # ++++
 
 
 def e3_pre9():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM])  # , itc_training=True)
 
 
 def e3_pre10():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM])  # , itc_training=True)
 
 
 # +++
+
 
 def e3v13_2():
     ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter_200], itc_training=True)
 
+
 def e3v14():
-    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC])  # , itc_training=True)
+
 
 def e3_ft1():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4])  # , itc_training=True)
+
 
 def e3_ft2():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5])  # , itc_training=True)
+
 
 # +++
+
 
 def e3v7_s2():
     ex3.sllm_ep([ExperimentVersion.V7_S2], itc_training=True)
@@ -348,32 +358,62 @@ def e3v5_s2():
 def e3v10_3_s2():
     ex3.sllm_ep([ExperimentVersion.V10_SMALL_DECODER_4GPUS_V3_S2])
 
+
 # +++
 
 
 def e3_ft3_i6():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5_I6])
 
+
 def e3_ft4_i6():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4_I6])
 
+
 def e3_ft3():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA5])  # , itc_training=True)
+
 
 def e3_ft4():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_CA4])  # , itc_training=True)
+
 
 # +++
+
 
 def e3_pre11():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_FE], itc_training=True)
 
+
 def e3_pre12():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_FE])
+
 
 def e3_itc_config_test():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_1], itc_training=True)
 
+
+# +++
+
+
+def e3v14_pre1():
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED], itc_training=True)
+
+
+def e3v14_pre2():
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED])
+
+
+def e3_pre5_i6():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_I6])
+
+
+def e3v14_pre1_f20():
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20], itc_training=True)
+
+
+def e3v14_pre2_f10():
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_BV2_PRE_ED_S_C_F10])
 
 
 """
@@ -406,12 +446,12 @@ def v2_decoding():
     e3v8_2()
     e3v7_2()
 
+
 def new_v4_search():
     e3v7_ctc()
     e3v5()
     e3_pre5()
     e3_pre8()
-
 
 
 """
