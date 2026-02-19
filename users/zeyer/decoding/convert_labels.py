@@ -10,20 +10,20 @@ from sisyphus import Job, Task, tk
 from i6_core import util
 
 
-def spm_merge_v2(text: str) -> str:
+def spm_merge_v3(text: str) -> str:
     """
     Merge SPM text.
     E.g. "▁This ▁is ▁a ▁test" -> "This is a test"
     """
-    return text.replace("▁", "").strip()
+    return text.replace(" ", "").replace("▁", " ").strip()
 
 
-def spm_merge_and_lower_case_v2(text: str) -> str:
+def spm_merge_and_lower_case_v3(text: str) -> str:
     """
     Merge SPM text and lower case.
     E.g. "▁This ▁is ▁a ▁test" -> "this is a test"
     """
-    return text.replace("▁", "").strip().lower()
+    return text.replace(" ", "").replace("▁", " ").strip().lower()
 
 
 class SearchOutputConvertLabelsJob(Job):
