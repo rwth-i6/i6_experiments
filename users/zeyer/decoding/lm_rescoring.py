@@ -424,7 +424,8 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
             new_am_labels=targets,
             new_am_labels_spatial_dim=targets_spatial_dim,
             lm_target_dim=model.vocab_dim,
-            last_am_frame=True,
+            first_am_labels=True,
+            last_am_labels=True,
         )
         assert (
             isinstance(new_lm_labels, Tensor)

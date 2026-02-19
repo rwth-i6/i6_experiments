@@ -6,7 +6,7 @@ See :func:`model_recog_with_recomb_delayed_fusion_v2`.
 
 from __future__ import annotations
 
-from typing import Optional, Callable, Sequence, Tuple
+from typing import Optional, Union, Callable, Sequence, Tuple
 import os
 import numpy as np
 import itertools
@@ -67,9 +67,12 @@ def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary, **_kwarg
     return label.startswith("▁")
 
 
-def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, **_kwargs) -> str:
+def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, is_beginning: bool, **_kwargs) -> str:
     """SPM label merge function, convert a list of SPM labels to a string"""
-    return "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ").strip()
+    res = "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ")
+    if is_beginning:
+        res = res.lstrip()  # only strip left side, to keep the spaces in the middle and at the end
+    return res
 
 
 def seq_str_postprocess_lower_case(seq_str: str, **_kwargs) -> str:
@@ -82,8 +85,9 @@ def convert_labels_func(
     *,
     new_am_labels: Tensor,
     new_am_labels_spatial_dim: Dim,
+    first_am_labels: Union[bool, Tensor],
+    last_am_labels: bool,
     lm_target_dim: Dim,
-    last_am_frame: bool,
     is_am_label_word_start: Optional[Callable] = None,
     is_am_label_word_end: Optional[Callable] = None,
     custom_am_label_merge: Optional[Callable] = None,
@@ -97,13 +101,22 @@ def convert_labels_func(
 
     :param new_am_labels: Tensor of shape {batch..., new_am_labels_spatial_dim}
     :param new_am_labels_spatial_dim: Dim of new AM labels
+    :param first_am_labels: whether these are the first AM labels to convert.
+        Note that some SPM tokenizers will tokenize "Hello world" as ["▁Hello", "▁world"],
+        i.e. the first AM label has "▁" at the beginning.
+        In the SPM merge function, stripping the spaces away after merging is only valid on the whole sequence,
+        or at the beginning of the sequence, but not when merging a middle part of the sequence.
+        So we need to know whether these are the first AM labels to convert.
+    :param last_am_labels:
+        It signals that we always should convert all the remaining AM labels,
+        even if they do not end with a word end label.
     :param lm_target_dim: target dim of the LM
-    :param last_am_frame:
     :param is_am_label_word_start:
     :param is_am_label_word_end:
     :param custom_am_label_merge:
     :param seq_str_postprocess_func: optional. func (seq_str: str, vocab: Vocabulary, ...) -> str,
-        postprocess the converted seq_str before converting to LM labels
+        postprocess the converted seq_str before converting to LM labels.
+        For example :func:`seq_str_postprocess_lower_case`.
     :return: (new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted)
         1. new_lm_labels: Tensor of shape {batch..., new_lm_labels_spatial_dim} -> lm_target_dim
         2. new_lm_labels_spatial_dim: Dim of new LM labels
@@ -115,23 +128,30 @@ def convert_labels_func(
     am_vocab = new_am_labels.sparse_dim.vocab
     assert lm_target_dim.vocab
     lm_vocab = lm_target_dim.vocab
+    if isinstance(first_am_labels, bool):
+        first_am_labels = rf.constant(first_am_labels, dtype="bool", device="cpu")
+    else:
+        first_am_labels = rf.copy_to_device(first_am_labels, "cpu")
 
     batch_dims = new_am_labels.remaining_dims(new_am_labels_spatial_dim)
     lm_labels_list_by_bs = {}  # batch index -> list of new LM labels
     num_am_labels_converted_by_bs = {}  # batch index -> num AM labels converted
-    for bs in itertools.product(*(range(d.get_dim_value()) for d in batch_dims)):
+    for bs in itertools.product(*(range(d.get_dim_value()) for d in batch_dims)):  # e.g. (batch,beam) indices
         am_labels_ = new_am_labels
         am_lens = new_am_labels_spatial_dim.get_size_tensor()
+        first_am_labels_ = first_am_labels
         for d, idx in zip(batch_dims, bs):
             am_labels_ = rf.gather(am_labels_, axis=d, indices=idx)
             if d in am_lens.dims:
                 am_lens = rf.gather(am_lens, axis=d, indices=idx)
-        assert am_labels_.dims == (new_am_labels_spatial_dim,) and am_lens.dims == ()
+            if d in first_am_labels_.dims:
+                first_am_labels_ = rf.gather(first_am_labels_, axis=d, indices=idx)
+        assert am_labels_.dims == (new_am_labels_spatial_dim,) and am_lens.dims == first_am_labels_.dims == ()
         am_labels_, am_spatial_dim = rf.slice(am_labels_, axis=new_am_labels_spatial_dim, start=0, end=am_lens)
         assert am_labels_.dims == (am_spatial_dim,) and am_lens.dims == ()
         am_labels_raw = am_labels_.raw_tensor.tolist()
         am_lens_raw = am_lens.raw_tensor.item()
-        if last_am_frame:
+        if last_am_labels:
             am_full_words_len = am_lens_raw
         else:
             am_full_words_len = 0
@@ -146,7 +166,9 @@ def convert_labels_func(
         if am_full_words_len > 0:
             am_labels_raw = am_labels_raw[:am_full_words_len]
             if custom_am_label_merge:
-                seq_str = custom_am_label_merge(am_labels_raw, vocab=am_vocab, **_kwargs)
+                seq_str = custom_am_label_merge(
+                    am_labels_raw, vocab=am_vocab, is_beginning=first_am_labels_.raw_tensor.item(), **_kwargs
+                )
                 assert isinstance(seq_str, str)
             else:
                 seq_str = am_vocab.get_seq_labels(am_labels_raw)
@@ -319,7 +341,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
             new_am_labels=am_labels,
             new_am_labels_spatial_dim=am_spatial_dim,
             lm_target_dim=lm_target_dim,
-            last_am_frame=True,
+            first_am_labels=True,
+            last_am_labels=True,
         )
         lm_labels: Tensor
         lm_labels = lm_labels.copy_transpose(batch_dims_debug + [lm_spatial_dim]).copy_masked(0)
@@ -404,7 +427,8 @@ def model_recog_with_recomb_delayed_fusion_v2(
             new_am_labels=new_am_labels,
             new_am_labels_spatial_dim=new_am_labels_spatial_dim,
             lm_target_dim=lm_target_dim,
-            last_am_frame=is_last_frame,
+            first_am_labels=am_seq_last_converted == 0,
+            last_am_labels=is_last_frame,
             **get_fwd_compat_kwargs(),
         )
         if debug:
