@@ -67,11 +67,13 @@ def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary, **_kwarg
     return label.startswith("▁")
 
 
-def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, is_beginning: bool, **_kwargs) -> str:
+def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, is_beginning: bool, is_end: bool, **_kwargs) -> str:
     """SPM label merge function, convert a list of SPM labels to a string"""
     res = "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ")
     if is_beginning:
         res = res.lstrip()  # only strip left side, to keep the spaces in the middle and at the end
+    if is_end:
+        res = res.rstrip()
     return res
 
 
@@ -129,7 +131,7 @@ def convert_labels_func(
     assert lm_target_dim.vocab
     lm_vocab = lm_target_dim.vocab
     if isinstance(first_am_labels, bool):
-        first_am_labels = rf.constant(first_am_labels, dtype="bool", device="cpu")
+        first_am_labels = rf.constant(first_am_labels, dims=(), dtype="bool", device="cpu")
     else:
         first_am_labels = rf.copy_to_device(first_am_labels, "cpu")
 
@@ -167,7 +169,11 @@ def convert_labels_func(
             am_labels_raw = am_labels_raw[:am_full_words_len]
             if custom_am_label_merge:
                 seq_str = custom_am_label_merge(
-                    am_labels_raw, vocab=am_vocab, is_beginning=first_am_labels_.raw_tensor.item(), **_kwargs
+                    am_labels_raw,
+                    vocab=am_vocab,
+                    is_beginning=first_am_labels_.raw_tensor.item(),
+                    is_end=last_am_labels,
+                    **_kwargs,
                 )
                 assert isinstance(seq_str, str)
             else:
