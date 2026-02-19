@@ -291,7 +291,10 @@ def py():
     )
     log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
     tk.register_output(f"{prefix}/lm/qwen2/log_lm_vocab_log_prior.txt", log_lm_vocab_log_prior)
-    # TODO smoothen prior...
+    log_lm_vocab_log_prior = PriorLabelSmoothingJob(
+        prior_file=log_lm_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
+    tk.register_output(f"{prefix}/lm/qwen2/log_lm_vocab_log_prior_smooth.txt", log_lm_vocab_log_prior)
 
     # for testing
     transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
