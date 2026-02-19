@@ -326,11 +326,12 @@ def model_recog_with_recomb_delayed_fusion_v2(
         if (lm_labels.raw_tensor.shape != lm_labels_actual.raw_tensor.shape) or (
             lm_labels.raw_tensor.cpu().numpy() != lm_labels_actual.raw_tensor.cpu().numpy()
         ).any():
+            print("Mismatch:")
             print("debug LM labels:", end="")
             _generic_seq_label_print(lm_labels, spatial_dim=lm_spatial_dim, dims_no_iter=batch_dims_debug)
             print("debug LM labels actual:", end="")
             _generic_seq_label_print(lm_labels_actual, spatial_dim=lm_seq_label.hist_dim, dims_no_iter=batch_dims_debug)
-        np.testing.assert_equal(lm_labels.raw_tensor.cpu().numpy(), lm_labels_actual.raw_tensor.cpu().numpy())
+            raise ValueError("debug LM labels mismatch")
 
         labels = lm_seq_label.history
         spatial_dim: Dim = lm_seq_label.hist_dim
