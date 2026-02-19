@@ -27,6 +27,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ex
 )
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
+    get_vocab_by_str as get_loquacious_vocab_by_str,
     get_loquacious_task_raw_v2,
     get_loquacious_train_subset_dataset_v2,
     get_loquacious_text_only_dataset_for_forward,
@@ -51,6 +52,41 @@ def py():
     name = "base"
     vocab = "spm10k"
     task = get_loquacious_task_raw_v2(vocab=vocab)
+
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
+
+    vocab_obj = get_loquacious_vocab_by_str(vocab)
+    sampling_vocab_obj = vocab_obj.copy(other_opts={"class": "SamplingBytePairEncoding", "breadth_prob": 0.01})
+
+    transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(vocab=vocab)
+    log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior.txt", log_lm_vocab_log_prior)
+    log_lm_vocab_log_prior_smooth = PriorLabelSmoothingJob(
+        prior_file=log_lm_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_smooth.txt", log_lm_vocab_log_prior_smooth)
+
+    transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(vocab=sampling_vocab_obj)
+    log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_sampled.txt", log_lm_vocab_log_prior)
+    log_lm_vocab_log_prior_smooth = PriorLabelSmoothingJob(
+        prior_file=log_lm_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_sampled_smooth.txt", log_lm_vocab_log_prior_smooth)
+
+    # for testing
+    transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
+        vocab=vocab, take_random_sorted_subset=5000, take_random_sorted_subset_version=2
+    )
+    log_lm_vocab_log_prior_small = compute_label_prior_log_probs(
+        transcriptions_dataset_small, forward_rqmt={"mem": 12, "time": 24}
+    )
+    tk.register_output(f"{prefix}/asr/{vocab}/log_lm_vocab_log_prior_small.txt", log_lm_vocab_log_prior_small)
+    log_lm_vocab_log_prior_small = PriorLabelSmoothingJob(
+        prior_file=log_lm_vocab_log_prior_small, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
+    tk.register_output(f"{prefix}/asr/{vocab}/log_lm_vocab_log_prior_small_smooth.txt", log_lm_vocab_log_prior_small)
 
     # ASR baseline.
     # CTC-only:
@@ -278,8 +314,6 @@ def py():
         get_lm as get_qwen2_lm,
         get_vocab as get_qwen2_vocab,
     )
-    from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
-    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
     from i6_experiments.users.zeyer.decoding.convert_labels import (
         spm_merge_and_lower_case_v3,
