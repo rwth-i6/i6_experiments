@@ -192,7 +192,7 @@ def test_qwen2_finetuned():
                     if hot_reloader.any_module_changed():
                         hot_reloader.reload_changed_modules()
                         break  # break inner loop, retry test_lm
-                    print("No changes detected? Please change the source code:", hot_reloader._modules)
+                    print("No changes detected? Please change the source code:", hot_reloader.modules)
                 elif answer == "s":
                     debug_shell({}, {})
                 elif answer == "q":
