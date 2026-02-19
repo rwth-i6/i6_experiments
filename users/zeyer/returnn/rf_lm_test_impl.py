@@ -182,8 +182,7 @@ def test_qwen2_finetuned():
             except Exception as exc:
                 print("Exception with hot reloading enabled:")
                 sys.excepthook(type(exc), exc, exc.__traceback__)
-                hot_reloader.wait_for_user()
-                hot_reloader.reload_changed_modules()
+                hot_reloader.user_interaction()
                 continue
             print("Success. What now?")
             while True:
