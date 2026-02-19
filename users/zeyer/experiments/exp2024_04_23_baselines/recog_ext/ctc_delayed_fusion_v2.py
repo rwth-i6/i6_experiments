@@ -116,9 +116,6 @@ def convert_labels_func(
     assert lm_target_dim.vocab
     lm_vocab = lm_target_dim.vocab
 
-    debug = os.environ.get("DEBUG_CTC_RECOG") == "1"
-    from .ctc_debugging import _generic_seq_label_print
-
     batch_dims = new_am_labels.remaining_dims(new_am_labels_spatial_dim)
     lm_labels_list_by_bs = {}  # batch index -> list of new LM labels
     num_am_labels_converted_by_bs = {}  # batch index -> num AM labels converted
@@ -131,9 +128,6 @@ def convert_labels_func(
                 am_lens = rf.gather(am_lens, axis=d, indices=idx)
         assert am_labels_.dims == (new_am_labels_spatial_dim,) and am_lens.dims == ()
         am_labels_, am_spatial_dim = rf.slice(am_labels_, axis=new_am_labels_spatial_dim, start=0, end=am_lens)
-        if debug:
-            print(f"batch index {bs}: new AM labels:", end="")
-            _generic_seq_label_print(am_labels_, spatial_dim=am_spatial_dim)
         assert am_labels_.dims == (am_spatial_dim,) and am_lens.dims == ()
         am_labels_raw = am_labels_.raw_tensor.tolist()
         am_lens_raw = am_lens.raw_tensor.item()
@@ -161,12 +155,6 @@ def convert_labels_func(
             lm_labels_list = lm_vocab.get_seq(seq_str)
         else:
             lm_labels_list = []
-        if debug:
-            print(
-                f"batch index {bs}: converted new LM labels:",
-                lm_labels_list,
-                [lm_vocab.id_to_label(lidx) for lidx in lm_labels_list],
-            )
         lm_labels_list_by_bs[bs] = lm_labels_list
 
     new_lm_labels_lens = rf.zeros(batch_dims, dtype="int32", device="cpu")
