@@ -562,6 +562,7 @@ def py():
 
     # TODO new prior on LM vocab but ASR transcriptions...
     # TODO not fixed interval but condition like in delayed fusion paper
+    # TODO ASR prior but divide by num ASR labels, mult by num LM labels
 
 
 _base_config = {
