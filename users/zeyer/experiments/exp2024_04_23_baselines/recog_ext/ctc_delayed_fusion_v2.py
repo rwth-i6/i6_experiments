@@ -69,7 +69,7 @@ def spm_space_first_is_word_start(label_idx: int, *, vocab: Vocabulary, **_kwarg
 
 def spm_label_merge(labels: np.ndarray, *, vocab: Vocabulary, **_kwargs) -> str:
     """SPM label merge function, convert a list of SPM labels to a string"""
-    return "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ").strip()
+    return "".join(vocab.id_to_label(label_idx) for label_idx in labels).replace("▁", " ")
 
 
 def seq_str_postprocess_lower_case(seq_str: str, **_kwargs) -> str:
@@ -327,10 +327,24 @@ def model_recog_with_recomb_delayed_fusion_v2(
             lm_labels.raw_tensor.cpu().numpy() != lm_labels_actual.raw_tensor.cpu().numpy()
         ).any():
             print("Mismatch:")
+            max_size = rf.maximum(lm_spatial_dim.get_size_tensor(), lm_seq_label.hist_dim.get_size_tensor())
+            max_spatial_dim = Dim(max_size, name="max_spatial")
+            lm_labels_ = rf.replace_dim_v2(lm_labels, in_dim=lm_spatial_dim, out_dim=max_spatial_dim)
+            lm_labels_ = rf.copy_to_device(lm_labels_, "cpu")
+            lm_labels_actual_ = rf.replace_dim_v2(
+                lm_labels_actual, in_dim=lm_seq_label.hist_dim, out_dim=max_spatial_dim
+            )
+            lm_labels_actual_ = rf.copy_to_device(lm_labels_actual_, "cpu")
+            print("Matching sizes:")
+            _generic_print(lm_spatial_dim.get_size_tensor() == lm_seq_label.hist_dim.get_size_tensor())
+            print("Matching seqs:")
+            _generic_print(rf.reduce_all(lm_labels_ == lm_labels_actual_, axis=max_spatial_dim))
+            # print("Matching tokens:")
+            # _generic_print(lm_labels_ == lm_labels_actual_)
             print("debug LM labels:", end="")
-            _generic_seq_label_print(lm_labels, spatial_dim=lm_spatial_dim, dims_no_iter=batch_dims_debug)
+            _generic_seq_label_print(lm_labels, spatial_dim=lm_spatial_dim)
             print("debug LM labels actual:", end="")
-            _generic_seq_label_print(lm_labels_actual, spatial_dim=lm_seq_label.hist_dim, dims_no_iter=batch_dims_debug)
+            _generic_seq_label_print(lm_labels_actual, spatial_dim=lm_seq_label.hist_dim)
             raise ValueError("debug LM labels mismatch")
 
         labels = lm_seq_label.history
