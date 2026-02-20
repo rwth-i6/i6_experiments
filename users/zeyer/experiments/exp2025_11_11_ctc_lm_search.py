@@ -538,31 +538,32 @@ def py():
     # {"dev": 9.99, "dev_voxpopuli": 10.69, "dev_commonvoice": 12.52, "dev_librispeech": 6.58, "dev_yodas": 21.71,
     #  "test": 10.98, "test_voxpopuli": 10.52, "test_commonvoice": 15.07, "test_librispeech": 6.58, "test_yodas": 21.39}
     # TODO why is this even worse?
-    enable_always = functools.partial(enable_by_interval, interval=1)
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-always/qwen2",
-        task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
-        lm=qwen2_lm,
-        lm_rescore_config={
-            "default_data_convert_labels_func": convert_labels_func_spm,
-            "chunk_size_for_lm_rescoring": 16,
-            "max_seqs": 32,
-        },
-        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-        ctc_only_recog_version=10,
-        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=12,
-        recog_def=model_recog_with_recomb_delayed_fusion_v2,
-        first_pass_extra_config={
-            "should_convert_labels_now_func": enable_always,
-            "should_fuse_now_func": enable_always,
-            # specific to the AM SPM that we have here...
-            "convert_labels_func": convert_labels_func_spm,
-            "max_seqs": 32,
-        },
-    )
+    # TODO wait for cluster
+    # enable_always = functools.partial(enable_by_interval, interval=1)
+    # ctc_recog_recomb_labelwise_prior_auto_scale(
+    #     prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-always/qwen2",
+    #     task=task,
+    #     ctc_model=am,
+    #     extra_config={"aux_loss_layers": [aux_ctc_layer]},
+    #     lm=qwen2_lm,
+    #     lm_rescore_config={
+    #         "default_data_convert_labels_func": convert_labels_func_spm,
+    #         "chunk_size_for_lm_rescoring": 16,
+    #         "max_seqs": 32,
+    #     },
+    #     prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+    #     ctc_only_recog_version=10,
+    #     ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+    #     recog_version=12,
+    #     recog_def=model_recog_with_recomb_delayed_fusion_v2,
+    #     first_pass_extra_config={
+    #         "should_convert_labels_now_func": enable_always,
+    #         "should_fuse_now_func": enable_always,
+    #         # specific to the AM SPM that we have here...
+    #         "convert_labels_func": convert_labels_func_spm,
+    #         "max_seqs": 32,
+    #     },
+    # )
 
     # Never (delay until end), i.e. should be like rescoring:
     # {"dev": 6.26, "dev_voxpopuli": 6.61, "dev_commonvoice": 8.83, "dev_librispeech": 3.85, "dev_yodas": 11.47,
