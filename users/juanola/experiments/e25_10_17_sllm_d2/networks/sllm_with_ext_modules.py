@@ -3,19 +3,20 @@ __all__ = ["SllmV4"]
 from typing import Optional, Dict, Any, Tuple, Union
 
 from returnn_common.nn import Tensor
+from .conformer_qwen_v2 import SllmV2
 from .conformer_qwen_v3 import SllmV3
 from .qwen2_decoder_state import Qwen2DecoderState
 
 
-class SllmV4(SllmV3):
+class SllmV4(SllmV2):
     """
     SLLM with external modules:
     - self.external_ctc
     - self.external_lm
     """
 
-    external_ctc: Optional[SllmV3]
-    external_lm: Optional[SllmV3]
+    external_ctc: Optional[SllmV2]
+    external_lm: Optional[SllmV2]
 
     def __init__(
         self,
@@ -39,7 +40,7 @@ class SllmV4(SllmV3):
                 "using_decoder": False,
                 "verbose": True}
             )
-            self.external_ctc = SllmV3(**external_ctc_args)
+            self.external_ctc = SllmV2(**external_ctc_args)
             if self.verbose:
                 print("--- External CTC Module Initialized ---")
         else:
@@ -57,7 +58,7 @@ class SllmV4(SllmV3):
                 "using_decoder": True,
                 "verbose": True
             })
-            self.external_lm = SllmV3(**external_lm_args)
+            self.external_lm = SllmV2(**external_lm_args)
             if self.verbose:
                 print("--- External LM Module Initialized ---")
         else:
@@ -80,4 +81,3 @@ class SllmV4(SllmV3):
             raise Exception("External LM Module Not Initialized")
         return self.external_lm.step_decoder(labels, state)
 
-    # TODO: add LM protocol like SllmV2Lm

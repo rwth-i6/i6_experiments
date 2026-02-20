@@ -544,10 +544,34 @@ class Model(
         qwen_input_lens = qwen_input_lens[:, None].expand(-1, qwen_input_embeds.size(1))
 
         # Build attention mask
-        qwen_input_lens_range = torch.range(0, qwen_input_embeds.size(1) - 1)[None].expand(qwen_input_lens.size(0), -1)
-        qwen_attention_mask = qwen_input_lens_range.to(device) < qwen_input_lens.to(device)
+        if qwen_input_embeds.size(1) > 0:
+            qwen_input_lens_range = torch.range(0, qwen_input_embeds.size(1) - 1)[None].expand(qwen_input_lens.size(0), -1)
+            qwen_attention_mask = qwen_input_lens_range.to(device) < qwen_input_lens.to(device)
+        else:
+            # Empty sequence: create empty attention mask
+            qwen_attention_mask = torch.empty(qwen_input_lens.size(0), 0, dtype=torch.bool, device=device)
 
         return qwen_input_embeds, qwen_attention_mask
+
+    def get_empty_qwen_input_embeds(self, real_input_embeds, initial_beam_size: int):
+        B, _, _, F = real_input_embeds.shape  # (B, beam, T, F)
+        device = real_input_embeds.device
+        dtype = real_input_embeds.dtype
+
+        # Create empty audio embeddings: (B, 0, F)
+        empty_audio_embeds = torch.zeros(B, 0, F, device=device, dtype=dtype)
+
+        empty_tokens = torch.empty((B, 0), dtype=torch.long, device=device)  # [B, 0]
+        empty_tokens_len = torch.tensor([0], device=device).expand(B)  # [B]
+
+        empty_embeddings, _ = self.get_qwen_input_embeds(empty_audio_embeds, empty_tokens, empty_tokens_len)
+
+        empty_state = {
+            "input_embeds": empty_embeddings[:, None].expand(-1, initial_beam_size, -1, -1),  # (B, b, 0, F)
+            "past_key_values": None,
+        }
+
+        return empty_state
 
     def forward_encoder(
             self, raw_audio: Tensor, raw_audio_lens: Tensor, initial_beam_size: int

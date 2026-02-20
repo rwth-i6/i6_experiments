@@ -120,9 +120,8 @@ def search(
             "filename": asr_model.checkpoint,
             "init_for_train": False,
             "ignore_missing": True,
-            "ignore_params_prefixes": ["decoder.model.embed_tokens"], # Avoid loading untrained decoder embedding
-            "custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
-
+            #"ignore_params_prefixes": ["decoder.model.embed_tokens"], # Avoid loading untrained decoder embedding
+            #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
             #"var_name_mapping": {"decoder.model.embed_tokens.weight": "decoder_embed_func.weight"},
         }
 
@@ -143,19 +142,19 @@ def search(
                 "prefix": "external_lm.",
                 "init_for_train": False,
                 "ignore_missing": True,
-                "ignore_params_prefixes": ["external_ctc.", "encoder", "mel_frontend", "external_lm.decoder.model.embed_tokens"],
-                "var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
+                "ignore_params_prefixes": ["external_ctc.", "encoder", "mel_frontend"], # , "external_lm.decoder.model.embed_tokens"
+                #"var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
                 #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
             }
 
-            qwen_load_lora_adapted_weights = PartialImport(
-                code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",
-                import_as="adapt_extern_decoder_embedding",
-                hashed_arguments={},
-                unhashed_arguments={},
-                unhashed_package_root=None,
-            )
-            python_prolog = [Collection([qwen_load_lora_adapted_weights])]
+            # qwen_load_lora_adapted_weights = PartialImport(
+            #     code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",
+            #     import_as="adapt_extern_decoder_embedding",
+            #     hashed_arguments={},
+            #     unhashed_arguments={},
+            #     unhashed_package_root=None,
+            # )
+            # python_prolog = [Collection([qwen_load_lora_adapted_weights])]
 
         if preloading:
             preloading_config = {
