@@ -423,7 +423,7 @@ def py():
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
-            # TODO somehow fix the prior...?
+            "labelwise_prior_dim": "lm_vocab",
             "max_seqs": 32,
         },
     )

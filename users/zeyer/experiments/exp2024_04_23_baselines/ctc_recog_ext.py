@@ -951,10 +951,20 @@ def ctc_model_ext_def(
 
     labelwise_prior = config.typed_value("labelwise_prior", None)
     if labelwise_prior:
+        labelwise_prior_dim = config.typed_value("labelwise_prior_dim", None)
+        if labelwise_prior_dim is None:
+            labelwise_prior_dim = target_dim
+        elif isinstance(labelwise_prior_dim, Dim):
+            pass
+        elif isinstance(labelwise_prior_dim, str) and labelwise_prior_dim == "lm_vocab":
+            labelwise_prior_dim = model.lm.vocab_dim
+        else:
+            raise ValueError(f"invalid labelwise_prior_dim {labelwise_prior_dim!r} {type(labelwise_prior_dim)}")
         assert isinstance(labelwise_prior, dict) and set(labelwise_prior.keys()) == {"type", "file", "scale"}
         v = numpy.loadtxt(labelwise_prior["file"])
-        assert v.shape == (target_dim.dimension,), (
-            f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r}, expected dim {target_dim}"
+        assert v.shape == (labelwise_prior_dim.dimension,), (
+            f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r},"
+            f" expected dim {labelwise_prior_dim}"
         )
         # The `type` is about what is stored in the file.
         # We always store it in log prob here, so we potentially need to convert it.
@@ -966,7 +976,7 @@ def ctc_model_ext_def(
             raise ValueError(f"invalid static_prior type {labelwise_prior['type']!r}")
         v *= labelwise_prior["scale"]  # can already apply now
         model.labelwise_prior = rf.Parameter(
-            rf.convert_to_tensor(v, dims=[target_dim], dtype=rf.get_default_float_dtype()),
+            rf.convert_to_tensor(v, dims=[labelwise_prior_dim], dtype=rf.get_default_float_dtype()),
             auxiliary=True,
             non_critical_for_restore=True,
         )

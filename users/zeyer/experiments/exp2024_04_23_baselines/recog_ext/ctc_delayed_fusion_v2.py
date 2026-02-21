@@ -451,6 +451,9 @@ def model_recog_with_recomb_delayed_fusion_v2(
 
     # noinspection PyUnresolvedReferences
     labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+    if labelwise_prior is not None:
+        assert len(labelwise_prior.dims) == 1
+        assert labelwise_prior.dims[0] in {model.target_dim, lm_target_dim}
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -585,11 +588,27 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 _generic_seq_label_print(new_lm_labels, new_lm_labels_spatial_dim, dims_no_iter=batch_dims)
 
             (
-                (new_lm_labels_, new_lm_labels_spatial_dim_, lm_state_, lm_seq_log_prob_, prev_lm_log_probs_),
+                (
+                    new_lm_labels_,
+                    new_lm_labels_spatial_dim_,
+                    lm_state_,
+                    lm_seq_log_prob_,
+                    prev_lm_log_probs_,
+                    prior_log_prob_,
+                ),
                 packed_new_label_dim,
                 packed_new_label_dim_map,
             ) = rf.nested.masked_select_nested(
-                (new_lm_labels, new_lm_labels_spatial_dim, lm_state, lm_seq_log_prob, lm_log_probs),
+                (
+                    new_lm_labels,
+                    new_lm_labels_spatial_dim,
+                    lm_state,
+                    lm_seq_log_prob,
+                    lm_log_probs,
+                    prior_log_prob
+                    if labelwise_prior is not None and delayed_prior and labelwise_prior.dims[0] == lm_target_dim
+                    else None,
+                ),
                 mask=should_fuse_now_dev,
                 mask_cpu=should_fuse_now,
                 dims=batch_dims + [beam_dim],
@@ -642,6 +661,21 @@ def model_recog_with_recomb_delayed_fusion_v2(
                 masked_select_dim_map=packed_new_label_dim_map,
             )  # Batch, Beam, Vocab / ...
 
+            if prior_log_prob_ is not None:
+                prior_log_prob_ += rf.reduce_sum(
+                    rf.gather(labelwise_prior, axis=lm_target_dim, indices=new_lm_labels_),
+                    axis=new_lm_labels_spatial_dim_,
+                )
+                prior_log_prob = rf.nested.masked_scatter_nested(
+                    prior_log_prob_,
+                    prior_log_prob,
+                    mask=should_fuse_now_dev,
+                    mask_cpu=should_fuse_now,
+                    dims=batch_dims + [beam_dim],
+                    in_dim=packed_new_label_dim,
+                    masked_select_dim_map=packed_new_label_dim_map,
+                )  # Batch, Beam, Vocab / ...
+
             lm_seq_num_consumed = rf.where(
                 should_fuse_now, lm_seq_label.hist_dim.get_size_tensor(), lm_seq_num_consumed
             )  # Batch, Beam -> int32
@@ -657,7 +691,7 @@ def model_recog_with_recomb_delayed_fusion_v2(
             )
             am_seq_num_consumed = new_am_seq_num_consumed
 
-            if labelwise_prior is not None and delayed_prior:
+            if labelwise_prior is not None and delayed_prior and labelwise_prior.dims[0] == model.target_dim:
                 prior_log_prob += rf.reduce_sum(
                     rf.gather(labelwise_prior, axis=model.target_dim, indices=new_am_labels),
                     axis=new_am_labels_spatial_dim,
