@@ -288,9 +288,10 @@ def conformer_ctc_noreturnn(
     keep_epochs = None,
     test_set: str = "voxpopuli",
     test_set_hdf: str = None,
-    vocab_name:str=None):
+    vocab_name:str=None,
+    separate_heads: bool = False):
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.configs.config_noreturnn import get_training_config, get_search_config, get_prior_config
-    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable import get_model_config
+
     from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model
 
@@ -326,7 +327,8 @@ def conformer_ctc_noreturnn(
                                         lexicon_path,
                                         split="test",
                                         lang_list=[lang],
-                                        partition_epoch=1), tk.Path(f"/work/asr3/jxu/hiwis/nikolov/multilang_0325/corpus/asr_{lang}.test.corpus.xml.gz")
+                                        partition_epoch=1,
+                                        separate_heads=separate_heads), tk.Path(f"/work/asr3/jxu/hiwis/nikolov/multilang_0325/corpus/asr_{lang}.test.corpus.xml.gz")
     elif test_set == "csfleurs":
         datasets = ["mms", "read", "xtts"]
         for dataset in datasets:
@@ -406,8 +408,18 @@ def conformer_ctc_noreturnn(
 
         return train_job, search_jobs
 
-    model_config = get_model_config(vocab_size_without_blank=vocab_size,network_args={})
-    recog_model_config = get_model_config(vocab_size_without_blank=vocab_size,network_args={})
+    if separate_heads:
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.ctc_separate_lid import get_model_config
+        model_config = get_model_config(vocab_size_without_blank=vocab_size,network_args={})
+        recog_model_config = get_model_config(vocab_size_without_blank=vocab_size,network_args={})
+        network_module = "ctc.conformer_new.ctc_separate_lid"
+        flashlight_decoder="ctc.decoder.flashlight_ctc_v1_onnx_v2_splithead"
+    else:
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable import get_model_config
+        model_config = get_model_config(vocab_size_without_blank=vocab_size,network_args={})
+        recog_model_config = get_model_config(vocab_size_without_blank=vocab_size,network_args={})
+        network_module = "ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable"
+        flashlight_decoder="ctc.decoder.flashlight_ctc_v1_onnx_v2"
 
 
     for peak_lr in learning_rates:
@@ -441,7 +453,7 @@ def conformer_ctc_noreturnn(
 
         train_args = {
             **copy.deepcopy(train_args_adamw03_accum2_jjlr),
-            "network_module": "ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable",
+            "network_module": network_module,
             "net_args": {"model_config_dict": asdict(model_config)},
         }
         train_args["config"]["batch_size"] = batch_size * 16000
@@ -449,7 +461,7 @@ def conformer_ctc_noreturnn(
 
         recog_args = {
             **copy.deepcopy(recog_args_adamw03_accum2_jjlr),
-            "network_module": "ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable",
+            "network_module": network_module,
             "net_args": {"model_config_dict": asdict(recog_model_config)},
         }
 
@@ -481,7 +493,7 @@ def conformer_ctc_noreturnn(
 
             train_job, search_job = run_exp(
             prefix_name + f"conformer_new/i6modelsV1_VGG4LayerActFrontendV1_v6/ctc/{vocab_name.split('.')[0] + ('_prefixed' if vocab_name.split('.')[-1] == 'prefixed' else '')}/{'_'.join(lang_list)}/{batch_size}_{vocab_size}_lr{peak_lr}",
-            datasets=train_data, train_args=train_args, search_args=search_args, recog_args=recog_args,lexicon_path=lexicon_path, with_prior=False, evaluate_epoch=eval_epoch, vocab_name=vocab_name, test_set_name=test_set, keep_epochs=keep_epochs)
+            datasets=train_data, train_args=train_args, search_args=search_args, recog_args=recog_args,lexicon_path=lexicon_path, with_prior=False, evaluate_epoch=eval_epoch,decoder=flashlight_decoder, vocab_name=vocab_name, test_set_name=test_set, keep_epochs=keep_epochs)
             
             train_job.rqmt["gpu_mem"] = gpu_mem
             tk.register_output(f"output/{vocab_name}/{'_'.join(lang_list)}/ctc/{batch_size}_{vocab_size}_lr{peak_lr}/learning_rates", train_job.out_learning_rates)
@@ -492,20 +504,23 @@ def conformer_ctc_noreturnn(
                 train=get_voxpopuli_data_per_lang("/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                                     lexicon_path,
                                     split="train",
-                                    partition_epoch=20),
+                                    partition_epoch=20,
+                                    separate_heads=separate_heads),
                 cv=get_voxpopuli_data_per_lang("/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                                     lexicon_path,
                                     split="dev",
-                                    partition_epoch=1),
+                                    partition_epoch=1,
+                                    separate_heads=separate_heads),
                 prior=get_voxpopuli_data_per_lang("/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                                     lexicon_path,
                                     split="train",
                                     lang_list=lang_list,
-                                    partition_epoch=1),
+                                    partition_epoch=1,
+                                    separate_heads=separate_heads),
     )
             train_job, search_job = run_exp(
-            prefix_name + f"conformer_new/i6modelsV1_VGG4LayerActFrontendV1_v6/ctc/{vocab_name.split('.')[0]}/{test_set}/{batch_size}_{vocab_size}_lr{peak_lr}",
-            datasets=train_data, train_args=train_args, search_args=search_args, recog_args=recog_args, lexicon_path=lexicon_path, with_prior=False, evaluate_epoch=eval_epoch, recog_mem=recog_mem, vocab_name=vocab_name, test_set_name=test_set, keep_epochs=keep_epochs)
+            prefix_name + f"conformer_new/{network_module.split('.')[-1]}/ctc/{vocab_name.split('.')[0]}/{test_set}/{batch_size}_{vocab_size}_lr{peak_lr}",
+            datasets=train_data, train_args=train_args, search_args=search_args, recog_args=recog_args, lexicon_path=lexicon_path, with_prior=False, evaluate_epoch=eval_epoch, recog_mem=recog_mem, decoder=flashlight_decoder, vocab_name=vocab_name, test_set_name=test_set, keep_epochs=keep_epochs)
             
             train_job.rqmt["gpu_mem"] = gpu_mem
             tk.register_output(f"output/ctc/{vocab_name}/{batch_size}_{vocab_size}_lr{peak_lr}/learning_rates", train_job.out_learning_rates)

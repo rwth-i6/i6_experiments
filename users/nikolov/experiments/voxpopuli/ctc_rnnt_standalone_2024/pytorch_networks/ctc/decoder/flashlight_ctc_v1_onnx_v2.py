@@ -78,8 +78,6 @@ def forward_init_hook(run_ctx, **kwargs):
     vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, vocab_as_list=False, unknown_label="UNK")
     #labels = [item[1] for item in vocab.labels]
     labels = vocab.labels
-    print(f"LEX: {config.lexicon}")
-
 
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
@@ -124,7 +122,7 @@ def forward_init_hook(run_ctx, **kwargs):
                 'data_len': {0: 'batch'},
                 'classes': {0: 'batch', 1: 'time'}, 
                 'classes_len': {0: 'batch'},
-                }
+                },
             )
     sess_options = ort.SessionOptions()
     sess_options.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 1))
@@ -179,7 +177,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
             None,
             {
                 'data': raw_audio_float,
-                'data_len': raw_audio_len.numpy().astype(np.int32)
+                'data_len': raw_audio_len.numpy().astype(np.int32),
             } )
 
     tags = data["seq_tag"]

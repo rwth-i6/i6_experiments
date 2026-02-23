@@ -3,10 +3,9 @@ from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
 vox_lang_list = ["cs", "de", "en", "es", "et", "fi", "fr", "hr", "hu", "it", "lt", "nl", "pl", "ro", "sk", "sl"]
 vox_audio_dir = "/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr"
 vox_target_dir = "/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr_lexicon_512"
-lid_dir = "/u/jxu/setups/voxpopuli/2026-01-14-multilingual-bpe-ctc/output/target_hdf/language_id"
 
 
-def get_voxpopuli_data_per_lang(audio_base_dir=vox_audio_dir, target_base_dir=vox_target_dir, split="train", lang_list=vox_lang_list, partition_epoch=1, separate_heads=False):
+def get_voxpopuli_data_per_lang(audio_base_dir=vox_audio_dir, target_base_dir=vox_target_dir, split="train", lang_list=vox_lang_list, partition_epoch=1):
     raw_audio_dataset_dict = {
         "class": "HDFDataset",
         "use_cache_manager": True,
@@ -19,21 +18,6 @@ def get_voxpopuli_data_per_lang(audio_base_dir=vox_audio_dir, target_base_dir=vo
         "use_cache_manager": True,
         "files": [target_base_dir + "/" + l + "/" + split + ".hdf" for l in lang_list],
     }
-    if separate_heads:
-        lid_dataset_dict = {
-            "class": "HDFDataset",
-            "use_cache_manager": True,
-            "files": [lid_dir + "/" + split + "/" + l + ".hdf" for l in lang_list],
-        }
-        return MetaDataset(data_map={"data": ("features", "data"), "language": ("language", "data"),"targets": ("targets", "data")},
-                       datasets={
-                           "features": raw_audio_dataset_dict,
-                           "language": lid_dataset_dict,
-                           "targets": target_dataset_dict,
-                       },
-                       seq_order_control_dataset="features",
-                       )
-        
 
     return MetaDataset(data_map={"data": ("features", "data"), "targets": ("targets", "data")},
                        datasets={

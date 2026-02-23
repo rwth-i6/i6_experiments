@@ -5,11 +5,10 @@ includes handling of prior computation
 """
 
 from dataclasses import dataclass
-import os
 import time
 import numpy as np
 from typing import Any, Dict, Optional
-
+from collections import Counter
 
 @dataclass
 class DecoderConfig:
@@ -47,11 +46,6 @@ class ExtraConfig:
     # Hypothesis logging
     print_hypothesis: bool = True
 
-def inference_both(input_data, feat_model, main_model):
-    features, features_len = feat_model.run(None, input_data)
-    final_output, final_output_len = main_model.run(None, {'features': features, 'features_len': features_len.astype(np.int64)})
-
-    return final_output, final_output_len
 
 def forward_init_hook(run_ctx, **kwargs):
     """
@@ -60,6 +54,8 @@ def forward_init_hook(run_ctx, **kwargs):
     :param kwargs:
     :return:
     """
+
+    import os
     import torch
     from torchaudio.models.decoder import ctc_decoder
 
@@ -67,6 +63,7 @@ def forward_init_hook(run_ctx, **kwargs):
     from returnn.util.basic import cf
 
     config = DecoderConfig(**kwargs["config"])
+    config.prior_scale = 0.2
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
 
@@ -78,24 +75,22 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         lm = None
 
-    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
+    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, vocab_as_list=False, unknown_label="UNK")
+    #labels = [item[1] for item in vocab.labels]
     labels = vocab.labels
 
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
-        lm=lm,
-        lm_weight=config.lm_weight,
         tokens=labels + ["[blank]"],
         blank_token="[blank]",
         sil_token="[blank]",
-        unk_word="[unknown]",
+        unk_word="UNK",
         nbest=1,
         beam_size=config.beam_size,
         beam_size_token=config.beam_size_token,
         beam_threshold=config.beam_threshold,
-        sil_score=config.sil_score,
-        word_score=config.word_score,
     )
+
     run_ctx.labels = labels
     run_ctx.blank_log_penalty = config.blank_log_penalty
 
@@ -105,67 +100,37 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         run_ctx.prior = None
 
-    import torch._C._onnx as _C_onnx
     import onnxruntime as ort
     from torch.onnx import export as onnx_export
-    from torch.export import export as new_export
     from torch import nn
     model = run_ctx.engine._model
+
+    dummy_data = torch.rand(3,16000, device='cpu')
+    dummy_lid = torch.ones((3,), dtype=torch.int32)
+    dummy_data_len = torch.ones((3,), dtype=torch.int32)*16000
     
-    class IdLayer(nn.Module):
-        def __init__(self):
-            super().__init__()
-
-        def forward(self, x, y):
-            return x,y
-
-    dummy_data = torch.rand(3,16000, device='cpu', dtype=torch.float32)
-    dummy_data_len = torch.ones((3,), dtype=torch.int64)*16000
-
-    model.eval()
-
+    print(f'Torch version: {torch.__version__}')
+    print(config.lexicon)
+    print(labels)
     onnx_export(
-            model.feature_extraction,
-            (dummy_data, dummy_data_len),
-            f='feature_extraction.onnx',
-            verbose=False,
-            input_names=['data','data_len'],
-            output_names=['features', 'features_len'],
-            opset_version=17,
+            model.eval(),
+            (dummy_data, dummy_data_len, dummy_lid),
+            f='model.onnx',
+            input_names=['data','data_len',  'language_id',],
+            output_names=['classes', 'classes_len'],
             dynamic_axes={
                 'data': {0: 'batch', 1: 'time'},
                 'data_len': {0: 'batch'},
-                'features': {0: 'batch', 1: 'time', 2: 'features'},
-                'features_len': {0: 'batch'},
-                }           
+                'language_id': {0: 'batch'},
+                'classes': {0: 'batch', 1: 'time'}, 
+                'classes_len': {0: 'batch'},
+                },
             )
-   
-    model.feature_extraction = IdLayer()
-    dummy_data = torch.rand(1, 96, 80, device='cpu', dtype=torch.float32)
-    dummy_data_len = torch.ones((1,), dtype=torch.int64)*96
-
-    onnx_export(
-            model,
-            (dummy_data, dummy_data_len),
-            f='model.onnx',
-            verbose=False,
-            input_names=['features', 'features_len'],
-            output_names=['classes'],
-            opset_version=17,
-            dynamic_axes={
-                'features': {0: 'batch', 1: 'time', 2: 'features'},
-                'features_len': {0: 'batch'},
-                'classes': {0: 'batch', 1: 'time'}
-                }           
-            )
-    
     sess_options = ort.SessionOptions()
-    sess_options.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
+    sess_options.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 1))
+    sess_options.inter_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 1))
 
-
-    run_ctx.onnx_fe_sess = ort.InferenceSession(
-            'feature_extraction.onnx', providers=['CPUExecutionProvider'], sess_options=sess_options)
-    run_ctx.onnx_model_sess = ort.InferenceSession(
+    run_ctx.onnx_sess = ort.InferenceSession(
             'model.onnx', providers=['CPUExecutionProvider'], sess_options=sess_options)
 
     run_ctx.print_rtf = extra_config.print_rtf
@@ -197,20 +162,30 @@ def forward_finish_hook(run_ctx, **kwargs):
 def forward_step(*, model, data, run_ctx, **kwargs):
     import torch
 
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
+    raw_audio = data["data"]  # [B, T', F]
+    raw_audio_len = data["data:size1"].to("cpu")  # [B], cpu transfer needed only for Mini-RETURNN
+    
+    language = data["language"].long().to("cpu")
+    language_id = language[:, 0]  # [B]
 
     if run_ctx.print_rtf:
         audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000
         run_ctx.running_audio_len_s += audio_len_batch
 
     am_start = time.time()
-    logprobs, audio_features_len = inference_both( 
+    raw_audio=np.squeeze(raw_audio.numpy())
+    raw_audio_float = raw_audio.astype(np.float32)
+    #print(raw_audio.astype(np.float32).shape)
+    if raw_audio_float.ndim == 1:
+        raw_audio_float = raw_audio_float.reshape(1, -1)
+    logprobs, audio_features_len = run_ctx.onnx_sess.run(
+            None,
             {
-                'data': np.squeeze(raw_audio.numpy()),
-                'data_len': raw_audio_len.numpy()
-            }
-    , run_ctx.onnx_fe_sess, run_ctx.onnx_model_sess)
+                'data': raw_audio_float,
+                'data_len': raw_audio_len.numpy().astype(np.int32),
+                'language_id': language_id.numpy().astype(np.int32),
+
+            } )
 
     tags = data["seq_tag"]
 
@@ -218,15 +193,34 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     audio_features_len = torch.from_numpy(audio_features_len).float().cpu()
     if run_ctx.blank_log_penalty is not None:
         # assumes blank is last
-        logprobs_cpu -= run_ctx.blank_log_penalty
+        logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
     if run_ctx.prior is not None:
         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
 
+    #np.set_printoptions(threshold=np.inf)
+    #print(len(logprobs_cpu))
+    #print(np.argmax(np.array(logprobs_cpu), axis=2))
+    #sprint(audio_features_len)
+    
+    #hpy = ""
+    #for char in np.argmax(logprobs_cpu, axis=1):
+     #   if hpy[-1] != char:
+     #       if char[-2:] == "@@":
+     #          char = char[:-2]
+    #        hyp = hyp + char
+    #print(char)
+    
     am_time = time.time() - am_start
     run_ctx.total_am_time += am_time
 
     search_start = time.time()
     hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len)
+ 
+    #from ..decoder.returnn_ctc_multilang import ctc_decoder as ctc_decoder_greedy
+    #print(audio_features_len)
+    #hypothesis_greedy = ctc_decoder_greedy(logprobs_cpu, audio_features_len, run_ctx.labels)
+    #print(hypothesis_greedy)
+
     search_time = time.time() - search_start
     run_ctx.total_search_time += search_time
 
@@ -234,10 +228,20 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         print("Batch-AM-Time: %.2fs, AM-RTF: %.3f" % (am_time, am_time / audio_len_batch))
         print("Batch-Search-Time: %.2fs, Search-RTF: %.3f" % (search_time, search_time / audio_len_batch))
         print("Batch-time: %.2f, Batch-RTF: %.3f" % (am_time + search_time, (am_time + search_time) / audio_len_batch))
-
+ 
     for hyp, tag in zip(hypothesis, tags):
         words = hyp[0].words
         sequence = " ".join([word for word in words if not word.startswith("[")])
+
+        #prefixes = [run_ctx.labels[idx][:2] for idx in hyp[0].tokens]
+        #recognition = [run_ctx.labels[idx][3:] for idx in hyp[0].tokens]
+            
+        #prefix_counts = Counter(prefixes)
+        #correct_prefix, _ = prefix_counts.most_common(1)[0]
+
+        #total_words = len(words)
+        #correct_count = prefix_counts[correct_prefix]
+        #percentage = (1 - ( correct_count / total_words)) * 100
         if run_ctx.print_hypothesis:
             print(sequence)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))
