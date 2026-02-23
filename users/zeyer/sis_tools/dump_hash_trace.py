@@ -68,7 +68,7 @@ def _setup():
 _setup()
 
 from sisyphus.loader import config_manager
-from sisyphus import gs, tk, Path, Job
+from sisyphus import gs, tk, Job
 from sisyphus.graph import SISGraph
 import sisyphus.hash
 import sisyphus.job_path
@@ -166,7 +166,7 @@ def main():
         target = sis_graph.targets_dict[args.target]
         print(f"Target: {args.target} -> {target.required_full_list}")
         (path,) = target.required_full_list  # assume only one output path
-        assert isinstance(path, Path)
+        assert isinstance(path, AbstractPath)
         assert not path.hash_overwrite
         start_obj = path
 
