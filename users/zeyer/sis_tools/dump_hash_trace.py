@@ -69,6 +69,7 @@ _setup()
 
 from sisyphus.loader import config_manager
 from sisyphus import gs, tk, Path, Job
+from sisyphus.graph import SISGraph
 import sisyphus.hash
 import sisyphus.job_path
 from sisyphus.job_path import AbstractPath
@@ -90,6 +91,7 @@ def main():
     arg_parser.add_argument("config_files", nargs="*")
     arg_parser.add_argument("--custom-sis-import-paths", nargs="*", help="if set, overwrite gs.IMPORT_PATHS by this")
     arg_parser.add_argument("--preload", nargs="*", help="if set, preload these Python files")
+    arg_parser.add_argument("--alias", help="Sisyphus job alias to use as target hash")
     arg_parser.add_argument("--target", help="Sisyphus target file from your Sisyphus graph")
     arg_parser.add_argument(
         "--output", help="output file, default: stdout. The idea is that you can do a diff on the file."
@@ -133,29 +135,55 @@ def main():
     load_time = time.time() - start
     logging.info("Config loaded (time needed: %.2f)" % load_time)
 
-    sis_graph = tk.sis_graph
-    if not args.target:
-        print("--target not specified, printing all targets:")
+    sis_graph: SISGraph = tk.sis_graph
+
+    assert not (args.target and args.alias), "Only one of --target or --alias can be specified."
+
+    if args.alias:
+        target_job = None
+        for job in sis_graph.jobs_sorted():
+            if job.get_aliases() and args.alias in job.get_aliases():
+                target_job = job
+                break
+        if not target_job:
+            print(f"Error: No job found with alias {args.alias}, valid aliases are:")
+            for job in sis_graph.jobs_sorted():
+                if job.get_aliases():
+                    print(f"Job: {job} -> aliases: {job.get_aliases()}")
+            print("Error, exiting.")
+            sys.exit(1)
+        print(f"Target alias: {args.alias} -> {target_job}")
+        start_obj = target_job
+
+    elif args.target:
+        if args.target not in sis_graph.targets_dict:
+            print(f"Error: Invalid target {args.target}, valid targets are:")
+            for name, target in sis_graph.targets_dict.items():
+                print(f"Target: {name} -> {target.required_full_list}")
+            print("Error, exiting.")
+            sys.exit(1)
+
+        target = sis_graph.targets_dict[args.target]
+        print(f"Target: {args.target} -> {target.required_full_list}")
+        (path,) = target.required_full_list  # assume only one output path
+        assert isinstance(path, Path)
+        assert not path.hash_overwrite
+        start_obj = path
+
+    else:
+        print("Either --target or --alias must be specified.")
+        print("All targets:")
         for name, target in sis_graph.targets_dict.items():
             print(f"Target: {name} -> {target.required_full_list}")
+        print("All aliases:")
+        for job in sis_graph.jobs_sorted():
+            if job.get_aliases():
+                print(f"Job: {job} -> aliases: {job.get_aliases()}")
         sys.exit(0)
-
-    if args.target not in sis_graph.targets_dict:
-        print(f"Error: Invalid target {args.target}, valid targets are:")
-        for name, target in sis_graph.targets_dict.items():
-            print(f"Target: {name} -> {target.required_full_list}")
-        print("Error, exiting.")
-        sys.exit(1)
-
-    target = sis_graph.targets_dict[args.target]
-    print(f"Target: {args.target} -> {target.required_full_list}")
-    (path,) = target.required_full_list  # assume only one output path
-    assert isinstance(path, Path)
-    assert not path.hash_overwrite
 
     _stack.append(_StackEntry(None, "", next_child_key=""))
     with _enable_patched_sis_hash_helper(True):
-        _patched_sis_hash_helper(path)
+        _patched_sis_hash_helper(start_obj)
     _stack.pop(-1)
     assert not _stack
 
