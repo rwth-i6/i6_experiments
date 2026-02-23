@@ -157,7 +157,7 @@ def sllm_ep(
                 training_name=forward_training_name,
                 train_job=train_job,
                 network_import_path=network_import_path_for_forward_step,
-                net_args=network_args,
+                net_args=copy.deepcopy(network_args),
                 search_config=search_config,
                 train_data=training_datasets,
                 dev_dataset_tuples=dev_dataset_tuples,

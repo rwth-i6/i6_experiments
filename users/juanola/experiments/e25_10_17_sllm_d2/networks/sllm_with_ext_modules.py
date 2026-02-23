@@ -2,9 +2,8 @@ __all__ = ["SllmV4"]
 
 from typing import Optional, Dict, Any, Tuple, Union
 
-from returnn_common.nn import Tensor
+from torch import Tensor
 from .conformer_qwen_v2 import SllmV2
-from .conformer_qwen_v3 import SllmV3
 from .qwen2_decoder_state import Qwen2DecoderState
 
 
@@ -73,9 +72,7 @@ class SllmV4(SllmV2):
             raise Exception("External CTC Module Not Initialized")
         return self.external_ctc.forward_encoder(raw_audio, raw_audio_lens, initial_beam_size)
 
-    def external_llm_step_decoder(
-        self, labels: Tensor, state: Qwen2DecoderState
-    ) -> Tuple[Tensor, Qwen2DecoderState]:
+    def external_llm_step_decoder(self, labels: Tensor, state: Qwen2DecoderState) -> Tuple[Tensor, Qwen2DecoderState]:
         """Standard protocol for LM branch"""
         if self.external_lm is None:
             raise Exception("External LM Module Not Initialized")

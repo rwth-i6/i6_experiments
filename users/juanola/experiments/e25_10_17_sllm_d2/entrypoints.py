@@ -333,7 +333,13 @@ def e3v13_2():
 
 
 def e3v14():
-    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC])  # , itc_training=True)
+    ex3.sllm_ep(
+        [ExperimentVersion.V14_SLLM_3CTC],
+        run_test=False,
+        run_best=False,# TODO:
+        run_best_4=False,# TODO:
+        run_only_dev_other=True,
+    )  # , itc_training=True)
 
 
 def e3_ft1():

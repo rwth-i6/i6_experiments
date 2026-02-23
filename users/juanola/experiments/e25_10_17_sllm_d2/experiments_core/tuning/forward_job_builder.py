@@ -134,6 +134,8 @@ def search(
                 "ignore_missing": True,
                 "ignore_params_prefixes": ["external_lm.", "decoder_embed_func", "decoder"]
             }
+        else:
+            assert "external_ctc_args" not in net_args, "Search is not using external ctc but net arguments are provided!"
 
         if search_config.ext_decoder is not None:
             net_args["external_lm_args"] = get_network_args(search_config.ext_decoder["network_config"], search_config.ext_decoder["label_config"])
@@ -146,6 +148,8 @@ def search(
                 #"var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
                 #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
             }
+        else:
+            assert "external_lm_args" not in net_args, "Seach is not using external lm but net arguments are provided!"
 
             # qwen_load_lora_adapted_weights = PartialImport(
             #     code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",
@@ -161,8 +165,6 @@ def search(
                 "preload_from_files": preloading,
             }
             extra_returnn_configs.append(ReturnnConfig(config=preloading_config, python_prolog=python_prolog))
-
-
 
     returnn_search_config = get_forward_config(
         network_import_path=asr_model.network_import_path,
