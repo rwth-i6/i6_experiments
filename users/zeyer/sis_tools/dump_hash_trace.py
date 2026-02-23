@@ -12,6 +12,7 @@ to detect recursive calls to sis_hash_helper.
 Dump always path, object_type -> hash, starting from target, where path == "/"
 then recursively for all dependencies, adding path as "/" + number + object_type or so when going down.
 Dump that to a file, then you can do a diff.
+(E.g. `code -d old-hash.txt new-hash.txt` for a nice diff in VSCode.)
 
 Some objects need some special handling, e.g. Job and Path,
 as they use cached values (e.g. the job sis_id),
