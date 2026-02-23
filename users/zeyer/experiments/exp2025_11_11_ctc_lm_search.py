@@ -55,38 +55,48 @@ def py():
 
     from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
+    from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
 
     vocab_obj = get_loquacious_vocab_by_str(vocab)
     sampling_vocab_obj = vocab_obj.copy(other_opts={"class": "SamplingBytePairEncoding", "breadth_prob": 0.01})
 
     transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(vocab=vocab)
-    log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
-    tk.register_output(f"{prefix}/asr/{vocab}/log_prior.txt", log_lm_vocab_log_prior)
-    log_lm_vocab_log_prior_smooth = PriorLabelSmoothingJob(
-        prior_file=log_lm_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    log_prior_file = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior.txt", log_prior_file)
+    log_prior_smooth_file = PriorLabelSmoothingJob(
+        prior_file=log_prior_file, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
     ).out_prior
-    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_smooth.txt", log_lm_vocab_log_prior_smooth)
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_smooth.txt", log_prior_smooth_file)
 
     transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(vocab=sampling_vocab_obj)
-    log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
-    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_sampled.txt", log_lm_vocab_log_prior)
-    log_lm_vocab_log_prior_smooth = PriorLabelSmoothingJob(
-        prior_file=log_lm_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    log_prior_sampled_file = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_sampled.txt", log_prior_sampled_file)
+    log_prior_sampled_smooth_file = PriorLabelSmoothingJob(
+        prior_file=log_prior_sampled_file, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
     ).out_prior
-    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_sampled_smooth.txt", log_lm_vocab_log_prior_smooth)
+    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_sampled_smooth.txt", log_prior_sampled_smooth_file)
+    vocab_file = get_vocab_file_from_task(task)
+
+    asr_priors = {
+        "softmax": None,  # default
+        "count": Prior(file=log_prior_file, type="log_prob", vocab=vocab_file),
+        "count_smooth": Prior(file=log_prior_smooth_file, type="log_prob", vocab=vocab_file),
+        "count_sampled": Prior(file=log_prior_sampled_file, type="log_prob", vocab=vocab_file),
+        "count_sampled_smooth": Prior(file=log_prior_sampled_smooth_file, type="log_prob", vocab=vocab_file),
+    }
 
     # for testing
-    transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
-        vocab=vocab, take_random_sorted_subset=5000, take_random_sorted_subset_version=2
-    )
-    log_lm_vocab_log_prior_small = compute_label_prior_log_probs(
-        transcriptions_dataset_small, forward_rqmt={"mem": 12, "time": 24}
-    )
-    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_small.txt", log_lm_vocab_log_prior_small)
-    log_lm_vocab_log_prior_small = PriorLabelSmoothingJob(
-        prior_file=log_lm_vocab_log_prior_small, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
-    ).out_prior
-    tk.register_output(f"{prefix}/asr/{vocab}/log_prior_small_smooth.txt", log_lm_vocab_log_prior_small)
+    # transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
+    #     vocab=vocab, take_random_sorted_subset=5000, take_random_sorted_subset_version=2
+    # )
+    # log_lm_vocab_log_prior_small = compute_label_prior_log_probs(
+    #     transcriptions_dataset_small, forward_rqmt={"mem": 12, "time": 24}
+    # )
+    # tk.register_output(f"{prefix}/asr/{vocab}/log_prior_small.txt", log_lm_vocab_log_prior_small)
+    # log_lm_vocab_log_prior_small = PriorLabelSmoothingJob(
+    #     prior_file=log_lm_vocab_log_prior_small, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    # ).out_prior
+    # tk.register_output(f"{prefix}/asr/{vocab}/log_prior_small_smooth.txt", log_lm_vocab_log_prior_small)
 
     # ASR baseline.
     # CTC-only:
@@ -134,6 +144,19 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
     )
+
+    # Test over different priors:
+    for prior_name, prior in asr_priors.items():
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm-v3/prior_{prior_name}/{lm_name}",
+            task=task,
+            ctc_model=am,
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            lm=lm,
+            labelwise_prior=prior,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+            recog_def=model_recog_with_recomb_v2,
+        )
 
     from .exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion import model_recog_with_recomb_delayed_fusion
 
