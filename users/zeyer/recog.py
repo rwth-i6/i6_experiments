@@ -164,7 +164,7 @@ def recog_model(
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     search_mem_rqmt: Union[int, float] = 12,
     search_rqmt: Optional[Dict[str, Any]] = None,
-    dev_sets: Optional[Collection[str]] = None,
+    dev_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
     """
@@ -197,12 +197,17 @@ def recog_model(
         then collected via ``task.collect_score_results_func``.
     """
     if dev_sets is not None:
-        assert all(k in task.eval_datasets for k in dev_sets)
+        assert dev_sets
+        if isinstance(dev_sets, dict):
+            pass
+        else:
+            assert all(k in task.eval_datasets for k in dev_sets)
+            dev_sets = {k: task.eval_datasets[k] for k in dev_sets}
+    else:
+        dev_sets = task.eval_datasets
     outputs = {}
-    for dataset_name, dataset in task.eval_datasets.items():
-        if dev_sets is not None:
-            if dataset_name not in dev_sets:
-                continue
+    for dataset_name, dataset in dev_sets.items():
+        assert isinstance(dataset_name, str) and isinstance(dataset, DatasetConfig)
         recog_out = search_dataset(
             dataset=dataset,
             model=model,
