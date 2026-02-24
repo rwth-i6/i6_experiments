@@ -57,7 +57,28 @@ class HuggingFaceDataset(DatasetConfig):
         self.take_random_sorted_subset_version = take_random_sorted_subset_version
         self.sorting_seq_len_column = sorting_seq_len_column
 
-    def as_returnn_opts(self) -> Dict[str, Any]:
+    def get_default_input(self) -> Optional[str]:
+        """
+        See `Dataset` definition
+        """
+        return "audio"
+
+    def get_default_target(self) -> Optional[str]:
+        """
+        See `Dataset` definition
+        """
+        return "text"
+
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        See `Dataset` definition
+        """
+        return {
+            "audio": {"dtype": "float32", "shape": [None]},
+            "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": self.vocab.get_opts()},
+        }
+
+    def get_main_dataset(self) -> Dict[str, Any]:
         """
         See `Dataset` definition
         """
@@ -97,12 +118,7 @@ class HuggingFaceDataset(DatasetConfig):
             # Keep data_format consistent to extern_data_dict.
             "data_format": {
                 "audio": {"dtype": "float32", "shape": [None]},
-                "text": {
-                    "dtype": "int32",
-                    "shape": [None],
-                    "sparse": True,
-                    "vocab": self.vocab.get_opts(),
-                },
+                "text": {"dtype": "int32", "shape": [None], "sparse": True, "vocab": self.vocab.get_opts()},
             },
             "seq_ordering": self.seq_ordering,
         }
