@@ -164,6 +164,7 @@ def recog_model(
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     search_mem_rqmt: Union[int, float] = 12,
     search_rqmt: Optional[Dict[str, Any]] = None,
+    eval_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
     dev_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
@@ -189,7 +190,8 @@ def recog_model(
         and ``raw_res_labels`` (e.g. BPE labels).
     :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
     :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
-    :param dev_sets: which datasets to evaluate on. None means all defined by ``task``
+    :param eval_sets: which datasets to evaluate on. None means all defined by ``task``
+    :param dev_sets: compat, old arg name for eval_sets
     :param name: defines ``search_alias_name`` for the search job
     :return: scores over all datasets (defined by ``task``) using the main measure (defined by the ``task``),
         specifically what comes out of :func:`search_dataset`,
@@ -197,16 +199,19 @@ def recog_model(
         then collected via ``task.collect_score_results_func``.
     """
     if dev_sets is not None:
-        assert dev_sets
-        if isinstance(dev_sets, dict):
+        assert eval_sets is None, "cannot specify both eval_sets and dev_sets"
+        eval_sets = dev_sets
+    if eval_sets is not None:
+        assert eval_sets
+        if isinstance(eval_sets, dict):
             pass
         else:
-            assert all(k in task.eval_datasets for k in dev_sets)
-            dev_sets = {k: task.eval_datasets[k] for k in dev_sets}
+            assert all(k in task.eval_datasets for k in eval_sets)
+            eval_sets = {k: task.eval_datasets[k] for k in eval_sets}
     else:
-        dev_sets = task.eval_datasets
+        eval_sets = task.eval_datasets
     outputs = {}
-    for dataset_name, dataset in dev_sets.items():
+    for dataset_name, dataset in eval_sets.items():
         assert isinstance(dataset_name, str) and isinstance(dataset, DatasetConfig)
         recog_out = search_dataset(
             dataset=dataset,
