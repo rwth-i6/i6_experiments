@@ -33,6 +33,8 @@ from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_text_only_dataset_for_forward,
 )
 
+from i6_experiments.users.zeyer.datasets.hf_open_asr_leaderboard import get_asr_leaderboard_test_datasets
+
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import (
@@ -143,6 +145,17 @@ def py():
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
+    )
+    # Also on OpenASRLeaderboard test sets.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}/openasrleaderboard",
+        task=task,
+        ctc_model=am,
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb_v2,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
     )
 
     # Test over different priors:
