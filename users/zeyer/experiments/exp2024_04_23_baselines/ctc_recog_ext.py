@@ -1705,15 +1705,16 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
                 "ctc_soft_collapse_reduce_type": "max_renorm",
             }
         )
+    ctc_only_config = {**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size}
+
+    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    res = recog_model(task=task, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config)
+    tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
 
     # see recog_model, lm_labelwise_prior_rescore
     dataset = task.dev_dataset
     asr_scores = search_dataset(
-        dataset=dataset,
-        model=ctc_model,
-        recog_def=ctc_only_recog_def,
-        config={**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size},
-        keep_beam=True,
+        dataset=dataset, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config, keep_beam=True
     )
     prior_scores = (
         prior_score(asr_scores, prior=labelwise_prior, custom_vocab_convert_labels=prior_custom_vocab_convert_labels)
@@ -1769,7 +1770,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         task=task,
         model=ctc_model,
         recog_def=ctc_only_recog_def,
-        config={**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size},
+        config=ctc_only_config,
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 lm_labelwise_prior_rescore,
