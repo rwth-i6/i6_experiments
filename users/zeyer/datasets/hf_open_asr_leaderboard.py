@@ -159,7 +159,7 @@ def get_asr_leaderboard_hf_data_dir(name: str) -> tk.Path:
     return job.out_dir
 
 
-def build_peoples_speech_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
+def get_peoples_speech_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
     hf_data_dir_peoples_speech = get_peoples_speech_hf_data_dir()
     eval_datasets = {
         "ps_validation": HuggingFaceDataset(
@@ -169,7 +169,7 @@ def build_peoples_speech_test_datasets(*, vocab: VocabConfig) -> Dict[str, Huggi
     return eval_datasets
 
 
-def build_asr_leaderboard_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
+def get_asr_leaderboard_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
     eval_datasets = {}
 
     for name, splits in _names_and_splits:
