@@ -127,7 +127,7 @@ def _map_opts(ds: datasets.DatasetDict) -> Dict[str, Any]:
 
 
 @cache
-def get_people_speech_hf_ogg(quality: int = 3) -> tk.Path:
+def get_people_speech_hf_data_dir() -> tk.Path:
     """
     Get the PeoplesSpeech HF dataset as OGG files, with the specified subset (name) and (Ogg) quality.
     """
@@ -140,13 +140,13 @@ def get_people_speech_hf_ogg(quality: int = 3) -> tk.Path:
         # map_opts=_map_opts,
     )
     job.rqmt.update({"cpu": 16, "time": 2, "mem": 48})
-    job.add_alias(f"{__alias_prefix}dataset_hf_{name}_q{quality}_ogg")
-    tk.register_output(f"{__alias_prefix}dataset_hf_{name}_q{quality}_ogg", job.out_dir)
+    job.add_alias(f"{__alias_prefix}dataset_hf_{name}")
+    tk.register_output(f"{__alias_prefix}dataset_hf_{name}", job.out_dir)
     return job.out_dir
 
 
 @cache
-def get_asr_leaderboard_hf(name: str) -> tk.Path:
+def get_asr_leaderboard_hf_data_dir(name: str) -> tk.Path:
     """
     Get the ASR leaderboard HF datasets, with the specified subset (name).
     """
@@ -162,25 +162,19 @@ def get_asr_leaderboard_hf(name: str) -> tk.Path:
     return job.out_dir
 
 
-def build_ps_test_datasets(
-    *,
-    vocab: VocabConfig,
-) -> Dict[str, HuggingFaceDataset]:
-    hf_data_dir_peoples_speech = get_people_speech_hf_ogg()
+def build_people_speech_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
+    hf_data_dir_peoples_speech = get_people_speech_hf_data_dir()
     eval_datasets = {
         "ps_validation": HuggingFaceDataset(hf_data_dir=hf_data_dir_peoples_speech, split="validation", vocab=vocab),
     }
     return eval_datasets
 
 
-def build_asr_leaderboard_test_datasets(
-    *,
-    vocab: VocabConfig,
-) -> Dict[str, HuggingFaceDataset]:
+def build_asr_leaderboard_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
     eval_datasets = {}
 
     for name, splits in _names_and_splits:
-        hf_data_dir = get_asr_leaderboard_hf(name)
+        hf_data_dir = get_asr_leaderboard_hf_data_dir(name)
         for split in splits:
             eval_datasets[f"{name}.{split}"] = HuggingFaceDataset(
                 hf_data_dir=hf_data_dir,
