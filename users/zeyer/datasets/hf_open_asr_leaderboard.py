@@ -8,8 +8,6 @@ import functools
 from typing import Any, Dict, Optional
 from functools import cache
 
-import datasets
-
 from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob
 
 from returnn_common.datasets_old_2022_10.interface import VocabConfig, DatasetConfig
@@ -39,6 +37,7 @@ class HuggingFaceDataset(DatasetConfig):
         self,
         *,
         hf_data_dir: tk.Path,
+        name: str,
         split: str,
         vocab: VocabConfig,
         seq_ordering: str = "sorted_reverse",
@@ -47,12 +46,19 @@ class HuggingFaceDataset(DatasetConfig):
         sorting_seq_len_column: str = "duration_ms",
     ):
         self.hf_data_dir = hf_data_dir
+        self.name = name
         self.split = split
         self.vocab = vocab
         self.seq_ordering = seq_ordering
         self.take_first_shard_subset = take_first_shard_subset
         self.take_random_sorted_subset = take_random_sorted_subset
         self.sorting_seq_len_column = sorting_seq_len_column
+
+    def get_main_name(self) -> str:
+        """
+        See `Dataset` definition
+        """
+        return f"{self.name}.{self.split}"
 
     def get_default_input(self) -> Optional[str]:
         """
@@ -121,35 +127,18 @@ class HuggingFaceDataset(DatasetConfig):
         return d
 
 
-# --------------------------- Helper functions  -----------------------------------
-
-
-def _map_opts(ds: datasets.DatasetDict) -> Dict[str, Any]:
-    from datasets import Audio
-
-    features = ds["validation"].features.copy()
-    audio_feat = features["audio"]
-    assert isinstance(audio_feat, Audio)
-    audio_feat.decode = True
-    return {"features": features}
-
-
 # --------------------------- Dataset functions  -----------------------------------
 
 
 @cache
-def get_people_speech_hf_data_dir() -> tk.Path:
+def get_peoples_speech_hf_data_dir() -> tk.Path:
     """
     Get the PeoplesSpeech HF dataset as OGG files, with the specified subset (name) and (Ogg) quality.
     """
 
     __alias_prefix = f"{_alias_prefix}/PeoplesSpeech"
     name = "validation"
-    job = TransformAndMapHuggingFaceDatasetJob(
-        "MLCommons/peoples_speech",
-        name,
-        # map_opts=_map_opts,
-    )
+    job = TransformAndMapHuggingFaceDatasetJob("MLCommons/peoples_speech", name)
     job.rqmt.update({"cpu": 16, "time": 2, "mem": 48})
     job.add_alias(f"{__alias_prefix}dataset_hf_{name}")
     tk.register_output(f"{__alias_prefix}dataset_hf_{name}", job.out_dir)
@@ -163,20 +152,19 @@ def get_asr_leaderboard_hf_data_dir(name: str) -> tk.Path:
     """
 
     __alias_prefix = f"{_alias_prefix}/esb-datasets-test-only"
-    job = TransformAndMapHuggingFaceDatasetJob(
-        "hf-audio/esb-datasets-test-only-sorted",
-        name,
-    )
+    job = TransformAndMapHuggingFaceDatasetJob("hf-audio/esb-datasets-test-only-sorted", name)
     job.rqmt.update({"cpu": 16, "time": 2, "mem": 48})
     job.add_alias(f"{__alias_prefix}_dataset_hf_{name}")
     tk.register_output(f"{__alias_prefix}_dataset_hf_{name}", job.out_dir)
     return job.out_dir
 
 
-def build_people_speech_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
-    hf_data_dir_peoples_speech = get_people_speech_hf_data_dir()
+def build_peoples_speech_test_datasets(*, vocab: VocabConfig) -> Dict[str, HuggingFaceDataset]:
+    hf_data_dir_peoples_speech = get_peoples_speech_hf_data_dir()
     eval_datasets = {
-        "ps_validation": HuggingFaceDataset(hf_data_dir=hf_data_dir_peoples_speech, split="validation", vocab=vocab),
+        "ps_validation": HuggingFaceDataset(
+            hf_data_dir=hf_data_dir_peoples_speech, name="peoples_speech", split="validation", vocab=vocab
+        ),
     }
     return eval_datasets
 
@@ -189,6 +177,7 @@ def build_asr_leaderboard_test_datasets(*, vocab: VocabConfig) -> Dict[str, Hugg
         for split in splits:
             eval_datasets[f"{name}.{split}"] = HuggingFaceDataset(
                 hf_data_dir=hf_data_dir,
+                name=name,
                 split=split,
                 vocab=vocab,
                 sorting_seq_len_column="audio_length_s",
