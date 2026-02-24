@@ -15,7 +15,6 @@ from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob
 from returnn_common.datasets_old_2022_10.interface import VocabConfig, DatasetConfig
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
-    get_hf_random_sorted_subset,
     get_hf_random_sorted_subset_v2,
     get_hf_dataset_custom_split,
     _hf_dataset_dir_take_first_shard,
@@ -45,7 +44,6 @@ class HuggingFaceDataset(DatasetConfig):
         seq_ordering: str = "sorted_reverse",
         take_first_shard_subset: bool = False,
         take_random_sorted_subset: Optional[int] = None,
-        take_random_sorted_subset_version: int = 1,
         sorting_seq_len_column: str = "duration_ms",
     ):
         self.hf_data_dir = hf_data_dir
@@ -54,7 +52,6 @@ class HuggingFaceDataset(DatasetConfig):
         self.seq_ordering = seq_ordering
         self.take_first_shard_subset = take_first_shard_subset
         self.take_random_sorted_subset = take_random_sorted_subset
-        self.take_random_sorted_subset_version = take_random_sorted_subset_version
         self.sorting_seq_len_column = sorting_seq_len_column
 
     def get_default_input(self) -> Optional[str]:
@@ -84,11 +81,9 @@ class HuggingFaceDataset(DatasetConfig):
         """
         if self.take_random_sorted_subset:
             assert not self.take_first_shard_subset
-            hf_ds_opts = {1: get_hf_random_sorted_subset, 2: get_hf_random_sorted_subset_v2}[
-                self.take_random_sorted_subset_version
-            ](path=self.hf_data_dir, split=self.split, take_n=self.take_random_sorted_subset)
-            if self.seq_ordering == "sorted_reverse":
-                seq_ordering = "default"
+            hf_ds_opts = get_hf_random_sorted_subset_v2(
+                path=self.hf_data_dir, split=self.split, take_n=self.take_random_sorted_subset
+            )
         else:
             if self.split in ("validation", "test", "test.clean", "test.other"):
                 hf_ds_opts = self.hf_data_dir.join_right(self.split)
