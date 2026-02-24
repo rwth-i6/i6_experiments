@@ -172,6 +172,9 @@ def py():
         # {"dev": 6.14, "dev_voxpopuli": 6.59, "dev_commonvoice": 8.4, "dev_librispeech": 3.79, "dev_yodas": 11.74,
         #  "test": 6.95, "test_voxpopuli": 6.61, "test_commonvoice": 10.45, "test_librispeech": 4.05, "test_yodas": 11.88}
         # {"am": 1.0, "lm": 0.4220719875000001, "prior": -0.25690466699156256}
+        # You could maybe say that count_sampled_smooth is very slightly better than the others,
+        # looking e.g. at dev_yodas.
+        # However, looking at the optimal scales, it seems exactly the opposite? This is a bit unclear.
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-v3/prior_{prior_name}/{lm_name}",
             task=task,
