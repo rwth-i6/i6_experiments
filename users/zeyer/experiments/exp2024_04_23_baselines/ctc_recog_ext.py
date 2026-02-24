@@ -5,7 +5,7 @@ CTC recognition with LM
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import Optional, Union, Any, Tuple, Dict, Callable
+from typing import Optional, Union, Any, Collection, Tuple, Dict, Callable
 import functools
 import numpy as np
 
@@ -1626,6 +1626,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     recog_def: Optional[RecogDef[Model]] = None,
     ctc_only_recog_version: Optional[int] = None,
     ctc_only_recog_def: Optional[RecogDef[Model]] = None,
+    eval_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
@@ -1634,11 +1635,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog_with_recomb``) with those scales.
     """
-    from i6_experiments.users.zeyer.decoding.lm_rescoring import (
-        lm_labelwise_prior_rescore,
-        prior_score,
-        lm_score,
-    )
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_labelwise_prior_rescore, prior_score, lm_score
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from .ctc import _ctc_model_def_blank_idx
 
@@ -1708,7 +1705,9 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     ctc_only_config = {**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size}
 
     # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
-    res = recog_model(task=task, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config)
+    res = recog_model(
+        task=task, eval_sets=eval_sets, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config
+    )
     tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
 
     # see recog_model, lm_labelwise_prior_rescore
@@ -1768,6 +1767,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
     res = recog_model(
         task=task,
+        eval_sets=eval_sets,
         model=ctc_model,
         recog_def=ctc_only_recog_def,
         config=ctc_only_config,
@@ -1802,6 +1802,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     first_pass_search_rqmt.setdefault("mem", 50)
     res = recog_model(
         task=task,
+        eval_sets=eval_sets,
         model=model,
         recog_def=recog_def,
         config={
