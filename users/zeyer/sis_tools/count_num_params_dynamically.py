@@ -74,7 +74,7 @@ def main():
     load_time = time.time() - start
     logging.info("Config loaded (time needed: %.2f)" % load_time)
 
-    for job in tk.sis_graph.jobs():
+    for job in tk.sis_graph.jobs(update_graph=False):
         if not isinstance(job, ReturnnTrainingJob):
             continue
         if not job.get_aliases():

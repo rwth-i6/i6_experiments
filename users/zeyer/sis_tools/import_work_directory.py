@@ -94,8 +94,8 @@ def main():
     # run once before to unsure inputs are updated at least once
     sis_graph.for_all_nodes(import_directory, bottom_up=True)
     # run until no new jobs are added. This could be solved more efficient, but this is works...
-    while number_of_jobs != len(sis_graph.jobs()):
-        number_of_jobs = len(sis_graph.jobs())
+    while number_of_jobs != len(sis_graph.jobs(update_graph=False)):
+        number_of_jobs = len(sis_graph.jobs(update_graph=False))
         sis_graph.for_all_nodes(import_directory, bottom_up=True)
 
     if args.no_dry_run:

@@ -102,7 +102,7 @@ def main():
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths_dict = {}  # job path -> job object
     active_train_job_finished_list = []  # list of job objects
-    for job in graph.graph.jobs():
+    for job in graph.graph.jobs(update_graph=False):
         job: ReturnnTrainingJob
         # noinspection PyProtectedMember
         job_path: str = job._sis_path()

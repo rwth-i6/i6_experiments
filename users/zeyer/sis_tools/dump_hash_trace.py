@@ -141,13 +141,13 @@ def main():
 
     if args.alias:
         target_job = None
-        for job in sis_graph.jobs_sorted():
+        for job in sis_graph.jobs_sorted(update_graph=False):
             if job.get_aliases() and args.alias in job.get_aliases():
                 target_job = job
                 break
         if not target_job:
             print(f"Error: No job found with alias {args.alias}, valid aliases are:")
-            for job in sis_graph.jobs_sorted():
+            for job in sis_graph.jobs_sorted(update_graph=False):
                 if job.get_aliases():
                     print(f"Job: {job} -> aliases: {job.get_aliases()}")
             print("Error, exiting.")
@@ -176,7 +176,7 @@ def main():
         for name, target in sis_graph.targets_dict.items():
             print(f"Target: {name} -> {target.required_full_list}")
         print("All aliases:")
-        for job in sis_graph.jobs_sorted():
+        for job in sis_graph.jobs_sorted(update_graph=False):
             if job.get_aliases():
                 print(f"Job: {job} -> aliases: {job.get_aliases()}")
         sys.exit(0)
