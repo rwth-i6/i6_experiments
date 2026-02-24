@@ -119,10 +119,10 @@ def e3v6():
 def e3v7_ctc():
     ex3.sllm_ep(
         [ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
-        run_test=False,
-        run_best=False,
-        run_best_4=False,
-        run_only_dev_other=True,
+        run_test=False, # TODO: for now
+        run_best=False, # TODO: for now
+        run_best_4=False, # TODO: for now
+        run_only_dev_other=True, # TODO: for now
     )  # , itc_training=True)
 
 
@@ -285,7 +285,12 @@ def e3_pre7():
 
 
 def e3_pre8():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C],
+    run_test=False, # TODO: for now
+    run_best=False, # TODO: for now
+    run_best_4=False, # TODO: for now
+    run_only_dev_other=True, # TODO: for now
+    )  # , itc_training=True)
 
 
 def e3_pre7_f2():
@@ -335,10 +340,10 @@ def e3v13_2():
 def e3v14():
     ex3.sllm_ep(
         [ExperimentVersion.V14_SLLM_3CTC],
-        run_test=False,
-        run_best=False,# TODO:
-        run_best_4=False,# TODO:
-        run_only_dev_other=True,
+        run_test=False, # TODO: for now
+        run_best=False, # TODO: for now
+        run_best_4=False, # TODO: for now
+        run_only_dev_other=True, # TODO: for now
     )  # , itc_training=True)
 
 
@@ -354,11 +359,16 @@ def e3_ft2():
 
 
 def e3v7_s2():
-    ex3.sllm_ep([ExperimentVersion.V7_S2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_S2])#, itc_training=True)
 
+def e3v7_s2v2():
+    ex3.sllm_ep([ExperimentVersion.V7_S2V2], itc_training=True)
 
 def e3v5_s2():
-    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2])#, itc_training=True)
+
+def e3v5_s2v2():
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2V2], itc_training=True)
 
 
 def e3v10_3_s2():
@@ -388,7 +398,7 @@ def e3_ft4():
 
 
 def e3_pre11():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_FE], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_FE])#, itc_training=True)
 
 
 def e3_pre12():

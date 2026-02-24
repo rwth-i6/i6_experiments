@@ -76,5 +76,5 @@ class SllmV4(SllmV2):
         """Standard protocol for LM branch"""
         if self.external_lm is None:
             raise Exception("External LM Module Not Initialized")
-        return self.external_lm.step_decoder(labels, state)
+        return self.external_lm.lm_step_decoder(labels, state)
 

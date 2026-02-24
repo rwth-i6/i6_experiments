@@ -71,6 +71,49 @@ class SllmV2(Model):
 
         return qwen_output.logits.view(B, beam, 1, -1), new_state
 
+    def lm_step_decoder(self, labels: Tensor, state: Qwen2DecoderState) -> Tuple[Tensor, Qwen2DecoderState]:
+        """
+        Perform a decoder step (for inference) -> only one new label prediction
+        :type labels: Tensor - Previous generated labels
+        :param labels: [Batch, Beam, Time=1]
+        :param state: Decoder state
+        :returns: decoder output [Batch, Beam, Time=1, L]
+        """
+        qwen_input_embeds = self.decoder_embed_func(labels)
+        # print("****qwen_input_embeds size", qwen_input_embeds.size())
+        B, beam, T, F = qwen_input_embeds.shape  # noqa
+
+        past_key_values = state["past_key_values"]
+        if past_key_values is not None:
+            assert tree.is_nested(past_key_values)  # e.g., transformers.cache_utils.DynamicCache, isn't supported by tree.
+            past_key_values = tree.map_structure(
+                partial(combine_batch_and_beam_v2, batch_size=B, beam_size=beam),
+                past_key_values,
+            )  # [B*b,T+l,F]
+
+        # Decoder Forward pass
+        qwen_output: CausalLMOutputWithPast = self.decoder.forward(
+            inputs_embeds=qwen_input_embeds.view(B * beam, T, F),
+            past_key_values=DynamicCache.from_legacy_cache(past_key_values),
+            logits_to_keep=1,  # Only 1 step!
+            use_cache=True,
+        )
+
+        # Update and return new state
+        past_key_values = qwen_output.past_key_values
+        if not tree.is_nested(past_key_values):
+            # e.g., transformers.cache_utils.DynamicCache, aren't supported by tree.
+            past_key_values = past_key_values.to_legacy_cache()
+        past_key_values = tree.map_structure(
+            partial(separate_batch_and_beam, batch_size=B, beam_size=beam), past_key_values
+        )
+        new_state = {
+            "input_embeds": None,
+            "past_key_values": past_key_values,  # [B,b,T+l,F]
+        }
+
+        return qwen_output.logits.view(B, beam, 1, -1), new_state
+
 def combine_batch_and_beam_v2(state, *, batch_size: int, beam_size: int):
     if not isinstance(state, Tensor):
         return state

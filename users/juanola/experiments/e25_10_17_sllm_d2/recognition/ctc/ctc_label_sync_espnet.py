@@ -477,7 +477,27 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
 
     # TODO: wrap in conditionals
     lm_state_raw = decoder_state
-    ext_lm_state = model.get_empty_qwen_input_embeds(decoder_state["input_embeds"], initial_beam_size=1) # TODO: CHECK
+    ext_lm_state = { #Qwen2DecoderState
+        "input_embeds": None,
+        "past_key_values": None,
+    }
+
+    # TODO: REMOVE DEBUG LATER
+    # print("checking parameters of SLLM")
+    # sllm_param = next(model.parameters())  # or however you access it
+    # print(f"ExtLM first param mean: {sllm_param.mean().item():.6f}, std: {sllm_param.std().item():.6f}")
+    # print(f"ExtLM first param norm: {sllm_param.norm().item():.4f}")
+    # print("checking parameters of EXT LM")
+    # param = next(model.external_lm.parameters())  # or however you access it
+    # print(f"ExtLM first param mean: {param.mean().item():.6f}, std: {param.std().item():.6f}")
+    # print(f"ExtLM first param norm: {param.norm().item():.4f}")
+    #
+    # #for name, param in model.external_lm.named_parameters():
+    # #    print(f"{name:60s} | norm: {param.norm().item():.4f} | mean: {param.mean().item():.6f} | std: {param.std().item():.6f}")
+    #
+    # print(f"ExtLM decoder_embed_func norm: {model.external_lm.decoder_embed_func.weight.norm().item():.4f}")
+    # print(f"ExtLM embed_tokens norm: {model.external_lm.decoder.model.embed_tokens.weight.norm().item():.4f}")
+    # print(f"Same object? {model.external_lm.decoder_embed_func.weight is model.external_lm.decoder.model.embed_tokens.weight}")
 
     # BEAM SEARCH LOOP / STEP
     i = 0
@@ -537,6 +557,33 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
             # Assuming external_lm has a similar step interface
             ext_logits_raw, ext_lm_state = model.external_llm_step_decoder(targets_lm_raw.unsqueeze(-1), ext_lm_state)
             ext_logits_raw = ext_logits_raw.squeeze(-2)  # squeeze singleton time dim
+
+            # with torch.no_grad(): # TODO: eventually remove
+            #     # ext_logits_raw shape: (B, beam, vocab)
+            #     # Use beam 0 only for simplicity
+            #     logits_for_ppl = ext_logits_raw[:, 0, :]  # (B, vocab)
+            #     log_probs_for_ppl = torch.nn.functional.log_softmax(logits_for_ppl, dim=-1)
+            #
+            #     # The token the LM should have predicted at this step is target_lm
+            #     current_targets = targets_lm_raw[:, 0]  # (B,) - beam 0
+            #
+            #     nll = torch.nn.functional.nll_loss(
+            #         log_probs_for_ppl,
+            #         current_targets.long(),
+            #         reduction="mean"
+            #     )
+            #     ppl = torch.exp(nll)
+            #
+            #     # Also print raw logit stats to detect if output is garbage
+            #     print(
+            #         f"Step {i} | ExtLM PPL: {ppl.item():.2f} | "
+            #         f"NLL: {nll.item():.4f} | "
+            #         f"LogProb max: {log_probs_for_ppl.max().item():.3f} | "
+            #         f"LogProb min: {log_probs_for_ppl.min().item():.3f} | "
+            #         f"LogProb mean: {log_probs_for_ppl.mean().item():.3f} | "
+            #         f"target token: {current_targets[0].item()}"
+            #     )
+
             ext_logits = rf.convert_to_tensor(ext_logits_raw, dims=batch_dims + [ctc_beam_dim, target_dim])
             if ctc_top_k_pruning is not None:
                 # gather selected lm logits
