@@ -160,6 +160,18 @@ def py():
 
     # Test over different priors:
     for prior_name, prior in asr_priors.items():
+        # softmax:
+        # {"dev": 6.14, "dev_voxpopuli": 6.6, "dev_commonvoice": 8.38, "dev_librispeech": 3.77, "dev_yodas": 11.91,
+        #  "test": 6.94, "test_voxpopuli": 6.62, "test_commonvoice": 10.45, "test_librispeech": 4.02, "test_yodas": 11.89}
+        # {"am": 1.0, "lm": 0.4283875000000001, "prior": -0.2671915810462501}
+        # count_smooth
+        # {"dev": 6.14, "dev_voxpopuli": 6.6, "dev_commonvoice": 8.39, "dev_librispeech": 3.77, "dev_yodas": 11.83,
+        #  "test": 6.95, "test_voxpopuli": 6.63, "test_commonvoice": 10.45, "test_librispeech": 4.05, "test_yodas": 11.87}
+        # {"am": 1.0, "lm": 0.42608750000000006, "prior": -0.26405174984375}
+        # count_sampled_smooth:
+        # {"dev": 6.14, "dev_voxpopuli": 6.59, "dev_commonvoice": 8.4, "dev_librispeech": 3.79, "dev_yodas": 11.74,
+        #  "test": 6.95, "test_voxpopuli": 6.61, "test_commonvoice": 10.45, "test_librispeech": 4.05, "test_yodas": 11.88}
+        # {"am": 1.0, "lm": 0.4220719875000001, "prior": -0.25690466699156256}
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-v3/prior_{prior_name}/{lm_name}",
             task=task,
