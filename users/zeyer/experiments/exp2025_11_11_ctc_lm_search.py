@@ -81,9 +81,9 @@ def py():
 
     asr_priors = {
         "softmax": None,  # default
-        "count": Prior(file=log_prior_file, type="log_prob", vocab=vocab_file),
+        # "count": Prior(file=log_prior_file, type="log_prob", vocab=vocab_file), -- inf values
         "count_smooth": Prior(file=log_prior_smooth_file, type="log_prob", vocab=vocab_file),
-        "count_sampled": Prior(file=log_prior_sampled_file, type="log_prob", vocab=vocab_file),
+        # "count_sampled": Prior(file=log_prior_sampled_file, type="log_prob", vocab=vocab_file), -- inf values
         "count_sampled_smooth": Prior(file=log_prior_sampled_smooth_file, type="log_prob", vocab=vocab_file),
     }
 
