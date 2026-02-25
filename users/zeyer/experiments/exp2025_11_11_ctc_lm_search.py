@@ -50,13 +50,13 @@ __setup_root_prefix__ = "exp2025_11_11_ctc_lm_search"
 def py():
     prefix = get_setup_prefix_for_module(__name__)
 
-    am, aux_ctc_layer = get_am("base-4ep", {})
+    am_4ep, aux_ctc_layer_4ep = get_am("base-4ep", {})
     name = "base"
     vocab = "spm10k"
     task = get_loquacious_task_raw_v2(vocab=vocab)
 
     # Robin uses the encoder from this model:
-    am_20ep, aux_ctc_layer_20p = get_am("base-20ep", {"total_k_hours": 500})
+    am_20ep, aux_ctc_layer_20ep = get_am("base-20ep", {"total_k_hours": 500})
 
     from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
@@ -113,8 +113,8 @@ def py():
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
         task=task,
-        aed_ctc_model=am,
-        aux_ctc_layer=aux_ctc_layer,
+        aed_ctc_model=am_4ep,
+        aux_ctc_layer=aux_ctc_layer_4ep,
     )
 
     from .exp2024_04_23_baselines.recog_ext.ctc import model_recog_with_recomb
@@ -127,8 +127,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
@@ -143,8 +143,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
@@ -153,8 +153,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}/openasrleaderboard",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
@@ -181,8 +181,8 @@ def py():
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-v3/prior_{prior_name}/{lm_name}",
             task=task,
-            ctc_model=am,
-            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            ctc_model=am_4ep,
+            extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
             lm=lm,
             labelwise_prior=prior,
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
@@ -198,8 +198,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed/{lm_name}",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
@@ -225,8 +225,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
@@ -257,8 +257,8 @@ def py():
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-every{interval}/{lm_name}",
             task=task,
-            ctc_model=am,
-            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            ctc_model=am_4ep,
+            extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
             lm=lm,
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
             ctc_only_recog_version=10,
@@ -281,8 +281,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/{lm_name}",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
@@ -330,8 +330,8 @@ def py():
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-beamSize{beam_size}/{lm_name}",
             task=task,
-            ctc_model=am,
-            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            ctc_model=am_4ep,
+            extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
             lm=lm,
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
             ctc_only_recog_version=10,
@@ -349,8 +349,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}-noPrior",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=lm,
         use_prior=False,
         ctc_only_recog_version=10,
@@ -427,8 +427,8 @@ def py():
     res = ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
@@ -458,8 +458,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-qwenPrior/qwen2",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
@@ -493,8 +493,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-batchSize1/qwen2",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
@@ -527,8 +527,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-noDelayedPrior/qwen2",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
@@ -569,8 +569,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2-noPrior",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
@@ -600,8 +600,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-always/qwen2",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
@@ -632,8 +632,8 @@ def py():
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/qwen2",
         task=task,
-        ctc_model=am,
-        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
