@@ -176,6 +176,27 @@ def py():
         recog_def=model_recog_with_recomb_v2,
         eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
     )
+    # Now with the 20ep AM.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v3/{lm_name}",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb_v2,
+    )
+    # Also on OpenASRLeaderboard test sets.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb_v2,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    )
 
     # Test over different priors:
     for prior_name, prior in asr_priors.items():
@@ -243,6 +264,23 @@ def py():
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            "convert_labels_func": convert_labels_func_no_op,
+        },
+    )
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/{lm_name}",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
@@ -618,6 +656,30 @@ def py():
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_always,
+            "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+    )
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
