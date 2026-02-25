@@ -117,6 +117,12 @@ def py():
         aed_ctc_model=am_4ep,
         aux_ctc_layer=aux_ctc_layer_4ep,
     )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + am_name_20ep + "/aed+ctc",
+        task=task,
+        aed_ctc_model=am_20ep,
+        aux_ctc_layer=aux_ctc_layer_20ep,
+    )
 
     from .exp2024_04_23_baselines.recog_ext.ctc import model_recog_with_recomb
 
@@ -130,6 +136,15 @@ def py():
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb,
+    )
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/{lm_name}",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=lm,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
