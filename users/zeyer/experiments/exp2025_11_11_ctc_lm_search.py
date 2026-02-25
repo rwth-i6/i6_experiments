@@ -50,13 +50,14 @@ __setup_root_prefix__ = "exp2025_11_11_ctc_lm_search"
 def py():
     prefix = get_setup_prefix_for_module(__name__)
 
-    am_4ep, aux_ctc_layer_4ep = get_am("base-4ep", {})
-    name = "base"
+    am_name_4ep = "base-4ep"
+    am_4ep, aux_ctc_layer_4ep = get_am(am_name_4ep, {})
     vocab = "spm10k"
     task = get_loquacious_task_raw_v2(vocab=vocab)
 
     # Robin uses the encoder from this model:
-    am_20ep, aux_ctc_layer_20ep = get_am("base-20ep", {"total_k_hours": 500})
+    am_name_20ep = "base-20ep"
+    am_20ep, aux_ctc_layer_20ep = get_am(am_name_20ep, {"total_k_hours": 500})
 
     from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
@@ -111,7 +112,7 @@ def py():
     # {"dev": 6.49, "dev_voxpopuli": 6.62, "dev_commonvoice": 9.29, "dev_librispeech": 4.22, "dev_yodas": 10.96,
     #  "test": 7.31, "test_voxpopuli": 6.79, "test_commonvoice": 11.61, "test_librispeech": 4.48, "test_yodas": 10.62}
     aed_ctc_timesync_recog_recomb_auto_scale(
-        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        prefix=prefix + "/aed/" + am_name_4ep + "/aed+ctc",
         task=task,
         aed_ctc_model=am_4ep,
         aux_ctc_layer=aux_ctc_layer_4ep,
@@ -125,7 +126,7 @@ def py():
     # dev-yodas: elapsed: 0:06:12.8701
     lm_name, lm = get_lm(prefix=prefix, vocab=vocab)
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v2/{lm_name}",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -141,7 +142,7 @@ def py():
     # dev elapsed: elapsed: 1:35:35.7686
     # dev-yodas: elapsed: 0:07:33.1449
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -151,7 +152,7 @@ def py():
     )
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-v3/{lm_name}/openasrleaderboard",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -179,7 +180,7 @@ def py():
         # looking e.g. at dev_yodas.
         # However, looking at the optimal scales, it seems exactly the opposite? This is a bit unclear.
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm-v3/prior_{prior_name}/{lm_name}",
+            prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/prior_{prior_name}/{lm_name}",
             task=task,
             ctc_model=am_4ep,
             extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -196,7 +197,7 @@ def py():
     # dev: elapsed: 1:41:44.8639
     # dev-yodas: elapsed: 0:06:41.7572
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed/{lm_name}",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed/{lm_name}",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -223,7 +224,7 @@ def py():
     #  "test": 7.05, "test_voxpopuli": 6.65, "test_commonvoice": 10.89, "test_librispeech": 4.13, "test_yodas": 11.46}
     enable_every20 = functools.partial(enable_by_interval, interval=20)
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/{lm_name}",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -255,7 +256,7 @@ def py():
         #  "test": 7.05, "test_voxpopuli": 6.65, "test_commonvoice": 10.89, "test_librispeech": 4.13, "test_yodas": 11.46}
         enable_every_n = functools.partial(enable_by_interval, interval=interval)
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-every{interval}/{lm_name}",
+            prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-every{interval}/{lm_name}",
             task=task,
             ctc_model=am_4ep,
             extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -279,7 +280,7 @@ def py():
     # {"dev": 6.34, "dev_voxpopuli": 6.66, "dev_commonvoice": 8.97, "dev_librispeech": 3.91, "dev_yodas": 11.63,
     #  "test": 7.1, "test_voxpopuli": 6.64, "test_commonvoice": 11.14, "test_librispeech": 4.19, "test_yodas": 11.15}
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/{lm_name}",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-never/{lm_name}",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -328,7 +329,7 @@ def py():
     # But for beam size 1, it means, this will never have any effect.
     for beam_size in [1, 2, 4, 64]:
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-beamSize{beam_size}/{lm_name}",
+            prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-beamSize{beam_size}/{lm_name}",
             task=task,
             ctc_model=am_4ep,
             extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -347,7 +348,7 @@ def py():
         )
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/{lm_name}-noPrior",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/{lm_name}-noPrior",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -425,7 +426,7 @@ def py():
         seq_str_postprocess_func=seq_str_postprocess_lower_case,
     )
     res = ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -450,13 +451,13 @@ def py():
         },
     )
     tk.register_output(
-        f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
+        f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
         res.individual_results["dev_yodas"].main_measure_value,
     )
 
     # Using the Qwen2-vocab prior
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-qwenPrior/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-qwenPrior/qwen2",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -491,7 +492,7 @@ def py():
     # TODO figure out where the inconsistency comes from...
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-batchSize1/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-batchSize1/qwen2",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -525,7 +526,7 @@ def py():
     # So for qwen same as for our LM, no delayed prior makes it worse.
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-noDelayedPrior/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-noDelayedPrior/qwen2",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -567,7 +568,7 @@ def py():
     # So without prior makes it clearly worse.
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2/qwen2-noPrior",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2-noPrior",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -598,7 +599,7 @@ def py():
     # TODO update numbers
     enable_always = functools.partial(enable_by_interval, interval=1)
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-always/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-always/qwen2",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
@@ -630,7 +631,7 @@ def py():
     #  "test": 7.0, "test_voxpopuli": 6.66, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.11}
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{name}/ctc+lm-delayed-v2-never/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-never/qwen2",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
