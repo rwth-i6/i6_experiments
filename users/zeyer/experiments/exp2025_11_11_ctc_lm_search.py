@@ -50,10 +50,13 @@ __setup_root_prefix__ = "exp2025_11_11_ctc_lm_search"
 def py():
     prefix = get_setup_prefix_for_module(__name__)
 
-    am, aux_ctc_layer = get_am("base", {})
+    am, aux_ctc_layer = get_am("base-4ep", {})
     name = "base"
     vocab = "spm10k"
     task = get_loquacious_task_raw_v2(vocab=vocab)
+
+    # Robin uses the encoder from this model:
+    am_20ep, aux_ctc_layer_20p = get_am("base-20ep", {"total_k_hours": 500})
 
     from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
     from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
