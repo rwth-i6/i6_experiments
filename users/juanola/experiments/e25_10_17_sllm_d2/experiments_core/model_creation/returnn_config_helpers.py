@@ -164,7 +164,7 @@ def get_prior_config(
         network_import_path=network_import_path,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
-        forward_step_name="prior_step",
+        forward_step_name="prior_step_v1",
         debug=debug,
         forward_args=forward_step_params,
     )

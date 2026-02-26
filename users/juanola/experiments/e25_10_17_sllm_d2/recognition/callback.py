@@ -57,3 +57,23 @@ class RecognitionToTextDictCallback(ForwardCallbackIface):
         self._out_file.write("}\n")
         self._out_file.close()
         self._out_file = None
+
+class ReturnnCollectStatsForwardCallbackV1(ForwardCallbackIface):
+    """
+    Robins code (SLLM Repo)
+    for PRIOR calculation
+    """
+    def __init__(self):
+        self.stats: Optional[Stats] = None
+
+    def init(self, *, model):
+        self.stats = Stats()
+
+    def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+        # see _returnn_forward_step
+        out: Tensor = outputs["output"].copy_with_feature_last()
+        assert out.batch_ndim == 2  # (time,feature)
+        self.stats.collect(out.raw_tensor)
+
+    def finish(self):
+        self.stats.dump("stats")

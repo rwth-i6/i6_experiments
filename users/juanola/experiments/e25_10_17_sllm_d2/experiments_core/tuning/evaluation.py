@@ -16,6 +16,7 @@ from sisyphus.job_path import Variable
 from .asr_model import ASRModel
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
+from ...configurations.pipeline.prior_config import PriorConfig
 from ...configurations.pipeline.search_config import SearchConfig
 from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
@@ -40,7 +41,7 @@ def create_tune_and_evaluate_jobs(
     run_best: bool = True,
     run_test: bool = False,
     run_test_in_intermediate_epochs: bool = False,
-    prior_args: Optional[Dict[str, Any]] = None,  # TODO: ???
+    prior_args: Optional[Dict[str, Any]] = None,  # TODO: remove, if needed in config
 ) -> Dict[str, Any]:
     """
     Run evaluation jobs for different trained models
@@ -83,9 +84,9 @@ def create_tune_and_evaluate_jobs(
             checkpoint,
             network_import_path,
             net_args,
+            search_config.prior,
             prior_args=prior_args,
             datasets=train_data,
-            prior_batch_size=search_config.prior.batch_size,
         )
 
         res = tune_and_evaluate_model(
@@ -101,6 +102,9 @@ def create_tune_and_evaluate_jobs(
         )
         result_dict.update(res)
 
+
+
+    # TODO: remove this
     if search_config.run_ctc_greedy_decoding_last_epoch:  # Run the last epoch with ctc greedy decoding
         res = evaluate_greedy_ctc(
             dev_dataset_tuples,
@@ -146,9 +150,9 @@ def evaluate_greedy_ctc(
         checkpoint,
         network_import_path,
         net_args,
+        search_config.prior,
         prior_args=prior_args,
         datasets=train_data,
-        prior_batch_size=search_config.prior.batch_size,
     )
 
     _, wers = search(
@@ -185,10 +189,10 @@ def prepare_asr_model(
     checkpoint: PtCheckpoint,
     network_import_path: str,
     net_args,
+    prior_config: PriorConfig,
     prior_args: Dict[str, Any] = None,
-    prior_config: Optional[Dict[str, Any]] = None,
-    datasets: Optional[TrainingDatasets] = None,
-    prior_batch_size: int = 16_000,
+    prior_returnn_config: Optional[Dict[str, Any]] = None,
+    datasets: Optional[TrainingDatasets] = None
 ) -> ASRModel:
     """
     :param checkpoint_name:
@@ -197,21 +201,21 @@ def prepare_asr_model(
     :param net_args:
     :param prior_args:
     :param datasets: Needed if with_prior == True
-    :param prior_config: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
+    :param Optional: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
     :return:
     """
     assert prior_args is None or datasets is not None
-    assert prior_args is None or prior_config is not None
+    assert prior_args is None or Optional is not None
 
     if prior_args is not None:
         returnn_config = get_prior_config(
             training_datasets=datasets,
             network_import_path=prior_args["network_import_path"],
-            config=prior_config if prior_config is not None else {},
+            config=prior_returnn_config if prior_returnn_config is not None else {},
             net_args=prior_args["net_args"],
             unhashed_net_args=prior_args.get("unhashed_net_args", None),
             debug=prior_args.get("debug", False),
-            batch_size=prior_batch_size,
+            batch_size=prior_config.batch_size,
         )
         prior_file = compute_prior(
             checkpoint_name,
@@ -223,7 +227,7 @@ def prepare_asr_model(
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
     else:
         prior_file = None
-        if prior_config is not None:
+        if prior_returnn_config is not None:
             raise ValueError("prior_config can only be set if with_prior is True")
 
     return ASRModel(

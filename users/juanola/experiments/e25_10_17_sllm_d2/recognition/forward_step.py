@@ -287,3 +287,45 @@ def _ctc_greedy_collapse(ids, logp, lens, blank_id):
         out_logp.append(score)
 
     return out_ids, torch.tensor(out_logp, device=ids.device)
+
+"""
+PRIORS
+"""
+
+def prior_step_v1(
+        *,
+        model: BaseEncoderDecoderModel,
+        extern_data: TensorDict,
+        aux_layer_idx: int = -1,
+        **kwargs,
+):
+    """
+    From Robins code (SLLM repo)
+    """
+    from returnn.config import get_global_config
+
+    config = get_global_config(return_empty_if_none=True)
+
+    data_key = config.value("default_data_key", "audio")
+    data_ = extern_data[data_key]
+    if data_.feature_dim and data_.feature_dim.dimension == 1:
+        data_ = rf.squeeze(data_, axis=data_.feature_dim)
+    data = data_.raw_tensor
+    seq_len = extern_data[data_key].dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
+
+    _, aux_log_probs, _, _, encoder_lens = model.forward(
+        data,
+        seq_len,
+    )
+
+    ctc_log_probs = aux_log_probs[aux_layer_idx]
+    ctc_probs = torch.exp(ctc_log_probs)
+
+    vocab_dim = Dim(model.wb_target_dim, name="vocab")
+    lens_data = rf.convert_to_tensor(encoder_lens, dims=[batch_dim])
+    time_dim = Dim(lens_data, name="seq_len")
+
+    ctc_probs = rf.convert_to_tensor(ctc_probs, dims=[batch_dim, time_dim, vocab_dim], feature_dim=vocab_dim)
+
+    ctx = rf.get_run_ctx()
+    ctx.mark_as_output(ctc_probs, "output", dims=[batch_dim, time_dim, vocab_dim])

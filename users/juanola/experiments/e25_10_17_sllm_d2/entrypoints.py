@@ -334,7 +334,7 @@ def e3_pre10():
 
 
 def e3v13_2():
-    ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter_200], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V13_SLLM_linear_adapter_200])#, itc_training=True)
 
 
 def e3v14():
@@ -413,12 +413,11 @@ def e3_itc_config_test():
 
 
 def e3v14_pre1():
-    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED])#, itc_training=True)
 
 
 def e3v14_pre2():
     ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED])
-
 
 def e3_pre5_i6():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_I6])
