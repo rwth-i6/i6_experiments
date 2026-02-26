@@ -3,7 +3,9 @@ Qwen2
 """
 
 from __future__ import annotations
-from typing import Optional, Sequence, Tuple, Dict, Any
+
+import os
+from typing import Optional, Union, Sequence, Tuple, Dict, Any
 import functools
 
 from returnn.util.basic import prod
@@ -133,11 +135,34 @@ class Qwen2Model(rf.Module):
     Keep API compatible to how other RF LMs are expected, i.e. like RF TransformerDecoder.
     """
 
-    def __init__(self, *, vocab_dim: Dict[str, Any], **kwargs):
+    def __init__(
+        self,
+        *,
+        vocab_dim: Dict[str, Any],
+        in_dim: Optional[Dim] = None,
+        target_dim: Optional[Dim] = None,
+        epoch: Optional[int] = None,
+        input_prefix: Optional[str] = "USER: ",
+        input_suffix: Optional[str] = "Transcribe speech to text. ASSISTANT: ",
+        hf_hub_cache_dir: Union[str, os.PathLike],
+        load_checkpoint_on_init: bool = False,
+        freeze_params: bool,
+        lora_opts: Optional[dict],
+        device: str = "cuda",
+        freeze_embedding_layer: bool = False,
+        mlp_dropout: float = 0.0,
+        attention_dropout: Optional[float] = None,
+        bos_symbol: Optional[str] = None,
+        eos_symbol: Optional[str] = None,
+        spm_model_path: Optional[Union[str, os.PathLike]] = None,
+        **_kwargs,
+    ):
         """
         :param vocab_dim: bind via functools.partial. the vocab dim of Qwen
         """
         super().__init__()
+
+        in_dim, target_dim, epoch  # noqa  # not used
 
         # This vocab_dim is what
         # i6_experiments.users.zeyer.decoding.lm_rescoring.lm_rescore_def and potentially other code
@@ -148,7 +173,21 @@ class Qwen2Model(rf.Module):
 
         from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
 
-        model = Qwen2DecoderV3(**kwargs)
+        model = Qwen2DecoderV3(
+            input_prefix=input_prefix,
+            input_suffix=input_suffix,
+            hf_hub_cache_dir=hf_hub_cache_dir,
+            load_checkpoint_on_init=load_checkpoint_on_init,
+            freeze_params=freeze_params,
+            lora_opts=lora_opts,
+            device=device,
+            freeze_embedding_layer=freeze_embedding_layer,
+            mlp_dropout=mlp_dropout,
+            attention_dropout=attention_dropout,
+            bos_symbol=bos_symbol,
+            eos_symbol=eos_symbol,
+            spm_model_path=spm_model_path,
+        )
         print(model.model.config)
 
         # Directly put model.model here for compatible parameters.
