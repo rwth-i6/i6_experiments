@@ -325,6 +325,24 @@ def py():
                 "convert_labels_func": convert_labels_func_no_op,
             },
         )
+        # Also update the 20ep AM.
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-every{interval}/{lm_name}",
+            task=task,
+            ctc_model=am_20ep,
+            extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+            lm=lm,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+            ctc_only_recog_version=10,
+            ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+            recog_version=12,
+            recog_def=model_recog_with_recomb_delayed_fusion_v2,
+            first_pass_extra_config={
+                "should_convert_labels_now_func": enable_every_n,
+                "should_fuse_now_func": enable_every_n,
+                "convert_labels_func": convert_labels_func_no_op,
+            },
+        )
 
     # never, i.e. delay until the end. this should be like rescoring:
     # {"dev": 6.33, "dev_voxpopuli": 6.66, "dev_commonvoice": 8.96, "dev_librispeech": 3.91, "dev_yodas": 11.6,
@@ -507,6 +525,32 @@ def py():
         f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
         res.individual_results["dev_yodas"].main_measure_value,
     )
+    # Also on the 20ep AM.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+            # "___debug": 2,  # add something new random to get new hashes for debugging
+        },
+    )
 
     # Using the Qwen2-vocab prior
     ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -514,6 +558,33 @@ def py():
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
+        lm=qwen2_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        labelwise_prior=qwen2_vocab_prior,
+        prior_custom_vocab_convert_labels=_prior_convert_labels,
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "labelwise_prior_dim": "lm_vocab",
+            "max_seqs": 32,
+        },
+    )
+    # Also on the 20ep AM.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior/qwen2",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
