@@ -41,7 +41,7 @@ def main():
     run(
         "sbatch",
         *sbatch_args,
-        "--signal=USR1@5",
+        "--signal=B:USR1@5",
         "--wrap=exec %s" % " ".join([sys.executable, __file__, "--start-tmux"]),
     )
 
