@@ -53,27 +53,36 @@ def _run_tmux():
     hostname = socket.gethostname()
     socket_filename = f"tmux.sbatch.job_{job_id}.host_{hostname}.pid_{os.getpid()}.socket"
 
-    run("tmux", "-S", socket_filename, "new-session", "-d")
-    print(f"Started tmux session with socket: {socket_filename}")
-    print(f"To attach to the tmux session, run: ssh {hostname} tmux -S {socket_filename} attach")
-    print("Waiting for tmux session to end...")
-    sys.stdout.flush()
+    while True:
+        run("tmux", "-S", socket_filename, "new-session", "-d")
+        print(f"Started tmux session with socket: {socket_filename}")
+        print(f"To attach to the tmux session, run: ssh {hostname} tmux -S {socket_filename} attach")
+        print("Waiting for tmux session to end...")
+        sys.stdout.flush()
 
-    try:
-        while True:
-            try:
-                sp.check_call(["tmux", "-S", socket_filename, "has-session"])
-            except sp.CalledProcessError:
-                print("Tmux session has ended.")
-                break
-            time.sleep(1)
+        # sanity check that the tmux session is running
+        sp.check_call(["tmux", "-S", socket_filename, "has-session"])
 
-    except BaseException:
-        run("tmux", "-S", socket_filename, "kill-session")
-        raise
+        # wait until the tmux session ends, either by the user or by receiving a signal
+        try:
+            while True:
+                try:
+                    sp.check_call(["tmux", "-S", socket_filename, "has-session"])
+                except sp.CalledProcessError:
+                    print("Tmux session has ended.")
+                    break
+                time.sleep(1)
 
-    finally:
-        os.unlink(socket_filename)
+        except BaseException:
+            run("tmux", "-S", socket_filename, "kill-session")
+            raise
+
+        finally:
+            os.unlink(socket_filename)
+
+        # if we got here, it means the tmux session ended without us receiving a signal.
+        # so restart a new tmux session to wait for the next signal.
+        print("Restart a new tmux session...")
 
 
 def _sig_usr1_handler(signum, frame):
