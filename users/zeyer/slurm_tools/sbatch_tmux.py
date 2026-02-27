@@ -35,21 +35,23 @@ def main():
         usage="%(prog)s [options] [sbatch arguments...]",
     )
     arg_parser.add_argument("--start-tmux", action="store_true", help=argparse.SUPPRESS)
+    arg_parser.add_argument("--group", type=str, help="chgrp for the tmux socket")
     args, sbatch_args = arg_parser.parse_known_args()
 
     if args.start_tmux:
-        _run_tmux()
+        _run_tmux(args)
         return
 
     run(
         "sbatch",
         *sbatch_args,
         "--signal=B:USR1@5",
-        "--wrap=exec %s" % " ".join([sys.executable, __file__, "--start-tmux"]),
+        "--wrap=exec %s"
+        % " ".join([sys.executable, __file__, "--start-tmux"] + (["--group", args.group] if args.group else [])),
     )
 
 
-def _run_tmux():
+def _run_tmux(args):
     signal.signal(signal.SIGUSR1, _sig_usr1_handler)
 
     job_id = os.environ.get("SLURM_JOB_ID", "unknown_slurm_job_id")
@@ -62,6 +64,11 @@ def _run_tmux():
         print(f"To attach to the tmux session, run: ssh {hostname} tmux -S {socket_filename} attach")
         print("Waiting for tmux session to end...")
         sys.stdout.flush()
+
+        assert os.path.exists(socket_filename)
+        if args.group:
+            run("chgrp", args.group, socket_filename)
+            run("chmod", "g+rw", socket_filename)
 
         # sanity check that the tmux session is running
         sp.check_call(["tmux", "-S", socket_filename, "has-session"])
