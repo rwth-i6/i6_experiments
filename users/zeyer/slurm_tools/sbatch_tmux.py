@@ -52,7 +52,8 @@ def main():
 
 
 def _run_tmux(args):
-    signal.signal(signal.SIGUSR1, _sig_usr1_handler)
+    signal.signal(signal.SIGUSR1, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     job_id = os.environ.get("SLURM_JOB_ID", "unknown_slurm_job_id")
     hostname = socket.gethostname()
@@ -95,7 +96,7 @@ def _run_tmux(args):
         print("Restart a new tmux session...")
 
 
-def _sig_usr1_handler(signum, frame):
+def _signal_handler(signum, frame):
     print("Signal handler got signal", signum)
     raise KeyboardInterrupt("Received signal to terminate tmux session.")
 
