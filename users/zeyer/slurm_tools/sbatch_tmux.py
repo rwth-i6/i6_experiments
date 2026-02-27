@@ -30,7 +30,10 @@ _setup()
 
 
 def main():
-    arg_parser = argparse.ArgumentParser(description="Run a command in a tmux session on a cluster using sbatch.")
+    arg_parser = argparse.ArgumentParser(
+        description="Run a command in a tmux session on a cluster using sbatch.",
+        usage="%(prog)s [options] [sbatch arguments...]",
+    )
     arg_parser.add_argument("--start-tmux", action="store_true", help=argparse.SUPPRESS)
     args, sbatch_args = arg_parser.parse_known_args()
 
