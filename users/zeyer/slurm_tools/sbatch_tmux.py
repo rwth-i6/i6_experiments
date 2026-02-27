@@ -1,0 +1,96 @@
+import socket
+import sys
+import os
+import time
+from functools import reduce
+import subprocess as sp
+from typing import TypeVar
+import argparse
+import signal
+
+
+_my_dir = os.path.dirname(__file__)
+_base_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
+_sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
+
+T = TypeVar("T")
+
+
+def _setup():
+    # In case the user started this script directly.
+    if not globals().get("__package__"):
+        globals()["__package__"] = "i6_experiments.users.zeyer.slurm_tools"
+        if _base_dir not in sys.path:
+            sys.path.append(_base_dir)
+        if _sis_dir not in sys.path:
+            sys.path.append(_sis_dir)
+
+
+_setup()
+
+
+def main():
+    arg_parser = argparse.ArgumentParser(description="Run a command in a tmux session on a cluster using sbatch.")
+    arg_parser.add_argument("--start-tmux", action="store_true", help=argparse.SUPPRESS)
+    args, sbatch_args = arg_parser.parse_known_args()
+
+    if args.start_tmux:
+        _run_tmux()
+        return
+
+    run(
+        "sbatch",
+        *sbatch_args,
+        "--signal=USR1@5",
+        "--wrap=exec %s" % " ".join([sys.executable, __file__, "--start-tmux"]),
+    )
+
+
+def _run_tmux():
+    signal.signal(signal.SIGUSR1, _sig_usr1_handler)
+
+    job_id = os.environ.get("SLURM_JOB_ID", "unknown_slurm_job_id")
+    hostname = socket.gethostname()
+    socket_filename = f"tmux.sbatch.job_{job_id}.host_{hostname}.pid_{os.getpid()}.socket"
+
+    run("tmux", "-S", socket_filename, "new-session", "-d")
+    print(f"Started tmux session with socket: {socket_filename}")
+    print(f"To attach to the tmux session, run: ssh {hostname} tmux -S {socket_filename} attach")
+    print("Waiting for tmux session to end...")
+    sys.stdout.flush()
+
+    try:
+        while True:
+            try:
+                sp.check_call(["tmux", "-S", socket_filename, "has-session"])
+            except sp.CalledProcessError:
+                print("Tmux session has ended.")
+                break
+            time.sleep(1)
+
+    except BaseException:
+        run("tmux", "-S", socket_filename, "kill-session")
+        raise
+
+    finally:
+        os.unlink(socket_filename)
+
+
+def _sig_usr1_handler(signum, frame):
+    print("Signal handler got signal", signum)
+    raise KeyboardInterrupt("Received signal to terminate tmux session.")
+
+
+def run(*args):
+    print("Running:", *args)
+    return sp.check_call(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except sp.CalledProcessError as exc:
+        sys.exit(exc.returncode)
+    except KeyboardInterrupt:
+        print("Interrupted by user.")
+        sys.exit(1)
