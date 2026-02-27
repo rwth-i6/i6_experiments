@@ -62,7 +62,7 @@ def _run_tmux(args):
     while True:
         run("tmux", "-S", socket_filename, "new-session", "-d")
         print(f"Started tmux session with socket: {socket_filename}")
-        print(f"To attach to the tmux session, run: ssh {hostname} tmux -S {socket_filename} attach")
+        print(f"To attach to the tmux session, run: ssh {hostname} -t tmux -S {socket_filename} attach")
         print("Waiting for tmux session to end...")
         sys.stdout.flush()
 
