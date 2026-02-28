@@ -678,7 +678,6 @@ def py():
                 "should_fuse_now_func": enable_every_n,
                 # specific to the AM SPM that we have here...
                 "convert_labels_func": convert_labels_func_spm,
-                "labelwise_prior_dim": "lm_vocab",
                 "max_seqs": 32,
             },
         )
