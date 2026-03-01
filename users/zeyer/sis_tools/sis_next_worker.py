@@ -55,7 +55,6 @@ def main():
     )
     arg_parser.add_argument("config")
     arg_parser.add_argument("--log-level", type=int, default=20)
-    arg_parser.add_argument("--mode", default="dryrun", help="dryrun (default), remove, move")
     arg_parser.add_argument("--job-type", default="returnn", help="Type of job to consider")
     arg_parser.add_argument("--sis-binary", default="./sis", help="Path to the sis binary to use")
     args = arg_parser.parse_args()
