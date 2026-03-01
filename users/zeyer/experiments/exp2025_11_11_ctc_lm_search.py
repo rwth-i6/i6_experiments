@@ -456,8 +456,8 @@ def py():
     )
 
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
-        get_lm as get_qwen2_lm,
-        get_vocab as get_qwen2_vocab,
+        get_qwen2_lm_finetuned,
+        get_qwen2_vocab,
     )
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
     from i6_experiments.users.zeyer.decoding.convert_labels import (
@@ -500,7 +500,7 @@ def py():
 
     qwen2_vocab_prior = Prior(file=log_lm_vocab_log_prior, type="log_prob", vocab=qwen2_vocab_file)
 
-    qwen2_lm = get_qwen2_lm()
+    qwen2_lm = get_qwen2_lm_finetuned()
 
     # rescore:
     # {"dev": 6.26, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.84, "dev_librispeech": 3.84, "dev_yodas": 11.54,

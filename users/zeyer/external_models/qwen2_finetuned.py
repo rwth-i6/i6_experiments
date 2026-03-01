@@ -48,14 +48,14 @@ def get_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropout: flo
     return d
 
 
-def get_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> VocabConfigStatic:
+def get_qwen2_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> VocabConfigStatic:
     return VocabConfigStatic(
         num_classes=get_vocab_size(),
         opts=get_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case, bpe_dropout=bpe_dropout),
     )
 
 
-def get_lm() -> ModelWithCheckpoint:
+def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
     """
     Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
     """
