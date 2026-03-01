@@ -58,6 +58,9 @@ def get_qwen2_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: fl
 def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
     """
     Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
+
+    ft_qwen0_5b_v2_bs1.8k_epoch100_part50_wup2.5_maxlr1e-05_full_ft_lc--best | test  | 43.38   | 59.54 |
+    /rwthfs/rz/cluster/hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.41gWXslCurXV/output/checkpoint.pt
     """
 
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
@@ -124,6 +127,67 @@ def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
     get_model.backend = "torch"
     get_model.batch_size_factor = 1
     model_with_cfg = ModelDefWithCfg(model_def=get_model, config=config)
+
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+
+def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
+    """
+    Qwen 2 with our vocab
+
+    ft_qwen0_5b_v2_bs1.8k_epoch100_part50_wup2.5_maxlr1e-05_full_ft_lc_run2--best
+    | Testset          | BPE-PPL | Word-PPL |
+    | ---------------- | ------- | -------- |
+    | test_librispeech | 40.28   | 70.48    |
+    | dev_librispeech  | 41.28   | 71.89    |
+    | dev              | 35.35   | 60.33    |
+    | test_commonvoice | 40.03   | 86.68    |
+    | dev_commonvoice  | 40.51   | 95.05    |
+    | test             | 35.59   | 60.26    |
+    | test_yodas       | 40.94   | 70.34    |
+    | dev_yodas        | 40.47   | 70.14    |
+    | dev_voxpopuli    | 25.89   | 35.19    |
+    | test_voxpopuli   | 27.09   | 37.76    |
+
+    /rwthfs/rz/cluster/hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.WRTnxifhjK0y/output/checkpoint.pt
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab
+
+    vocab = get_spm_vocab("10k")
+
+    # noinspection PyTypeChecker
+    get_model = functools.partial(
+        Qwen2Model,
+        **{
+            "hf_hub_cache_dir": Path(
+                "hub_cache",
+                creator=make_fake_job(
+                    module="i6_experiments.users.schmitt.external_models.huggingface",
+                    name="DownloadHuggingFaceRepoJob",
+                    sis_hash="r7AjtV7muFpk",
+                ),
+            ),
+            "freeze_params": False,
+            "lora_opts": None,
+            "freeze_embedding_layer": False,
+            # This here is the one from Mohammad, where everything was converted to lower case:
+            # "spm_model_path": "i6_core/text/label/sentencepiece/train/TrainSentencePieceJob.1NUrrTDyKwle/output/spm_out.model",
+            # It should exactly match our vocab.
+            "spm_model_path": vocab.model_file,
+        },
+    )
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 24
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 1
+    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+
+    checkpoint = Path(
+        "checkpoint.pt",
+        creator=make_fake_job(
+            module="i6_core.returnn.training", name="GetBestPtCheckpointJob", sis_hash="WRTnxifhjK0y"
+        ),
+    )
 
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
