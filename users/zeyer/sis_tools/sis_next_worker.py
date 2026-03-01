@@ -15,7 +15,6 @@ from functools import reduce
 from typing import TypeVar
 import subprocess as sp
 import textwrap
-import atexit
 import better_exchook
 
 
@@ -84,7 +83,7 @@ def main():
     sis_graph = tk.sis_graph
     job_engine = tk.cached_engine()
     job_engine.start_engine()
-    atexit.register(job_engine.stop_engine)
+    threading._register_atexit(job_engine.stop_engine)
 
     # We are not really starting/using the manager thread,
     # but it comes with many useful utilities that we use here.
