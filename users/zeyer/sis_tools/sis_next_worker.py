@@ -10,6 +10,7 @@ import os
 import re
 import argparse
 import logging
+import threading
 from functools import reduce
 from typing import TypeVar
 import subprocess as sp
@@ -119,14 +120,20 @@ def main():
     maybe_clear_state(gs.STATE_ERROR, manager.clear_errors_once, clear_error)
     maybe_clear_state(gs.STATE_INTERRUPTED_NOT_RESUMABLE, manager.clear_interrupts_once, clear_interrupted)
 
+    gs.SKIP_IS_FINISHED_TIMEOUT = True
+
     logging.info("Iterate runnable jobs")
-    for job in manager.jobs.get(gs.STATE_RUNNABLE, []):
+    # Same order as the manager shows them in the overview.
+    for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
         job: Job
         if not is_job_match(job):
             continue
 
         # See Manager.run_jobs
-        logging.info(f"Runnable matching job: {job}")
+        logging.info(f"Runnable matching job: {manager.get_job_info_string(gs.STATE_RUNNABLE, job)}")
+
+        manager.input("Press Enter to run this job, or Ctrl-C to skip it and continue with the next one...")
+
         logging.info("Setup.")
         job._sis_setup_directory()
         logging.info("Create aliases.")
@@ -139,7 +146,8 @@ def main():
                 continue
             for task_id in task.task_ids():
                 logging.info(f"Run task {task.name()}.{task_id}")
-                run(sys.executable, args.sis_binary, "worker", job._sis_id(), task.name(), str(task_id))
+                run(sys.executable, args.sis_binary, "worker", job._sis_path(), task.name(), str(task_id))
+                assert task.finished(task_id)
 
 
 def run(*args):
@@ -148,4 +156,9 @@ def run(*args):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        for thread in threading.enumerate():
+            if thread.is_alive() and not thread.daemon and thread is not threading.current_thread():
+                logging.info(f"Non-daemon thread still alive: {thread}")
