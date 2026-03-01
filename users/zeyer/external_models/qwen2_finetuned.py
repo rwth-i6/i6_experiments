@@ -153,7 +153,7 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
     """
     from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab
 
-    vocab = get_spm_vocab("10k")
+    vocab = get_spm_vocab(dim="10k")
 
     # noinspection PyTypeChecker
     get_model = functools.partial(
