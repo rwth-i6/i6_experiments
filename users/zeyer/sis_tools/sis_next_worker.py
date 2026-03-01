@@ -73,6 +73,11 @@ def main():
     sisyphus.logging_format.add_coloring_to_logging()
     logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=args.log_level)
 
+    import better_exchook
+
+    better_exchook.install()
+    better_exchook.replace_traceback_format_tb()
+
     config_manager.load_configs(args.config)
 
     sis_graph = tk.sis_graph
