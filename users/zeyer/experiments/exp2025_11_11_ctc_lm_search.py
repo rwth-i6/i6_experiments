@@ -949,7 +949,7 @@ def py():
     )
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-beamSize{beam_size}/qwen2-spm10k",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-spm10k",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
