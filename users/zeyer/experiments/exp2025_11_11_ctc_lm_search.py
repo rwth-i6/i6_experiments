@@ -455,9 +455,13 @@ def py():
         },
     )
 
+    # ------------------------------------------------------------------------------------------------------------------
+    # Now with Qwen2 finetuned LM.
+
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
         get_qwen2_lm_finetuned,
         get_qwen2_vocab,
+        get_qwen2_lm_finetuned_loquacious_spm10k_vocab,
     )
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
     from i6_experiments.users.zeyer.decoding.convert_labels import (
@@ -926,6 +930,39 @@ def py():
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,
+        },
+    )
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Now the qwen2 LM finetuned with our ASR SPM10k vocab.
+
+    qwen2_lm_spm10k = get_qwen2_lm_finetuned_loquacious_spm10k_vocab()
+
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-spm10k",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_lm_spm10k,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb,
+    )
+
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-beamSize{beam_size}/qwen2-spm10k",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_lm_spm10k,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_every20,
+            "should_fuse_now_func": enable_every20,
+            "convert_labels_func": convert_labels_func_no_op,
         },
     )
 
