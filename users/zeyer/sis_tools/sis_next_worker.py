@@ -14,6 +14,9 @@ import threading
 from functools import reduce
 from typing import TypeVar
 import subprocess as sp
+import textwrap
+import atexit
+import better_exchook
 
 
 _my_dir = os.path.dirname(__file__)
@@ -37,7 +40,6 @@ _setup()
 
 
 def main():
-    import textwrap
     import sisyphus.logging_format
     from sisyphus.loader import config_manager
     import sisyphus.toolkit as tk
@@ -74,8 +76,6 @@ def main():
     sisyphus.logging_format.add_coloring_to_logging()
     logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=args.log_level)
 
-    import better_exchook
-
     better_exchook.install()
     better_exchook.replace_traceback_format_tb()
 
@@ -84,6 +84,7 @@ def main():
     sis_graph = tk.sis_graph
     job_engine = tk.cached_engine()
     job_engine.start_engine()
+    atexit.register(job_engine.stop_engine)
 
     # We are not really starting/using the manager thread,
     # but it comes with many useful utilities that we use here.
