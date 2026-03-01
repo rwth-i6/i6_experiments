@@ -173,7 +173,9 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
             # This here is the one from Mohammad, where everything was converted to lower case:
             # "spm_model_path": "i6_core/text/label/sentencepiece/train/TrainSentencePieceJob.1NUrrTDyKwle/output/spm_out.model",
             # It should exactly match our vocab.
-            "spm_model_path": vocab.model_file,
+            # "spm_model_path": vocab.model_file,
+            # But anyway, provide it as vocab_dim:
+            "vocab_dim": {"name": "loquacious_spm10k", "vocab": vocab.get_opts()},
         },
     )
     get_model: ModelDef  # make compat
