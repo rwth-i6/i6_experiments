@@ -1704,7 +1704,7 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         )
     ctc_only_config = {**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size}
 
-    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    # CTC-only recog
     res = recog_model(
         task=task, eval_sets=eval_sets, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config
     )
