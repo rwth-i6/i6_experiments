@@ -463,6 +463,7 @@ def py():
         get_qwen2_vocab,
         get_qwen2_lm_finetuned_loquacious_spm10k_vocab,
         qwen2_speech_llm_finetuned,
+        get_qwen3_vocab,
     )
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
     from i6_experiments.users.zeyer.decoding.convert_labels import (
@@ -496,7 +497,7 @@ def py():
     tk.register_output(f"{prefix}/lm/qwen2/lm_vocab_log_prior_small_smooth.txt", log_lm_vocab_log_prior_small)
 
     qwen2_vocab_file = ExtractVocabLabelsJob(get_qwen2_vocab().get_opts()).out_vocab
-    tk.register_output(f"{prefix}/lm/qwen2/vocab.txt", qwen2_vocab_file)
+    tk.register_output(f"{prefix}/lm/qwen2/vocab.txt.gz", qwen2_vocab_file)
 
     def _prior_convert_labels(out: tk.Path) -> tk.Path:
         return SearchOutputConvertLabelsJob(
@@ -504,6 +505,21 @@ def py():
         ).out_search_results
 
     qwen2_vocab_prior = Prior(file=log_lm_vocab_log_prior, type="log_prob", vocab=qwen2_vocab_file)
+
+    qwen3_vocab_file = ExtractVocabLabelsJob(get_qwen3_vocab().get_opts()).out_vocab
+    tk.register_output(f"{prefix}/lm/qwen3/vocab.txt.gz", qwen3_vocab_file)
+
+    transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(
+        vocab=get_qwen3_vocab(text_preprocess_lower_case=True, bpe_dropout=0.1)
+    )
+    log_qwen3_vocab_log_prior = compute_label_prior_log_probs(
+        transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24}
+    )
+    tk.register_output(f"{prefix}/lm/qwen3/lm_vocab_log_prior.txt", log_qwen3_vocab_log_prior)
+    log_qwen3_vocab_log_prior = PriorLabelSmoothingJob(
+        prior_file=log_qwen3_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
+    tk.register_output(f"{prefix}/lm/qwen3/lm_vocab_log_prior_smooth.txt", log_qwen3_vocab_log_prior)
 
     qwen2_lm = get_qwen2_lm_finetuned()
 
