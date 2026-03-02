@@ -501,7 +501,7 @@ def py():
     qwen2_vocab_file = ExtractVocabLabelsJob(get_qwen2_vocab().get_opts()).out_vocab
     tk.register_output(f"{prefix}/lm/qwen2/vocab.txt.gz", qwen2_vocab_file)
 
-    def _prior_convert_labels(out: tk.Path) -> tk.Path:
+    def _prior_convert_labels_spm_lower_case_qwen2(out: tk.Path) -> tk.Path:
         return SearchOutputConvertLabelsJob(
             out, source_text_post_process=spm_merge_and_lower_case_v3, target_vocab=get_qwen2_vocab().get_opts()
         ).out_search_results
@@ -607,7 +607,7 @@ def py():
             "max_seqs": 32,
         },
         labelwise_prior=qwen2_vocab_prior,
-        prior_custom_vocab_convert_labels=_prior_convert_labels,
+        prior_custom_vocab_convert_labels=_prior_convert_labels_spm_lower_case_qwen2,
         ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
         recog_version=12,
@@ -634,7 +634,7 @@ def py():
             "max_seqs": 32,
         },
         labelwise_prior=qwen2_vocab_prior,
-        prior_custom_vocab_convert_labels=_prior_convert_labels,
+        prior_custom_vocab_convert_labels=_prior_convert_labels_spm_lower_case_qwen2,
         ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
         recog_version=12,
@@ -663,7 +663,7 @@ def py():
             "max_seqs": 32,
         },
         labelwise_prior=qwen2_vocab_prior,
-        prior_custom_vocab_convert_labels=_prior_convert_labels,
+        prior_custom_vocab_convert_labels=_prior_convert_labels_spm_lower_case_qwen2,
         ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
         recog_version=12,
@@ -716,7 +716,7 @@ def py():
                 "max_seqs": 32,
             },
             labelwise_prior=qwen2_vocab_prior,
-            prior_custom_vocab_convert_labels=_prior_convert_labels,
+            prior_custom_vocab_convert_labels=_prior_convert_labels_spm_lower_case_qwen2,
             ctc_only_recog_version=10,
             ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
             recog_version=12,
@@ -971,7 +971,7 @@ def py():
             "max_seqs": 32,
         },
         labelwise_prior=qwen2_vocab_prior,
-        prior_custom_vocab_convert_labels=_prior_convert_labels,
+        prior_custom_vocab_convert_labels=_prior_convert_labels_spm_lower_case_qwen2,
         first_pass_extra_config={
             "should_convert_labels_now_func": enable_every20,
             "should_fuse_now_func": enable_every20,
