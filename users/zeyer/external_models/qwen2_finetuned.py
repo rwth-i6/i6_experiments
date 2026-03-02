@@ -21,12 +21,12 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
 
 
-def get_vocab_size() -> int:
+def get_qwen2_vocab_size() -> int:
     # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache",
     return 151646
 
 
-def get_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> Dict[str, Any]:
+def get_qwen2_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> Dict[str, Any]:
     # /hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/ReturnnTrainingJob.MIU24HbRi60L/output/returnn.config
     d: Dict[str, Any] = {
         "class": "HuggingFaceTokenizer",
@@ -50,8 +50,35 @@ def get_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropout: flo
 
 def get_qwen2_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> VocabConfigStatic:
     return VocabConfigStatic(
-        num_classes=get_vocab_size(),
-        opts=get_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case, bpe_dropout=bpe_dropout),
+        num_classes=get_qwen2_vocab_size(),
+        opts=get_qwen2_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case, bpe_dropout=bpe_dropout),
+    )
+
+
+def get_qwen3_vocab_size():
+    return 151669
+
+
+def get_qwen3_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> Dict[str, Any]:
+    # /rwthfs/rz/cluster/home/oz301122/experiments/2025_11_06_speech_llm/work/i6_experiments/users/zeyer/datasets/utils/vocab/ExtractVocabLabelsJob.Q49VHK5bIvdA/output/vocab.txt.gz
+    d: Dict[str, Any] = {
+        "class": "HuggingFaceTokenizer",
+        "huggingface_repo_dir": make_path(
+            "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.H64s46pw3Ep2/output/content"
+        ),
+        "map_bos_to_eos": True,
+    }
+    if text_preprocess_lower_case:
+        d["text_preprocessing"] = str.lower
+    if bpe_dropout:
+        d["bpe_dropout"] = bpe_dropout
+    return d
+
+
+def get_qwen3_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: float = 0.0) -> VocabConfigStatic:
+    return VocabConfigStatic(
+        num_classes=get_qwen3_vocab_size(),
+        opts=get_qwen3_vocab_dict(text_preprocess_lower_case=text_preprocess_lower_case, bpe_dropout=bpe_dropout),
     )
 
 
@@ -81,7 +108,7 @@ def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
             "freeze_params": False,
             "lora_opts": None,
             "freeze_embedding_layer": True,
-            "vocab_dim": {"name": "qwen_vocab", "dimension": get_vocab_size(), "vocab": get_vocab_dict()},
+            "vocab_dim": {"name": "qwen_vocab", "dimension": get_qwen2_vocab_size(), "vocab": get_qwen2_vocab_dict()},
         },
     )
     config = {}
