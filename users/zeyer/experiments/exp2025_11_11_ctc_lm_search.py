@@ -938,6 +938,11 @@ def py():
 
     qwen2_lm_spm10k = get_qwen2_lm_finetuned_loquacious_spm10k_vocab()
 
+    # Using ctc+lm-v2, as this was the best variant, and this is possible here.
+    # one-pass:
+    # {"dev": 5.3, "dev_voxpopuli": 6.08, "dev_commonvoice": 6.62, "dev_librispeech": 3.16, "dev_yodas": 11.29,
+    #  "test": 5.82, "test_voxpopuli": 6.02, "test_commonvoice": 7.87, "test_librispeech": 3.2, "test_yodas": 11.12}
+    # rescoring:
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-spm10k",
         task=task,
@@ -948,6 +953,9 @@ def py():
         recog_def=model_recog_with_recomb,
     )
 
+    # {"dev": 5.48, "dev_voxpopuli": 6.36, "dev_commonvoice": 6.88, "dev_librispeech": 3.24, "dev_yodas": 11.31,
+    #  "test": 6.04, "test_voxpopuli": 6.32, "test_commonvoice": 8.32, "test_librispeech": 3.34, "test_yodas": 10.84}
+    # TODO this is weird, even worse than rescoring, sth seems wrong?
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-spm10k",
         task=task,
