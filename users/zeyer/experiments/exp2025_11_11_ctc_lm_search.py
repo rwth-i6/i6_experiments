@@ -955,36 +955,32 @@ def py():
     # ------------------------------------------------------------------------------------------------------------------
     # qwen2 as speech LLM, with qwen vocab, together with CTC with ASR vocab
 
-    # TODO...
-    # search job für model mit multi-vocab:
-    # /rwthfs/rz/cluster/hpcwork/p0023999/oz301122/sisyphus-work-dirs/2025_11_06_speech_llm/i6_core/returnn/forward/ReturnnForwardJobV2.ymdHhpt11mg6
+    from speech_llm.prefix_lm.sis_recipe.exp2026_03_01_asr_prefix_lm_recog_albert import (
+        ctc_slm_labelwise_prior_recog_time_sync_recomb_auto_scale,
+    )
 
     qwen2_sllm = qwen2_speech_llm_finetuned()
 
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2",
+    ctc_slm_labelwise_prior_recog_time_sync_recomb_auto_scale(
+        prefix=f"{prefix}/slm/qwen2-sllm/delayed-fusion-qwenPrior-every20-beamSize8",
         task=task,
-        ctc_model=am_20ep,
-        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
-        lm_rescore_config={
+        model=qwen2_sllm,
+        slm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
             "max_seqs": 32,
         },
-        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-        ctc_only_recog_version=10,
-        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
-        recog_version=12,
-        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        labelwise_prior=qwen2_vocab_prior,
+        prior_custom_vocab_convert_labels=_prior_convert_labels,
         first_pass_extra_config={
             "should_convert_labels_now_func": enable_every20,
             "should_fuse_now_func": enable_every20,
             # specific to the AM SPM that we have here...
             "convert_labels_func": convert_labels_func_spm,
+            "labelwise_prior_dim": "lm_vocab",
             "max_seqs": 32,
-            # "___debug": 2,  # add something new random to get new hashes for debugging
         },
+        first_pass_recog_beam_size=8,
     )
 
     # ------------------------------------------------------------------------------------------------------------------
