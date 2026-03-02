@@ -974,6 +974,23 @@ def py():
         },
     )
 
+    # Iter over beam sizes.
+    # So far, CTC+LLM seems better than CTC+SLLM.
+    # However, we used beam size 64 so far for CTC+LLM,
+    # and only beam size 4 for CTC+SLLM (which does not improve with larger beam size),
+    # so maybe that is the tradeoff?
+    for beam_size in [1, 2, 4, 8, 12, 16, 32, 64]:
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2-beamSize{beam_size}/qwen2-spm10k",
+            task=task,
+            ctc_model=am_20ep,
+            extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+            lm=qwen2_lm_spm10k,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+            recog_def=model_recog_with_recomb,
+            first_pass_recog_beam_size=beam_size,
+        )
+
     # TODO new prior on LM vocab but ASR transcriptions...
     # TODO not fixed interval but condition like in delayed fusion paper
     # TODO ASR prior but divide by num ASR labels, mult by num LM labels
