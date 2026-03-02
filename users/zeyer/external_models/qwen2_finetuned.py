@@ -177,7 +177,7 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
             # spm_model_path triggers updating the right weight matrices,
             # and vocab_dim is needed for the RF wrapper.
             "spm_model_path": vocab.model_file,
-            "vocab_dim": {"name": "loquacious_spm10k", "dimension": vocab.get_num_classes(), "vocab": vocab.get_opts()},
+            "vocab_dim": "target",
         },
     )
     get_model: ModelDef  # make compat
@@ -206,7 +206,7 @@ class Qwen2Model(rf.Module):
     def __init__(
         self,
         *,
-        vocab_dim: Dict[str, Any],
+        vocab_dim: Union[Dict[str, Any], str],
         in_dim: Optional[Dim] = None,
         target_dim: Optional[Dim] = None,
         epoch: Optional[int] = None,
@@ -226,18 +226,27 @@ class Qwen2Model(rf.Module):
         **_kwargs,
     ):
         """
-        :param vocab_dim: bind via functools.partial. the vocab dim of Qwen
+        :param vocab_dim:
         """
         super().__init__()
 
-        in_dim, target_dim, epoch  # noqa  # not used
+        in_dim, epoch  # noqa  # not used
 
         # This vocab_dim is what
         # i6_experiments.users.zeyer.decoding.lm_rescoring.lm_rescore_def and potentially other code
         # will use to get the EOS/BOS indices.
         # Such code might also check for the expected input of this module.
         # Also, such code might use it to extract the vocab, e.g. for serialization.
-        self.vocab_dim = Dim(**vocab_dim)
+        if isinstance(vocab_dim, str):
+            if vocab_dim == "target":
+                assert target_dim is not None, "if vocab_dim is 'target', then target_dim must be provided"
+                self.vocab_dim = target_dim
+            else:
+                raise ValueError(f"unexpected {vocab_dim=!r}")
+        elif isinstance(vocab_dim, dict):
+            self.vocab_dim = Dim(**vocab_dim)
+        else:
+            raise ValueError(f"unexpected {vocab_dim=!r} {type(vocab_dim)=}")
 
         if hf_hub_cache_dir is not None:
             hf_hub_cache_dir = os.fspath(hf_hub_cache_dir)  # Resolve Sis Path or so.
