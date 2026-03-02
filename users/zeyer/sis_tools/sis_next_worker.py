@@ -123,14 +123,19 @@ def main():
     gs.SKIP_IS_FINISHED_TIMEOUT = True
 
     logging.info("Runnable matching jobs:")
+    job_count = 0
     for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
         job: Job
         if is_job_match(job):
-            manager.get_job_info_string(gs.STATE_RUNNABLE, job)
+            logging.info(manager.get_job_info_string(gs.STATE_RUNNABLE, job))
+            job_count += 1
+
+    if job_count == 0:
+        logging.error("No matching runnable job found.")
+        sys.exit(1)
 
     manager.input("Press Enter to run those job, or Ctrl-C to cancel...")
 
-    job_count = 0
     # Same order as the manager shows them in the overview.
     for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
         job: Job
@@ -139,7 +144,6 @@ def main():
 
         # See Manager.run_jobs
         logging.info(f"Runnable matching job: {manager.get_job_info_string(gs.STATE_RUNNABLE, job)}")
-        job_count += 1
 
         logging.info("Setup.")
         job._sis_setup_directory()
@@ -158,10 +162,6 @@ def main():
 
         logging.info("All tasks finished. Check output.")
         manager.check_output(write_output=True)
-
-    if job_count == 0:
-        logging.error("No matching runnable job found.")
-        sys.exit(1)
 
     logging.info(f"Done. {job_count} matching jobs were run.")
 
