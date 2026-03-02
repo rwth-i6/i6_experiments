@@ -173,6 +173,8 @@ def main():
                 if finished:
                     continue
                 for task_id in task.task_ids():
+                    if task.finished(task_id):
+                        continue
                     logging.info(f"Run task {task.name()}.{task_id}")
                     call = task.get_worker_call(task_id=task_id)
                     run(*call)
