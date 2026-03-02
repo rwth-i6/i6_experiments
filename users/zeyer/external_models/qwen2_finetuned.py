@@ -234,6 +234,7 @@ def qwen2_speech_llm_finetuned() -> ModelWithCheckpoint:
     # get_model = __import__("functools").partial(
     #         __import__("speech_llm.prefix_lm.model.definitions.speech_lm", fromlist=["SpeechLmV2"]).SpeechLmV2,
     #        **{...})
+    # noinspection PyTypeChecker
     get_model = functools.partial(
         Qwen2Model,
         **{
@@ -291,7 +292,17 @@ def qwen2_speech_llm_finetuned() -> ModelWithCheckpoint:
         },
     )
 
-    # TODO speech_llm.prefix_lm.model.recognition.forward_step.forward_step_v2...
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 25
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 160  # audio
+    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+
+    checkpoint = make_path("i6_core/returnn/training/ReturnnTrainingJob.yyPJgiyLC0IR/output/models/epoch.025.pt")
+
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+    # TODO check speech_llm.prefix_lm.model.recognition.forward_step.forward_step_v2...
 
 
 class Qwen2Model(rf.Module):
