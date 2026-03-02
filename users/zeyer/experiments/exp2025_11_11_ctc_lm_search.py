@@ -462,6 +462,7 @@ def py():
         get_qwen2_lm_finetuned,
         get_qwen2_vocab,
         get_qwen2_lm_finetuned_loquacious_spm10k_vocab,
+        qwen2_speech_llm_finetuned,
     )
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
     from i6_experiments.users.zeyer.decoding.convert_labels import (
@@ -939,6 +940,8 @@ def py():
     # TODO...
     # search job für model mit multi-vocab:
     # /rwthfs/rz/cluster/hpcwork/p0023999/oz301122/sisyphus-work-dirs/2025_11_06_speech_llm/i6_core/returnn/forward/ReturnnForwardJobV2.ymdHhpt11mg6
+
+    qwen2_sllm = qwen2_speech_llm_finetuned()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Now the qwen2 LM finetuned with our ASR SPM10k vocab.

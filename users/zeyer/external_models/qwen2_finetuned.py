@@ -12,7 +12,7 @@ from returnn.util.basic import prod
 from sisyphus import Path
 
 from i6_core.returnn.training import PtCheckpoint
-from i6_experiments.common.utils.fake_job import make_fake_job
+from i6_experiments.common.utils.fake_job import make_fake_job, make_path
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
 from returnn_common.datasets_old_2022_10.interface import VocabConfigStatic
 
@@ -194,6 +194,74 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
     )
 
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+
+def qwen2_speech_llm_finetuned() -> ModelWithCheckpoint:
+    """
+    Qwen2 finetuned as speech LLM.
+    """
+    # search job für model mit multi-vocab:
+    # /rwthfs/rz/cluster/hpcwork/p0023999/oz301122/sisyphus-work-dirs/2025_11_06_speech_llm/i6_core/returnn/forward/ReturnnForwardJobV2.ymdHhpt11mg6
+    # TODO...
+
+    get_model = __import__("functools").partial(
+        __import__("speech_llm.prefix_lm.model.definitions.speech_lm", fromlist=["SpeechLmV2"]).SpeechLmV2,
+        **{
+            "encoder_opts": {
+                "class": "ConformerEncoderV1",
+                "enc_build_dict": {
+                    "class": "returnn.frontend.encoder.conformer.ConformerEncoder",
+                    "input_layer": {
+                        "class": "returnn.frontend.encoder.conformer.ConformerConvSubsample",
+                        "out_dims": [32, 64, 64],
+                        "filter_sizes": [(3, 3), (3, 3), (3, 3)],
+                        "pool_sizes": [(1, 2)],
+                        "strides": [(1, 1), (3, 1), (2, 1)],
+                    },
+                    "num_layers": 18,
+                    "out_dim": 1024,
+                    "encoder_layer": {
+                        "class": "returnn.frontend.encoder.conformer.ConformerEncoderLayer",
+                        "ff": {
+                            "class": "returnn.frontend.encoder.conformer.ConformerPositionwiseFeedForward",
+                            "activation": {"class": "rf.relu_square"},
+                            "with_bias": False,
+                        },
+                        "num_heads": 8,
+                    },
+                },
+                "sampling_rate": 16000,
+                "specaug_start": (5000, 15000, 25000),
+                "feature_batch_norm": True,
+            },
+            "adapter_opts": {
+                "class": "LinearAdapterWithConcatDownsampling",
+                "downsampling_factor": 2,
+            },
+            "decoder_opts": {
+                "class": "Qwen2DecoderV1",
+                # "hf_hub_cache_dir": "/rwthfs/rz/cluster/home/oz301122/experiments/2025_11_06_speech_llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.eP43CafWC8I4/output/hub_cache",
+                "hf_hub_cache_dir": make_path(
+                    "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.eP43CafWC8I4/output/hub_cache"
+                ),
+            },
+            "freeze_encoder_params": False,
+            "freeze_decoder_params": True,
+            "decoder_lora_opts": {
+                "target_modules": ["q_proj", "v_proj"],
+                "r": 320,
+                "lora_alpha": 16,
+                "lora_dropout": 0.1,
+                "bias": "none",
+                "use_rslora": True,
+            },
+            "encoder_lora_opts": None,
+            "aux_loss_layers": (16, 18),
+            "aux_loss_target_dims": [10240, None],
+        },
+    )
+
+    # TODO speech_llm.prefix_lm.model.recognition.forward_step.forward_step_v2...
 
 
 class Qwen2Model(rf.Module):
