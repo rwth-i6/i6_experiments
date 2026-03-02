@@ -471,10 +471,12 @@ def py():
         SearchOutputConvertLabelsJob,
     )
 
-    transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(
+    transcriptions_qwen2tok_dataset = get_loquacious_text_only_dataset_for_forward(
         vocab=get_qwen2_vocab(text_preprocess_lower_case=True, bpe_dropout=0.1)
     )
-    log_lm_vocab_log_prior = compute_label_prior_log_probs(transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24})
+    log_lm_vocab_log_prior = compute_label_prior_log_probs(
+        transcriptions_qwen2tok_dataset, forward_rqmt={"mem": 12, "time": 24}
+    )
     tk.register_output(f"{prefix}/lm/qwen2/lm_vocab_log_prior.txt", log_lm_vocab_log_prior)
     log_lm_vocab_log_prior = PriorLabelSmoothingJob(
         prior_file=log_lm_vocab_log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
@@ -482,13 +484,13 @@ def py():
     tk.register_output(f"{prefix}/lm/qwen2/lm_vocab_log_prior_smooth.txt", log_lm_vocab_log_prior)
 
     # for testing
-    transcriptions_dataset_small = get_loquacious_text_only_dataset_for_forward(
+    transcriptions_qwen2tok_dataset_small = get_loquacious_text_only_dataset_for_forward(
         vocab=get_qwen2_vocab(text_preprocess_lower_case=True, bpe_dropout=0.1),
         take_random_sorted_subset=5000,
         take_random_sorted_subset_version=2,
     )
     log_lm_vocab_log_prior_small = compute_label_prior_log_probs(
-        transcriptions_dataset_small, forward_rqmt={"mem": 12, "time": 24}
+        transcriptions_qwen2tok_dataset_small, forward_rqmt={"mem": 12, "time": 24}
     )
     tk.register_output(f"{prefix}/lm/qwen2/lm_vocab_log_prior_small.txt", log_lm_vocab_log_prior_small)
     log_lm_vocab_log_prior_small = PriorLabelSmoothingJob(
@@ -509,11 +511,11 @@ def py():
     qwen3_vocab_file = ExtractVocabLabelsJob(get_qwen3_vocab().get_opts()).out_vocab
     tk.register_output(f"{prefix}/lm/qwen3/vocab.txt.gz", qwen3_vocab_file)
 
-    transcriptions_dataset = get_loquacious_text_only_dataset_for_forward(
+    transcriptions_qwen3tok_dataset = get_loquacious_text_only_dataset_for_forward(
         vocab=get_qwen3_vocab(text_preprocess_lower_case=True, bpe_dropout=0.1)
     )
     log_qwen3_vocab_log_prior = compute_label_prior_log_probs(
-        transcriptions_dataset, forward_rqmt={"mem": 12, "time": 24}
+        transcriptions_qwen3tok_dataset, forward_rqmt={"mem": 12, "time": 24}
     )
     tk.register_output(f"{prefix}/lm/qwen3/lm_vocab_log_prior.txt", log_qwen3_vocab_log_prior)
     log_qwen3_vocab_log_prior = PriorLabelSmoothingJob(
