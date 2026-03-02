@@ -991,10 +991,8 @@ def py():
             first_pass_recog_beam_size=beam_size,
         )
 
-    # TODO new prior on LM vocab but ASR transcriptions...
     # TODO not fixed interval but condition like in delayed fusion paper
     # TODO ASR prior but divide by num ASR labels, mult by num LM labels
-    # TODO normal ASR prior also using counting on the train transcriptions
 
 
 _base_config = {
