@@ -239,6 +239,11 @@ class Qwen2Model(rf.Module):
         # Also, such code might use it to extract the vocab, e.g. for serialization.
         self.vocab_dim = Dim(**vocab_dim)
 
+        if hf_hub_cache_dir is not None:
+            hf_hub_cache_dir = os.fspath(hf_hub_cache_dir)  # Resolve Sis Path or so.
+        if spm_model_path is not None:
+            spm_model_path = os.fspath(spm_model_path)  # Resolve Sis Path or so.
+
         from speech_llm.prefix_lm.model.definitions.decoders.qwen import Qwen2DecoderV3
 
         model = Qwen2DecoderV3(
