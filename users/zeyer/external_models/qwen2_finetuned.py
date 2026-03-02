@@ -175,7 +175,7 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
             # It should exactly match our vocab.
             # "spm_model_path": vocab.model_file,
             # But anyway, provide it as vocab_dim:
-            "vocab_dim": {"name": "loquacious_spm10k", "vocab": vocab.get_opts()},
+            "vocab_dim": {"name": "loquacious_spm10k", "dimension": vocab.get_num_classes(), "vocab": vocab.get_opts()},
         },
     )
     get_model: ModelDef  # make compat
