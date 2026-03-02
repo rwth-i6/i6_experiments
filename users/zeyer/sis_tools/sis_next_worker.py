@@ -133,7 +133,7 @@ def main():
         # See Manager.run_jobs
         logging.info(f"Runnable matching job: {manager.get_job_info_string(gs.STATE_RUNNABLE, job)}")
         job_count += 1
-        manager.input("Press Enter to run this job, or Ctrl-C to skip it and continue with the next one...")
+        manager.input("Press Enter to run this job, or Ctrl-C to cancel...")
 
         logging.info("Setup.")
         job._sis_setup_directory()
