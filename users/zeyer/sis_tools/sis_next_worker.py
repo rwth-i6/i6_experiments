@@ -187,6 +187,8 @@ def main():
             break
 
         # After running all currently runnable jobs, check for new ones.
+        if not manager.continue_manager_loop():
+            break
         manager.job_engine.reset_cache()
         manager.update_jobs()
         manager.update_state_overview()
