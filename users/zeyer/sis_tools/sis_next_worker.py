@@ -66,6 +66,9 @@ def main():
         " If not given (default), all runnable jobs are considered.",
     )
     arg_parser.add_argument("--sis-binary", default="./sis", help="Path to the sis binary to use")
+    arg_parser.add_argument(
+        "--loop", action="store_true", help="Loop and check for new runnable jobs after finishing the current ones."
+    )
     args = arg_parser.parse_args()
 
     if not args.job_type:
@@ -145,32 +148,46 @@ def main():
 
     manager.input("Press Enter to run those job, or Ctrl-C to cancel...")
 
-    # Same order as the manager shows them in the overview.
-    for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
-        job: Job
-        if not is_job_match(job):
-            continue
+    while True:
+        cur_iter_job_count = 0
 
-        # See Manager.run_jobs
-        logging.info(f"Runnable matching job: {manager.get_job_info_string(gs.STATE_RUNNABLE, job)}")
-
-        logging.info("Setup.")
-        job._sis_setup_directory()
-        logging.info("Create aliases.")
-        create_aliases([job])
-
-        for task in job._sis_tasks():
-            finished = task.finished()
-            logging.info(f"Task: {task.name()} {finished=}")
-            if finished:
+        # Same order as the manager shows them in the overview.
+        for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
+            job: Job
+            if not is_job_match(job):
                 continue
-            for task_id in task.task_ids():
-                logging.info(f"Run task {task.name()}.{task_id}")
-                run(sys.executable, args.sis_binary, "worker", job._sis_path(), task.name(), str(task_id))
-                assert task.finished(task_id)
 
-        logging.info("All tasks finished. Check output.")
-        manager.check_output(write_output=True)
+            # See Manager.run_jobs
+            logging.info(f"Runnable matching job: {manager.get_job_info_string(gs.STATE_RUNNABLE, job)}")
+            job_count += 1
+            cur_iter_job_count += 1
+
+            logging.info("Setup.")
+            job._sis_setup_directory()
+            logging.info("Create aliases.")
+            create_aliases([job])
+
+            for task in job._sis_tasks():
+                finished = task.finished()
+                logging.info(f"Task: {task.name()} {finished=}")
+                if finished:
+                    continue
+                for task_id in task.task_ids():
+                    logging.info(f"Run task {task.name()}.{task_id}")
+                    run(sys.executable, args.sis_binary, "worker", job._sis_path(), task.name(), str(task_id))
+                    assert task.finished(task_id)
+
+            logging.info("All tasks finished. Check output.")
+            manager.check_output(write_output=True)
+
+        if not args.loop or cur_iter_job_count == 0:
+            break
+
+        # After running all currently runnable jobs, check for new ones.
+        manager.job_engine.reset_cache()
+        manager.update_jobs()
+        manager.update_state_overview()
+        manager.print_state_overview()
 
     logging.info(f"Done. {job_count} matching jobs were run.")
 
