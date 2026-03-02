@@ -41,6 +41,7 @@ def main():
     import sisyphus.logging_format
     from sisyphus.loader import config_manager
     import sisyphus.toolkit as tk
+    import sisyphus
     from sisyphus import Job
     from sisyphus import gs
     from sisyphus.manager import Manager, create_aliases
@@ -58,11 +59,17 @@ def main():
         " or a regex to match the job id."
         " If not given (default), all runnable jobs are considered.",
     )
-    arg_parser.add_argument("--sis-binary", default="./sis", help="Path to the sis binary to use")
+    arg_parser.add_argument("--sis-command", help="Sisyphus command (gs.SIS_COMMAND). can automatically be inferred")
     arg_parser.add_argument(
         "--loop", action="store_true", help="Loop and check for new runnable jobs after finishing the current ones."
     )
     args = arg_parser.parse_args()
+
+    if args.sis_command:
+        gs.SIS_COMMAND = args.sis_command.split()
+    else:
+        gs.SIS_COMMAND = [sys.executable, os.path.normpath(os.path.dirname(sisyphus.__file__) + "/../sis")]
+    logging.info(f"Using Sisyphus command: {gs.SIS_COMMAND}")
 
     if not args.job_type:
         is_job_match = lambda job: True
@@ -167,7 +174,8 @@ def main():
                     continue
                 for task_id in task.task_ids():
                     logging.info(f"Run task {task.name()}.{task_id}")
-                    run(sys.executable, args.sis_binary, "worker", job._sis_path(), task.name(), str(task_id))
+                    call = task.get_worker_call(task_id=task_id)
+                    run(*call)
                     assert task.finished(task_id)
 
             logging.info("All tasks finished. Check output.")
