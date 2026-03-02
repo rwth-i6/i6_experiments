@@ -204,8 +204,11 @@ def qwen2_speech_llm_finetuned() -> ModelWithCheckpoint:
     # /rwthfs/rz/cluster/hpcwork/p0023999/oz301122/sisyphus-work-dirs/2025_11_06_speech_llm/i6_core/returnn/forward/ReturnnForwardJobV2.ymdHhpt11mg6
     # TODO...
 
-    get_model = __import__("functools").partial(
-        __import__("speech_llm.prefix_lm.model.definitions.speech_lm", fromlist=["SpeechLmV2"]).SpeechLmV2,
+    # get_model = __import__("functools").partial(
+    #         __import__("speech_llm.prefix_lm.model.definitions.speech_lm", fromlist=["SpeechLmV2"]).SpeechLmV2,
+    #        **{...})
+    get_model = functools.partial(
+        Qwen2Model,
         **{
             "encoder_opts": {
                 "class": "ConformerEncoderV1",
