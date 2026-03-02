@@ -14,7 +14,6 @@ import threading
 from functools import reduce
 from typing import TypeVar
 import subprocess as sp
-import textwrap
 import better_exchook
 
 
@@ -48,13 +47,7 @@ def main():
     from i6_core.returnn.training import ReturnnTrainingJob
     from i6_core.returnn.forward import ReturnnForwardJobV2, ReturnnForwardJob
 
-    # First line in cleanup_unused.__doc__ indentation is broken...
-    cleanup_unused_doc_lines = tk.cleaner.cleanup_unused.__doc__.splitlines()
-    cleanup_unused_doc = cleanup_unused_doc_lines[0] + "\n" + textwrap.dedent("\n".join(cleanup_unused_doc_lines[1:]))
-    arg_parser = argparse.ArgumentParser(
-        description=f"{__doc__}\n\ntk.cleaner.cleanup_unused:\n\n{cleanup_unused_doc}",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    arg_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     arg_parser.add_argument("config")
     arg_parser.add_argument("--log-level", type=int, default=20)
     arg_parser.add_argument(
