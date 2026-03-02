@@ -934,6 +934,13 @@ def py():
     )
 
     # ------------------------------------------------------------------------------------------------------------------
+    # qwen2 as speech LLM, with qwen vocab, together with CTC with ASR vocab
+
+    # TODO...
+    # search job für model mit multi-vocab:
+    # /rwthfs/rz/cluster/hpcwork/p0023999/oz301122/sisyphus-work-dirs/2025_11_06_speech_llm/i6_core/returnn/forward/ReturnnForwardJobV2.ymdHhpt11mg6
+
+    # ------------------------------------------------------------------------------------------------------------------
     # Now the qwen2 LM finetuned with our ASR SPM10k vocab.
 
     qwen2_lm_spm10k = get_qwen2_lm_finetuned_loquacious_spm10k_vocab()
