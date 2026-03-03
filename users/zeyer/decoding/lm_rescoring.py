@@ -109,6 +109,8 @@ def lm_labelwise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+    # all the remainings are not given, and you might want to bind them via functools.partial
     orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
     lm_scale: Union[float, tk.Variable, DelayedBase],
@@ -119,7 +121,6 @@ def lm_labelwise_prior_rescore(
     prior: Optional[Prior] = None,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     prior_custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None,
-    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
     With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
