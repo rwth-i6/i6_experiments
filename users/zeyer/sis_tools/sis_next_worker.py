@@ -65,23 +65,6 @@ def main():
     )
     args = arg_parser.parse_args()
 
-    if args.sis_command:
-        gs.SIS_COMMAND = args.sis_command.split()
-    else:
-        gs.SIS_COMMAND = [sys.executable, os.path.normpath(os.path.dirname(sisyphus.__file__) + "/../sis")]
-    logging.info(f"Using Sisyphus command: {gs.SIS_COMMAND}")
-
-    if not args.job_type:
-        is_job_match = lambda job: True
-    elif args.job_type == "returnn":
-        job_types = (ReturnnForwardJobV2, ReturnnForwardJob, ReturnnTrainingJob)
-        is_job_match = lambda job: isinstance(job, job_types)
-    elif args.job_type == "returnn-forward":
-        job_types = (ReturnnForwardJobV2, ReturnnForwardJob)
-        is_job_match = lambda job: isinstance(job, job_types)
-    else:
-        is_job_match = lambda job: re.search(args.job_type, job._sis_id(), re.IGNORECASE)
-
     # See Sisyphus __main__ for reference.
 
     sisyphus.logging_format.add_coloring_to_logging()
@@ -91,6 +74,12 @@ def main():
     better_exchook.replace_traceback_format_tb()
 
     config_manager.load_configs(args.config)
+
+    if args.sis_command:
+        gs.SIS_COMMAND = args.sis_command.split()
+    else:
+        gs.SIS_COMMAND = [sys.executable, os.path.normpath(os.path.dirname(sisyphus.__file__) + "/../sis")]
+    logging.info(f"Using Sisyphus command: {gs.SIS_COMMAND}")
 
     sis_graph = tk.sis_graph
     job_engine = tk.cached_engine()
@@ -132,7 +121,19 @@ def main():
     maybe_clear_state(gs.STATE_ERROR, manager.clear_errors_once, clear_error)
     maybe_clear_state(gs.STATE_INTERRUPTED_NOT_RESUMABLE, manager.clear_interrupts_once, clear_interrupted)
 
+    # See Task.finished
     gs.SKIP_IS_FINISHED_TIMEOUT = True
+
+    if not args.job_type:
+        is_job_match = lambda job: True
+    elif args.job_type == "returnn":
+        job_types = (ReturnnForwardJobV2, ReturnnForwardJob, ReturnnTrainingJob)
+        is_job_match = lambda job: isinstance(job, job_types)
+    elif args.job_type == "returnn-forward":
+        job_types = (ReturnnForwardJobV2, ReturnnForwardJob)
+        is_job_match = lambda job: isinstance(job, job_types)
+    else:
+        is_job_match = lambda job: re.search(args.job_type, job._sis_id(), re.IGNORECASE)
 
     logging.info("Runnable matching jobs:")
     job_count = 0
