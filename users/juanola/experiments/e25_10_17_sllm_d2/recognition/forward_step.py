@@ -296,36 +296,32 @@ def prior_step_v1(
         *,
         model: BaseEncoderDecoderModel,
         extern_data: TensorDict,
+
         aux_layer_idx: int = -1,
         **kwargs,
 ):
     """
     From Robins code (SLLM repo)
     """
-    from returnn.config import get_global_config
+    data_: ReturnnTensor = extern_data["data"]
+    data: Tensor = data_.raw_tensor
+    seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
-    config = get_global_config(return_empty_if_none=True)
-
-    data_key = config.value("default_data_key", "audio")
-    data_ = extern_data[data_key]
-    if data_.feature_dim and data_.feature_dim.dimension == 1:
-        data_ = rf.squeeze(data_, axis=data_.feature_dim)
-    data = data_.raw_tensor
-    seq_len = extern_data[data_key].dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
-
-    _, aux_log_probs, _, _, encoder_lens = model.forward(
+    _, aux_log_probs, encoder_lens = model.forward_encoder(
         data,
         seq_len,
+        initial_beam_size=1, # Not really needed...
     )
 
     ctc_log_probs = aux_log_probs[aux_layer_idx]
     ctc_probs = torch.exp(ctc_log_probs)
 
-    vocab_dim = Dim(model.wb_target_dim, name="vocab")
+    #vocab_dim = Dim(model.num_labels, name="vocab")
+    extended_vocab_dim = Dim(model.num_labels+1, name="extended_vocab")
     lens_data = rf.convert_to_tensor(encoder_lens, dims=[batch_dim])
     time_dim = Dim(lens_data, name="seq_len")
 
-    ctc_probs = rf.convert_to_tensor(ctc_probs, dims=[batch_dim, time_dim, vocab_dim], feature_dim=vocab_dim)
+    ctc_probs = rf.convert_to_tensor(ctc_probs, dims=[batch_dim, time_dim, extended_vocab_dim], feature_dim=extended_vocab_dim)
 
     ctx = rf.get_run_ctx()
-    ctx.mark_as_output(ctc_probs, "output", dims=[batch_dim, time_dim, vocab_dim])
+    ctx.mark_as_output(ctc_probs, "output", dims=[batch_dim, time_dim, extended_vocab_dim])

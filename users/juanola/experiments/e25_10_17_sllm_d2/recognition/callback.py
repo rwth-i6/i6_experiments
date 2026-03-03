@@ -1,5 +1,6 @@
 __all__ = ["RecognitionToTextDictCallback"]
 
+from typing import Optional
 
 import numpy as np
 
@@ -7,6 +8,8 @@ from i6_core.util import uopen
 from returnn.datasets.util.vocabulary import Vocabulary
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor import TensorDict
+from returnn.tensor import Tensor
+from returnn.util.basic import Stats
 
 
 class RecognitionToTextDictCallback(ForwardCallbackIface):

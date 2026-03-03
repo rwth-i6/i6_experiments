@@ -20,6 +20,7 @@ from ...configurations.pipeline.prior_config import PriorConfig
 from ...configurations.pipeline.search_config import SearchConfig
 from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
+from ...recognition.forward_step import prior_step_v1
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -35,13 +36,13 @@ def create_tune_and_evaluate_jobs(
     search_config: SearchConfig,
     train_data: TrainingDatasets,
     dev_dataset_tuples: Dict[str, Any],
+        prior_network_import_path: str = None,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     specific_epochs: Optional[Iterable[int]] = None,
     run_best_4: bool = True,
     run_best: bool = True,
     run_test: bool = False,
     run_test_in_intermediate_epochs: bool = False,
-    prior_args: Optional[Dict[str, Any]] = None,  # TODO: remove, if needed in config
 ) -> Dict[str, Any]:
     """
     Run evaluation jobs for different trained models
@@ -85,8 +86,10 @@ def create_tune_and_evaluate_jobs(
             network_import_path,
             net_args,
             search_config.prior,
-            prior_args=prior_args,
             datasets=train_data,
+            vocab_opts=train_data.train.dataset.target_options, # TODO! check
+            forward_module=RECOGNITION_PACKAGE,
+            prior_network_import_path=prior_network_import_path,
         )
 
         res = tune_and_evaluate_model(
@@ -110,7 +113,6 @@ def create_tune_and_evaluate_jobs(
             dev_dataset_tuples,
             net_args,
             network_import_path,
-            prior_args,
             run_test,
             search_config,
             specific_epochs,
@@ -128,7 +130,6 @@ def evaluate_greedy_ctc(
     dev_dataset_tuples: dict[str, Any],
     net_args: dict[str, Any],
     network_import_path: str,
-    prior_args: dict[str, Any] | None,
     run_test: bool,
     search_config: SearchConfig,
     specific_epochs: Iterable[int] | Any,
@@ -151,8 +152,8 @@ def evaluate_greedy_ctc(
         network_import_path,
         net_args,
         search_config.prior,
-        prior_args=prior_args,
         datasets=train_data,
+        prior_network_import_path=None, # TODO
     )
 
     _, wers = search(
@@ -190,9 +191,11 @@ def prepare_asr_model(
     network_import_path: str,
     net_args,
     prior_config: PriorConfig,
-    prior_args: Dict[str, Any] = None,
-    prior_returnn_config: Optional[Dict[str, Any]] = None,
-    datasets: Optional[TrainingDatasets] = None
+
+    datasets: Optional[TrainingDatasets] = None,
+    vocab_opts: Dict = None,
+        forward_module: str = None,
+        prior_network_import_path: str = None,
 ) -> ASRModel:
     """
     :param checkpoint_name:
@@ -204,31 +207,28 @@ def prepare_asr_model(
     :param Optional: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
     :return:
     """
-    assert prior_args is None or datasets is not None
-    assert prior_args is None or Optional is not None
+    prior_file = None
 
-    if prior_args is not None:
-        returnn_config = get_prior_config(
+    if prior_config is not None: # Compute prior
+        prior_step_returnn_config = get_prior_config(
             training_datasets=datasets,
-            network_import_path=prior_args["network_import_path"],
-            config=prior_returnn_config if prior_returnn_config is not None else {},
-            net_args=prior_args["net_args"],
-            unhashed_net_args=prior_args.get("unhashed_net_args", None),
-            debug=prior_args.get("debug", False),
-            batch_size=prior_config.batch_size,
+
+            network_import_path=prior_network_import_path, # TODO: check this
+            net_args=net_args, # TODO: check this
+            vocab_opts=vocab_opts,
+            forward_module = forward_module,
+
+            prior_config=prior_config
         )
         prior_file = compute_prior(
             checkpoint_name,
-            returnn_config,
+            prior_step_returnn_config,
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
             returnn_root=RETURNN_ROOT,
         )
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
-    else:
-        prior_file = None
-        if prior_returnn_config is not None:
-            raise ValueError("prior_config can only be set if with_prior is True")
+
 
     return ASRModel(
         checkpoint=checkpoint,

@@ -84,6 +84,7 @@ def serialize_forward(
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     forward_module: Optional[str] = None,
     forward_step_name: str = "forward_step",
+    callback_name: str = "RecognitionToTextDictCallback",
     include_native_ops=False,
     debug: bool = False,
     forward_method: Optional[str] = None,
@@ -141,13 +142,25 @@ def serialize_forward(
     assert vocab_opts["class"] == "SentencePieces"
     spm_model_file = vocab_opts["model_file"]
     vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
-    callback = PartialImport(
-        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.RecognitionToTextDictCallback",
-        unhashed_package_root=None,
-        import_as="forward_callback",
-        hashed_arguments={"vocab": vocab_file},
-        unhashed_arguments={},
-    )
+
+    if callback_name == "RecognitionToTextDictCallback":
+        callback = PartialImport(
+            code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.{callback_name}",
+            unhashed_package_root=None,
+            import_as="forward_callback",
+            hashed_arguments={"vocab": vocab_file},
+            unhashed_arguments={},
+        )
+    elif callback_name == "ReturnnCollectStatsForwardCallbackV1":
+        callback = PartialImport(
+            code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.{callback_name}",
+            unhashed_package_root=None,
+            import_as="forward_callback",
+            hashed_arguments={},
+            unhashed_arguments={},
+        )
+    else:
+        raise ValueError(f"Unknown callback name: {callback_name}")
 
     serializer_objects.extend([forward_step, callback])
 

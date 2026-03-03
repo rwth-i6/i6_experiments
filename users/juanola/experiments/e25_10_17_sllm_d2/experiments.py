@@ -151,12 +151,15 @@ def sllm_ep(
             if search_config.forward_method == "forward_step_ctc_decoding_v2":
                 network_import_path_for_forward_step = "networks.sllm_with_ext_modules.SllmV4"
 
+            prior_network_path = network_import_path if network_import_path != "networks.conformer_qwen_v1.Model" else "networks.conformer_qwen_v2.SllmV2"
+
             assert network_import_path_for_forward_step != "networks.conformer_qwen_v1.Model", f"Running a recognition with model V1!! Beam seach does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
 
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
                 training_name=forward_training_name,
                 train_job=train_job,
                 network_import_path=network_import_path_for_forward_step,
+                prior_network_import_path=prior_network_path,
                 net_args=copy.deepcopy(network_args),
                 search_config=search_config,
                 train_data=training_datasets,

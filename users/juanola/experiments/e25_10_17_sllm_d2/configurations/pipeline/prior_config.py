@@ -9,9 +9,12 @@ class PriorConfig:
     Can contain default values.
     """
 
+    batch_size_factor: int
     batch_size: int
 
     forward_method: str
+
+    debug_returnn_param: bool = True
 
     def __post_init__(self):
         """
@@ -27,6 +30,7 @@ Specific configurations set below.
 
 def prior_v1() -> PriorConfig:
     return PriorConfig(
+        batch_size_factor=500,
         batch_size=16_000,
         forward_method="prior_step_v1"
     )

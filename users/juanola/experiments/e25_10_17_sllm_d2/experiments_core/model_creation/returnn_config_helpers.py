@@ -10,6 +10,7 @@ from i6_experiments.common.setups.returnn.serialization import get_serializable_
 from i6_experiments.common.setups.serialization import PartialImport
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from .returnn_config_serializer import serialize_training, serialize_forward
+from ...configurations.pipeline.prior_config import PriorConfig
 from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
 
 
@@ -118,13 +119,15 @@ def get_training_config(
 
 
 def get_prior_config(
-        training_datasets: TrainingDatasets,  # TODO: replace by single dataset
+        training_datasets: TrainingDatasets,
         network_import_path: str,
-        config: Dict[str, Any],
         net_args: Dict[str, Any],
+        prior_config: PriorConfig,
+        vocab_opts: Dict,
+        forward_module: str,
+
+        config: Dict[str, Any] = {},
         unhashed_net_args: Optional[Dict[str, Any]] = None,
-        debug: bool = False,
-        batch_size: int = 16_000,
 ):
     """
     Get a generic config for extracting output label priors
@@ -138,11 +141,10 @@ def get_prior_config(
     """
 
     # RC - CONFIG
-    prior_batch_size_factor = 500 # TODO: fix this
     base_config = {
-        "batch_size": prior_batch_size_factor * batch_size,
+        "batch_size": prior_config.batch_size_factor * prior_config.batch_size,
         "max_seqs": 240,
-        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
+        "forward_data": copy.deepcopy(training_datasets.train.as_returnn_opts()), # over train!!
     }
     config = {**base_config, **copy.deepcopy(config)}
 
@@ -153,20 +155,24 @@ def get_prior_config(
         "forward_auto_split_batch_on_oom": True,
     }
 
-    forward_step_params = {#TODO: remove
-        "beam_size": 12, #TODO: fix this!
-        "max_tokens_per_sec": 20,
-        "sample_rate": 16_000,
-    }
+    forward_step_params = {}
 
     # RC - PYTHON EPILOG
-    serializer = serialize_forward(  # TODO: fix this! 2 more params are needed
+    extern_data = {
+        DATA_PARAM_NAME: {"dim": 1},
+    }
+    serializer = serialize_forward(
         network_import_path=network_import_path,
         net_args=net_args,
+        extern_data=extern_data,
+        vocab_opts=vocab_opts,
+
         unhashed_net_args=unhashed_net_args,
-        forward_step_name="prior_step_v1",
-        debug=debug,
+        forward_module=forward_module,
+        forward_method=prior_config.forward_method,
+        debug=prior_config.debug_returnn_param,
         forward_args=forward_step_params,
+        callback_name="ReturnnCollectStatsForwardCallbackV1",
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])

@@ -59,9 +59,6 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
-    if "hubert_tune_v2" in prefix_name:
-        search_job.rqmt["time"] += 12
-        search_job.rqmt["gpu_mem"] = 24
     search_job.add_alias(f"{prefix_name}/prior_job")
     return search_job.out_files["prior.txt"]
 

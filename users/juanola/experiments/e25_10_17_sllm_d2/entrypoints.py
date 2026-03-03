@@ -368,7 +368,7 @@ def e3v5_s2():
     ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2])#, itc_training=True)
 
 def e3v5_s2v2():
-    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER_S2V2])#, itc_training=True)
 
 
 def e3v10_3_s2():
