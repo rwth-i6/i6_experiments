@@ -177,7 +177,20 @@ def main():
                     if task.finished(task_id):
                         continue
                     logging.info(f"Run task {task.name()}.{task_id}")
-                    call = task.get_worker_call(task_id=task_id)
+                    # Replicate Task.get_worker_call but slightly adapted,
+                    # to add the --redirect_output flag before _sis_worker_wrapper.
+                    if isinstance(gs.SIS_COMMAND, list):
+                        call = gs.SIS_COMMAND[:]
+                    else:
+                        call = gs.SIS_COMMAND.split()
+                    call += [
+                        gs.CMD_WORKER,
+                        os.path.relpath(task.path()),
+                        task.name(),
+                        str(task_id),
+                        "--redirect_output",
+                    ]
+                    call = job._sis_worker_wrapper(job, task.name(), call)
                     run(*call)
                     assert task.finished(task_id)
 
