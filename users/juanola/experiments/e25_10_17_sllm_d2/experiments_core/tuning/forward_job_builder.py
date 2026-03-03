@@ -10,22 +10,19 @@ from typing import Any, Dict, Tuple, List, Optional
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
 from i6_core.returnn import PtCheckpoint
-from i6_core.returnn.config import ReturnnConfig, CodeWrapper
+from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchOutputRawReplaceJob
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.users.juanola.sisyphus_jobs.prior.ComputePriorWithoutBlank import ComputePriorWithoutBlank
 from sisyphus import tk, job_path
 from ..model_creation.returnn_config_helpers import get_forward_config
 from ..tuning.asr_model import ASRModel
 from ...configurations.pipeline.search_config import SearchConfig
-from ...configurations.pretrained_models import get_encoder_checkpoint, get_decoder_checkpoint, \
-    get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
+from ...configurations.pretrained_models import get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
 from ...default_tools import SCTK_BINARY_PATH
 from ...utils_network_args import get_network_args
-from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
-from i6_experiments.common.setups.serialization import PartialImport
-
 
 
 @tk.block()
@@ -57,10 +54,16 @@ def compute_prior(
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["prior.txt"],
+        output_files=["prior.mean.txt", "prior.std_dev.txt", "prior.min.txt", "prior.max.txt", "prior.info.txt"], # From Stats object
     )
     search_job.add_alias(f"{prefix_name}/prior_job")
-    return search_job.out_files["prior.txt"]
+
+    remove_blank_job = ComputePriorWithoutBlank(
+        tensor_file = search_job.out_files["prior.mean.txt"],
+        blank_idx = -1,
+    )
+
+    return remove_blank_job.out_tensor
 
 
 @tk.block()

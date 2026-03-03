@@ -79,4 +79,4 @@ class ReturnnCollectStatsForwardCallbackV1(ForwardCallbackIface):
         self.stats.collect(out.raw_tensor)
 
     def finish(self):
-        self.stats.dump("stats")
+        self.stats.dump(output_file_prefix="prior")
