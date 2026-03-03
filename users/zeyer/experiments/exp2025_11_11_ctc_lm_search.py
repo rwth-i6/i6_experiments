@@ -462,7 +462,6 @@ def py():
         get_qwen2_lm_finetuned,
         get_qwen2_vocab,
         get_qwen2_lm_finetuned_loquacious_spm10k_vocab,
-        qwen2_speech_llm_finetuned,
         get_qwen3_vocab,
     )
     from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
@@ -950,37 +949,6 @@ def py():
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,
         },
-    )
-
-    # ------------------------------------------------------------------------------------------------------------------
-    # qwen2 as speech LLM, with qwen vocab, together with CTC with ASR vocab
-
-    from speech_llm.prefix_lm.sis_recipe.exp2026_03_01_asr_prefix_lm_recog_albert import (
-        ctc_slm_labelwise_prior_recog_time_sync_recomb_auto_scale,
-    )
-
-    qwen2_sllm = qwen2_speech_llm_finetuned()
-
-    ctc_slm_labelwise_prior_recog_time_sync_recomb_auto_scale(
-        prefix=f"{prefix}/slm/qwen2-sllm/delayed-fusion-qwenPrior-every20-beamSize8",
-        task=task,
-        model=qwen2_sllm,
-        slm_rescore_config={
-            "default_data_convert_labels_func": convert_labels_func_spm,
-            "chunk_size_for_lm_rescoring": 16,
-            "max_seqs": 32,
-        },
-        labelwise_prior=qwen2_vocab_prior,
-        prior_custom_vocab_convert_labels=_prior_convert_labels_spm_lower_case_qwen2,
-        first_pass_extra_config={
-            "should_convert_labels_now_func": enable_every20,
-            "should_fuse_now_func": enable_every20,
-            # specific to the AM SPM that we have here...
-            "convert_labels_func": convert_labels_func_spm,
-            "labelwise_prior_dim": "lm_vocab",
-            "max_seqs": 32,
-        },
-        first_pass_recog_beam_size=8,
     )
 
     # ------------------------------------------------------------------------------------------------------------------
