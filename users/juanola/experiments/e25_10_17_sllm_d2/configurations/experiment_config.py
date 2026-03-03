@@ -201,6 +201,7 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
         search=[  # TODO: uncomment!
             # search_baseline_v2(),
             # search_baseline_ctc_greedy_decoding(),
+
             # search_baseline_ctc_decoding_11gb(),
             # search_baseline_ctc_decoding_11gb_v2( #TODO:...
             #      ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
@@ -239,12 +240,13 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             # ),
 
             replace(
-                search_baseline_ctc_decoding_11gb_v2(  # WORKS
+                search_baseline_ctc_decoding_11gb_v2(
                     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
                 ),
                 lm_scales=[0.1],
-                sllm_scales=[0.0, 1.0],
+                sllm_scales=[0.0],
                 ctc_scales=[1.0],
+                prior_scales=[0.5],
             ),
 
         ],

@@ -173,6 +173,8 @@ def forward_step_ctc_decoding_v2(
         lm_scale: float = 0.0,
         sllm_scale: float = 0.0,
 
+        prior_file: Optional[str] = None,
+
         ctc_soft_collapse_threshold: Optional[float] = None,
         ctc_top_k_pruning: Optional[int] = None,
         ctc_top_k_pruning_reduce_func: str = "mean",
@@ -188,6 +190,9 @@ def forward_step_ctc_decoding_v2(
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
+    if prior_file is not None:
+        labelwise_prior = torch.load(prior_file).to(dtype=data.dtype, device=data.device)
+
     seq_targets_rf, seq_log_prob_rf, lens_dim, beam_dim = ctc_label_sync_search_v2(
         model=model,
         data=data,
@@ -200,6 +205,7 @@ def forward_step_ctc_decoding_v2(
         prior_scale=prior_scale,
         external_lm_scale=lm_scale,
         sllm_scale=sllm_scale,
+        labelwise_prior=labelwise_prior,
     )
 
     ctx = rf.get_run_ctx()

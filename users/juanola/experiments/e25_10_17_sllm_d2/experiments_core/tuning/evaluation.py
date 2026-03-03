@@ -87,10 +87,12 @@ def create_tune_and_evaluate_jobs(
             net_args,
             search_config.prior,
             datasets=train_data,
-            vocab_opts=train_data.train.dataset.target_options, # TODO! check
+            vocab_opts=train_data.train.dataset.target_options,
             forward_module=RECOGNITION_PACKAGE,
             prior_network_import_path=prior_network_import_path,
         )
+
+        # TODO: add possibility for automatic tunning method!
 
         res = tune_and_evaluate_model(
             evaluation_name,
@@ -280,7 +282,8 @@ def tune_and_evaluate_model(
                             continue  # This can be computed with CTC greedy more efficiently!
 
                         forward_args, search_name = get_forward_step_parameters_and_search_name(
-                            search_config, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale, sllm_scale
+                            search_config, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale, sllm_scale,
+                            prior_file=asr_model.prior_file
                         )
 
                         _, wers = search(
@@ -357,6 +360,8 @@ def get_forward_step_parameters_and_search_name(
     ctc_scale: Union[float, Variable] = None,
     sllm_scale: Union[float, Variable] = None,
     for_test: bool = False,
+
+    prior_file:Optional[tk.Path]=None
 ) -> tuple[dict[str, Any], str]:
     """
     TODO: strings could be use for testing with DelayedFormating, but further changes in the code would be needed...
@@ -399,6 +404,8 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning": None,
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
+        # TODO: add prior
+
         search_name = (
             f"{evaluation_name}/v3_optimal_params"
             if for_test
@@ -421,6 +428,12 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning": None,
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
+
+        if prior_scale != 0:
+            if prior_file is None:
+                raise ValueError(f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({prior_scale})")
+            forward_args["prior_file"] = prior_file
+
         # TODO: make the name depend on the external ctc + lm checkpoints
         search_name = (
             f"{evaluation_name}/{prefix}_optimal_params"

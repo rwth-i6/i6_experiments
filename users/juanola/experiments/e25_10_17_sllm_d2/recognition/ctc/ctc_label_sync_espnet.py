@@ -320,6 +320,8 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         prior_scale: float = 0.0,  # TODO: unused
         sllm_scale: float = 0.0,
         external_lm_scale: float = 0.0,
+
+        labelwise_prior: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Adds external LM
@@ -471,8 +473,6 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     ended = rf.constant(False, dims=[ctc_beam_dim] + batch_dims)
     out_seq_len = rf.constant(0, dims=[ctc_beam_dim] + batch_dims)
 
-    labelwise_prior: Optional[rf.Parameter] = getattr(model, "labelwise_prior", None)
-
     max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)
 
     # TODO: wrap in conditionals
@@ -523,6 +523,10 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
             )
 
         targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
+
+        # --- PRIOR RE-SCORING ---
+        if labelwise_prior is not None:
+            label_log_prob -= prior_scale * labelwise_prior
 
         # --- SLLM DECODER SCORING ---
         if sllm_scale > 0:  # Added to avoid calling decoder if using the forward pass as a CTC greedy recognition
@@ -607,10 +611,6 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
 
             # MERGE POINT 2: Add External LM to the accumulation
             label_log_prob += ext_log_probs
-
-        # --- PRIOR SCORING ??? ---
-        if labelwise_prior is not None:
-            label_log_prob -= labelwise_prior  # prior scale already applied
 
         # Filter out finished beams
         label_log_prob = rf.where(
