@@ -39,5 +39,8 @@ def beam_search_multiple_beams() -> BeamSearchConfig:
 def greedy() -> BeamSearchConfig:
     return BeamSearchConfig(beam_sizes=[1])
 
+def single_beam(beam: int) -> BeamSearchConfig:
+    return BeamSearchConfig(beam_sizes=[beam])
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

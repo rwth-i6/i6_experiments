@@ -139,17 +139,18 @@ def search(
 
         if search_config.ext_decoder is not None:
             net_args["external_lm_args"] = get_network_args(search_config.ext_decoder["network_config"], search_config.ext_decoder["label_config"])
-            preloading[f"EXT_DECODER-{search_config.ext_decoder['checkpoint_key']}"] = {
-                "filename": get_decoder_checkpoint_from_str(search_config.ext_decoder["checkpoint_key"]),
-                "prefix": "external_lm.",
-                "init_for_train": False,
-                "ignore_missing": True,
-                "ignore_params_prefixes": ["external_ctc.", "encoder", "mel_frontend"], # , "external_lm.decoder.model.embed_tokens"
-                #"var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
-                #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
-            }
+            if not search_config.ext_decoder_no_preloading:
+                preloading[f"EXT_DECODER-{search_config.ext_decoder['checkpoint_key']}"] = {
+                    "filename": get_decoder_checkpoint_from_str(search_config.ext_decoder["checkpoint_key"]),
+                    "prefix": "external_lm.",
+                    "init_for_train": False,
+                    "ignore_missing": True,
+                    "ignore_params_prefixes": ["external_ctc.", "encoder", "mel_frontend"], # , "external_lm.decoder.model.embed_tokens"
+                    #"var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
+                    #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
+                }
         else:
-            assert "external_lm_args" not in net_args, "Seach is not using external lm but net arguments are provided!"
+            assert "external_lm_args" not in net_args, "Search is not using external lm but net arguments are provided!"
 
             # qwen_load_lora_adapted_weights = PartialImport(
             #     code_object_path="i6_experiments.users.juanola.pretraining.custom_missing_load_functions.adapt_extern_decoder_embedding",

@@ -325,3 +325,159 @@ def prior_step_v1(
 
     ctx = rf.get_run_ctx()
     ctx.mark_as_output(ctc_probs, "output", dims=[batch_dim, time_dim, extended_vocab_dim])
+
+
+"""
+TESTS
+"""
+
+# def debug_ext_lm(
+#         *,
+#         model: SllmV4,
+#         extern_data: TensorDict,
+#
+#         **kwargs,
+# ):
+#     """
+#     Diagnostic: runs lm_step_decoder autoregressively over a hardcoded training sample.
+#     Compares teacher-forced log-probs vs autoregressive log-probs to check if the
+#     external LM produces sensible scores on text it was trained on.
+#
+#     Replace HARDCODED_SAMPLE with an actual training sentence.
+#     """
+#     import torch
+#     import torch.nn.functional as F
+#
+#     # -------------------------------------------------------------------------
+#     # 1. HARDCODED TRAINING SAMPLE — replace with a real one from your training set
+#     # -------------------------------------------------------------------------
+#     HARDCODED_SAMPLE = "the quick brown fox jumps over the lazy dog"
+#
+#     token_ids: list[int] = tokenizer.encode(HARDCODED_SAMPLE)
+#     print(f"Token ids ({len(token_ids)} tokens): {token_ids}")
+#     print(f"Decoded back: {tokenizer.decode(token_ids)}")
+#
+#     # Full input sequence: [BOS, TK1, TK2, ..., TKn]
+#     input_ids = [model.bos_idx] + token_ids
+#     # Targets:            [TK1, TK2, ..., TKn, EOS]
+#     target_ids = token_ids + [model.eos_idx]
+#
+#     assert len(input_ids) == len(target_ids)
+#     seq_len = len(input_ids)
+#     print(f"Sequence length (with BOS): {seq_len}")
+#
+#     input_tensor = torch.tensor(input_ids, dtype=torch.long, device=device)   # [SeqLen]
+#     target_tensor = torch.tensor(target_ids, dtype=torch.long, device=device) # [SeqLen]
+#
+#     # -------------------------------------------------------------------------
+#     # 2. TEACHER-FORCED PASS (mirrors training exactly)
+#     #    input_embeds = embed([BOS, TK1, ..., TKn]), predict all at once
+#     # -------------------------------------------------------------------------
+#     print("\n--- TEACHER-FORCED PASS (as in training) ---")
+#     model.external_lm.eval()
+#     with torch.no_grad():
+#         # Add batch dim: [1, SeqLen]
+#         input_batch = input_tensor.unsqueeze(0)  # [1, SeqLen]
+#         input_embeds = model.external_lm.decoder_embed_func(input_batch)  # [1, SeqLen, F]
+#
+#         from transformers.modeling_outputs import CausalLMOutputWithPast
+#         tf_output: CausalLMOutputWithPast = model.external_lm.decoder.forward(
+#             inputs_embeds=input_embeds,
+#             logits_to_keep=seq_len,
+#         )
+#         tf_logits = tf_output.logits.squeeze(0)  # [SeqLen, Vocab]
+#         tf_log_probs = F.log_softmax(tf_logits, dim=-1)  # [SeqLen, Vocab]
+#
+#         tf_nll = F.nll_loss(tf_log_probs, target_tensor.long(), reduction="none")  # [SeqLen]
+#         tf_ppl = torch.exp(tf_nll.mean())
+#
+#         print(f"  Teacher-forced NLL per token: {tf_nll.tolist()}")
+#         print(f"  Teacher-forced PPL: {tf_ppl.item():.4f}")
+#         print(f"  Teacher-forced mean NLL: {tf_nll.mean().item():.4f}")
+#
+#         # Top-1 accuracy
+#         tf_top1 = (tf_logits.argmax(dim=-1) == target_tensor).float().mean()
+#         print(f"  Teacher-forced top-1 accuracy: {tf_top1.item():.4f}")
+#
+#     # -------------------------------------------------------------------------
+#     # 3. AUTOREGRESSIVE PASS (mirrors lm_step_decoder at inference)
+#     #    Step-by-step, feeding one token at a time with KV cache
+#     # -------------------------------------------------------------------------
+#     print("\n--- AUTOREGRESSIVE PASS (as in inference via lm_step_decoder) ---")
+#     with torch.no_grad():
+#         # State init — same as in ctc_label_sync_search_v2
+#         ext_lm_state = {
+#             "input_embeds": None,
+#             "past_key_values": None,
+#         }
+#
+#         ar_nll_list = []
+#         ar_predicted_tokens = []
+#
+#         for step_idx, (inp_tok, tgt_tok) in enumerate(zip(input_ids, target_ids)):
+#             # labels shape expected by lm_step_decoder: [Batch, Beam, Time=1]
+#             label_tensor = torch.tensor(
+#                 [[[inp_tok]]],  # [B=1, beam=1, T=1]
+#                 dtype=torch.long,
+#                 device=device,
+#             )
+#
+#             logits_raw, ext_lm_state = model.external_llm_step_decoder(label_tensor, ext_lm_state)
+#             # logits_raw: [B=1, beam=1, T=1, Vocab]
+#             logits_step = logits_raw[0, 0, 0, :]  # [Vocab]
+#             log_probs_step = F.log_softmax(logits_step, dim=-1)  # [Vocab]
+#
+#             tgt = torch.tensor(tgt_tok, dtype=torch.long, device=device)
+#             nll = F.nll_loss(log_probs_step.unsqueeze(0), tgt.unsqueeze(0).long()).item()
+#             ar_nll_list.append(nll)
+#             ar_predicted_tokens.append(logits_step.argmax().item())
+#
+#             if step_idx < 10 or step_idx == seq_len - 1:  # print first 10 + last
+#                 top5 = log_probs_step.topk(5)
+#                 top5_tokens = [tokenizer.decode([t.item()]) for t in top5.indices]
+#                 print(
+#                     f"  Step {step_idx:3d} | input={tokenizer.decode([inp_tok])!r:12s} "
+#                     f"| target={tokenizer.decode([tgt_tok])!r:12s} "
+#                     f"| NLL={nll:.4f} "
+#                     f"| top5={top5_tokens}"
+#                 )
+#
+#         ar_nll_tensor = torch.tensor(ar_nll_list)
+#         ar_ppl = torch.exp(ar_nll_tensor.mean())
+#         ar_top1 = sum(p == t for p, t in zip(ar_predicted_tokens, target_ids)) / seq_len
+#
+#         print(f"\n  Autoregressive NLL per token: {ar_nll_list}")
+#         print(f"  Autoregressive PPL: {ar_ppl.item():.4f}")
+#         print(f"  Autoregressive mean NLL: {ar_nll_tensor.mean().item():.4f}")
+#         print(f"  Autoregressive top-1 accuracy: {ar_top1:.4f}")
+#
+#     # -------------------------------------------------------------------------
+#     # 4. COMPARE: flag if there's a large discrepancy
+#     # -------------------------------------------------------------------------
+#     print("\n--- COMPARISON ---")
+#     print(f"  Teacher-forced PPL : {tf_ppl.item():.4f}")
+#     print(f"  Autoregressive PPL : {ar_ppl.item():.4f}")
+#     ppl_ratio = ar_ppl.item() / tf_ppl.item()
+#     print(f"  AR/TF PPL ratio    : {ppl_ratio:.4f}  (should be ~1.0 if consistent)")
+#     if ppl_ratio > 1.5:
+#         print("  !! LARGE DISCREPANCY: inference decoding diverges from training forward pass")
+#         print("     Likely cause: embedding mismatch, positional encoding, or cache bug")
+#     else:
+#         print("  OK: teacher-forced and autoregressive passes are consistent")
+#
+#     # -------------------------------------------------------------------------
+#     # 5. EMBEDDING SANITY CHECK
+#     # -------------------------------------------------------------------------
+#     print("\n--- EMBEDDING SANITY CHECK ---")
+#     ext_embed = model.external_lm.decoder_embed_func
+#     internal_embed = model.external_lm.decoder.model.embed_tokens
+#     print(f"  decoder_embed_func norm      : {ext_embed.weight.norm().item():.4f}")
+#     print(f"  decoder embed_tokens norm    : {internal_embed.weight.norm().item():.4f}")
+#     print(f"  Same object?                 : {ext_embed.weight is internal_embed.weight}")
+#     print(f"  Max weight diff              : {(ext_embed.weight - internal_embed.weight).abs().max().item():.6f}")
+#     if not (ext_embed.weight is internal_embed.weight):
+#         diff = (ext_embed.weight - internal_embed.weight).abs().max().item()
+#         if diff > 1e-4:
+#             print("  !! MISMATCH: decoder_embed_func and embed_tokens are different!")
+#             print("     The LM input embeddings differ from the decoder's internal embeddings.")
+#             print("     This is almost certainly your bug.")

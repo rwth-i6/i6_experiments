@@ -16,7 +16,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     BeamSearchConfig,
     beam_search_baseline,
     greedy,
-    beam_search_multiple_beams,
+    beam_search_multiple_beams, single_beam,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
@@ -61,6 +61,8 @@ class SearchConfig:
     # External modules
     ext_encoder: dict[str, Any] = None
     ext_decoder: dict[str, Any] = None
+
+    ext_decoder_no_preloading: bool = False # TODO: remove, only for test
 
     def __post_init__(self):
         """
@@ -266,7 +268,7 @@ def search_ctc_decoding_11gb_v2_grid_search(
         ext_decoder=ext_decoder,
     )
 
-def v4_autoscaling_ctc_prior_lm(
+def v4_autoscaling_64_ctc_prior_lm(
         ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
         ext_decoder: Optional[tuple[str, NetworkConfig]] = None
 ) -> SearchConfig:
@@ -275,6 +277,7 @@ def v4_autoscaling_ctc_prior_lm(
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
         auto_scaling=True,
+        beam_search=single_beam(64)
     )
 
 

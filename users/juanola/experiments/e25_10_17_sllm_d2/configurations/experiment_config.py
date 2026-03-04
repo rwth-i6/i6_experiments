@@ -47,7 +47,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     search_baseline_ctc_greedy_decoding,
     search_baseline_ctc_decoding_11gb_v2,
     PretrainedExternalModules,
-    search_ctc_decoding_11gb_v2_grid_search, v4_autoscaling_ctc_prior_lm,
+    search_ctc_decoding_11gb_v2_grid_search, v4_autoscaling_64_ctc_prior_lm,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
@@ -239,15 +239,26 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             #     ctc_scales=[0.0],
             # ),
 
-            replace(
+            replace( # TODO: improve this: now 17.6, should be better
                 search_baseline_ctc_decoding_11gb_v2(
                     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
                 ),
-                lm_scales=[0.1],
+                lm_scales=[1.0],
                 sllm_scales=[0.0],
                 ctc_scales=[1.0],
-                prior_scales=[0.0, 0.5],
+                prior_scales=[0.0],
             ),
+
+            # replace( # Testing if random external LM also returns same values
+            #     search_baseline_ctc_decoding_11gb_v2(
+            #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            #     ),
+            #     lm_scales=[1.0],
+            #     sllm_scales=[0.0],
+            #     ctc_scales=[1.0],
+            #     prior_scales=[0.0],
+            #     ext_decoder_no_preloading=True,
+            # ),
 
             # replace(
             #     search_baseline_ctc_decoding_11gb_v2(
@@ -259,7 +270,7 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             #     prior_scales=[0.1, 0.3, 0.6, 0.9],
             # ),
 
-            v4_autoscaling_ctc_prior_lm()
+            # v4_autoscaling_64_ctc_prior_lm()
 
         ],
     )

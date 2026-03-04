@@ -15,6 +15,7 @@ from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from sisyphus.delayed_ops import DelayedFormat
 from sisyphus.job_path import Variable
 from .asr_model import ASRModel
+from .auto_scaling_evaluation import ctc_label_sync_eval_auto_scale
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
 from ...configurations.pipeline.prior_config import PriorConfig
@@ -93,22 +94,33 @@ def create_tune_and_evaluate_jobs(
             prior_network_import_path=prior_network_import_path,
         )
 
-        if search_config.auto_scaling: # New!
-            pass
-
-
-        else:
-            res = tune_and_evaluate_model(
-                evaluation_name,
-                asr_model,
-                search_config,
-                dev_dataset_tuples=dev_dataset_tuples,
-                forward_method=search_config.forward_method,
-                debug=search_config.debug_returnn_param,
-                run_test=run_test and run_test_for_eval,
-                test_dataset_tuples=test_dataset_tuples,
-                vocab_opts=train_data.train.dataset.target_options,
-            )
+        # if search_config.auto_scaling: # New!
+        #     # asserts if needed?
+        #     assert len(search_config.beam_search.beam_sizes) == 1, "Only one beam size is supported for auto-scaling"
+        #
+        #     scales_dict = ctc_label_sync_eval_auto_scale(
+        #
+        #         asr_model=asr_model,
+        #         search_config=search_config,
+        #         train_data=train_data,
+        #
+        #
+        #
+        #     )
+        #
+        #     # TODO: what to do with the scales?
+        # else:
+        res = tune_and_evaluate_model(
+            evaluation_name,
+            asr_model,
+            search_config,
+            dev_dataset_tuples=dev_dataset_tuples,
+            forward_method=search_config.forward_method,
+            debug=search_config.debug_returnn_param,
+            run_test=run_test and run_test_for_eval,
+            test_dataset_tuples=test_dataset_tuples,
+            vocab_opts=train_data.train.dataset.target_options,
+        )
         result_dict.update(res)
 
 
@@ -434,7 +446,10 @@ def get_forward_step_parameters_and_search_name(
         if search_config.ext_encoder is not None:
             prefix = prefix + f"-{search_config.ext_encoder['checkpoint_key']}"
         if search_config.ext_decoder is not None:
-            prefix = prefix + f"-{search_config.ext_decoder['checkpoint_key']}"
+            if search_config.ext_decoder_no_preloading:
+                prefix = prefix + "-lm_scratch"
+            else:
+                prefix = prefix + f"-{search_config.ext_decoder['checkpoint_key']}"
 
         forward_args = {
             "beam_size": beam_size,

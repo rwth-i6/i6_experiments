@@ -534,6 +534,8 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
             )
 
         targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
+        #print(f"  targets_lm_raw shape : {targets_lm_raw.shape}")
+        #print(f"  targets_lm_raw values: {targets_lm_raw}")  # should be integer token ids, NOT strings
 
         # --- PRIOR RE-SCORING ---
         if prior_scale != 0:
