@@ -40,15 +40,13 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     search_baseline,
     greedy_search,
     greedy_search_v2,
-    search_baseline_with_ctc_gd,
     search_baseline_v2,
     search_baseline_ctc_decoding_11gb,
     search_baseline_v2_multiple_beams,
     search_baseline_ctc_greedy_decoding,
     search_baseline_ctc_decoding_11gb_v2,
     PretrainedExternalModules,
-    search_ctc_decoding_11gb_v2_grid_search, v4_autoscaling_64_ctc_prior_lm,
-)
+    search_ctc_decoding_11gb_v2_grid_search, )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
     training_baseline,
@@ -89,8 +87,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     enc_dec_base_combined,
     load_SLLM_pretrained_ed_s_c_f2_oclr1,
     enc_dec_base_lm,
-    enc_dec_small_lm,
-)
+    enc_dec_small_lm, )
 
 
 @dataclass(frozen=True)
@@ -222,24 +219,8 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             #      sllm_scales=[0.0, 1.0],
             #      ctc_scales=[1.0],
             # ),
-            # replace(
-            #     search_baseline_ctc_decoding_11gb_v2(  # WORKS
-            #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            #     ),
-            #     lm_scales=[0.0],
-            #     sllm_scales=[1.0],
-            #     ctc_scales=[1.0],
-            # ),
-            # replace(
-            #     search_baseline_ctc_decoding_11gb_v2(  # WORKS
-            #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            #     ),
-            #     lm_scales=[0.0],
-            #     sllm_scales=[1.0],
-            #     ctc_scales=[0.0],
-            # ),
 
-            replace( # TODO: improve this: now 17.6, should be better
+            replace( # OLD: improve this: now 17.6, should be better
                 search_baseline_ctc_decoding_11gb_v2(
                     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
                 ),
@@ -248,6 +229,27 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
                 ctc_scales=[1.0],
                 prior_scales=[0.0],
             ),
+
+            # TODO: new LLM v2 (vocab alright)
+            replace(
+                search_baseline_ctc_decoding_11gb_v2(
+                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+                ),
+                lm_scales=[0.0, 1.0],
+                sllm_scales=[0.0],
+                ctc_scales=[1.0],
+                prior_scales=[0.0],
+            ),
+            replace(
+                search_baseline_ctc_decoding_11gb_v2(
+                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+                ),
+                lm_scales=[1.0],
+                sllm_scales=[0.0],
+                ctc_scales=[1.0],
+                prior_scales=[0.0, 0.5],
+            ),
+
 
             # replace( # Testing if random external LM also returns same values
             #     search_baseline_ctc_decoding_11gb_v2(
@@ -260,7 +262,18 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             #     ext_decoder_no_preloading=True,
             # ),
 
-            # replace(
+
+            # replace(# TRANS MODEL IS BAD BUT WITH SAME VOCAB
+            #     search_baseline_ctc_decoding_11gb_v2(
+            #         ext_decoder=PretrainedExternalModules.LLM_BASE_TRANSCRIPTIONS.value,
+            #     ),
+            #     lm_scales=[1.0],
+            #     sllm_scales=[0.0],
+            #     ctc_scales=[1.0],
+            #     prior_scales=[0.0],
+            # ),
+
+            # replace( # Prior and LM
             #     search_baseline_ctc_decoding_11gb_v2(
             #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
             #     ),

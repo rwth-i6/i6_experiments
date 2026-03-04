@@ -32,24 +32,31 @@ Checkpoints
 
 _encoder_checkpoints = {
     "ctc_v1": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt",
-    "ctc_v1-3": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt", # duplicate of 1 but to have different keys and call it with the 3rd layer in search
+    "ctc_v1-3": "/u/marti.juanola/experiments/25_11_13_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.1MYTcWVoOsDz/output/models/epoch.500.pt",  # duplicate of 1 but to have different keys and call it with the 3rd layer in search
     # More here
 }
 
 _decoder_checkpoints = {
     "llm_base_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.CNLGypuo4I0A/output/models/epoch.100.pt",
-    "llm_base_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.YRfhVjefAJao/output/models/epoch.100.pt",
     "llm_small_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.xqzaOV0eAJSt/output/models/epoch.100.pt",
+    "llm_base_combined_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.ZocK1JlhrdX/output/models/epoch.100.pt",
+    "llm_small_combined_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.RqjVilPyEd6z/output/models/epoch.100.pt",
+    "llm_base_lm_data_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.0pQjYxFwEfPV/output/models/epoch.100.pt",
+    "llm_small_lm_data_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.Ley1gSyBPGjo/output/models/epoch.100.pt",
+    # More here
+
+    # TODO: following are broken!! -> they use a different vocab!!
+    "llm_base_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.YRfhVjefAJao/output/models/epoch.100.pt",
     "llm_small_combined": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.erL8ScQicX6D/output/models/epoch.100.pt",
     "llm_base_lm_data": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.zBrFqc9fWOWC/output/models/epoch.100.pt",
     "llm_small_lm_data": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.hYxc6bvgBkCT/output/models/epoch.100.pt",
-    # More here
 }
 
 _sllm_partial_trainings = {
     "SLLM_pretrained_ed_s_c_f2_oclr1": "/u/marti.juanola/experiments/25_10_17_sllm_d2/work/i6_core/returnn/training/ReturnnTrainingJob.pxoTwGri6FBD/output/models/epoch.010.pt"
     # More here
 }
+
 
 def get_encoder_checkpoint_from_str(model_name: str):
     if model_name not in _encoder_checkpoints:
@@ -61,7 +68,6 @@ def get_decoder_checkpoint_from_str(model_name: str):
     if model_name not in _decoder_checkpoints:
         raise ValueError(f"Model '{model_name}' not found in decoder checkpoints.")
     return PtCheckpoint(Path(_decoder_checkpoints[model_name]))
-
 
 
 # TODO: extract one main method
@@ -127,17 +133,55 @@ def enc_dec_base_transcriptions() -> PretrainedConfig:
         pretrained_decoder="llm_base_transcriptions",
     )
 
+
 def enc_dec_base_lm() -> PretrainedConfig:
     return PretrainedConfig(
         pretrained_encoder="ctc_v1",
         pretrained_decoder="llm_base_lm_data",
     )
 
+
 def enc_dec_small_lm() -> PretrainedConfig:
     return PretrainedConfig(
         pretrained_encoder="ctc_v1",
         pretrained_decoder="llm_small_lm_data",
     )
+
+
+"""
+NEW LM
+"""
+
+
+def dec_base_combined_v2() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_decoder="llm_base_combined_v2")
+
+
+def dec_small_combined_v2() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_decoder="llm_small_combined_v2")
+
+
+def enc_dec_base_combined_v2() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_encoder="ctc_v1", pretrained_decoder="llm_base_combined_v2")
+
+
+def enc_dec_small_combined_v2() -> PretrainedConfig:
+    return PretrainedConfig(pretrained_encoder="ctc_v1", pretrained_decoder="llm_small_combined_v2")
+
+
+def enc_dec_base_lm_v2() -> PretrainedConfig:
+    return PretrainedConfig(
+        pretrained_encoder="ctc_v1",
+        pretrained_decoder="llm_base_lm_data_v2",
+    )
+
+
+def enc_dec_small_lm_v2() -> PretrainedConfig:
+    return PretrainedConfig(
+        pretrained_encoder="ctc_v1",
+        pretrained_decoder="llm_small_lm_data_v2",
+    )
+
 
 """
 SLLM

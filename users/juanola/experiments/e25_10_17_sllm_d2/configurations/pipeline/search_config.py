@@ -92,12 +92,34 @@ class PretrainedExternalModules(Enum):
     }
 
     # Decoders
-    LLM_BASE_COMBINED = {
+    LLM_BASE_TRANSCRIPTIONS = {
+        "checkpoint_key": "llm_base_transcriptions",
+        "network_config": network_baseline_v2_td(),
+        "label_config": label_baseline(),
+    }
+    LLM_SMALL_TRANSCRIPTIONS = {
+        "checkpoint_key": "llm_small_transcriptions",
+        "network_config": network_baseline_v2_td(),
+        "label_config": label_baseline(),
+    }
+    LLM_BASE_COMBINED_V2 = {
+        "checkpoint_key": "llm_base_combined_v2",
+        "network_config": network_baseline_v2_td(),
+        "label_config": label_baseline(),
+    }
+    LLM_SMALL_COMBINED_V2 = {
+        "checkpoint_key": "llm_small_combined_v2",
+        "network_config": network_baseline_v2_td_linear_small(),
+        "label_config": label_baseline(),
+    }
+
+
+    LLM_BASE_COMBINED = { # TODO: broken - different vocab!!
         "checkpoint_key": "llm_base_combined",
         "network_config": network_baseline_v2_td(),
         "label_config": label_baseline(),
     }
-    LLM_SMALL_COMBINED = {
+    LLM_SMALL_COMBINED = { # TODO: broken - different vocab!!
         "checkpoint_key": "llm_small_combined",
         "network_config": network_baseline_v2_td_linear_small(),
         "label_config": label_baseline(),
