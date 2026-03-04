@@ -116,6 +116,8 @@ class ReturnnDatasetToTextDictJob(Job):
             vocab = util.instanciate_delayed(vocab)
             print("RETURNN vocab:", vocab)
             vocab = Vocabulary.create_vocab(**vocab)
+        elif dataset.get_data_dtype(self.data_key) == "string":
+            vocab = None  # we can directly use the string data, no vocab needed
         else:
             assert dataset.labels.get(self.data_key), (
                 f"no labels for data key {self.data_key!r},"
@@ -161,7 +163,11 @@ class ReturnnDatasetToTextDictJob(Job):
                             f" dataset tag {dataset.get_tag(seq_idx)!r} != seq list tag {seq_list[seq_idx]!r}"
                         )
                     data = dataset.get_data(seq_idx, self.data_key)
-                    s = vocab.get_seq_labels(data)
+                    if dataset.get_data_dtype(self.data_key) == "string":
+                        s = data.item()
+                        assert isinstance(s, str)
+                    else:
+                        s = vocab.get_seq_labels(data)
                     for old, new in self.raw_replacement_list:
                         s = s.replace(old, new)
                     if self.raw_final_strip:
