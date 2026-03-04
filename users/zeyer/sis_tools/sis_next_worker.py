@@ -202,7 +202,8 @@ def main():
                         os.path.relpath(task.path()),
                         task.name(),
                         str(task_id),
-                        "--redirect_output",
+                        # Unsure here. Now we don't see it anymore on stdout?
+                        # "--redirect_output",
                     ]
                     call = job._sis_worker_wrapper(job, task.name(), call)
                     run(*call)
