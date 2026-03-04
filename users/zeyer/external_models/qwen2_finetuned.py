@@ -15,6 +15,8 @@ from i6_experiments.common.utils.fake_job import make_path
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
 from returnn_common.datasets_old_2022_10.interface import VocabConfigStatic
 
+from speech_llm.prefix_lm.model.custom_missing_load_funcs.qwen import qwen_load_tied_embedding_matrices
+
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -115,7 +117,21 @@ def get_qwen2_0_5b_lm_base() -> ModelWithCheckpoint:
     get_model.behavior_version = 24
     get_model.backend = "torch"
     get_model.batch_size_factor = 1
-    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+    model_with_cfg = ModelDefWithCfg(
+        model_def=get_model,
+        config={
+            "preload_from_files": {
+                "qwen": {
+                    "filename": "/rwthfs/rz/cluster/home/hq237549/experiments/2026-01-20--llm/work/i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors",
+                    "init_for_train": False,
+                    "checkpoint_key": None,
+                    "prefix": "model.",
+                    "ignore_missing": True,
+                    "custom_missing_load_func": qwen_load_tied_embedding_matrices,
+                }
+            }
+        },
+    )
 
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
