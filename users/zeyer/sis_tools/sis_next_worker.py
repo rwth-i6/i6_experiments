@@ -42,7 +42,7 @@ def main():
     from sisyphus.loader import config_manager
     import sisyphus.toolkit as tk
     import sisyphus
-    from sisyphus import Job
+    from sisyphus import Job, Task
     from sisyphus import gs
     from sisyphus.manager import Manager, create_aliases
     from i6_core.returnn.training import ReturnnTrainingJob
@@ -63,6 +63,7 @@ def main():
     arg_parser.add_argument(
         "--loop", action="store_true", help="Loop and check for new runnable jobs after finishing the current ones."
     )
+    arg_parser.add_argument("--cpu-only", action="store_true", help="Only consider CPU tasks.")
     args = arg_parser.parse_args()
 
     # See Sisyphus __main__ for reference.
@@ -134,6 +135,19 @@ def main():
         is_job_match = lambda job: isinstance(job, job_types)
     else:
         is_job_match = lambda job: re.search(args.job_type, job._sis_id(), re.IGNORECASE)
+
+    if args.cpu_only:
+
+        def is_job_match_cpu_only(job: Job, *, prev_is_job_match=is_job_match) -> bool:
+            if not prev_is_job_match(job):
+                return False
+            for task in job._sis_tasks():
+                task: Task
+                if task.rqmt().get("gpu", 0):
+                    return False
+            return True
+
+        is_job_match = is_job_match_cpu_only
 
     logging.info("Runnable matching jobs:")
     job_count = 0
