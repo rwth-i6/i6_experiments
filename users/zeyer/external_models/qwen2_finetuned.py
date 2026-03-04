@@ -179,6 +179,40 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
 
+def get_qwen2_1_5b_lm_finetuned_loquacious() -> ModelWithCheckpoint:
+    """
+    Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
+
+    Via Mohammad.
+    """
+
+    # noinspection PyTypeChecker
+    get_model = functools.partial(
+        Qwen2Model,
+        **{
+            "hf_hub_cache_dir": make_path(
+                "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.WKeKAK6tzpOS/output/hub_cache"
+            ),
+            "freeze_params": False,
+            "lora_opts": None,
+            "freeze_embedding_layer": False,
+            "eos_symbol": None,
+            # added for the compat with the RF wrapper
+            "vocab_dim": {"name": "qwen_vocab", "dimension": get_qwen2_vocab_size(), "vocab": get_qwen2_vocab_dict()},
+        },
+    )
+
+    checkpoint = make_path("i6_core/returnn/training/GetBestPtCheckpointJob.S0t5eTgns1zz/output/checkpoint.pt")
+
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 24
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 1
+    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+
 class Qwen2Model(rf.Module):
     """
     Wraps Qwen2DecoderV3.
