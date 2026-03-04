@@ -117,7 +117,10 @@ class ReturnnDatasetToTextDictJob(Job):
             print("RETURNN vocab:", vocab)
             vocab = Vocabulary.create_vocab(**vocab)
         else:
-            assert dataset.labels[self.data_key]
+            assert dataset.labels.get(self.data_key), (
+                f"no labels for data key {self.data_key!r},"
+                f" shape={dataset.get_data_shape(self.data_key)}, dtype={dataset.get_data_dtype(self.data_key)}"
+            )
             vocab = Vocabulary.create_vocab_from_labels(dataset.labels[self.data_key])
 
         # noinspection PyBroadException
