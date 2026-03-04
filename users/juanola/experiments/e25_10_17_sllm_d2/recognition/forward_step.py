@@ -69,7 +69,7 @@ def forward_step(
     ctx.mark_as_output(seq_log_prob, "scores", dims=[batch_dim, beam_dim])
 
 
-def forward_step_v2(  # TODO: Fix!
+def forward_step_v2(
     *,
     model: BaseEncoderDecoderModel,
     extern_data: TensorDict,

@@ -1,15 +1,19 @@
+import copy
 from typing import Optional, Dict, Any, Union
 
+from i6_core.returnn import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchOutputRawReplaceJob, SearchTakeBestJob
 from i6_core.returnn.training import ReturnnConfig
 from i6_core.text.processing import PipelineJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
+from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import generic_sclite_score_recog_out
 from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
 from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
 from i6_experiments.users.zeyer.decoding.rescoring import SearchCombineScoresJob
 from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 from sisyphus import tk
 from .asr_model import ASRModel
+from ..model_creation.returnn_config_helpers import get_forward_config, get_forward_config_v2
 from ...configurations.pipeline.search_config import SearchConfig
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 
@@ -23,16 +27,9 @@ def ctc_label_sync_eval_auto_scale(
         asr_model: ASRModel,
         search_config: SearchConfig,
         train_data: TrainingDatasets,
+        tune_datasets: Dict[str, Any],
+        evaluation_name: str,
 
-        tune_dataset, # TODO: ???
-
-        training_name: str, # TODO: names
-        recog_name: str,  # TODO: names
-        checkpoint_name: Union[int, str], # todo: names
-
-        train_args: Dict[str, Any], # TODO: remove!
-
-        extra_forward_config: Optional[ReturnnConfig] = None,
         label_datastream_key="text",
         lowercase_ref: bool = False,
 ) -> Dict[str, tk.Variable]:
@@ -40,22 +37,50 @@ def ctc_label_sync_eval_auto_scale(
     Robins code (SLLM repo)
     """
 
+    # DATASET FOR TUNNING
+    assert len(tune_datasets.items()) == 1, "Only one dataset is supported for now!"
+    tune_dataset_name, tune_dataset = list(tune_datasets.items())[0]
+
+
     # GET CHECKPOINT & PATH
-    checkpoint = asr_model.checkpoint
-    recog_path = f"{training_name}/{recog_name}/{str(checkpoint_name)}" # TODO: change this
+    recog_path = f"{evaluation_name}/auto_scaling_test1/{tune_dataset_name}" # TODO: add some params of what is being tuned!
 
-    # CTC N-BEST
+    # TEXT REFERENCES
+    ref = ReturnnDatasetToTextDictJob(
+        returnn_dataset=tune_dataset.as_returnn_opts(),
+        data_key="text",
+        vocab=train_data.datastreams[label_datastream_key].as_returnn_targets_opts(),
+    ).out_txt
+    if lowercase_ref:
+        ref = PipelineJob(
+            ref,
+            pipeline=[r"""perl -pi -e "s/(:\\s*)(['\"])(.*?)\\2/\$1 . \$2 . lc(\$3) . \$2/e" """]
+        ).out
 
-    returnn_ctc_n_best_config = get_forward_config(
-        network_module=train_args["network_module"],
-        extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
-        net_args=train_args["net_args"],
-        decoder_args={
-            "beam_size": search_config.beam_search.beam_sizes[0],
-            "max_tokens_per_sec": 20, # TODO:
-            "sample_rate": 16000, # TODO:
+    # BASE RECOG CONFIG
+
+    beam_size = search_config.beam_search.beam_sizes[0]
+    forward_config = {
+        "batch_size": search_config.batch_size * search_config.batch_size_factor,
+        "max_seqs": search_config.max_seqs,
+    }
+    forward_config_low_batch_size = {
+        "batch_size": 2_000 * search_config.batch_size_factor,
+        "max_seqs": search_config.max_seqs,
+    }
+
+
+    # CTC N-BEST RECOGNITION
+    returnn_ctc_n_best_config = get_forward_config_v2(
+        network_module=asr_model.network_import_path,
+        base_config=forward_config,
+        net_args=asr_model.net_args,
+        decoder_args={ # fix params from here
+            "beam_size": beam_size,
+            "max_tokens_per_sec": 20,
+            "sample_rate": 16000,
         },
-        decoder="recognition.ctc.forward_step.forward_step_v1",
+        decoder="recognition.forward_step.forward_step_v2",
         callback_module="recognition.callback.RecognitionToTextDictCallback",
         label_datastream=train_data.datastreams[label_datastream_key],
         callback_opts={"include_beam": True, "merge_labels": False,}
@@ -63,14 +88,17 @@ def ctc_label_sync_eval_auto_scale(
     ctc_n_best = forward_single(
         f"{recog_path}/ctc-n-best",
         returnn_config=returnn_ctc_n_best_config,
-        checkpoint=checkpoint,
+        checkpoint=(asr_model.checkpoint),
         dataset_dict=tune_dataset.as_returnn_opts(),
         **default_returnn,
         rqmt={},
     )
+    ctc_n_best_merged = SearchOutputRawReplaceJob(
+        ctc_n_best, replacement_list=[(" ", ""), ("Ġ", " ")]
+    ).out_search_results
 
-    # RESCORING
 
+    # LM RESCORING
     vocab_file = ExtractVocabLabelsJob(train_data.datastreams[label_datastream_key].as_returnn_targets_opts()).out_vocab
     rescore_data = {
         "class": "TextDictDataset",
@@ -94,20 +122,20 @@ def ctc_label_sync_eval_auto_scale(
         },
         "seq_order_control_dataset": "hyps",
     }
-    returnn_rescoring_config = get_forward_config(
-        network_module=train_args["network_module"],
-        extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
-        net_args=train_args["net_args"],
+    returnn_rescoring_config = get_forward_config_v2(
+        network_module=asr_model.network_import_path,
+        base_config=forward_config_low_batch_size,
+        net_args=asr_model.net_args,
         decoder_args={
-            "beam_size": 64,
+            "beam_size": beam_size,
             "max_tokens_per_sec": 20,
             "sample_rate": 16000,
         },
-        decoder="rescoring.forward_step.forward_step_v1",
+        decoder="rescoring.forward_step.forward_step_v1", # TODO: adapt!
         callback_module="recognition.callback.RecognitionToTextDictCallback",
         label_datastream=train_data.datastreams[label_datastream_key],
         callback_opts={"include_beam": True},
-        extern_data={
+        extern_data={ # TODO: check out
             "audio": {"shape": (None,)},
             "hyps_flat": {
                 "shape": [None],
@@ -115,38 +143,25 @@ def ctc_label_sync_eval_auto_scale(
                 "vocab": rescore_data["datasets"]["hyps"]["vocab"],
             },
             "hyps_seq_lens": {
-                "shape": [64],
+                "shape": [beam_size],
                 "dtype": "int32"
             },
         },
         # because of large beam dim, we need to lower the batch size
-        base_config={"batch_size": 2_000 * 160}
+
     )
-    sllm_rescore_results = forward_single( # TODO: change to LM?
+    sllm_rescore_results = forward_single(  # TODO: change to LM?
         f"{recog_path}/sllm_rescoring",
         returnn_config=returnn_rescoring_config,
-        checkpoint=checkpoint,
+        checkpoint=(asr_model.checkpoint),
         dataset_dict=rescore_data,
         **default_returnn,
         rqmt={},
     )
 
+    # TODO: add prior here !!
 
-    ctc_n_best_merged = SearchOutputRawReplaceJob(
-        ctc_n_best, replacement_list=[(" ", ""), ("Ġ", " ")]
-    ).out_search_results
-
-    ref = ReturnnDatasetToTextDictJob(
-        returnn_dataset=tune_dataset.as_returnn_opts(),
-        data_key="text",
-        vocab=train_data.datastreams[label_datastream_key].as_returnn_targets_opts(),
-    ).out_txt
-    if lowercase_ref:
-        ref = PipelineJob(
-            ref,
-            pipeline=[r"""perl -pi -e "s/(:\\s*)(['\"])(.*?)\\2/\$1 . \$2 . lc(\$3) . \$2/e" """]
-        ).out
-
+    # AUTO SCALING
     opt_scales_job = ScaleTuningJob(
         scores={"ctc": ctc_n_best_merged, "slm": sllm_rescore_results},
         ref=ref,
@@ -156,14 +171,14 @@ def ctc_label_sync_eval_auto_scale(
     opt_scales_job.rqmt["engine"] = "short"  # should be fine
     tk.register_output(f"{recog_path}/opt-real-scales", opt_scales_job.out_real_scales)
     tk.register_output(f"{recog_path}/opt-rel-scales", opt_scales_job.out_scales)
-
-    combined_scores = SearchCombineScoresJob(
-        [
+    combined_scores = SearchCombineScoresJob([
             (opt_scales_job.out_real_scale_per_name["ctc"], ctc_n_best_merged),
             (opt_scales_job.out_real_scale_per_name["slm"], sllm_rescore_results),
-        ]
-    ).out_search_results
+        ]).out_search_results
     best_rescore = SearchTakeBestJob(combined_scores).out_best_search_results
+
+
+    # GET SCORES
     tune_score_result = generic_sclite_score_recog_out(
         dataset=tune_dataset.as_returnn_opts(),
         recog_output=best_rescore,
@@ -174,5 +189,46 @@ def ctc_label_sync_eval_auto_scale(
     tk.register_output(f"{recog_path}/tune_rescore/wer", tune_score_result.main_measure_value)
     tk.register_output(f"{recog_path}/tune_rescore/report", tune_score_result.report)
 
-    # We use the real scales.
     return opt_scales_job.out_real_scale_per_name
+
+
+def forward_single(
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
+        dataset_dict: Dict,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        rqmt: Dict,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param recognition_dataset: Dataset to perform recognition on
+    :param recognition_bliss_corpus: path to bliss file used as Sclite evaluation reference
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: some search jobs might need more memory
+    :param use_gpu: if to do GPU decoding
+    """
+    returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.config["forward_data"] = dataset_dict
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=rqmt.get("mem", 20),
+        time_rqmt=1,
+        device="gpu",
+        cpu_rqmt=rqmt.get("cpu", 8),
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["search_out.py.gz"],
+    )
+    search_job.add_alias(prefix_name + "/search_job")
+    tk.register_output(prefix_name + "/search_out.py.gz", search_job.out_files["search_out.py.gz"])
+
+    return search_job.out_files["search_out.py.gz"]

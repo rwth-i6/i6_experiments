@@ -2,8 +2,6 @@ import copy
 from collections import OrderedDict
 from typing import Optional, Dict, Any, Iterable, Union
 
-from sisyphus import tk, job_path
-
 from i6_core.returnn.training import (
     ReturnnTrainingJob,
     AverageTorchCheckpointsJob,
@@ -12,7 +10,7 @@ from i6_core.returnn.training import (
 )
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
-from sisyphus.delayed_ops import DelayedFormat
+from sisyphus import tk, job_path
 from sisyphus.job_path import Variable
 from .asr_model import ASRModel
 from .auto_scaling_evaluation import ctc_label_sync_eval_auto_scale
@@ -22,7 +20,6 @@ from ...configurations.pipeline.prior_config import PriorConfig
 from ...configurations.pipeline.search_config import SearchConfig
 from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
-from ...recognition.forward_step import prior_step_v1
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -38,7 +35,7 @@ def create_tune_and_evaluate_jobs(
     search_config: SearchConfig,
     train_data: TrainingDatasets,
     dev_dataset_tuples: Dict[str, Any],
-        prior_network_import_path: str = None,
+    prior_network_import_path: str = None,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     specific_epochs: Optional[Iterable[int]] = None,
     run_best_4: bool = True,
@@ -94,36 +91,32 @@ def create_tune_and_evaluate_jobs(
             prior_network_import_path=prior_network_import_path,
         )
 
-        # if search_config.auto_scaling: # New!
-        #     # asserts if needed?
-        #     assert len(search_config.beam_search.beam_sizes) == 1, "Only one beam size is supported for auto-scaling"
-        #
-        #     scales_dict = ctc_label_sync_eval_auto_scale(
-        #
-        #         asr_model=asr_model,
-        #         search_config=search_config,
-        #         train_data=train_data,
-        #
-        #
-        #
-        #     )
-        #
-        #     # TODO: what to do with the scales?
-        # else:
-        res = tune_and_evaluate_model(
-            evaluation_name,
-            asr_model,
-            search_config,
-            dev_dataset_tuples=dev_dataset_tuples,
-            forward_method=search_config.forward_method,
-            debug=search_config.debug_returnn_param,
-            run_test=run_test and run_test_for_eval,
-            test_dataset_tuples=test_dataset_tuples,
-            vocab_opts=train_data.train.dataset.target_options,
-        )
-        result_dict.update(res)
+        if search_config.auto_scaling:  # New!
+            # asserts if needed?
+            assert len(search_config.beam_search.beam_sizes) == 1, "Only one beam size is supported for auto-scaling"
 
+            scales_dict = ctc_label_sync_eval_auto_scale(
+                asr_model=asr_model,
+                search_config=search_config,
+                train_data=train_data,
+                tune_datasets=dev_dataset_tuples,
+                evaluation_name=evaluation_name,
+            )
 
+            # TODO: what to do with the scales?
+        else:
+            res = tune_and_evaluate_model(
+                evaluation_name,
+                asr_model,
+                search_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                forward_method=search_config.forward_method,
+                debug=search_config.debug_returnn_param,
+                run_test=run_test and run_test_for_eval,
+                test_dataset_tuples=test_dataset_tuples,
+                vocab_opts=train_data.train.dataset.target_options,
+            )
+            result_dict.update(res)
 
     # TODO: remove this
     if search_config.run_ctc_greedy_decoding_last_epoch:  # Run the last epoch with ctc greedy decoding
@@ -171,7 +164,7 @@ def evaluate_greedy_ctc(
         net_args,
         search_config.prior,
         datasets=train_data,
-        prior_network_import_path=None, # TODO
+        prior_network_import_path=None,  # TODO
     )
 
     _, wers = search(
@@ -209,11 +202,10 @@ def prepare_asr_model(
     network_import_path: str,
     net_args,
     prior_config: PriorConfig,
-
     datasets: Optional[TrainingDatasets] = None,
     vocab_opts: Dict = None,
-        forward_module: str = None,
-        prior_network_import_path: str = None,
+    forward_module: str = None,
+    prior_network_import_path: str = None,
 ) -> ASRModel:
     """
     :param checkpoint_name:
@@ -227,16 +219,14 @@ def prepare_asr_model(
     """
     prior_file = None
 
-    if prior_config is not None: # Compute prior
+    if prior_config is not None:  # Compute prior
         prior_step_returnn_config = get_prior_config(
             training_datasets=datasets,
-
-            network_import_path=prior_network_import_path, # TODO: check this
-            net_args=net_args, # TODO: check this
+            network_import_path=prior_network_import_path,  # TODO: check this
+            net_args=net_args,  # TODO: check this
             vocab_opts=vocab_opts,
-            forward_module = forward_module,
-
-            prior_config=prior_config
+            forward_module=forward_module,
+            prior_config=prior_config,
         )
         prior_file = compute_prior(
             checkpoint_name,
@@ -246,7 +236,6 @@ def prepare_asr_model(
             returnn_root=RETURNN_ROOT,
         )
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
-
 
     return ASRModel(
         checkpoint=checkpoint,
@@ -298,13 +287,21 @@ def tune_and_evaluate_model(
                             continue  # This can be computed with CTC greedy more efficiently!
 
                         forward_args, search_name = get_forward_step_parameters_and_search_name(
-                            search_config, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale, sllm_scale,
+                            search_config,
+                            evaluation_name,
+                            beam_size,
+                            lm_scale,
+                            prior_scale,
+                            ctc_scale,
+                            sllm_scale,
                         )
 
                         asr_model_used = asr_model
                         if forward_method == "forward_step_ctc_decoding_v2" and prior_scale != 0:
                             if asr_model.prior_file is None:
-                                raise ValueError(f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({prior_scale})")
+                                raise ValueError(
+                                    f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({prior_scale})"
+                                )
 
                             asr_model_with_prior = copy.deepcopy(asr_model)
                             asr_model_with_prior.net_args["prior_file"] = asr_model.prior_file
@@ -361,7 +358,9 @@ def tune_and_evaluate_model(
             asr_model_used = asr_model
             if forward_method == "forward_step_ctc_decoding_v2" and best_params[2] != 0:
                 if asr_model.prior_file is None:
-                    raise ValueError(f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({best_params[2]})")
+                    raise ValueError(
+                        f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({best_params[2]})"
+                    )
 
                 asr_model_with_prior = copy.deepcopy(asr_model)
                 asr_model_with_prior.net_args["prior_file"] = asr_model.prior_file
@@ -392,7 +391,7 @@ def get_forward_step_parameters_and_search_name(
     prior_scale: Union[float, Variable] = None,
     ctc_scale: Union[float, Variable] = None,
     sllm_scale: Union[float, Variable] = None,
-    for_test: bool = False
+    for_test: bool = False,
 ) -> tuple[dict[str, Any], str]:
     """
     TODO: strings could be use for testing with DelayedFormating, but further changes in the code would be needed...
