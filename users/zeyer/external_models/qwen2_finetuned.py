@@ -122,7 +122,9 @@ def get_qwen2_0_5b_lm_base() -> ModelWithCheckpoint:
         config={
             "preload_from_files": {
                 "qwen": {
-                    "filename": "/rwthfs/rz/cluster/home/hq237549/experiments/2026-01-20--llm/work/i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors",
+                    "filename": make_path(
+                        "i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors"
+                    ),
                     "init_for_train": False,
                     "checkpoint_key": None,
                     "prefix": "model.",
@@ -133,7 +135,8 @@ def get_qwen2_0_5b_lm_base() -> ModelWithCheckpoint:
         },
     )
 
-    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+    # no checkpoint=PtCheckpoint(checkpoint)
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=None)
 
 
 def get_qwen2_1_5b_lm_base() -> ModelWithCheckpoint:
