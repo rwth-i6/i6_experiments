@@ -213,6 +213,56 @@ def get_qwen2_1_5b_lm_finetuned_loquacious() -> ModelWithCheckpoint:
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
 
+def get_qwen2_7b_lm_finetuned_loquacious() -> ModelWithCheckpoint:
+    """
+    Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
+
+    Via Mohammad.
+    """
+
+    # noinspection PyTypeChecker
+    get_model = functools.partial(
+        Qwen2Model,
+        **{
+            "hf_hub_cache_dir": make_path(
+                "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.znmKtXJnuypz/output/hub_cache"
+            ),
+            "freeze_params": True,
+            "lora_opts": {
+                "target_modules": [
+                    "q_proj",
+                    "v_proj",
+                    "k_proj",
+                    "o_proj",
+                    "up_proj",
+                    "down_proj",
+                    "gate_proj",
+                ],
+                "r": 64,
+                "lora_alpha": 128,
+                "lora_dropout": 0.1,
+                "bias": "none",
+                "use_rslora": True,
+            },
+            "load_checkpoint_on_init": True,
+            "freeze_embedding_layer": True,
+            "eos_symbol": "\n",
+            # added for the compat with the RF wrapper
+            "vocab_dim": {"name": "qwen_vocab", "dimension": get_qwen2_vocab_size(), "vocab": get_qwen2_vocab_dict()},
+        },
+    )
+
+    checkpoint = make_path("i6_core/returnn/training/GetBestPtCheckpointJob.hZ9dPPCoRV7K/output/checkpoint.pt")
+
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 24
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 1
+    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+
 class Qwen2Model(rf.Module):
     """
     Wraps Qwen2DecoderV3.
