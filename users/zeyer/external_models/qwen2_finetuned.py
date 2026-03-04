@@ -156,13 +156,8 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
     get_model = functools.partial(
         Qwen2Model,
         **{
-            "hf_hub_cache_dir": Path(
-                "hub_cache",
-                creator=make_fake_job(
-                    module="i6_experiments.users.schmitt.external_models.huggingface",
-                    name="DownloadHuggingFaceRepoJob",
-                    sis_hash="r7AjtV7muFpk",
-                ),
+            "hf_hub_cache_dir": make_path(
+                "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache"
             ),
             "freeze_params": False,
             "lora_opts": None,
