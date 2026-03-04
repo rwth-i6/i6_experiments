@@ -170,17 +170,19 @@ def py():
         recog_def=model_recog_with_recomb_v2,
     )
 
+    task_hack_openasrleadboard = dataclasses.replace(task, score_recog_output_func=hacked_sclite_score_recog_out)
+
     # # Also on OpenASRLeaderboard test sets.
-    # ctc_recog_recomb_labelwise_prior_auto_scale(
-    #     prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
-    #     task=task,
-    #     ctc_model=am_4ep,
-    #     extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-    #     lm=lm,
-    #     prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-    #     recog_def=model_recog_with_recomb_v2,
-    #     eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
-    # )
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
+        task=task_hack_openasrleadboard,
+        ctc_model=am_4ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
+        lm=lm,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb_v2,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    )
 
     # Now with the 20ep AM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -192,8 +194,6 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
     )
-
-    task_hack_openasrleadboard = dataclasses.replace(task, score_recog_output_func=hacked_sclite_score_recog_out)
 
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
@@ -936,7 +936,7 @@ def py():
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2-0.5b/openasrleaderboard",
-        task=task,
+        task=task_hack_openasrleadboard,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_0_5b_lm,
@@ -963,7 +963,7 @@ def py():
     # Lower beam size. OpenASRLeaderboard takes very long.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-0.5b/openasrleaderboard",
-        task=task,
+        task=task_hack_openasrleadboard,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_0_5b_lm,
@@ -1227,7 +1227,7 @@ def py():
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-0.5b-spm10k/openasrleaderboard",
-        task=task,
+        task=task_hack_openasrleadboard,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_0_5b_lm_spm10k,
@@ -1239,7 +1239,7 @@ def py():
     # Lower beam size. OpenASRLeaderboard takes very long.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2-beamSize8/qwen2-0.5b-spm10k/openasrleaderboard",
-        task=task,
+        task=task_hack_openasrleadboard,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_0_5b_lm_spm10k,
