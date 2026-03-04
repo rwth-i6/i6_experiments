@@ -98,6 +98,7 @@ def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
             "freeze_params": False,
             "lora_opts": None,
             "freeze_embedding_layer": True,
+            # added for the compat with the RF wrapper
             "vocab_dim": {"name": "qwen_vocab", "dimension": get_qwen2_vocab_size(), "vocab": get_qwen2_vocab_dict()},
         },
     )
@@ -188,10 +189,11 @@ class Qwen2Model(rf.Module):
     def __init__(
         self,
         *,
-        vocab_dim: Union[Dict[str, Any], str],
-        in_dim: Optional[Dim] = None,
-        target_dim: Optional[Dim] = None,
-        epoch: Optional[int] = None,
+        vocab_dim: Union[Dict[str, Any], str],  # bound for the wrapper
+        in_dim: Optional[Dim] = None,  # model_def API
+        target_dim: Optional[Dim] = None,  # model_def API
+        epoch: Optional[int] = None,  # get_model API
+        # for the model itself:
         input_prefix: Optional[str] = "USER: ",
         input_suffix: Optional[str] = "Transcribe speech to text. ASSISTANT: ",
         hf_hub_cache_dir: Union[str, os.PathLike],
@@ -205,7 +207,7 @@ class Qwen2Model(rf.Module):
         bos_symbol: Optional[str] = None,
         eos_symbol: Optional[str] = None,
         spm_model_path: Optional[Union[str, os.PathLike]] = None,
-        **_kwargs,
+        **kwargs,
     ):
         """
         :param vocab_dim:
@@ -251,6 +253,7 @@ class Qwen2Model(rf.Module):
             bos_symbol=bos_symbol,
             eos_symbol=eos_symbol,
             spm_model_path=spm_model_path,
+            **kwargs,
         )
         print(model.model.config)
 
