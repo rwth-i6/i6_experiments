@@ -213,6 +213,48 @@ def get_qwen2_1_5b_lm_finetuned_loquacious() -> ModelWithCheckpoint:
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
 
+def get_qwen2_1_5b_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
+    """
+    Qwen 2 with our vocab
+
+    From Mohammad
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab
+
+    vocab = get_spm_vocab(dim="10k")
+
+    # noinspection PyTypeChecker
+    get_model = functools.partial(
+        Qwen2Model,
+        **{
+            "hf_hub_cache_dir": make_path(
+                "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.WKeKAK6tzpOS/output/hub_cache"
+            ),
+            "freeze_params": False,
+            "lora_opts": None,
+            "freeze_embedding_layer": False,
+            "eos_symbol": None,
+            # This here is the one from Mohammad, where everything was converted to lower case:
+            # "spm_model_path": "i6_core/text/label/sentencepiece/train/TrainSentencePieceJob.1NUrrTDyKwle/output/spm_out.model",
+            # It should exactly match our vocab.
+            # We provide both spm_model_path and vocab_dim.
+            # spm_model_path triggers updating the right weight matrices,
+            # and vocab_dim is needed for the RF wrapper.
+            "spm_model_path": vocab.model_file,
+            "vocab_dim": "target",
+        },
+    )
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 24
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 1
+    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+
+    checkpoint = make_path("i6_core/returnn/training/GetBestPtCheckpointJob.YeaqTaWL9jkT/output/checkpoint.pt")
+
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+
 def get_qwen2_7b_lm_finetuned_loquacious() -> ModelWithCheckpoint:
     """
     Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
