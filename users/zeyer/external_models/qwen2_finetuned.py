@@ -172,15 +172,31 @@ def get_qwen2_1_5b_lm_base() -> ModelWithCheckpoint:
     #     }
     # }
     # Not sure if it works just like that?
-    checkpoint = make_path("i6_core/tools/download/DownloadJob.AEgIsy3HgcrJ/output/qwen2-1_5b_model.safetensors")
+    # checkpoint = make_path("i6_core/tools/download/DownloadJob.AEgIsy3HgcrJ/output/qwen2-1_5b_model.safetensors")
 
     get_model: ModelDef  # make compat
     get_model.behavior_version = 24
     get_model.backend = "torch"
     get_model.batch_size_factor = 1
-    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+    model_with_cfg = ModelDefWithCfg(
+        model_def=get_model,
+        config={
+            "preload_from_files": {
+                "qwen": {
+                    "filename": make_path(
+                        "i6_core/tools/download/DownloadJob.AEgIsy3HgcrJ/output/qwen2-1_5b_model.safetensors"
+                    ),
+                    "init_for_train": False,
+                    "checkpoint_key": None,
+                    "prefix": "model.",
+                    "ignore_missing": True,
+                    "custom_missing_load_func": qwen_load_tied_embedding_matrices,
+                }
+            }
+        },
+    )
 
-    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=None)
 
 
 def get_qwen2_0_5b_lm_finetuned_loquacious() -> ModelWithCheckpoint:
