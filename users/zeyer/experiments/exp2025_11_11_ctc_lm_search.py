@@ -460,6 +460,7 @@ def py():
 
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
         get_qwen2_0_5b_lm_finetuned_loquacious,
+        get_qwen2_1_5b_lm_finetuned_loquacious,
         get_qwen2_vocab,
         get_qwen2_0_5b_lm_finetuned_loquacious_spm10k_vocab,
         get_qwen3_vocab,
@@ -522,7 +523,8 @@ def py():
     ).out_prior
     tk.register_output(f"{prefix}/lm/qwen3/lm_vocab_log_prior_smooth.txt", log_qwen3_vocab_log_prior)
 
-    qwen2_lm = get_qwen2_0_5b_lm_finetuned_loquacious()
+    qwen2_0_5b_lm = get_qwen2_0_5b_lm_finetuned_loquacious()
+    qwen2_1_5b_lm = get_qwen2_1_5b_lm_finetuned_loquacious()
 
     # rescore:
     # {"dev": 6.26, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.84, "dev_librispeech": 3.84, "dev_yodas": 11.54,
@@ -537,12 +539,12 @@ def py():
         custom_am_label_merge=spm_label_merge_v2,
         seq_str_postprocess_func=seq_str_postprocess_lower_case,
     )
-    res = ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2",
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2-0.5b",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -562,17 +564,13 @@ def py():
             # "___debug": 2,  # add something new random to get new hashes for debugging
         },
     )
-    tk.register_output(
-        f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2/recog-1stpass-res-dev-yodas.txt",
-        res.individual_results["dev_yodas"].main_measure_value,
-    )
     # Also on the 20ep AM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-0.5b",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -595,11 +593,11 @@ def py():
 
     # Using the Qwen2-vocab prior
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-qwenPrior/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-qwenPrior/qwen2-0.5b",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -622,11 +620,11 @@ def py():
     )
     # Also on the 20ep AM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior/qwen2",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior/qwen2-0.5b",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -651,11 +649,11 @@ def py():
     # Qwen2-vocab prior + always (every1) (no delayed fusion, or only until word end):
     enable_always = functools.partial(enable_by_interval, interval=1)
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior-always/qwen2",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior-always/qwen2-0.5b",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -680,11 +678,11 @@ def py():
     for interval in [1, 5, 10, 20]:
         enable_every_n = functools.partial(enable_by_interval, interval=interval)
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-every{interval}/qwen2",
+            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-every{interval}/qwen2-0.5b",
             task=task,
             ctc_model=am_20ep,
             extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-            lm=qwen2_lm,
+            lm=qwen2_0_5b_lm,
             lm_rescore_config={
                 "default_data_convert_labels_func": convert_labels_func_spm,
                 "chunk_size_for_lm_rescoring": 16,
@@ -704,11 +702,11 @@ def py():
             },
         )
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior-every{interval}/qwen2",
+            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-qwenPrior-every{interval}/qwen2-0.5b",
             task=task,
             ctc_model=am_20ep,
             extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-            lm=qwen2_lm,
+            lm=qwen2_0_5b_lm,
             lm_rescore_config={
                 "default_data_convert_labels_func": convert_labels_func_spm,
                 "chunk_size_for_lm_rescoring": 16,
@@ -739,11 +737,11 @@ def py():
     # TODO figure out where the inconsistency comes from...
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-batchSize1/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-batchSize1/qwen2-0.5b",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -773,11 +771,11 @@ def py():
     # So for qwen same as for our LM, no delayed prior makes it worse.
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-noDelayedPrior/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-noDelayedPrior/qwen2-0.5b",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -815,11 +813,11 @@ def py():
     # So without prior makes it clearly worse.
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2-noPrior",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2/qwen2-0.5b-noPrior",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -840,11 +838,11 @@ def py():
     )
     # Also on the 20ep AM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-noPrior",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-0.5b-noPrior",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -870,11 +868,11 @@ def py():
     # TODO why is this even worse?
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-always/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-always/qwen2-0.5b",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -895,11 +893,11 @@ def py():
     )
     # Also on the 20ep AM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2-0.5b",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -921,11 +919,11 @@ def py():
 
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2/openasrleaderboard",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2-0.5b/openasrleaderboard",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -954,11 +952,11 @@ def py():
     #  "test": 7.0, "test_voxpopuli": 6.66, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.11}
     # TODO update numbers
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-never/qwen2",
+        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-delayed-v2-never/qwen2-0.5b",
         task=task,
         ctc_model=am_4ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=qwen2_lm,
+        lm=qwen2_0_5b_lm,
         lm_rescore_config={
             "default_data_convert_labels_func": convert_labels_func_spm,
             "chunk_size_for_lm_rescoring": 16,
@@ -981,7 +979,7 @@ def py():
     # ------------------------------------------------------------------------------------------------------------------
     # Now the qwen2 LM finetuned with our ASR SPM10k vocab.
 
-    qwen2_lm_spm10k = get_qwen2_0_5b_lm_finetuned_loquacious_spm10k_vocab()
+    qwen2_0_5b_lm_spm10k = get_qwen2_0_5b_lm_finetuned_loquacious_spm10k_vocab()
 
     # Using ctc+lm-v2, as this was the best variant, and this is possible here.
     # one-pass:
@@ -989,11 +987,11 @@ def py():
     #  "test": 5.82, "test_voxpopuli": 6.02, "test_commonvoice": 7.87, "test_librispeech": 3.2, "test_yodas": 11.12}
     # rescoring:
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-spm10k",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-0.5b-spm10k",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm_spm10k,
+        lm=qwen2_0_5b_lm_spm10k,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
     )
@@ -1002,11 +1000,11 @@ def py():
     #  "test": 6.04, "test_voxpopuli": 6.32, "test_commonvoice": 8.32, "test_librispeech": 3.34, "test_yodas": 10.84}
     # TODO this is weird, even worse than rescoring, sth seems wrong?
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-spm10k",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2/qwen2-0.5b-spm10k",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm_spm10k,
+        lm=qwen2_0_5b_lm_spm10k,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         ctc_only_recog_version=10,
         ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
@@ -1026,11 +1024,11 @@ def py():
     # so maybe that is the tradeoff?
     for beam_size in [1, 2, 4, 8, 12, 16, 32, 64]:
         ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2-beamSize{beam_size}/qwen2-spm10k",
+            prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2-beamSize{beam_size}/qwen2-0.5b-spm10k",
             task=task,
             ctc_model=am_20ep,
             extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-            lm=qwen2_lm_spm10k,
+            lm=qwen2_0_5b_lm_spm10k,
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
             recog_def=model_recog_with_recomb,
             first_pass_recog_beam_size=beam_size,
@@ -1038,11 +1036,11 @@ def py():
 
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-spm10k/openasrleaderboard",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-0.5b-spm10k/openasrleaderboard",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
-        lm=qwen2_lm_spm10k,
+        lm=qwen2_0_5b_lm_spm10k,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
         eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
