@@ -97,13 +97,8 @@ def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
         Qwen2Model,
         **{
             # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache",
-            "hf_hub_cache_dir": Path(
-                "hub_cache",
-                creator=make_fake_job(
-                    module="i6_experiments.users.schmitt.external_models.huggingface",
-                    name="DownloadHuggingFaceRepoJob",
-                    sis_hash="r7AjtV7muFpk",
-                ),
+            "hf_hub_cache_dir": make_path(
+                "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.r7AjtV7muFpk/output/hub_cache"
             ),
             "freeze_params": False,
             "lora_opts": None,
@@ -122,14 +117,7 @@ def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
     # ft_qwen0_5b_v2_bs1.8k_epoch100_part50_wup2.5_maxlr1e-05_full_ft_lc--best | test  | 43.38   | 59.54 |
     # /rwthfs/rz/cluster/hpcwork/p0023999/hq237549/sisyphus-work-dirs/2026-01-20--llm/work/i6_core/returnn/training/GetBestPtCheckpointJob.41gWXslCurXV/output/checkpoint.pt
 
-    checkpoint = Path(
-        "checkpoint.pt",
-        creator=make_fake_job(
-            module="i6_core.returnn.training",
-            name="GetBestPtCheckpointJob",
-            sis_hash="41gWXslCurXV",
-        ),
-    )
+    checkpoint = make_path("i6_core/returnn/training/GetBestPtCheckpointJob.41gWXslCurXV/output/checkpoint.pt")
 
     get_model: ModelDef  # make compat
     get_model.behavior_version = 24
