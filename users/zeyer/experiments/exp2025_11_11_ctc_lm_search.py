@@ -921,7 +921,7 @@ def py():
 
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2/openasrleaderboard",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
@@ -1038,7 +1038,7 @@ def py():
 
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-spm10k",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2/qwen2-spm10k/openasrleaderboard",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
