@@ -12,7 +12,7 @@ from returnn.util.basic import prod
 from sisyphus import Path
 
 from i6_core.returnn.training import PtCheckpoint
-from i6_experiments.common.utils.fake_job import make_fake_job, make_path
+from i6_experiments.common.utils.fake_job import make_path
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef
 from returnn_common.datasets_old_2022_10.interface import VocabConfigStatic
 
@@ -31,13 +31,8 @@ def get_qwen2_vocab_dict(*, text_preprocess_lower_case: bool = False, bpe_dropou
     d: Dict[str, Any] = {
         "class": "HuggingFaceTokenizer",
         # "/home/hq237549/experiments/2026-01-20--llm/work/i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content",
-        "huggingface_repo_dir": Path(
-            "content",
-            creator=make_fake_job(
-                module="i6_experiments.users.schmitt.external_models.huggingface",
-                name="DownloadHuggingFaceRepoJobV2",
-                sis_hash="PUGzhO2dOEpK",
-            ),
+        "huggingface_repo_dir": make_path(
+            "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJobV2.PUGzhO2dOEpK/output/content"
         ),
         "map_bos_to_eos": True,
     }
@@ -178,12 +173,7 @@ def get_qwen2_lm_finetuned_loquacious_spm10k_vocab() -> ModelWithCheckpoint:
     get_model.batch_size_factor = 1
     model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
 
-    checkpoint = Path(
-        "checkpoint.pt",
-        creator=make_fake_job(
-            module="i6_core.returnn.training", name="GetBestPtCheckpointJob", sis_hash="WRTnxifhjK0y"
-        ),
-    )
+    checkpoint = make_path("i6_core/returnn/training/GetBestPtCheckpointJob.WRTnxifhjK0y/output/checkpoint.pt")
 
     return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
 
