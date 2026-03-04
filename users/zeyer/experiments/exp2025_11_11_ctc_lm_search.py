@@ -971,6 +971,7 @@ def py():
         eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
     )
 
+    # Now the 1.5B LLM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-1.5b",
         task=task,
