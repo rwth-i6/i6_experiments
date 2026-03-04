@@ -154,16 +154,15 @@ def calculate_perplexity(
         **default_returnn,
     )
 
-    # EVALUATION (only if run_test)
     if run_test and test_dataset_tuples is not None:
-        for dataset in ["test-clean", "test-other"]:
+        for dataset_key, dataset in test_dataset_tuples.items():
             _ = compute_ppl(
                 evaluation_name,
                 search_config,
                 asr_model=asr_model,
                 forward_module=RECOGNITION_PACKAGE,
                 forward_method=forward_method,
-                test_dataset_tuples={dataset: test_dataset_tuples[dataset]},
+                test_dataset_tuples={dataset_key: dataset},
                 vocab_opts=vocab_opts,
                 debug=debug,
                 forward_args=forward_args,

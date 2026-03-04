@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from .data.dataset_config import DatasetConfig, dataset_baseline_train_corpus_text, dataset_baseline_all_data
+from .data.dataset_config import DatasetConfig, dataset_baseline_train_corpus_text, dataset_baseline_all_data, \
+    dataset_baseline_normalized_lm_data
 from .data.label_config import LabelConfig, label_baseline
 from .network.network_config import NetworkConfig, network_base, network_small
 from .pipeline.search_config import SearchConfig, search_baseline_v2
@@ -78,6 +79,31 @@ def exp_1_4() -> ExperimentConfig:
         training=training_lm_data(),
         search=search_baseline_v2(),
     )
+
+
+def exp_1_5() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline_normalized_lm_data(),
+        labels=label_baseline(),
+        network=network_base(),
+        training=training_lm_data(),
+        search=search_baseline_v2(),
+    )
+
+
+def exp_1_6() -> ExperimentConfig:
+    return ExperimentConfig(
+        dataset=dataset_baseline_normalized_lm_data(),
+        labels=label_baseline(),
+        network=network_small(),
+        training=training_lm_data(),
+        search=search_baseline_v2(),
+    )
+
+
+"""
+TESTS
+"""
 
 
 def exp_baseline_test() -> ExperimentConfig:

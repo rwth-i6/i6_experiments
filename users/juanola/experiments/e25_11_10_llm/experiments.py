@@ -220,4 +220,10 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
             settings=train_dataset_settings,
             label_datastream=label_datastream
         )
+
+    # Add train dataset to test dataset tuples
+    test_dataset_tuples["train"] = (training_datasets.train, None)
+    test_dataset_tuples["dev"] = (training_datasets.cv, None)
+    test_dataset_tuples["devtrain"] = (training_datasets.devtrain, None)
+
     return training_datasets, dev_dataset_tuples, test_dataset_tuples, label_datastream.spm_model

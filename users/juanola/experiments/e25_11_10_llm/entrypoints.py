@@ -15,6 +15,8 @@ def main():
     e4_st()
     e4_sc()
 
+    e4_b_lmd()
+    e4_s_lmd()
 
 """
 Experiments entry points
@@ -33,6 +35,13 @@ def e4_st():
 def e4_sc():
     ex4.llm_ep([LLMExperimentVersion.V1_4_SMALL_COMB_DATA])
 
+# +++
+
+def e4_b_lmd():
+    ex4.llm_ep([LLMExperimentVersion.V1_5_BASE_LM_DATA])
+
+def e4_s_lmd():
+    ex4.llm_ep([LLMExperimentVersion.V1_6_SMALL_LM_DATA])
 
 """
 DEBUGS
@@ -56,4 +65,4 @@ def split_job():
     t4.two_way_split_file_test()
 
 
-__all__ = ["main", "e4_bt", "e4_bc", "e4_st", "e4_sc"]
+__all__ = ["main", "e4_bt", "e4_bc", "e4_st", "e4_sc", "e4_b_lmd", "e4_s_lmd"]
