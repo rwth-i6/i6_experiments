@@ -4,6 +4,7 @@ https://github.com/huggingface/open_asr_leaderboard
 """
 
 from sisyphus import tk
+import copy
 import functools
 from typing import Any, Dict, Optional
 from functools import cache
@@ -11,6 +12,7 @@ from functools import cache
 from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob
 
 from returnn_common.datasets_old_2022_10.interface import VocabConfig, DatasetConfig
+from .task import RecogOutput
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_hf_random_sorted_subset_v2,
@@ -184,3 +186,30 @@ def get_asr_leaderboard_test_datasets(*, vocab: VocabConfig) -> Dict[str, Huggin
             )
 
     return eval_datasets
+
+
+def hacked_sclite_score_recog_out(dataset: DatasetConfig, recog_output: RecogOutput):
+    # based on i6_experiments.users.schmitt.datasets.utils.sclite_generic_score.generic_sclite_score_recog_out
+
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import sclite_score_recog_out_to_ref
+    from speech_llm.prefix_lm.sis_recipe.exp2025_11_06_speech_llms.loquacious.pipeline import (
+        ApplyHuggingFaceNormalizerToTextDictJob,
+    )
+
+    corpus_name = dataset.get_main_name()
+    returnn_dataset = dataset.get_main_dataset()
+    data_key = dataset.get_default_target()
+
+    assert returnn_dataset["class"] == "HuggingFaceDataset" and returnn_dataset["data_format"][data_key]["vocab"]
+    returnn_dataset = copy.deepcopy(returnn_dataset)
+    returnn_dataset["data_format"][data_key] = {"dtype": "string", "shape": ()}
+
+    # returnn_dataset["data_format"][data_key]["vocab"] = {"class": "Utf8ByteTargets"}
+
+    ref = RecogOutput(output=ReturnnDatasetToTextDictJob(returnn_dataset=returnn_dataset, data_key=data_key).out_txt)
+
+    ref = RecogOutput(output=ApplyHuggingFaceNormalizerToTextDictJob(text_dict=ref.output).out)
+    recog_output = RecogOutput(output=ApplyHuggingFaceNormalizerToTextDictJob(text_dict=recog_output.output).out)
+
+    return sclite_score_recog_out_to_ref(recog_output, ref=ref, corpus_name=corpus_name)

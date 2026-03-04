@@ -6,6 +6,7 @@ Also implementing delayed fusion.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 from typing import Optional, Any, Dict, Tuple
 from functools import cache
@@ -33,7 +34,10 @@ from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_text_only_dataset_for_forward,
 )
 
-from i6_experiments.users.zeyer.datasets.hf_open_asr_leaderboard import get_asr_leaderboard_test_datasets
+from i6_experiments.users.zeyer.datasets.hf_open_asr_leaderboard import (
+    get_asr_leaderboard_test_datasets,
+    hacked_sclite_score_recog_out,
+)
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -165,17 +169,19 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
     )
-    # Also on OpenASRLeaderboard test sets.
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
-        task=task,
-        ctc_model=am_4ep,
-        extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
-        lm=lm,
-        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
-        recog_def=model_recog_with_recomb_v2,
-        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
-    )
+
+    # # Also on OpenASRLeaderboard test sets.
+    # ctc_recog_recomb_labelwise_prior_auto_scale(
+    #     prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
+    #     task=task,
+    #     ctc_model=am_4ep,
+    #     extra_config={"aux_loss_layers": [aux_ctc_layer_4ep]},
+    #     lm=lm,
+    #     prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+    #     recog_def=model_recog_with_recomb_v2,
+    #     eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    # )
+
     # Now with the 20ep AM.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v3/{lm_name}",
@@ -186,10 +192,13 @@ def py():
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb_v2,
     )
+
+    task_hack_openasrleadboard = dataclasses.replace(task, score_recog_output_func=hacked_sclite_score_recog_out)
+
     # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",
-        task=task,
+        task=task_hack_openasrleadboard,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=lm,
