@@ -80,7 +80,7 @@ def get_qwen2_0_5b_lm_base() -> ModelWithCheckpoint:
     """
     Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
 
-    Base model
+    Base model (from Robin)
     """
     # noinspection PyTypeChecker
     get_model = functools.partial(
@@ -110,6 +110,50 @@ def get_qwen2_0_5b_lm_base() -> ModelWithCheckpoint:
     # }
     # Not sure if it works just like that?
     checkpoint = make_path("i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors")
+
+    get_model: ModelDef  # make compat
+    get_model.behavior_version = 24
+    get_model.backend = "torch"
+    get_model.batch_size_factor = 1
+    model_with_cfg = ModelDefWithCfg(model_def=get_model, config={})
+
+    return ModelWithCheckpoint(definition=model_with_cfg, checkpoint=PtCheckpoint(checkpoint))
+
+
+def get_qwen2_1_5b_lm_base() -> ModelWithCheckpoint:
+    """
+    Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
+
+    Base model (from Robin)
+    """
+    # noinspection PyTypeChecker
+    get_model = functools.partial(
+        Qwen2Model,
+        **{
+            "hf_hub_cache_dir": make_path(
+                "i6_experiments/users/schmitt/external_models/huggingface/DownloadHuggingFaceRepoJob.yYBPoeu8x11u/output/hub_cache"
+            ),
+            "freeze_params": False,
+            "lora_opts": None,
+            "freeze_embedding_layer": True,
+            # added for the compat with the RF wrapper
+            "vocab_dim": {"name": "qwen_vocab", "dimension": get_qwen2_vocab_size(), "vocab": get_qwen2_vocab_dict()},
+        },
+    )
+
+    # Note: Mohammad uses it like this:
+    # preload_from_files = {
+    #     "qwen": {
+    #         "filename": "/rwthfs/rz/cluster/home/hq237549/experiments/2026-01-20--llm/work/i6_core/tools/download/DownloadJob.AEgIsy3HgcrJ/output/qwen2-1_5b_model.safetensors",
+    #         "init_for_train": False,
+    #         "checkpoint_key": None,
+    #         "prefix": "model.",
+    #         "ignore_missing": True,
+    #         "custom_missing_load_func": qwen_load_tied_embedding_matrices,
+    #     }
+    # }
+    # Not sure if it works just like that?
+    checkpoint = make_path("i6_core/tools/download/DownloadJob.AEgIsy3HgcrJ/output/qwen2-1_5b_model.safetensors")
 
     get_model: ModelDef  # make compat
     get_model.behavior_version = 24
