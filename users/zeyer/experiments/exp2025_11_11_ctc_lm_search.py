@@ -463,6 +463,7 @@ def py():
         get_qwen2_0_5b_lm_finetuned_loquacious,
         get_qwen2_0_5b_lm_finetuned_loquacious_spm10k_vocab,
         get_qwen2_1_5b_lm_finetuned_loquacious,
+        get_qwen2_1_5b_lm_finetuned_loquacious_spm10k_vocab,
         get_qwen2_7b_lm_finetuned_loquacious,
         get_qwen3_vocab,
     )
@@ -1063,6 +1064,7 @@ def py():
     # Now the qwen2 LM finetuned with our ASR SPM10k vocab.
 
     qwen2_0_5b_lm_spm10k = get_qwen2_0_5b_lm_finetuned_loquacious_spm10k_vocab()
+    qwen2_1_5b_lm_spm10k = get_qwen2_1_5b_lm_finetuned_loquacious_spm10k_vocab()
 
     # Using ctc+lm-v2, as this was the best variant, and this is possible here.
     # one-pass:
@@ -1077,6 +1079,17 @@ def py():
         lm=qwen2_0_5b_lm_spm10k,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
+    )
+
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2-beamSize8/qwen2-1.5b-spm10k",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_1_5b_lm_spm10k,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb,
+        first_pass_recog_beam_size=8,
     )
 
     # {"dev": 5.48, "dev_voxpopuli": 6.36, "dev_commonvoice": 6.88, "dev_librispeech": 3.24, "dev_yodas": 11.31,
