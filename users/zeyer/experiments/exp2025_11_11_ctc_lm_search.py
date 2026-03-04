@@ -972,7 +972,7 @@ def py():
     )
 
     ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always/qwen2-1.5b",
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-1.5b",
         task=task,
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
@@ -994,6 +994,7 @@ def py():
             "convert_labels_func": convert_labels_func_spm,
             "max_seqs": 32,
         },
+        first_pass_recog_beam_size=8,
     )
 
     # Never (delay until end), i.e. should be like rescoring:
