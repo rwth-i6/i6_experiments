@@ -460,6 +460,7 @@ def py():
 
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
         get_qwen2_vocab,
+        get_qwen2_0_5b_lm_base,
         get_qwen2_0_5b_lm_finetuned_loquacious,
         get_qwen2_0_5b_lm_finetuned_loquacious_spm10k_vocab,
         get_qwen2_1_5b_lm_finetuned_loquacious,
@@ -525,6 +526,7 @@ def py():
     ).out_prior
     tk.register_output(f"{prefix}/lm/qwen3/lm_vocab_log_prior_smooth.txt", log_qwen3_vocab_log_prior)
 
+    qwen2_0_5b_base_lm = get_qwen2_0_5b_lm_base()
     qwen2_0_5b_lm = get_qwen2_0_5b_lm_finetuned_loquacious()
     qwen2_1_5b_lm = get_qwen2_1_5b_lm_finetuned_loquacious()
     qwen2_7b_lm = get_qwen2_7b_lm_finetuned_loquacious()
@@ -972,6 +974,60 @@ def py():
             "max_seqs": 32,
         },
         eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    )
+
+    # 0.5B again, lower beam size (for comparison).
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-0.5b",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_0_5b_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_always,
+            "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+        first_pass_recog_beam_size=8,
+    )
+
+    # 0.5B base model.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-0.5b-base",
+        task=task,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_0_5b_base_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_always,
+            "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+        first_pass_recog_beam_size=8,
     )
 
     # Now the 1.5B LLM.
