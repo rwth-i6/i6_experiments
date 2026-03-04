@@ -131,14 +131,14 @@ def test_rf_transformer_llama():
 
 def test_qwen2_finetuned():
     from sisyphus import Path
-    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_qwen2_lm_finetuned, Qwen2Model
+    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import get_qwen2_lm_finetuned_loquacious, Qwen2Model
     import tree
     import functools
     from returnn.util.hot_reload import ConfigHotReloader
 
     _init()
 
-    lm = get_qwen2_lm_finetuned()
+    lm = get_qwen2_lm_finetuned_loquacious()
     get_model = lm.definition.model_def
     assert isinstance(get_model, functools.partial)
     assert get_model.func is Qwen2Model and get_model.keywords

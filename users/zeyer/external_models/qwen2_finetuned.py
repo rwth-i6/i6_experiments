@@ -77,7 +77,7 @@ def get_qwen3_vocab(*, text_preprocess_lower_case: bool = False, bpe_dropout: fl
     )
 
 
-def get_qwen2_lm_finetuned() -> ModelWithCheckpoint:
+def get_qwen2_lm_finetuned_loquacious() -> ModelWithCheckpoint:
     """
     Keep compat to :mod:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2`.
 

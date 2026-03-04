@@ -459,7 +459,7 @@ def py():
     # Now with Qwen2 finetuned LM.
 
     from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
-        get_qwen2_lm_finetuned,
+        get_qwen2_lm_finetuned_loquacious,
         get_qwen2_vocab,
         get_qwen2_lm_finetuned_loquacious_spm10k_vocab,
         get_qwen3_vocab,
@@ -522,7 +522,7 @@ def py():
     ).out_prior
     tk.register_output(f"{prefix}/lm/qwen3/lm_vocab_log_prior_smooth.txt", log_qwen3_vocab_log_prior)
 
-    qwen2_lm = get_qwen2_lm_finetuned()
+    qwen2_lm = get_qwen2_lm_finetuned_loquacious()
 
     # rescore:
     # {"dev": 6.26, "dev_voxpopuli": 6.62, "dev_commonvoice": 8.84, "dev_librispeech": 3.84, "dev_yodas": 11.54,
