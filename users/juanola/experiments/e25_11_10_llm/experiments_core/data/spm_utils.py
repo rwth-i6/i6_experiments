@@ -1,9 +1,9 @@
 """
 Dataset helpers for the SPM-based training
 """
-from typing import Optional, Tuple
+from typing import Tuple
 
-from sisyphus import tk
+from sisyphus import tk, Path
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import SentencePieceDatastream
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
@@ -30,9 +30,18 @@ def build_spm_lm_training_datasets(
     """
     Builds the training datasets for the SPM-based training - For LM.
     """
-    label_datastream = get_librispeech_spm_datastream(
-        vocab_size, dataset_config.use_train_corpus_text, dataset_config.use_normalized_lm_data
-    )
+
+    if dataset_config.spm_model_path is None:
+        label_datastream = get_librispeech_spm_datastream(
+            vocab_size, dataset_config.use_train_corpus_text, dataset_config.use_normalized_lm_data
+        )
+    else:
+        label_datastream = SentencePieceDatastream(
+            available_for_inference=False,
+            spm_model=Path(dataset_config.spm_model_path),
+            vocab_size=vocab_size,
+        )
+
 
     # TRAIN DATA
     if dataset_config.use_train_corpus_text and not dataset_config.use_normalized_lm_data:

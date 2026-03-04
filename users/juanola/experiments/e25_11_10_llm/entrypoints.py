@@ -43,6 +43,28 @@ def e4_b_lmd():
 def e4_s_lmd():
     ex4.llm_ep([LLMExperimentVersion.V1_6_SMALL_LM_DATA])
 
+# +++
+
+def e4_bc_vocab():
+    ex4.llm_ep([LLMExperimentVersion.V2_1_BC_VOCAB])
+
+def e4_sc_vocab():
+    ex4.llm_ep([LLMExperimentVersion.V2_2_BC_VOCAB])
+
+def e4_bllm_vocab():
+    ex4.llm_ep([LLMExperimentVersion.V2_3_BLLM_VOCAB])
+
+def e4_sllm_vocab():
+    ex4.llm_ep([LLMExperimentVersion.V2_4_BLLM_VOCAB])
+
+def all_new_vocab():
+    e4_bc_vocab()
+    e4_sc_vocab()
+    e4_bllm_vocab()
+    e4_sllm_vocab()
+
+
+
 """
 DEBUGS
 """

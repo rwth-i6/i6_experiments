@@ -23,6 +23,8 @@ class DatasetConfig:
     cv_n_lines: int = 3000
     devtrain_n_lines: int = 3000
 
+    spm_model_path: Optional[str] = None
+
     def __post_init__(self):
         """
         Assertions for parameters.
@@ -56,5 +58,20 @@ def dataset_baseline_all_data() -> DatasetConfig:
     return dataclasses.replace(dataset_baseline_train_corpus_text(),
                                use_train_corpus_text=True,
                                use_normalized_lm_data=True)
+
+
+"VOCAB ENFORCING"
+
+BASE_VOCAB = "/u/marti.juanola/experiments/25_10_17_sllm_d2/work/i6_core/text/label/sentencepiece/train/TrainSentencePieceJob.ofYcs4cMRS8T/output/spm_out.model"
+
+def dataset_baseline_normalized_lm_data_sllm_vocab() -> DatasetConfig:
+    return dataclasses.replace(dataset_baseline_normalized_lm_data(),
+                               spm_model_path=BASE_VOCAB)
+
+def dataset_baseline_all_data_sllm_vocab() -> DatasetConfig:
+    return dataclasses.replace(dataset_baseline_all_data(),
+                               spm_model_path=BASE_VOCAB)
+
+
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

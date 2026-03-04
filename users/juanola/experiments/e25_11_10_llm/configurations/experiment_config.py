@@ -1,7 +1,9 @@
+import dataclasses
 from dataclasses import dataclass
 
 from .data.dataset_config import DatasetConfig, dataset_baseline_train_corpus_text, dataset_baseline_all_data, \
-    dataset_baseline_normalized_lm_data
+    dataset_baseline_normalized_lm_data, dataset_baseline_normalized_lm_data_sllm_vocab, \
+    dataset_baseline_all_data_sllm_vocab
 from .data.label_config import LabelConfig, label_baseline
 from .network.network_config import NetworkConfig, network_base, network_small
 from .pipeline.search_config import SearchConfig, search_baseline_v2
@@ -99,6 +101,24 @@ def exp_1_6() -> ExperimentConfig:
         training=training_lm_data(),
         search=search_baseline_v2(),
     )
+
+"""
+VOCAB FIX
+"""
+
+
+def base_comb_sllm_vocab() -> ExperimentConfig:
+    return dataclasses.replace(exp_1_2(), dataset=dataset_baseline_all_data_sllm_vocab())
+
+def small_comb_sllm_vocab() -> ExperimentConfig:
+    return dataclasses.replace(exp_1_4(), dataset=dataset_baseline_all_data_sllm_vocab())
+
+def base_llm_sllm_vocab() -> ExperimentConfig:
+    return dataclasses.replace(exp_1_5(), dataset=dataset_baseline_normalized_lm_data_sllm_vocab())
+
+def small_llm_sllm_vocab() -> ExperimentConfig:
+    return dataclasses.replace(exp_1_6(), dataset=dataset_baseline_normalized_lm_data_sllm_vocab())
+
 
 
 """
