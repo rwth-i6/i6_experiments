@@ -1,3 +1,4 @@
+import copy
 from collections import OrderedDict
 from typing import Optional, Dict, Any, Iterable, Union
 
@@ -92,19 +93,22 @@ def create_tune_and_evaluate_jobs(
             prior_network_import_path=prior_network_import_path,
         )
 
-        # TODO: add possibility for automatic tunning method!
+        if search_config.auto_scaling: # New!
+            pass
 
-        res = tune_and_evaluate_model(
-            evaluation_name,
-            asr_model,
-            search_config,
-            dev_dataset_tuples=dev_dataset_tuples,
-            forward_method=search_config.forward_method,
-            debug=search_config.debug_returnn_param,
-            run_test=run_test and run_test_for_eval,
-            test_dataset_tuples=test_dataset_tuples,
-            vocab_opts=train_data.train.dataset.target_options,
-        )
+
+        else:
+            res = tune_and_evaluate_model(
+                evaluation_name,
+                asr_model,
+                search_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                forward_method=search_config.forward_method,
+                debug=search_config.debug_returnn_param,
+                run_test=run_test and run_test_for_eval,
+                test_dataset_tuples=test_dataset_tuples,
+                vocab_opts=train_data.train.dataset.target_options,
+            )
         result_dict.update(res)
 
 
@@ -283,13 +287,21 @@ def tune_and_evaluate_model(
 
                         forward_args, search_name = get_forward_step_parameters_and_search_name(
                             search_config, evaluation_name, beam_size, lm_scale, prior_scale, ctc_scale, sllm_scale,
-                            prior_file=asr_model.prior_file
                         )
+
+                        asr_model_used = asr_model
+                        if forward_method == "forward_step_ctc_decoding_v2" and prior_scale != 0:
+                            if asr_model.prior_file is None:
+                                raise ValueError(f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({prior_scale})")
+
+                            asr_model_with_prior = copy.deepcopy(asr_model)
+                            asr_model_with_prior.net_args["prior_file"] = asr_model.prior_file
+                            asr_model_used = asr_model_with_prior
 
                         _, wers = search(
                             search_name,
                             search_config,
-                            asr_model=asr_model,
+                            asr_model=asr_model_used,
                             forward_module=RECOGNITION_PACKAGE,
                             forward_method=forward_method,
                             test_dataset_tuples=dev_dataset_tuples,
@@ -334,10 +346,19 @@ def tune_and_evaluate_model(
                 for_test=True,
             )
 
+            asr_model_used = asr_model
+            if forward_method == "forward_step_ctc_decoding_v2" and best_params[2] != 0:
+                if asr_model.prior_file is None:
+                    raise ValueError(f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({best_params[2]})")
+
+                asr_model_with_prior = copy.deepcopy(asr_model)
+                asr_model_with_prior.net_args["prior_file"] = asr_model.prior_file
+                asr_model_used = asr_model_with_prior
+
             _, wers = search(
                 search_name,  # !!! now tests are stored inside some param folder (to enable multiple searches for exp)
                 search_config,
-                asr_model=asr_model,
+                asr_model=asr_model_used,
                 forward_module=RECOGNITION_PACKAGE,
                 forward_method=forward_method,
                 test_dataset_tuples={key: dataset},
@@ -359,9 +380,7 @@ def get_forward_step_parameters_and_search_name(
     prior_scale: Union[float, Variable] = None,
     ctc_scale: Union[float, Variable] = None,
     sllm_scale: Union[float, Variable] = None,
-    for_test: bool = False,
-
-    prior_file:Optional[tk.Path]=None
+    for_test: bool = False
 ) -> tuple[dict[str, Any], str]:
     """
     TODO: strings could be use for testing with DelayedFormating, but further changes in the code would be needed...
@@ -404,7 +423,6 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning": None,
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
-        # TODO: add prior
 
         search_name = (
             f"{evaluation_name}/v3_optimal_params"
@@ -428,11 +446,6 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning": None,
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
-
-        if prior_scale != 0:
-            if prior_file is None:
-                raise ValueError(f"prior_file must be set for forward_step_ctc_decoding_v2 if prior is used ({prior_scale})")
-            forward_args["prior_file"] = prior_file
 
         # TODO: make the name depend on the external ctc + lm checkpoints
         search_name = (

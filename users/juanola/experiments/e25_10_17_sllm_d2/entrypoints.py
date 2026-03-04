@@ -468,6 +468,11 @@ def new_v4_search():
     e3_pre5()
     e3_pre8()
 
+def new_v4_search_v2():
+    e3v7_ctc()
+    e3_pre8()
+    e3v14()
+
 
 """
 DEBUGS

@@ -133,6 +133,9 @@ class Model(
             freeze_decoder_from_the_start: Optional[bool] = None,
             freeze_adapter_from_the_start: Optional[bool] = None,
 
+            # FOR DECODING
+            prior_file: Optional[str] = None,
+
             # ONLY DEFINED HERE
             verbose: bool = True,
 
@@ -331,6 +334,18 @@ class Model(
             else:
                 print("No decoder!")
             print(" ***** MODEL PARAMETERS *****")
+
+
+        # FOR DECODING
+        self.prior_log_probs = None
+        if prior_file is not None:
+            labelwise_prior = torch.load(prior_file).float()
+            self.prior_log_probs = nn.functional.log_softmax(labelwise_prior, dim=-1)
+
+
+    def get_prior_log_probs(self):
+        return self.prior_log_probs
+
 
     def update_encoder_if_needed(self, should_be_frozen: bool):
         if should_be_frozen and not self.frozen_encoder:

@@ -317,7 +317,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         ctc_top_k_pruning_reduce_func: str = "mean",
 
         ctc_scale: float = 1.0,
-        prior_scale: float = 0.0,  # TODO: unused
+        prior_scale: float = 0.0,
         sllm_scale: float = 0.0,
         external_lm_scale: float = 0.0,
 
@@ -475,6 +475,17 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
 
     max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)
 
+    # Prior # TODO: DO ONLY ONCE IN MODEL
+    if prior_scale != 0:
+        pt_prior = model.get_prior_log_probs()
+        if pt_prior is None:
+            raise ValueError(f"prior tensor not provided for prior scale ({prior_scale})")
+
+        prior_log_probs = rf.convert_to_tensor(
+            pt_prior.to(device=data.device, dtype=data.dtype),
+            dims=[target_dim],
+        )
+
     # TODO: wrap in conditionals
     lm_state_raw = decoder_state
     ext_lm_state = { #Qwen2DecoderState
@@ -525,11 +536,11 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
 
         # --- PRIOR RE-SCORING ---
-        if labelwise_prior is not None:
-            label_log_prob -= prior_scale * labelwise_prior
+        if prior_scale != 0:
+            label_log_prob -= prior_scale * prior_log_probs
 
         # --- SLLM DECODER SCORING ---
-        if sllm_scale > 0:  # Added to avoid calling decoder if using the forward pass as a CTC greedy recognition
+        if sllm_scale != 0:  # Added to avoid calling decoder if using the forward pass as a CTC greedy recognition
             lm_logits_raw, lm_state_raw = model.step_decoder(targets_lm_raw.unsqueeze(-1), lm_state_raw)
             lm_logits_raw = lm_logits_raw.squeeze(-2)  # squeeze singleton time dim
             lm_logits = rf.convert_to_tensor(lm_logits_raw, dims=batch_dims + [ctc_beam_dim, target_dim])
@@ -556,7 +567,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
             label_log_prob += lm_log_probs  # Batch, InBeam, Vocab
 
         # --- EXTERNAL LM ---
-        if external_lm_scale > 0:
+        if external_lm_scale != 0:
             # Note: External LMs usually don't need encoder context
             # Assuming external_lm has a similar step interface
             ext_logits_raw, ext_lm_state = model.external_llm_step_decoder(targets_lm_raw.unsqueeze(-1), ext_lm_state)

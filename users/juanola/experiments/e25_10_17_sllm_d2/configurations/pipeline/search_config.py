@@ -51,6 +51,9 @@ class SearchConfig:
 
     # Other
     forward_method: str = None
+
+    # What to run
+    auto_scaling: bool = False
     run_ctc_greedy_decoding_last_epoch: bool = False
 
     debug_returnn_param: bool = True
@@ -261,6 +264,17 @@ def search_ctc_decoding_11gb_v2_grid_search(
         ctc_scales=[1.0],
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
+    )
+
+def v4_autoscaling_ctc_prior_lm(
+        ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
+        ext_decoder: Optional[tuple[str, NetworkConfig]] = None
+) -> SearchConfig:
+    return dataclasses.replace(
+        search_baseline_ctc_decoding_11gb_v2(),
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+        auto_scaling=True,
     )
 
 

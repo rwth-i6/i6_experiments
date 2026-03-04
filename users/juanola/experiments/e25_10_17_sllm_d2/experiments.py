@@ -153,7 +153,8 @@ def sllm_ep(
 
             prior_network_path = network_import_path if network_import_path != "networks.conformer_qwen_v1.Model" else "networks.conformer_qwen_v2.SllmV2"
 
-            assert network_import_path_for_forward_step != "networks.conformer_qwen_v1.Model", f"Running a recognition with model V1!! Beam seach does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
+            assert network_import_path_for_forward_step != "networks.conformer_qwen_v1.Model", f"Running a recognition with model V1!! Beam search does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
+            assert prior_network_path != "networks.conformer_qwen_v1.Model", f"Running a prior recognition with model V1!! Beam search does not work here"
 
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
                 training_name=forward_training_name,
