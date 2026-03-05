@@ -816,10 +816,18 @@ def get_ctc_with_lm_and_labelwise_prior(
         config["_lm_model_def"] = lm_def.model_def
     config["lm_scale"] = lm_scale
     config["preload_from_files"] = config["preload_from_files"].copy() if config.get("preload_from_files") else {}
-    config["preload_from_files"]["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+    if language_model.checkpoint:
+        config["preload_from_files"]["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
     lm_config_preload_from_files = lm_config.pop("preload_from_files", None)
     if lm_config_preload_from_files:
-        config["preload_from_files"].update(lm_config_preload_from_files)
+        for k, v in lm_config_preload_from_files.items():
+            assert k not in config["preload_from_files"], (
+                f"key {k!r} already in {config['preload_from_files']=}, cannot set to value {v}"
+            )
+            assert isinstance(v, dict)
+            v = v.copy()
+            v["prefix"] = "lm." + v["prefix"]
+            config["preload_from_files"][k] = v
     assert not lm_config
 
     combined_model_def = ctc_model_ext_def
