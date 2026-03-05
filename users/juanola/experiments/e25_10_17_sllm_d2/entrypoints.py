@@ -102,8 +102,14 @@ def e3v4():
     ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER])  # , itc_training=True)
 
 
+
 def e3v5():
-    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V5_LINEAR_ADAPTER],
+                run_test=False, # TODO: for now
+                run_best=False, # TODO: for now
+                run_best_4=False, # TODO: for now
+                run_only_dev_other=True, # TODO: for now
+    )  # , itc_training=True)
 
 
 def e3v6():
@@ -437,15 +443,18 @@ def e3v14_pre1_v2(): # TODO: !!!!
     ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED_V2], itc_training=True)
 
 
-def e3v14_pre2_v2():# TODO: !!!!
+def e3v14_pre2_v2():
     ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED_V2])
+
+def e3_pre5_i6_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_I6_V2])
 
 
 def e3v14_pre1_f20_v2():# TODO: !!!!
     ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20_V2], itc_training=True)
 
 
-def e3v14_pre2_f10_v2():# TODO: !!!!
+def e3v14_pre2_f10_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_BV2_PRE_ED_S_C_F10_V2])
 
 
@@ -589,3 +598,6 @@ __all__ = [
     "e3_lora2",
     "e3_lora3",
 ]
+
+if __name__ == "__main__": # For debugging purposes
+    e3v5()

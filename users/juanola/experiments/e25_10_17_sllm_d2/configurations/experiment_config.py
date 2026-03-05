@@ -41,12 +41,10 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     greedy_search,
     greedy_search_v2,
     search_baseline_v2,
-    search_baseline_ctc_decoding_11gb,
+    V3_search_baseline_ctc_decoding_11gb,
     search_baseline_v2_multiple_beams,
     search_baseline_ctc_greedy_decoding,
-    search_baseline_ctc_decoding_11gb_v2,
-    PretrainedExternalModules,
-    search_ctc_decoding_11gb_v2_grid_search, )
+    PretrainedExternalModules, V4_autoscaling_64_ctc_prior_lm, V4_ctc_sllm_lm_combinations, V4_baseline, )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
     training_baseline,
@@ -160,14 +158,31 @@ def exp_v5() -> ExperimentConfig:
         search=[
             search_baseline_v2(),
             search_baseline_ctc_greedy_decoding(),
-            search_baseline_ctc_decoding_11gb(),
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
+            V3_search_baseline_ctc_decoding_11gb(),
+            V4_ctc_sllm_lm_combinations( # CTC finetuned
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
             ),
-            search_ctc_decoding_11gb_v2_grid_search(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
+            V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            ),
+
+            # New autoscaling
+            V4_autoscaling_64_ctc_prior_lm( # TODO - run and debug
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            ),
+
+            # OLD
+            replace(
+                V4_baseline(
+                    ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                ),
+                lm_scales=[1.0],
+                sllm_scales=[0.0],
+                ctc_scales=[1.0],
+                prior_scales=[0.0, 0.3, 0.6, 0.9],
             ),
         ],
     )
@@ -194,63 +209,40 @@ def exp_v7() -> ExperimentConfig:
 def exp_v7_with_ctc_gd() -> ExperimentConfig:
     return replace(
         exp_v7(),
-        # search=[search_baseline(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
-        search=[  # TODO: uncomment!
-            # search_baseline_v2(),
-            # search_baseline_ctc_greedy_decoding(),
-            # search_baseline_ctc_decoding_11gb(),
-
-            # search_baseline_ctc_decoding_11gb_v2( #TODO:...
-            #      ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-            #      ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            # ),
-            # search_ctc_decoding_11gb_v2_grid_search( #TODO: being tested
-            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            # ),
-            # search_baseline_ctc_decoding_11gb_v2(#TODO:...
-            #      ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            # ),
-            # replace(
-            #      search_baseline_ctc_decoding_11gb_v2(  #TODO:...
-            #          ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            #      ),
-            #      lm_scales=[1.0],
-            #      sllm_scales=[0.0, 1.0],
-            #      ctc_scales=[1.0],
-            # ),
-
-            replace( # OLD: improve this: now 17.6, should be better
-                search_baseline_ctc_decoding_11gb_v2(
-                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-                ),
-                lm_scales=[1.0],
-                sllm_scales=[0.0],
-                ctc_scales=[1.0],
-                prior_scales=[0.0],
+        search=[
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            V3_search_baseline_ctc_decoding_11gb(),
+            V4_ctc_sllm_lm_combinations( # CTC finetuned
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            ),
+            V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            ),
+            V4_ctc_sllm_lm_combinations( # ext CTC (3 layers to check what happens ...)
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
             ),
 
-            # TODO: new LLM v2 (vocab alright)
-            replace(
-                search_baseline_ctc_decoding_11gb_v2(
-                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
-                ),
-                lm_scales=[0.0, 1.0],
-                sllm_scales=[0.0],
-                ctc_scales=[1.0],
-                prior_scales=[0.0],
-            ),
-            replace(
-                search_baseline_ctc_decoding_11gb_v2(
-                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
-                ),
-                lm_scales=[1.0],
-                sllm_scales=[0.0],
-                ctc_scales=[1.0],
-                prior_scales=[0.0, 0.5],
-            ),
+            # New autoscaling
+            # V4_autoscaling_64_ctc_prior_lm( # TODO - run and debug
+            #     # CTC finetuned
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            # ),
 
 
+            # OLD
+            # replace( # Prior and LM
+            #     search_baseline_ctc_decoding_11gb_v2(
+            #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+            #     ),
+            #     lm_scales=[0.1, 0.3, 0.6, 0.9],
+            #     sllm_scales=[0.0],
+            #     ctc_scales=[1.0],
+            #     prior_scales=[0.1, 0.3, 0.6, 0.9],
+            # ),
             # replace( # Testing if random external LM also returns same values
             #     search_baseline_ctc_decoding_11gb_v2(
             #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
@@ -261,30 +253,6 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             #     prior_scales=[0.0],
             #     ext_decoder_no_preloading=True,
             # ),
-
-
-            # replace(# TRANS MODEL IS BAD BUT WITH SAME VOCAB
-            #     search_baseline_ctc_decoding_11gb_v2(
-            #         ext_decoder=PretrainedExternalModules.LLM_BASE_TRANSCRIPTIONS.value,
-            #     ),
-            #     lm_scales=[1.0],
-            #     sllm_scales=[0.0],
-            #     ctc_scales=[1.0],
-            #     prior_scales=[0.0],
-            # ),
-
-            # replace( # Prior and LM
-            #     search_baseline_ctc_decoding_11gb_v2(
-            #         ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            #     ),
-            #     lm_scales=[0.1, 0.3, 0.6, 0.9],
-            #     sllm_scales=[0.0],
-            #     ctc_scales=[1.0],
-            #     prior_scales=[0.1, 0.3, 0.6, 0.9],
-            # ),
-
-            # v4_autoscaling_64_ctc_prior_lm()
-
         ],
     )
 
@@ -367,22 +335,24 @@ def exp_v8_4() -> ExperimentConfig:
 def exp_v7_150() -> ExperimentConfig:
     return replace(
         exp_v7(),
-        training=itc_batch_size_80k_150_epochs()
-        # , search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding()])
-        # , search=[search_baseline_ctc_greedy_decoding()])
-        ,
-        search=[search_baseline_ctc_decoding_11gb()],
+        training=itc_batch_size_80k_150_epochs(),
+        search=[
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            V3_search_baseline_ctc_decoding_11gb()
+        ],
     )
 
 
 def exp_v7_200() -> ExperimentConfig:
     return replace(
         exp_v7(),
-        training=itc_batch_size_80k_200_epochs()
-        # , search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding()])
-        # , search=[search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()])
-        ,
-        search=[search_baseline_ctc_decoding_11gb()],
+        training=itc_batch_size_80k_200_epochs(),
+        search=[
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            V3_search_baseline_ctc_decoding_11gb()
+        ],
     )
 
 
@@ -425,7 +395,10 @@ def exp_v7_300() -> ExperimentConfig:
     return replace(
         model_v2_baseline_with_ds(),
         training=itc_v2_80k_300_epochs(),
-        search=[search_baseline_v2(), search_baseline_ctc_greedy_decoding(), search_baseline_ctc_decoding_11gb()],
+        search=[
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            V3_search_baseline_ctc_decoding_11gb()],
     )
 
 
@@ -458,15 +431,11 @@ def bv2_pre_ed_s_c() -> ExperimentConfig:
         search=[
             search_baseline_v2(),
             search_baseline_ctc_greedy_decoding(),
-            search_baseline_ctc_decoding_11gb(),
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
-            ),
-            search_ctc_decoding_11gb_v2_grid_search(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED.value,
-            ),
+            V3_search_baseline_ctc_decoding_11gb(),
+            V4_ctc_sllm_lm_combinations( # CTC finetuned
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            )
         ],
     )
 
@@ -490,15 +459,11 @@ def bv2_pre_ed_b_c() -> ExperimentConfig:
         search=[
             search_baseline_v2(),
             search_baseline_ctc_greedy_decoding(),
-            search_baseline_ctc_decoding_11gb(),
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
-            search_ctc_decoding_11gb_v2_grid_search(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
+            V3_search_baseline_ctc_decoding_11gb(),
+            V4_ctc_sllm_lm_combinations( # CTC finetuned
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            )
         ],
     )
 
@@ -519,27 +484,15 @@ def bv2_ds_pre_ed_b_c() -> ExperimentConfig:
         model_v2_baseline_with_ds(),
         pretrained=enc_dec_base_combined(),
         training=itc_v2_80k(),
-        search=[ # TODO:!
-            # search_baseline_v2(),
-            # search_baseline_ctc_greedy_decoding(),
-            # search_baseline_ctc_decoding_11gb(),
+        search=[
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            V3_search_baseline_ctc_decoding_11gb(),
 
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
-            search_ctc_decoding_11gb_v2_grid_search(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
-            replace(
-                search_baseline_ctc_decoding_11gb_v2(  # WORKS
-                    ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-                ),
-                lm_scales=[0.1],
-                sllm_scales=[0.0],
-                ctc_scales=[1.0],
-            ),
+            V4_ctc_sllm_lm_combinations( # CTC finetuned
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            )
         ],
     )
 
@@ -697,23 +650,20 @@ def exp_v14_3ctc() -> ExperimentConfig:
         network=network_base_v2_3ctc(),
         training=itc_v2_80k(),
         search=[
-            #search_baseline_v2(),
-            #search_baseline_ctc_greedy_decoding(),
-            #search_baseline_ctc_decoding_11gb(),
-
-            search_baseline_ctc_decoding_11gb_v2(
+            search_baseline_v2(),
+            search_baseline_ctc_greedy_decoding(),
+            V3_search_baseline_ctc_decoding_11gb(),
+            V4_ctc_sllm_lm_combinations( # CTC finetuned
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            ),
+            V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
             ),
-            search_ctc_decoding_11gb_v2_grid_search(
+            V4_ctc_sllm_lm_combinations( # ext CTC (3 layers to check what happens ...)
                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
-            search_ctc_decoding_11gb_v2_grid_search(  # Grid without external encoder
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
-            ),
-            search_baseline_ctc_decoding_11gb_v2(
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
             ),
         ],
     )
@@ -839,7 +789,7 @@ def n2_test() -> ExperimentConfig:
         exp_v7(),
         training=training_n2_test(),
         network=network_baseline_v2(),
-        search=[search_baseline_ctc_decoding_11gb()],
+        search=[V3_search_baseline_ctc_decoding_11gb()],
     )
 
 

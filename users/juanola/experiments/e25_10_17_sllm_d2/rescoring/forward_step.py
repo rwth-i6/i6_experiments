@@ -14,6 +14,7 @@ def forward_step_v1(
         *,
         model: BaseEncoderDecoderModel,
         extern_data: TensorDict,
+
         **kwargs,
 ):
     """from SLLM repo"""
@@ -53,7 +54,7 @@ def forward_step_v1(
     targets = targets.raw_tensor.reshape(batch_size * beam_size, -1)  # [B * beam, T]
 
     adapter_output, aux_log_probs, adapter_output_lens, _, encoder_output_lens = (
-        model.forward(data, data_lens)
+        model.forward(data, data_lens) # TODO: !!!
     )
     adapter_output = adapter_output.repeat_interleave(
         beam_size, dim=0
@@ -64,13 +65,13 @@ def forward_step_v1(
 
     input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx)
     input_labels_len = target_lens + 1
-    logits = model.decode_seq(
+    logits = model.decode_seq( # TODO: !!!
         x=input_labels,
         x_lens=input_labels_len.to(device=input_labels.device),
         audio_features=adapter_output,
         audio_features_lens=adapter_output_lens,
     )  # [B * beam, T+1, vocab]
-    if model.dec_out_blank_logits is not None:
+    if model.dec_out_blank_logits is not None: # TODO: !!!
         # decode_seq returns a tuple of (logits, aux_log_probs)
         logits, _ = logits
 

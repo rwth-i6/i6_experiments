@@ -89,6 +89,7 @@ def serialize_forward(
     debug: bool = False,
     forward_method: Optional[str] = None,
     forward_args: Optional[Dict[str, Any]] = None,
+    callback_opts: Optional[Dict[str, Any]] = None,
 ):
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
@@ -139,28 +140,23 @@ def serialize_forward(
         unhashed_arguments={},
     )
 
-    assert vocab_opts["class"] == "SentencePieces"
-    spm_model_file = vocab_opts["model_file"]
-    vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
+    hashed_arguments = {}
+    if callback_name == "RecognitionToTextDictCallback" or callback_name == "RecognitionToTextDictCallbackV2":
+        assert vocab_opts["class"] == "SentencePieces"
+        spm_model_file = vocab_opts["model_file"]
+        vocab_file = ExtractSentencePieceVocabJob(model=spm_model_file).out_vocab
+        hashed_arguments = {"vocab": vocab_file}
 
-    if callback_name == "RecognitionToTextDictCallback":
-        callback = PartialImport(
-            code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.{callback_name}",
-            unhashed_package_root=None,
-            import_as="forward_callback",
-            hashed_arguments={"vocab": vocab_file},
-            unhashed_arguments={},
-        )
-    elif callback_name == "ReturnnCollectStatsForwardCallbackV1":
-        callback = PartialImport(
-            code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.{callback_name}",
-            unhashed_package_root=None,
-            import_as="forward_callback",
-            hashed_arguments={},
-            unhashed_arguments={},
-        )
-    else:
-        raise ValueError(f"Unknown callback name: {callback_name}")
+    if callback_opts is not None:
+        hashed_arguments.update(callback_opts)
+
+    callback = PartialImport(
+        code_object_path=f"{ROOT_PACKAGE}.{forward_module}.callback.{callback_name}",
+        import_as="forward_callback",
+        hashed_arguments=hashed_arguments,
+        unhashed_arguments={},
+        unhashed_package_root=None,
+    )
 
     serializer_objects.extend([forward_step, callback])
 

@@ -229,7 +229,7 @@ ctc decoding
 """
 
 
-def search_baseline_ctc_decoding_11gb() -> SearchConfig:
+def V3_search_baseline_ctc_decoding_11gb() -> SearchConfig:
     return SearchConfig(
         forward_method="forward_step_ctc_decoding",
         batch_size=5_000,
@@ -247,8 +247,8 @@ def search_baseline_ctc_decoding_11gb() -> SearchConfig:
     )
 
 
-def search_baseline_ctc_decoding_24gb() -> SearchConfig:
-    return dataclasses.replace(search_baseline_ctc_decoding_11gb(), batch_size=10_000, gpu_memory=24)
+def V3_search_baseline_ctc_decoding_24gb() -> SearchConfig:
+    return dataclasses.replace(V3_search_baseline_ctc_decoding_11gb(), batch_size=10_000, gpu_memory=24)
 
 
 """
@@ -256,7 +256,7 @@ ctc decoding v2 (with external modules)
 """
 
 
-def search_baseline_ctc_decoding_11gb_v2(
+def V4_baseline(
     ext_encoder: Optional[tuple[str, NetworkConfig]] = None, ext_decoder: Optional[tuple[str, NetworkConfig]] = None
 ) -> SearchConfig:
     return SearchConfig(
@@ -278,11 +278,11 @@ def search_baseline_ctc_decoding_11gb_v2(
     )
 
 
-def search_ctc_decoding_11gb_v2_grid_search(
+def V4_ctc_sllm_lm_combinations(
     ext_encoder: Optional[tuple[str, NetworkConfig]] = None, ext_decoder: Optional[tuple[str, NetworkConfig]] = None
 ) -> SearchConfig:
     return dataclasses.replace(
-        search_baseline_ctc_decoding_11gb_v2(),
+        V4_baseline(),
         lm_scales=[0.0, 1.0],
         sllm_scales=[0.0, 1.0],
         ctc_scales=[1.0],
@@ -290,14 +290,18 @@ def search_ctc_decoding_11gb_v2_grid_search(
         ext_decoder=ext_decoder,
     )
 
-def v4_autoscaling_64_ctc_prior_lm(
+def V4_autoscaling_64_ctc_prior_lm(
         ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
         ext_decoder: Optional[tuple[str, NetworkConfig]] = None
 ) -> SearchConfig:
     return dataclasses.replace(
-        search_baseline_ctc_decoding_11gb_v2(),
+        V4_baseline(),
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
+        lm_scales=[1.0],
+        sllm_scales=[0.0],
+        ctc_scales=[1.0],
+        prior_scales=[1.0],
         auto_scaling=True,
         beam_search=single_beam(64)
     )

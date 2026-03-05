@@ -1,6 +1,4 @@
-__all__ = ["RecognitionToTextDictCallback",
-           "RecognitionToTextDictCallbackV2",
-           "ReturnnCollectStatsForwardCallbackV1"]
+__all__ = ["RecognitionToTextDictCallbackV2"]
 
 from typing import Optional, Union, Dict, List
 
@@ -12,56 +10,6 @@ from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor import TensorDict
 from returnn.tensor import Tensor
 from returnn.util.basic import Stats
-
-
-class RecognitionToTextDictCallback(ForwardCallbackIface):
-    """
-    Called from Returnn (on search/inference)
-    """
-
-    def __init__(self, *, vocab: str, out_hyps_file: str = "search_out.py.gz"):
-        self.vocab_file = vocab
-        self.out_hyps_file = out_hyps_file
-        self.vocab: Vocabulary
-
-    def init(self, *args, **kwargs):
-        self.vocab = Vocabulary.create_vocab(vocab_file=self.vocab_file, unknown_label=None)
-        self._out_file = uopen(self.out_hyps_file, "wt")
-        self._out_file.write("{\n")
-
-    def process_seq(self, *, seq_tag: str, outputs: TensorDict, **kwargs):
-        """
-        Expects output tokens to be [Beam, Time']
-        :param seq_tag:
-        :param outputs:
-        :param kwargs:
-        :return:
-        """
-        tokens: np.ndarray = outputs["tokens"].raw_tensor  # Beam, Time
-        assert tokens.ndim == 2, f"expected tokens output to be a 2 dimensional tensor (was of ndim = {tokens.ndim})"
-        dyn_dims = [d for d in outputs["tokens"].dims if d.dyn_size_ext is not None]
-        assert len(dyn_dims) == 1, f"found more than one dynamic dim: {dyn_dims}"
-        tokens_lens: np.ndarray = dyn_dims[0].dyn_size_ext.raw_tensor  # Beam
-        assert tokens_lens.ndim == 1
-        scores: np.ndarray = outputs["scores"].raw_tensor  # Beam
-        assert scores.ndim == 1
-
-        if not tokens.size or not scores.size:
-            self._out_file.write(f"  {repr(seq_tag)}: '',\n")
-            return
-
-        best_hyp_idx = np.argmax(scores)
-        best_hyp = tokens[best_hyp_idx]
-        best_hyp_len = tokens_lens[best_hyp_idx]
-        text = self.vocab.get_seq_labels(best_hyp[:best_hyp_len])
-
-        self._out_file.write(f"  {repr(seq_tag)}: {repr(text)},\n")
-        self._out_file.flush()
-
-    def finish(self, **kwargs):
-        self._out_file.write("}\n")
-        self._out_file.close()
-        self._out_file = None
 
 
 class RecognitionToTextDictCallbackV2(ForwardCallbackIface):
@@ -139,25 +87,3 @@ class RecognitionToTextDictCallbackV2(ForwardCallbackIface):
         self._out_file.write("}\n")
         self._out_file.close()
         self._out_file = None
-
-
-class ReturnnCollectStatsForwardCallbackV1(ForwardCallbackIface):
-    """
-    Robins code (SLLM Repo)
-    for PRIOR calculation
-    """
-
-    def __init__(self):
-        self.stats: Optional[Stats] = None
-
-    def init(self, *, model):
-        self.stats = Stats()
-
-    def process_seq(self, *, seq_tag: str, outputs: TensorDict):
-        # see _returnn_forward_step
-        out: Tensor = outputs["output"].copy_with_feature_last()
-        assert out.batch_ndim == 2  # (time,feature)
-        self.stats.collect(out.raw_tensor)
-
-    def finish(self):
-        self.stats.dump(output_file_prefix="prior")

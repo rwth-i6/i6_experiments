@@ -10,6 +10,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 from i6_experiments.common.setups.serialization import PartialImport
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
+from i6_experiments.users.juanola.returnn.serialization import ReturnnConfigWithNewSerialization
 from .returnn_config_serializer import serialize_training, serialize_forward
 from ...configurations.pipeline.prior_config import PriorConfig
 from ...constants import DATA_PARAM_NAME, CLASSES_PARAM_NAME
@@ -233,18 +234,19 @@ def get_forward_config(
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
 
 def get_forward_config_v2(
-        network_module: str,
+        network_import_path: str,
         net_args: Dict[str, Any],
-        decoder: str,
-        callback_module: str,
+        forward_module: str,
+        forward_method: str,
+        callback_name: str,
         decoder_args: Dict[str, Any],
         label_datastream: LabelDatastream,
         unhashed_net_args: Optional[Dict[str, Any]] = None,
-        add_text_to_extern_data: bool = False,
+        # add_text_to_extern_data: bool = False,
         callback_opts: Optional[Dict[str, Any]] = None,
         extern_data: Optional[Dict[str, Any]] = None,
         base_config: Optional[Dict[str, Any]] = None,
-        extra_config: Optional[ReturnnConfig] = None,
+        debug: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -258,66 +260,69 @@ def get_forward_config_v2(
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
+    if base_config is None:
+        base_config = {}
 
     # changing these does not change the hash
     post_config = {
         "torch_log_memory_usage": True,
         "watch_memory": True,
+        "backend": "torch",
     }
 
-    if base_config is None:
-        base_config = {}
-    # changeing these does change the hash
-    base_config = {
-        #"batch_size": 15_000 * 160, # In extra config
-        #"max_seqs": 200, # In extra config
-        **base_config,
+    config = {
+        **base_config
     }
-    config = {**base_config}
-    post_config["backend"] = "torch"
 
-    default_data_key = "audio" # todo: PERHAPS CHANGE??
-    default_target_key = "text"
     if extern_data is None:
         extern_data = {
-            default_data_key: {"shape": (None,)},
+            DATA_PARAM_NAME: {"dim": 1},
         }
 
-    config.update(
-        {
-            "default_data_key": default_data_key,
-        }
-    )
+    default_data_key = "data"
+    # if extern_data is None:
+    #     extern_data = {
+    #         default_data_key: {"shape": (None,)},
+    #     }
+    #
+    # config.update(
+    #     {
+    #         "default_data_key": default_data_key,
+    #     }
+    # )
 
-    if add_text_to_extern_data:
-        extern_data[default_target_key] = {
-            "dim": label_datastream.vocab_size,
-            "sparse": True,
-            # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
-            # strings. we don't want this to affect the original dictionary object
-            "vocab": label_datastream.as_returnn_targets_opts(),
-        }
-        config.update(
-            {
-                "default_target_key": default_target_key,
-            }
-        )
+    # if add_text_to_extern_data:
+    #     default_target_key = "text"
+    #     extern_data[default_target_key] = { # TODO: adapt?
+    #         "dim": label_datastream.vocab_size,
+    #         "sparse": True,
+    #         # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
+    #         # strings. we don't want this to affect the original dictionary object
+    #         "vocab": label_datastream.as_returnn_targets_opts(),
+    #     }
+    #     config.update(
+    #         {
+    #             "default_target_key": default_target_key,
+    #         }
+    #     )
 
     serializer = serialize_forward(
-        network_module=network_module,
+        network_import_path=network_import_path,
         net_args=net_args,
-        unhashed_net_args=unhashed_net_args,
-        forward_module=decoder,
-        callback_module=callback_module,
-        forward_init_args=decoder_args,
         extern_data=extern_data,
         vocab_opts=label_datastream.as_returnn_targets_opts(),
+
+        unhashed_net_args=unhashed_net_args,
+        forward_module=forward_module,
+        forward_method=forward_method,
+        forward_args=decoder_args,
+
+        callback_name=callback_name,
         callback_opts=callback_opts,
+
+        debug=debug,
     )
-    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
-    if extra_config is not None:
-        returnn_config.update(extra_config)
-
-    returnn_config = ReturnnConfigWithNewSerialization.from_cfg(returnn_config)
-
-    return returnn_config
+    #if extra_config is not None:
+    #    returnn_config.update(extra_config)
+    #returnn_config = ReturnnConfigWithNewSerialization.from_cfg(returnn_config)
+    return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
