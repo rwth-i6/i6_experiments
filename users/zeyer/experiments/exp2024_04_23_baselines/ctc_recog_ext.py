@@ -827,6 +827,13 @@ def get_ctc_with_lm_and_labelwise_prior(
             assert isinstance(v, dict)
             v = v.copy()
             v["prefix"] = "lm." + v["prefix"]
+            if v.get("custom_missing_load_func"):
+                # example: speech_llm.prefix_lm.model.custom_missing_load_funcs.qwen.qwen_load_tied_embedding_matrices
+                v["custom_missing_load_func"] = functools.partial(
+                    _lm_wrapped_custom_missing_load_func,
+                    prefix="lm.",
+                    orig_custom_missing_load_func=v["custom_missing_load_func"],
+                )
             config["preload_from_files"][k] = v
     assert not lm_config
 
@@ -846,6 +853,17 @@ def get_ctc_with_lm_and_labelwise_prior(
         definition=ModelDefWithCfg(model_def=combined_model_def, config=config),
         checkpoint=ctc_model.checkpoint,
     )
+
+
+def _lm_wrapped_custom_missing_load_func(
+    name: str, shape, preload_model_state: Dict[str, Any], *, prefix: str, orig_custom_missing_load_func, **kwargs
+):
+    if not name.startswith(prefix):
+        return None
+
+    name_ = name[len(prefix) :]
+    preload_model_state_ = {k[len(prefix) :]: v for k, v in preload_model_state.items() if k.startswith(prefix)}
+    return orig_custom_missing_load_func(name_, shape, preload_model_state_, **kwargs)
 
 
 def get_ctc_with_ngram_lm_and_framewise_prior(
