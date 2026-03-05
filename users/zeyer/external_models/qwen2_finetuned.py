@@ -111,7 +111,7 @@ def get_qwen2_0_5b_lm_base() -> ModelWithCheckpoint:
     #     }
     # }
     # Not sure if it works just like that?
-    checkpoint = make_path("i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors")
+    # checkpoint = make_path("i6_core/tools/download/DownloadJob.6SV1LOlUtQMG/output/qwen2-0_5b_model.safetensors")
 
     get_model: ModelDef  # make compat
     get_model.behavior_version = 24
