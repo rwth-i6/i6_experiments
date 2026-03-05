@@ -985,6 +985,7 @@ def py():
             "max_seqs": 32,
         },
         eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+        first_pass_recog_beam_size=8,
     )
 
     # 0.5B again, lower beam size (for comparison).
@@ -1122,6 +1123,90 @@ def py():
         first_pass_recog_beam_size=8,
     )
 
+    # OpenASRLeaderboard test sets with 1.5B LLM base.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-1.5b-base/openasrleaderboard",
+        task=task_hack_openasrleadboard,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_1_5b_base_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_always,
+            "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+        first_pass_recog_beam_size=8,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    )
+
+    # OpenASRLeaderboard test sets with 1.5B LLM.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-1.5b/openasrleaderboard",
+        task=task_hack_openasrleadboard,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_1_5b_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_always,
+            "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+        first_pass_recog_beam_size=8,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    )
+
+    # OpenASRLeaderboard test sets with 7B LLM.
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-delayed-v2-always-beamSize8/qwen2-7b/openasrleaderboard",
+        task=task_hack_openasrleadboard,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_7b_lm,
+        lm_rescore_config={
+            "default_data_convert_labels_func": convert_labels_func_spm,
+            "chunk_size_for_lm_rescoring": 16,
+            "max_seqs": 32,
+        },
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        ctc_only_recog_version=10,
+        ctc_only_recog_def=model_recog_with_recomb,  # keep hash for first ctc-only pass
+        recog_version=12,
+        recog_def=model_recog_with_recomb_delayed_fusion_v2,
+        first_pass_extra_config={
+            "should_convert_labels_now_func": enable_always,
+            "should_fuse_now_func": enable_always,
+            # specific to the AM SPM that we have here...
+            "convert_labels_func": convert_labels_func_spm,
+            "max_seqs": 32,
+        },
+        first_pass_recog_beam_size=8,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+    )
+
     # Never (delay until end), i.e. should be like rescoring:
     # {"dev": 6.26, "dev_voxpopuli": 6.61, "dev_commonvoice": 8.83, "dev_librispeech": 3.85, "dev_yodas": 11.47,
     #  "test": 7.0, "test_voxpopuli": 6.67, "test_commonvoice": 10.84, "test_librispeech": 4.1, "test_yodas": 11.1}
@@ -1243,6 +1328,19 @@ def py():
         ctc_model=am_20ep,
         extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
         lm=qwen2_0_5b_lm_spm10k,
+        prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
+        recog_def=model_recog_with_recomb,
+        eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
+        first_pass_recog_beam_size=8,
+    )
+
+    # OpenASRLeaderboard on 1.5b
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/ctc+lm-v2-beamSize8/qwen2-1.5b-spm10k/openasrleaderboard",
+        task=task_hack_openasrleadboard,
+        ctc_model=am_20ep,
+        extra_config={"aux_loss_layers": [aux_ctc_layer_20ep]},
+        lm=qwen2_1_5b_lm_spm10k,
         prior_dataset=get_loquacious_train_subset_dataset_v2(vocab=vocab),
         recog_def=model_recog_with_recomb,
         eval_sets=get_asr_leaderboard_test_datasets(vocab=vocab_obj),
