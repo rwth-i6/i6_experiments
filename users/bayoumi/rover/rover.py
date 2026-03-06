@@ -22,7 +22,11 @@ class GetOptimalRoverJob(tk.Job):
         """
         Finds the optimal setting on dev set.
 
-        :param List[Tuple[str, float, float, tk.Path]] ctms: A list of containers of a dev results along with its settings.
+        :param List[Tuple[str, float, float, tk.Path]] ctms: A list of containers of a dev results along with its settings; this includes [meth, alpha, conf, path].
+        meth: Represents the method of combination usually "oracle" for the cheating combination, "meth1" for the real combination or "putat" for the putative combination.
+        alpha: Represents the trade off between majority voting and confidence based voting ranging from [0,1]; 0 representing a purely majority voting combination.
+        conf: Represents the constant confidence of an empty arc after the alignment of hypotheses.
+        path: A path to the file containing the models to be combined.
         """
 
         self.ctms = ctms
@@ -75,7 +79,10 @@ class RoverJob(tk.Job):
 
         :param str name: Name of the combination
         :param List[tk.Path] ctms: A list of ctms to be combined
-        :param Union[dict, tk.Path] config: The settings rover runs for the combination
+        :param Union[dict, tk.Path] config: The settings rover runs for the combination.
+        meth: Represents the method of combination usually "oracle" for the cheating combination, "meth1" for the real combination, or "putat" for the putative combination.
+        alpha: Represents the trade off between majority voting and confidence based voting ranging from [0,1]; 0 representing a purely majority voting combination.
+        conf: Represents the constant confidence of an empty arc after the alignment of hypotheses.
         :param str rover_cmd: The rover command containing the path to the shell script.
         """
 
@@ -226,8 +233,8 @@ class ProcessRoverFileJob(tk.Job):
         """
         Processes a rover output either editing ctm confidences or converting .putat to .ctm
 
-        :param tk.Path file: Path to the rover output
-        :param Union[str, List[Tuple[str, float]]] op: A list of operations to be done on the rover output
+        :param tk.Path file: Path to the rover output.
+        :param Union[str, List[Tuple[str, float]]] op: A list of operations to be done on the rover output; can either be a putative to ctm conversion "putat2ctm" or a list of elementary operations done on a ctm each with a value, including negative multiplication by the value "neg", division by the value "div", or an additive shift by the value "shift".
         """
 
         self.file = file
