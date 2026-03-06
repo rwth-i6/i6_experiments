@@ -172,7 +172,7 @@ def exp_v5() -> ExperimentConfig:
             V4_autoscaling_64_ctc_prior_lm( # TODO - run and debug
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                lm_scales=[1.0], sllm_scales=[1.0], ctc_scales=[1.0], prior_scales=[1.0],
+                use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
             ),
 
             # OLD

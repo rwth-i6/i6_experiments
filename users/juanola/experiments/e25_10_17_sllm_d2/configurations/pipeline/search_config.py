@@ -292,16 +292,26 @@ def V4_ctc_sllm_lm_combinations(
 
 def V4_autoscaling_64_ctc_prior_lm(
         ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
-        ext_decoder: Optional[tuple[str, NetworkConfig]] = None
+        ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
+        use_ctc:bool = True,
+        use_sllm:bool = True,
+        use_llm:bool = True,
+        use_prior:bool = True,
 ) -> SearchConfig:
+
+    ctc_scales = [1.0] if use_ctc else [0.0]
+    sllm_scales = [1.0] if use_sllm else [0.0]
+    llm_scales = [1.0] if use_llm else [0.0]
+    prior_scales = [1.0] if use_prior else [0.0]
+
     return dataclasses.replace(
         V4_baseline(),
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
-        lm_scales=[1.0],
-        sllm_scales=[0.0],
-        ctc_scales=[1.0],
-        prior_scales=[1.0],
+        lm_scales=llm_scales,
+        sllm_scales=sllm_scales,
+        ctc_scales=ctc_scales,
+        prior_scales=prior_scales,
         auto_scaling=True,
         beam_search=single_beam(64)
     )

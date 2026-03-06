@@ -15,9 +15,15 @@ def forward_step_v1(
         model: BaseEncoderDecoderModel,
         extern_data: TensorDict,
 
+        use_ext_lm: bool = False,
+
         **kwargs,
 ):
     """from SLLM repo"""
+
+    if use_ext_lm:
+        pass
+        # TODO: !!!
 
     # DATA (audio)
     from returnn.config import get_global_config

@@ -247,6 +247,7 @@ def get_forward_config_v2(
         extern_data: Optional[Dict[str, Any]] = None,
         base_config: Optional[Dict[str, Any]] = None,
         debug: bool = False,
+        extra_configs: List[ReturnnConfig] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -262,6 +263,8 @@ def get_forward_config_v2(
     """
     if base_config is None:
         base_config = {}
+    if extra_configs is None:
+        extra_configs = []
 
     # changing these does not change the hash
     post_config = {
@@ -322,7 +325,8 @@ def get_forward_config_v2(
 
         debug=debug,
     )
-    #if extra_config is not None:
-    #    returnn_config.update(extra_config)
-    #returnn_config = ReturnnConfigWithNewSerialization.from_cfg(returnn_config)
-    return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    for extra_returnn_config in extra_configs:
+        returnn_config.update(extra_returnn_config)
+    return returnn_config

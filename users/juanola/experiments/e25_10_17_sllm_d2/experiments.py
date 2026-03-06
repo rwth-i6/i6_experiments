@@ -148,7 +148,7 @@ def sllm_ep(
                 network_import_path_for_forward_step = network_import_path
 
             # added for ctc decoding v2
-            if search_config.forward_method == "forward_step_ctc_decoding_v2":
+            if search_config.forward_method == "forward_step_ctc_decoding_v2" or search_config.auto_scaling:
                 network_import_path_for_forward_step = "networks.sllm_with_ext_modules.SllmV4"
 
             prior_network_path = network_import_path if network_import_path != "networks.conformer_qwen_v1.Model" else "networks.conformer_qwen_v2.SllmV2"
