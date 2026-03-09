@@ -15,4 +15,5 @@ class ASRModel:
     net_args: Dict[str, Any]
     network_import_path: str
     prior_file: Optional[tk.Path]
+    prior_text_file: Optional[tk.Path] #added for autoscaling code
     prefix_name: Optional[str]

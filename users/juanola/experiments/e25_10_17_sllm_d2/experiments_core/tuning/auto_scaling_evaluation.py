@@ -42,8 +42,9 @@ def ctc_label_sync_eval_auto_scale(
     evaluation_name: str,
     label_datastream_key="labels",
     ogg_zip_dataset_target_key="classes",
-    lowercase_ref: bool = False,
 
+    lowercase_ref: bool = False,
+    use_ctc_sum_scores: bool = False, # TODO:!
 ) -> Dict[str, tk.Variable]:
     """
     Robins code (SLLM repo)
@@ -175,20 +176,15 @@ def ctc_label_sync_eval_auto_scale(
         **default_returnn,
         rqmt={},
     )
-    ctc_n_best = SearchOutputRawReplaceJob(
-        ctc_n_best_original, replacement_list=[(" ", ""), ("▁", " ")]
-    ).out_search_results
-    scores[Scales.CTC.value] = ctc_n_best
-
 
     # RESCORINGS
-    vocab_file = ExtractVocabLabelsJob(train_data.datastreams[label_datastream_key].as_returnn_targets_opts()).out_vocab
+    vocab_file = ExtractVocabLabelsJob(train_data.datastreams[label_datastream_key].as_returnn_targets_opts()).out_vocab # Has "_word" form
     rescore_data = {
         "class": "TextDictDataset",
-        "filename": ctc_n_best_original,
+        "filename": ctc_n_best_original, # Has "_word" form
         "vocab": {
             "class": "Vocabulary",
-            "vocab_file": vocab_file,
+            "vocab_file": vocab_file, # Has "_word" form
             "unknown_label": None,
         },
     }
@@ -204,8 +200,13 @@ def ctc_label_sync_eval_auto_scale(
     }
 
     if use_ctc:
-        pass
-        # TODO: CTC rescoring
+        if use_ctc_sum_scores:
+            pass # TODO: from robin
+        else:
+            ctc_n_best = SearchOutputRawReplaceJob(
+                ctc_n_best_original, replacement_list=[(" ", ""), ("▁", " ")]
+            ).out_search_results
+            scores[Scales.CTC.value] = ctc_n_best
 
     if use_sllm:
         # SLLM RESCORING
@@ -248,21 +249,21 @@ def ctc_label_sync_eval_auto_scale(
         pass
 
     if use_prior:
-        # TODO: fix this
-        assert asr_model.prior_file is not None, "Prior file is needed"
-        # prior_rescore_job = SearchPriorRescoreJob(
-        #     ctc_n_best,
-        #     prior=asr_model.prior_file,
-        #     prior_type="prob",
-        #     vocab=vocab_file,
-        #     vocab_is_chars=False,
-        # )
-        # prior_rescore_job.add_alias(f"{recog_path}/prior_rescoring")
-        # prior_rescore_results = prior_rescore_job.out_search_results
-        # prior_rescore_results = SearchOutputRawReplaceJob(
-        #     prior_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
-        # ).out_search_results
-        # scores["prior"] = prior_rescore_results
+        # TODO: try if it works!!
+        assert asr_model.prior_text_file is not None, "Prior text file is needed"
+        prior_rescore_job = SearchPriorRescoreJob(
+            ctc_n_best_original, # Has "_word" form
+            prior=asr_model.prior_text_file,
+            prior_type="prob",
+            vocab=vocab_file, # Has "_word" form
+            vocab_is_chars=False,
+        )
+        prior_rescore_job.add_alias(f"{recog_path}/prior_rescoring")
+        prior_rescore_results = prior_rescore_job.out_search_results
+        prior_rescore_results = SearchOutputRawReplaceJob(
+            prior_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
+        ).out_search_results
+        scores["prior"] = prior_rescore_results
 
     # AUTO SCALING
     opt_scales_job = ScaleTuningJob(

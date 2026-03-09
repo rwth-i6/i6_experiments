@@ -39,7 +39,7 @@ _encoder_checkpoints = {
 _decoder_checkpoints = {
     "llm_base_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.CNLGypuo4I0A/output/models/epoch.100.pt",
     "llm_small_transcriptions": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.xqzaOV0eAJSt/output/models/epoch.100.pt",
-    "llm_base_combined_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.ZocK1JlhrdX/output/models/epoch.100.pt",
+    "llm_base_combined_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.mZocK1JlhrdX/output/models/epoch.100.pt",
     "llm_small_combined_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.RqjVilPyEd6z/output/models/epoch.100.pt",
     "llm_base_lm_data_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.0pQjYxFwEfPV/output/models/epoch.100.pt",
     "llm_small_lm_data_v2": "/u/marti.juanola/experiments/25_11_10_llm/work/i6_core/returnn/training/ReturnnTrainingJob.Ley1gSyBPGjo/output/models/epoch.100.pt",

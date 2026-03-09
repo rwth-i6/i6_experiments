@@ -103,6 +103,8 @@ def create_tune_and_evaluate_jobs(
                 evaluation_name=evaluation_name,
             )
 
+            #assert False, "run the forwards with the obtained scales"
+
             # TODO: what to do with the scales?
         else:
             res = tune_and_evaluate_model(
@@ -212,29 +214,32 @@ def prepare_asr_model(
     :param checkpoint:
     :param network_import_path:
     :param net_args:
-    :param prior_args:
     :param datasets: Needed if with_prior == True
-    :param Optional: if with_prior is true, can be used to add Returnn config parameters for the prior compute job
     :return:
     """
     prior_file = None
+    prior_text_file = None
 
-    if prior_config is not None:  # Compute prior
-        prior_step_returnn_config = get_prior_config(
-            training_datasets=datasets,
-            network_import_path=prior_network_import_path,  # TODO: check this
-            net_args=net_args,  # TODO: check this
-            vocab_opts=vocab_opts,
-            forward_module=forward_module,
-            prior_config=prior_config,
-        )
-        prior_file = compute_prior(
-            checkpoint_name,
-            prior_step_returnn_config,
-            checkpoint=checkpoint,
-            returnn_exe=RETURNN_EXE,
-            returnn_root=RETURNN_ROOT,
-        )
+    if prior_config is not None:
+        if prior_config.static_prior_file is None:
+            prior_step_returnn_config = get_prior_config(
+                training_datasets=datasets,
+                network_import_path=prior_network_import_path,
+                net_args=net_args,
+                vocab_opts=vocab_opts,
+                forward_module=forward_module,
+                prior_config=prior_config,
+            )
+            prior_file, prior_text_file = compute_prior(
+                checkpoint_name,
+                prior_step_returnn_config,
+                checkpoint=checkpoint,
+                returnn_exe=RETURNN_EXE,
+                returnn_root=RETURNN_ROOT,
+            )
+        else:
+            prior_file = tk.Path(prior_config.static_prior_file)
+            prior_text_file = tk.Path(prior_config.static_prior_file.replace(".pt",".txt"))
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
 
     return ASRModel(
@@ -242,6 +247,7 @@ def prepare_asr_model(
         network_import_path=network_import_path,
         net_args=net_args,
         prior_file=prior_file,
+        prior_text_file=prior_text_file,
         prefix_name=checkpoint_name,
     )
 

@@ -148,6 +148,10 @@ def get_prior_config(
         "max_seqs": 240,
         "forward_data": copy.deepcopy(training_datasets.train.as_returnn_opts()), # over train!!
     }
+
+    if base_config["forward_data"]["num_workers"] > 4:
+        base_config["forward_data"]["num_workers"] = 4
+
     config = {**base_config, **copy.deepcopy(config)}
 
     # RC - POST CONFIG

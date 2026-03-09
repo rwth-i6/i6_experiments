@@ -2,7 +2,7 @@ import dataclasses
 import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, Tuple
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import label_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
@@ -20,7 +20,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
-    PriorConfig,
+    PriorConfig, static_prior,
 )
 
 
@@ -39,7 +39,7 @@ class SearchConfig:
     avg_best_loss_name: str
     max_seqs: int
 
-    prior: PriorConfig
+    prior: Optional[PriorConfig]
 
     # Tunable Parameters # TODO: this could be grouped...
     beam_search: BeamSearchConfig
@@ -139,6 +139,10 @@ _LM_PRIOR_SCALES = dict(
 Specific configurations set below.
 """
 
+def base_searches():
+    return search_baseline_ctc_greedy_decoding(), search_baseline_v2(), V4_CTC_SLLM()
+
+
 """
 V1
 """
@@ -160,7 +164,7 @@ def search_baseline() -> SearchConfig:
         use_gpu=True,
         gpu_memory=11,
         beam_search=beam_search_baseline(),
-        prior=prior_v1(),
+        prior=None,
         lm_scales=[0.0],
         prior_scales=[0.0],
         ctc_scales=[0.0],
@@ -210,7 +214,7 @@ def search_baseline_v2() -> SearchConfig:
         use_gpu=True,
         gpu_memory=11,
         beam_search=beam_search_baseline(),
-        prior=prior_v1(),
+        prior=None,
         lm_scales=[None],  # Not used!
         prior_scales=[None],  # Not used!
         ctc_scales=[None],  # Not used!
@@ -237,7 +241,7 @@ def V3_search_baseline_ctc_decoding_11gb() -> SearchConfig:
         use_gpu=True,
         gpu_memory=11,
         beam_search=beam_search_baseline(),
-        prior=prior_v1(),
+        prior=None,
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
         lm_scales=[1.0],
@@ -266,7 +270,7 @@ def V4_baseline(
         use_gpu=True,
         gpu_memory=11,  # TODO: perhaps increase this
         beam_search=beam_search_baseline(),
-        prior=prior_v1(),
+        prior=static_prior(),
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
         lm_scales=[1.0],
@@ -276,6 +280,14 @@ def V4_baseline(
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
     )
+
+def V4_CTC_SLLM() -> SearchConfig:
+    return dataclasses.replace(V4_baseline(),
+                               lm_scales=[0.0],
+                               sllm_scales=[1.0],
+                               ctc_scales=[1.0],
+                               prior_scales=[0.0],
+                               )
 
 
 def V4_ctc_sllm_lm_combinations(
@@ -306,6 +318,7 @@ def V4_autoscaling_64_ctc_prior_lm(
 
     return dataclasses.replace(
         V4_baseline(),
+        prior=prior_v1(),
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
         lm_scales=llm_scales,
@@ -330,7 +343,7 @@ def search_baseline_ctc_greedy_decoding() -> SearchConfig:
         use_gpu=True,
         gpu_memory=11,
         beam_search=beam_search_baseline(),
-        prior=prior_v1(),
+        prior=None,
         lm_scales=[None],  # Not used!
         prior_scales=[None],  # Not used!
         ctc_scales=[None],  # Not used!

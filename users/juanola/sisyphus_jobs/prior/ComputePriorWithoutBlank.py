@@ -1,4 +1,6 @@
 import os
+
+import numpy as np
 import torch
 import sisyphus.toolkit as tk
 from sisyphus import Job, Task
@@ -23,6 +25,7 @@ class ComputePriorWithoutBlank(Job):
         self.dim = dim
 
         self.out_tensor = self.output_path("prior_without_blank.pt")
+        self.out_txt = self.output_path("prior_without_blank.txt")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -69,3 +72,9 @@ class ComputePriorWithoutBlank(Job):
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         torch.save(renormalized, out_path)
         print(f"Saved to: {out_path}")
+
+        # ── save TXT (for numpy.loadtxt compatibility) ────────────────────────
+        txt_path = self.out_txt.get_path()
+        arr = renormalized.detach().cpu().numpy().reshape(-1)
+        np.savetxt(txt_path, arr)
+        print(f"Saved txt prior to: {txt_path}")

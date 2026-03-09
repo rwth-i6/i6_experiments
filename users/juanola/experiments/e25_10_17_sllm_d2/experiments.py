@@ -32,10 +32,10 @@ def sllm_ep(
     specific_recognition_epochs: set[int] = set({}),
     only_specific_epochs: bool = False,
     test_forward_output_path: bool = False,
-    run_test: bool = True,
+    run_test: bool = False, # TODO: for now
     run_best: bool = True,
     run_best_4: bool = True,
-    run_only_dev_other: bool = False,
+    run_only_dev_other: bool = True,  # TODO: for now
     run_only_last: bool = True,  # !!! now only running last epochs by default!
 ) -> Dict[str, Any]:
     """

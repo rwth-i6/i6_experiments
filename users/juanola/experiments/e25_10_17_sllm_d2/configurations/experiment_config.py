@@ -1,3 +1,4 @@
+import dataclasses
 import warnings
 from dataclasses import dataclass, replace
 
@@ -44,7 +45,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     V3_search_baseline_ctc_decoding_11gb,
     search_baseline_v2_multiple_beams,
     search_baseline_ctc_greedy_decoding,
-    PretrainedExternalModules, V4_autoscaling_64_ctc_prior_lm, V4_ctc_sllm_lm_combinations, V4_baseline, )
+    PretrainedExternalModules, V4_autoscaling_64_ctc_prior_lm, V4_ctc_sllm_lm_combinations, V4_baseline, V4_CTC_SLLM,
+    base_searches, )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
     training_baseline,
@@ -120,7 +122,7 @@ def exp_baseline() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline(),
-        search=[search_baseline(), search_baseline_v2()],
+        search=[search_baseline(), *base_searches()],
     )
 
 
@@ -147,7 +149,7 @@ def exp_v4() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_small_decoder_td(),  # !!
         training=itc_batch_size_80k(),  # !!
-        search=[search_baseline(), search_baseline_v2()],
+        search=[search_baseline(), *base_searches()],
     )
 
 
@@ -156,9 +158,7 @@ def exp_v5() -> ExperimentConfig:
         exp_v4(),
         network=network_small_linear_adapter(),
         search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb(),
+            *base_searches(),
             V4_ctc_sllm_lm_combinations( # CTC finetuned
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
@@ -203,7 +203,7 @@ def exp_v7() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_SLLM_tuned_dropout_v2(),  # !!
         training=itc_batch_size_80k(),
-        search=[search_baseline_v2()],  # [search_baseline(), search_baseline_v2()], # OLD search removed from v7
+        search=[*base_searches()],  # [search_baseline(), search_baseline_v2()], # OLD search removed from v7
     )
 
 
@@ -211,9 +211,7 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
     return replace(
         exp_v7(),
         search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb(),
+            *base_searches(),
             V4_ctc_sllm_lm_combinations( # CTC finetuned
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
@@ -337,11 +335,7 @@ def exp_v7_150() -> ExperimentConfig:
     return replace(
         exp_v7(),
         training=itc_batch_size_80k_150_epochs(),
-        search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb()
-        ],
+        search=[*base_searches()],
     )
 
 
@@ -349,11 +343,7 @@ def exp_v7_200() -> ExperimentConfig:
     return replace(
         exp_v7(),
         training=itc_batch_size_80k_200_epochs(),
-        search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb()
-        ],
+        search=[*base_searches()],
     )
 
 
@@ -376,7 +366,7 @@ def model_v2_baseline() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline_v2_td_linear(),  # !!
         training=itc_batch_size_80k(),
-        search=[search_baseline_v2()],  # !!
+        search=[*base_searches()],  # !!
     )
 
 
@@ -396,10 +386,7 @@ def exp_v7_300() -> ExperimentConfig:
     return replace(
         model_v2_baseline_with_ds(),
         training=itc_v2_80k_300_epochs(),
-        search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb()],
+        search=[*base_searches()],
     )
 
 
@@ -430,9 +417,7 @@ def bv2_pre_ed_s_c() -> ExperimentConfig:
         pretrained=enc_dec_small_combined(),
         training=itc_v2_80k(),
         search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb(),
+            *base_searches(),
             V4_ctc_sllm_lm_combinations( # CTC finetuned
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
@@ -447,7 +432,7 @@ def bv2_pre_ed_s_c_4gpu() -> ExperimentConfig:
         pretrained=enc_dec_small_combined(),
         training=i6_4gpu_setup_v4(),
         search=[
-            search_baseline_v2(),
+            *base_searches()
         ],
     )
 
@@ -458,9 +443,7 @@ def bv2_pre_ed_b_c() -> ExperimentConfig:
         pretrained=enc_dec_base_combined(),
         training=itc_v2_80k(),
         search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb(),
+            *base_searches(),
             V4_ctc_sllm_lm_combinations( # CTC finetuned
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
@@ -486,9 +469,7 @@ def bv2_ds_pre_ed_b_c() -> ExperimentConfig:
         pretrained=enc_dec_base_combined(),
         training=itc_v2_80k(),
         search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb(),
+            *base_searches(),
 
             V4_ctc_sllm_lm_combinations( # CTC finetuned
                 # CTC finetuned
@@ -591,7 +572,7 @@ def bv2_pre_ed_s_c_f2() -> ExperimentConfig:
         network=network_with_frozen_layers(
             network_baseline_v2_td_linear_small(), encoder_partial_epochs=2, decoder_partial_epochs=2
         ),
-        search=[search_baseline_v2()],
+        search=[*base_searches()],
     )
 
 
@@ -651,9 +632,7 @@ def exp_v14_3ctc() -> ExperimentConfig:
         network=network_base_v2_3ctc(),
         training=itc_v2_80k(),
         search=[
-            search_baseline_v2(),
-            search_baseline_ctc_greedy_decoding(),
-            V3_search_baseline_ctc_decoding_11gb(),
+            *base_searches(),
             V4_ctc_sllm_lm_combinations( # CTC finetuned
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
@@ -699,19 +678,19 @@ def exp_v14_3ctc_s_pre_ed_f10() -> ExperimentConfig:
 
 
 def exp_v15_small_12ep_lr4() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), training=finetuning_v1_lr4(), search=[search_baseline_v2()])
+    return replace(bv2_pre_ed_s_c(), training=finetuning_v1_lr4(), search=[*base_searches()])
 
 
 def exp_v15_small_12ep_lr5() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), training=finetuning_v2_lr5(), search=[search_baseline_v2()])
+    return replace(bv2_pre_ed_s_c(), training=finetuning_v2_lr5(), search=[*base_searches()])
 
 
 def exp_v15_small_12ep_ca_lr4() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), training=finetuning_v3_ca_lr4(), search=[search_baseline_v2()])
+    return replace(bv2_pre_ed_s_c(), training=finetuning_v3_ca_lr4(), search=[*base_searches()])
 
 
 def exp_v15_small_12ep_ca_lr5() -> ExperimentConfig:
-    return replace(bv2_pre_ed_s_c(), training=finetuning_v4_ca_lr5(), search=[search_baseline_v2()])
+    return replace(bv2_pre_ed_s_c(), training=finetuning_v4_ca_lr5(), search=[*base_searches()])
 
 
 def exp_v15_small_12ep_ca_lr4_i6() -> ExperimentConfig:
@@ -728,7 +707,7 @@ def exp_v7_s2() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline_v2_td(),
         training=replace(itc_v2_80k(), random_seed=1234),
-        search=[search_baseline_v2()],
+        search=[*base_searches()],
     )
 
 def exp_v7_s2v2()  -> ExperimentConfig:
@@ -740,7 +719,7 @@ def exp_v5_s2() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline_v2_td_linear_small(),
         training=replace(itc_v2_80k(), random_seed=1234),
-        search=[search_baseline_v2()],
+        search=[*base_searches()],
     )
 
 def exp_v5_s2v2()  -> ExperimentConfig:
@@ -760,7 +739,7 @@ def bv3_pre_ed_s_c_lora() -> ExperimentConfig:
     return replace(
         bv2_pre_ed_s_c(),
         network=network_with_dec_lora(network_small_baseline_v3(), decoder_lora_v1()),
-        search=[search_baseline_v2()],
+        search=[*base_searches()],
     )
 
 
@@ -768,7 +747,7 @@ def bv3_pre_ed_s_c_lora_small() -> ExperimentConfig:
     return replace(
         bv2_pre_ed_s_c(),
         network=network_with_dec_lora(network_small_baseline_v3(), decoder_small_lora_v1()),
-        search=[search_baseline_v2()],
+        search=[*base_searches()],
     )
 
 

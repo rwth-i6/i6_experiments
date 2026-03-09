@@ -63,7 +63,7 @@ def compute_prior(
         blank_idx = -1,
     )
 
-    return remove_blank_job.out_tensor
+    return remove_blank_job.out_tensor, remove_blank_job.out_txt
 
 
 @tk.block()
