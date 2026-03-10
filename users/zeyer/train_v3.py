@@ -12,6 +12,7 @@ import copy
 from sisyphus import gs, tk
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_serialize_global_startup_callback
 
@@ -19,7 +20,6 @@ if TYPE_CHECKING:
     from returnn.tensor import TensorDict
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
 def train(
