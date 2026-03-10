@@ -9,7 +9,8 @@ Note, changes from the earlier v2, as it was in experiments/exp2023_04_25_rf/tra
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
 import copy
-from sisyphus import gs
+from sisyphus import gs, tk
+from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_serialize_global_startup_callback
@@ -52,7 +53,6 @@ def train(
     from train_def.
     """
     from sisyphus import tk
-    from i6_core.returnn.training import ReturnnTrainingJob
     from i6_core.returnn.config import ReturnnConfig
     from i6_experiments.common.setups import serialization
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
@@ -242,6 +242,7 @@ def train(
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
     tk.register_output(prefix_name + "/train_scores", returnn_train_job.out_learning_rates)
+    tk.register_output(f"{prefix_name}/train_time_hours", _train_hours(returnn_train_job))
 
     res = ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
     train_models_by_prefix[prefix_name] = res
@@ -286,3 +287,23 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         targets=targets,
         targets_spatial_dim=targets_spatial_dim,
     )
+
+
+def _train_hours(exp: Union[ModelWithCheckpoints, ReturnnTrainingJob]) -> tk.Variable:
+    from i6_experiments.users.zeyer.utils.write_delayed_job import DelayedToVariableJob
+    from sisyphus.delayed_ops import DelayedFunctionV2
+    from i6_experiments.users.zeyer.returnn.total_runtime_from_training import GetTotalRuntimeFromReturnnTrainingJob
+
+    if isinstance(exp, ModelWithCheckpoints):
+        exp = exp.get_training_job()
+
+    return DelayedToVariableJob(
+        DelayedFunctionV2(
+            round,
+            (
+                GetTotalRuntimeFromReturnnTrainingJob(exp.out_learning_rates).out_train_time_secs / 60 / 60,
+                1,
+            ),
+            {},
+        )
+    ).out
