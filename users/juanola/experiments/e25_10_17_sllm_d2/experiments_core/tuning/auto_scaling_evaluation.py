@@ -44,7 +44,7 @@ def ctc_label_sync_eval_auto_scale(
     ogg_zip_dataset_target_key="classes",
 
     lowercase_ref: bool = False,
-    use_ctc_sum_scores: bool = False, # TODO:!
+    use_ctc_sum_scores: bool = False, # TODO: change to true
 ) -> Dict[str, tk.Variable]:
     """
     Robins code (SLLM repo)
@@ -157,8 +157,8 @@ def ctc_label_sync_eval_auto_scale(
         base_config=forward_config,
         net_args=asr_model.net_args,
         decoder_args=forward_params,
-        forward_module="recognition",
-        forward_method="forward_step_v2",
+        forward_module="recognition.ctc",
+        forward_method="ctc_forward_step_v1",
         callback_name="RecognitionToTextDictCallbackV2",
         label_datastream=train_data.datastreams[label_datastream_key],
         callback_opts={
@@ -171,7 +171,7 @@ def ctc_label_sync_eval_auto_scale(
     ctc_n_best_original = forward_single(
         f"{recog_path}/ctc-n-best",
         returnn_config=returnn_ctc_n_best_config,
-        checkpoint=(asr_model.checkpoint),
+        checkpoint=asr_model.checkpoint,
         dataset_dict=tune_dataset_dict,
         **default_returnn,
         rqmt={},
@@ -200,13 +200,47 @@ def ctc_label_sync_eval_auto_scale(
     }
 
     if use_ctc:
-        if use_ctc_sum_scores:
-            pass # TODO: from robin
+        if use_ctc_sum_scores: #  TODO: try if it works!!
+            returnn_ctc_rescoring_config = get_forward_config_v2(
+                network_import_path=asr_model.network_import_path,
+                base_config=forward_config_low_batch_size,
+                net_args=asr_model.net_args,
+                decoder_args=forward_params,
+                forward_module="recognition.ctc",
+                forward_method="ctc_forward_step_v1",
+                callback_name="RecognitionToTextDictCallbackV2",
+                label_datastream=train_data.datastreams[label_datastream_key],
+                callback_opts={
+                    "include_beam": True,
+                },
+                debug=search_config.debug_returnn_param,
+                extra_configs= extra_returnn_configs,
+                extern_data={
+                    "audio": {"dim": 1},
+                    "hyps_flat": {
+                        "shape": [None],
+                        "dtype": "int32",
+                        "vocab": rescore_data["datasets"]["hyps"]["vocab"],
+                    },
+                    "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
+                },
+            )
+            ctc_rescore_results= forward_single(
+                f"{recog_path}/ctc_sum_rescoring",
+                returnn_config=returnn_ctc_rescoring_config,
+                checkpoint=asr_model.checkpoint,
+                dataset_dict=rescore_data,
+                **default_returnn,
+                rqmt={},
+            )
+            ctc_rescore_results = SearchOutputRawReplaceJob(
+                ctc_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
+            ).out_search_results
         else:
-            ctc_n_best = SearchOutputRawReplaceJob(
+            ctc_rescore_results = SearchOutputRawReplaceJob(
                 ctc_n_best_original, replacement_list=[(" ", ""), ("▁", " ")]
             ).out_search_results
-            scores[Scales.CTC.value] = ctc_n_best
+        scores[Scales.CTC.value] = ctc_rescore_results
 
     if use_sllm:
         # SLLM RESCORING
@@ -235,7 +269,7 @@ def ctc_label_sync_eval_auto_scale(
         sllm_rescore_results = forward_single(  # TODO: change to LM? and proper network...
             f"{recog_path}/sllm_rescoring",
             returnn_config=returnn_rescoring_config,
-            checkpoint=(asr_model.checkpoint),
+            checkpoint=asr_model.checkpoint,
             dataset_dict=rescore_data,
             **default_returnn,
             rqmt={},
@@ -246,7 +280,44 @@ def ctc_label_sync_eval_auto_scale(
         scores[Scales.SLLM.value] = sllm_rescore_results
 
     if use_llm:
-        pass
+        # LLM RESCORING
+        lm_forward_params = copy.deepcopy(forward_params)
+        lm_forward_params["use_ext_lm"] = True
+
+        returnn_rescoring_config = get_forward_config_v2(
+            network_import_path=asr_model.network_import_path,
+            base_config=forward_config_low_batch_size,  # because of large beam dim, we need to lower the batch size
+            net_args=asr_model.net_args,
+            decoder_args=lm_forward_params,
+            forward_module="rescoring",
+            forward_method="forward_step_v1",
+            callback_name="RecognitionToTextDictCallbackV2",
+            label_datastream=train_data.datastreams[label_datastream_key],
+            callback_opts={"include_beam": True},
+            extern_data={
+                "audio": {"dim": 1},
+                "hyps_flat": {
+                    "shape": [None],
+                    "dtype": "int32",
+                    "vocab": rescore_data["datasets"]["hyps"]["vocab"],
+                },
+                "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
+            },
+            debug=search_config.debug_returnn_param,
+            extra_configs= extra_returnn_configs,
+        )
+        llm_rescore_results = forward_single(  # TODO: change to LM? and proper network...
+            f"{recog_path}/llm_rescoring",
+            returnn_config=returnn_rescoring_config,
+            checkpoint=asr_model.checkpoint,
+            dataset_dict=rescore_data,
+            **default_returnn,
+            rqmt={},
+        )
+        llm_rescore_results = SearchOutputRawReplaceJob(
+            llm_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
+        ).out_search_results
+        scores[Scales.LLM.value] = llm_rescore_results
 
     if use_prior:
         # TODO: try if it works!!
@@ -297,8 +368,9 @@ def ctc_label_sync_eval_auto_scale(
     tk.register_output(f"{recog_path}/tune_rescore/wer", tune_score_result.main_measure_value)
     tk.register_output(f"{recog_path}/tune_rescore/report", tune_score_result.report)
 
-    result = opt_scales_job.out_real_scale_per_name
-    # TODO: correct sign of prior
+    scales = copy.deepcopy(opt_scales_job.out_real_scale_per_name)
+    if use_prior:
+        scales[Scales.PRIOR.value] *= -1.0 # negative sign is applyed ad forward step (V4)
 
     return None
 

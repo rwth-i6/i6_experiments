@@ -21,10 +21,6 @@ def forward_step_v1(
 ):
     """from SLLM repo"""
 
-    if use_ext_lm:
-        pass
-        # TODO: !!!
-
     # DATA (audio)
     from returnn.config import get_global_config
     config = get_global_config(return_empty_if_none=True)
@@ -65,12 +61,20 @@ def forward_step_v1(
     # DECODER FORWARD
     input_labels = F.pad(targets, (1, 0), "constant", value=model.bos_idx) # Add BOS
     input_labels_len = target_lens + 1
-    logits = model.decode_seq(
-        x=input_labels,
-        x_lens=input_labels_len.to(device=input_labels.device),
-        encoder_output=adapter_output,
-        encoder_output_lens=adapter_output_lens,
-    )  # [B * beam, T+1, vocab]
+
+    if use_ext_lm:
+        print("USING EXTERNAL LM for decoding")
+        logits = model.external_llm_decode_seq(
+            l=input_labels,
+            x_lens=input_labels_len.to(device=input_labels.device),
+        )  # [B * beam, T+1, vocab]
+    else:
+        logits = model.decode_seq(
+            x=input_labels,
+            x_lens=input_labels_len.to(device=input_labels.device),
+            encoder_output=adapter_output,
+            encoder_output_lens=adapter_output_lens,
+        )  # [B * beam, T+1, vocab]
     # if model.dec_out_blank_logits is not None: # what is this?
     #     # decode_seq returns a tuple of (logits, aux_log_probs) # if needed, get from encoder forward
     #     logits, _ = logits

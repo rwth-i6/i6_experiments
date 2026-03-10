@@ -172,7 +172,7 @@ def exp_v5() -> ExperimentConfig:
             V4_autoscaling_64_ctc_prior_lm( # TODO - run and debug
                 # CTC finetuned
                 ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
+                use_ctc=True, use_sllm=True, use_llm=False, use_prior=False, # TODO: all true
             ),
 
             # OLD
@@ -633,18 +633,18 @@ def exp_v14_3ctc() -> ExperimentConfig:
         training=itc_v2_80k(),
         search=[
             *base_searches(),
-            V4_ctc_sllm_lm_combinations( # CTC finetuned
-                # CTC finetuned
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
-            ),
-            V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
-            ),
-            V4_ctc_sllm_lm_combinations( # ext CTC (3 layers to check what happens ...)
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
-            ),
+            # V4_ctc_sllm_lm_combinations( # CTC finetuned
+            #     # CTC finetuned
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            # ),
+            # V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            # ),
+            # V4_ctc_sllm_lm_combinations( # ext CTC (3 layers to check what happens ...)
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            # ),
         ],
     )
 

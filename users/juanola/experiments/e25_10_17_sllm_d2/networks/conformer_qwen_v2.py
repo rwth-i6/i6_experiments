@@ -114,6 +114,32 @@ class SllmV2(Model):
 
         return qwen_output.logits.view(B, beam, 1, -1), new_state
 
+    def lm_decode_seq(self, text_tokens: Tensor, text_tokens_lens: Tensor) -> Tensor:
+        """
+        Main decoder forward function. (for training)
+
+        :param x: labels [B, MaxTextLen]
+        :param x_lens: labels [B]
+        :param encoder_output: encoder output [B, T, F]
+        :returns: decoder output [B, x_lens.max(), VocabSize]
+        """
+        device = text_tokens.device
+        input_target_embeddings = self.decoder_embed_func(text_tokens)  # [B, L] -> [B, L, F]
+        input_target_lens = text_tokens_lens[:, None].expand(-1, input_target_embeddings.size(1))
+
+        # Build attention mask
+        qwen_input_lens_range = torch.range(0, input_target_embeddings.size(1) - 1)[None].expand(input_target_lens.size(0), -1)
+        qwen_attention_mask = qwen_input_lens_range.to(device) < input_target_lens.to(device)
+
+        # Decoder step
+        qwen_output: CausalLMOutputWithPast = self.decoder.forward(
+            inputs_embeds=input_target_embeddings,
+            attention_mask=qwen_attention_mask,
+            logits_to_keep=text_tokens_lens.max().item(),
+        )
+
+        return qwen_output.logits  # [B, x_lens.max(), VocabSize]
+
 def combine_batch_and_beam_v2(state, *, batch_size: int, beam_size: int):
     if not isinstance(state, Tensor):
         return state

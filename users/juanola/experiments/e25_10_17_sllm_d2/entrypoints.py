@@ -348,8 +348,8 @@ def e3v14():
     ex3.sllm_ep(
         [ExperimentVersion.V14_SLLM_3CTC],
         run_test=False,  # TODO: for now
-        run_best=False,  # TODO: for now
-        run_best_4=False,  # TODO: for now
+        #run_best=False,  # TODO: for now
+        #run_best_4=False,  # TODO: for now
         run_only_dev_other=True,  # TODO: for now
     )  # , itc_training=True)
 
@@ -485,11 +485,11 @@ def e3_pre10_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM_V2], itc_training=True)
 
 def e3_ft1_v2():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4_V2])#, itc_training=True)
 
 
 def e3_ft2_v2():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5_V2])#, itc_training=True)
 
 def e3_pre8_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_V2], itc_training=True)
