@@ -2,7 +2,7 @@ import dataclasses
 import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Any, Tuple
+from typing import Optional, Any, Tuple, List
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import label_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
@@ -16,11 +16,12 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     BeamSearchConfig,
     beam_search_baseline,
     greedy,
-    beam_search_multiple_beams, single_beam,
+    beam_search_multiple_beams,
+    single_beam,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
-    PriorConfig, static_prior,
+    PriorConfig,
 )
 
 
@@ -39,6 +40,8 @@ class SearchConfig:
     avg_best_loss_name: str
     max_seqs: int
 
+    cpu_memory: int
+
     prior: Optional[PriorConfig]
 
     # Tunable Parameters # TODO: this could be grouped...
@@ -47,13 +50,15 @@ class SearchConfig:
     lm_scales: list[float]
     prior_scales: list[float]
     ctc_scales: list[float]
-    sllm_scales: list[float]  # Only used in new decodings
+    sllm_scales: list[float]
 
     # Other
     forward_method: str = None
 
     # What to run
     auto_scaling: bool = False
+    sllm_as_llm: bool = False  # SLLM LM is used as the external LM (no ext_decoder needed)
+    auto_scaling_use_ctc_sum_scores: bool = False
     run_ctc_greedy_decoding_last_epoch: bool = False
 
     debug_returnn_param: bool = True
@@ -62,7 +67,7 @@ class SearchConfig:
     ext_encoder: dict[str, Any] = None
     ext_decoder: dict[str, Any] = None
 
-    ext_decoder_no_preloading: bool = False # TODO: remove, only for test
+    ext_decoder_no_preloading: bool = False  # TODO: remove, only for test
 
     def __post_init__(self):
         """
@@ -113,13 +118,12 @@ class PretrainedExternalModules(Enum):
         "label_config": label_baseline(),
     }
 
-
-    LLM_BASE_COMBINED = { # TODO: broken - different vocab!!
+    LLM_BASE_COMBINED = {  # TODO: broken - different vocab!!
         "checkpoint_key": "llm_base_combined",
         "network_config": network_baseline_v2_td(),
         "label_config": label_baseline(),
     }
-    LLM_SMALL_COMBINED = { # TODO: broken - different vocab!!
+    LLM_SMALL_COMBINED = {  # TODO: broken - different vocab!!
         "checkpoint_key": "llm_small_combined",
         "network_config": network_baseline_v2_td_linear_small(),
         "label_config": label_baseline(),
@@ -138,6 +142,7 @@ _LM_PRIOR_SCALES = dict(
 """
 Specific configurations set below.
 """
+
 
 def base_searches():
     return search_baseline_ctc_greedy_decoding(), search_baseline_v2(), V4_CTC_SLLM()
@@ -163,6 +168,7 @@ def search_baseline() -> SearchConfig:
         batch_size_factor=160,
         use_gpu=True,
         gpu_memory=11,
+        cpu_memory=12,
         beam_search=beam_search_baseline(),
         prior=None,
         lm_scales=[0.0],
@@ -213,6 +219,7 @@ def search_baseline_v2() -> SearchConfig:
         batch_size_factor=160,
         use_gpu=True,
         gpu_memory=11,
+        cpu_memory=12,
         beam_search=beam_search_baseline(),
         prior=None,
         lm_scales=[None],  # Not used!
@@ -240,6 +247,7 @@ def V3_search_baseline_ctc_decoding_11gb() -> SearchConfig:
         batch_size_factor=160,
         use_gpu=True,
         gpu_memory=11,
+        cpu_memory=12,
         beam_search=beam_search_baseline(),
         prior=None,
         avg_best_loss_name="dev_loss_ce",
@@ -269,8 +277,9 @@ def V4_baseline(
         batch_size_factor=160,
         use_gpu=True,
         gpu_memory=11,  # TODO: perhaps increase this
+        cpu_memory=12,
         beam_search=beam_search_baseline(),
-        prior=static_prior(),
+        prior=prior_v1(),
         avg_best_loss_name="dev_loss_ce",
         max_seqs=200,
         lm_scales=[1.0],
@@ -281,13 +290,15 @@ def V4_baseline(
         ext_decoder=ext_decoder,
     )
 
+
 def V4_CTC_SLLM() -> SearchConfig:
-    return dataclasses.replace(V4_baseline(),
-                               lm_scales=[0.0],
-                               sllm_scales=[1.0],
-                               ctc_scales=[1.0],
-                               prior_scales=[0.0],
-                               )
+    return dataclasses.replace(
+        V4_baseline(),
+        lm_scales=[0.0],
+        sllm_scales=[1.0],
+        ctc_scales=[1.0],
+        prior_scales=[0.0],
+    )
 
 
 def V4_ctc_sllm_lm_combinations(
@@ -302,13 +313,15 @@ def V4_ctc_sllm_lm_combinations(
         ext_decoder=ext_decoder,
     )
 
+
 def V4_autoscaling_64_ctc_prior_lm(
-        ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
-        ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
-        use_ctc:bool = True,
-        use_sllm:bool = True,
-        use_llm:bool = True,
-        use_prior:bool = True,
+    ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
+    ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
+    use_ctc: bool = True,
+    use_sllm: bool = True,
+    use_llm: bool = True,
+    use_prior: bool = True,
+    auto_scaling_use_ctc_sum_scores: bool = False,
 ) -> SearchConfig:
 
     ctc_scales = [1.0] if use_ctc else [0.0]
@@ -316,9 +329,11 @@ def V4_autoscaling_64_ctc_prior_lm(
     llm_scales = [1.0] if use_llm else [0.0]
     prior_scales = [1.0] if use_prior else [0.0]
 
+    sllm_as_llm = use_llm and ext_encoder is None
+
     return dataclasses.replace(
         V4_baseline(),
-        prior=prior_v1(),
+        batch_size=5_000,  # TODO_??? # Tested: 3000, 5000(failed last recog)
         ext_encoder=ext_encoder,
         ext_decoder=ext_decoder,
         lm_scales=llm_scales,
@@ -326,8 +341,35 @@ def V4_autoscaling_64_ctc_prior_lm(
         ctc_scales=ctc_scales,
         prior_scales=prior_scales,
         auto_scaling=True,
-        beam_search=single_beam(64)
+        beam_search=single_beam(12),
+        sllm_as_llm=sllm_as_llm,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
     )
+
+
+def V4_autoscaling_64_all_combs(
+    ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
+    ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
+    auto_scaling_use_ctc_sum_scores: bool = False,
+) -> List[SearchConfig]:
+    searches = []
+
+    opts = [True, False]
+    for (ctc, sllm, llm, prior) in [(a, b, c, d) for a in opts for b in opts for c in opts for d in opts]:
+        if ctc + sllm + llm + prior <= 1: continue # At least 2 models/components
+        if not ctc and prior: continue # Prior only for CTC
+        searches.append(
+            V4_autoscaling_64_ctc_prior_lm(
+                ext_encoder=ext_encoder,
+                ext_decoder=ext_decoder,
+                use_ctc=ctc,
+                use_sllm=sllm,
+                use_llm=llm,
+                use_prior=prior,
+                auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+            )
+        )
+    return searches
 
 
 """
@@ -342,6 +384,7 @@ def search_baseline_ctc_greedy_decoding() -> SearchConfig:
         batch_size_factor=160,
         use_gpu=True,
         gpu_memory=11,
+        cpu_memory=12,
         beam_search=beam_search_baseline(),
         prior=None,
         lm_scales=[None],  # Not used!

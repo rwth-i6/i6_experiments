@@ -32,7 +32,7 @@ def compute_prior(
     checkpoint: PtCheckpoint,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: int = 16,
+    mem_rqmt: int,
 ):
     """
     Run search for a specific test dataset
@@ -56,7 +56,7 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.mean.txt", "prior.std_dev.txt", "prior.min.txt", "prior.max.txt", "prior.info.txt"], # From Stats object
     )
-    search_job.add_alias(f"{prefix_name}/prior_job")
+    search_job.add_alias(f"prior_{prefix_name}/prior_job")
 
     remove_blank_job = ComputePriorWithoutBlank(
         tensor_file = search_job.out_files["prior.mean.txt"],
@@ -195,6 +195,7 @@ def search(
             test_dataset_reference,
             returnn_exe,
             returnn_root,
+            mem_rqmt=search_config.cpu_memory,
             use_gpu=search_config.use_gpu,
             search_gpu_memory=search_config.gpu_memory,
         )
@@ -211,9 +212,9 @@ def search_single(
     recognition_bliss_corpus: tk.Path,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: float = 12,
-    use_gpu: bool = False,
-    search_gpu_memory: int = 11,
+    mem_rqmt: int,
+    use_gpu: bool,
+    search_gpu_memory: int,
 ) -> Tuple[job_path.Variable, ReturnnForwardJobV2]:
     """
     Run search for a specific test dataset.

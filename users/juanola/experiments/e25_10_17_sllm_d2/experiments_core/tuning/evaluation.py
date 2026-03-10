@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 from collections import OrderedDict
 from typing import Optional, Dict, Any, Iterable, Union
 
@@ -13,7 +14,7 @@ from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from sisyphus import tk, job_path
 from sisyphus.job_path import Variable
 from .asr_model import ASRModel
-from .auto_scaling_evaluation import ctc_label_sync_eval_auto_scale
+from .auto_scaling_evaluation import ctc_label_sync_eval_auto_scale, Scales
 from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
 from ...configurations.pipeline.prior_config import PriorConfig
@@ -68,7 +69,6 @@ def create_tune_and_evaluate_jobs(
             *get_best_averaged_checkpoint(evaluation_name, train_job, 4, search_config.avg_best_loss_name),
             True,
         )
-
     if run_best:
         evaluation_name = f"{training_name}/best"
         checkpoint_per_evaluation[evaluation_name] = (
@@ -91,11 +91,14 @@ def create_tune_and_evaluate_jobs(
             prior_network_import_path=prior_network_import_path,
         )
 
-        if search_config.auto_scaling:  # New!
+        autoscale_id = None
+        if (
+            search_config.auto_scaling
+        ):  # tunes scales and finds best combination, which then is used in the forward steps
             # asserts if needed?
             assert len(search_config.beam_search.beam_sizes) == 1, "Only one beam size is supported for auto-scaling"
 
-            scales_dict = ctc_label_sync_eval_auto_scale(
+            scales_dict, autoscale_id = ctc_label_sync_eval_auto_scale(
                 asr_model=asr_model,
                 search_config=search_config,
                 train_data=train_data,
@@ -103,22 +106,27 @@ def create_tune_and_evaluate_jobs(
                 evaluation_name=evaluation_name,
             )
 
-            #assert False, "run the forwards with the obtained scales"
-
-            # TODO: what to do with the scales?
-        else:
-            res = tune_and_evaluate_model(
-                evaluation_name,
-                asr_model,
+            search_config = dataclasses.replace(
                 search_config,
-                dev_dataset_tuples=dev_dataset_tuples,
-                forward_method=search_config.forward_method,
-                debug=search_config.debug_returnn_param,
-                run_test=run_test and run_test_for_eval,
-                test_dataset_tuples=test_dataset_tuples,
-                vocab_opts=train_data.train.dataset.target_options,
+                ctc_scales=[scales_dict.get(Scales.CTC.value, 0.0)],
+                sllm_scales=[scales_dict.get(Scales.SLLM.value, 0.0)],
+                prior_scales=[scales_dict.get(Scales.PRIOR.value, 0.0)],
+                lm_scales=[scales_dict.get(Scales.LLM.value, 0.0)],
             )
-            result_dict.update(res)
+
+        res = tune_and_evaluate_model(
+            evaluation_name,
+            asr_model,
+            search_config,
+            dev_dataset_tuples=dev_dataset_tuples,
+            forward_method=search_config.forward_method,
+            debug=search_config.debug_returnn_param,
+            run_test=run_test and run_test_for_eval,
+            test_dataset_tuples=test_dataset_tuples,
+            vocab_opts=train_data.train.dataset.target_options,
+            autoscale_id=autoscale_id,
+        )
+        result_dict.update(res)
 
     # TODO: remove this
     if search_config.run_ctc_greedy_decoding_last_epoch:  # Run the last epoch with ctc greedy decoding
@@ -236,10 +244,11 @@ def prepare_asr_model(
                 checkpoint=checkpoint,
                 returnn_exe=RETURNN_EXE,
                 returnn_root=RETURNN_ROOT,
+                mem_rqmt=prior_config.cpu_memory,
             )
         else:
             prior_file = tk.Path(prior_config.static_prior_file)
-            prior_text_file = tk.Path(prior_config.static_prior_file.replace(".pt",".txt"))
+            prior_text_file = tk.Path(prior_config.static_prior_file.replace(".pt", ".txt"))
         tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
 
     return ASRModel(
@@ -262,6 +271,7 @@ def tune_and_evaluate_model(
     forward_method: Optional[str] = None,
     debug: bool = False,
     run_test: bool = False,
+    autoscale_id: str = None,
 ) -> Dict[str, job_path.Variable]:
     """
     Helper to execute tuning over lm_scales and prior scales (over dev-clean and dev-other).
@@ -285,7 +295,7 @@ def tune_and_evaluate_model(
 
                         if (
                             ctc_scale is not None
-                            and ctc_scale > 0
+                            and ctc_scale != 0
                             and (lm_scale is None or lm_scale == 0)
                             and (prior_scale is None or prior_scale == 0)
                             and (sllm_scale is None or sllm_scale == 0)
@@ -295,6 +305,7 @@ def tune_and_evaluate_model(
                         forward_args, search_name = get_forward_step_parameters_and_search_name(
                             search_config,
                             evaluation_name,
+                            autoscale_id,
                             beam_size,
                             lm_scale,
                             prior_scale,
@@ -353,6 +364,7 @@ def tune_and_evaluate_model(
             forward_args, search_name = get_forward_step_parameters_and_search_name(
                 search_config,
                 evaluation_name,
+                autoscale_id,
                 best_params[0],
                 best_params[1],
                 best_params[2],
@@ -392,6 +404,7 @@ def tune_and_evaluate_model(
 def get_forward_step_parameters_and_search_name(
     search_config: SearchConfig,
     evaluation_name: str,
+    autoscale_id: str = None,
     beam_size: Union[int, Variable] = None,
     lm_scale: Union[float, Variable] = None,
     prior_scale: Union[float, Variable] = None,
@@ -417,6 +430,7 @@ def get_forward_step_parameters_and_search_name(
 
     assert beam_size is not None, "beam_size must be set for test datasets forward pass"
     if forward_method is None or forward_method == "forward_step":
+        # TODO: consider autoscale
         forward_args = {
             "beam_size": beam_size,
             "max_tokens_per_sec": 20,  # TODO: store somewhere
@@ -424,6 +438,7 @@ def get_forward_step_parameters_and_search_name(
         }
         search_name = f"{evaluation_name}/v1_optimal_params" if for_test else f"{evaluation_name}/v1_beam{beam_size}"
     elif forward_method == "forward_step_v2":
+        # TODO: consider autoscale
         forward_args = {
             "beam_size": beam_size,
             "max_tokens_per_sec": 20,  # TODO: store somewhere
@@ -441,11 +456,15 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
 
-        search_name = (
-            f"{evaluation_name}/v3_optimal_params"
-            if for_test
-            else f"{evaluation_name}/v3_beam{beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
-        )
+        if for_test:
+            search_name = f"{evaluation_name}/v3_optimal_params"
+        elif search_config.auto_scaling:
+            search_name = f"{evaluation_name}/v3_beam{beam_size}_{autoscale_id}"
+        else:
+            search_name = (
+                f"{evaluation_name}/v3_beam{beam_size}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
+            )
+
     elif forward_method == "forward_step_ctc_decoding_v2":
         prefix = "v4"
         if search_config.ext_encoder is not None:
@@ -466,13 +485,16 @@ def get_forward_step_parameters_and_search_name(
             # "ctc_top_k_pruning": None,
             # "ctc_top_k_pruning_reduce_func": "mean",
         }
+        if search_config.sllm_as_llm:
+            forward_args["sllm_as_llm"] = True
 
         # TODO: make the name depend on the external ctc + lm checkpoints
-        search_name = (
-            f"{evaluation_name}/{prefix}_optimal_params"
-            if for_test
-            else f"{evaluation_name}/{prefix}_beam{beam_size}_sllm{sllm_scale:.1f}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
-        )
+        if for_test:
+            search_name = f"{evaluation_name}/{prefix}_optimal_params"
+        elif search_config.auto_scaling:
+            search_name = f"{evaluation_name}/{prefix}_beam{beam_size}_{autoscale_id}"
+        else:
+            search_name = f"{evaluation_name}/{prefix}_beam{beam_size}_sllm{sllm_scale:.1f}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
     else:
         raise ValueError(f"Unknown forward method: {forward_method}")
 

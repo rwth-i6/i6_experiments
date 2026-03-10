@@ -1,5 +1,6 @@
 import copy
 from dataclasses import asdict
+from enum import Enum
 from functools import partial
 from typing import Any, Dict, Tuple, Optional
 
@@ -10,6 +11,7 @@ from .configurations.data.label_config import LabelConfig
 from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
 from .configurations.network.network_config import NetworkConfig
+from .configurations.pipeline.search_config import SearchConfig
 from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, TRAIN_STEP_PACKAGE
 from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
@@ -140,21 +142,8 @@ def sllm_ep(
         forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
         for search_config in exp_config.search:
 
-            if search_config.forward_method is None: # Backwards compatibility (first V1 model - V1 recogs)
-                network_import_path_for_forward_step = network_import_path
-            elif network_import_path == "networks.conformer_qwen_v1.Model": # Then for old models V1 but new configs, load model as V2
-                    network_import_path_for_forward_step = "networks.conformer_qwen_v2.SllmV2"
-            else:
-                network_import_path_for_forward_step = network_import_path
-
-            # added for ctc decoding v2
-            if search_config.forward_method == "forward_step_ctc_decoding_v2" or search_config.auto_scaling:
-                network_import_path_for_forward_step = "networks.sllm_with_ext_modules.SllmV4"
-
-            prior_network_path = network_import_path if network_import_path != "networks.conformer_qwen_v1.Model" else "networks.conformer_qwen_v2.SllmV2"
-
-            assert network_import_path_for_forward_step != "networks.conformer_qwen_v1.Model", f"Running a recognition with model V1!! Beam search does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
-            assert prior_network_path != "networks.conformer_qwen_v1.Model", f"Running a prior recognition with model V1!! Beam search does not work here"
+            network_import_path_for_forward_step, prior_network_path = choose_recog_models(
+                network_import_path, search_config)
 
             results: Dict[str, Any] = create_tune_and_evaluate_jobs(
                 training_name=forward_training_name,
@@ -188,6 +177,34 @@ def sllm_ep(
     return results_per_experiment
 
 
+def choose_recog_models(network_import_path: str, search_config: SearchConfig) -> tuple[str, str]:
+
+    class Models(Enum):
+        V1 = "networks.conformer_qwen_v1.Model"
+        V2 = "networks.conformer_qwen_v2.SllmV2"
+        V3 = "networks.conformer_qwen_v3.SllmV3" # Warning, different from others
+        V4 = "networks.sllm_with_ext_modules.SllmV4"
+
+    # MAIN RECOGNITION NETWORK
+    if search_config.forward_method is None:  # Backwards compatibility (first V1 model - V1 recogs)
+        network_import_path_for_forward_step = network_import_path
+    elif network_import_path == Models.V1.value:  # Then for old models V1 but new configs, load model as V2 (FIXES BUG BEAM_SEARCH bug)
+        network_import_path_for_forward_step = Models.V2.value
+    else:
+        network_import_path_for_forward_step = network_import_path # Else the trained model (can be V3)
+
+    # LOADING EXTERNAL MODULES? (change from V2 -> V4)
+    if search_config.forward_method == "forward_step_ctc_decoding_v2":
+        assert network_import_path_for_forward_step in (Models.V1.value, Models.V2.value)
+        network_import_path_for_forward_step = Models.V4.value # If they don't have external modules, V4 will be essentially a V2
+
+    assert network_import_path_for_forward_step != Models.V1.value, f"Running a recognition with model V1!! Beam search does not work here! [fm={search_config.forward_method},mp={network_import_path}]"
+
+    # PRIOR NETWORK
+    prior_network_path = network_import_path if network_import_path != Models.V1.value else Models.V2.value
+    assert prior_network_path != Models.V1.value, f"Running a prior recognition with model V1!! Beam search does not work here"
+
+    return network_import_path_for_forward_step, prior_network_path
 
 
 def create_datasets_jobs(

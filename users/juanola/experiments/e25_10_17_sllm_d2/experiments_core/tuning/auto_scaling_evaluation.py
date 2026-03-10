@@ -2,8 +2,10 @@ import copy
 from enum import Enum
 from typing import Dict, Any
 
+from i6_core.corpus import CorpusToStmJob
+from i6_core.recognition import ScliteJob
 from i6_core.returnn import ReturnnForwardJobV2
-from i6_core.returnn.search import SearchOutputRawReplaceJob, SearchTakeBestJob
+from i6_core.returnn.search import SearchOutputRawReplaceJob, SearchTakeBestJob, SearchWordsToCTMJob
 from i6_core.returnn.training import ReturnnConfig
 from i6_core.text.processing import PipelineJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
@@ -19,7 +21,7 @@ from .asr_model import ASRModel
 from ..model_creation.returnn_config_helpers import get_forward_config_v2
 from ...configurations.pipeline.search_config import SearchConfig
 from ...configurations.pretrained_models import get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
-from ...default_tools import RETURNN_EXE, RETURNN_ROOT
+from ...default_tools import RETURNN_EXE, RETURNN_ROOT, SCTK_BINARY_PATH
 from ...utils_network_args import get_network_args
 
 default_returnn = {
@@ -44,27 +46,27 @@ def ctc_label_sync_eval_auto_scale(
     ogg_zip_dataset_target_key="classes",
 
     lowercase_ref: bool = False,
-    use_ctc_sum_scores: bool = False, # TODO: change to true
-) -> Dict[str, tk.Variable]:
+) -> tuple[Dict[str, tk.Variable], str]:
     """
     Robins code (SLLM repo)
     """
+    autoscale_id = "autoscale"
 
     use_ctc = search_config.ctc_scales is not None and len(search_config.ctc_scales) == 1 and search_config.ctc_scales[0] == 1.0
     use_llm = search_config.ctc_scales is not None and len(search_config.lm_scales) == 1 and search_config.lm_scales[0] == 1.0
     use_sllm = search_config.ctc_scales is not None and len(search_config.sllm_scales) == 1 and search_config.sllm_scales[0] == 1.0
     use_prior = search_config.ctc_scales is not None and len(search_config.prior_scales) == 1 and search_config.prior_scales[0] == 1.0
 
-    print(f"Using: ", end="")
     if use_ctc:
-        print("CTC ", end="")
+        autoscale_id += "_CTC"
+        if search_config.auto_scaling_use_ctc_sum_scores:
+            autoscale_id += "_sum_scores"
     if use_llm:
-        print("LLM ", end="")
+        autoscale_id += "_LLM"
     if use_sllm:
-        print("SLLM ", end="")
+        autoscale_id += "_SLLM"
     if use_prior:
-        print("PRIOR ", end="")
-    print("scales!")
+        autoscale_id += "_PRIOR"
 
     # DATASET FOR TUNNING
     assert len(tune_datasets.items()) == 1, "Only one dataset is supported for now!"
@@ -76,7 +78,7 @@ def ctc_label_sync_eval_auto_scale(
 
     # GET CHECKPOINT & PATH
     recog_path = (
-        f"{evaluation_name}/auto_scaling_test1/{tune_dataset_name}"  # TODO: add some params of what is being tuned!
+        f"{evaluation_name}/{autoscale_id}/{tune_dataset_name}"  # TODO: add some params of what is being tuned!
     )
 
     # TEXT REFERENCES & VOCAB
@@ -133,7 +135,7 @@ def ctc_label_sync_eval_auto_scale(
         extra_returnn_configs.append(ReturnnConfig(config=preloading_config, python_prolog=python_prolog))
 
     # BASE RECOG CONFIG
-    beam_size = search_config.beam_search.beam_sizes[0]
+    beam_size = 64
     forward_config = {
         "batch_size": search_config.batch_size * search_config.batch_size_factor,
         "max_seqs": search_config.max_seqs,
@@ -146,6 +148,11 @@ def ctc_label_sync_eval_auto_scale(
         "beam_size": beam_size,
         "max_tokens_per_sec": 20,
         "sample_rate": 16000,
+    }
+
+    rqmt = {
+        "mem": search_config.gpu_memory,
+        "cpu": search_config.cpu_memory,
     }
 
     # ACCUMULATED SCORES
@@ -174,7 +181,7 @@ def ctc_label_sync_eval_auto_scale(
         checkpoint=asr_model.checkpoint,
         dataset_dict=tune_dataset_dict,
         **default_returnn,
-        rqmt={},
+        rqmt=rqmt,
     )
 
     # RESCORINGS
@@ -200,7 +207,7 @@ def ctc_label_sync_eval_auto_scale(
     }
 
     if use_ctc:
-        if use_ctc_sum_scores: #  TODO: try if it works!!
+        if search_config.auto_scaling_use_ctc_sum_scores:
             returnn_ctc_rescoring_config = get_forward_config_v2(
                 network_import_path=asr_model.network_import_path,
                 base_config=forward_config_low_batch_size,
@@ -220,7 +227,7 @@ def ctc_label_sync_eval_auto_scale(
                     "hyps_flat": {
                         "shape": [None],
                         "dtype": "int32",
-                        "vocab": rescore_data["datasets"]["hyps"]["vocab"],
+                        "vocab": copy.deepcopy(rescore_data["datasets"]["hyps"]["vocab"]),
                     },
                     "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
                 },
@@ -231,7 +238,7 @@ def ctc_label_sync_eval_auto_scale(
                 checkpoint=asr_model.checkpoint,
                 dataset_dict=rescore_data,
                 **default_returnn,
-                rqmt={},
+                rqmt=rqmt,
             )
             ctc_rescore_results = SearchOutputRawReplaceJob(
                 ctc_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
@@ -259,7 +266,7 @@ def ctc_label_sync_eval_auto_scale(
                 "hyps_flat": {
                     "shape": [None],
                     "dtype": "int32",
-                    "vocab": rescore_data["datasets"]["hyps"]["vocab"],
+                    "vocab": copy.deepcopy(rescore_data["datasets"]["hyps"]["vocab"]),
                 },
                 "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
             },
@@ -272,7 +279,7 @@ def ctc_label_sync_eval_auto_scale(
             checkpoint=asr_model.checkpoint,
             dataset_dict=rescore_data,
             **default_returnn,
-            rqmt={},
+            rqmt=rqmt,
         )
         sllm_rescore_results = SearchOutputRawReplaceJob(
             sllm_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
@@ -283,6 +290,8 @@ def ctc_label_sync_eval_auto_scale(
         # LLM RESCORING
         lm_forward_params = copy.deepcopy(forward_params)
         lm_forward_params["use_ext_lm"] = True
+        if search_config.sllm_as_llm:
+            lm_forward_params["sllm_as_llm"] = True
 
         returnn_rescoring_config = get_forward_config_v2(
             network_import_path=asr_model.network_import_path,
@@ -299,7 +308,7 @@ def ctc_label_sync_eval_auto_scale(
                 "hyps_flat": {
                     "shape": [None],
                     "dtype": "int32",
-                    "vocab": rescore_data["datasets"]["hyps"]["vocab"],
+                    "vocab": copy.deepcopy(rescore_data["datasets"]["hyps"]["vocab"]),
                 },
                 "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
             },
@@ -312,7 +321,7 @@ def ctc_label_sync_eval_auto_scale(
             checkpoint=asr_model.checkpoint,
             dataset_dict=rescore_data,
             **default_returnn,
-            rqmt={},
+            rqmt=rqmt,
         )
         llm_rescore_results = SearchOutputRawReplaceJob(
             llm_rescore_results, replacement_list=[(" ", ""), ("▁", " ")]
@@ -320,7 +329,6 @@ def ctc_label_sync_eval_auto_scale(
         scores[Scales.LLM.value] = llm_rescore_results
 
     if use_prior:
-        # TODO: try if it works!!
         assert asr_model.prior_text_file is not None, "Prior text file is needed"
         prior_rescore_job = SearchPriorRescoreJob(
             ctc_n_best_original, # Has "_word" form
@@ -337,42 +345,62 @@ def ctc_label_sync_eval_auto_scale(
         scores["prior"] = prior_rescore_results
 
     # AUTO SCALING
+    fixed_scales = None
+    if use_ctc:
+        fixed_scales = {Scales.CTC.value: 1.0}
+    elif use_sllm:
+        fixed_scales = {Scales.SLLM.value: 1.0}
+    else:
+        fixed_scales = None
+
     opt_scales_job = ScaleTuningJob(
         scores=scores,
         ref=ref,
-        fixed_scales={Scales.CTC.value: 1.0},
+        fixed_scales=fixed_scales,
         negative_scales={Scales.PRIOR.value} if use_prior else None,
         evaluation="edit_distance",
     )
     opt_scales_job.rqmt["engine"] = "short"  # should be fine
     tk.register_output(f"{recog_path}/opt-real-scales", opt_scales_job.out_real_scales)
     tk.register_output(f"{recog_path}/opt-rel-scales", opt_scales_job.out_scales)
-    combined_scores = SearchCombineScoresJob(
-        [
-            (opt_scales_job.out_real_scale_per_name[Scales.CTC.value], scores[Scales.CTC.value]),
-            (opt_scales_job.out_real_scale_per_name[Scales.SLLM.value], scores[Scales.SLLM.value]),
-        ]
-    ).out_search_results
+
+    # CTC BEST
+    # best_ctc = SearchTakeBestJob(ctc_rescore_results).out_best_search_results
+    # ctc_search_ctm = SearchWordsToCTMJob(
+    #     recog_words_file=best_ctc,
+    #     bliss_corpus=tune_dataset_ref,
+    # ).out_ctm_file
+    # ctc_stm_file = CorpusToStmJob(bliss_corpus=tune_dataset_ref).out_stm_path
+    # ctc_sclite_job = ScliteJob(ref=ctc_stm_file, hyp=ctc_search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=1)
+    # tk.register_output(f"{recog_path}/ctc_tune_rescore/wer", ctc_sclite_job.out_wer)
+    # tk.register_output(f"{recog_path}/ctc_tune_rescore/report", ctc_sclite_job.out_report_dir)
+
+    # EVALUATE BEST RESCORE (MULTIPASS (fusion) SCORE)
+    files_to_merge = []
+    if use_ctc:
+        files_to_merge.append((opt_scales_job.out_real_scale_per_name[Scales.CTC.value], scores[Scales.CTC.value]))
+    if use_prior:
+        files_to_merge.append((opt_scales_job.out_real_scale_per_name[Scales.PRIOR.value], scores[Scales.PRIOR.value]))
+    if use_sllm:
+        files_to_merge.append((opt_scales_job.out_real_scale_per_name[Scales.SLLM.value], scores[Scales.SLLM.value]))
+    if use_llm:
+        files_to_merge.append((opt_scales_job.out_real_scale_per_name[Scales.LLM.value], scores[Scales.LLM.value]))
+    combined_scores = SearchCombineScoresJob(files_to_merge).out_search_results
     best_rescore = SearchTakeBestJob(combined_scores).out_best_search_results
+    search_ctm = SearchWordsToCTMJob(
+        recog_words_file=best_rescore,
+        bliss_corpus=tune_dataset_ref,
+    ).out_ctm_file
+    stm_file = CorpusToStmJob(bliss_corpus=tune_dataset_ref).out_stm_path
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=1)
+    tk.register_output(f"{recog_path}/tune_rescore/wer", sclite_job.out_wer)
+    tk.register_output(f"{recog_path}/tune_rescore/report", sclite_job.out_report_dir)
 
-    # GET SCORES
-    tune_score_result = generic_sclite_score_recog_out(
-        dataset=tune_dataset_dict,
-        recog_output=best_rescore,
-        corpus_name="dev",  # TODO?
-        vocab=train_data.datastreams[label_datastream_key].as_returnn_targets_opts(),
-        data_key=ogg_zip_dataset_target_key,
-        use_lowercase=lowercase_ref,
-        # apply_text_norm=False,
-    )
-    tk.register_output(f"{recog_path}/tune_rescore/wer", tune_score_result.main_measure_value)
-    tk.register_output(f"{recog_path}/tune_rescore/report", tune_score_result.report)
-
+    # OUTPUT
     scales = copy.deepcopy(opt_scales_job.out_real_scale_per_name)
     if use_prior:
         scales[Scales.PRIOR.value] *= -1.0 # negative sign is applyed ad forward step (V4)
-
-    return None
+    return scales, autoscale_id
 
 
 def generic_sclite_score_recog_out(
@@ -431,10 +459,10 @@ def forward_single(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
-        mem_rqmt=rqmt.get("mem", 20),
+        mem_rqmt=rqmt["mem"],
         time_rqmt=1,
         device="gpu",
-        cpu_rqmt=rqmt.get("cpu", 8),
+        cpu_rqmt=8 if rqmt["mem"] < 30 else 16,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=["search_out.py.gz"],

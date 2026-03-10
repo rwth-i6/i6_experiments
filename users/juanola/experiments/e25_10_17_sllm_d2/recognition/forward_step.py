@@ -173,6 +173,8 @@ def forward_step_ctc_decoding_v2(
         lm_scale: float = 0.0,
         sllm_scale: float = 0.0,
 
+        sllm_as_llm: bool = False,
+
         ctc_soft_collapse_threshold: Optional[float] = None,
         ctc_top_k_pruning: Optional[int] = None,
         ctc_top_k_pruning_reduce_func: str = "mean",
@@ -200,6 +202,7 @@ def forward_step_ctc_decoding_v2(
         prior_scale=prior_scale,
         external_lm_scale=lm_scale,
         sllm_scale=sllm_scale,
+        sllm_as_llm=sllm_as_llm,
     )
 
     ctx = rf.get_run_ctx()

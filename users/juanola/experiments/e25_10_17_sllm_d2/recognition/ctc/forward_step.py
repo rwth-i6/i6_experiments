@@ -1,14 +1,11 @@
 __all__ = ["ctc_forward_step_v1"]
 
-from abc import abstractmethod
-from typing import Generic, Optional, Union
-
-import torch
-from torch import Tensor
-import torch.nn.functional as F
+from typing import Optional, Union
 
 import returnn.frontend as rf
 from returnn.tensor import Dim, TensorDict, batch_dim
+from returnn.tensor import Tensor as ReturnnTensor
+from torch import Tensor
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.networks.interfaces.base_encoder_decoder_model import \
     BaseEncoderDecoderModel
@@ -49,12 +46,9 @@ def ctc_forward_step_v1(
 
     assert beam_size > 0
 
-    data_key = config.value("default_data_key", "audio")
-    data_ = extern_data[data_key]
-    if data_.feature_dim and data_.feature_dim.dimension == 1:
-        data_ = rf.squeeze(data_, axis=data_.feature_dim)
-    data = data_.raw_tensor
-    seq_len = extern_data[data_key].dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
+    data_: ReturnnTensor = extern_data["data"]
+    data: Tensor = data_.raw_tensor
+    seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
     seq_targets, seq_log_prob, out_seq_len = beam_search_v1(
         model=model,

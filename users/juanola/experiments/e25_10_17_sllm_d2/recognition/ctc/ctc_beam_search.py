@@ -222,11 +222,11 @@ def beam_search_v1(
         (
             llm_audio_features_in,
             aux_log_probs,
-            adapter_output_lengths,
-            _,
             encoder_output_lens,
+            _
         ) = model.forward(raw_audio, raw_audio_lens)
         if use_dec_aux_log_probs:
+            assert False, "adapter output lengths???"
             _, dec_aux_log_probs = model.decode_seq(
                 x=torch.empty((raw_audio.size(0), 0), dtype=torch.long, device=raw_audio.device),
                 x_lens=torch.zeros((raw_audio.size(0),), dtype=torch.long, device=raw_audio.device),
@@ -243,7 +243,8 @@ def beam_search_v1(
             rf.convert_to_tensor(encoder_output_lens, dims=[batch_dim]),
             name="enc-spatial",
         )
-        vocab_dim = ReturnnDim(model.wb_target_dim, name="vocab")
+        wb_target_dim = model.num_labels+1
+        vocab_dim = ReturnnDim(wb_target_dim, name="vocab")
         label_log_prob = rf.convert_to_tensor(label_log_prob, dims=[batch_dim, enc_spatial_dim, vocab_dim])
 
         if ctc_soft_collapse_threshold is not None:
@@ -262,7 +263,7 @@ def beam_search_v1(
         )
         label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
             label_log_prob,
-            k_dim=ReturnnDim(min(beam_size, model.wb_target_dim), name="pre-filter-beam"),
+            k_dim=ReturnnDim(min(beam_size, wb_target_dim), name="pre-filter-beam"),
             axis=[vocab_dim],
         )  # seq_log_prob, backrefs_global: Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
         label_log_prob_pre_filter_ta = TensorArray.unstack(
@@ -312,267 +313,5 @@ def beam_search_v1(
         seq_targets=seq_targets.raw_tensor,
         blank_idx=model.blank_idx,
     )
-
-    return ctc_batch_indices, seq_log_prob.raw_tensor, ctc_output_lens
-
-
-def beam_search_with_recomb_v1(
-        *,
-        model: BaseEncoderDecoderModel,
-        raw_audio: Tensor,
-        raw_audio_lens: Tensor,
-        beam_size: int,
-        batch_size: int,
-        device: torch.device,
-        original_blank_idx: Optional[int] = None,
-        ctc_soft_collapse_threshold: Optional[float] = None,
-        ctc_soft_collapse_reduce_type: str = "logmeanexp",
-        ctc_top_k_pruning: Optional[int] = None,
-        ctc_top_k_pruning_reduce_func: str = "mean",
-        use_dec_aux_log_probs: bool = False,
-) -> Tuple[Tensor, Tensor, Tensor]:
-    """
-    Copied and modified from i6_experiments/users/zeyer/experiments/exp2024_04_23_baselines/recog_ext/aed_ctc.py
-    -> model_recog_with_recomb
-    """
-    import returnn
-    from returnn.config import get_global_config
-
-    llm_audio_features_in, aux_log_probs, adapter_output_lengths, _, _ = model.forward_v2(
-        raw_audio.float(), raw_audio_lens
-    )
-
-    if use_dec_aux_log_probs:
-        _, dec_aux_log_probs = model.decode_seq(
-            x=torch.empty((raw_audio.size(0), 0), dtype=torch.long, device=raw_audio.device),
-            x_lens=torch.zeros((raw_audio.size(0),), dtype=torch.long, device=raw_audio.device),
-            audio_features=llm_audio_features_in,
-            audio_features_lens=adapter_output_lengths,
-        )
-        ctc_label_log_prob = dec_aux_log_probs[-1]  # Batch, Time, Vocab
-        ctc_label_log_prob_lens = adapter_output_lengths
-    else:
-        # aux_log_probs is a list of (logits, lens) tuples, one for each auxiliary CTC loss. We use the last one here.
-        ctc_label_log_prob_lens = aux_log_probs[-1][1]
-        # hard code last aux logit for now. make adjustable later if needed.
-        ctc_label_log_prob = aux_log_probs[-1][0]
-
-    if original_blank_idx is not None:
-        assert model.blank_idx == ctc_label_log_prob.size(-1) - 1, (
-            f"Expected blank_idx {model.blank_idx} to be the last index in the vocab"
-        )
-        assert original_blank_idx == 0, f"Expected original_blank_idx to be 0, got {original_blank_idx}. "
-        # move blank log prob to the last index, as expected by the rest of the code. This is needed if the model was trained with a different blank_idx.
-        blank_log_prob = ctc_label_log_prob[..., original_blank_idx]
-        ctc_label_log_prob = torch.cat(
-            [
-                ctc_label_log_prob[..., :original_blank_idx],
-                ctc_label_log_prob[..., original_blank_idx + 1 :],
-                blank_log_prob.unsqueeze(-1),
-            ],
-            dim=-1,
-        )
-
-    config = get_global_config()
-    recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
-
-    # RETURNN version is like "1.20250115.110555"
-    # There was an important fix in 2025-01-17 affecting masked_scatter.
-    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
-    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
-
-    batch_dims = [batch_dim]
-    enc_spatial_dim = ReturnnDim(
-        rf.convert_to_tensor(ctc_label_log_prob_lens, dims=[batch_dim]),
-        name="enc-spatial",
-    )
-    vocab_wb_dim = ReturnnDim(model.wb_target_dim, name="vocab")
-    vocab_dim = ReturnnDim(model.wb_target_dim - 1, name="vocab")
-
-    if ctc_top_k_pruning is not None:
-        reduce_func = getattr(torch, ctc_top_k_pruning_reduce_func)
-        # assumes that blank is the last index in the vocab
-        reduced_log_probs = reduce_func(ctc_label_log_prob[:, :, :-1], dim=1)
-        if ctc_top_k_pruning_reduce_func in ("max", "min"):
-            reduced_log_probs = reduced_log_probs[0]
-        # get top k log probs for non-blank labels over reduced time frames
-        _, pruned_indices = torch.topk(reduced_log_probs, k=ctc_top_k_pruning, dim=-1)
-        # add blank to pruned indices
-        pruned_indices_wb = torch.cat(
-            [
-                pruned_indices,
-                # EOS is needed for CTC prefix scoring
-                torch.full(
-                    (pruned_indices.size(0), 1),
-                    model.blank_idx,
-                    device=pruned_indices.device,
-                ),
-            ],
-            dim=-1,
-        )
-        # gather selected log probs and re-normalize
-        ctc_log_prob = torch.gather(
-            ctc_label_log_prob,
-            dim=-1,
-            index=pruned_indices_wb.unsqueeze(1).expand(-1, ctc_label_log_prob.size(1), -1),
-        )
-        ctc_log_prob = torch.nn.functional.log_softmax(ctc_log_prob, dim=-1)
-        pruned_wb_target_dim = ReturnnDim(pruned_indices_wb.size(1), name="pruned_wb_target_dim")
-        pruned_indices_wb_rf = rf.convert_to_tensor(
-            pruned_indices_wb,
-            dims=[batch_dim, pruned_wb_target_dim],
-            sparse_dim=vocab_wb_dim,
-        )
-        ctc_log_prob = rf.convert_to_tensor(ctc_log_prob, dims=[batch_dim, enc_spatial_dim, pruned_wb_target_dim])
-        # scatter pruned log probs back to original vocab size with -inf for non-selected
-        ctc_label_log_prob = rf.scatter(
-            ctc_log_prob,
-            fill_value=float("-inf"),
-            indices=pruned_indices_wb_rf,
-            indices_dim=pruned_wb_target_dim,
-            out_dim=vocab_wb_dim,
-            mode="max",
-        )
-        # ctc_log_prob = ctc_log_prob.copy_transpose((batch_dim, enc_spatial_dim, wb_target_dim)).raw_tensor
-    else:
-        ctc_label_log_prob = rf.convert_to_tensor(ctc_label_log_prob, dims=[batch_dim, enc_spatial_dim, vocab_wb_dim])
-
-    if ctc_soft_collapse_threshold is not None:
-        ctc_label_log_prob, enc_spatial_dim = soft_collapse_repeated(
-            ctc_label_log_prob,
-            spatial_dim=enc_spatial_dim,
-            classes_dim=vocab_wb_dim,
-            threshold=ctc_soft_collapse_threshold,
-            reduce_type=ctc_soft_collapse_reduce_type,
-        )
-
-    # Eager-mode implementation of beam search.
-    # Initial state.
-    beam_dim = ReturnnDim(1, name="initial-beam")
-    batch_dims_ = [beam_dim] + batch_dims
-    neg_inf = float("-inf")
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
-
-    ctc_label_log_prob = rf.where(
-        enc_spatial_dim.get_mask(),
-        ctc_label_log_prob,
-        rf.sparse_to_dense(model.blank_idx, axis=vocab_wb_dim, label_value=0.0, other_value=neg_inf),
-    )
-    # No CTC scale needed.
-    ctc_label_log_prob_ta = TensorArray.unstack(ctc_label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
-
-    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=vocab_dim)  # Batch, InBeam -> Vocab
-    target_wb = rf.constant(model.blank_idx, dims=batch_dims_, sparse_dim=vocab_wb_dim)  # Batch, InBeam -> VocabWB
-
-    seq_label = _seq_label_history_init_state(vocab_dim=vocab_dim, batch_dims=batch_dims_)
-
-    ctc_scale = 1.0
-
-    max_seq_len = int(enc_spatial_dim.get_dim_value())
-    seq_targets_wb = []
-    seq_backrefs = []
-    for t in range(max_seq_len):
-        prev_target = target
-        prev_target_wb = target_wb
-
-        seq_log_prob = seq_log_prob + ctc_scale * ctc_label_log_prob_ta[t]  # Batch, InBeam, VocabWB
-
-        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
-            seq_log_prob,
-            k_dim=ReturnnDim(beam_size, name=f"dec-step{t}-beam"),
-            axis=[beam_dim, vocab_wb_dim],
-        )
-        # seq_log_prob, backrefs, target_wb: Batch, Beam
-        # backrefs -> InBeam.
-        # target_wb -> VocabWB.
-        seq_targets_wb.append(target_wb)
-        seq_backrefs.append(backrefs)
-
-        seq_label = rf.nested.gather_nested(seq_label, indices=backrefs)
-
-        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
-        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
-
-        got_new_label: Tensor = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
-        target = rf.where(
-            got_new_label,
-            _target_remove_blank(
-                target_wb,
-                target_dim=vocab_dim,
-                wb_target_dim=vocab_wb_dim,
-                blank_idx=model.blank_idx,
-            ),
-            prev_target,
-        )  # Batch, Beam -> Vocab
-        got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-        if got_new_label_cpu.raw_tensor.sum().item() > 0:
-            seq_label = rf.nested.mask_nested(
-                _seq_label_append(seq_label, target),
-                mask=got_new_label,
-                mask_cpu=got_new_label_cpu,
-                mask_value=seq_label,
-            )
-
-            # Recombine paths with the same label seq.
-            if not recomb:
-                pass
-            elif recomb in ("max", "sum"):
-                # Set seq_log_prob for batch entries to neg_inf if they have the same label seq.
-                same_seq_labels, beam_dual_dim = _same_seq_labels(
-                    seq_label.history, spatial_dim=seq_label.hist_dim, beam_dim=beam_dim
-                )
-                seq_log_prob_ext = rf.where(
-                    same_seq_labels,
-                    rf.replace_dim_v2(seq_log_prob, in_dim=beam_dim, out_dim=beam_dual_dim),
-                    neg_inf,
-                )  # Batch, Beam, BeamDual
-                if recomb == "sum":
-                    seq_log_prob = rf.reduce_logsumexp(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
-                argmax_seq_log_prob = rf.reduce_argmax(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
-                mask = argmax_seq_log_prob == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
-                seq_log_prob = rf.where(mask, seq_log_prob, neg_inf)
-                got_new_label = got_new_label & mask  # don't re-eval the LM when masked out
-                got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-            else:
-                raise ValueError(f"invalid recog_recomb {recomb!r}")
-
-    # Backtrack via backrefs, resolve beams.
-    seq_targets_wb_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target_wb in zip(seq_backrefs[::-1], seq_targets_wb[::-1]):
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
-        seq_targets_wb_.insert(0, rf.gather(target_wb, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
-
-    seq_targets_wb__ = TensorArray(seq_targets_wb_[0])
-    for target_wb in seq_targets_wb_:
-        seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
-    out_spatial_dim = enc_spatial_dim
-    seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
-
-    # Select valid.
-    mask = rf.is_finite(seq_log_prob)  # Batch, Beam
-    mask_cpu = rf.copy_to_device(mask, "cpu")
-    (seq_targets_wb, seq_log_prob, out_spatial_dim), beam_dim, _ = rf.nested.masked_select_nested(
-        (seq_targets_wb, seq_log_prob, out_spatial_dim),
-        mask=mask,
-        mask_cpu=mask_cpu,
-        dims=[beam_dim],
-    )
-
-    seq_targets_wb = seq_targets_wb.copy_transpose([batch_dim, beam_dim, out_spatial_dim])
-    seq_log_prob = seq_log_prob.copy_transpose([batch_dim, beam_dim])
-    # print("seq_targets_wb: ", seq_targets_wb.raw_tensor[0, 0])
-    # raise Exception("stop here for debugging")
-    ctc_batch_indices, ctc_output_lens = _get_collapsed_out_seqs(
-        seq_targets=seq_targets_wb.raw_tensor,
-        blank_idx=model.blank_idx,
-    )
-
-    if original_blank_idx is not None:
-        # since we assume original_blank_idx is 0, we need to shift the indices one up
-        # blank is already removed here, so we just need to add 1 to all indices to get back to the original vocab space.
-        ctc_batch_indices += 1
 
     return ctc_batch_indices, seq_log_prob.raw_tensor, ctc_output_lens

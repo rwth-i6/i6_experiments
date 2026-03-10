@@ -1,5 +1,4 @@
 __all__ = ["RecognitionToTextDictCallback",
-           "RecognitionToTextDictCallbackV2",
            "ReturnnCollectStatsForwardCallbackV1"]
 
 from typing import Optional, Union, Dict, List

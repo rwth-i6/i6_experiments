@@ -3,10 +3,10 @@ Dataset helpers for the SPM-based training
 """
 from typing import Optional, Dict
 
+from i6_experiments.users.juanola.returnn.datastreams import SentencePieceDatastream
 from sisyphus import tk
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict
-from i6_experiments.common.setups.returnn.datastreams.vocabulary import SentencePieceDatastream
 from i6_experiments.users.juanola.data.dataset_settings.dataset_settings import ReturnnDatasetSettings
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
 from i6_experiments.users.zeyer.datasets.librispeech import _get_spm_vocab  # TODO: warning! external import!
@@ -57,7 +57,6 @@ def build_spm_training_datasets(
 
     # SentencePieceDatastream only covers limited options and always adds EOS, which we don't want
     for dataset in [training_datasets.train, training_datasets.cv, training_datasets.devtrain]:
-        dataset.dataset.target_options.pop("add_eos", None)
         if dataset == training_datasets.train:
             dataset.dataset.target_options.update(
                 {

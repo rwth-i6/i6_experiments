@@ -16,6 +16,7 @@ def forward_step_v1(
         extern_data: TensorDict,
 
         use_ext_lm: bool = False,
+        sllm_as_llm: bool = False,
 
         **kwargs,
 ):
@@ -63,11 +64,18 @@ def forward_step_v1(
     input_labels_len = target_lens + 1
 
     if use_ext_lm:
-        print("USING EXTERNAL LM for decoding")
-        logits = model.external_llm_decode_seq(
-            l=input_labels,
-            x_lens=input_labels_len.to(device=input_labels.device),
-        )  # [B * beam, T+1, vocab]
+        if sllm_as_llm:
+            print("USING SLLM as external LM for decoding")
+            logits = model.lm_decode_seq(
+                input_labels,
+                input_labels_len.to(device=input_labels.device),
+            )  # [B * beam, T+1, vocab]
+        else:
+            print("USING EXTERNAL LM for decoding")
+            logits = model.external_llm_decode_seq(
+                input_labels,
+                input_labels_len.to(device=input_labels.device),
+            )  # [B * beam, T+1, vocab]
     else:
         logits = model.decode_seq(
             x=input_labels,
