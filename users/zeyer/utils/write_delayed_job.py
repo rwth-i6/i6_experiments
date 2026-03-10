@@ -2,7 +2,6 @@
 Write some delayed object to a tk.Variable
 """
 
-
 from typing import Union, Any
 from sisyphus import Job, Task
 from sisyphus.delayed_ops import DelayedBase
@@ -19,7 +18,7 @@ class DelayedToVariableJob(Job):
         self.out = self.output_var(out_filename)
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+        yield Task("run", mini_task=True, rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
 
     def run(self):
         val = instanciate_delayed(self.delayed)
