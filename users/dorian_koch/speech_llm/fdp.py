@@ -1,8 +1,7 @@
 from glob import glob
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
 from sisyphus import Job, Task, tk
-from i6_core.util import uopen
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
 )
@@ -12,6 +11,11 @@ import sys
 import subprocess
 from .common import HF_CACHE_DIR
 from contextlib import contextmanager
+import fdp_v1_v15.evaluation.evaluate as fdp_v1_v15_evaluate
+from fdp_v1_v15.model_inference.moshi.inference import _ws_url, MoshiFileClient
+from fdp_v1_v15.evaluation.evaluate import main as evaluate_main
+from fdp_v1_v15.get_transcript.asr import get_time_aligned_transcription
+import shutil
 
 def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
     files: List[Tuple[str, Path]] = []
@@ -27,24 +31,25 @@ def get_fdp_asr_download():
 
 @contextmanager
 def moshi_server():
-     # Build command for Moshi server
-    cmd = [sys.executable, "-m", "moshi.server", "--host", "localhost", "--port", "8998"]
-    
+    cmd = [sys.executable, "-m", "moshi.moshi.server", "--host", "localhost", "--port", "8998"]
+
     print(f"Starting Moshi server: {' '.join(cmd)}")
     server_process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,  # Combine stderr with stdout
+        stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1,  # Line buffered
+        bufsize=1,
         universal_newlines=True,
-        preexec_fn=os.setsid if hasattr(os, 'setsid') else None  # Create process group
+        preexec_fn=os.setsid if hasattr(os, 'setsid') else None,  # Create process group
+        cwd="/home/tt201262/setups/2026-01-speech-llm/projects/moshi", # TODO...
+        env={**os.environ, "PYTHONUNBUFFERED": '1'}
     )
     
     # Wait for server to be ready (check port 8998)
     import socket
     import time
-    max_wait = 120  # seconds
+    max_wait = 2 * 60  # seconds
     start_time = time.time()
     server_ready = False
     
@@ -53,10 +58,11 @@ def moshi_server():
         nonlocal server_ready
         if server_process.stdout:
             for line in iter(server_process.stdout.readline, ''):
-                if line:
-                    print(f"[Moshi Server] {line.rstrip()}")
+                if line and "frame handled!" not in line:
+                    print(f"[Moshi Server] {line.rstrip()}", flush=True)
                 if "Access the Web UI directly at" in line:
                     server_ready = True
+        print("Moshi server output thread exiting")
     
     # Start output reading thread
     import threading
@@ -77,13 +83,16 @@ def moshi_server():
             if server_ready:
                 print("Moshi server is ready and accepting connections")
                 break
+            else:
+                print("Moshi server port is open but server not ready yet")
         except (ConnectionRefusedError, socket.timeout):
             pass
         
         time.sleep(0.5)
     else:
         raise TimeoutError(f"Moshi server not ready after {max_wait} seconds")
-    
+    print("Moshi server started successfully")
+
     try:
         yield
     finally:
@@ -125,11 +134,11 @@ class Tee:
 class FullDuplexBenchEval(Job):
     def __init__(self, *, fdp_task: str, model):
         self.fdp_data = tk.Path(
-            "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset",
+            "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset/v1.0",
             hash_overwrite="FullDuplexBench-datasets",
         )  # TODO... the dataset is available as a google drive link, so no good way to write a download job?
 
-        self.fdp_task = fdp_task  # TODO test if task is valid...
+        self.fdp_task = fdp_task
         self.model = model
         
         self.out_audios = self.output_path("audios", directory=True)
@@ -138,7 +147,7 @@ class FullDuplexBenchEval(Job):
         self.rqmt = {
             "gpu": 1,
             "cpu": 2,
-            "mem": 4,
+            "mem": 16,
             "time": 4,
         }
 
@@ -148,39 +157,61 @@ class FullDuplexBenchEval(Job):
     def run(self):
         # check if dataset is valid
         assert os.path.exists(
-            os.path.join(self.fdp_data, "v1.0/candor_pause_handling/1/pause.json")
+            os.path.join(self.fdp_data, "candor_pause_handling/1/pause.json")
         ), f"Dataset not found at {self.fdp_data}"
 
+        files = fdp_files_for_tasks(Path(self.fdp_data.get_path()), [self.fdp_task])
+        assert len(files) > 0, f"No files found for task {self.fdp_task} in dataset {self.fdp_data.get_path()}"
+
         # ln -s ../projects/Full-Duplex-Bench/v1_v1.5 fdp_v1_v15
-        from fdp_v1_v15.model_inference.moshi.inference import _ws_url, MoshiFileClient
 
         with self.model():
             url = _ws_url("localhost")
+            print(f"Running inference with Moshi server at {url}...")
             
             # Run inference on all files
-            for task, inp in fdp_files_for_tasks(Path(self.fdp_data.get_path()), [self.fdp_task]):
+            
+            for task, inp in files:
                 ind = inp.parent.name  # e.g. "1" in "v1.0/candor_pause_handling/1/input.wav"
 
                 out = Path(self.out_audios.get_path()) / str(ind) / "output.wav" 
                 out.parent.mkdir(parents=True, exist_ok=True)
                 print("[RUN]", task, inp)
                 MoshiFileClient(url, inp, out).run()
+
+                # Find all other .json files in that folder, and copy them
+                for json_file in inp.parent.glob("*.json"):
+                    out_json = out.parent / json_file.name
+                    shutil.copy(json_file, out_json)
             
-
+        print("Inference completed, now evaluating...")
         # pys v1_v1.5/get_transcript/asr.py --root_dir v1_v1.5/dataset/v1.0/icc_backchannel --task default
-        from fdp_v1_v15.get_transcript.asr import get_time_aligned_transcription
-
+        
         task_map = {
-            "icc_backchannel": "backchannel"
+            "candor_pause_handling": "pause_handling",
+            "candor_turn_taking": "smooth_turn_taking",
+            "icc_backchannel": "backchannel",
+            "synthetic_pause_handling": "pause_handling",
+            "synthetic_user_interruption": "user_interruption",
         }
 
+        """
+        choices=[
+            "backchannel",
+            "pause_handling",
+            "smooth_turn_taking",
+            "user_interruption",
+            "behavior",
+            "general_before_after",
+        ],
+        """
+
         # this takes output.wav and puts output.json in the same folder
-        # TODO: for user_interruption, also needs interrupt.json!!!
         assert self.fdp_task != "user_interruption"
         get_time_aligned_transcription(self.out_audios.get_path(), task_map.get(self.fdp_task, self.fdp_task))
 
         # pys evaluate.py --task backchannel --root_dir ../dataset/v1.0/icc_backchannel
-        from fdp_v1_v15.evaluation.evaluate import main as evaluate_main
+
         # hacky...
         sys.argv = ["evaluate.py", "--task", task_map.get(self.fdp_task, self.fdp_task), "--root_dir", self.out_audios.get_path()]
         # also now record stdout into a file (but still also regular stdout) in self.output_path("evaluation_output.txt")
@@ -188,6 +219,9 @@ class FullDuplexBenchEval(Job):
             # redirect stdout to both console and file
             tee = Tee(sys.stdout, f)
             sys.stdout = tee
+
+            # add the path of evaluate.py to sys.path so it can import modules
+            sys.path.append(str(Path(fdp_v1_v15_evaluate.__file__).parent))
 
             evaluate_main()
             sys.stdout = sys.__stdout__  # restore original stdout
