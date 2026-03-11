@@ -12,6 +12,8 @@ class DistributedFilesDataset(Dataset):
             files: List[tk.Path],
             get_subepoch_dataset: Callable,
             partition_epoch: int = 1,
+            buf_size: int = 1,
+            seq_ordering: str = "random",
     ):
         super().__init__(
             additional_options=None
@@ -19,6 +21,8 @@ class DistributedFilesDataset(Dataset):
         self.files = files
         self.partition_epoch = partition_epoch
         self.get_subepoch_dataset = get_subepoch_dataset
+        self.buf_size = buf_size
+        self.seq_ordering = seq_ordering
 
     def as_returnn_opts(self) -> Dict[str, Any]:
         """
@@ -30,8 +34,12 @@ class DistributedFilesDataset(Dataset):
             "files": self.files,
             "partition_epoch": self.partition_epoch,
             "get_sub_epoch_dataset": self.get_subepoch_dataset,
-            "seq_ordering": "random",
         }
+
+        d["seq_ordering"] = self.seq_ordering
+
+        if self.buf_size != 1:
+            d["buffer_size"] = self.buf_size
 
         sd = super().as_returnn_opts()
         assert all([k not in sd.keys() for k in d.keys()]), (
