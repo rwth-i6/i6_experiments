@@ -50,7 +50,7 @@ def _get_librispeech_ogg_zip_dict() -> Dict[str, tk.Path]:
     ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
     from i6_core.returnn.oggzip import BlissToOggZipJob
-    for name in ["_train-clean-100-short", "train-clean-100-max-10s", "train-1", "train-10min"]:
+    for name in ["_train-clean-100-short", "train-clean-100-max-10s", "train-1", "train-10", "train-10min"]:
         # name = "_train-clean-100-short"
         ogg_zip_job = BlissToOggZipJob(
             _get_bliss_corpus_dict(None, name)[name],
@@ -132,9 +132,11 @@ def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, 
         )
         tk.register_output(f"datasets/LibriSpeech/statistics/{part}_statistics.txt", corpus_stats.out_statistics)
         return {part: renamed_filtered_corpus}
-    elif part in ["train-1", "train-10min"]:
+    elif part in ["train-10", "train-1", "train-10min"]:
         if part == "train-1":
             num_seconds = 3600  # 1 hour
+        elif part == "train-10":
+            num_seconds = 36000  # 10 hours
         else:
             num_seconds = 600  # 10 minutes
 
@@ -390,6 +392,7 @@ def get_bpe_lexicon(bpe_vocab: Bpe) -> tk.Path:
 
 
 _Parts = [
+    "train-10",
     "train-clean-100",
     "train-clean-360",
     "train-other-500",
@@ -649,7 +652,7 @@ class LibrispeechOggZip(DatasetConfig):
         else:
             d["targets"] = None
         if training:
-            if self.train_ds_key in ["train-1", "train-10min"]:
+            if self.train_ds_key in ["train-10", "train-1", "train-10min"]:
                 d["partition_epoch"] = 1
             elif self.train_ds_key in ["train-clean-100", "_train-clean-100-short", "train-clean-100-max-10s"]:
                 d["partition_epoch"] = 2
@@ -1053,6 +1056,7 @@ class TrainDatasetSel(Enum):
     train_clean_100_max_10s = 5
     train_1h = 6
     train_10min = 7
+    train_10h = 8
 
 
 def _is_char_vocab(vocab: VocabConfig) -> bool:
@@ -1117,6 +1121,8 @@ def get_librispeech_task_raw_v2(
         train_ds_key = "train-clean-100-max-10s"
     elif ds_sel == TrainDatasetSel.train_1h:
         train_ds_key = "train-1"
+    elif ds_sel == TrainDatasetSel.train_10h:
+        train_ds_key = "train-10"
     elif ds_sel == TrainDatasetSel.train_10min:
         train_ds_key = "train-10min"
     else:
@@ -1141,6 +1147,7 @@ def get_librispeech_task_raw_v2(
         "test-clean": LibrispeechOggZip(**dataset_common_opts, main_key="test-clean"),
         "test-other": LibrispeechOggZip(**dataset_common_opts, main_key="test-other"),
         "_train-clean-100-short": LibrispeechOggZip(**dataset_common_opts, main_key="_train-clean-100-short"),
+        "train-10": LibrispeechOggZip(**dataset_common_opts, main_key="train-10"),
         # "train-clean-100-max-10s": LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100-max-10s"),
     }
     dev_dataset = eval_datasets["dev-other"]

@@ -1283,6 +1283,7 @@ def py():
                 "epochs": n_epochs,
                 "num_shards_pseudo": 64,
                 "empirical_prior": emp_prior,
+                "calculate_train_score": True,
                 "decoder_hyperparameters_updates": {
                     "log_add": False,
                     "nbest": 1,
@@ -1293,15 +1294,17 @@ def py():
                     "use_lexicon": True,
                     "prior_weight": 0.3,
                 },
+                "decoding_imp": decoding_imp,
             },
         ),
            f"sup-v1/peak-lr-1e-3_init-{train_ds_str}_{n_epochs}-epochs_emp-prior-{emp_prior}")
             for
-            train_ds_str, n_epochs, emp_prior
+            train_ds_str, n_epochs, emp_prior, decoding_imp
             in [
                 # results with flashlight decoding (lm 1.25, prior 0.3)
-                ("960h", 500, True),
-                ("960h", 500, False),
+                ("960h", 500, True, "flashlight"),
+                ("960h", 500, True, "albert-greedy"),
+                ("960h", 500, False, "flashlight"),
             ]
         ],
         (sup_max_config_v1, "sup-max-v1/base"),
@@ -1342,9 +1345,12 @@ def py():
             },
         ),
            f"sup-max-v1/peak-lr-1e-3_init-{train_ds_str}_{n_epochs}-epochs_specaug-{specaugment_steps}_speedpert-{speed_pert_discrete_values}/specaug-self-{specaugment_steps_self}")
-            for train_ds_str, n_self_train, n_epochs, specaugment_steps, speed_pert_discrete_values, specaugment_steps_self in [
+            for
+            train_ds_str, n_self_train, n_epochs, specaugment_steps, speed_pert_discrete_values, specaugment_steps_self
+            in [
                 # results with flashlight decoding (lm 1.25, prior 0.3)
-                ("100h", 4, 50, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1], (5000, 15000, 25000)),
+                ("100h", 6, 50, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1], (5000, 15000, 25000)),
+                ("960h", 6, 500, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1], (5000, 15000, 25000)),
                 # ("train-clean-100-max-10s", 0, 500, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1], (5000, 15000, 25000)),
                 # "500": {"dev-clean": 29.63, "dev-other": 46.26, "test-clean": 29.94, "test-other": 47.71}
                 # ("train-clean-100-max-10s", 0, 200, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1], (5000, 15000, 25000)),
@@ -1378,6 +1384,49 @@ def py():
                 # ("train-clean-100-max-10s", 0, 30, (1000, 2000, 3000), [0.7, 0.8, 0.9, 1.0, 1.1], (1000, 2000, 3000)),
                 # "20": {"dev-clean": 36.02, "dev-other": 55.18, "test-clean": 37.0, "test-other": 57.69}
                 # ("train-clean-100-max-10s", 0, 20, (1000, 2000, 3000), [0.7, 0.8, 0.9, 1.0, 1.1], (1000, 2000, 3000)),
+            ]
+        ],
+        *[(dict_update_deep(
+            copy.deepcopy(sup_max_config_v1),
+            {
+                "peak_lr": 1e-3,
+                "train_ds_str": train_ds_str,
+                "epochs": n_epochs,
+                "self_epochs": 125,
+                "self_training_rounds": n_self_train,
+                "specaugment_steps": specaugment_steps,
+                "specaugment_steps_self": specaugment_steps_self,
+                "speed_pert_discrete_values": speed_pert_discrete_values,
+                "num_shards_pseudo": 64,
+                "empirical_prior_search": False,
+                "decoder_hyperparameters_updates": {
+                    "log_add": False,
+                    "nbest": 1,
+                    "beam_size": 80,
+                    "lm_weight": 1.25,
+                    "use_logsoftmax": True,
+                    "use_lm": True,
+                    "use_lexicon": True,
+                    "prior_weight": 0.3,
+                },
+                "hyperparameters_self_training_updates": [
+                    {
+                        "log_add": False,
+                        "nbest": 1,
+                        "beam_size": 80,
+                        "lm_weight": 1.25,
+                        "use_logsoftmax": True,
+                        "use_lm": True,
+                        "use_lexicon": True,
+                        "prior_weight": 0.3,
+                    } for _ in range(n_self_train)
+                ],
+            },
+        ),
+           f"sup-max-recog-w-model-prior-v1/peak-lr-1e-3_init-{train_ds_str}_{n_epochs}-epochs_specaug-{specaugment_steps}_speedpert-{speed_pert_discrete_values}/specaug-self-{specaugment_steps_self}")
+            for train_ds_str, n_self_train, n_epochs, specaugment_steps, speed_pert_discrete_values, specaugment_steps_self in [
+                # results with flashlight decoding (lm 1.25, prior 0.3)
+                ("100h", 6, 50, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1], (5000, 15000, 25000)),
             ]
         ],
         # *[(dict_update_deep(
@@ -1435,6 +1484,7 @@ def py():
                 "speed_pert_discrete_values": speed_pert_discrete_values,
                 "empirical_prior": False,
                 "num_shards_pseudo": 64,
+                "calculate_train_score": True,
                 "decoder_hyperparameters_updates": {
                     "log_add": False,
                     "nbest": 1,
@@ -1461,7 +1511,111 @@ def py():
         ),
            f"sup-max-model-prior-v1/peak-lr-1e-3_init-{train_ds_str}_{n_epochs}-epochs_specaug-{specaugment_steps}_speedpert-{speed_pert_discrete_values}")
             for train_ds_str, n_self_train, n_epochs, specaugment_steps, speed_pert_discrete_values in [
-                ("100h", 4, 50, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1]),
+                ("100h", 6, 50, (5000, 15000, 25000), [0.7, 0.8, 0.9, 1.0, 1.1]),
+            ]
+        ],
+        *[(dict_update_deep(
+            copy.deepcopy(sup_max_config_v1),
+            {
+                "peak_lr": 1e-3,
+                "train_ds_str": train_ds_str,
+                "epochs": n_epochs,
+                "self_epochs": 125,
+                "self_training_rounds": n_self_train,
+                # "specaugment_steps": specaugment_steps,
+                # "speed_pert_discrete_values": speed_pert_discrete_values,
+                "empirical_prior": False,
+                "num_shards_pseudo": 64,
+                "init_checkpoint": init_checkpoint,
+                "skip_init_train": True,
+                # "calculate_train_score": True,
+                "decoder_hyperparameters_updates": {
+                    "log_add": False,
+                    "nbest": 1,
+                    "beam_size": 80,
+                    "lm_weight": 1.25,
+                    "use_logsoftmax": True,
+                    "use_lm": True,
+                    "use_lexicon": True,
+                    "prior_weight": 0.3,
+                },
+                "hyperparameters_self_training_updates": [
+                    {
+                        "log_add": False,
+                        "nbest": 1,
+                        "beam_size": 80,
+                        "lm_weight": 1.25,
+                        "use_logsoftmax": True,
+                        "use_lm": True,
+                        "use_lexicon": True,
+                        "prior_weight": 0.3,
+                    } for _ in range(n_self_train)
+                ],
+            },
+        ),
+           f"enrique-gan-model/emp-prior/self-iteration-{self_iteration}")
+            for train_ds_str, n_self_train, n_epochs, self_iteration, init_checkpoint in [
+                ("100h", 0, 50, 1, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.s1lmTyT5dnXN/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 2, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.IL4f2HzJcqJh/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 3, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.iMEBbBwnlHzy/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 4, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.mHjuD3TUgD4z/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 5, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.788QIGRwePzR/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 6, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.3ekMJ2qXMBhS/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 7, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.7a4AN1WczAAJ/output/models/epoch.125.pt")),
+                ("100h", 0, 50, 8, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/work/i6_core/returnn/training/ReturnnTrainingJob.ahuWwZ3JFDRw/output/models/epoch.125.pt")),
+            ]
+        ],
+        *[(dict_update_deep(
+            copy.deepcopy(sup_max_config_v1),
+            {
+                "peak_lr": 1e-3,
+                "train_ds_str": train_ds_str,
+                "epochs": n_epochs,
+                "self_epochs": 125,
+                "self_training_rounds": n_self_train,
+                # "specaugment_steps": specaugment_steps,
+                # "speed_pert_discrete_values": speed_pert_discrete_values,
+                "empirical_prior": False,
+                "num_shards_pseudo": 64,
+                "init_checkpoint": init_checkpoint,
+                "skip_init_train": True,
+                # "calculate_train_score": True,
+                "decoder_hyperparameters_updates": {
+                    "log_add": False,
+                    "nbest": 1,
+                    "beam_size": 80,
+                    "lm_weight": 1.25,
+                    "use_logsoftmax": True,
+                    "use_lm": True,
+                    "use_lexicon": True,
+                    "prior_weight": 0.3,
+                },
+                "hyperparameters_self_training_updates": [
+                    {
+                        "log_add": False,
+                        "nbest": 1,
+                        "beam_size": 80,
+                        "lm_weight": 1.25,
+                        "use_logsoftmax": True,
+                        "use_lm": True,
+                        "use_lexicon": True,
+                        "prior_weight": 0.3,
+                    } for _ in range(n_self_train)
+                ],
+            },
+        ),
+           f"enrique-gan-model/model-prior/self-iteration-{self_iteration}")
+            for train_ds_str, n_self_train, n_epochs, self_iteration, init_checkpoint in [
+                ("100h", 0, 50, 1, tk.Path(
+                    "/u/enrique.leon.lozano/setups/ubuntu_22_setups/thesis/alias/ctc/gan-config-v2-t9_empprior_False/self-training-1/train/output/models/epoch.125.pt")),
             ]
         ],
         *[(dict_update_deep(
@@ -1715,6 +1869,7 @@ def py():
 
         aux_loss = train_config["aux_loss"]
         empirical_prior = train_config.get("empirical_prior", True)
+        empirical_prior_search = train_config.get("empirical_prior_search", True)
         accum_grad_multiple_step_init = train_config.get("accum_grad_multiple_step_init", 1)
         model_config = train_config["model_config"]
         use_w2v_model = train_config["use_w2v_model"]
@@ -2118,7 +2273,7 @@ def py():
             config_updates["__num_processes"] = num_gpus
 
         prolog = []
-        init_checkpoint = None
+        init_checkpoint = train_config.get("init_checkpoint", None)
         if use_w2v_model:
             from i6_core.tools.download import DownloadJob
 
@@ -2450,6 +2605,7 @@ def py():
             with_prior=with_prior,
             label_prior=label_prior,
             empirical_prior=empirical_prior,
+            empirical_prior_search=empirical_prior_search,
             prior_from_max=prior_from_max,
             use_sum_criterion=use_sum_criterion,
             use_ce_loss=use_ce_loss,
@@ -2469,6 +2625,7 @@ def py():
             train_ds_str=train_ds_str,
             num_shards_pseudo=num_shards_pseudo,
             repeat_epoch=repeat_epoch,
+            calculate_train_score=train_config.get("calculate_train_score", False),
         )
 
 
@@ -2510,6 +2667,7 @@ def train_exp(
         with_prior: bool = False,
         label_prior: bool = True,
         empirical_prior: bool = False,
+        empirical_prior_search: bool = True,
         prior_from_max: bool = False,
         use_sum_criterion: bool = False,
         use_ce_loss: bool = False,
@@ -2527,6 +2685,7 @@ def train_exp(
         train_ds_str: str,
         num_shards_pseudo: Optional[int],
         repeat_epoch: int = 1,
+        calculate_train_score: bool = False,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -2556,6 +2715,8 @@ def train_exp(
             return TrainDatasetSel.train_clean_100_max_10s
         elif ds_str == "1h":
             return TrainDatasetSel.train_1h
+        elif ds_str == "10h":
+            return TrainDatasetSel.train_10h
         elif ds_str == "10min":
             return TrainDatasetSel.train_10min
         elif ds_str == "100h":
@@ -2859,7 +3020,7 @@ def train_exp(
         is_last=self_training_rounds == 0,
         get_prev=(pst is not None and (pst.get("keep_best_decoding", False)), False),
         prior_from_max=prior_from_max,
-        empirical_prior=emp_prior if with_prior and empirical_prior else None,
+        empirical_prior=emp_prior if with_prior and empirical_prior and empirical_prior_search else None,
         cache_manager=cache_manager,
         check_train_scores_nbest=decode_nbest_epochs_init,
         exclude_epochs=sorted(list(model_with_checkpoint[0].fixed_epochs))[
@@ -2867,6 +3028,7 @@ def train_exp(
         return_beam=(self_training_rounds > 0 and config_updates_self_training.get("decode_every_step", False)),
         scales=scales,
         # model_avg=True,
+        # calculate_train_score=calculate_train_score,
     )
 
     pseudo_label_path_dict = None
@@ -3079,13 +3241,14 @@ def train_exp(
             is_last=i + 1 == self_training_rounds,
             get_prev=(pst.get("keep_best_decoding", False), pst.get("keep_best_decoding", False)),
             prior_from_max=prior_from_max,
-            empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            empirical_prior=emp_prior if with_prior and empirical_prior and empirical_prior_search else None,
             cache_manager=cache_manager,
             check_train_scores_nbest=decode_nbest_epochs,
             exclude_epochs=sorted(list(model_with_checkpoint[i + 1].fixed_epochs))[
                 :-1] if not decode_all_fixed_epochs else (),
             return_beam=config_updates_self_training.get("decode_every_step", False),
             scales=scales,
+            calculate_train_score=calculate_train_score,
         )
 
         pseudo_label_path_dict = generate_pseudo_labels(
