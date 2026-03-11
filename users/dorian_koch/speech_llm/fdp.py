@@ -16,6 +16,9 @@ from fdp_v1_v15.model_inference.moshi.inference import _ws_url, MoshiFileClient
 from fdp_v1_v15.evaluation.evaluate import main as evaluate_main
 from fdp_v1_v15.get_transcript.asr import get_time_aligned_transcription
 import shutil
+import time
+import random
+import socket
 
 def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
     files: List[Tuple[str, Path]] = []
@@ -31,7 +34,25 @@ def get_fdp_asr_download():
 
 @contextmanager
 def moshi_server():
-    cmd = [sys.executable, "-m", "moshi.moshi.server", "--host", "localhost", "--port", "8998"]
+    # first: find a free port
+    # take my slurm jub id and modulo
+    if "SLURM_JOB_ID" in os.environ:
+        job_id = int(os.environ["SLURM_JOB_ID"])
+        port = 8998 + (job_id % 1000)
+    else:
+        port = 8998 + random.randint(0, 999)
+    # check if in use
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        for _ in range(50):
+            try:
+                s.bind(("localhost", port))
+                break
+            except OSError:
+                port += 1
+
+    print(f"Selected port {port} for Moshi server")
+
+    cmd = [sys.executable, "-m", "moshi.moshi.server", "--host", "127.0.0.1", "--port", str(port)]
 
     print(f"Starting Moshi server: {' '.join(cmd)}")
     server_process = subprocess.Popen(
@@ -47,8 +68,6 @@ def moshi_server():
     )
     
     # Wait for server to be ready (check port 8998)
-    import socket
-    import time
     max_wait = 2 * 60  # seconds
     start_time = time.time()
     server_ready = False
@@ -58,7 +77,7 @@ def moshi_server():
         nonlocal server_ready
         if server_process.stdout:
             for line in iter(server_process.stdout.readline, ''):
-                if line and "frame handled!" not in line:
+                if line and "frame handled" not in line:
                     print(f"[Moshi Server] {line.rstrip()}", flush=True)
                 if "Access the Web UI directly at" in line:
                     server_ready = True
@@ -78,7 +97,7 @@ def moshi_server():
         
         # Try to connect to port
         try:
-            sock = socket.create_connection(('localhost', 8998), timeout=1)
+            sock = socket.create_connection(('localhost', port), timeout=1)
             sock.close()
             if server_ready:
                 print("Moshi server is ready and accepting connections")
@@ -94,7 +113,7 @@ def moshi_server():
     print("Moshi server started successfully")
 
     try:
-        yield
+        yield f"localhost:{port}"
     finally:
         # Stop the Moshi server if it's still running
         if server_process and server_process.poll() is None:
@@ -165,8 +184,8 @@ class FullDuplexBenchEval(Job):
 
         # ln -s ../projects/Full-Duplex-Bench/v1_v1.5 fdp_v1_v15
 
-        with self.model():
-            url = _ws_url("localhost")
+        with self.model() as url:
+            url = _ws_url(url)
             print(f"Running inference with Moshi server at {url}...")
             
             # Run inference on all files
@@ -177,7 +196,13 @@ class FullDuplexBenchEval(Job):
                 out = Path(self.out_audios.get_path()) / str(ind) / "output.wav" 
                 out.parent.mkdir(parents=True, exist_ok=True)
                 print("[RUN]", task, inp)
-                MoshiFileClient(url, inp, out).run()
+                for _ in range(3):  # retry a few times if it fails
+                    try:
+                        MoshiFileClient(url, inp, out).run()
+                        break
+                    except Exception as e:
+                        print(f"Error processing {inp}: {e}")
+                        time.sleep(1)
 
                 # Find all other .json files in that folder, and copy them
                 for json_file in inp.parent.glob("*.json"):
