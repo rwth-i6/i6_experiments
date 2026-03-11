@@ -197,6 +197,7 @@ def beam_search_v1(
         batch_size: int,
         use_dec_aux_log_probs: bool = False,
         device: torch.device,
+        use_ext_ctc: bool = False,
         ctc_soft_collapse_threshold: Optional[float] = None,
         ctc_soft_collapse_reduce_type: str = "logmeanexp",
 ) -> Tuple[Tensor, Tensor, Tensor]:
@@ -219,12 +220,11 @@ def beam_search_v1(
         beam_dim = ReturnnDim(1, name="initial-beam")
         seq_log_prob = rf.constant(0.0, dims=[batch_dim, beam_dim])  # Batch, Beam
 
-        (
-            llm_audio_features_in,
-            aux_log_probs,
-            encoder_output_lens,
-            _
-        ) = model.forward(raw_audio, raw_audio_lens)
+        if use_ext_ctc:
+            (llm_audio_features_in,aux_log_probs,encoder_output_lens,_) = model.external_ctc.forward(raw_audio, raw_audio_lens)
+        else:
+            (llm_audio_features_in,aux_log_probs,encoder_output_lens,_) = model.forward(raw_audio, raw_audio_lens)
+
         if use_dec_aux_log_probs:
             assert False, "adapter output lengths???"
             _, dec_aux_log_probs = model.decode_seq(

@@ -15,6 +15,7 @@ def forward_step_v1(
         model: BaseEncoderDecoderModel,
         extern_data: TensorDict,
 
+        use_ext_ctc: bool = False,
         use_ext_lm: bool = False,
         sllm_as_llm: bool = False,
 
@@ -51,7 +52,11 @@ def forward_step_v1(
     targets = targets.raw_tensor.reshape(batch_size * beam_size, -1)  # [B * beam, T]
 
     # ENCODER FORWARD
-    adapter_output, _, adapter_output_lens, _ = (model.forward(data, data_lens))
+    if use_ext_ctc:
+        adapter_output, _, adapter_output_lens, _ = (model.external_ctc.forward(data, data_lens))
+    else:
+        adapter_output, _, adapter_output_lens, _ = (model.forward(data, data_lens))
+
     adapter_output = adapter_output.repeat_interleave(
         beam_size, dim=0
     )  # [B * beam, T, D]

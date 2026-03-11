@@ -78,7 +78,7 @@ def ctc_label_sync_eval_auto_scale(
 
     # GET CHECKPOINT & PATH
     recog_path = (
-        f"{evaluation_name}/{autoscale_id}/{tune_dataset_name}"  # TODO: add some params of what is being tuned!
+        f"{evaluation_name}/{autoscale_id}/{tune_dataset_name}"
     )
 
     # TEXT REFERENCES & VOCAB
@@ -94,7 +94,7 @@ def ctc_label_sync_eval_auto_scale(
         ).out
 
     # Net args
-    extra_returnn_configs = []  # TODO: apply this
+    extra_returnn_configs = []
     net_args = asr_model.net_args
     preloading = {}
     python_prolog = None
@@ -165,11 +165,15 @@ def ctc_label_sync_eval_auto_scale(
     scores = {}
 
     # CTC N-BEST RECOGNITION [base for any combination]
+    ctc_n_best_forward_params = copy.deepcopy(forward_params)
+    if search_config.ext_encoder is not None:
+        ctc_n_best_forward_params["use_ext_ctc"] = True
+
     returnn_ctc_n_best_config = get_forward_config_v2(
         network_import_path=asr_model.network_import_path,
         base_config=forward_config,
         net_args=asr_model.net_args,
-        decoder_args=forward_params,
+        decoder_args=ctc_n_best_forward_params,
         forward_module="recognition.ctc",
         forward_method="ctc_forward_step_v1",
         callback_name="RecognitionToTextDictCallbackV2",
@@ -216,11 +220,14 @@ def ctc_label_sync_eval_auto_scale(
 
     if use_ctc:
         if search_config.auto_scaling_use_ctc_sum_scores:
+            ctc_sum_rescoring_forward_params = copy.deepcopy(forward_params)
+            if search_config.ext_encoder is not None:
+                ctc_sum_rescoring_forward_params["use_ext_ctc"] = True
             returnn_ctc_rescoring_config = get_forward_config_v2(
                 network_import_path=asr_model.network_import_path,
                 base_config=forward_config_low_batch_size,
                 net_args=asr_model.net_args,
-                decoder_args=forward_params,
+                decoder_args=ctc_sum_rescoring_forward_params,
                 forward_module="rescoring",
                 forward_method="forward_step_v1",
                 callback_name="RecognitionToTextDictCallbackV2",
@@ -335,6 +342,8 @@ def ctc_label_sync_eval_auto_scale(
         scores[Scales.LLM.value] = llm_rescore_results
 
     if use_prior:
+        assert search_config.ext_encoder is None, "prior needs to be from the pretrained encoder... NOT IMPLEMENTED YET"
+
         assert asr_model.prior_text_file is not None, "Prior text file is needed"
         prior_rescore_job = SearchPriorRescoreJob(
             ctc_n_best_original,  # Has "_word" form
@@ -362,7 +371,7 @@ def ctc_label_sync_eval_auto_scale(
     tk.register_output(f"{recog_path}/opt-rel-scales", opt_scales_job.out_scales)
 
     # CTC BEST
-    # best_ctc = SearchTakeBestJob(ctc_rescore_results).out_best_search_results
+    # best_ctc = SearchTakeBestJob(ctc_rescore_results).out_best_search_results # TODO: add some params of what is being tuned!
     # ctc_search_ctm = SearchWordsToCTMJob(
     #     recog_words_file=best_ctc,
     #     bliss_corpus=tune_dataset_ref,

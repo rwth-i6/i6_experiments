@@ -17,6 +17,9 @@ def ctc_forward_step_v1(
         model: Union[BaseEncoderDecoderModel],
         extern_data: TensorDict,
         beam_size: int,
+
+        use_ext_ctc: bool = False,
+
         use_dec_aux_log_probs: bool = False,
         ctc_soft_collapse_threshold: Optional[float] = None,
         ctc_soft_collapse_reduce_type: str = "logmeanexp",
@@ -57,6 +60,7 @@ def ctc_forward_step_v1(
         beam_size=beam_size,
         batch_size=data.shape[0],
         device=data.device,
+        use_ext_ctc=use_ext_ctc,
         use_dec_aux_log_probs=use_dec_aux_log_probs,
         ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
         ctc_soft_collapse_reduce_type=ctc_soft_collapse_reduce_type,
