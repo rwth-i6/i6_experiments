@@ -8,10 +8,10 @@ import torch
 import warnings
 import numpy as np
 
-from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm
-from i6_experiments.users.mueller.experiments.ctc_baseline.model import Model
-from i6_experiments.users.mueller.experiments.ctc_baseline.recombination import safe_logsumexp, safe_logaddexp, scatter_safe_logsumexp
-from i6_experiments.users.mueller.experiments.ctc_baseline import recombination
+from i6_experiments.users.schmitt.experiments.marten_exps.language_models.ffnn import FeedForwardLm
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.model import Model
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline.recombination import safe_logsumexp, safe_logaddexp, scatter_safe_logsumexp
+from i6_experiments.users.schmitt.experiments.marten_exps.ctc_baseline import recombination
 
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
@@ -56,7 +56,7 @@ def sum_loss_bigram(
     horizontal = Q(t-1, u, non-blank)
     diagonal = sum_v Q(t-1, v, blank) * p_LM(u|v)
     skip = sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w)
-    
+
     Alternative calculation (NOTE: the prior is only used when the LM is used):
     Q(t, u, blank) = p_AM(blank | x_t) * [Q(t-1, u, blank) + Q(t-1, u, non-blank)]
     Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip], where
@@ -85,16 +85,18 @@ def sum_loss_bigram(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
-    
+
+    pass
+
     use_prior = log_prior is not None
-    
+
     old_device = log_probs.device
     log_probs = log_probs.to(device)
     log_lm_probs = log_lm_probs.to(device)
     if use_prior:
         log_prior = log_prior.to(device)
     input_lengths = input_lengths.to(device)
-    
+
     max_audio_time, batch_size, n_out = log_probs.shape
     # scaled log am and lm probs
     log_probs = am_scale * log_probs
@@ -104,10 +106,10 @@ def sum_loss_bigram(
         log_lm_probs = lm_scale * log_lm_probs
     if use_prior:
         log_prior = prior_scale * log_prior
-    
+
     # print_gradients = PrintGradients.apply
     # grad_assert = AssertGradients.apply
-    
+
     if eos_idx is None or eos_idx == blank_idx: # vocab means no EOS and blank
         vocab_size = n_out - 1
         eos_symbol = blank_idx
@@ -120,7 +122,7 @@ def sum_loss_bigram(
     assert log_lm_probs.size() == (vocab_size + 2, vocab_size + 2), f"LM shape is not correct, should be {vocab_size + 2}x{vocab_size + 2} but is {log_lm_probs.size()}"
     if use_prior:
         assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
-    
+
     # calculate empty sequence score
     # Empty am score = sum log prob blank
     if use_prior and blank_prior:
@@ -145,7 +147,7 @@ def sum_loss_bigram(
         out_idx_vocab_w_eos = out_idx_vocab_w_eos[out_idx_vocab_w_eos != blank_idx]
 
     # sum score by DP
-    
+
     # List in which we store the log Q values as tensors of the last N timesteps
     # dim 2: 0 is non-blank, 1 is blank
     # Init Q for t=1
@@ -156,7 +158,7 @@ def sum_loss_bigram(
         log_q_label = log_q_label - log_prior[out_idx_vocab].unsqueeze(0)
     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
     log_q = log_q_label
-    
+
     # Calculate initial top k if needed
     if top_k > 0:
         if alignment_topk:
@@ -167,7 +169,7 @@ def sum_loss_bigram(
         # p_idx = topk_idx.clone()
         # p_idx[p_idx == vocab_size] = 0
         # print(p_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], p_idx[print_best_path_for_idx[0]]])
-    
+
     # Set up the best path print
     if print_best_path_for_idx:
         with torch.no_grad():
@@ -175,7 +177,7 @@ def sum_loss_bigram(
             max_val, max_idx = torch.max(log_q, dim=-1)
             for idx in print_best_path_for_idx:
                 best_path_print[idx] = {"str": f"{max_idx[idx] + 2}", "am_str": "{:.2f}".format(log_probs[0][idx][max_idx[idx] + 2].tolist()), "prior": "{:.2f}".format(log_prior[max_idx[idx] + 2].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[eos_symbol, max_idx[idx] + 2].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][max_idx[idx] + 2].tolist()}
-    
+
     log_lm_probs_wo_eos = log_lm_probs[out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
@@ -204,8 +206,8 @@ def sum_loss_bigram(
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
-        # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
-        
+        # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip]
+
         # horizontal transition Q(t-1, u, non-blank)
         if top_k > 0:
             log_mass_horizontal = log_q_label
@@ -214,7 +216,7 @@ def sum_loss_bigram(
             log_mass_horizontal = log_q_label
         if horizontal_prior and use_prior:
             log_mass_horizontal = log_mass_horizontal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
-        
+
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
         # mass_diagonal[b, u] = sum_v Q(t-1, b, blank, v) * p_LM(u|v) / p_PR(u)
@@ -239,7 +241,7 @@ def sum_loss_bigram(
             log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1) -> (B, V-1)
         if use_prior:
             log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
-        
+
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
         if top_k > 0:
@@ -255,16 +257,16 @@ def sum_loss_bigram(
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_eos) # (B, V-1) @ (V-1, V-1) -> (B, V-1)
         if use_prior:
             log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
-        
+
         # multiply with p_AM(u|x_t)
         new_log_q_label = log_probs[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
-        
+
         # set masked results to log_q
         time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size)
         log_q_blank = torch.where(time_mask, new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask, new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
-        
+
         if print_best_path_for_idx:
             with torch.no_grad():
                 max_val, max_idx = torch.max(log_q, dim=-1)
@@ -275,7 +277,7 @@ def sum_loss_bigram(
                     best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_eos[:, max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][max_idx[idx] + 2].tolist()
-        
+
         if top_k > 0:
             tmp_log_partial_empty_seq_prob = torch.where((t < input_lengths), log_partial_empty_seq_prob[t], log_empty_seq_prob).unsqueeze(-1)
             if alignment_topk:
@@ -296,9 +298,9 @@ def sum_loss_bigram(
             # p_idx = topk_idx.clone()
             # p_idx[p_idx == vocab_size] = 0
             # print(p_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], p_idx[print_best_path_for_idx[0]]])
-        
+
         torch.cuda.empty_cache()
-    
+
     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
     if top_k > 0:
         log_q = topk_scores
@@ -308,17 +310,17 @@ def sum_loss_bigram(
         with torch.no_grad():
             for idx in print_best_path_for_idx:
                 print(f"Best path for {idx}: {best_path_print[idx]['str']}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nLM: {best_path_print[idx]['LM']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
-    
+
     # sum over the vocab dimension
     sum_score = safe_logsumexp(log_q, dim=-1)
     if top_k <= 0:
         # add empty sequence score
         sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,)
-    
+
     loss = -sum_score
     if old_device != device:
         loss = loss.to(old_device)
-    
+
     return loss
 
 def sum_loss_ngram(
@@ -360,7 +362,7 @@ def sum_loss_ngram(
     horizontal = Q(t-1, u, non-blank)
     diagonal = sum_v Q(t-1, v, blank) * p_LM(u|v)
     skip = sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w)
-    
+
     Alternative calculation (NOTE: the prior is only used when the LM is used):
     Q(t, u, blank) = p_AM(blank | x_t) * [Q(t-1, u, blank) + Q(t-1, u, non-blank)]
     Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip], where
@@ -389,15 +391,16 @@ def sum_loss_ngram(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
+
     use_prior = log_prior is not None
-    
+
     old_device = log_probs.device
     log_probs = log_probs.to(device)
     log_lm_probs = log_lm_probs.to(device)
     if use_prior:
         log_prior = log_prior.to(device)
     input_lengths = input_lengths.to(device)
-    
+
     max_audio_time, batch_size, n_out = log_probs.shape
     # scaled log am and lm probs
     log_probs = am_scale * log_probs
@@ -407,10 +410,10 @@ def sum_loss_ngram(
         log_lm_probs = lm_scale * log_lm_probs
     if use_prior:
         log_prior = prior_scale * log_prior
-    
+
     # print_gradients = PrintGradients.apply
     # grad_assert = AssertGradients.apply
-    
+
     if eos_idx is None or eos_idx == blank_idx: # vocab means no EOS and blank
         vocab_size = n_out - 1
         eos_symbol = blank_idx
@@ -425,7 +428,7 @@ def sum_loss_ngram(
     # BoS / EoS and UNK are in the LM
     assert log_lm_probs.size() == (vocab_size + 2,) * LM_order, f"LM shape is not correct, should be {vocab_size + 2} in all dimensions but is {log_lm_probs.size()}"
     if use_prior:
-        assert log_prior.size() == (n_out - 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out - 1} but is {log_prior.size()}"
+        assert log_prior.size() == (n_out + 1,) or log_prior.size() == (n_out,), f"Prior shape is not correct, should be {n_out} or {n_out + 1} but is {log_prior.size()}"
         if top_k > 0:
             assert horizontal_prior, "Not using the horizontal prior is not implemented for top_k > 0"
 
@@ -444,42 +447,46 @@ def sum_loss_ngram(
     # sum score by DP
     # log_q is the list in which we store the log Q values as tensors of the last N timesteps
     # It is split into ending on a blank and ending on a non-blank
-    
+
     # Init Q for t=0
     # Q(0, u, blank) = 0
     # Q(0, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab].unsqueeze(0)
+    slice_ = tuple([eos_symbol] * (LM_order - 1) + [out_idx_vocab])
+    log_q_label_init = log_probs[0][:, out_idx_vocab] + log_lm_probs[slice_].unsqueeze(0)
     if use_prior:
         log_q_label_init = log_q_label_init - log_prior[out_idx_vocab].unsqueeze(0)
     # We have to prepend the BoS symbol even though it is not used in the q_label calculation, but it is need for higher order LMs
     log_q_label_init = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_q_label_init], dim=1)
     log_q_label = torch.full((batch_size, *(vocab_size + 1,) * (LM_order - 1)), log_zero, device=device) # (B, V, ..., V), no blank in vocab dims
-    log_q_label[:, *(0,) * (LM_order - 2)] = log_q_label_init
+    slice_ = tuple([slice(None)] + [0] * (LM_order - 2))
+    log_q_label[slice_] = log_q_label_init
     log_q_blank = torch.full_like(log_q_label, log_zero, device=device) # (B, V, ..., V)
     # Calculate partial empty sequence score
     # Empty am score = sum log prob blank, lm score = p_LM(eos | bos), prior score = p_PR(eos)
     log_partial_empty_seq_prob = log_probs[0][:, blank_idx]
     if use_prior and blank_prior:
         log_partial_empty_seq_prob = log_partial_empty_seq_prob - log_prior[blank_idx]
-    log_q_blank[:, *(0,) * (LM_order - 1)] = log_partial_empty_seq_prob
+    slice_ = tuple([slice(None)] + [0] * (LM_order - 1))
+    log_q_blank[slice_] = log_partial_empty_seq_prob
     log_q = safe_logaddexp(log_q_label, log_q_blank)
     original_shape = log_q.shape
-    
+
     # Calculate initial top k if needed
     if top_k > 0:
         log_q_label = log_q_label.view(batch_size, -1)
         log_q_blank = log_q_blank.view(batch_size, -1)
         log_q = log_q.view(batch_size, -1)
-        
+
         if alignment_topk:
             raise NotImplementedError("Alignment topk is not implemented yet")
             tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1).view(batch_size, -1)
         else:
             tmp_log_q = log_q
-        
+
         if blank_correction_version > 0:
             tmp_log_q_blank = log_q_blank.clone() if not correction_in_final_score else log_q_blank
-            first_lm_probs = log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab_w_eos]
+            slice_ = tuple([eos_symbol] * (LM_order - 1) + [out_idx_vocab_w_eos])
+            first_lm_probs = log_lm_probs[slice_]
             if blank_correction_version in [1, 2]: # mean next lm prob
                 vocab_size_log = torch.log(torch.tensor(vocab_size + 1, device=device, dtype=log_probs[0].dtype))
                 tmp_log_q_blank[:, 0] += safe_logsumexp(first_lm_probs, dim=-1) - vocab_size_log
@@ -506,18 +513,18 @@ def sum_loss_ngram(
             tmp_log_q = safe_logaddexp(log_q_label, tmp_log_q_blank)
             if correction_in_final_score:
                 log_q = tmp_log_q
-        
+
         topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False) # TODO replace log_q with topk_scores
         topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else topk_idx
         # print(topk_idx.shape)
-        
+
         new_last_idx = torch.arange(vocab_size + 1, device=device)[None, None, None, :].expand(batch_size, top_k, 1, vocab_size + 1)
         new_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[:, :, 1:].unsqueeze(-1).expand(-1, -1, -1, vocab_size + 1)
         new_idx = torch.cat([new_idx, new_last_idx], dim=2)
         new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
         new_idx = new_idx.view(batch_size, -1)
         # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
-    
+
     # Set up the best path print
     if print_best_path_for_idx:
         with torch.no_grad():
@@ -531,14 +538,15 @@ def sum_loss_ngram(
                 m_idx[m_idx > 0] += 1
                 a_idx = m_idx.clone()
                 a_idx[a_idx == 0] = blank_idx
-                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()} # TODO AM greedy score
+                slice_ = tuple([eos_symbol] * (LM_order - 1) + [m_idx[-1]])
+                best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[slice_].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()} # TODO AM greedy score
                 for k in range(top_k):
                     if k == 5:
                         break
                     k_idx = tmp_topk_idx[idx, k].clone()
                     k_idx[k_idx > 0] += 1
                     best_path_print[idx][f"top{k}_str"] = f"{k_idx.tolist()}"
-    
+
     if blank_correction_version > 0 and top_k > 0:
         # Prepare lm tensor for blank transition
         log_lm_probs_w_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order)).view(-1, vocab_size + 1).unsqueeze(0)
@@ -574,12 +582,13 @@ def sum_loss_ngram(
         log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
     # Prepare prior
     if use_prior:
-        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[:, *(None,) * (LM_order - 2), :].expand(original_shape)
+        slice_ = tuple([slice(None)] + [None] * (LM_order - 2))
+        log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[slice_].expand(original_shape)
         if top_k > 0:
             log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
-    
+
     # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
-    
+
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
@@ -588,20 +597,23 @@ def sum_loss_ngram(
             new_log_q_blank = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 label_topk_idx = topk_idx[topk_idx[:, :, -1] == 0][:-1]
-                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
+                slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
+                new_log_q_blank[label_topk_idx] = log_q_label[label_topk_idx] + log_probs[t][:, blank_idx][slice_]
                 blank_topk_idx = topk_idx[topk_idx[-1] == 1][:-1]
                 # We could already have entries from the topk labels, so we have to add
-                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)])
+                slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
+                new_log_q_blank[blank_topk_idx] = safe_logaddexp(new_log_q_blank[blank_topk_idx], log_q_blank[blank_topk_idx] + log_probs[t][:, blank_idx][slice_])
             else:
                 new_log_q_blank.scatter_(1, topk_idx, log_q.gather(1, topk_idx) + log_probs[t][:, blank_idx].unsqueeze(-1))
         else:
-            new_log_q_blank = log_q + log_probs[t][:, blank_idx][:, *(None,) * (LM_order - 1)]
+            slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
+            new_log_q_blank = log_q + log_probs[t][:, blank_idx][slice_]
         if use_prior and blank_prior:
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip]
-        
+
         # horizontal transition Q(t-1, u, non-blank)
         if top_k > 0:
             new_log_q_label = torch.full_like(log_q, log_zero, device=device)
@@ -620,7 +632,7 @@ def sum_loss_ngram(
             log_mass_horizontal = log_q_label
             if use_prior and horizontal_prior:
                 log_mass_horizontal = log_mass_horizontal - log_prior_wo_bos
-        
+
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
         # mass_diagonal[b, u] = sum_v Q(t-1, b, blank, v) * p_LM(u|v) / p_PR(u)
@@ -643,7 +655,7 @@ def sum_loss_ngram(
             log_mass_diagonal = log_matmul(log_q_blank, log_lm_probs_wo_last_eos) # (B, V) @ (V, V) -> (B, V)
             if use_prior:
                 log_mass_diagonal = log_mass_diagonal - log_prior_wo_bos
-        
+
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         if top_k > 0:
             log_lm_probs_topk = log_lm_probs_wo_diag.view(-1, vocab_size + 1).unsqueeze(0).expand(batch_size, -1, -1) # (B, V1, ..., Vm)
@@ -663,71 +675,74 @@ def sum_loss_ngram(
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_diag) # (B, V) @ (V, V) -> (B, V)
             if use_prior:
                 log_mass_skip = log_mass_skip - log_prior_wo_bos
-        
+
         # add up the three transition types
         if top_k <= 0:
             new_log_q_label = safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
         # correct the prior for topK
         elif use_prior:
             new_log_q_label -= log_prior_wo_bos
-        
+
         # multiply with p_AM(u|x_t)
         if top_k > 0:
-            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
+            slice_ = tuple([slice(None)] + [None] * (LM_order - 2))
+            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[slice_].expand(original_shape).reshape(batch_size, -1)
             new_log_q_label += label_am
             if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label += label_am
         else:
-            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
-        
+            slice_ = tuple([slice(None)] + [None] * (LM_order - 2))
+            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[slice_]
+
         # set masked results to log_q
-        time_mask = (t < input_lengths)[:, *(None,) * (LM_order - 1)] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
+        slice_ = tuple([slice(None)] + [None] * (LM_order - 1))
+        time_mask = (t < input_lengths)[slice_] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
         log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
         # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
-        
+
         assert torch.all(torch.isneginf(log_q_label[..., 0])), "There should be no probability for the BoS symbol in log_q_label"
-        
+
         if top_k > 0:
             if alignment_topk:
                 tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1)
             else:
                 tmp_log_q = log_q
-            
+
             if blank_correction_version > 0:
                 # if print_best_path_for_idx:
                 #     with torch.no_grad():
                 #         for idx in print_best_path_for_idx:
                 #             print(f"Blank correction for {idx} in {t}: {log_lm_probs_w_eos[0].gather(0, topk_idx[idx]).tolist()}")
-                            
+
                 tmp_log_q_blank = log_q_blank + log_lm_probs_w_eos
                 if blank_correction_version % 2 == 0 and not correction_in_final_score:
                     tmp_log_q_2 = safe_logaddexp(topk_log_q_label, tmp_log_q_blank)
                 else:
                     tmp_log_q_2 = safe_logaddexp(log_q_label, tmp_log_q_blank)
-                
+
                 if correction_in_final_score:
                     log_q_blank = tmp_log_q_blank
                     tmp_log_q = tmp_log_q_2
                     log_q = tmp_log_q_2
-                    
+
             else:
                 tmp_log_q_2 = tmp_log_q
-            
+
             # If we are in the last timestep, we also have to add the EOS LM probability
             last_mask = (t == input_lengths - 1).unsqueeze(-1).expand_as(tmp_log_q)
             tmp_log_q = torch.where(last_mask, tmp_log_q + log_lm_probs_eos.view(1, -1).expand_as(tmp_log_q), tmp_log_q_2)
             # Calculate top k and apply time mask
             new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False)
             new_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else new_topk_idx
-            
+
             # if blank_correction_version > 0 and print_best_path_for_idx:
             #     with torch.no_grad():
             #         for idx in print_best_path_for_idx:
             #             tmp_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[idx, :, -1]
             #             print(f"Top-K correction for {idx} in {t}: {log_lm_probs_wo_last_eos.view(-1, vocab_size + 1).gather(0, topk_idx[idx].unsqueeze(-1).expand(-1, vocab_size + 1))[:, tmp_topk_idx].tolist()}")
-            
+
             topk_scores = torch.where(time_mask.expand_as(topk_scores), new_topk_scores, topk_scores)
             topk_idx = torch.where(time_mask.expand_as(topk_idx), new_topk_idx, topk_idx)
 
@@ -737,7 +752,7 @@ def sum_loss_ngram(
             new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
             new_idx = new_idx.view(batch_size, -1)
             # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
-            
+
         if print_best_path_for_idx:
             with torch.no_grad():
                 max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
@@ -749,11 +764,12 @@ def sum_loss_ngram(
                     m_idx[m_idx > 0] += 1
                     a_idx = m_idx.clone()
                     a_idx[a_idx == 0] = blank_idx
-                    
+
                     best_path_print[idx]["str"] += f" {m_idx.tolist()}"
                     best_path_print[idx]["am_str"] += " {:.2f}".format(log_probs[t][idx][a_idx[-1]].tolist())
                     best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0)
-                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[:, *max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
+                    slice_ = tuple([slice(None)] + max_idx[idx])
+                    best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[slice_], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
                     for k in range(top_k):
@@ -762,9 +778,9 @@ def sum_loss_ngram(
                         k_idx = tmp_topk_idx[idx, k].clone()
                         k_idx[k_idx > 0] += 1
                         best_path_print[idx][f"top{k}_str"] += f" {k_idx.tolist()}"
-        
+
         torch.cuda.empty_cache()
-    
+
     if top_k > 0:
         sum_score = safe_logsumexp(topk_scores, dim=-1)
     else:
@@ -774,7 +790,7 @@ def sum_loss_ngram(
         sum_score = log_q
         for _ in range(LM_order - 1):
             sum_score = safe_logsumexp(sum_score, dim=-1)
-    
+
     if print_best_path_for_idx:
         with torch.no_grad():
             for idx in print_best_path_for_idx:
@@ -784,11 +800,11 @@ def sum_loss_ngram(
                         break
                     print(f"Top {k + 1} path: \n{get_bpes(best_path_print[idx][f'top{k}_str'])}")
                 print("\n\n")
-    
+
     loss = -sum_score
     if old_device != device:
         loss = loss.to(old_device)
-    
+
     return loss
 
 def sum_loss_ngram_rf(
@@ -814,235 +830,237 @@ def sum_loss_ngram_rf(
     blank_correction_version: int = 0,
     print_best_path_for_idx: list[int] = [],
 ):
-    assert top_k > 0, "Top k should be greater than 0 as exact sum is not implemented for FFNN"
-    assert blank_correction_version == 0, "Blank correction is not implemented for FFNN"
-    
-    # RETURNN version is like "1.20250115.110555"
-    # There was an important fix in 2025-01-17 affecting masked_scatter.
-    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
-    import returnn
-    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
-    
-    def _update_context(context: rf.Tensor, new_label: rf.Tensor, context_dim: rf.Dim) -> rf.Tensor:
-        new_dim = rf.Dim(1, name="new_label")
-        new_label = rf.expand_dim(new_label, dim=new_dim)
-        old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
-        new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
-        assert new_context_dim == context_dim
-        return new_context
-    
-    def _target_remove_blank(target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int) -> rf.Tensor:
-        assert target.sparse_dim == wb_target_dim
-        assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-        return rf.set_sparse_dim(target, target_dim)
-
-    def _target_dense_extend_blank(
-        target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int, value: float
-    ) -> rf.Tensor:
-        assert target_dim in target.dims
-        assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
-        res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
-        return res
-    
-    use_prior = log_prior is not None
-    use_lm = log_lm_probs is not None
-    
-    old_device = log_probs.device
-    log_probs = rf.copy_to_device(log_probs, device)
-    if use_prior:
-        if not blank_prior and model.target_dim in log_prior.dims:
-            new_dim = rf.Dim(1)
-            log_prior = rf.concat(
-                [(log_prior, model.target_dim),(rf.zeros(dims = [new_dim],  dtype="float32", device=log_prior.device), new_dim)],
-                out_dim=model.wb_target_dim
-            )
-        assert model.wb_target_dim in log_prior.dims
-        log_prior = rf.copy_to_device(log_prior, device)
-    
-    batch_dims = [batch_dim]
-    batch_size = int(batch_dim.get_dim_value())
-    beam_dim = rf.Dim(1, name="initial-beam")
-    context_dim = rf.Dim(context_size, name="context")
-    batch_dims_ = batch_dims + [beam_dim]
-    seq_log_prob = rf.constant(0.0, dims=batch_dims_) # Batch, Beam
-    
-    # scaled log am and prior probs
-    log_probs = am_scale * log_probs
-    if use_prior:
-        log_prior = prior_scale * log_prior
-        
-        # If not blank prior this is still applied as the log prior for blank is just 0
-        if horizontal_prior:
-            log_probs -= log_prior
-        
-    log_probs = rf.where(
-        input_lengths.get_mask(),
-        log_probs,
-        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
-    )
-    log_probs_ta = TensorArray.unstack(log_probs, axis=input_lengths)  # t -> Batch, VocabWB
-    
-    target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
-    target_wb = rf.constant(
-        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
-    )  # Batch, InBeam -> VocabWB
-    
-    # Prepare LM
-    if use_lm:
-        with torch.no_grad():
-            indices = []
-            for i in range(context_size):
-                indices.append(target.raw_tensor[..., i])
-            lm_logits = log_lm_probs[*indices]
-            assert lm_logits.size(-1) == int(model.target_dim.get_dim_value())
-            lm_logits = rf.convert_to_tensor(lm_logits, dims=batch_dims_ + [model.target_dim], dtype="float32", device=device, name="lm_logits")
-            assert lm_logits.dims == (*batch_dims_, model.target_dim)
-            # lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-            lm_log_probs *= lm_scale
-    
-    max_seq_len = int(input_lengths.get_dim_value())
-    backrefs = None
-    if use_recombination:
-        assert len(batch_dims) == 1
-        if recomb_after_topk:
-            seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
-        else:
-            seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
-    
-    for t in range(max_seq_len):
-        prev_target = target
-        prev_target_wb = target_wb
-
-        seq_log_prob = seq_log_prob + log_probs_ta[t]  # Batch, InBeam, VocabWB
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if use_lm:
-                # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
-                seq_log_prob += rf.where(
-                    (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-                    _target_dense_extend_blank(
-                        lm_log_probs,
-                        target_dim=model.target_dim,
-                        wb_target_dim=model.wb_target_dim,
-                        blank_idx=model.blank_idx,
-                        value=0.0,
-                    ),
-                    0.0,
-                )  # Batch, InBeam, VocabWB
-            if use_prior and not horizontal_prior:
-                # Subtract prior score. If prev align label (target_wb) is blank or != cur, add prior score, otherwise 0.
-                seq_log_prob -= rf.where(
-                    (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
-                    log_prior,
-                    0.0,
-                )  # Batch, InBeam, VocabWB
-            
-        if use_recombination and not recomb_after_topk:
-            seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb, model.blank_idx)
-            if t > 0:
-                seq_log_prob = recombination.recombine_seqs(
-                    seq_log_prob,
-                    seq_hash,
-                    beam_dim,
-                    batch_dims[0],
-                    model.wb_target_dim,
-                    model.blank_idx,
-                    recomb_blank=recomb_blank,
-                    use_sum=recomb_with_sum,
-                )
-            
-        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
-            seq_log_prob, k_dim=rf.Dim(top_k, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
-        )
-        
-        # seq_log_prob, backrefs, target_wb: Batch, Beam
-        # backrefs -> InBeam.
-        # target_wb -> VocabWB.
-        target_wb = rf.cast(target_wb, "int32")
-
-        if use_lm:
-            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
-        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
-        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
-        got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
-        target = rf.where(
-            got_new_label,
-            _update_context(
-                prev_target,
-                _target_remove_blank(
-                    target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
-                ),
-                context_dim
-            ),
-            prev_target,
-        )  # Batch, Beam -> Vocab
-        
-        if use_recombination and recomb_after_topk:
-            seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx, gather_old_target=False)
-            if t > 0:
-                seq_log_prob = recombination.recombine_seqs(
-                    seq_log_prob,
-                    seq_hash,
-                    beam_dim,
-                    batch_dims[0],
-                    None,
-                    model.blank_idx,
-                    recomb_blank=recomb_blank,
-                    use_sum=recomb_with_sum,
-                    is_blank=(target_wb == model.blank_idx),
-                )
-
-        if use_lm:
-            with torch.no_grad():
-                got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-                if got_new_label_cpu.raw_tensor.sum().item() > 0:
-                    target_, packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
-                        target,
-                        mask=got_new_label,
-                        mask_cpu=got_new_label_cpu,
-                        dims=batch_dims + [beam_dim],
-                    )
-                    # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-                    assert packed_new_label_dim.get_dim_value() > 0
-                    
-                    indices_ = []
-                    for i in range(context_size):
-                        indices_.append(target_.raw_tensor[..., i])
-                    lm_logits_ = log_lm_probs[*indices_]
-                    assert lm_logits_.size(-1) == int(model.target_dim.get_dim_value())
-                    lm_logits_ = rf.convert_to_tensor(lm_logits_, dims=[packed_new_label_dim, model.target_dim], dtype="float32", device=device, name="lm_logits_")
-                    assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
-                    lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-                    lm_log_probs_ *= lm_scale
-
-                    lm_log_probs = rf.nested.masked_scatter_nested(
-                        lm_log_probs_,
-                        lm_log_probs,
-                        mask=got_new_label,
-                        mask_cpu=got_new_label_cpu,
-                        dims=batch_dims + [beam_dim],
-                        in_dim=packed_new_label_dim,
-                        masked_select_dim_map=packed_new_label_dim_map,
-                    )  # Batch, Beam, Vocab / ...
-
-        if device.startswith("cuda"):
-            torch.cuda.empty_cache()
-    
-    if use_lm:
-        # seq_log_prob, lm_log_probs: Batch, Beam
-        # Add LM EOS score at the end.
-        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
-        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
-    seq_log_prob = seq_log_prob.raw_tensor
-    
-    sum_score = safe_logsumexp(seq_log_prob, dim=-1)
-    
-    loss = -sum_score
-    if old_device != device:
-        loss = loss.to(old_device)
-    
-    return loss
+    pass
+    #
+    # assert top_k > 0, "Top k should be greater than 0 as exact sum is not implemented for FFNN"
+    # assert blank_correction_version == 0, "Blank correction is not implemented for FFNN"
+    #
+    # # RETURNN version is like "1.20250115.110555"
+    # # There was an important fix in 2025-01-17 affecting masked_scatter.
+    # # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
+    # import returnn
+    # assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
+    #
+    # def _update_context(context: rf.Tensor, new_label: rf.Tensor, context_dim: rf.Dim) -> rf.Tensor:
+    #     new_dim = rf.Dim(1, name="new_label")
+    #     new_label = rf.expand_dim(new_label, dim=new_dim)
+    #     old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
+    #     new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
+    #     assert new_context_dim == context_dim
+    #     return new_context
+    #
+    # def _target_remove_blank(target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int) -> rf.Tensor:
+    #     assert target.sparse_dim == wb_target_dim
+    #     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    #     return rf.set_sparse_dim(target, target_dim)
+    #
+    # def _target_dense_extend_blank(
+    #     target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int, value: float
+    # ) -> rf.Tensor:
+    #     assert target_dim in target.dims
+    #     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    #     res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    #     return res
+    #
+    # use_prior = log_prior is not None
+    # use_lm = log_lm_probs is not None
+    #
+    # old_device = log_probs.device
+    # log_probs = rf.copy_to_device(log_probs, device)
+    # if use_prior:
+    #     if not blank_prior and model.target_dim in log_prior.dims:
+    #         new_dim = rf.Dim(1)
+    #         log_prior = rf.concat(
+    #             [(log_prior, model.target_dim),(rf.zeros(dims = [new_dim],  dtype="float32", device=log_prior.device), new_dim)],
+    #             out_dim=model.wb_target_dim
+    #         )
+    #     assert model.wb_target_dim in log_prior.dims
+    #     log_prior = rf.copy_to_device(log_prior, device)
+    #
+    # batch_dims = [batch_dim]
+    # batch_size = int(batch_dim.get_dim_value())
+    # beam_dim = rf.Dim(1, name="initial-beam")
+    # context_dim = rf.Dim(context_size, name="context")
+    # batch_dims_ = batch_dims + [beam_dim]
+    # seq_log_prob = rf.constant(0.0, dims=batch_dims_) # Batch, Beam
+    #
+    # # scaled log am and prior probs
+    # log_probs = am_scale * log_probs
+    # if use_prior:
+    #     log_prior = prior_scale * log_prior
+    #
+    #     # If not blank prior this is still applied as the log prior for blank is just 0
+    #     if horizontal_prior:
+    #         log_probs -= log_prior
+    #
+    # log_probs = rf.where(
+    #     input_lengths.get_mask(),
+    #     log_probs,
+    #     rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    # )
+    # log_probs_ta = TensorArray.unstack(log_probs, axis=input_lengths)  # t -> Batch, VocabWB
+    #
+    # target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+    # target_wb = rf.constant(
+    #     model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    # )  # Batch, InBeam -> VocabWB
+    #
+    # # Prepare LM
+    # if use_lm:
+    #     with torch.no_grad():
+    #         indices = []
+    #         for i in range(context_size):
+    #             indices.append(target.raw_tensor[..., i])
+    #         lm_logits = log_lm_probs[*indices]
+    #         assert lm_logits.size(-1) == int(model.target_dim.get_dim_value())
+    #         lm_logits = rf.convert_to_tensor(lm_logits, dims=batch_dims_ + [model.target_dim], dtype="float32", device=device, name="lm_logits")
+    #         assert lm_logits.dims == (*batch_dims_, model.target_dim)
+    #         # lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+    #         lm_log_probs *= lm_scale
+    #
+    # max_seq_len = int(input_lengths.get_dim_value())
+    # backrefs = None
+    # if use_recombination:
+    #     assert len(batch_dims) == 1
+    #     if recomb_after_topk:
+    #         seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
+    #     else:
+    #         seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
+    #
+    # for t in range(max_seq_len):
+    #     prev_target = target
+    #     prev_target_wb = target_wb
+    #
+    #     seq_log_prob = seq_log_prob + log_probs_ta[t]  # Batch, InBeam, VocabWB
+    #
+    #     with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+    #         if use_lm:
+    #             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+    #             seq_log_prob += rf.where(
+    #                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+    #                 _target_dense_extend_blank(
+    #                     lm_log_probs,
+    #                     target_dim=model.target_dim,
+    #                     wb_target_dim=model.wb_target_dim,
+    #                     blank_idx=model.blank_idx,
+    #                     value=0.0,
+    #                 ),
+    #                 0.0,
+    #             )  # Batch, InBeam, VocabWB
+    #         if use_prior and not horizontal_prior:
+    #             # Subtract prior score. If prev align label (target_wb) is blank or != cur, add prior score, otherwise 0.
+    #             seq_log_prob -= rf.where(
+    #                 (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+    #                 log_prior,
+    #                 0.0,
+    #             )  # Batch, InBeam, VocabWB
+    #
+    #     if use_recombination and not recomb_after_topk:
+    #         seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb, model.blank_idx)
+    #         if t > 0:
+    #             seq_log_prob = recombination.recombine_seqs(
+    #                 seq_log_prob,
+    #                 seq_hash,
+    #                 beam_dim,
+    #                 batch_dims[0],
+    #                 model.wb_target_dim,
+    #                 model.blank_idx,
+    #                 recomb_blank=recomb_blank,
+    #                 use_sum=recomb_with_sum,
+    #             )
+    #
+    #     seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+    #         seq_log_prob, k_dim=rf.Dim(top_k, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
+    #     )
+    #
+    #     # seq_log_prob, backrefs, target_wb: Batch, Beam
+    #     # backrefs -> InBeam.
+    #     # target_wb -> VocabWB.
+    #     target_wb = rf.cast(target_wb, "int32")
+    #
+    #     if use_lm:
+    #         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+    #     prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+    #     prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+    #     got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
+    #     target = rf.where(
+    #         got_new_label,
+    #         _update_context(
+    #             prev_target,
+    #             _target_remove_blank(
+    #                 target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+    #             ),
+    #             context_dim
+    #         ),
+    #         prev_target,
+    #     )  # Batch, Beam -> Vocab
+    #
+    #     if use_recombination and recomb_after_topk:
+    #         seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx, gather_old_target=False)
+    #         if t > 0:
+    #             seq_log_prob = recombination.recombine_seqs(
+    #                 seq_log_prob,
+    #                 seq_hash,
+    #                 beam_dim,
+    #                 batch_dims[0],
+    #                 None,
+    #                 model.blank_idx,
+    #                 recomb_blank=recomb_blank,
+    #                 use_sum=recomb_with_sum,
+    #                 is_blank=(target_wb == model.blank_idx),
+    #             )
+    #
+    #     if use_lm:
+    #         with torch.no_grad():
+    #             got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+    #             if got_new_label_cpu.raw_tensor.sum().item() > 0:
+    #                 target_, packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+    #                     target,
+    #                     mask=got_new_label,
+    #                     mask_cpu=got_new_label_cpu,
+    #                     dims=batch_dims + [beam_dim],
+    #                 )
+    #                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+    #                 assert packed_new_label_dim.get_dim_value() > 0
+    #
+    #                 indices_ = []
+    #                 for i in range(context_size):
+    #                     indices_.append(target_.raw_tensor[..., i])
+    #                 lm_logits_ = log_lm_probs[*indices_]
+    #                 assert lm_logits_.size(-1) == int(model.target_dim.get_dim_value())
+    #                 lm_logits_ = rf.convert_to_tensor(lm_logits_, dims=[packed_new_label_dim, model.target_dim], dtype="float32", device=device, name="lm_logits_")
+    #                 assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+    #                 lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+    #                 lm_log_probs_ *= lm_scale
+    #
+    #                 lm_log_probs = rf.nested.masked_scatter_nested(
+    #                     lm_log_probs_,
+    #                     lm_log_probs,
+    #                     mask=got_new_label,
+    #                     mask_cpu=got_new_label_cpu,
+    #                     dims=batch_dims + [beam_dim],
+    #                     in_dim=packed_new_label_dim,
+    #                     masked_select_dim_map=packed_new_label_dim_map,
+    #                 )  # Batch, Beam, Vocab / ...
+    #
+    #     if device.startswith("cuda"):
+    #         torch.cuda.empty_cache()
+    #
+    # if use_lm:
+    #     # seq_log_prob, lm_log_probs: Batch, Beam
+    #     # Add LM EOS score at the end.
+    #     lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+    #     seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+    # seq_log_prob = seq_log_prob.raw_tensor
+    #
+    # sum_score = safe_logsumexp(seq_log_prob, dim=-1)
+    #
+    # loss = -sum_score
+    # if old_device != device:
+    #     loss = loss.to(old_device)
+    #
+    # return loss
 
 def sum_loss_ffnn(
     *,
@@ -1083,16 +1101,16 @@ def sum_loss_ffnn(
             log_zero=log_zero,
             device=device,
         )
-    
+
     assert top_k > 0, "Top k should be greater than 0 as exact sum is not implemented for FFNN"
     assert blank_correction_version == 0, "Blank correction is not implemented for FFNN"
-    
+
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
     import returnn
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
-    
+
     def _update_context(context: rf.Tensor, new_label: rf.Tensor, context_dim: rf.Dim) -> rf.Tensor:
         new_dim = rf.Dim(1, name="new_label")
         new_label = rf.expand_dim(new_label, dim=new_dim)
@@ -1100,7 +1118,7 @@ def sum_loss_ffnn(
         new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
         assert new_context_dim == context_dim
         return new_context
-    
+
     def _target_remove_blank(target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int) -> rf.Tensor:
         assert target.sparse_dim == wb_target_dim
         assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
@@ -1113,10 +1131,10 @@ def sum_loss_ffnn(
         assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
         res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
         return res
-    
+
     use_prior = log_prior is not None
     use_lm = lm is not None
-    
+
     old_device = log_probs.device
     log_probs = rf.copy_to_device(log_probs, device)
     if use_prior:
@@ -1128,35 +1146,35 @@ def sum_loss_ffnn(
             )
         assert model.wb_target_dim in log_prior.dims
         log_prior = rf.copy_to_device(log_prior, device)
-    
+
     batch_dims = [batch_dim]
     beam_dim = rf.Dim(1, name="initial-beam")
     context_dim = rf.Dim(context_size, name="context")
     lm_out_dim = rf.Dim(context_size + 1, name="context+1")
     batch_dims_ = batch_dims + [beam_dim]
     seq_log_prob = rf.constant(0.0, dims=batch_dims_) # Batch, Beam
-    
+
     # scaled log am and prior probs
     log_probs = am_scale * log_probs
     if use_prior:
         log_prior = prior_scale * log_prior
-        
+
         # If not blank prior this is still applied as the log prior for blank is just 0
         if horizontal_prior:
             log_probs -= log_prior
-        
+
     log_probs = rf.where(
         input_lengths.get_mask(),
         log_probs,
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
     )
     log_probs_ta = TensorArray.unstack(log_probs, axis=input_lengths)  # t -> Batch, VocabWB
-    
+
     target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
     target_wb = rf.constant(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
     )  # Batch, InBeam -> VocabWB
-    
+
     # Prepare LM
     if use_lm:
         with torch.no_grad():
@@ -1166,7 +1184,7 @@ def sum_loss_ffnn(
             assert lm_logits.dims == (*batch_dims_, model.target_dim)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
             lm_log_probs *= lm_scale
-    
+
     max_seq_len = int(input_lengths.get_dim_value())
     backrefs = None
     if use_recombination:
@@ -1175,7 +1193,7 @@ def sum_loss_ffnn(
             seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
         else:
             seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
-    
+
     for t in range(max_seq_len):
         prev_target = target
         prev_target_wb = target_wb
@@ -1204,7 +1222,7 @@ def sum_loss_ffnn(
                     log_prior,
                     0.0,
                 )  # Batch, InBeam, VocabWB
-            
+
         if use_recombination and not recomb_after_topk:
             seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb, model.blank_idx)
             if t > 0:
@@ -1218,11 +1236,11 @@ def sum_loss_ffnn(
                     recomb_blank=recomb_blank,
                     use_sum=recomb_with_sum,
                 )
-            
+
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=rf.Dim(top_k, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
         )
-        
+
         # seq_log_prob, backrefs, target_wb: Batch, Beam
         # backrefs -> InBeam.
         # target_wb -> VocabWB.
@@ -1245,7 +1263,7 @@ def sum_loss_ffnn(
             ),
             prev_target,
         )  # Batch, Beam -> Vocab
-        
+
         if use_recombination and recomb_after_topk:
             seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx, gather_old_target=False)
             if t > 0:
@@ -1273,7 +1291,7 @@ def sum_loss_ffnn(
                     )
                     # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                     assert packed_new_label_dim.get_dim_value() > 0
-                    
+
                     lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
                     lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
                     assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
@@ -1292,20 +1310,20 @@ def sum_loss_ffnn(
 
         if device.startswith("cuda"):
             torch.cuda.empty_cache()
-    
+
     if use_lm:
         # seq_log_prob, lm_log_probs: Batch, Beam
         # Add LM EOS score at the end.
         lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
         seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
     seq_log_prob = seq_log_prob.raw_tensor
-    
+
     sum_score = safe_logsumexp(seq_log_prob, dim=-1)
-    
+
     loss = -sum_score
     if old_device != device:
         loss = loss.to(old_device)
-    
+
     return loss
 
 def sum_loss_ffnn_exact(
@@ -1324,13 +1342,12 @@ def sum_loss_ffnn_exact(
     log_zero: float = float("-inf"),
     device: str = "cpu",
 ):
-    raise NotImplementedError("Exact sum for FFNN is not finished, yet.")
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
     import returnn
     assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
-    
+
     def _update_context(context: rf.Tensor, new_label: rf.Tensor, context_dim: rf.Dim) -> rf.Tensor:
         new_dim = rf.Dim(1, name="new_label")
         new_label = rf.expand_dim(new_label, dim=new_dim)
@@ -1338,7 +1355,7 @@ def sum_loss_ffnn_exact(
         new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), allow_broadcast=True, out_dim=context_dim)
         assert new_context_dim == context_dim
         return new_context
-    
+
     def _target_remove_blank(target: rf.Tensor, *, target_dim: rf.Dim, wb_target_dim: rf.Dim, blank_idx: int) -> rf.Tensor:
         assert target.sparse_dim == wb_target_dim
         assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
@@ -1351,10 +1368,10 @@ def sum_loss_ffnn_exact(
         assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
         res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
         return res
-    
+
     use_prior = log_prior is not None
     use_lm = lm is not None
-    
+
     old_device = log_probs.device
     log_probs = rf.copy_to_device(log_probs, device)
     if use_prior:
@@ -1366,35 +1383,35 @@ def sum_loss_ffnn_exact(
             )
         assert model.wb_target_dim in log_prior.dims
         log_prior = rf.copy_to_device(log_prior, device)
-    
+
     batch_dims = [batch_dim]
     beam_dim = rf.Dim(1, name=f"initial-beam")
     context_dim = rf.Dim(context_size, name="context")
     lm_out_dim = rf.Dim(context_size + 1, name="context+1")
     batch_dims_ = batch_dims + [beam_dim]
     seq_log_prob = rf.constant(0.0, dims=batch_dims_) # Batch, Beam
-    
+
     # scaled log am and prior probs
     log_probs = am_scale * log_probs
     if use_prior:
         log_prior = prior_scale * log_prior
-        
+
         # If not blank prior this is still applied as the log prior for blank is just 0
         if horizontal_prior:
             log_probs -= log_prior
-        
+
     log_probs = rf.where(
         input_lengths.get_mask(),
         log_probs,
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
     )
     log_probs_ta = TensorArray.unstack(log_probs, axis=input_lengths)  # t -> Batch, VocabWB
-    
+
     target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
     target_wb = rf.constant(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
     )  # Batch, InBeam -> VocabWB
-    
+
     # Prepare LM
     if use_lm:
         with torch.no_grad():
@@ -1404,16 +1421,16 @@ def sum_loss_ffnn_exact(
             assert lm_logits.dims == (*batch_dims_, model.target_dim)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
             lm_log_probs *= lm_scale
-    
+
     max_seq_len = int(input_lengths.get_dim_value())
     assert len(batch_dims) == 1
-    
+
     for t in range(max_seq_len):
         prev_target = target
         prev_target_wb = target_wb
         prev_beam = beam_dim
 
-        seq_log_prob += log_probs_ta[t]  # Batch, InBeam, VocabWB
+        seq_log_prob = seq_log_prob + log_probs_ta[t]  # Batch, InBeam, VocabWB
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -1437,10 +1454,8 @@ def sum_loss_ffnn_exact(
                     log_prior,
                     0.0,
                 )  # Batch, InBeam, VocabWB
-            
-        if t < context_size:
-            beam_dim = rf.Dim(int(model.wb_target_dim.get_dim_value()) ** (t + 1 if t < context_size else context_size), name=f"dec-step{t}-beam")
-            new_Log_probs = torch.zeros((batch_dim.get_dim_value(), beam_dim.get_dim_value()), dtype=torch.float32, device=device)
+
+        beam_dim = rf.Dim(int(model.wb_target_dim.get_dim_value()) ** (t + 1 if t < context_size else context_size), name=f"dec-step{t}-beam")
         if t <= context_size:
             target_wb_tmp = rf.range_over_dim(model.wb_target_dim)
             target_wb_tmp = rf.expand_dims(target_wb_tmp, dims=batch_dims + [prev_beam])
@@ -1457,28 +1472,52 @@ def sum_loss_ffnn_exact(
                 ),
                 prev_target,
             )  # Batch, Beam -> Vocab
-            target_raveled = target.raw_tensor[:, :, 0, :] * model.target_dim.dimension ** (context_size - 1)
-            for i in range(context_size - 1):
-                target_raveled += target.raw_tensor[:, :, i + 1, :] * model.target_dim.dimension ** (context_size - i - 2)
-            target_raveled = target_raveled.long()
+            target_raveled = torch.tensor(
+                np.array(
+                    [
+                        [
+                            [
+                                np.ravel_multi_index(target.raw_tensor[b, k, :, v].cpu().numpy(), (model.target_dim.dimension,) * context_size)
+                                for v in range(target.dims[-1].get_dim_value())
+                            ]
+                            for k in range(prev_beam.get_dim_value())
+                        ]
+                        for b in range(batch_dim.get_dim_value())
+                    ]
+                ),
+                device=device
+            )
+            print(target_raveled.shape)
             target_raveled = target_raveled.view(batch_dim.get_dim_value(), -1)
-            
+
             if t < context_size:
                 target_wb, _ = rf.merge_dims(target_wb_tmp, dims=[prev_beam, model.wb_target_dim], out_dim=beam_dim)
-            
-                target, _ = rf.merge_dims(target, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
-                got_new_label, _ = rf.merge_dims(got_new_label, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
+            print(target_wb)
+
+            target, _ = rf.merge_dims(target, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
+            got_new_label, _ = rf.merge_dims(got_new_label, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
+
+        print(target.raw_tensor.shape, seq_log_prob.raw_tensor.shape)
 
         seq_log_prob = seq_log_prob.raw_tensor.view(batch_dim.get_dim_value(), -1)
-        
+
         # do a scatter logsumexp here together with the new target labels
+        new_Log_probs = torch.zeros((batch_dim.get_dim_value(), beam_dim.get_dim_value()), dtype=torch.float32, device=device)
+        print(new_Log_probs.shape)
+
         seq_log_prob = scatter_safe_logsumexp(new_Log_probs, -1, target_raveled, seq_log_prob, include_self=False)
         seq_log_prob = rf.convert_to_tensor(seq_log_prob, dims=batch_dims + [beam_dim], dtype="float32", device=device, name="seq_log_prob")
-        
+        print(seq_log_prob)
+
+        print(got_new_label)
+        print(target)
+
         if use_lm and t < context_size:
+            print(lm_log_probs)
             lm_log_probs = rf.expand_dim(lm_log_probs, dim=model.wb_target_dim)
             lm_log_probs, _ = rf.merge_dims(lm_log_probs, dims = [prev_beam, model.wb_target_dim], out_dim = beam_dim)
-            
+            print(lm_log_probs, lm_log_probs.raw_tensor.shape)
+
             with torch.no_grad():
                 got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
                 if got_new_label_cpu.raw_tensor.sum().item() > 0:
@@ -1490,7 +1529,7 @@ def sum_loss_ffnn_exact(
                     )
                     # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
                     assert packed_new_label_dim.get_dim_value() > 0
-                    
+
                     lm_logits_, lm_state_ = get_lm_logits([packed_new_label_dim], target_, lm, context_dim, lm_out_dim, lm_state_)
                     lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
                     assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
@@ -1509,20 +1548,20 @@ def sum_loss_ffnn_exact(
 
         if device.startswith("cuda"):
             torch.cuda.empty_cache()
-    
+
     if use_lm:
         # seq_log_prob, lm_log_probs: Batch, Beam
         # Add LM EOS score at the end.
         lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
         seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
     seq_log_prob = seq_log_prob.raw_tensor
-    
+
     sum_score = safe_logsumexp(seq_log_prob, dim=-1)
-    
+
     loss = -sum_score
     if old_device != device:
         loss = loss.to(old_device)
-    
+
     return loss
 
 
@@ -1549,14 +1588,14 @@ def sum_loss_approx(
     """Testing purposes only
     """
     use_prior = log_prior is not None
-    
+
     old_device = log_probs.device
     log_probs = log_probs.to(device)
     log_lm_probs = log_lm_probs.to(device)
     if use_prior:
         log_prior = log_prior.to(device)
     input_lengths = input_lengths.to(device)
-    
+
     max_audio_time, batch_size, n_out = log_probs.shape
     # scaled log am and lm probs
     log_probs = am_scale * log_probs
@@ -1566,7 +1605,7 @@ def sum_loss_approx(
         log_lm_probs = lm_scale * log_lm_probs
     if use_prior:
         log_prior = prior_scale * log_prior
-    
+
     # print_gradients = PrintGradients.apply
     # grad_assert = AssertGradients.apply
 
@@ -1574,17 +1613,17 @@ def sum_loss_approx(
     log_probs = log_probs.unbind(0)
 
     # sum score by DP
-    
+
     assert blank_idx == n_out - 1, "blank should be the last symbol" + str(blank_idx) + " " + str(n_out)
     assert log_prior.size(0) == n_out, "Prior shape is not correct"
-    
+
     if print_best_path_for_idx:
         with torch.no_grad():
             best_path_print = {}
             for idx in print_best_path_for_idx:
                 best_path_print[idx] = {"str": "", "am_str": "", "prior": "", "score": "", "AM": torch.full((1,), 0.0, device=device)}
-    
-    
+
+
     log_q = torch.zeros((batch_size,), device=device)
     for t in range(max_audio_time):
         if use_prior:
@@ -1593,10 +1632,10 @@ def sum_loss_approx(
         else:
             max_val, max_idx = torch.max(log_probs[t], dim=-1)
         time_mask = (t < input_lengths)
-        
+
         new_log_q = log_q + max_val
         log_q = torch.where(time_mask, new_log_q, log_q)
-        
+
         if print_best_path_for_idx:
             with torch.no_grad():
                 for idx in print_best_path_for_idx:
@@ -1605,16 +1644,16 @@ def sum_loss_approx(
                     best_path_print[idx]["prior"] += " {:.2f}".format(log_prior[max_idx[idx]].tolist())
                     best_path_print[idx]["score"] += " {:.2f}".format(log_q[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][max_idx[idx]]
-    
+
     if print_best_path_for_idx:
         with torch.no_grad():
             for idx in print_best_path_for_idx:
                 print(f"Best path for {idx}: {best_path_print[idx]['str']}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
-    
+
     loss = -log_q
     if old_device != device:
         loss = loss.to(old_device)
-    
+
     return loss
 
 # ------------------------------------------------
@@ -1627,7 +1666,7 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm
     while not done:
         try:
             if splits > 1:
-                batch_size = batch_dims[0].get_dim_value()
+                batch_size = batch_dims[0].dyn_size_ext.raw_tensor.item()
                 n_seqs = int(np.ceil(batch_size / splits))
                 new_dims = []
                 for i in range(splits):
@@ -1645,7 +1684,7 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm
                         state=lm_state,
                     )
                     lm_logits_split.append((lm_logits_i, new_dims[i]))
-                lm_logits, _ = rf.concat(*lm_logits_split, out_dim=batch_dims[0])
+                lm_logits = rf.concat(lm_logits_split, out_dim=batch_dims[0])
             else:
                 lm_logits, lm_state = lm(
                     target,
@@ -1654,29 +1693,29 @@ def get_lm_logits(batch_dims: list[rf.Dim], target: rf.Tensor, lm: FeedForwardLm
                     state=lm_state,
                 )
             done = True
-        except RuntimeError as exc:
-            if "out of memory" in str(exc):
-                print(f"OOM with {splits} splits:", exc)
-                diagnose_gpu.garbage_collect()
-                splits *= 2
-                if splits <= batch_dims[0].get_dim_value():
-                    continue
-            raise
+        except Exception as exc:
+            print(f"OOM with {splits} splits")
+            diagnose_gpu.garbage_collect()
+            splits *= 2
+            if splits <= batch_dims[0].dyn_size_ext.raw_tensor.item():
+                continue
+            else:
+                raise
     return lm_logits, lm_state
 
 def dynamic_slice(tensor: torch.Tensor, indices_list: list[torch.Tensor]) -> torch.Tensor:
     """
     Slices a tensor along multiple dimensions using the provided indices for each dimension.
-    
+
     Args:
     tensor (torch.Tensor): The input tensor to be sliced.
     indices_list (list of list of int): A list containing tensors of indices for each dimension.
-    
+
     Returns:
     torch.Tensor: The sliced tensor.
     """
     assert len(indices_list) == tensor.dim(), "Number of index lists must match the number of dimensions of the tensor"
-    
+
     # Use advanced indexing to select the desired elements
     sliced_tensor = tensor
     for dim, indices in enumerate(indices_list):
@@ -1687,7 +1726,7 @@ def dynamic_slice(tensor: torch.Tensor, indices_list: list[torch.Tensor]) -> tor
         new_sizes[dim] = -1
         indices = indices.view(shape).expand(new_sizes)
         sliced_tensor = torch.gather(sliced_tensor, dim, indices)
-    
+
     return sliced_tensor
 
 # def log_matmul_alt(A: torch.Tensor, B: torch.Tensor):
@@ -1724,7 +1763,7 @@ def log_matmul(A: torch.Tensor, B: torch.Tensor, batch_given: bool = False):
         b = A.size(0)
         B_expand = B.unsqueeze(0).expand(b, *B.size()) # (v, v2) -> (b, v, v2)
     A_expand = A.unsqueeze(-1).expand_as(B_expand) # (b, v) -> (b, v, v2)
-    
+
     return safe_logsumexp((A_expand + B_expand), dim=1) # (b, v, v2) -> (b, v2)
 
 def get_bpe_from_dict(idx: int):
@@ -1733,12 +1772,12 @@ def get_bpe_from_dict(idx: int):
 
 def get_bpes(tokens):
     # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS
-    
+
     # path = "/u/marten.mueller/dev/ctc_baseline/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.P1DXd9G7EdsU/output/bpe.vocab"
     # d = eval(open(path, "r").read(), {"nan": float("nan"), "inf": float("inf")})
     # d = {v: k for k, v in d.items()}
     d = {0: '<s>', 1: '<unk>', 2: 'T@@', 3: 'THE', 4: 'C@@', 5: 'E@@', 6: 'M@@', 7: 'P@@', 8: 'I@@', 9: 'W@@', 10: 'S@@', 11: 'A@@', 12: 'D@@', 13: 'F@@', 14: 'G@@', 15: 'U@@', 16: 'ED', 17: 'O@@', 18: 'S', 19: 'E', 20: 'AND', 21: 'L@@', 22: 'Y', 23: 'OF', 24: 'TO', 25: 'IN@@', 26: 'RE@@', 27: 'TH@@', 28: 'B@@', 29: 'AR@@', 30: 'ING', 31: 'A', 32: 'T', 33: 'ER@@', 34: 'R@@', 35: 'AN@@', 36: 'H@@', 37: 'ST@@', 38: 'IN', 39: 'OU@@', 40: 'V@@', 41: 'D', 42: 'ON', 43: 'N@@', 44: 'K@@', 45: 'Y@@', 46: 'EN', 47: 'OR@@', 48: 'ER', 49: 'EL@@', 50: 'L', 51: 'EN@@', 52: 'ON@@', 53: 'RO@@', 54: 'ES', 55: 'IT@@', 56: 'I', 57: 'M', 58: 'R', 59: 'WAS', 60: 'HE', 61: 'ME', 62: 'AT@@', 63: 'LY', 64: 'IT', 65: 'THAT', 66: 'O', 67: 'AL@@', 68: 'AC@@', 69: 'HA@@', 70: 'BE@@', 71: 'AN', 72: 'ST', 73: 'IS', 74: 'H', 75: 'IS@@', 76: 'W', 77: 'LE', 78: 'LE@@', 79: 'K', 80: 'TI@@', 81: 'ERE', 82: 'LI@@', 83: 'HIS', 84: 'RI@@', 85: 'SI@@', 86: 'WH@@', 87: 'UR@@', 88: 'LO@@', 89: 'SE', 90: 'AT', 91: 'AS', 92: 'SA@@', 93: 'CH', 94: 'CO@@', 95: 'HAD', 96: 'THE@@', 97: 'WITH', 98: 'SE@@', 99: 'IL@@', 100: 'UN@@', 101: 'YOU', 102: 'CE', 103: 'FOR', 104: 'F', 105: 'NE@@', 106: 'AS@@', 107: 'DI@@', 108: 'HER', 109: 'DE@@', 110: 'SU@@', 111: 'N', 112: 'MA@@', 113: 'NO@@', 114: 'NOT', 115: 'LA@@', 116: 'HO@@', 117: 'BUT', 118: 'ENT', 119: 'CA@@', 120: 'OR', 121: 'OULD', 122: 'RA@@', 123: 'GHT', 124: 'WHI@@', 125: 'PO@@', 126: 'VE', 127: 'P', 128: 'J@@', 129: 'VER@@', 130: 'SHE', 131: 'SO@@', 132: 'ONE', 133: 'IR@@', 134: 'AB@@', 135: 'THER', 136: 'X@@', 137: 'BE', 138: 'OUN@@', 139: 'HE@@', 140: 'ALL', 141: 'CON@@', 142: 'HI@@', 143: 'PE@@', 144: "'S", 145: 'OUT', 146: 'HIM', 147: 'MO@@', 148: 'FOR@@', 149: 'ID', 150: 'VER', 151: 'DO@@', 152: 'TO@@', 153: 'MY', 154: "'@@", 155: 'ME@@', 156: 'THEY', 157: 'BY', 158: 'SS', 159: 'ENT@@', 160: 'KE', 161: 'G', 162: 'ATI@@', 163: 'WA@@', 164: 'HAVE', 165: 'MP@@', 166: 'AL', 167: 'SO', 168: 'Q@@', 169: 'LD', 170: 'GH@@', 171: 'Z@@', 172: 'BU@@', 173: 'C', 174: 'X', 175: 'B', 176: 'OU', 177: 'WIT@@', 178: 'U', 179: 'Z', 180: 'V', 181: 'Q', 182: 'J', 183: "'"}
-    
+
     tokens = [t for t in tokens.split("] [")]
     tokens[0] = tokens[0][1:]
     if len(tokens) > 1:
@@ -1911,7 +1950,7 @@ class PrintGradients(torch.autograd.Function):
             else:
                 print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nNaN's: {torch.isnan(grad_output).sum()}")
         return grad_output, None, None, None, None, None, None, None, None, None, None
-    
+
 class AssertGradients(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, name, print_input):
@@ -1930,7 +1969,7 @@ class AssertGradients(torch.autograd.Function):
         else:
             assert not torch.isnan(grad_output).any(), f"{torch.isnan(grad_output).sum()} NaN's in gradients of {name}, see {grad_output}"
         return grad_output, None, None
-    
+
 class NormGradients(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x):
@@ -1949,42 +1988,42 @@ class NormGradients(torch.autograd.Function):
 
 def test_logsumexp():
     # torch.autograd.set_detect_anomaly(True)
-    
+
     ag = PrintGradients.apply
-    
+
     # t = torch.tensor([float("-inf"), float("-inf"), float("-inf")], requires_grad=True)
     # t = torch.tensor([float("-inf"), float("-0.5"), float("-1")], requires_grad=True)
     # t = ag(t, "t", False)
-    
+
     # sum_t = torch.logsumexp(t, dim=0)
     # sum_t.backward()
     # print(sum_t)
-    
+
     # sum_t2 = safe_logsumexp(t, dim=0)
     # sum_t2.backward()
     # print(sum_t2)
-    
+
     t2 = torch.full((5,), float("-inf"), requires_grad=True)
     idx = torch.tensor([0, 1, 0, 1, 2])
     src = torch.tensor([0.4, 0.0, 0.2, 0.0, 0.5], requires_grad=True).log()
     t2 = ag(t2, "t2", False)
     src = ag(src, "src", False)
-    
+
     scat = scatter_safe_logsumexp(t2, 0, idx, src)
     scat.backward(torch.ones_like(scat))
     print(scat.exp())
 
 def test_mul():
     # torch.autograd.set_detect_anomaly(True)
-    
+
     import time
     import gc
     torch.manual_seed(0)
     ag = PrintGradients.apply
-    
+
     # device = torch.device("cuda:0")
     device = torch.device("cpu")
-    
+
     r = torch.tensor([0.0], device=device)
     time_d = 0.0
     for i in range(1):
@@ -1998,10 +2037,10 @@ def test_mul():
         # B[:, 0] = float("-inf")
         A.requires_grad = True
         B.requires_grad = True
-        
+
         A = ag(A, "A", False)
         B = ag(B, "B", False)
-        
+
         # res = A.exp().matmul(B.exp()).log()
         # res = log_matmul_alt(A, B)
         # A, topk_idx = torch.topk(A, 20, dim=-1)
@@ -2010,8 +2049,8 @@ def test_mul():
         # res = log_matmul(A, B, batch_given=True)
         res = log_matmul(A, B)
         res = res.exp().sum()
-        
-        
+
+
         res.backward(torch.ones_like(res))
         e = time.time()
         r += res.detach()
@@ -2022,30 +2061,30 @@ def test_mul():
 def test_profiler():
     import time
     from torch.profiler import profile, record_function, ProfilerActivity
-    
+
     # torch.cuda.set_sync_debug_mode(1)
-    
+
     # device = torch.device("cuda:0")
     device = torch.device("cpu")
-    
+
     batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
     vocab_size = 185
     frames = 100
-    
+
     torch.manual_seed(0)
     ag = AssertGradients.apply
-    
+
     lm = torch.randn(vocab_size - 1, vocab_size - 1, device=device)
     lm = torch.nn.functional.log_softmax(lm, dim=-1)
-    
+
     s1 = time.time()
-                
+
     am = torch.randn(frames, batch_size, vocab_size, requires_grad=True, device=device)
     am = torch.nn.functional.log_softmax(am, dim=-1)
-    
+
     prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
     prior = torch.nn.functional.log_softmax(prior, dim=-1)
-    
+
     length = torch.full((batch_size,), frames, device=device)
 
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], profile_memory=True) as prof:
@@ -2053,10 +2092,10 @@ def test_profiler():
             # am = am.permute(1, 0, 2)
             # prior = _calc_log_prior(am, length)
             # am = am.permute(1, 0, 2)
-            
+
             # am = ag(am, "AM", False)
             # prior = ag(prior, "prior", False)
-            
+
             loss = sum_loss_ngram(
                 log_probs=am,
                 log_lm_probs=lm,
@@ -2071,7 +2110,7 @@ def test_profiler():
             loss.backward(torch.ones_like(loss, device=device))
     e1 = time.time()
     print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {loss}") # 5:00 mins
-    
+
     print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
     # print(prof.key_averages().table(sort_by="cpu_memory_usage", row_limit=10))
     # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
@@ -2079,24 +2118,24 @@ def test_profiler():
 
 def test():
     import time
-    
+
     # torch.autograd.set_detect_anomaly(True)
     # torch.cuda.set_sync_debug_mode(1)
-    
+
     # device = torch.device("cuda:0")
     device = torch.device("cpu")
-    
+
     batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
     vocab_size = 185
-    frames = 300
-    LM_order = 3
-    
+    frames = 100
+    LM_order = 2
+
     torch.manual_seed(0)
     # torch.cuda.manual_seed_all(0)
     # ag = AssertGradients.apply
     ag = PrintGradients.apply
     ng = NormGradients.apply
-    
+
     # lm = torch.randn((vocab_size - 1,) * LM_order, device=device)
     # lm = torch.nn.functional.log_softmax(lm, dim=-1)
     if LM_order == 2:
@@ -2107,9 +2146,9 @@ def test():
         lm_path = "/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.XxvP7yk50Q8u/output/lm.pt"
     with open(lm_path, "rb") as f:
         lm = torch.load(f)
-        
+
     lm = torch.log_softmax(lm, dim=-1)
-    
+
     l = torch.tensor([0.0], device=device)
     s1 = time.time()
     for i in range(1):
@@ -2118,31 +2157,29 @@ def test():
         # am[0, 0, vocab_size - 1] = float(3)
         # am[2, 0, vocab_size - 1] = float(3)
         am.requires_grad = True
-        
-        am_o = am
-        
+
         am = am.permute(1, 0, 2)
         # am = ag(am, "logits", "/u/marten.mueller/dev/ctc_baseline/recipe/i6_experiments/users/mueller/experiments/ctc_baseline", False, None, True, 0, [],  ["Logits"], frames)
         am = am.permute(1, 0, 2)
-        
+
         am = torch.cat([torch.full((1,1,2), float("-inf"), device=device).expand(frames, batch_size, 2), torch.nn.functional.log_softmax(am[:, :, 2:], dim=-1)], dim = -1)
-        
+
         # res = 0.0
         # res = am[0, 0, :].unsqueeze(0)
         # for t in range(1, frames):
         #     res = log_matmul(res, am[t, 0, :].unsqueeze(0).expand(vocab_size, vocab_size))
         # print(safe_logsumexp(res, dim=-1), safe_logsumexp(res, dim=-1).exp())
-        
+
         prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
         prior = torch.nn.functional.log_softmax(prior, dim=-1)
-        
+
         length = torch.full((batch_size,), frames, device=device)
         # length[0] -= 3
 
         # am = am.permute(1, 0, 2)
         # prior = _calc_log_prior(am, length, use_max=True)
         # am = am.permute(1, 0, 2)
-        
+
         am = am.permute(1, 0, 2)
         # x, name, prefix, print_input, mean_dim = None, all_steps = True, batch_idx = None, timesteps = [], title: list = []
         # am = ag(am, "log_probs", "/u/marten.mueller/dev/ctc_baseline/recipe/i6_experiments/users/mueller/experiments/ctc_baseline", False, None, True, 0, [],  ["Log Probs"], frames)
@@ -2150,7 +2187,7 @@ def test():
         # am = ag(am, "AM", False)
         am = am.permute(1, 0, 2)
         # prior = ag(prior, "prior", False)
-        
+
         loss = sum_loss_ngram(
             log_probs=am,
             log_lm_probs=lm,
@@ -2173,11 +2210,11 @@ def test():
         print("OUT", (-loss[0]).tolist(), (-loss[0]).exp().tolist())
         # l += (loss / frames).mean()
         l = loss
-        
+
         # del loss, am, prior
         # torch.cuda.empty_cache()
         print("Time:", time.time() - s)
-        
+
         # targets = torch.tensor(
         #     [ 34,  34, 117,  31,  67,  12, 146, 107, 154,  45,  45, 123,  17,  53,
         #     35,  97,  97, 120,  48, 135, 103,  20,  75, 117,  96, 120,  58,   9,
@@ -2203,15 +2240,14 @@ def test():
         #     reduction="none"
         # )
         # print(ctc_loss)
-        
-        
+
+
     l.backward(torch.ones_like(l, device=device))
-    print(am_o.grad)
     e1 = time.time()
     # print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {l}") # 5:00 mins
-    
+
     # s2 = time.time()
-    
+
     # targets = torch.randint(1, vocab_size, (batch_size, 80))
     # target_lengths = torch.full((batch_size,), 80)
     # ctc_loss = torch.nn.functional.ctc_loss(
@@ -2222,7 +2258,7 @@ def test():
     #     blank=0,
     #     reduction="none"
     # )
-    
+
     # e2 = time.time()
     # print(f"CTC loss took {time.strftime('%H:%M:%S', time.gmtime(e2 - s2))}: {(ctc_loss / frames).mean()}") # 0:08 mins
 
@@ -2236,16 +2272,10 @@ def test_LM():
     t = torch.log_softmax(t, dim=-1)
     print(safe_logsumexp(t, dim=-1))
     print(t.isnan().sum())
-    
-def test_arpa():
-    import kenlm
-    
-    lm = kenlm.Model("/u/marten.mueller/dev/ctc_baseline/work/i6_core/lm/kenlm/CreateBinaryLMJob.de9S4OxfBkxq/output/lm.bin")
-    print(lm.score("Hello World", bos = True, eos = True))
-    
+
 def test_get_bpes():
     tokens = "[117] [117] [117] [117] [117] [117] [117] [46] [46] [46] [46] [21] [35] [35] [55] [55] [120] [120] [120] [26] [26] [76] [13] [26] [10] [10] [74] [116] [7] [7] [19] [13] [53] [57] [57] [108] [108] [10] [10] [10] [42] [42] [24] [24] [34] [34] [34] [55] [25] [14] [14] [18] [18] [18] [18] [18] [156] [156] [9] [81] [81] [13] [15] [21] [50] [50] [23] [23] [113] [113] [113] [28] [77] [77] [27] [27] [39] [170] [2] [18] [18] [20] [20] [142] [142] [142] [170] [170] [170] [106] [106] [7] [7] [33] [33] [162] [162] [162] [52] [52] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18]"
     print(get_bpes(tokens))
 
 if __name__ == "__main__":
-    test_arpa()
+    test()

@@ -44,24 +44,59 @@ _alias_prefix = "datasets/LibriSpeech/"
 
 @cache
 def _get_librispeech_ogg_zip_dict() -> Dict[str, tk.Path]:
-    return librispeech.get_ogg_zip_dict()
+    ogg_zip_dict = librispeech.get_ogg_zip_dict()
+
+    from i6_core.returnn.oggzip import BlissToOggZipJob
+    name = "_train-clean-100-short"
+    ogg_zip_job = BlissToOggZipJob(
+        _get_bliss_corpus_dict(None, name)[name],
+        no_conversion=True,
+    )
+    ogg_zip_job.add_alias(os.path.join("datasets", "LibriSpeech", "%s_ogg_zip_job" % name))
+    ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
+
+    return ogg_zip_dict
 
 
 @cache
-def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
+def _get_bliss_corpus_dict(
+        pseudo_labels_path: tk.Path,
+        part: str,
+) -> Dict[str, tk.Path]:
     # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
     # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
     # However, these are used later in the scoring, so when changing them, make sure it's optional,
     # to not break hashes of old setups.
     if pseudo_labels_path:
         assert part is not None
-        bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
+        # bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
+        bliss_corpus_dict = _get_bliss_corpus_dict(None, part)
         # load pseudo labels and replace here
         bliss_corpus = bliss_corpus_dict[part]
         replace_job = CorpusReplaceOrthFromPyDictJob(bliss_corpus, pseudo_labels_path)
         replace_job.add_alias(os.path.join("datasets", "LibriSpeech-PseudoLabels", "%s_replace_orth" % part.replace('-', '_')))
         bliss_corpus = replace_job.out_corpus
         return {part: bliss_corpus}
+    elif part == "_train-clean-100-short":
+        from i6_experiments.users.schmitt.corpus.segment_ends import AugmentCorpusSegmentEndsJob
+        from i6_experiments.users.schmitt.corpus.statistics import GetBlissCorpusStatisticsJob
+        from i6_core.corpus.filter import FilterCorpusBySegmentDurationJob
+
+        augmented_corpus = AugmentCorpusSegmentEndsJob(
+            bliss_corpous=librispeech.get_bliss_corpus_dict(audio_format="ogg")["train-clean-100"],
+            oggzip_path=librispeech.get_ogg_zip_dict()["train-clean-100"],
+            corpus_key="train-clean-100",
+        ).out_bliss_corpus
+        filtered_corpus = FilterCorpusBySegmentDurationJob(
+            bliss_corpus=augmented_corpus,
+            min_duration=0.0,
+            max_duration=10.0,  # 10 seconds
+        ).out_corpus
+        corpus_stats = GetBlissCorpusStatisticsJob(
+            bliss_corpus=filtered_corpus,
+        )
+        tk.register_output(f"datasets/LibriSpeech/statistics/{part}_statistics.txt", corpus_stats.out_statistics)
+        return {part: filtered_corpus}
     else:
         return librispeech.get_bliss_corpus_dict(audio_format="ogg")
 
@@ -278,7 +313,7 @@ def get_bpe_lexicon(bpe_vocab: Bpe) -> tk.Path:
     return word_lexicon
 
 
-_Parts = ["train-clean-100", "train-clean-360", "train-other-500", "dev-clean", "dev-other", "test-clean", "test-other"]
+_Parts = ["train-clean-100", "train-clean-360", "train-other-500", "dev-clean", "dev-other", "test-clean", "test-other", "_train-clean-100-short"]
 
 default_train_epoch_split = 20
 
@@ -521,7 +556,7 @@ class LibrispeechOggZip(DatasetConfig):
         else:
             d["targets"] = None
         if training:
-            if self.train_ds_key == "train-clean-100":
+            if self.train_ds_key in ["train-clean-100", "_train-clean-100-short"]:
                 d["partition_epoch"] = 2
             elif self.train_ds_key == "train-other-860":
                 d["partition_epoch"] = 18
@@ -913,6 +948,7 @@ class TrainDatasetSel(Enum):
     train_100h = 1
     train_860h = 2
     train_960h = 3
+    _train_clean_100_short = 4
 
 def get_librispeech_task_raw_v2(
     *,
@@ -957,7 +993,9 @@ def get_librispeech_task_raw_v2(
     if ds_sel == TrainDatasetSel.train_100h:
         train_ds_key = "train-clean-100"
     elif ds_sel == TrainDatasetSel.train_860h:
-        train_ds_key = "train-other-860" 
+        train_ds_key = "train-other-860"
+    elif ds_sel == TrainDatasetSel._train_clean_100_short:
+        train_ds_key = "_train-clean-100-short"
     else:
         train_ds_key = "train"
 
@@ -977,13 +1015,19 @@ def get_librispeech_task_raw_v2(
         "dev-other": LibrispeechOggZip(**dataset_common_opts, main_key="dev-other"),
         "test-clean": LibrispeechOggZip(**dataset_common_opts, main_key="test-clean"),
         "test-other": LibrispeechOggZip(**dataset_common_opts, main_key="test-other"),
+        "_train-clean-100-short": LibrispeechOggZip(**dataset_common_opts, main_key="_train-clean-100-short"),
     }
     dev_dataset = eval_datasets["dev-other"]
     
     pseudo_labels_ds = {}
     train_100_ds = None
     if save_pseudo_labels is not None:
-        ds_ls = ["train-clean-360", "train-other-500"] if save_pseudo_labels == TrainDatasetSel.train_860h else ["train-clean-100", "train-clean-360", "train-other-500"]
+        if save_pseudo_labels == TrainDatasetSel.train_860h:
+            ds_ls = ["train-clean-360", "train-other-500"]
+        elif save_pseudo_labels == TrainDatasetSel._train_clean_100_short:
+            ds_ls = ["_train-clean-100-short"]
+        else:
+            ds_ls = ["train-clean-100", "train-clean-360", "train-other-500"]
         for ds_name in ds_ls:
             pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
         train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")

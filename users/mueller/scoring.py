@@ -16,7 +16,8 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
-from .datasets.librispeech import _get_corpus_text_dict
+# from .datasets.librispeech import _get_corpus_text_dict
+from i6_experiments.users.schmitt.datasets.librispeech import _get_corpus_text_dict
 
 
 class ComputeWERJob(sisyphus.Job):

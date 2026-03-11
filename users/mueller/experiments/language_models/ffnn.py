@@ -256,6 +256,132 @@ class FeedForwardLm(rf.Module):
         return out, state
 
 
+class FeedForwardLmV2(rf.Module):
+    def __init__(
+        self,
+        vocab_dim: Dim,
+        context_size: int,
+        num_layers: int = 2,
+        embed_dim: int = 128,
+        activation_func: Union[Callable[[Tensor], Tensor], Dict[str, Any]] = rf.relu,
+        embed_dropout: float = 0.0,
+        ff_hidden_dim: int = 2048,
+        dropout: float = 0.0,
+        use_bottleneck: bool = False,
+    ) -> None:
+        """
+        FFNN LM model with generic context size (e.g context size = 1 means a bigram model)
+        """
+
+        super().__init__()
+
+        self.vocab_dim = vocab_dim
+        self.embed_dropout = embed_dropout
+        self.dropout = dropout
+        self.context_size = context_size
+
+        self.context_dim = Dim(context_size - 1, name="context")
+        self.out_dim = Dim(context_size + 1, name="context+1")
+
+        if isinstance(activation_func, dict):
+            self.activation_func = rf.build_from_dict(activation_func)
+        else:
+            self.activation_func = activation_func
+
+        self.use_bottleneck = use_bottleneck
+
+        self.embed_dim = Dim(name="embed_dim", dimension=embed_dim)
+        self.ff_hidden_dim = Dim(name="ff_hidden_dim", dimension=ff_hidden_dim)
+
+        self.conv_filter_size_dim = Dim(name="conv_filter_size", dimension=context_size)
+
+        # input embedding layer
+        self.embedding = rf.Embedding(vocab_dim, self.embed_dim)
+
+        # FF layers
+        self.conv = rf.Conv1d(
+            self.embed_dim, self.ff_hidden_dim, filter_size=self.conv_filter_size_dim, padding="valid"
+        )
+        self.ff_layers = rf.Sequential(rf.Linear(self.ff_hidden_dim, self.ff_hidden_dim) for _ in range(num_layers - 1))
+
+        # output linear projection layer
+        self.out_linear = rf.Linear(self.ff_hidden_dim, vocab_dim)
+
+    def default_initial_state(
+            self,
+            *,
+            batch_dims: Sequence[Dim],
+            use_batch_dims_for_pos: bool = False
+    ) -> rf.State:
+        """
+        all states are None. Need this to be (maybe) compatible
+        with some LM interfaces or RF
+        """
+        return rf.State()
+
+    def custom_initial_state(
+            self,
+            *,
+            batch_dims: Sequence[Dim],
+            bos_idx: int,
+            use_batch_dims_for_pos: bool = False
+    ) -> rf.State:
+        """
+        all states are None. Need this to be (maybe) compatible
+        with some LM interfaces or RF
+        """
+        state = rf.State()
+
+        state.ctx = rf.constant(
+            bos_idx,
+            dims=[batch_dims, self.context_dim],
+            sparse_dim=self.vocab_dim
+        )
+
+        return state
+
+    def select_state(self, state: rf.State, backrefs) -> rf.State:
+        state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), state)
+        return state
+
+    def __call__(
+        self,
+        input: rf.Tensor,
+        spatial_dim: Optional[Dim] = None,
+        out_spatial_dim: Optional[Dim] = None,
+        state: Optional[rf.State] = None,
+    ) -> Tuple[rf.Tensor, rf.State]:
+        input = rf.concat((state.ctx, state.ctx))
+
+        embed_out = self.embedding(rf.cast(input, "int64"))
+        embed_out = rf.dropout(
+            embed_out,
+            drop_prob=self.embed_dropout,
+            axis=embed_out.feature_dim,
+        )
+
+        conv_inp, (conv_inp_spatial_dim,) = rf.pad(
+            embed_out,
+            axes=[spatial_dim],
+            padding=[(self.conv_filter_size_dim, 0)],
+            value=self.vocab_dim.vocab.bos_label_id,
+        )
+
+        conv_out, _ = self.conv(conv_inp, in_spatial_dim=conv_inp_spatial_dim, out_spatial_dim=out_spatial_dim)
+
+        ff_out = self.activation_func(conv_out)
+        ff_out = rf.dropout(ff_out, drop_prob=self.dropout)
+
+        for layer in self.ff_layers:
+            ff_out = layer(ff_out)
+            ff_out = self.activation_func(ff_out)
+            ff_out = rf.dropout(ff_out, drop_prob=self.dropout)
+
+        out = self.out_linear(ff_out)
+
+        return out, state
+
+
 def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:
     from returnn.config import get_global_config
 

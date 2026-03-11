@@ -39,6 +39,7 @@ def train(
     num_processes: Optional[int] = None,
     init_hdf_writer: bool = False,
     keep_train_lm_def: bool = True,
+    repeat_epoch: int = 1,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -111,11 +112,11 @@ def train(
         # dataset
         default_input=train_dataset.get_default_input(),
         target=train_dataset.get_default_target(),
-        train=(
-            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset(), **multi_proc_opts)
-            if apply_multi_proc
-            else train_dataset.get_train_dataset()
-        ),
+        # train=(
+        #     mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset(), **multi_proc_opts)
+        #     if apply_multi_proc
+        #     else train_dataset.get_train_dataset()
+        # ),
         eval_datasets=(
             mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets(), **multi_proc_opts)
             if apply_multi_proc
@@ -124,6 +125,14 @@ def train(
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=train_epoch_split or 1,
     )
+    train_dataset_dict = train_dataset.get_train_dataset()
+    if repeat_epoch > 1:
+        print("Note: Using repeat_epoch > 1 for training dataset.")
+        train_dataset_dict["repeat_epoch"] = repeat_epoch
+    if apply_multi_proc:
+        train_dataset_dict = mp_ds_utils.multi_proc_dataset_opts(train_dataset_dict, **multi_proc_opts)
+    returnn_train_config_dict["train"] = train_dataset_dict
+
     returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
         model_conf = model_def.config.copy()
@@ -241,7 +250,7 @@ def train(
         time_rqmt=80,
         mem_rqmt=30 if gpu_mem and gpu_mem > 11 else 15, # 15, 30
         cpu_rqmt=4 if (not num_processes or num_processes <= 4) else 3,
-        horovod_num_processes=num_processes,  # legacy name but also applies for Torch
+        horovod_num_processes=None if num_processes == 1 else num_processes,  # legacy name but also applies for Torch
     ).items():
         if k not in kwargs or kwargs[k] is None:
             kwargs[k] = v
