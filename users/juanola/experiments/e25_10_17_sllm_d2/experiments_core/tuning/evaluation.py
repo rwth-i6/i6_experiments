@@ -79,7 +79,7 @@ def create_tune_and_evaluate_jobs(
     # Tune & Eval different models
     result_dict = {}
     for evaluation_name, (checkpoint, checkpoint_name, run_test_for_eval) in checkpoint_per_evaluation.items():
-        asr_model = prepare_asr_model(
+        asr_model = prepare_asr_model( # TODO: prior should be independent of checkpoint?
             checkpoint_name,
             checkpoint,
             network_import_path,
@@ -92,6 +92,7 @@ def create_tune_and_evaluate_jobs(
         )
 
         autoscale_id = None
+        search_config_to_run = search_config
         if (
             search_config.auto_scaling
         ):  # tunes scales and finds best combination, which then is used in the forward steps
@@ -106,7 +107,7 @@ def create_tune_and_evaluate_jobs(
                 evaluation_name=evaluation_name,
             )
 
-            search_config = dataclasses.replace(
+            search_config_to_run = dataclasses.replace(
                 search_config,
                 ctc_scales=[scales_dict.get(Scales.CTC.value, 0.0)],
                 sllm_scales=[scales_dict.get(Scales.SLLM.value, 0.0)],
@@ -117,10 +118,10 @@ def create_tune_and_evaluate_jobs(
         res = tune_and_evaluate_model(
             evaluation_name,
             asr_model,
-            search_config,
+            search_config_to_run,
             dev_dataset_tuples=dev_dataset_tuples,
-            forward_method=search_config.forward_method,
-            debug=search_config.debug_returnn_param,
+            forward_method=search_config_to_run.forward_method,
+            debug=search_config_to_run.debug_returnn_param,
             run_test=run_test and run_test_for_eval,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
@@ -467,13 +468,18 @@ def get_forward_step_parameters_and_search_name(
 
     elif forward_method == "forward_step_ctc_decoding_v2":
         prefix = "v4"
+        ext_modules = ""
         if search_config.ext_encoder is not None:
-            prefix = prefix + f"-{search_config.ext_encoder['checkpoint_key']}"
+            ext_modules = ext_modules + f"{search_config.ext_encoder['checkpoint_key']}"
         if search_config.ext_decoder is not None:
+            if search_config.ext_encoder is not None:
+                ext_modules += ","
             if search_config.ext_decoder_no_preloading:
-                prefix = prefix + "-lm_scratch"
+                ext_modules = ext_modules + "lm_scratch"
             else:
-                prefix = prefix + f"-{search_config.ext_decoder['checkpoint_key']}"
+                ext_modules = ext_modules + f"{search_config.ext_decoder['checkpoint_key']}"
+        if ext_modules != "":
+            prefix = f"{prefix}-[{ext_modules}]"
 
         forward_args = {
             "beam_size": beam_size,
@@ -490,11 +496,11 @@ def get_forward_step_parameters_and_search_name(
 
         # TODO: make the name depend on the external ctc + lm checkpoints
         if for_test:
-            search_name = f"{evaluation_name}/{prefix}_optimal_params"
+            search_name = f"{evaluation_name}/{prefix}-optimal_params"
         elif search_config.auto_scaling:
-            search_name = f"{evaluation_name}/{prefix}_beam{beam_size}_{autoscale_id}"
+            search_name = f"{evaluation_name}/{prefix}-beam{beam_size}_{autoscale_id}"
         else:
-            search_name = f"{evaluation_name}/{prefix}_beam{beam_size}_sllm{sllm_scale:.1f}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
+            search_name = f"{evaluation_name}/{prefix}-beam{beam_size}_sllm{sllm_scale:.1f}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
     else:
         raise ValueError(f"Unknown forward method: {forward_method}")
 

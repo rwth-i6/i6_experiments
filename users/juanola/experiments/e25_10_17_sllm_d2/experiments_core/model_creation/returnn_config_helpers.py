@@ -252,6 +252,7 @@ def get_forward_config_v2(
         base_config: Optional[Dict[str, Any]] = None,
         debug: bool = False,
         extra_configs: List[ReturnnConfig] = None,
+        default_data_key: Optional[str] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -286,17 +287,14 @@ def get_forward_config_v2(
             DATA_PARAM_NAME: {"dim": 1},
         }
 
-    default_data_key = "data"
+    if default_data_key is not None:
+        config.update({"default_data_key": default_data_key})
+
     # if extern_data is None:
     #     extern_data = {
     #         default_data_key: {"shape": (None,)},
     #     }
     #
-    # config.update(
-    #     {
-    #         "default_data_key": default_data_key,
-    #     }
-    # )
 
     # if add_text_to_extern_data:
     #     default_target_key = "text"

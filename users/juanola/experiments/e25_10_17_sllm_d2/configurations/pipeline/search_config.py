@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import warnings
 from dataclasses import dataclass
@@ -314,7 +315,9 @@ def V4_ctc_sllm_lm_combinations(
     )
 
 
-def V4_autoscaling_64_ctc_prior_lm(
+TO_TUNE_SCALE_FOR_AUTOSCALING = 0.0
+
+def V4_autoscaling_64_ctc_prior_sllm_lm(
     ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
     ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
     use_ctc: bool = True,
@@ -323,13 +326,25 @@ def V4_autoscaling_64_ctc_prior_lm(
     use_prior: bool = True,
     auto_scaling_use_ctc_sum_scores: bool = False,
 ) -> SearchConfig:
+    """
+    For autoscaling:
+    - None -> don't use
+    - zero -> to tune
+    -> positive number -> fix scale
+    """
 
-    ctc_scales = [1.0] if use_ctc else [0.0]
-    sllm_scales = [1.0] if use_sllm else [0.0]
-    llm_scales = [1.0] if use_llm else [0.0]
-    prior_scales = [1.0] if use_prior else [0.0]
+    ctc_scales = [TO_TUNE_SCALE_FOR_AUTOSCALING] if use_ctc else [None]
+    sllm_scales = [TO_TUNE_SCALE_FOR_AUTOSCALING] if use_sllm else [None]
+    llm_scales = [TO_TUNE_SCALE_FOR_AUTOSCALING] if use_llm else [None]
+    prior_scales = [TO_TUNE_SCALE_FOR_AUTOSCALING] if use_prior else [None]
 
-    sllm_as_llm = use_llm and ext_encoder is None
+    # Frozen scales
+    if use_ctc:
+        ctc_scales = [1.0]
+    elif use_sllm:
+        sllm_scales = [1.0]
+
+    sllm_as_llm = use_llm and (ext_decoder is None)
 
     return dataclasses.replace(
         V4_baseline(),
@@ -351,15 +366,22 @@ def V4_autoscaling_64_all_combs(
     ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
     ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
     auto_scaling_use_ctc_sum_scores: bool = False,
+    force_ext_llm: bool = False,
 ) -> List[SearchConfig]:
     searches = []
 
     opts = [True, False]
-    for (ctc, sllm, llm, prior) in [(a, b, c, d) for a in opts for b in opts for c in opts for d in opts]:
-        if ctc + sllm + llm + prior <= 1: continue # At least 2 models/components
-        if not ctc and prior: continue # Prior only for CTC
+    opts_llm = [True] if force_ext_llm else opts
+    for (ctc, sllm, llm, prior) in [(a, b, c, d) for a in opts for b in opts for c in opts_llm for d in opts]:
+        if ctc + sllm + llm + prior <= 1:
+            continue  # At least 2 models/components
+        if not ctc and prior:
+            continue  # Prior only for CTC
+        if prior and not (llm or sllm):
+            continue  # Prior should be used if an LM is also used
+
         searches.append(
-            V4_autoscaling_64_ctc_prior_lm(
+            V4_autoscaling_64_ctc_prior_sllm_lm(
                 ext_encoder=ext_encoder,
                 ext_decoder=ext_decoder,
                 use_ctc=ctc,
@@ -370,6 +392,26 @@ def V4_autoscaling_64_all_combs(
             )
         )
     return searches
+
+
+def V4_autoscaling_64_ext_llm_combs(
+    ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
+    ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
+    auto_scaling_use_ctc_sum_scores: bool = False,
+) -> List[SearchConfig]:
+    """
+    Forces ext LLM to be used
+    :param ext_encoder:
+    :param ext_decoder:
+    :param auto_scaling_use_ctc_sum_scores:
+    :return:
+    """
+    return V4_autoscaling_64_all_combs(
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+        force_ext_llm=True,
+    )
 
 
 """

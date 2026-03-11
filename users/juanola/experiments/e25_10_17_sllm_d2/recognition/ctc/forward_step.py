@@ -39,14 +39,14 @@ def ctc_forward_step_v1(
         sample_rate:
         greedy_ctc_output_layer: Optional index of the CTC output layer to use for additional CTC decoding.
     """
+    assert beam_size > 0
 
     from returnn.config import get_global_config
 
     config = get_global_config(return_empty_if_none=True)
+    data_key = config.value("default_data_key", "data")
 
-    assert beam_size > 0
-
-    data_: ReturnnTensor = extern_data["data"]
+    data_: ReturnnTensor = extern_data[data_key]
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 

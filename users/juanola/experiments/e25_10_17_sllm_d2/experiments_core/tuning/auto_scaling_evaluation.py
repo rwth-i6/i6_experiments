@@ -1,6 +1,6 @@
 import copy
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 
 from i6_core.corpus import CorpusToStmJob
 from i6_core.recognition import ScliteJob
@@ -19,7 +19,7 @@ from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 from sisyphus import tk
 from .asr_model import ASRModel
 from ..model_creation.returnn_config_helpers import get_forward_config_v2
-from ...configurations.pipeline.search_config import SearchConfig
+from ...configurations.pipeline.search_config import SearchConfig, TO_TUNE_SCALE_FOR_AUTOSCALING
 from ...configurations.pretrained_models import get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT, SCTK_BINARY_PATH
 from ...utils_network_args import get_network_args
@@ -36,6 +36,7 @@ class Scales(Enum):
     SLLM = "sllm"
     PRIOR = "prior"
 
+
 def ctc_label_sync_eval_auto_scale(
     asr_model: ASRModel,
     search_config: SearchConfig,
@@ -44,29 +45,28 @@ def ctc_label_sync_eval_auto_scale(
     evaluation_name: str,
     label_datastream_key="labels",
     ogg_zip_dataset_target_key="classes",
-
     lowercase_ref: bool = False,
 ) -> tuple[Dict[str, tk.Variable], str]:
     """
     Robins code (SLLM repo)
     """
-    autoscale_id = "autoscale"
+    use_ctc = scale_is_used(search_config.ctc_scales)
+    use_sllm = scale_is_used(search_config.sllm_scales)
+    use_llm = scale_is_used(search_config.lm_scales)
+    use_prior = scale_is_used(search_config.prior_scales)
 
-    use_ctc = search_config.ctc_scales is not None and len(search_config.ctc_scales) == 1 and search_config.ctc_scales[0] == 1.0
-    use_llm = search_config.ctc_scales is not None and len(search_config.lm_scales) == 1 and search_config.lm_scales[0] == 1.0
-    use_sllm = search_config.ctc_scales is not None and len(search_config.sllm_scales) == 1 and search_config.sllm_scales[0] == 1.0
-    use_prior = search_config.ctc_scales is not None and len(search_config.prior_scales) == 1 and search_config.prior_scales[0] == 1.0
+    frozen_scales = {}
+    if use_ctc and search_config.ctc_scales[0] != TO_TUNE_SCALE_FOR_AUTOSCALING:
+        frozen_scales[Scales.CTC.value] = search_config.ctc_scales[0]
+    if use_sllm and search_config.sllm_scales[0] != TO_TUNE_SCALE_FOR_AUTOSCALING:
+        frozen_scales[Scales.SLLM.value] = search_config.sllm_scales[0]
+    if use_llm and search_config.lm_scales[0] != TO_TUNE_SCALE_FOR_AUTOSCALING:
+        frozen_scales[Scales.LLM.value] = search_config.lm_scales[0]
+    if use_prior and search_config.prior_scales[0] != TO_TUNE_SCALE_FOR_AUTOSCALING:
+        frozen_scales[Scales.PRIOR.value] = search_config.prior_scales[0]
 
-    if use_ctc:
-        autoscale_id += "_CTC"
-        if search_config.auto_scaling_use_ctc_sum_scores:
-            autoscale_id += "_sum_scores"
-    if use_llm:
-        autoscale_id += "_LLM"
-    if use_sllm:
-        autoscale_id += "_SLLM"
-    if use_prior:
-        autoscale_id += "_PRIOR"
+    # AUTOSCALING ID
+    autoscale_id, simplified_id = get_autoscaling_ids(search_config, use_ctc, use_llm, use_prior, use_sllm, frozen_scales)
 
     # DATASET FOR TUNNING
     assert len(tune_datasets.items()) == 1, "Only one dataset is supported for now!"
@@ -87,43 +87,49 @@ def ctc_label_sync_eval_auto_scale(
         data_key=ogg_zip_dataset_target_key,
         vocab=train_data.datastreams[label_datastream_key].as_returnn_targets_opts(),
     ).out_txt
-    ref = SearchOutputRawReplaceJob(
-        ref, replacement_list=[(" ", ""), ("▁", " ")]
-    ).out_search_results
+    ref = SearchOutputRawReplaceJob(ref, replacement_list=[(" ", ""), ("▁", " ")]).out_search_results
     if lowercase_ref:
         ref = PipelineJob(
             ref, pipeline=[r"""perl -pi -e "s/(:\\s*)(['\"])(.*?)\\2/\$1 . \$2 . lc(\$3) . \$2/e" """]
         ).out
 
     # Net args
-    extra_returnn_configs = [] #TODO: apply this
+    extra_returnn_configs = []  # TODO: apply this
     net_args = asr_model.net_args
     preloading = {}
     python_prolog = None
 
     if search_config.ext_encoder is not None:
-        net_args["external_ctc_args"] = get_network_args(search_config.ext_encoder["network_config"], search_config.ext_encoder["label_config"])
+        net_args["external_ctc_args"] = get_network_args(
+            search_config.ext_encoder["network_config"], search_config.ext_encoder["label_config"]
+        )
         preloading[f"EXT_ENCODER-{search_config.ext_encoder['checkpoint_key']}"] = {
             "filename": get_encoder_checkpoint_from_str(search_config.ext_encoder["checkpoint_key"]),
             "prefix": "external_ctc.",
             "init_for_train": False,
             "ignore_missing": True,
-            "ignore_params_prefixes": ["external_lm.", "decoder_embed_func", "decoder"]
+            "ignore_params_prefixes": ["external_lm.", "decoder_embed_func", "decoder"],
         }
     else:
         assert "external_ctc_args" not in net_args, "Search is not using external ctc but net arguments are provided!"
 
     if search_config.ext_decoder is not None:
-        net_args["external_lm_args"] = get_network_args(search_config.ext_decoder["network_config"], search_config.ext_decoder["label_config"])
+        net_args["external_lm_args"] = get_network_args(
+            search_config.ext_decoder["network_config"], search_config.ext_decoder["label_config"]
+        )
         if not search_config.ext_decoder_no_preloading:
             preloading[f"EXT_DECODER-{search_config.ext_decoder['checkpoint_key']}"] = {
                 "filename": get_decoder_checkpoint_from_str(search_config.ext_decoder["checkpoint_key"]),
                 "prefix": "external_lm.",
                 "init_for_train": False,
                 "ignore_missing": True,
-                "ignore_params_prefixes": ["external_ctc.", "encoder", "mel_frontend"], # , "external_lm.decoder.model.embed_tokens"
-                #"var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
-                #"custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
+                "ignore_params_prefixes": [
+                    "external_ctc.",
+                    "encoder",
+                    "mel_frontend",
+                ],  # , "external_lm.decoder.model.embed_tokens"
+                # "var_name_mapping": {"external_lm.decoder.model.embed_tokens.weight": "external_lm.decoder_embed_func.weight"}
+                # "custom_missing_load_func": CodeWrapper("adapt_extern_decoder_embedding"),
             }
     else:
         assert "external_lm_args" not in net_args, "Search is not using external lm but net arguments are provided!"
@@ -173,7 +179,7 @@ def ctc_label_sync_eval_auto_scale(
             "merge_labels": False,
         },
         debug=search_config.debug_returnn_param,
-        extra_configs= extra_returnn_configs,
+        extra_configs=extra_returnn_configs,
     )
     ctc_n_best_original = forward_single(
         f"{recog_path}/ctc-n-best",
@@ -185,13 +191,15 @@ def ctc_label_sync_eval_auto_scale(
     )
 
     # RESCORINGS
-    vocab_file = ExtractVocabLabelsJob(train_data.datastreams[label_datastream_key].as_returnn_targets_opts()).out_vocab # Has "_word" form
+    vocab_file = ExtractVocabLabelsJob(
+        train_data.datastreams[label_datastream_key].as_returnn_targets_opts()
+    ).out_vocab  # Has "_word" form
     rescore_data = {
         "class": "TextDictDataset",
-        "filename": ctc_n_best_original, # Has "_word" form
+        "filename": ctc_n_best_original,  # Has "_word" form
         "vocab": {
             "class": "Vocabulary",
-            "vocab_file": vocab_file, # Has "_word" form
+            "vocab_file": vocab_file,  # Has "_word" form
             "unknown_label": None,
         },
     }
@@ -213,15 +221,13 @@ def ctc_label_sync_eval_auto_scale(
                 base_config=forward_config_low_batch_size,
                 net_args=asr_model.net_args,
                 decoder_args=forward_params,
-                forward_module="recognition.ctc",
-                forward_method="ctc_forward_step_v1",
+                forward_module="rescoring",
+                forward_method="forward_step_v1",
                 callback_name="RecognitionToTextDictCallbackV2",
                 label_datastream=train_data.datastreams[label_datastream_key],
-                callback_opts={
-                    "include_beam": True,
-                },
+                callback_opts={"include_beam": True},
                 debug=search_config.debug_returnn_param,
-                extra_configs= extra_returnn_configs,
+                extra_configs=extra_returnn_configs,
                 extern_data={
                     "audio": {"dim": 1},
                     "hyps_flat": {
@@ -232,7 +238,7 @@ def ctc_label_sync_eval_auto_scale(
                     "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
                 },
             )
-            ctc_rescore_results= forward_single(
+            ctc_rescore_results = forward_single(
                 f"{recog_path}/ctc_sum_rescoring",
                 returnn_config=returnn_ctc_rescoring_config,
                 checkpoint=asr_model.checkpoint,
@@ -255,7 +261,7 @@ def ctc_label_sync_eval_auto_scale(
             network_import_path=asr_model.network_import_path,
             base_config=forward_config_low_batch_size,  # because of large beam dim, we need to lower the batch size
             net_args=asr_model.net_args,
-            decoder_args=forward_params, # TODO: add param with which module to use for decoding (SLLM or ext LLM)
+            decoder_args=forward_params,
             forward_module="rescoring",
             forward_method="forward_step_v1",
             callback_name="RecognitionToTextDictCallbackV2",
@@ -271,7 +277,7 @@ def ctc_label_sync_eval_auto_scale(
                 "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
             },
             debug=search_config.debug_returnn_param,
-            extra_configs= extra_returnn_configs,
+            extra_configs=extra_returnn_configs,
         )
         sllm_rescore_results = forward_single(  # TODO: change to LM? and proper network...
             f"{recog_path}/sllm_rescoring",
@@ -313,7 +319,7 @@ def ctc_label_sync_eval_auto_scale(
                 "hyps_seq_lens": {"shape": [beam_size], "dtype": "int32"},
             },
             debug=search_config.debug_returnn_param,
-            extra_configs= extra_returnn_configs,
+            extra_configs=extra_returnn_configs,
         )
         llm_rescore_results = forward_single(  # TODO: change to LM? and proper network...
             f"{recog_path}/llm_rescoring",
@@ -331,10 +337,10 @@ def ctc_label_sync_eval_auto_scale(
     if use_prior:
         assert asr_model.prior_text_file is not None, "Prior text file is needed"
         prior_rescore_job = SearchPriorRescoreJob(
-            ctc_n_best_original, # Has "_word" form
+            ctc_n_best_original,  # Has "_word" form
             prior=asr_model.prior_text_file,
             prior_type="prob",
-            vocab=vocab_file, # Has "_word" form
+            vocab=vocab_file,  # Has "_word" form
             vocab_is_chars=False,
         )
         prior_rescore_job.add_alias(f"{recog_path}/prior_rescoring")
@@ -344,19 +350,10 @@ def ctc_label_sync_eval_auto_scale(
         ).out_search_results
         scores["prior"] = prior_rescore_results
 
-    # AUTO SCALING
-    fixed_scales = None
-    if use_ctc:
-        fixed_scales = {Scales.CTC.value: 1.0}
-    elif use_sllm:
-        fixed_scales = {Scales.SLLM.value: 1.0}
-    else:
-        fixed_scales = None
-
     opt_scales_job = ScaleTuningJob(
         scores=scores,
         ref=ref,
-        fixed_scales=fixed_scales,
+        fixed_scales=frozen_scales,
         negative_scales={Scales.PRIOR.value} if use_prior else None,
         evaluation="edit_distance",
     )
@@ -399,8 +396,50 @@ def ctc_label_sync_eval_auto_scale(
     # OUTPUT
     scales = copy.deepcopy(opt_scales_job.out_real_scale_per_name)
     if use_prior:
-        scales[Scales.PRIOR.value] *= -1.0 # negative sign is applyed ad forward step (V4)
-    return scales, autoscale_id
+        scales[Scales.PRIOR.value] *= -1.0  # negative sign is applyed ad forward step (V4)
+    return scales, simplified_id
+
+
+def scale_is_used(scales: Optional[List[float]]) -> bool:
+    return scales is not None and len(scales) == 1 and scales[0] is not None
+
+
+def get_autoscaling_ids(search_config: SearchConfig, use_ctc: bool | Any, use_llm: bool | Any, use_prior: bool | Any,
+                        use_sllm: bool | Any, frozen_scales: Dict[str, float]) -> tuple[str, str]:
+    root_name = "autoscale"
+    ext_modules = ""
+    if search_config.ext_encoder is not None:
+        ext_modules = ext_modules + f"{search_config.ext_encoder['checkpoint_key']}"
+    if search_config.ext_decoder is not None:
+        if search_config.ext_encoder is not None:
+            ext_modules += ","
+        if search_config.ext_decoder_no_preloading:
+            ext_modules = ext_modules + "lm_scratch"
+        else:
+            ext_modules = ext_modules + f"{search_config.ext_decoder['checkpoint_key']}"
+    scales_used = ""
+    if use_ctc:
+        scales_used += "_CTC"
+        if search_config.auto_scaling_use_ctc_sum_scores:
+            scales_used += "_sum_scores"
+        if Scales.CTC.value in frozen_scales:
+            scales_used += f"({frozen_scales[Scales.CTC.value]})"
+    if use_prior:
+        scales_used += "_PRIOR"
+        if Scales.PRIOR.value in frozen_scales:
+            scales_used += f"({frozen_scales[Scales.PRIOR.value]})"
+    if use_sllm:
+        scales_used += "_SLLM"
+        if Scales.SLLM.value in frozen_scales:
+            scales_used += f"({frozen_scales[Scales.SLLM.value]})"
+    if use_llm:
+        scales_used += "_LLM"
+        if Scales.LLM.value in frozen_scales:
+            scales_used += f"({frozen_scales[Scales.LLM.value]})"
+
+    simplified_id = root_name + scales_used
+    autoscale_id = f"{root_name}-[{ext_modules}]-{scales_used}" if ext_modules != "" else simplified_id
+    return autoscale_id, simplified_id
 
 
 def generic_sclite_score_recog_out(
