@@ -16,7 +16,7 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
 from .experiment_config_v2 import exp_v14_3ctc_b_pre_ed_v2, exp_v14_3ctc_s_pre_ed_v2, exp_v14_3ctc_b_pre_ed_f20_v2, \
     exp_v14_3ctc_s_pre_ed_f10_v2, bv2_pre_ed_s_c_4gpu_v2, bv2_ds_pre_ed_b_fe_v2, bv2_pre_ed_s_fe_v2, exp_v15_3ctc_small, \
     bv2_pre_ed_s_c_v2, bv2_pre_ed_s_lm_v2, exp_v15_small_12ep_lr4_v2, exp_v15_small_12ep_lr5_v2, bv2_ds_pre_ed_b_c_v2, \
-    bv2_ds_pre_ed_b_lm_v2
+    bv2_ds_pre_ed_b_lm_v2, bv2_pre_d_s_c_v2, bv2_pre_d_b_c_v2
 
 
 class ExperimentVersion(Enum):
@@ -126,6 +126,8 @@ class ExperimentVersion(Enum):
     V15_SMALL_SLLM_LR5_V2 = "SLLM_small_12finetuning_lr5_v2"
     SLLM_BV2_DS_PRE_ED_B_C_V2 = "SLLM_ds_pretrained_ed_b_c_v2"
     SLLM_BV2_DS_PRE_ED_B_LM_V2 = "SLLM_ds_pretrained_ed_b_lm_v2"
+    SLLM_BV2_PRE_D_S_C_V2 = "SLLM_pretrained_d_s_c_v2"
+    SLLM_BV2_PRE_D_B_C_V2 = "SLLM_pretrained_d_b_c_v2"
 
     # Expand here
 
@@ -241,6 +243,8 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V15_SMALL_SLLM_LR5_V2: exp_v15_small_12ep_lr5_v2,
     ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_V2: bv2_ds_pre_ed_b_c_v2,
     ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM_V2: bv2_ds_pre_ed_b_lm_v2,
+    ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2: bv2_pre_d_s_c_v2,
+    ExperimentVersion.SLLM_BV2_PRE_D_B_C_V2: bv2_pre_d_b_c_v2,
 
 
 

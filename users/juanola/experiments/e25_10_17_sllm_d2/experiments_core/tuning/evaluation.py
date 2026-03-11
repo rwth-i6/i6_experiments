@@ -3,6 +3,7 @@ import dataclasses
 from collections import OrderedDict
 from typing import Optional, Dict, Any, Iterable, Union
 
+from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import (
     ReturnnTrainingJob,
     AverageTorchCheckpointsJob,
@@ -19,8 +20,10 @@ from .forward_job_builder import search, compute_prior
 from ..model_creation.returnn_config_helpers import get_prior_config
 from ...configurations.pipeline.prior_config import PriorConfig
 from ...configurations.pipeline.search_config import SearchConfig
+from ...configurations.pretrained_models import get_encoder_checkpoint_from_str
 from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
+from ...utils_network_args import get_network_args
 
 default_returnn = {
     "returnn_exe": RETURNN_EXE,
@@ -79,12 +82,12 @@ def create_tune_and_evaluate_jobs(
     # Tune & Eval different models
     result_dict = {}
     for evaluation_name, (checkpoint, checkpoint_name, run_test_for_eval) in checkpoint_per_evaluation.items():
-        asr_model = prepare_asr_model( # TODO: prior should be independent of checkpoint?
+        asr_model = prepare_asr_model(
             checkpoint_name,
             checkpoint,
             network_import_path,
             net_args,
-            search_config.prior,
+            search_config,
             datasets=train_data,
             vocab_opts=train_data.train.dataset.target_options,
             forward_module=RECOGNITION_PACKAGE,
@@ -173,7 +176,7 @@ def evaluate_greedy_ctc(
         checkpoint,
         network_import_path,
         net_args,
-        search_config.prior,
+        search_config,
         datasets=train_data,
         prior_network_import_path=None,  # TODO
     )
@@ -212,7 +215,7 @@ def prepare_asr_model(
     checkpoint: PtCheckpoint,
     network_import_path: str,
     net_args,
-    prior_config: PriorConfig,
+    search_config: SearchConfig,
     datasets: Optional[TrainingDatasets] = None,
     vocab_opts: Dict = None,
     forward_module: str = None,
@@ -229,28 +232,65 @@ def prepare_asr_model(
     prior_file = None
     prior_text_file = None
 
-    if prior_config is not None:
-        if prior_config.static_prior_file is None:
+    if search_config.prior is not None:
+        if search_config.prior.static_prior_file is None:
+
+            prefix = checkpoint_name
+            prior_step_params = None
+            preloading_config = None
+            net_args_tu_use = copy.deepcopy(net_args)
+            lower_batch_size = None
+
+            # External CTC
+            if search_config.ext_encoder is not None:
+                prior_step_params = {"use_external_ctc": True}
+                prefix += f"[{search_config.ext_encoder['checkpoint_key']}]"
+
+                prior_network_import_path = "networks.sllm_with_ext_modules.SllmV4"
+                net_args_tu_use["external_ctc_args"] = get_network_args(
+                    search_config.ext_encoder["network_config"], search_config.ext_encoder["label_config"]
+                )
+                preloading = {}
+                preloading[f"EXT_ENCODER-{search_config.ext_encoder['checkpoint_key']}"] = {
+                    "filename": get_encoder_checkpoint_from_str(search_config.ext_encoder["checkpoint_key"]),
+                    "prefix": "external_ctc.",
+                    "init_for_train": False,
+                    "ignore_missing": True,
+                    "ignore_params_prefixes": ["external_lm.", "decoder_embed_func", "decoder"],
+                }
+                preloading_config = {
+                    "preload_from_files": preloading,
+                }
+                #lower_batch_size = 160 * 2_000
+
             prior_step_returnn_config = get_prior_config(
                 training_datasets=datasets,
                 network_import_path=prior_network_import_path,
-                net_args=net_args,
+                net_args=net_args_tu_use,
                 vocab_opts=vocab_opts,
                 forward_module=forward_module,
-                prior_config=prior_config,
+                prior_config=search_config.prior,
+                prior_params=prior_step_params,
+                lower_batch_size=lower_batch_size,
             )
+
+            if preloading_config is not None:
+                prior_step_returnn_config.update(ReturnnConfig(config=preloading_config))
+
+            #assert False, f"{prior_step_returnn_config.get('batch_size')}"
+
             prior_file, prior_text_file = compute_prior(
-                checkpoint_name,
+                prefix,
                 prior_step_returnn_config,
                 checkpoint=checkpoint,
                 returnn_exe=RETURNN_EXE,
                 returnn_root=RETURNN_ROOT,
-                mem_rqmt=prior_config.cpu_memory,
+                mem_rqmt=search_config.prior.cpu_memory,
             )
         else:
-            prior_file = tk.Path(prior_config.static_prior_file)
-            prior_text_file = tk.Path(prior_config.static_prior_file.replace(".pt", ".txt"))
-        tk.register_output(f"{checkpoint_name}/prior.txt", prior_file)
+            prior_file = tk.Path(search_config.prior.static_prior_file)
+            prior_text_file = tk.Path(search_config.prior.static_prior_file.replace(".pt", ".txt"))
+        tk.register_output(f"{prefix}/prior.txt", prior_file)
 
     return ASRModel(
         checkpoint=checkpoint,

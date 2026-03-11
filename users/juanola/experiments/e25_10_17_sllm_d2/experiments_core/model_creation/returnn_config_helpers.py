@@ -127,10 +127,12 @@ def get_prior_config(
         prior_config: PriorConfig,
         vocab_opts: Dict,
         forward_module: str,
+        prior_params: Optional[Dict[str, Any]] = None,
 
         config: Dict[str, Any] = {},
         unhashed_net_args: Optional[Dict[str, Any]] = None,
-):
+        lower_batch_size: Optional[int] = None,
+) -> ReturnnConfig:
     """
     Get a generic config for extracting output label priors
 
@@ -142,17 +144,21 @@ def get_prior_config(
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
 
-    # RC - CONFIG
+    batch_size = prior_config.batch_size_factor * prior_config.batch_size
+    if lower_batch_size is not None:
+        batch_size = lower_batch_size
+
+# RC - CONFIG
     base_config = {
-        "batch_size": prior_config.batch_size_factor * prior_config.batch_size,
+        "batch_size": batch_size,
         "max_seqs": 240,
         "forward_data": copy.deepcopy(training_datasets.train.as_returnn_opts()), # over train!!
     }
-
     if base_config["forward_data"]["num_workers"] > 4:
         base_config["forward_data"]["num_workers"] = 4
 
     config = {**base_config, **copy.deepcopy(config)}
+
 
     # RC - POST CONFIG
     post_config = {
@@ -162,6 +168,8 @@ def get_prior_config(
     }
 
     forward_step_params = {}
+    if prior_params is not None:
+        forward_step_params.update(prior_params)
 
     # RC - PYTHON EPILOG
     extern_data = {

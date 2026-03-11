@@ -199,23 +199,23 @@ def exp_v5() -> ExperimentConfig:
             ),
 
             # Autoscaling with external CTC
-            V4_autoscaling_64_ctc_prior_sllm_lm(
+
+            *V4_autoscaling_64_ext_llm_combs(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            ),
+            *V4_autoscaling_64_ext_llm_combs(
                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
                 ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                use_ctc=True, use_sllm=True, use_llm=True, use_prior=False,
             ),
-            V4_autoscaling_64_ctc_prior_sllm_lm(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                use_ctc=True, use_sllm=True, use_llm=True, use_prior=False,
-                auto_scaling_use_ctc_sum_scores=True,
-            ),
-            # V4_autoscaling_64_ctc_prior_sllm_lm(
+            # *V4_autoscaling_64_ext_llm_combs( # TODO:!
             #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
             #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-            #     use_ctc=True, use_sllm=True, use_llm=True, use_prior=True, # TODO
             #     auto_scaling_use_ctc_sum_scores=True,
             # ),
+
+            # TODO: CTC_STANDALONE_2_LAYERS - ctc greedy
+
 
             # OLD
             replace(
@@ -271,6 +271,14 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             *V4_autoscaling_64_all_combs(),
             *V4_autoscaling_64_ext_llm_combs(ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value),
 
+            *V4_autoscaling_64_ext_llm_combs(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            ),
+            *V4_autoscaling_64_ext_llm_combs(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            ),
 
             # OLD
             # replace( # Prior and LM

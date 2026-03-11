@@ -300,6 +300,8 @@ def prior_step_v1(
         model: BaseEncoderDecoderModel,
         extern_data: TensorDict,
 
+        use_external_ctc: bool = False,
+
         aux_layer_idx: int = -1,
         **kwargs,
 ):
@@ -310,11 +312,14 @@ def prior_step_v1(
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
-    _, aux_log_probs, encoder_lens = model.forward_encoder(
-        data,
-        seq_len,
-        initial_beam_size=1, # Not really needed...
-    )
+    if use_external_ctc:
+        _, aux_log_probs, encoder_lens = model.external_ctc_forward_encoder(
+            data, seq_len, initial_beam_size=1, # Not really needed...
+        )
+    else:
+        _, aux_log_probs, encoder_lens = model.forward_encoder(
+            data, seq_len, initial_beam_size=1, # Not really needed...
+        )
 
     ctc_log_probs = aux_log_probs[aux_layer_idx]
     ctc_probs = torch.exp(ctc_log_probs)

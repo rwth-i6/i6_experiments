@@ -35,7 +35,7 @@ Specific configurations set below.
 
 
 def prior_v1() -> PriorConfig:
-    return PriorConfig(batch_size_factor=500, batch_size=16_000, cpu_memory=8, forward_method="prior_step_v1")
+    return PriorConfig(batch_size_factor=500, batch_size=16_000, cpu_memory=12, forward_method="prior_step_v1")
 
 def static_prior() -> PriorConfig:
     return replace(prior_v1(), static_prior_file="/u/marti.juanola/experiments/25_10_17_sllm_d2/work/i6_experiments/users/juanola/sisyphus_jobs/prior/ComputePriorWithoutBlank/ComputePriorWithoutBlank.EgWQfj8EJzJR/output/prior_without_blank.pt")

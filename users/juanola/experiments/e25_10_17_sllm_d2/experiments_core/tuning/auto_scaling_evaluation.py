@@ -18,9 +18,10 @@ from i6_experiments.users.zeyer.decoding.rescoring import SearchCombineScoresJob
 from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 from sisyphus import tk
 from .asr_model import ASRModel
-from ..model_creation.returnn_config_helpers import get_forward_config_v2
+from ..model_creation.returnn_config_helpers import get_forward_config_v2, get_prior_config
 from ...configurations.pipeline.search_config import SearchConfig, TO_TUNE_SCALE_FOR_AUTOSCALING
 from ...configurations.pretrained_models import get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
+from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT, SCTK_BINARY_PATH
 from ...utils_network_args import get_network_args
 
@@ -342,8 +343,6 @@ def ctc_label_sync_eval_auto_scale(
         scores[Scales.LLM.value] = llm_rescore_results
 
     if use_prior:
-        assert search_config.ext_encoder is None, "prior needs to be from the pretrained encoder... NOT IMPLEMENTED YET"
-
         assert asr_model.prior_text_file is not None, "Prior text file is needed"
         prior_rescore_job = SearchPriorRescoreJob(
             ctc_n_best_original,  # Has "_word" form
