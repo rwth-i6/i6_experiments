@@ -105,10 +105,10 @@ def e3v4():
 def e3v5():
     ex3.sllm_ep(
         [ExperimentVersion.V5_LINEAR_ADAPTER],
-        run_test=False,  # TODO: for now
-        run_best=False,  # TODO: for now
-        run_best_4=False,  # TODO: for now
-        run_only_dev_other=True,  # TODO: for now
+        run_test=False,
+        run_best=False,
+        run_best_4=False,
+        run_only_dev_other=True,
     )  # , itc_training=True)
 
 def e3v6():
@@ -124,10 +124,10 @@ def e3v6():
 def e3v7_ctc():
     ex3.sllm_ep(
         [ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
-        run_test=False,  # TODO: for now
-        run_best=False,  # TODO: for now
-        run_best_4=False,  # TODO: for now
-        run_only_dev_other=True,  # TODO: for now
+        run_test=False,
+        run_best=False,
+        run_best_4=False,
+        run_only_dev_other=True,
     )  # , itc_training=True)
 
 
@@ -191,8 +191,12 @@ def e3v8_2():
 
 def e3v7_2():
     ex3.sllm_ep(
-        [ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200]
-        # [ExperimentVersion.V7_TUNED_DROPOUT_200]
+        #[ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200]
+        [ExperimentVersion.V7_TUNED_DROPOUT_200],
+    run_test=False,
+    run_best=False,
+    run_best_4=False,
+    run_only_dev_other=True,
     )  # , itc_training=True)
 
 
@@ -237,7 +241,12 @@ def e3_pre6():
 
 
 def e3v7_3():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300],
+                run_test=False,
+                run_best=False,
+                run_best_4=False,
+                run_only_dev_other=True,
+                )  # , itc_training=True)
 
 
 def e3_f1_baseline():
@@ -346,10 +355,10 @@ def e3v13_2():
 def e3v14():
     ex3.sllm_ep(
         [ExperimentVersion.V14_SLLM_3CTC],
-        run_test=False,  # TODO: for now
-        # run_best=False,  # TODO: for now
-        # run_best_4=False,  # TODO: for now
-        run_only_dev_other=True,  # TODO: for now
+        run_test=False,
+        run_best=False,
+        run_best_4=False,
+        run_only_dev_other=True,
     )  # , itc_training=True)
 
 

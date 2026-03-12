@@ -18,6 +18,7 @@ from i6_experiments.users.zeyer.decoding.rescoring import SearchCombineScoresJob
 from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 from sisyphus import tk
 from .asr_model import ASRModel
+from .scales import Scales
 from ..model_creation.returnn_config_helpers import get_forward_config_v2
 from ...configurations.pipeline.search_config import SearchConfig, TO_TUNE_SCALE_FOR_AUTOSCALING
 from ...configurations.pretrained_models import get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
@@ -28,13 +29,6 @@ default_returnn = {
     "returnn_exe": RETURNN_EXE,
     "returnn_root": RETURNN_ROOT,
 }
-
-
-class Scales(Enum):
-    CTC = "ctc"
-    LLM = "llm"
-    SLLM = "sllm"
-    PRIOR = "prior"
 
 
 def ctc_label_sync_eval_auto_scale(

@@ -1,13 +1,12 @@
-import copy
+import dataclasses
 import dataclasses
 import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Any, Tuple, List
+from typing import Optional, Any, List
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.label_config import label_baseline
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.network.network_config import (
-    network_baseline,
     NetworkConfig,
     network_baseline_v2_td,
     network_base_v2_3ctc,
@@ -24,6 +23,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     prior_v1,
     PriorConfig,
 )
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.experiments_core.tuning.scales import Scales
 
 
 @dataclass(frozen=True)
@@ -370,13 +370,15 @@ def V4_autoscaling_64_all_combs(
     ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
     auto_scaling_use_ctc_sum_scores: bool = False,
     force_ext_llm: bool = False,
+    force_prior:bool = False,
     prior_relative_to: Optional[str] = None,
 ) -> List[SearchConfig]:
     searches = []
 
     opts = [True, False]
     opts_llm = [True] if force_ext_llm else opts
-    for (ctc, sllm, llm, prior) in [(a, b, c, d) for a in opts for b in opts for c in opts_llm for d in opts]:
+    opts_prior = [True] if force_prior else opts
+    for (ctc, sllm, llm, prior) in [(a, b, c, d) for a in opts for b in opts for c in opts_llm for d in opts_prior]:
         if ctc + sllm + llm + prior <= 1:
             continue  # At least 2 models/components
         if not ctc and prior:
@@ -419,6 +421,74 @@ def V4_autoscaling_64_ext_llm_combs(
         force_ext_llm=True,
         prior_relative_to=prior_relative_to,
     )
+
+
+
+def V4_autoscaling_good_combs_1(
+        ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
+        ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
+        auto_scaling_use_ctc_sum_scores: bool = True,
+        prior_relative_to: Optional[str] = Scales.LLM.value,
+        force_prior: bool = False,
+) -> List[SearchConfig]:
+    configs = []
+
+    # Base combs + SLLM as LM
+    configs.extend(V4_autoscaling_64_all_combs(
+        # Finetuned CTC
+        # SLLM as LLM
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+        prior_relative_to=prior_relative_to,
+        force_prior=force_prior,
+    ))
+
+    if ext_decoder is None:
+        return configs
+
+    # Base combs + ext LM
+    configs.extend(V4_autoscaling_64_all_combs(
+        # Finetuned CTC
+        ext_decoder=ext_decoder,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+        prior_relative_to=prior_relative_to,
+        force_prior=force_prior,
+    ))
+
+    if ext_encoder is None:
+        return configs
+
+    # ext CTC + ext LM
+    configs.extend(V4_autoscaling_64_all_combs(
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+        prior_relative_to=prior_relative_to,
+        force_prior=force_prior,
+    ))
+
+    # Opt... ext CTC, SLLM as LM -> not tested
+
+    return configs
+
+
+def V4_autoscaling_good_combs_1_reduced(
+        ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
+        ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
+        auto_scaling_use_ctc_sum_scores: bool = True,
+        prior_relative_to: Optional[str] = Scales.LLM.value,
+) -> List[SearchConfig]:
+    """
+    Forces prior to reduce in half approx the combinations
+    """
+    return V4_autoscaling_good_combs_1(
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+        prior_relative_to=prior_relative_to,
+        force_prior=True,
+    )
+
+
 
 
 """
