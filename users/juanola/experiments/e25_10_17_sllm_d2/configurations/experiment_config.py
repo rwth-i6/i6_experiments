@@ -1,5 +1,6 @@
 import warnings
 from dataclasses import dataclass, replace
+from typing import List
 
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.data.dataset_config import (
     DatasetConfig,
@@ -151,82 +152,97 @@ def exp_v4() -> ExperimentConfig:
     )
 
 
+def filter_v4_no_ctc_recogs(configs: List[SearchConfig]) -> List[SearchConfig]: # TODO: remove!!!!
+    new_configs = []
+    for config in configs:
+        if config.forward_method == "forward_step_ctc_decoding_v2" and config.ctc_scales == [None]:
+            new_configs.append(config)
+    return new_configs
+
 def exp_v5() -> ExperimentConfig:
     return replace(
         exp_v4(),
         network=network_small_linear_adapter(),
         search=[
-            *base_searches(),
-            V4_ctc_sllm_lm_combinations( # CTC finetuned
-                # CTC finetuned
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-            ),
-            V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-            ),
-            V4_ctc_sllm_lm_combinations( # ext CTC (3 layers for best performance)
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-            ),
-
-            # New autoscaling
-            V4_autoscaling_64_ctc_prior_sllm_lm( # CTC (using sum scores) + SLLM + LLM + PRIOR
-                # CTC finetuned
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
-                auto_scaling_use_ctc_sum_scores=True,
-            ),
-            V4_autoscaling_64_ctc_prior_sllm_lm( # CTC + SLLM + (SLLM as LLM) + PRIOR
-                # CTC finetuned
-                use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
-            ),
-            *V4_autoscaling_64_all_combs(),
-            *V4_autoscaling_64_ext_llm_combs(ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value),
-
-
-            V4_autoscaling_64_ctc_prior_sllm_lm( # CTC (using sum scores) + SLLM + LLM + PRIOR
-                # CTC finetuned
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                use_ctc=True, use_sllm=True, use_llm=False, use_prior=True,
-                auto_scaling_use_ctc_sum_scores=True,
-            ),
-            V4_autoscaling_64_ctc_prior_sllm_lm( # CTC (using sum scores) + SLLM + LLM + PRIOR
-                # CTC finetuned
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                use_ctc=True, use_sllm=True, use_llm=False, use_prior=False,
-                auto_scaling_use_ctc_sum_scores=True,
-            ),
-
-            # Autoscaling with external CTC
-
-            *V4_autoscaling_64_ext_llm_combs(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-            ),
-            *V4_autoscaling_64_ext_llm_combs(
-                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-            ),
-            # *V4_autoscaling_64_ext_llm_combs( # TODO:!
+            # *base_searches(),
+            # V4_ctc_sllm_lm_combinations( # CTC finetuned
+            #     # CTC finetuned
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            # ),
+            # V4_ctc_sllm_lm_combinations( # ext CTC (2 layers for comparability to finetuned)
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            # ),
+            # V4_ctc_sllm_lm_combinations( # ext CTC (3 layers for best performance)
             #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
             #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            # ),
+            #
+            # # New autoscaling
+            # V4_autoscaling_64_ctc_prior_sllm_lm( # CTC (using sum scores) + SLLM + LLM + PRIOR
+            #     # CTC finetuned
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            #     use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
             #     auto_scaling_use_ctc_sum_scores=True,
             # ),
+            # V4_autoscaling_64_ctc_prior_sllm_lm( # CTC + SLLM + (SLLM as LLM) + PRIOR
+            #     # CTC finetuned
+            #     use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
+            # ),
+            # *V4_autoscaling_64_all_combs(),
+            # *V4_autoscaling_64_ext_llm_combs(ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value),
+            #
+            #
+            # V4_autoscaling_64_ctc_prior_sllm_lm( # CTC (using sum scores) + SLLM + LLM + PRIOR
+            #     # CTC finetuned
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            #     use_ctc=True, use_sllm=True, use_llm=False, use_prior=True,
+            #     auto_scaling_use_ctc_sum_scores=True,
+            # ),
+            # V4_autoscaling_64_ctc_prior_sllm_lm( # CTC (using sum scores) + SLLM + LLM + PRIOR
+            #     # CTC finetuned
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            #     use_ctc=True, use_sllm=True, use_llm=False, use_prior=False,
+            #     auto_scaling_use_ctc_sum_scores=True,
+            # ),
+            #
+            # # Autoscaling with external CTC
+            #
+            # *V4_autoscaling_64_ext_llm_combs(
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            # ),
+            # *V4_autoscaling_64_ext_llm_combs(
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            # ),
+            *V4_autoscaling_64_ext_llm_combs(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                auto_scaling_use_ctc_sum_scores=True,
+            ),
+
+            *V4_autoscaling_64_ext_llm_combs( # todo: CHECKOUT if it works
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value, # BASE MODEL HERE
+                auto_scaling_use_ctc_sum_scores=True,
+            ),
+
+
 
             # TODO: CTC_STANDALONE_2_LAYERS - ctc greedy
 
 
-            # OLD
-            replace(
-                V4_baseline(
-                    ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
-                ),
-                lm_scales=[1.0],
-                sllm_scales=[0.0],
-                ctc_scales=[1.0],
-                prior_scales=[0.0, 0.3, 0.6, 0.9],
-            ),
+            # # OLD
+            # replace(
+            #     V4_baseline(
+            #         ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            #     ),
+            #     lm_scales=[1.0],
+            #     sllm_scales=[0.0],
+            #     ctc_scales=[1.0],
+            #     prior_scales=[0.0, 0.3, 0.6, 0.9],
+            # ),
         ],
     )
 
@@ -278,6 +294,12 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             *V4_autoscaling_64_ext_llm_combs(
                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
                 ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+            ),
+
+            *V4_autoscaling_64_ext_llm_combs( # todo: CHECKOUT if it works
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value, # SMALL MODEL HERE
+                auto_scaling_use_ctc_sum_scores=True,
             ),
 
             # OLD
@@ -696,6 +718,9 @@ def exp_v14_3ctc() -> ExperimentConfig:
 
             *V4_autoscaling_64_all_combs(),
             *V4_autoscaling_64_ext_llm_combs(ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value),
+            *V4_autoscaling_64_all_combs(auto_scaling_use_ctc_sum_scores=True),
+            *V4_autoscaling_64_ext_llm_combs(ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                                             auto_scaling_use_ctc_sum_scores=True),
         ],
     )
 

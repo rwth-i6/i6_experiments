@@ -18,10 +18,9 @@ from i6_experiments.users.zeyer.decoding.rescoring import SearchCombineScoresJob
 from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 from sisyphus import tk
 from .asr_model import ASRModel
-from ..model_creation.returnn_config_helpers import get_forward_config_v2, get_prior_config
+from ..model_creation.returnn_config_helpers import get_forward_config_v2
 from ...configurations.pipeline.search_config import SearchConfig, TO_TUNE_SCALE_FOR_AUTOSCALING
 from ...configurations.pretrained_models import get_encoder_checkpoint_from_str, get_decoder_checkpoint_from_str
-from ...constants import RECOGNITION_PACKAGE
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT, SCTK_BINARY_PATH
 from ...utils_network_args import get_network_args
 
@@ -229,7 +228,7 @@ def ctc_label_sync_eval_auto_scale(
                 base_config=forward_config_low_batch_size,
                 net_args=asr_model.net_args,
                 decoder_args=ctc_sum_rescoring_forward_params,
-                forward_module="rescoring",
+                forward_module="rescoring.ctc",
                 forward_method="forward_step_v1",
                 callback_name="RecognitionToTextDictCallbackV2",
                 label_datastream=train_data.datastreams[label_datastream_key],

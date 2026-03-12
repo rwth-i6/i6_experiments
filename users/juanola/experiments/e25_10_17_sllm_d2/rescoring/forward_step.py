@@ -52,7 +52,8 @@ def forward_step_v1(
     targets = targets.raw_tensor.reshape(batch_size * beam_size, -1)  # [B * beam, T]
 
     # ENCODER FORWARD
-    if use_ext_ctc:
+    if use_ext_ctc: # TODO: not needed really...
+        assert False, "SHouldn't be used for now..."
         adapter_output, _, adapter_output_lens, _ = (model.external_ctc.forward(data, data_lens))
     else:
         adapter_output, _, adapter_output_lens, _ = (model.forward(data, data_lens))

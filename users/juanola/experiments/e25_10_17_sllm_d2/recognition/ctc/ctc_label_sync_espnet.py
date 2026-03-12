@@ -321,6 +321,8 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         sllm_scale: float = 0.0,
         external_lm_scale: float = 0.0,
 
+        length_norm_exponent: float = 1.0,
+
         sllm_as_llm:bool = False, # TODO: !!!
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
@@ -446,17 +448,21 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         rf.sparse_to_dense(model.blank_idx, axis=wb_target_dim, label_value=0.0, other_value=neg_inf),
     )
 
+    # TODO: also conditionals to this ctc?
+
     ctc_beam_dim = Dim(1, name="ctc_initial_beam")
-    ctc_prefix_scorer = CtcPrefixScorer(
-        log_probs=ctc_log_prob,
-        batch_dims=batch_dims,
-        enc_spatial_dim=enc_spatial_dim,
-        vocab_wb_dim=wb_target_dim,
-        vocab_dim=target_dim if ctc_top_k_pruning is None else pruned_target_dim,
-        blank_idx=model.blank_idx if ctc_top_k_pruning is None else pruned_blank_idx,
-        eos_idx=model.eos_idx if ctc_top_k_pruning is None else pruned_eos_idx,
-    )
-    ctc_prefix_scorer_state = None
+    if ctc_scale != 0:
+        ctc_prefix_scorer = CtcPrefixScorer(
+            log_probs=ctc_log_prob,
+            batch_dims=batch_dims,
+            enc_spatial_dim=enc_spatial_dim,
+            vocab_wb_dim=wb_target_dim,
+            vocab_dim=target_dim if ctc_top_k_pruning is None else pruned_target_dim,
+            blank_idx=model.blank_idx if ctc_top_k_pruning is None else pruned_blank_idx,
+            eos_idx=model.eos_idx if ctc_top_k_pruning is None else pruned_eos_idx,
+        )
+        ctc_prefix_scorer_state = None
+
     ctc_seq_log_prob = rf.constant(0.0, dims=[ctc_beam_dim] + batch_dims)  # Batch, InBeam
     # differentiate between LM and CTC targets in case of pruning
     # in case of pruning, the lm target behaves as before but the ctc prefix scorer always gets the pruned indices
@@ -498,25 +504,29 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     seq_targets = []
     seq_backrefs = []
     while True:
-
-        # todo: add conditional for ctc run (init label_log_prob before)
-        # --- CTC SCORING (Calculated first as the anchor) ---
-        label_log_prob, ctc_prefix_scorer_state = ctc_prefix_scorer.score_and_update_state(
-            prev_state=ctc_prefix_scorer_state, prev_label=target_ctc, beam_dim=ctc_beam_dim
-        )
-        label_log_prob = label_log_prob * ctc_scale
-        if ctc_top_k_pruning is not None:
-            # scatter pruned log probs back to original vocab size with -inf for non-selected
-            label_log_prob = rf.scatter(
-                label_log_prob,
-                fill_value=neg_inf,
-                indices=pruned_indices_rf,
-                indices_dim=pruned_target_dim,
-                out_dim=target_dim,
-                mode="max",
-            )
-
         targets_lm_raw = target_lm.copy_compatible_to_dims_raw(batch_dims + [ctc_beam_dim])
+
+        # Initialized label_log_probs
+        label_log_prob = rf.zeros(batch_dims + [ctc_beam_dim, target_dim], dtype="float32")
+
+        # --- CTC SCORING ---
+        if ctc_scale != 0:
+            ctc_label_log_prob, ctc_prefix_scorer_state = ctc_prefix_scorer.score_and_update_state(
+                prev_state=ctc_prefix_scorer_state, prev_label=target_ctc, beam_dim=ctc_beam_dim
+            )
+            ctc_label_log_prob = ctc_label_log_prob * ctc_scale # Scaling with CTC scale
+            if ctc_top_k_pruning is not None:
+                # scatter pruned log probs back to original vocab size with -inf for non-selected
+                ctc_label_log_prob = rf.scatter(
+                    ctc_label_log_prob,
+                    fill_value=neg_inf,
+                    indices=pruned_indices_rf,
+                    indices_dim=pruned_target_dim,
+                    out_dim=target_dim,
+                    mode="max",
+                )
+
+            label_log_prob += ctc_label_log_prob # Merge point
 
         # --- PRIOR RE-SCORING ---
         if prior_scale != 0:
@@ -591,6 +601,15 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         )
         ctc_seq_log_prob = ctc_seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
 
+        # --- LENGTH NORMALIZATION (if no CTC) ---
+        if ctc_scale == 0:
+            if i > 1 and length_norm_exponent != 0:
+                ctc_seq_log_prob = ctc_seq_log_prob * rf.where(
+                    ended,
+                    rf.convert_to_tensor((i / (i - 1)) ** length_norm_exponent),
+                    rf.convert_to_tensor(1.0),
+                )
+
         if ctc_top_k_with_random_sampling:
             assert ctc_top_k_pruning is None, "not implemented for pruning case"
             ctc_seq_log_prob, (backrefs, target), ctc_beam_dim = top_k_and_random_choice_without_replacement(
@@ -626,7 +645,8 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         seq_backrefs.append(backrefs)
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
-        ctc_prefix_scorer_state = rf.nested.gather_nested(ctc_prefix_scorer_state, indices=backrefs)
+        if ctc_scale != 0:
+            ctc_prefix_scorer_state = rf.nested.gather_nested(ctc_prefix_scorer_state, indices=backrefs)
 
         if sllm_scale > 0:
             lm_state_raw = tree.map_structure(
@@ -643,6 +663,12 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
         out_seq_len = out_seq_len + rf.where(ended, 0, 1)
+
+
+    # --- LENGTH NORMALIZATION (if no CTC) (last iteration) ---
+    if ctc_scale == 0:
+        if i > 1 and length_norm_exponent != 0:
+            ctc_seq_log_prob *= (1 / i) ** length_norm_exponent
 
     # BACKTRACK SEQUENCES
     ctc_seq_targets, labels_spatial_dim = backtrack_sequences(out_seq_len, seq_backrefs, seq_targets, ctc_beam_dim)

@@ -111,7 +111,6 @@ def e3v5():
         run_only_dev_other=True,  # TODO: for now
     )  # , itc_training=True)
 
-
 def e3v6():
     ex3.sllm_ep([ExperimentVersion.V6_SMALL_DECODER_150kBS])  # , itc_training=True)
 
@@ -348,8 +347,8 @@ def e3v14():
     ex3.sllm_ep(
         [ExperimentVersion.V14_SLLM_3CTC],
         run_test=False,  # TODO: for now
-        #run_best=False,  # TODO: for now
-        #run_best_4=False,  # TODO: for now
+        # run_best=False,  # TODO: for now
+        # run_best_4=False,  # TODO: for now
         run_only_dev_other=True,  # TODO: for now
     )  # , itc_training=True)
 
@@ -478,24 +477,37 @@ def e3_pre12_v2():
 def e3_pre15():
     ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL])
 
+
 def e3_pre5_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_V2], itc_training=True)
+
 
 def e3_pre10_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM_V2], itc_training=True)
 
+
 def e3_ft1_v2():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4_V2])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR4_V2])  # , itc_training=True)
 
 
 def e3_ft2_v2():
-    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5_V2])#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5_V2])  # , itc_training=True)
+
 
 def e3_pre8_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_V2], itc_training=True)
 
+
 def e3_pre9_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM_V2], itc_training=True)
+
+
+def e3_pre3_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2], itc_training=True)
+
+
+def e3_pre4_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C_V2], itc_training=True)
 
 
 """
@@ -528,18 +540,19 @@ def v2_decoding():
     e3v8_2()
     e3v7_2()
 
+
 def v4_ctc_sllm_decoding():
     e3v7_ctc()
     e3v8()
 
-    #e3v6() # TODO:!
-    #e3v9() # TODO:!
-    #e3v10_2() # TODO:!
-    #e3v10() # TODO:!
-    #e3v10_3() # TODO:!
-    #e3v5() # OTHER SEARCHES
+    # e3v6() # TODO:!
+    # e3v9() # TODO:!
+    # e3v10_2() # TODO:!
+    # e3v10() # TODO:!
+    # e3v10_3() # TODO:!
+    # e3v5() # OTHER SEARCHES
 
-    #e3v11() # todo:!
+    # e3v11() # todo:!
     e3v12()
     e3v13()
     e3v8_2()
@@ -576,7 +589,7 @@ def v4_ctc_sllm_decoding():
     e3_ft4()
 
     e3v7_s2()
-    #e3v7_s2v2() # todo:!
+    # e3v7_s2v2() # todo:!
     e3v5_s2()
     e3v5_s2v2()
     e3v10_3_s2()
@@ -590,8 +603,6 @@ def v4_ctc_sllm_decoding():
     e3v14_pre2_f10()
 
 
-
-
 def new_v4_search():
     e3v7_ctc()
     e3v5()
@@ -602,6 +613,11 @@ def new_v4_search():
 def new_v4_search_v2():
     e3v7_ctc()
     e3_pre8()
+    e3v14()
+
+def new_v4_len_norm():
+    e3v5()
+    e3v7_ctc()
     e3v14()
 
 
@@ -704,4 +720,4 @@ __all__ = [
 ]
 
 if __name__ == "__main__":  # For debugging purposes
-    e3v14()
+    e3v5()
