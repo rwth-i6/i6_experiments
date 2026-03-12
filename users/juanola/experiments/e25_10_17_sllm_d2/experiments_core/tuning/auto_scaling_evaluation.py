@@ -55,6 +55,7 @@ def ctc_label_sync_eval_auto_scale(
     use_llm = scale_is_used(search_config.lm_scales)
     use_prior = scale_is_used(search_config.prior_scales)
 
+    # FIXED SCALES
     frozen_scales = {}
     if use_ctc and search_config.ctc_scales[0] != TO_TUNE_SCALE_FOR_AUTOSCALING:
         frozen_scales[Scales.CTC.value] = search_config.ctc_scales[0]
@@ -65,8 +66,13 @@ def ctc_label_sync_eval_auto_scale(
     if use_prior and search_config.prior_scales[0] != TO_TUNE_SCALE_FOR_AUTOSCALING:
         frozen_scales[Scales.PRIOR.value] = search_config.prior_scales[0]
 
+    # RELATIVE SCALES
+    scale_relative_to = None
+    if search_config.prior_relative_to is not None:
+        scale_relative_to = {Scales.PRIOR.value: search_config.prior_relative_to}
+
     # AUTOSCALING ID
-    autoscale_id, simplified_id = get_autoscaling_ids(search_config, use_ctc, use_llm, use_prior, use_sllm, frozen_scales)
+    autoscale_id, simplified_id = get_autoscaling_ids(search_config, use_ctc, use_llm, use_prior, use_sllm, frozen_scales, scale_relative_to)
 
     # DATASET FOR TUNNING
     assert len(tune_datasets.items()) == 1, "Only one dataset is supported for now!"
@@ -362,6 +368,7 @@ def ctc_label_sync_eval_auto_scale(
         ref=ref,
         fixed_scales=frozen_scales,
         negative_scales={Scales.PRIOR.value} if use_prior else None,
+        scale_relative_to=scale_relative_to,
         evaluation="edit_distance",
     )
     opt_scales_job.rqmt["engine"] = "short"  # should be fine
@@ -412,7 +419,7 @@ def scale_is_used(scales: Optional[List[float]]) -> bool:
 
 
 def get_autoscaling_ids(search_config: SearchConfig, use_ctc: bool | Any, use_llm: bool | Any, use_prior: bool | Any,
-                        use_sllm: bool | Any, frozen_scales: Dict[str, float]) -> tuple[str, str]:
+                        use_sllm: bool | Any, frozen_scales: Dict[str, float], rel_scales: Optional[Dict[str, str]]=None) -> tuple[str, str]:
     root_name = "autoscale"
     ext_modules = ""
     if search_config.ext_encoder is not None:
@@ -431,18 +438,26 @@ def get_autoscaling_ids(search_config: SearchConfig, use_ctc: bool | Any, use_ll
             scales_used += "_sum_scores"
         if Scales.CTC.value in frozen_scales:
             scales_used += f"({frozen_scales[Scales.CTC.value]})"
+        if rel_scales is not None and Scales.CTC.value in rel_scales.keys():
+            scales_used += f"(rel_{rel_scales[Scales.CTC.value]})"
     if use_prior:
         scales_used += "_PRIOR"
         if Scales.PRIOR.value in frozen_scales:
             scales_used += f"({frozen_scales[Scales.PRIOR.value]})"
+        if rel_scales is not None and Scales.PRIOR.value in rel_scales.keys():
+            scales_used += f"(rel_{rel_scales[Scales.PRIOR.value]})"
     if use_sllm:
         scales_used += "_SLLM"
         if Scales.SLLM.value in frozen_scales:
             scales_used += f"({frozen_scales[Scales.SLLM.value]})"
+        if rel_scales is not None and Scales.SLLM.value in rel_scales.keys():
+            scales_used += f"(rel_{rel_scales[Scales.SLLM.value]})"
     if use_llm:
         scales_used += "_LLM"
         if Scales.LLM.value in frozen_scales:
             scales_used += f"({frozen_scales[Scales.LLM.value]})"
+        if rel_scales is not None and Scales.LLM.value in rel_scales.keys():
+            scales_used += f"(rel_{rel_scales[Scales.LLM.value]})"
 
     simplified_id = root_name + scales_used
     autoscale_id = f"{root_name}-[{ext_modules}]-{scales_used}" if ext_modules != "" else simplified_id

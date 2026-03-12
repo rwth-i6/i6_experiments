@@ -60,6 +60,7 @@ class SearchConfig:
     auto_scaling: bool = False
     sllm_as_llm: bool = False  # SLLM LM is used as the external LM (no ext_decoder needed)
     auto_scaling_use_ctc_sum_scores: bool = False
+    prior_relative_to: Optional[str] = None
     run_ctc_greedy_decoding_last_epoch: bool = False
 
     debug_returnn_param: bool = True
@@ -325,6 +326,7 @@ def V4_autoscaling_64_ctc_prior_sllm_lm(
     use_llm: bool = True,
     use_prior: bool = True,
     auto_scaling_use_ctc_sum_scores: bool = False,
+    prior_relative_to: Optional[str] = None,
 ) -> SearchConfig:
     """
     For autoscaling:
@@ -359,6 +361,7 @@ def V4_autoscaling_64_ctc_prior_sllm_lm(
         beam_search=single_beam(12),
         sllm_as_llm=sllm_as_llm,
         auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+        prior_relative_to=prior_relative_to,
     )
 
 
@@ -367,6 +370,7 @@ def V4_autoscaling_64_all_combs(
     ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
     auto_scaling_use_ctc_sum_scores: bool = False,
     force_ext_llm: bool = False,
+    prior_relative_to: Optional[str] = None,
 ) -> List[SearchConfig]:
     searches = []
 
@@ -389,6 +393,7 @@ def V4_autoscaling_64_all_combs(
                 use_llm=llm,
                 use_prior=prior,
                 auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+                prior_relative_to=prior_relative_to,
             )
         )
     return searches
@@ -398,6 +403,7 @@ def V4_autoscaling_64_ext_llm_combs(
     ext_encoder: Optional[tuple[str, NetworkConfig]] = None,
     ext_decoder: Optional[tuple[str, NetworkConfig]] = None,
     auto_scaling_use_ctc_sum_scores: bool = False,
+    prior_relative_to: Optional[str] = None,
 ) -> List[SearchConfig]:
     """
     Forces ext LLM to be used
@@ -411,6 +417,7 @@ def V4_autoscaling_64_ext_llm_combs(
         ext_decoder=ext_decoder,
         auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
         force_ext_llm=True,
+        prior_relative_to=prior_relative_to,
     )
 
 

@@ -87,6 +87,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     load_SLLM_pretrained_ed_s_c_f2_oclr1,
     enc_dec_base_lm,
     enc_dec_small_lm, )
+from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.experiments_core.tuning.auto_scaling_evaluation import \
+    Scales
 
 
 @dataclass(frozen=True)
@@ -228,6 +230,19 @@ def exp_v5() -> ExperimentConfig:
                 auto_scaling_use_ctc_sum_scores=True,
             ),
 
+            # Trying relative prior scale
+            V4_autoscaling_64_ctc_prior_sllm_lm(
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
+                prior_relative_to=Scales.SLLM.value
+            ),
+            V4_autoscaling_64_ctc_prior_sllm_lm(
+                # CTC finetuned
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                use_ctc=True, use_sllm=True, use_llm=True, use_prior=True,
+                prior_relative_to=Scales.LLM.value
+            ),
 
 
             # TODO: CTC_STANDALONE_2_LAYERS - ctc greedy
