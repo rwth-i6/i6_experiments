@@ -20,6 +20,7 @@ import time
 import random
 import socket
 
+
 def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
     files: List[Tuple[str, Path]] = []
     for t in tasks:
@@ -27,10 +28,12 @@ def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, 
         files += [(t, Path(p)) for p in sorted(glob(str(pattern)))]
     return files
 
+
 def get_fdp_asr_download():
     repo = DownloadHuggingFaceRepoJob(model_id="kyutai/moshiko-pytorch-bf16")
     repo.out_hub_cache_dir = HF_CACHE_DIR
     return repo.out_hub_cache_dir
+
 
 @contextmanager
 def moshi_server():
@@ -52,7 +55,15 @@ def moshi_server():
 
     print(f"Selected port {port} for Moshi server")
 
-    cmd = [sys.executable, "-m", "moshi.moshi.server", "--host", "127.0.0.1", "--port", str(port)]
+    cmd = [
+        sys.executable,
+        "-m",
+        "moshi.moshi.server",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+    ]
 
     print(f"Starting Moshi server: {' '.join(cmd)}")
     server_process = subprocess.Popen(
@@ -62,42 +73,43 @@ def moshi_server():
         text=True,
         bufsize=1,
         universal_newlines=True,
-        preexec_fn=os.setsid if hasattr(os, 'setsid') else None,  # Create process group
-        cwd="/home/tt201262/setups/2026-01-speech-llm/projects/moshi", # TODO...
-        env={**os.environ, "PYTHONUNBUFFERED": '1'}
+        preexec_fn=os.setsid if hasattr(os, "setsid") else None,  # Create process group
+        cwd="/home/tt201262/setups/2026-01-speech-llm/projects/moshi",  # TODO...
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
-    
+
     # Wait for server to be ready (check port 8998)
-    max_wait = 2 * 60  # seconds
+    max_wait = 5 * 60  # seconds
     start_time = time.time()
     server_ready = False
-    
+
     # Also read output to look for ready signal
     def read_server_output():
         nonlocal server_ready
         if server_process.stdout:
-            for line in iter(server_process.stdout.readline, ''):
+            for line in iter(server_process.stdout.readline, ""):
                 if line and "frame handled" not in line:
                     print(f"[Moshi Server] {line.rstrip()}", flush=True)
                 if "Access the Web UI directly at" in line:
                     server_ready = True
         print("Moshi server output thread exiting")
-    
+
     # Start output reading thread
     import threading
+
     output_thread = threading.Thread(target=read_server_output, daemon=True)
     output_thread.start()
-    
+
     # Wait for server to be ready
     while time.time() - start_time < max_wait:
         # Check if server process died
         if server_process.poll() is not None:
             stdout, _ = server_process.communicate()
             raise RuntimeError(f"Moshi server died during startup:\n{stdout}")
-        
+
         # Try to connect to port
         try:
-            sock = socket.create_connection(('localhost', port), timeout=1)
+            sock = socket.create_connection(("localhost", port), timeout=1)
             sock.close()
             if server_ready:
                 print("Moshi server is ready and accepting connections")
@@ -106,7 +118,7 @@ def moshi_server():
                 print("Moshi server port is open but server not ready yet")
         except (ConnectionRefusedError, socket.timeout):
             pass
-        
+
         time.sleep(0.5)
     else:
         raise TimeoutError(f"Moshi server not ready after {max_wait} seconds")
@@ -120,17 +132,17 @@ def moshi_server():
             print("Stopping Moshi server...")
             try:
                 # Send SIGTERM to process group (Unix) or terminate (Windows)
-                if hasattr(os, 'killpg'):
+                if hasattr(os, "killpg"):
                     os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
                 else:
                     server_process.terminate()
-                
+
                 # Wait for graceful termination
                 server_process.wait(timeout=10)
                 print("Moshi server stopped gracefully")
             except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
                 print("Force killing Moshi server...")
-                if hasattr(os, 'killpg'):
+                if hasattr(os, "killpg"):
                     try:
                         os.killpg(os.getpgid(server_process.pid), signal.SIGKILL)
                     except (ProcessLookupError, OSError):
@@ -139,16 +151,20 @@ def moshi_server():
                     server_process.kill()
                 server_process.wait()
 
+
 class Tee:
     def __init__(self, *files):
         self.files = files
+
     def write(self, data):
         for file in self.files:
             file.write(data)
             file.flush()
+
     def flush(self):
         for file in self.files:
             file.flush()
+
 
 class FullDuplexBenchEval(Job):
     def __init__(self, *, fdp_task: str, model):
@@ -159,7 +175,7 @@ class FullDuplexBenchEval(Job):
 
         self.fdp_task = fdp_task
         self.model = model
-        
+
         self.out_audios = self.output_path("audios", directory=True)
         self.out_eval = self.output_path("evaluation_output.txt")
 
@@ -180,20 +196,23 @@ class FullDuplexBenchEval(Job):
         ), f"Dataset not found at {self.fdp_data}"
 
         files = fdp_files_for_tasks(Path(self.fdp_data.get_path()), [self.fdp_task])
-        assert len(files) > 0, f"No files found for task {self.fdp_task} in dataset {self.fdp_data.get_path()}"
+        assert len(files) > 0, (
+            f"No files found for task {self.fdp_task} in dataset {self.fdp_data.get_path()}"
+        )
 
         # ln -s ../projects/Full-Duplex-Bench/v1_v1.5 fdp_v1_v15
 
         with self.model() as url:
             url = _ws_url(url)
             print(f"Running inference with Moshi server at {url}...")
-            
-            # Run inference on all files
-            
-            for task, inp in files:
-                ind = inp.parent.name  # e.g. "1" in "v1.0/candor_pause_handling/1/input.wav"
 
-                out = Path(self.out_audios.get_path()) / str(ind) / "output.wav" 
+            # Run inference on all files
+            for task, inp in files:
+                ind = (
+                    inp.parent.name
+                )  # e.g. "1" in "v1.0/candor_pause_handling/1/input.wav"
+
+                out = Path(self.out_audios.get_path()) / str(ind) / "output.wav"
                 out.parent.mkdir(parents=True, exist_ok=True)
                 print("[RUN]", task, inp)
                 for _ in range(3):  # retry a few times if it fails
@@ -208,10 +227,10 @@ class FullDuplexBenchEval(Job):
                 for json_file in inp.parent.glob("*.json"):
                     out_json = out.parent / json_file.name
                     shutil.copy(json_file, out_json)
-            
+
         print("Inference completed, now evaluating...")
         # pys v1_v1.5/get_transcript/asr.py --root_dir v1_v1.5/dataset/v1.0/icc_backchannel --task default
-        
+
         task_map = {
             "candor_pause_handling": "pause_handling",
             "candor_turn_taking": "smooth_turn_taking",
@@ -233,12 +252,20 @@ class FullDuplexBenchEval(Job):
 
         # this takes output.wav and puts output.json in the same folder
         assert self.fdp_task != "user_interruption"
-        get_time_aligned_transcription(self.out_audios.get_path(), task_map.get(self.fdp_task, self.fdp_task))
+        get_time_aligned_transcription(
+            self.out_audios.get_path(), task_map.get(self.fdp_task, self.fdp_task)
+        )
 
         # pys evaluate.py --task backchannel --root_dir ../dataset/v1.0/icc_backchannel
 
         # hacky...
-        sys.argv = ["evaluate.py", "--task", task_map.get(self.fdp_task, self.fdp_task), "--root_dir", self.out_audios.get_path()]
+        sys.argv = [
+            "evaluate.py",
+            "--task",
+            task_map.get(self.fdp_task, self.fdp_task),
+            "--root_dir",
+            self.out_audios.get_path(),
+        ]
         # also now record stdout into a file (but still also regular stdout) in self.output_path("evaluation_output.txt")
         with open(self.out_eval, "w", encoding="utf-8") as f:
             # redirect stdout to both console and file
@@ -250,4 +277,3 @@ class FullDuplexBenchEval(Job):
 
             evaluate_main()
             sys.stdout = sys.__stdout__  # restore original stdout
-        
