@@ -62,8 +62,12 @@ def ctc_label_sync_eval_auto_scale(
 
     # RELATIVE SCALES
     scale_relative_to = None
-    if search_config.prior_relative_to is not None:
+    if search_config.prior_relative_to is not None and use_prior:
         scale_relative_to = {Scales.PRIOR.value: search_config.prior_relative_to}
+        if search_config.prior_relative_to == Scales.LLM.value:
+            assert use_llm, "LLM should be used if prior is relative to LLM"
+        if search_config.prior_relative_to == Scales.SLLM.value:
+            assert use_sllm, "SLLM should be used if prior is relative to SLLM"
 
     # AUTOSCALING ID
     autoscale_id, simplified_id = get_autoscaling_ids(search_config, use_ctc, use_llm, use_prior, use_sllm, frozen_scales, scale_relative_to)

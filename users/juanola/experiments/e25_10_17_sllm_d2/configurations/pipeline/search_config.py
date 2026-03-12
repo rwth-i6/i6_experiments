@@ -386,6 +386,18 @@ def V4_autoscaling_64_all_combs(
         if prior and not (llm or sllm):
             continue  # Prior should be used if an LM is also used
 
+        prior_relative_to_aux = prior_relative_to
+        if prior_relative_to == Scales.LLM.value and not llm:
+            if sllm:
+                prior_relative_to_aux = Scales.SLLM.value
+            else:
+                prior_relative_to_aux = None
+        elif prior_relative_to == Scales.SLLM.value and not sllm:
+            if llm:
+                prior_relative_to_aux = Scales.LLM.value
+            else:
+                prior_relative_to_aux = None
+
         searches.append(
             V4_autoscaling_64_ctc_prior_sllm_lm(
                 ext_encoder=ext_encoder,
@@ -395,7 +407,7 @@ def V4_autoscaling_64_all_combs(
                 use_llm=llm,
                 use_prior=prior,
                 auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
-                prior_relative_to=prior_relative_to,
+                prior_relative_to=prior_relative_to_aux,
             )
         )
     return searches
