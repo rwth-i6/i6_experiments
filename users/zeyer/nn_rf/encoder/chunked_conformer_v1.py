@@ -169,6 +169,8 @@ class ChunkedConformerEncoderLayer(rf.Module):
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
+        elif isinstance(conv_norm, dict):
+            conv_norm = rf.build_from_dict(conv_norm, out_dim, **(conv_norm_opts or {}))
         self.conv_block = ChunkedConformerConvBlock(
             out_dim=out_dim,
             kernel_size=conv_kernel_size,
@@ -178,7 +180,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
         )
         self.conv_layer_norm = rf.LayerNorm(out_dim)
 
-        if self_att is None or isinstance(self_att, type):
+        if self_att is None or isinstance(self_att, (dict, type)):
             self_att_opts_ = dict(
                 in_dim=out_dim,
                 proj_dim=out_dim,
@@ -193,6 +195,9 @@ class ChunkedConformerEncoderLayer(rf.Module):
                 self.self_att = ChunkedRelPosSelfAttention(
                     chunk_history=chunk_history, end_chunk_size_dim=end_chunk_size_dim, **self_att_opts_
                 )
+            elif isinstance(self_att, dict):
+                self_att_opts_ = {k: v for (k, v) in self_att_opts_.items() if k not in self_att}
+                self.self_att = rf.build_from_dict(self_att, **self_att_opts_)
             else:
                 self.self_att = self_att(**self_att_opts_)
         else:
