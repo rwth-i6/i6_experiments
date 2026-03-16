@@ -16,7 +16,8 @@ import time
 import random
 import socket
 
-import moshified_fdb_v1_v15.evaluation.evaluate as fdp_v1_v15_evaluate
+# ln -s ../projects/2025-10-speech-llm/src/moshified_full_duplex_bench/v1_v1.5 moshified_fdb_v1_v15
+import moshified_fdb_v1_v15.evaluation.evaluate as moshified_fdb_v1_v15_evaluate
 from moshified_fdb_v1_v15.model_inference.moshi.inference import (
     _ws_url,
     MoshiFileClient,
@@ -25,7 +26,7 @@ from moshified_fdb_v1_v15.evaluation.evaluate import main as evaluate_main
 from moshified_fdb_v1_v15.get_transcript.asr import get_time_aligned_transcription
 
 
-def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
+def fdb_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
     files: List[Tuple[str, Path]] = []
     for t in tasks:
         pattern = ds_path / f"{t}/*/input.wav"
@@ -33,7 +34,7 @@ def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, 
     return files
 
 
-def get_fdp_asr_download():
+def get_fdb_asr_download():
     repo = DownloadHuggingFaceRepoJob(model_id="kyutai/moshiko-pytorch-bf16")
     repo.out_hub_cache_dir = HF_CACHE_DIR
     return repo.out_hub_cache_dir
@@ -83,7 +84,7 @@ def moshi_server():
     )
 
     # Wait for server to be ready (check port 8998)
-    max_wait = 5 * 60  # seconds
+    max_wait = 15 * 60  # seconds
     start_time = time.time()
     server_ready = False
 
@@ -170,18 +171,26 @@ class Tee:
             file.flush()
 
 
-class FullDuplexBenchEval(Job):
-    def __init__(self, *, fdp_task: str, model):
-        self.fdp_data = tk.Path(
+FDB_TASK_MAP = {
+    "candor_pause_handling": "pause_handling",
+    "candor_turn_taking": "smooth_turn_taking",
+    "icc_backchannel": "backchannel",
+    "synthetic_pause_handling": "pause_handling",
+    "synthetic_user_interruption": "user_interruption",
+}
+
+
+class FullDuplexBenchEval_Inference(Job):
+    def __init__(self, *, fdb_task: str, model):
+        self.fdb_data = tk.Path(
             "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset/v1.0",
             hash_overwrite="FullDuplexBench-datasets",
         )  # TODO... the dataset is available as a google drive link, so no good way to write a download job?
 
-        self.fdp_task = fdp_task
+        self.fdb_task = fdb_task
         self.model = model
 
         self.out_audios = self.output_path("audios", directory=True)
-        self.out_eval = self.output_path("evaluation_output.txt")
 
         self.rqmt = {
             "gpu": 1,
@@ -196,15 +205,13 @@ class FullDuplexBenchEval(Job):
     def run(self):
         # check if dataset is valid
         assert os.path.exists(
-            os.path.join(self.fdp_data, "candor_pause_handling/1/pause.json")
-        ), f"Dataset not found at {self.fdp_data}"
+            os.path.join(self.fdb_data, "candor_pause_handling/1/pause.json")
+        ), f"Dataset not found at {self.fdb_data}"
 
-        files = fdp_files_for_tasks(Path(self.fdp_data.get_path()), [self.fdp_task])
+        files = fdb_files_for_tasks(Path(self.fdb_data.get_path()), [self.fdb_task])
         assert len(files) > 0, (
-            f"No files found for task {self.fdp_task} in dataset {self.fdp_data.get_path()}"
+            f"No files found for task {self.fdb_task} in dataset {self.fdb_data.get_path()}"
         )
-
-        # ln -s ../projects/Full-Duplex-Bench/v1_v1.5 fdp_v1_v15
 
         with self.model() as url:
             url = _ws_url(url)
@@ -232,16 +239,7 @@ class FullDuplexBenchEval(Job):
                     out_json = out.parent / json_file.name
                     shutil.copy(json_file, out_json)
 
-        print("Inference completed, now evaluating...")
         # pys v1_v1.5/get_transcript/asr.py --root_dir v1_v1.5/dataset/v1.0/icc_backchannel --task default
-
-        task_map = {
-            "candor_pause_handling": "pause_handling",
-            "candor_turn_taking": "smooth_turn_taking",
-            "icc_backchannel": "backchannel",
-            "synthetic_pause_handling": "pause_handling",
-            "synthetic_user_interruption": "user_interruption",
-        }
 
         """
         choices=[
@@ -255,20 +253,36 @@ class FullDuplexBenchEval(Job):
         """
 
         # this takes output.wav and puts output.json in the same folder
-        assert self.fdp_task != "user_interruption"
         get_time_aligned_transcription(
-            self.out_audios.get_path(), task_map.get(self.fdp_task, self.fdp_task)
+            self.out_audios.get_path(), FDB_TASK_MAP.get(self.fdb_task, self.fdb_task)
         )
 
-        # pys evaluate.py --task backchannel --root_dir ../dataset/v1.0/icc_backchannel
 
+class FullDuplexBenchEval_Evaluation(Job):
+    def __init__(self, *, fdb_task: str, in_audios: tk.Path):
+        self.fdb_task = fdb_task
+
+        self.in_audios = in_audios
+        self.out_eval = self.output_path("evaluation_output.txt")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 5
+        return super().hash(d)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        # pys evaluate.py --task backchannel --root_dir ../dataset/v1.0/icc_backchannel
         # hacky...
         sys.argv = [
             "evaluate.py",
             "--task",
-            task_map.get(self.fdp_task, self.fdp_task),
+            FDB_TASK_MAP.get(self.fdb_task, self.fdb_task),
             "--root_dir",
-            self.out_audios.get_path(),
+            self.in_audios.get_path(),
         ]
         # also now record stdout into a file (but still also regular stdout) in self.output_path("evaluation_output.txt")
         with open(self.out_eval, "w", encoding="utf-8") as f:
@@ -277,7 +291,15 @@ class FullDuplexBenchEval(Job):
             sys.stdout = tee
 
             # add the path of evaluate.py to sys.path so it can import modules
-            sys.path.append(str(Path(fdp_v1_v15_evaluate.__file__).parent))
+            sys.path.append(str(Path(moshified_fdb_v1_v15_evaluate.__file__).parent))
 
             evaluate_main()
             sys.stdout = sys.__stdout__  # restore original stdout
+
+
+def moshified_fdb_eval(fdb_task: str, model):
+    infer = FullDuplexBenchEval_Inference(fdb_task=fdb_task, model=model)
+    _eval = FullDuplexBenchEval_Evaluation(
+        fdb_task=fdb_task, in_audios=infer.out_audios
+    )
+    return _eval.out_eval
