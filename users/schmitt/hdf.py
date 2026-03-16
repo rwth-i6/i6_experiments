@@ -11,22 +11,23 @@ from returnn.datasets.hdf import SimpleHDFWriter
 from returnn.tensor import Dim, Tensor
 
 
-def load_hdf_data(hdf_path: Path, num_dims: int = 1, segment_list: List = None):
+def load_hdf_data(hdf_path: Path, num_dims: int = 1, segment_list: List = None, target_key: str = "targets"):
     """
-      Load data from an hdf file. Returns dict of form {seq_tag: data}
-      :param hdf_path:
-      :return:
+    Load data from an hdf file. Returns dict of form {seq_tag: data}
+    :param hdf_path:
+    :return:
     """
     assert num_dims in (1, 2), "Currently only 1d and 2d data is supported for reading shape data from hdf"
     with h5py.File(hdf_path.get_path(), "r") as f:
         seq_tags = f["seqTags"][()]
-        seq_tags = [tag.decode("utf8") if isinstance(tag, bytes) else tag for tag in
-                    seq_tags]  # convert from byte to string
+        seq_tags = [
+            tag.decode("utf8") if isinstance(tag, bytes) else tag for tag in seq_tags
+        ]  # convert from byte to string
         data_dict = {}
 
         # the data, shapes and seq lengths
         hdf_data = f["inputs"][()]
-        shape_data = f["targets"]["data"]["sizes"][()] if num_dims == 2 else None
+        shape_data = f[target_key]["data"]["sizes"][()] if num_dims == 2 else None
         seq_lens = f["seqLengths"][()][:, 0]
 
         # cut out each seq from the flattened 1d tensor according to its seq len and store it in the dict
@@ -37,7 +38,7 @@ def load_hdf_data(hdf_path: Path, num_dims: int = 1, segment_list: List = None):
                 if shape_data is not None:
                     # shape data for 1d: x_1, x_2, x_3, ...
                     # shape data for 2d: x_1, y_1, x_2, y_2, x_3, y_3, ...
-                    shape = shape_data[i * num_dims:(i + 1) * num_dims]
+                    shape = shape_data[i * num_dims : (i + 1) * num_dims]
                     data_dict[seq_tags[i]] = data_dict[seq_tags[i]].reshape(shape)
 
             # cut off the data that was just read
@@ -46,12 +47,12 @@ def load_hdf_data(hdf_path: Path, num_dims: int = 1, segment_list: List = None):
 
 
 def build_hdf_from_alignment(
-        alignment_cache: tk.Path,
-        allophone_file: tk.Path,
-        state_tying_file: tk.Path,
-        returnn_python_exe: tk.Path,
-        returnn_root: tk.Path,
-        silence_phone: str = "[SILENCE]",
+    alignment_cache: tk.Path,
+    allophone_file: tk.Path,
+    state_tying_file: tk.Path,
+    returnn_python_exe: tk.Path,
+    returnn_root: tk.Path,
+    silence_phone: str = "[SILENCE]",
 ):
     dataset_config = {
         "class": "SprintCacheDataset",
@@ -76,10 +77,10 @@ def build_hdf_from_alignment(
 
 
 def dump_hdf_numpy(
-        hdf_dataset: SimpleHDFWriter,
-        data: np.array,
-        seq_lens: np.array,
-        seq_tags: List[str],
+    hdf_dataset: SimpleHDFWriter,
+    data: np.array,
+    seq_lens: np.array,
+    seq_tags: List[str],
 ):
     """
     Dump data to an hdf file.
@@ -96,19 +97,14 @@ def dump_hdf_numpy(
     seq_lens = {0: seq_lens}
     batch_seq_sizes = np.expand_dims(seq_lens[0], 1)
 
-    hdf_dataset.insert_batch(
-        data,
-        seq_len=seq_lens,
-        seq_tag=list(seq_tags),
-        extra={"seq_sizes": batch_seq_sizes}
-    )
+    hdf_dataset.insert_batch(data, seq_len=seq_lens, seq_tag=list(seq_tags), extra={"seq_sizes": batch_seq_sizes})
 
 
 def dump_hdf_rf(
-        hdf_dataset: SimpleHDFWriter,
-        data: Tensor,
-        batch_dim: Optional[Dim],
-        seq_tags: Union[Tensor, List[str]],
+    hdf_dataset: SimpleHDFWriter,
+    data: Tensor,
+    batch_dim: Optional[Dim],
+    seq_tags: Union[Tensor, List[str]],
 ):
     """
     Dump data to an hdf file.
@@ -123,9 +119,7 @@ def dump_hdf_rf(
         data_raw = data.raw_tensor[None, :]
     else:
         spatial_dims = data.remaining_dims(batch_dim)
-        data_raw = data.copy_transpose(
-            [batch_dim] + spatial_dims
-        ).raw_tensor
+        data_raw = data.copy_transpose([batch_dim] + spatial_dims).raw_tensor
 
     n_batch = data_raw.shape[0]
 
@@ -155,19 +149,14 @@ def dump_hdf_rf(
             data_raw = data_raw.detach()  # cannot call .numpy() on a tensor that requires grad
         data_raw = data_raw.cpu().numpy()
 
-    hdf_dataset.insert_batch(
-        data_raw,
-        seq_len=seq_lens,
-        seq_tag=seq_tags,
-        extra={"seq_sizes": batch_seq_sizes}
-    )
+    hdf_dataset.insert_batch(data_raw, seq_len=seq_lens, seq_tag=seq_tags, extra={"seq_sizes": batch_seq_sizes})
     # hdf_dataset.close()
 
 
 class GetHdfDatasetStatisticsJob(Job):
     def __init__(
-            self,
-            hdf_files: List[Path],
+        self,
+        hdf_files: List[Path],
     ):
         self.hdf_files = hdf_files
 
@@ -289,7 +278,7 @@ class GetHdfDatasetStatisticsJob(Job):
             plt.clf()
 
         # plot max abs histogram
-        plt.bar(buckets, counts, width=800, align='center')
+        plt.bar(buckets, counts, width=800, align="center")
         plt.xlabel("Max absolute value buckets")
         plt.ylabel("Number of sequences")
         plt.title("Histogram of max absolute values per sequence")
