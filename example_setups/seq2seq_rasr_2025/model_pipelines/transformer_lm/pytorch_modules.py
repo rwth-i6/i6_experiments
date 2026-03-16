@@ -99,15 +99,21 @@ class TransformerMHSA(torch.nn.Module):
         B, N, D = x.shape
 
         head_dim = D // self.num_heads
-        BH = B * self.num_heads
 
         qkv = torch.nn.functional.linear(x, self.mhsa.in_proj_weight, bias=None)  # [B, N, 3*D]
         q, k, v = qkv.chunk(3, dim=-1)  # each [B, N, D]
 
-        shape_qkv = (BH, N, head_dim)
-        q = torch.reshape(q, shape_qkv)  # [B*H, N, head_dim]
-        k = torch.reshape(k, shape_qkv)  # [B*H, N, head_dim]
-        v = torch.reshape(v, shape_qkv)  # [B*H, N, head_dim]
+        q = q.reshape(B, N, self.num_heads, head_dim)  # [B, N, H, head_dim]
+        k = k.reshape(B, N, self.num_heads, head_dim)  # [B, N, H, head_dim]
+        v = v.reshape(B, N, self.num_heads, head_dim)  # [B, N, H, head_dim]
+
+        q = q.permute(0, 2, 1, 3)  # [B, H, N, head_dim]
+        k = k.permute(0, 2, 1, 3)  # [B, H, N, head_dim]
+        v = v.permute(0, 2, 1, 3)  # [B, H, N, head_dim]
+
+        q = q.reshape(B * self.num_heads, N, head_dim)  # [B*H, N, head_dim]
+        k = k.reshape(B * self.num_heads, N, head_dim)  # [B*H, N, head_dim]
+        v = v.reshape(B * self.num_heads, N, head_dim)  # [B*H, N, head_dim]
 
         scale = torch.rsqrt(torch.tensor(head_dim, dtype=torch.float32))
         q = q * scale  # [B*H, N, head_dim]
@@ -218,7 +224,7 @@ class PositionalEncoding(torch.nn.Module):
         Returns:
             Tensor of shape [N, B, E]
         """
-        input = input + self.pe[: input.size(0)]  # [N, B, E]
+        input = input + self.pe[: input.size(0)]  # [N, B, E] # type: ignore
         return self.dropout.forward(input)  # [N, B, E]
 
 
