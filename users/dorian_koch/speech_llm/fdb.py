@@ -11,14 +11,18 @@ import sys
 import subprocess
 from .common import HF_CACHE_DIR
 from contextlib import contextmanager
-import fdp_v1_v15.evaluation.evaluate as fdp_v1_v15_evaluate
-from fdp_v1_v15.model_inference.moshi.inference import _ws_url, MoshiFileClient
-from fdp_v1_v15.evaluation.evaluate import main as evaluate_main
-from fdp_v1_v15.get_transcript.asr import get_time_aligned_transcription
 import shutil
 import time
 import random
 import socket
+
+import moshified_fdb_v1_v15.evaluation.evaluate as fdp_v1_v15_evaluate
+from moshified_fdb_v1_v15.model_inference.moshi.inference import (
+    _ws_url,
+    MoshiFileClient,
+)
+from moshified_fdb_v1_v15.evaluation.evaluate import main as evaluate_main
+from moshified_fdb_v1_v15.get_transcript.asr import get_time_aligned_transcription
 
 
 def fdp_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
