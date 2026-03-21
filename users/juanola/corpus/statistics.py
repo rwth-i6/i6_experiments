@@ -15,7 +15,7 @@ class GetTokenizedTextStatisticsJob(Job):
         self.out_seq_len_histogram_pdf = self.output_path("seq_len_histogram.pdf")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+        yield Task("run", rqmt={"cpu": 1, "mem": 10, "time": 1, "gpu": 0})
 
     def run(self):
         import gzip
