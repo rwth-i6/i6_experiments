@@ -81,7 +81,7 @@ def build_spm_lm_training_datasets(
             text_file= dataset_text_file,
             sentencepiece_model= label_datastream.spm_model,
             enable_unk=False,
-        ).gzip_output
+        ).out_sentencepiece_text
 
         # todo: stats
 
