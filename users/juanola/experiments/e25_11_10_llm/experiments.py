@@ -197,12 +197,9 @@ def create_llm_datasets_jobs(prefix_name: str, dataset_config: DatasetConfig, la
     )
 
     training_datasets, label_datastream = build_spm_lm_training_datasets(
-        prefix=prefix_name,
-        librispeech_key="train-other-960",
         return_settings=train_dataset_settings,
         vocab_size=label_config.vocab_size,
         dataset_config=dataset_config,
-        returnn_root=MINI_RETURNN_ROOT,
     )
 
     dev_dataset_tuples = {}
