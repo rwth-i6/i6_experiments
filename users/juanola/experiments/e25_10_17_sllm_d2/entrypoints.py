@@ -106,10 +106,11 @@ def e3v5():
     ex3.sllm_ep(
         [ExperimentVersion.V5_LINEAR_ADAPTER],
         run_test=False,
-        run_best=False,
-        run_best_4=False,
-        run_only_dev_other=True,
+        #run_best=False,
+        #run_best_4=False,
+        #run_only_dev_other=True,
     )  # , itc_training=True)
+
 
 def e3v6():
     ex3.sllm_ep([ExperimentVersion.V6_SMALL_DECODER_150kBS])  # , itc_training=True)
@@ -124,15 +125,17 @@ def e3v6():
 def e3v7_ctc():
     ex3.sllm_ep(
         [ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
-        run_test=False,
-        run_best=False,
-        run_best_4=False,
-        run_only_dev_other=True,
+        # run_best=False, # TODO: check
+        # run_best_4=False, # TODO: check
+        # run_only_dev_other=True, # TODO: check
     )  # , itc_training=True)
 
 
 def e3v7_beam():
     ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_BEAM])  # , itc_training=True)
+
+def e3v7_beam_ln():
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_BEAM_LN])  # , itc_training=True)
 
 
 def e3v8():
@@ -191,12 +194,12 @@ def e3v8_2():
 
 def e3v7_2():
     ex3.sllm_ep(
-        #[ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200]
+        # [ExperimentVersion.V7_TUNED_DROPOUT_150, ExperimentVersion.V7_TUNED_DROPOUT_200]
         [ExperimentVersion.V7_TUNED_DROPOUT_200],
-    run_test=False,
-    run_best=False,
-    run_best_4=False,
-    run_only_dev_other=True,
+        run_test=False,
+        #run_best=False,
+        #run_best_4=False,
+        #run_only_dev_other=True,
     )  # , itc_training=True)
 
 
@@ -241,16 +244,23 @@ def e3_pre6():
 
 
 def e3v7_3():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_300],
-                run_test=False,
-                run_best=False,
-                run_best_4=False,
-                run_only_dev_other=True,
-                )  # , itc_training=True)
+    ex3.sllm_ep(
+        [ExperimentVersion.V7_TUNED_DROPOUT_300],
+        run_test=False,
+        #run_best=False,
+        #run_best_4=False,
+        #run_only_dev_other=True,
+    )  # , itc_training=True)
 
 
 def e3_f1_baseline():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_4GPU_10K], run_only_last=False)
+    ex3.sllm_ep(
+        [ExperimentVersion.SLLM_BV2_4GPU_10K],
+        run_test=False,
+        #run_best=False,
+        #run_best_4=False,
+        #run_only_dev_other=True,
+    )
 
 
 def e3_f1_baseline_pre():
@@ -302,9 +312,9 @@ def e3_pre8():
     ex3.sllm_ep(
         [ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C],
         run_test=False,  # TODO: for now
-        run_best=False,  # TODO: for now
-        run_best_4=False,  # TODO: for now
-        run_only_dev_other=True,  # TODO: for now
+        #run_best=False,  # TODO: for now
+        #run_best_4=False,  # TODO: for now
+        #run_only_dev_other=True,  # TODO: for now
     )  # , itc_training=True)
 
 
@@ -356,9 +366,9 @@ def e3v14():
     ex3.sllm_ep(
         [ExperimentVersion.V14_SLLM_3CTC],
         run_test=False,
-        run_best=False,
-        run_best_4=False,
-        run_only_dev_other=True,
+        # run_best=False,
+        # run_best_4=False,
+        # run_only_dev_other=True,
     )  # , itc_training=True)
 
 
@@ -378,7 +388,7 @@ def e3v7_s2():
 
 
 def e3v7_s2v2():
-    ex3.sllm_ep([ExperimentVersion.V7_S2V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_S2V2])  # , itc_training=True)
 
 
 def e3v5_s2():
@@ -476,7 +486,7 @@ def e3v14_pre2_f10_v2():
 
 
 def e3_pre11_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_FE_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_B_FE_V2])#, itc_training=True)
 
 
 def e3_pre12_v2():
@@ -486,13 +496,15 @@ def e3_pre12_v2():
 def e3_pre15():
     ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL])
 
+def e3_pre15_hpc():
+    ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC], itc_training=True)
 
 def e3_pre5_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_V2])  # , itc_training=True)
 
 
 def e3_pre10_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM_V2])  # , itc_training=True)
 
 
 def e3_ft1_v2():
@@ -514,9 +526,32 @@ def e3_pre9_v2():
 def e3_pre3_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2], itc_training=True)
 
+def e3_pre3_v2_i6():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2_I6])
+
 
 def e3_pre4_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_D_B_C_V2])#, itc_training=True)
+
+
+# LORA V2
+
+
+def new_lora():
+    e3_lora1_v2()
+    e3_lora2_v2()
+    e3_lora3_v2()
+
+def e3_lora1_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA_V2], itc_training=True)
+
+
+def e3_lora2_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_V2])#, itc_training=True)
+
+
+def e3_lora3_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small_V2])#, itc_training=True)
 
 
 """
@@ -554,62 +589,86 @@ def v4_ctc_sllm_decoding():
     e3v7_ctc()
     e3v8()
 
-    # e3v6() # TODO:!
-    # e3v9() # TODO:!
-    # e3v10_2() # TODO:!
-    # e3v10() # TODO:!
-    # e3v10_3() # TODO:!
-    # e3v5() # OTHER SEARCHES
+    e3v6()
+    e3v9()
+    e3v10_2()
+    e3v10()
+    e3v10_3()
+    e3v5()
 
-    # e3v11() # todo:!
+    # e3v11() # LAST CHECKPOINT NOT FOUND!
     e3v12()
     e3v13()
     e3v8_2()
     e3v7_2()
     e3v7_3()
 
-    e3_pre3()
-    e3_pre4()
-    e3_pre5()
-    e3_pre6()
+    #e3_pre3() # BROKEN
+    #e3_pre4() # BROKEN
+    #e3_pre5() # BROKEN
+    #e3_pre6() # BROKEN
 
     e3_f1_baseline()
-    e3_f1_baseline_pre()
-    e3_f1()
-    e3_f1_ds()
-    e3_f2()
-    e3_f3()
-    e3_f4()
-    e3_f5()
-    e3_f5_2oclr_2()
+    #e3_f1_baseline_pre() # BROKEN
+    #e3_f1() # BROKEN
+    #e3_f1_ds() # BROKEN
+    #e3_f2() # BROKEN
+    #e3_f3() # BROKEN
+    #e3_f4() # BROKEN
+    #e3_f5() # BROKEN
+    #e3_f5_2oclr_2() # BROKEN
 
-    e3_lora1()
-    e3_lora2()
-    e3_lora3()
+    #e3_lora1() # BROKEN
+    #e3_lora2() # BROKEN
+    #e3_lora3() # BROKEN
 
     e3v13_2()
     e3v14()
 
-    e3_ft1()
-    e3_ft2()
-    e3_ft3_i6()
-    e3_ft4_i6()
-    e3_ft3()
-    e3_ft4()
+    e3v7_beam()
+    e3v7_beam_ln()
+
+    # e3_ft1() # BROKEN
+    # e3_ft2() # BROKEN
+    # e3_ft3_i6() # BROKEN
+    # e3_ft4_i6() # BROKEN
+    # e3_ft3() # BROKEN
+    # e3_ft4() # BROKEN
 
     e3v7_s2()
-    # e3v7_s2v2() # todo:!
+    e3v7_s2v2()
     e3v5_s2()
     e3v5_s2v2()
     e3v10_3_s2()
 
-    e3_pre11()
-    e3_pre12()
+    # e3_pre11() # BROKEN
+    # e3_pre12() # BROKEN
 
-    e3v14_pre1()
-    e3v14_pre2()
+    #e3v14_pre1() # BROKEN
+    #e3v14_pre2() # BROKEN
     e3_pre5_i6()
     e3v14_pre2_f10()
+
+    e3v14_pre1_v2()
+    e3v14_pre2_v2()
+    e3_pre5_i6_v2()
+    e3v14_pre1_f20_v2()
+    # e3v14_pre2_f10_v2() # TODO: running i6
+    e3_pre11_v2()
+    e3_pre12_v2()
+    # e3_pre15() TODO: running i6
+    e3_pre5_v2()
+    e3_pre10_v2()
+    e3_ft1_v2()
+    e3_ft2_v2()
+    e3_pre8_v2()
+    e3_pre9_v2()
+    e3_pre3_v2()
+    # e3_pre3_v2_i6() # TODO: running i6
+    e3_pre4_v2()
+
+    e3_lora2_v2()
+    e3_lora3_v2()
 
 
 def new_v4_search():
@@ -623,6 +682,7 @@ def new_v4_search_v2():
     e3v7_ctc()
     e3_pre8()
     e3v14()
+
 
 def new_v4_len_norm():
     e3v5()

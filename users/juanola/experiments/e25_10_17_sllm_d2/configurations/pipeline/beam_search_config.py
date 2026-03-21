@@ -35,6 +35,10 @@ def beam_search_baseline_v2() -> BeamSearchConfig:
 def beam_search_multiple_beams() -> BeamSearchConfig:
     return BeamSearchConfig(beam_sizes=[1, 2, 4, 6, 8, 10, 12])
 
+def beam_search_multiple_beams_v2() -> BeamSearchConfig:
+    return BeamSearchConfig(beam_sizes=[1, 6, 12, 24, 36])
+
+
 
 def greedy() -> BeamSearchConfig:
     return BeamSearchConfig(beam_sizes=[1])

@@ -17,7 +17,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     beam_search_baseline,
     greedy,
     beam_search_multiple_beams,
-    single_beam,
+    single_beam, beam_search_multiple_beams_v2,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
@@ -52,6 +52,8 @@ class SearchConfig:
     prior_scales: list[float]
     ctc_scales: list[float]
     sllm_scales: list[float]
+
+    length_norm_exponent: float = None # backwards compatibility (in reality it is 1.0), # Only for V2 recog for now
 
     # Other
     forward_method: str = None
@@ -147,7 +149,7 @@ Specific configurations set below.
 
 
 def base_searches():
-    return search_baseline_ctc_greedy_decoding(), search_baseline_v2(), V4_CTC_SLLM()
+    return search_baseline_ctc_greedy_decoding(), search_baseline_v2(), V4_CTC_SLLM(), V4_CTC_SLLM_autoscaling()
 
 
 """
@@ -236,6 +238,14 @@ def search_baseline_v2() -> SearchConfig:
 def search_baseline_v2_multiple_beams() -> SearchConfig:
     return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams())
 
+def search_baseline_v2_multiple_beams_v2() -> SearchConfig:
+    return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams_v2())
+
+def search_v4_ctc_sllm_multiple_beams() -> SearchConfig:
+    return dataclasses.replace(V4_CTC_SLLM(), beam_search=beam_search_multiple_beams())
+
+def search_v4_ctc_sllm_multiple_beams_autoscale() -> SearchConfig:
+    return dataclasses.replace(V4_CTC_SLLM_autoscaling(), beam_search=beam_search_multiple_beams())
 
 """
 ctc decoding
@@ -362,6 +372,15 @@ def V4_autoscaling_64_ctc_prior_sllm_lm(
         sllm_as_llm=sllm_as_llm,
         auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
         prior_relative_to=prior_relative_to,
+    )
+
+def V4_CTC_SLLM_autoscaling():
+    return V4_autoscaling_64_ctc_prior_sllm_lm(
+        use_ctc = True,
+        use_sllm = True,
+        use_llm = False,
+        use_prior = False,
+        auto_scaling_use_ctc_sum_scores = True,
     )
 
 

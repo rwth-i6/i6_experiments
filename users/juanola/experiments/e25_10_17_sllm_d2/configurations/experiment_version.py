@@ -12,11 +12,12 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5, exp_v5_s2, exp_v7_s2, exp_v10_3_s2, exp_v15_small_12ep_ca_lr4, \
     exp_v15_small_12ep_ca_lr5, exp_v15_small_12ep_ca_lr4_i6, exp_v15_small_12ep_ca_lr5_i6, bv2_pre_ed_s_fe, \
     bv2_ds_pre_ed_b_fe, bv2_ds_pre_d_b_c_1, exp_v14_3ctc_b_pre_ed, exp_v14_3ctc_s_pre_ed, bv2_pre_ed_s_c_4gpu, \
-    exp_v14_3ctc_b_pre_ed_f20, exp_v14_3ctc_s_pre_ed_f10, exp_v5_s2v2, exp_v7_s2v2
+    exp_v14_3ctc_b_pre_ed_f20, exp_v14_3ctc_s_pre_ed_f10, exp_v5_s2v2, exp_v7_s2v2, exp_v7_with_beam_ln
 from .experiment_config_v2 import exp_v14_3ctc_b_pre_ed_v2, exp_v14_3ctc_s_pre_ed_v2, exp_v14_3ctc_b_pre_ed_f20_v2, \
     exp_v14_3ctc_s_pre_ed_f10_v2, bv2_pre_ed_s_c_4gpu_v2, bv2_ds_pre_ed_b_fe_v2, bv2_pre_ed_s_fe_v2, exp_v15_3ctc_small, \
     bv2_pre_ed_s_c_v2, bv2_pre_ed_s_lm_v2, exp_v15_small_12ep_lr4_v2, exp_v15_small_12ep_lr5_v2, bv2_ds_pre_ed_b_c_v2, \
-    bv2_ds_pre_ed_b_lm_v2, bv2_pre_d_s_c_v2, bv2_pre_d_b_c_v2
+    bv2_ds_pre_ed_b_lm_v2, bv2_pre_d_s_c_v2, bv2_pre_d_b_c_v2, bv3_ds_pre_ed_b_c_lora_v2, bv3_pre_ed_s_c_lora_v2, \
+    bv3_pre_ed_s_c_lora_small_v2, bv2_pre_d_s_c_v2_i6, exp_v15_3ctc_small_hpc
 
 
 class ExperimentVersion(Enum):
@@ -34,6 +35,7 @@ class ExperimentVersion(Enum):
     #V7_TUNED_DROPOUT = "SLLM_tuned_dropout_v2" # Use the CTC one
     V7_TUNED_DROPOUT_CTC_GD = "SLLM_tuned_dropout_v2"
     V7_TUNED_DROPOUT_BEAM = "SLLM_tuned_dropout_v2_forward2"
+    V7_TUNED_DROPOUT_BEAM_LN = "SLLM_tuned_dropout_v2_beam_ln"
     V8_1_TD_LRV2 = "SLLM_td_lrv2"
     V8_2_TD_LRV3 = "SLLM_td_lrv3"
 
@@ -111,6 +113,7 @@ class ExperimentVersion(Enum):
     SLLM_3CTC_BV2_PRE_ED_S_C_F10 = "SLLM_3CTC_pretrained_ed_s_c_f10" # 2 full epochs
 
     V15_SLLM_3CTC_SMALL = "SLLM_3CTC_small"
+    V15_SLLM_3CTC_SMALL_HPC = "SLLM_3CTC_small_hpc"
 
     # NEW LLM REPEATS
     V14_SLLM_3CTC_B_PRE_ED_V2 = "SLLM_3CTC_b_pre_ed_v2"
@@ -127,7 +130,12 @@ class ExperimentVersion(Enum):
     SLLM_BV2_DS_PRE_ED_B_C_V2 = "SLLM_ds_pretrained_ed_b_c_v2"
     SLLM_BV2_DS_PRE_ED_B_LM_V2 = "SLLM_ds_pretrained_ed_b_lm_v2"
     SLLM_BV2_PRE_D_S_C_V2 = "SLLM_pretrained_d_s_c_v2"
+    SLLM_BV2_PRE_D_S_C_V2_I6 = "SLLM_pretrained_d_s_c_v2_i6"
     SLLM_BV2_PRE_D_B_C_V2 = "SLLM_pretrained_d_b_c_v2"
+
+    SLLM_BV3_DS_PRE_ED_B_C_LORA_V2 = "SLLM_ds_pretrained_ed_b_c_lora_v2"
+    SLLM_BV3_PRE_ED_S_C_LORA_V2 = "SLLM_pretrained_ed_s_c_lora_v2"
+    SLLM_BV3_PRE_ED_S_C_LORA_small_V2 = "SLLM_pretrained_ed_s_c_lora_small_v2"
 
     # Expand here
 
@@ -150,6 +158,7 @@ _EXPERIMENT_BUILDERS = {
     #ExperimentVersion.V7_TUNED_DROPOUT: exp_v7,
     ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD: exp_v7_with_ctc_gd,
     ExperimentVersion.V7_TUNED_DROPOUT_BEAM: exp_v7_with_beam,
+    ExperimentVersion.V7_TUNED_DROPOUT_BEAM_LN: exp_v7_with_beam_ln,
     ExperimentVersion.V8_1_TD_LRV2: exp_v8_1,
     ExperimentVersion.V8_2_TD_LRV3: exp_v8_2,
 
@@ -228,6 +237,7 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.SLLM_3CTC_BV2_PRE_ED_S_C_F10: exp_v14_3ctc_s_pre_ed_f10,
 
     ExperimentVersion.V15_SLLM_3CTC_SMALL: exp_v15_3ctc_small,
+    ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC: exp_v15_3ctc_small_hpc,
 
     # NEW LLM PRETRAININGS
     ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED_V2: exp_v14_3ctc_b_pre_ed_v2,
@@ -244,9 +254,12 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_V2: bv2_ds_pre_ed_b_c_v2,
     ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_LM_V2: bv2_ds_pre_ed_b_lm_v2,
     ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2: bv2_pre_d_s_c_v2,
+    ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2_I6: bv2_pre_d_s_c_v2_i6,
     ExperimentVersion.SLLM_BV2_PRE_D_B_C_V2: bv2_pre_d_b_c_v2,
 
-
+    ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA_V2: bv3_ds_pre_ed_b_c_lora_v2,
+    ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_V2: bv3_pre_ed_s_c_lora_v2,
+    ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small_V2: bv3_pre_ed_s_c_lora_small_v2,
 
 
     # Expand here

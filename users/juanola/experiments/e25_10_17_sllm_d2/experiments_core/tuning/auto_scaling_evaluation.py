@@ -73,8 +73,10 @@ def ctc_label_sync_eval_auto_scale(
     autoscale_id, simplified_id = get_autoscaling_ids(search_config, use_ctc, use_llm, use_prior, use_sllm, frozen_scales, scale_relative_to)
 
     # DATASET FOR TUNNING
-    assert len(tune_datasets.items()) == 1, "Only one dataset is supported for now!"
-    tune_dataset_name, (tune_dataset, tune_dataset_ref) = list(tune_datasets.items())[0]
+    tune_dataset_name = "dev-other"
+    if tune_dataset_name not in tune_datasets.keys():
+        raise Exception("dev-other needed for autoscaling for now!")
+    (tune_dataset, tune_dataset_ref) = tune_datasets[tune_dataset_name]
 
     # Add target params
     tune_dataset_dict = tune_dataset.as_returnn_opts()

@@ -100,7 +100,7 @@ def create_tune_and_evaluate_jobs(
             search_config.auto_scaling
         ):  # tunes scales and finds best combination, which then is used in the forward steps
             # asserts if needed?
-            assert len(search_config.beam_search.beam_sizes) == 1, "Only one beam size is supported for auto-scaling"
+            #assert len(search_config.beam_search.beam_sizes) == 1, "Only one beam size is supported for auto-scaling"
 
             scales_dict, autoscale_id = ctc_label_sync_eval_auto_scale(
                 asr_model=asr_model,
@@ -485,7 +485,14 @@ def get_forward_step_parameters_and_search_name(
             "max_tokens_per_sec": 20,  # TODO: store somewhere
             "sample_rate": 16_000,  # TODO: get from feature extraction
         }
+
+        sufix = ""
+        if search_config.length_norm_exponent is not None:
+            forward_args["length_norm_exponent"] = search_config.length_norm_exponent
+            sufix = "_no_length_norm"
+
         search_name = f"{evaluation_name}/v2_optimal_params" if for_test else f"{evaluation_name}/v2_beam{beam_size}"
+        search_name += sufix
     elif forward_method == "forward_step_ctc_decoding":
         forward_args = {
             "beam_size": beam_size,

@@ -1,28 +1,26 @@
 import copy
-from dataclasses import asdict
 from enum import Enum
-from functools import partial
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Tuple
 
+from i6_experiments.common.datasets import librispeech
+from i6_experiments.users.schmitt.corpus.segment_ends import AugmentCorpusSegmentEndsJob
+from i6_experiments.users.schmitt.corpus.statistics import GetBlissCorpusStatisticsJob
 from returnn_common.datasets import Dataset
 from sisyphus import tk
 from .configurations.data.dataset_config import DatasetConfig
 from .configurations.data.label_config import LabelConfig
-from .configurations.experiment_config import ExperimentConfig
 from .configurations.experiment_version import get_experiment_config
-from .configurations.network.network_config import NetworkConfig
 from .configurations.pipeline.search_config import SearchConfig
 from .constants import SIS_BASE_REPORT_EXTENSION, SIS_OUTPUTS_REPORTS, NETWORK_PACKAGE, TRAIN_STEP_PACKAGE
-from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT
+from .default_tools import RETURNN_ROOT, MINI_RETURNN_ROOT, RETURNN_EXE
 from .experiments_core.data.dataset_commons import ReturnnDatasetSettings, build_test_dataset
 from .experiments_core.data.spm_utils import build_spm_training_datasets
 from .experiments_core.model_creation.training_job_builder import create_training_job
-from .experiments_core.reporting.base_report_templates import base_report_template_v0
 from .experiments_core.reporting.report_helper import generate_experiment_results_report
 from .experiments_core.tuning.evaluation import create_tune_and_evaluate_jobs
 from .utils_network_args import get_network_args
+from ...corpus.segment_ends import AugmentCorpusSegmentEndsJobV2
 from ...data.training_datasets import TrainingDatasets
-from ...sisyphus_jobs.configs.qwen2_decoder_config_job_v2 import Qwen2DecoderConfigJobV2
 from ...utils.returnn.checkpoint_helper import default_returnn_keep_epochs
 
 
@@ -34,10 +32,10 @@ def sllm_ep(
     specific_recognition_epochs: set[int] = set({}),
     only_specific_epochs: bool = False,
     test_forward_output_path: bool = False,
-    run_test: bool = False, # TODO: for now
+    run_test: bool = False, # TODO: for now!!
     run_best: bool = True,
     run_best_4: bool = True,
-    run_only_dev_other: bool = True,  # TODO: for now
+    run_only_dev_other: bool = False,
     run_only_last: bool = True,  # !!! now only running last epochs by default!
 ) -> Dict[str, Any]:
     """
@@ -256,6 +254,20 @@ def create_datasets_jobs(
             settings=train_dataset_settings,
             datasets_num_workers=forward_dataset_num_workers,
         )
+
+    # DATASET STATS
+    # "train-clean-100", "train-clean-360", "train-other-500" instead of "train-other-960"
+    for dataset_key in ["train-other-960", "dev-clean", "dev-other","test-clean", "test-other"]:
+        augmented_corpus = AugmentCorpusSegmentEndsJobV2(
+            bliss_corpous=librispeech.get_bliss_corpus_dict(audio_format="ogg")[dataset_key],
+            oggzip_path=librispeech.get_ogg_zip_dict("corpora", returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)[dataset_key],
+            corpus_key=dataset_key,
+        ).out_bliss_corpus
+        corpus_stats = GetBlissCorpusStatisticsJob(
+            bliss_corpus=augmented_corpus,
+        )
+        tk.register_output(f"datasets/LibriSpeech/statistics/{dataset_key}_statistics.txt", corpus_stats.out_statistics)
+
 
     return (
         training_datasets,
