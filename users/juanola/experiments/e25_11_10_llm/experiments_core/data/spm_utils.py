@@ -3,7 +3,7 @@ Dataset helpers for the SPM-based training
 """
 from typing import Tuple
 
-
+from i6_experiments.users.juanola.corpus.statistics import GetTokenizedTextStatisticsJob
 from sisyphus import tk
 from i6_core.corpus import CorpusToTxtJob
 from i6_core.text.info import CountLinesJob
@@ -82,11 +82,11 @@ def build_spm_lm_training_datasets(
             sentencepiece_model= label_datastream.spm_model,
             enable_unk=False,
         ).out_sentencepiece_text
-
-        # todo: stats
-
-
         tk.register_output(f"datasets/LibriSpeech/statistics/lm_data/tokenized_datasets/{dataset_key}_tokenized.txt.gz", tokenized_text)
-    #CountLinesJob
+
+        stats_file = GetTokenizedTextStatisticsJob(
+            text_file=tokenized_text
+        ).out_statistics
+        tk.register_output(f"datasets/LibriSpeech/statistics/lm_data/{dataset_key}_stats.txt", stats_file)
 
     return training_datasets, label_datastream
