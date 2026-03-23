@@ -1,3 +1,4 @@
+from dataclasses import replace
 from enum import Enum
 
 from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, exp_v4, exp_v5, exp_v6, exp_v8_1, \
@@ -12,12 +13,14 @@ from .experiment_config import exp_baseline, exp_v2, ExperimentConfig, exp_v3, e
     exp_v15_small_12ep_lr4, exp_v15_small_12ep_lr5, exp_v5_s2, exp_v7_s2, exp_v10_3_s2, exp_v15_small_12ep_ca_lr4, \
     exp_v15_small_12ep_ca_lr5, exp_v15_small_12ep_ca_lr4_i6, exp_v15_small_12ep_ca_lr5_i6, bv2_pre_ed_s_fe, \
     bv2_ds_pre_ed_b_fe, bv2_ds_pre_d_b_c_1, exp_v14_3ctc_b_pre_ed, exp_v14_3ctc_s_pre_ed, bv2_pre_ed_s_c_4gpu, \
-    exp_v14_3ctc_b_pre_ed_f20, exp_v14_3ctc_s_pre_ed_f10, exp_v5_s2v2, exp_v7_s2v2, exp_v7_with_beam_ln
+    exp_v14_3ctc_b_pre_ed_f20, exp_v14_3ctc_s_pre_ed_f10, exp_v5_s2v2, exp_v7_s2v2, exp_v7_with_beam_ln, exp_v7, \
+    param_test_2ctc, param_test_3ctc
 from .experiment_config_v2 import exp_v14_3ctc_b_pre_ed_v2, exp_v14_3ctc_s_pre_ed_v2, exp_v14_3ctc_b_pre_ed_f20_v2, \
     exp_v14_3ctc_s_pre_ed_f10_v2, bv2_pre_ed_s_c_4gpu_v2, bv2_ds_pre_ed_b_fe_v2, bv2_pre_ed_s_fe_v2, exp_v15_3ctc_small, \
     bv2_pre_ed_s_c_v2, bv2_pre_ed_s_lm_v2, exp_v15_small_12ep_lr4_v2, exp_v15_small_12ep_lr5_v2, bv2_ds_pre_ed_b_c_v2, \
     bv2_ds_pre_ed_b_lm_v2, bv2_pre_d_s_c_v2, bv2_pre_d_b_c_v2, bv3_ds_pre_ed_b_c_lora_v2, bv3_pre_ed_s_c_lora_v2, \
-    bv3_pre_ed_s_c_lora_small_v2, bv2_pre_d_s_c_v2_i6, exp_v15_3ctc_small_hpc
+    bv3_pre_ed_s_c_lora_small_v2, bv2_pre_d_s_c_v2_i6, exp_v15_3ctc_small_hpc, base_3ctc_pre_ed_c_f20, \
+    small_3ctc_pre_ed_lm, exp_v14_3ctc_b_pre_ed_f40_v2
 
 
 class ExperimentVersion(Enum):
@@ -120,6 +123,7 @@ class ExperimentVersion(Enum):
     V14_SLLM_3CTC_S_PRE_ED_V2 = "SLLM_3CTC_s_pre_ed_v2"
     SLLM_BV2_PRE_ED_S_C_I6_V2 = "SLLM_pretrained_ed_s_c_4gpu_v2"
     SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20_V2 = "SLLM_3CTC_ds_pretrained_ed_b_c_f20_v2" # full epoch
+    SLLM_3CTC_BV2_DS_PRE_ED_B_C_F40_V2 = "SLLM_3CTC_ds_pretrained_ed_b_c_f40_v2" # full epoch
     SLLM_3CTC_BV2_PRE_ED_S_C_F10_V2 = "SLLM_3CTC_pretrained_ed_s_c_f10_v2" # 2 full epochs
     SLLM_BV2_PRE_ED_B_FE_V2 = "SLLM_pretrained_ed_b_fe_v2"
     SLLM_BV2_PRE_ED_S_FE_V2 = "SLLM_pretrained_ed_s_fe_v2"
@@ -133,6 +137,9 @@ class ExperimentVersion(Enum):
     SLLM_BV2_PRE_D_S_C_V2_I6 = "SLLM_pretrained_d_s_c_v2_i6"
     SLLM_BV2_PRE_D_B_C_V2 = "SLLM_pretrained_d_b_c_v2"
 
+    SLLM_3CTC_B_PRE_ED_C_F20 = "SLLM_3CTC_b_pre_ed_c_f20"
+    SLLM_3CTC_S_PRE_ED_LM = "SLLM_3CTC_s_pre_ed_lm"
+
     SLLM_BV3_DS_PRE_ED_B_C_LORA_V2 = "SLLM_ds_pretrained_ed_b_c_lora_v2"
     SLLM_BV3_PRE_ED_S_C_LORA_V2 = "SLLM_pretrained_ed_s_c_lora_v2"
     SLLM_BV3_PRE_ED_S_C_LORA_small_V2 = "SLLM_pretrained_ed_s_c_lora_small_v2"
@@ -144,6 +151,8 @@ class ExperimentVersion(Enum):
     T1_2_CTC_GREEDY_DECODING = "test1-ctc-greedy-decoding_10kBS"
     N2_TEST = "n2_test"
     N2_TEST_SV2 = "n2_test_sv2"
+    PARAM_TEST_2CTC = "param_test_2ctc"
+    PARAM_TEST_3CTC = "param_test_3ctc"
 
 
 _EXPERIMENT_BUILDERS = {
@@ -244,6 +253,7 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED_V2: exp_v14_3ctc_s_pre_ed_v2,
     ExperimentVersion.SLLM_BV2_PRE_ED_S_C_I6_V2: bv2_pre_ed_s_c_4gpu_v2,
     ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20_V2: exp_v14_3ctc_b_pre_ed_f20_v2,
+    ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F40_V2: exp_v14_3ctc_b_pre_ed_f40_v2,
     ExperimentVersion.SLLM_3CTC_BV2_PRE_ED_S_C_F10_V2: exp_v14_3ctc_s_pre_ed_f10_v2,
     ExperimentVersion.SLLM_BV2_PRE_ED_B_FE_V2: bv2_ds_pre_ed_b_fe_v2,
     ExperimentVersion.SLLM_BV2_PRE_ED_S_FE_V2: bv2_pre_ed_s_fe_v2,
@@ -257,6 +267,9 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.SLLM_BV2_PRE_D_S_C_V2_I6: bv2_pre_d_s_c_v2_i6,
     ExperimentVersion.SLLM_BV2_PRE_D_B_C_V2: bv2_pre_d_b_c_v2,
 
+    ExperimentVersion.SLLM_3CTC_B_PRE_ED_C_F20: base_3ctc_pre_ed_c_f20,
+    ExperimentVersion.SLLM_3CTC_S_PRE_ED_LM: small_3ctc_pre_ed_lm,
+
     ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA_V2: bv3_ds_pre_ed_b_c_lora_v2,
     ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_V2: bv3_pre_ed_s_c_lora_v2,
     ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small_V2: bv3_pre_ed_s_c_lora_small_v2,
@@ -269,6 +282,8 @@ _EXPERIMENT_BUILDERS = {
     ExperimentVersion.T1_2_CTC_GREEDY_DECODING: t_v1_2,
     ExperimentVersion.N2_TEST: n2_test,
     ExperimentVersion.N2_TEST_SV2: n2_test_sv2,
+    ExperimentVersion.PARAM_TEST_2CTC: param_test_2ctc,
+    ExperimentVersion.PARAM_TEST_3CTC: param_test_3ctc,
 }
 
 

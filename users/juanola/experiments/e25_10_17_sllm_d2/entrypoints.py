@@ -102,13 +102,18 @@ def e3v4():
     ex3.sllm_ep([ExperimentVersion.V4_SMALL_DECODER])  # , itc_training=True)
 
 
-def e3v5():
+def e3v5(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
     ex3.sllm_ep(
         [ExperimentVersion.V5_LINEAR_ADAPTER],
-        run_test=False,
-        #run_best=False,
-        #run_best_4=False,
-        #run_only_dev_other=True,
+        run_best=best,
+        run_best_4=best4,
+        only_specific_epochs=not last,
+        run_only_last=last,
+        specific_recognition_epochs=set({})
     )  # , itc_training=True)
 
 
@@ -122,12 +127,18 @@ def e3v6():
 #    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT])#, itc_training=True)
 
 
-def e3v7_ctc():
+def e3v7_ctc(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
     ex3.sllm_ep(
         [ExperimentVersion.V7_TUNED_DROPOUT_CTC_GD],
-        # run_best=False, # TODO: check
-        # run_best_4=False, # TODO: check
-        # run_only_dev_other=True, # TODO: check
+        run_best=best,
+        run_best_4=best4,
+        only_specific_epochs=not last,
+        run_only_last=last,
+        specific_recognition_epochs=set({})
     )  # , itc_training=True)
 
 
@@ -253,13 +264,18 @@ def e3v7_3():
     )  # , itc_training=True)
 
 
-def e3_f1_baseline():
+def e3_f1_baseline(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
     ex3.sllm_ep(
         [ExperimentVersion.SLLM_BV2_4GPU_10K],
-        run_test=False,
-        #run_best=False,
-        #run_best_4=False,
-        #run_only_dev_other=True,
+        run_best=best,
+        run_best_4=best4,
+        only_specific_epochs=not last,
+        run_only_last=last,
+        specific_recognition_epochs=set({})
     )
 
 
@@ -467,18 +483,41 @@ def e3v14_pre1_v2():
     ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_B_PRE_ED_V2], itc_training=True)
 
 
-def e3v14_pre2_v2():
-    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED_V2])
+def e3v14_pre2_v2(
+        last: bool = False,
+        best: bool = True,
+        best4: bool = False,
+):
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED_V2],
+                run_best=best,
+                run_best_4=best4,
+                only_specific_epochs=not last,
+                run_only_last=last,
+                specific_recognition_epochs=set({})
+                )
 
 
 def e3_pre5_i6_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_I6_V2])
 
 
-def e3v14_pre1_f20_v2():
+def e3v14_pre1_f20_v2(
+        last: bool = False,
+        best: bool = False,
+        best4: bool = True,
+):
     ex3.sllm_ep(
-        [ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20_V2], itc_training=True
+        [ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F20_V2],
+        run_best=best,
+        run_best_4=best4,
+        only_specific_epochs=not last,
+        run_only_last=last,
+        specific_recognition_epochs=set({})
+        #, itc_training=True
     )
+
+def e3v14_pre1_f40_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_BV2_DS_PRE_ED_B_C_F40_V2], itc_training=True)
 
 
 def e3v14_pre2_f10_v2():
@@ -503,8 +542,18 @@ def e3_pre5_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_V2])  # , itc_training=True)
 
 
-def e3_pre10_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM_V2])  # , itc_training=True)
+def e3_pre10_v2(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_LM_V2],
+                run_best=best,
+                run_best_4=best4,
+                only_specific_epochs=not last,
+
+                specific_recognition_epochs=set({})
+                )  # , itc_training=True)
 
 
 def e3_ft1_v2():
@@ -543,7 +592,7 @@ def new_lora():
     e3_lora3_v2()
 
 def e3_lora1_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA_V2], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV3_DS_PRE_ED_B_C_LORA_V2])#, itc_training=True)
 
 
 def e3_lora2_v2():
@@ -554,9 +603,37 @@ def e3_lora3_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV3_PRE_ED_S_C_LORA_small_V2])#, itc_training=True)
 
 
+# BEST POSSIBLE MODELS
+
+def best_pretrained():
+    e3_best_large()
+    e3_best_small()
+
+def e3_best_large():
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_B_PRE_ED_C_F20], itc_training=True) # Already run!! 
+
+def e3_best_small():
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_S_PRE_ED_LM], itc_training=True)
+
+
 """
 SPECIAL
 """
+
+def final_v4_decoding():
+    e3v7_ctc()
+    e3v5()
+    e3_f1_baseline()
+
+    # Pretrainings
+    e3v14_pre1_f20_v2()
+    e3_pre10_v2()
+    e3v14_pre2_v2()
+
+
+
+
+
 
 
 def v2_decoding():
@@ -653,7 +730,7 @@ def v4_ctc_sllm_decoding():
     e3v14_pre2_v2()
     e3_pre5_i6_v2()
     e3v14_pre1_f20_v2()
-    # e3v14_pre2_f10_v2() # TODO: running i6
+    e3v14_pre2_f10_v2()
     e3_pre11_v2()
     e3_pre12_v2()
     # e3_pre15() TODO: running i6
@@ -738,6 +815,14 @@ def n2_test():
 
 def n2_test2():
     ex3.sllm_ep([ExperimentVersion.N2_TEST_SV2], specific_recognition_epochs={2})
+
+
+def param_test():
+    ex3.sllm_ep([
+        ExperimentVersion.PARAM_TEST_2CTC,
+        ExperimentVersion.PARAM_TEST_3CTC,
+    ], debug=True)
+
 
 
 __all__ = [

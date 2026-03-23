@@ -321,6 +321,7 @@ class Model(
             print(" ***** MODEL PARAMETERS *****")
             if using_encoder:
                 print(f"Encoder params:", get_model_params(self.encoder))
+                print(f"CTC aux layers params:", get_model_params(self.out_aux_logits))
             else:
                 print("No encoder!")
 

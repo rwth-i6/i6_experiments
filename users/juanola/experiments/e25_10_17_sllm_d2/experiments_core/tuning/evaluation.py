@@ -55,17 +55,18 @@ def create_tune_and_evaluate_jobs(
     if specific_epochs is None:
         specific_epochs = train_job.returnn_config.post_config["num_epochs"]
 
-    highest_epoch = max(specific_epochs)
-
     # Dict of all train_evals to perform (could be extended)
     checkpoint_per_evaluation = OrderedDict()
-    for epoch in specific_epochs:
-        evaluation_name = f"{training_name}/{epoch}"
-        run_test_on_epoch = epoch == highest_epoch or run_test_in_intermediate_epochs
-        checkpoint_per_evaluation[evaluation_name] = (
-            *get_specific_checkpoint(evaluation_name, train_job, epoch),
-            run_test_on_epoch,
-        )
+
+    if len(specific_epochs) > 0:
+        highest_epoch = max(specific_epochs)
+        for epoch in specific_epochs:
+            evaluation_name = f"{training_name}/{epoch}"
+            run_test_on_epoch = epoch == highest_epoch or run_test_in_intermediate_epochs
+            checkpoint_per_evaluation[evaluation_name] = (
+                *get_specific_checkpoint(evaluation_name, train_job, epoch),
+                run_test_on_epoch,
+            )
     if run_best_4:
         evaluation_name = f"{training_name}/best4"
         checkpoint_per_evaluation[evaluation_name] = (

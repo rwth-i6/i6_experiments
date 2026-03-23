@@ -47,7 +47,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     PretrainedExternalModules, V4_autoscaling_64_ctc_prior_sllm_lm, V4_ctc_sllm_lm_combinations, base_searches,
     V4_autoscaling_64_all_combs, V4_autoscaling_64_ext_llm_combs, V4_autoscaling_good_combs_1,
     V4_autoscaling_good_combs_1_reduced, search_baseline_v2_multiple_beams_v2,
-    search_v4_ctc_sllm_multiple_beams_autoscale, )
+    search_v4_ctc_sllm_multiple_beams_autoscale, search_v4_ctc_sllm_multiple_beams_autoscale_v3,
+    search_baseline_v2_multiple_beams_v3, )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
     training_baseline,
@@ -169,6 +170,11 @@ def exp_v5() -> ExperimentConfig:
         network=network_small_linear_adapter(),
         search=[
             *base_searches(),
+            *V4_autoscaling_good_combs_1_reduced(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value
+            )
+
             # V4_ctc_sllm_lm_combinations( # CTC finetuned
             #     # CTC finetuned
             #     ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
@@ -287,6 +293,13 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
         exp_v7(),
         search=[
             *base_searches(),
+
+            *V4_autoscaling_good_combs_1_reduced(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value
+            )
+
+
             # V4_ctc_sllm_lm_combinations( # CTC finetuned
             #     # CTC finetuned
             #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
@@ -350,16 +363,22 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
 
 def exp_v7_with_beam() -> ExperimentConfig:
     return replace(exp_v7(), search=[
-        search_baseline_v2_multiple_beams(),
+        #search_baseline_v2_multiple_beams(),
         #replace(search_baseline_v2_multiple_beams(), length_norm_exponent=0.0),
-        search_v4_ctc_sllm_multiple_beams(),
-        search_v4_ctc_sllm_multiple_beams_autoscale(),
+        #search_v4_ctc_sllm_multiple_beams(),
+        #search_v4_ctc_sllm_multiple_beams_autoscale(),
+
+        search_baseline_v2_multiple_beams_v3(),
+        search_v4_ctc_sllm_multiple_beams_autoscale_v3(),
         ])
 
 def exp_v7_with_beam_ln() -> ExperimentConfig:
     return replace(exp_v7(), search=[
-        search_baseline_v2_multiple_beams_v2(),
-        replace(search_baseline_v2_multiple_beams_v2(), length_norm_exponent=0.0),
+        #search_baseline_v2_multiple_beams_v2(),
+        #replace(search_baseline_v2_multiple_beams_v2(), length_norm_exponent=0.0),
+
+        search_baseline_v2_multiple_beams_v3(),
+        replace(search_baseline_v2_multiple_beams_v3(), length_norm_exponent=0.0),
     ])
 
 
@@ -724,8 +743,13 @@ def SLLM_small_linear_4gpu_10k() -> ExperimentConfig:
             *base_searches(),
             *V4_autoscaling_good_combs_1_reduced(
                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
-                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value
             )
+
+            # *V4_autoscaling_good_combs_1_reduced(
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            # )
         ]
     )
 
@@ -901,5 +925,16 @@ def n2_test() -> ExperimentConfig:
 def n2_test_sv2() -> ExperimentConfig:
     return replace(exp_v7(), training=training_n2_test(), network=network_baseline_v2(), search=[search_baseline_v2()])
 
+def param_test_2ctc() -> ExperimentConfig:
+    return replace(
+        exp_v7(),
+        training=replace(i6_4gpu_setup_v1(), random_seed=99, num_gpus=1),
+    )
+
+def param_test_3ctc() -> ExperimentConfig:
+    return replace(
+        exp_v14_3ctc(),
+        training=replace(i6_4gpu_setup_v1(), random_seed=99, num_gpus=1),
+    )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)
