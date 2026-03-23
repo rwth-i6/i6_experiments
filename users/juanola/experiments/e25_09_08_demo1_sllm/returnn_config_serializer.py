@@ -133,15 +133,23 @@ def serialize_forward(
 
     forward_module = forward_module or network_module
 
+    decoder_params = {
+        "beam_size": 12,
+        "max_tokens_per_sec": 20,
+        "sample_rate": 16_000,
+    }
+
+    if forward_step_name == "forward_step_ctc_decoding_v2":
+        decoder_params["ctc_scale"] = 1.0
+        decoder_params["sllm_scale"] = 1.0
+        decoder_params["lm_scale"] = 0.0
+        decoder_params["prior_scale"] = 0.0
+
     forward_step = PartialImport(
         code_object_path=package + ".%s.forward_step.%s" % (forward_module, forward_step_name),
         unhashed_package_root=PACKAGE,
         import_as="forward_step",
-        hashed_arguments={
-            "beam_size": 12,
-            "max_tokens_per_sec": 20,
-            "sample_rate": 16_000,
-        },
+        hashed_arguments=decoder_params,
         unhashed_arguments={},
     )
 

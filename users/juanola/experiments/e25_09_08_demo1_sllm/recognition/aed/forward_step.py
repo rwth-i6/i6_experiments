@@ -67,7 +67,7 @@ def forward_step_ctc_decoding_v2(
         extern_data: TensorDict,
 
         beam_size: int,
-        ctc_scale: float = 1.0,
+        ctc_scale: float = 1.0, # Default CTC
         prior_scale: float = 0.0,
         lm_scale: float = 0.0,
         sllm_scale: float = 0.0,

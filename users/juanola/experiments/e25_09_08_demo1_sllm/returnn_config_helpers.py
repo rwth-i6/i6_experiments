@@ -178,6 +178,10 @@ def get_forward_config(
         "batch_size": 15_000 * 160,
         "max_seqs": 200,
     }
+
+    if forward_name == "forward_step_ctc_decoding_v2":
+        base_config["batch_size"] = 5_000 * 160
+
     config = {**base_config, **copy.deepcopy(config)}
 
     # RC - POST CONFIG
