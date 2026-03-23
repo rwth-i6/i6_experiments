@@ -35,6 +35,7 @@ def eval_model(
     run_test: bool = False,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     prior_args: Optional[Dict[str, Any]] = None,
+        forward_name: str = "forward_step",
 ) -> Dict[Any, Any]:
     # TODO: MJ: defaults can be in parameters
     if specific_epoch is None:
@@ -62,7 +63,7 @@ def eval_model(
             asr_model.net_args = train_args["net_args"]
             asr_model.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
-            training_name + f"/{epoch}",
+            training_name + f"{forward_name}/{epoch}",
             asr_model,
             decoder_config,
             lm_scales=lm_scales,
@@ -75,6 +76,7 @@ def eval_model(
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
+            forward_name=forward_name,
         )
         result_dict.update(res)
 
@@ -91,7 +93,7 @@ def eval_model(
             asr_model_best4.net_args = train_args["net_args"]
             asr_model_best4.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
-            training_name + "/best4",
+            training_name + f"{forward_name}/best4",
             asr_model_best4,
             decoder_config,
             lm_scales=lm_scales,
@@ -104,6 +106,7 @@ def eval_model(
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
+            forward_name=forward_name,
         )
         result_dict.update(res)
 
@@ -120,7 +123,7 @@ def eval_model(
             asr_model_best.net_args = train_args["net_args"]
             asr_model_best.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
-            training_name + "/best",
+            training_name + f"{forward_name}/best",
             asr_model_best,
             decoder_config,
             lm_scales=lm_scales,
@@ -133,6 +136,7 @@ def eval_model(
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
             vocab_opts=train_data.train.dataset.target_options,
+            forward_name=forward_name,
         )
         result_dict.update(res)
     return result_dict
@@ -154,6 +158,7 @@ def tune_and_evaluate_helper(
     use_gpu: bool = False,
     debug: bool = False,
     run_test: bool = False,
+        forward_name: str = None,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -187,6 +192,7 @@ def tune_and_evaluate_helper(
                 use_gpu=use_gpu,
                 debug=debug,
                 vocab_opts=vocab_opts,
+                forward_name=forward_name,
                 **default_returnn,
             )
             tune_parameters.append((lm_weight, prior_scale))
@@ -214,6 +220,7 @@ def tune_and_evaluate_helper(
                 use_gpu=use_gpu,
                 vocab_opts=vocab_opts,
                 debug=debug,
+                forward_name=forward_name,
                 **default_returnn,
             )
         results.update(wers)

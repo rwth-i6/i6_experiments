@@ -102,6 +102,7 @@ def search(
     vocab_opts: Dict,
     use_gpu: bool = False,
     debug: bool = False,
+        forward_name:str = None,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -127,6 +128,7 @@ def search(
         decoder=decoder_module,
         debug=debug,
         vocab_opts=vocab_opts,
+        forward_name=forward_name
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here

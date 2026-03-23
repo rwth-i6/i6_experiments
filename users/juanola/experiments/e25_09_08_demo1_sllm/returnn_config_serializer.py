@@ -86,7 +86,7 @@ def serialize_forward(
     vocab_opts: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     forward_module: Optional[str] = None,
-    forward_step_name: str = "forward",
+    forward_step_name: str = "forward_step",
     forward_init_args: Optional[Dict[str, Any]] = None,
     unhashed_forward_init_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
@@ -134,7 +134,7 @@ def serialize_forward(
     forward_module = forward_module or network_module
 
     forward_step = PartialImport(
-        code_object_path=package + ".%s.%s_step" % (forward_module, forward_step_name),
+        code_object_path=package + ".%s.%s" % (forward_module, forward_step_name),
         unhashed_package_root=PACKAGE,
         import_as="forward_step",
         hashed_arguments={

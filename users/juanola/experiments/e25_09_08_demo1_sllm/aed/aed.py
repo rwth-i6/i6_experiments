@@ -104,24 +104,27 @@ def aed_baseline():
         training_name = prefix_name + "/" + network_module + f"/{model_alias}"
         train_job = create_training_job(training_name, train_data, train_args, epochs, **ROOT_RETURNN_ROOT)
 
-        # MODEL EVALUATION
-        results = eval_model(
-            training_name=training_name,
-            train_job=train_job,
-            train_args=train_args,
-            train_data=train_data,
-            decoder_config=default_decoder_config,
-            decoder_module="recognition.aed",
-            dev_dataset_tuples=dev_dataset_tuples,
-            specific_epoch=[500],  # epochs,
-            lm_scales=[0.0],
-            prior_scales=[0.0],
-            run_test=True,
-            test_dataset_tuples=test_dataset_tuples,
-            run_best=True,
-            run_best_4=True,
-            use_gpu=True,  # CPU is way too slow for AED decoding
-        )
+        for forward_method in ["forward_step_greedy_ctc", "forward_step", "forward_step_ctc_decoding_v2"]:
+
+            # MODEL EVALUATION
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=train_data,
+                decoder_config=default_decoder_config,
+                decoder_module="recognition.aed",
+                dev_dataset_tuples=dev_dataset_tuples,
+                specific_epoch=[500],  # epochs,
+                lm_scales=[0.0],
+                prior_scales=[0.0],
+                run_test=True,
+                test_dataset_tuples=test_dataset_tuples,
+                run_best=False,
+                run_best_4=False,
+                use_gpu=True,  # CPU is way too slow for AED decoding
+                forward_name=forward_method,
+            )
 
         # MODEL REPORT
         generate_report(results=results, exp_name=training_name)

@@ -158,6 +158,7 @@ def get_forward_config(
     unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
+        forward_name: str = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -196,6 +197,7 @@ def get_forward_config(
         debug=debug,
         extern_data=extern_data,
         vocab_opts=vocab_opts,
+        forward_step_name=forward_name,
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
