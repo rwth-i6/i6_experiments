@@ -67,7 +67,7 @@ def aed_baseline():
     for model_config, model_alias in [
         # (copy.deepcopy(model_configs.v1), "v1"),  # did not converge
         (copy.deepcopy(model_configs.v2), "v2"),
-        (copy.deepcopy(model_configs.v3), "v3"),  # For testing, worse than v2
+        #(copy.deepcopy(model_configs.v3), "v3"),  # For testing, worse than v2
     ]:
         # MODEL TRAINING
         sampling_rate = model_config["sampling_rate"]

@@ -134,7 +134,7 @@ def serialize_forward(
     forward_module = forward_module or network_module
 
     forward_step = PartialImport(
-        code_object_path=package + ".%s.%s" % (forward_module, forward_step_name),
+        code_object_path=package + ".%s.forward_step.%s" % (forward_module, forward_step_name),
         unhashed_package_root=PACKAGE,
         import_as="forward_step",
         hashed_arguments={

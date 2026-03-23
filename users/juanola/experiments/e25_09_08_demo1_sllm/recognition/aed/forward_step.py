@@ -1,10 +1,7 @@
-__all__ = ["EncoderDecoderModel", "forward_step"]
+__all__ = ["forward_step"]
 
-from abc import abstractmethod
-from typing import Generic
 from typing import Optional
 
-import returnn.frontend as rf
 import returnn.frontend as rf
 import torch
 from returnn.tensor import Dim, TensorDict, batch_dim
@@ -12,30 +9,9 @@ from returnn.tensor import Dim, TensorDict, batch_dim
 from returnn.tensor import Tensor as ReturnnTensor
 from torch import Tensor
 
-from .beam_search import LabelScorer, State, beam_search_v1, beam_search_decode, beam_search_v2
+from .beam_search import beam_search_v1
 from .ctc_label_sync_espnet import ctc_label_sync_search_v2
-
-
-class EncoderDecoderModel(LabelScorer[State], Generic[State]):
-    """
-    Interface for an encoder and a decoder that scores labels.
-
-    Can encode acoustic data into a higher level representation and, as part of that, generate
-    an initial decoder state.
-    This state also stores the higher level representations.
-    """
-
-    @abstractmethod
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> State:
-        """
-        Forward the raw audio data through the encoder and initialize decoder state from it.
-
-        :param raw_audio: audio data, shape [B,T,1]
-        :param raw_audio_lens: lengths of the audio in `raw_audio`, shape [B,]
-        :return: decoder state initialized by passing the `raw_audio` through the encoder and
-            initializing a fresh decoder state with it.
-        """
-        raise NotImplementedError
+from .encoder_decoder_protocol import EncoderDecoderModel
 
 
 def forward_step(
@@ -146,11 +122,11 @@ def forward_step_greedy_ctc(
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
     ## ENCODING FORWARD
-    decoder_state, aux_logits, encoder_lens = model.forward_encoder(
+    decoder_state, aux_logits, encoder_lens = model.forward_encoder_with_ctc(
         data,
         seq_len,
     )
-    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1)  # [B, T, V]
+    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits, dim=-1)  # [B, T, V]
     greedy_ids = torch.argmax(ctc_log_prob, dim=-1)  # [B, T]
     greedy_log_prob = torch.gather(ctc_log_prob, dim=-1, index=greedy_ids.unsqueeze(-1)).squeeze(-1)  # [B, T]
     tokens_list, seq_log_prob = _ctc_greedy_collapse(greedy_ids, greedy_log_prob, encoder_lens, model.blank_idx)

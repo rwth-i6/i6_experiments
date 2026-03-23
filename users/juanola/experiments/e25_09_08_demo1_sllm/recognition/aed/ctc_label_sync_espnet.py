@@ -14,10 +14,15 @@ from returnn.tensor import Tensor, Dim, batch_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
+
+from .ctc_prefix_scorer import CtcPrefixScorer
+from .beam_search import _gather_backrefs
+
 from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
 from i6_experiments.users.zeyer.nn_rf.top_k_and_random_choice_without_replacement import (
     top_k_and_random_choice_without_replacement,
 )
+from .encoder_decoder_protocol import EncoderDecoderModel
 
 if TYPE_CHECKING:
     import torch
@@ -26,7 +31,7 @@ if TYPE_CHECKING:
 
 def ctc_label_sync_search_v2( #TODO: in progress!!
         *,
-        model: SllmV4,
+        model: EncoderDecoderModel,
         data: torch.Tensor,
 
         data_seq_lens: torch.Tensor,
@@ -37,7 +42,7 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
 
         ctc_scale: float = 1.0,
         prior_scale: float = 0.0,
-        sllm_scale: float = 0.0,
+        sllm_scale: float = 1.0,
         external_lm_scale: float = 0.0,
 
         length_norm_exponent: float = 1.0,
@@ -81,25 +86,24 @@ def ctc_label_sync_search_v2( #TODO: in progress!!
     ## CTC LOGITS
 
     ### SLLM CALL (always necessary)
-    decoder_state, aux_logits, encoder_lens = model.forward_encoder(
+    decoder_state, aux_logits, encoder_lens = model.forward_encoder_with_ctc(
         data,
         data_seq_lens,
-        initial_beam_size=1,
     )
 
-    if model.has_external_ctc():
-        #print("!!USING EXTERNAL CTC!!")
-        _, ext_ctc_aux_logits, ext_ctc_encoder_lens = model.external_ctc_forward_encoder(
-            data,
-            data_seq_lens,
-            initial_beam_size=1,
-        )
-        ctc_log_prob = torch.nn.functional.log_softmax(ext_ctc_aux_logits[-1], dim=-1) # USING EXT CTC LOGITS
-        enc_spatial_dim = Dim(rf.convert_to_tensor(ext_ctc_encoder_lens, dims=[batch_dim]), name="enc_spatial_dim") # ??
-    else:
-        #print("using SLLM CTC (fine-tuned CTC)")
-        ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1) # USING LAST SLLM CTC LAYER
-        enc_spatial_dim = Dim(rf.convert_to_tensor(encoder_lens, dims=[batch_dim]), name="enc_spatial_dim") # ??
+    # if model.has_external_ctc():
+    #     #print("!!USING EXTERNAL CTC!!")
+    #     _, ext_ctc_aux_logits, ext_ctc_encoder_lens = model.external_ctc_forward_encoder(
+    #         data,
+    #         data_seq_lens,
+    #         initial_beam_size=1,
+    #     )
+    #     ctc_log_prob = torch.nn.functional.log_softmax(ext_ctc_aux_logits[-1], dim=-1) # USING EXT CTC LOGITS
+    #     enc_spatial_dim = Dim(rf.convert_to_tensor(ext_ctc_encoder_lens, dims=[batch_dim]), name="enc_spatial_dim") # ??
+    # else:
+    #print("using SLLM CTC (fine-tuned CTC)")
+    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits, dim=-1) # USING LAST SLLM CTC LAYER
+    enc_spatial_dim = Dim(rf.convert_to_tensor(encoder_lens, dims=[batch_dim]), name="enc_spatial_dim") # ??
 
     batch_dims: Dim = [batch_dim]
 

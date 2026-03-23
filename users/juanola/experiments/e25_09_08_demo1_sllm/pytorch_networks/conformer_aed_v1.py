@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Typ
 import torch
 from torch import Tensor, nn
 
+from i6_experiments.users.juanola.torch_utils.model_utils import get_model_params
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import (
     ConformerConvolutionV2Config,
     ConformerMHSARelPosV1,
@@ -155,6 +156,7 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         share_embedding: bool = True,
         aux_logits_bias: bool = False,
         feature_extraction_config: Optional[Dict[str, Any]] = None,
+        verbose: bool = True,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -333,6 +335,15 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
             _apply_filter(self.encoder, _init_rf)
             _apply_filter(self.decoder, _init_rf)
             _apply_filter(self.out_aux_logits, _init_rf)
+
+        if verbose:
+            print(" ***** MODEL PARAMETERS *****")
+            if self.encoder is not None:
+                print(f"Encoder params:", get_model_params(self.encoder))
+            if self.decoder is not None:
+                print(f"Decoder params:", get_model_params(self.decoder))
+            print(" ***** MODEL PARAMETERS *****")
+
 
     def _apply_spec_aug(self, data: Tensor, data_len: Tensor) -> Tensor:
         if not self.training:
