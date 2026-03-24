@@ -2,11 +2,13 @@
 Universal helpers to create configuration objects (i6_core ReturnnConfig) for RETURNN training/forwarding
 """
 import copy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from i6_core.returnn.config import ReturnnConfig
+from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
-from .returnn_config_serializer import serialize_training, serialize_forward
+from .returnn_config_serializer import serialize_training, serialize_forward, serialize_forward_v2
+from ..e25_10_17_sllm_d2.constants import DATA_PARAM_NAME
 from ...data.training_datasets import TrainingDatasets
 
 
@@ -205,3 +207,99 @@ def get_forward_config(
     )
 
     return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+
+def get_forward_config_v2(
+        network_import_path: str,
+        net_args: Dict[str, Any],
+        forward_module: str,
+        forward_method: str,
+        callback_name: str,
+        decoder_args: Dict[str, Any],
+        label_datastream: LabelDatastream,
+        unhashed_net_args: Optional[Dict[str, Any]] = None,
+        # add_text_to_extern_data: bool = False,
+        callback_opts: Optional[Dict[str, Any]] = None,
+        extern_data: Optional[Dict[str, Any]] = None,
+        base_config: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
+        extra_configs: List[ReturnnConfig] = None,
+        default_data_key: Optional[str] = None,
+) -> ReturnnConfig:
+    """
+    Get a generic config for forwarding
+
+    :param network_module: path to the pytorch config file containing Model
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
+    :param decoder_args: extra arguments to pass to forward_init
+    :param config: config arguments for RETURNN
+    :param unhashed_decoder_args: unhashed extra arguments for the forward init
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param debug: run training in debug mode (linking from recipe instead of copy)
+    """
+    if base_config is None:
+        base_config = {}
+    if extra_configs is None:
+        extra_configs = []
+
+    # changing these does not change the hash
+    post_config = {
+        "torch_log_memory_usage": True,
+        "watch_memory": True,
+        "backend": "torch",
+    }
+
+    config = {
+        **base_config
+    }
+
+    if extern_data is None:
+        extern_data = {
+            DATA_PARAM_NAME: {"dim": 1},
+        }
+
+    if default_data_key is not None:
+        config.update({"default_data_key": default_data_key})
+
+    # if extern_data is None:
+    #     extern_data = {
+    #         default_data_key: {"shape": (None,)},
+    #     }
+    #
+
+    # if add_text_to_extern_data:
+    #     default_target_key = "text"
+    #     extern_data[default_target_key] = { # TODO: adapt?
+    #         "dim": label_datastream.vocab_size,
+    #         "sparse": True,
+    #         # important: deepcopy. when extern_data is serialized, path objects (e.g. SPM model file) are converted to
+    #         # strings. we don't want this to affect the original dictionary object
+    #         "vocab": label_datastream.as_returnn_targets_opts(),
+    #     }
+    #     config.update(
+    #         {
+    #             "default_target_key": default_target_key,
+    #         }
+    #     )
+
+    serializer = serialize_forward_v2(
+        network_import_path=network_import_path,
+        net_args=net_args,
+        extern_data=extern_data,
+        vocab_opts=label_datastream.as_returnn_targets_opts(),
+
+        unhashed_net_args=unhashed_net_args,
+        forward_module=forward_module,
+        forward_method=forward_method,
+        forward_args=decoder_args,
+
+        callback_name=callback_name,
+        callback_opts=callback_opts,
+
+        debug=debug,
+    )
+
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    for extra_returnn_config in extra_configs:
+        returnn_config.update(extra_returnn_config)
+    return returnn_config

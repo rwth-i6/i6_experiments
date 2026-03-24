@@ -5,6 +5,8 @@ from typing import Optional, Dict, Any, List, Union
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.users.juanola.data.training_datasets import TrainingDatasets
+from .auto_scaling_evaluation import ctc_label_sync_eval_auto_scale
+from .scales import Scales
 from ..default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..pipeline import search, ASRModel, prepare_asr_model
 from ..recognition.aed.beam_search import DecoderConfig
@@ -51,17 +53,20 @@ def eval_model(
     debug = train_args.get("debug", False)
 
     for epoch in specific_epoch:
+        evaluation_name = training_name + f"/{epoch}"
         asr_model = prepare_asr_model(
-            training_name + f"/{epoch}",
+            evaluation_name,
             train_job,
             train_args if prior_args is None else prior_args,
             with_prior=False,  # True,
             datasets=train_data,
             get_specific_checkpoint=epoch,
         )
+
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
             asr_model.network_module = train_args["network_module"]
+
         res, _ = tune_and_evaluate_helper(
             training_name + f"{forward_name}/{epoch}",
             asr_model,
@@ -79,6 +84,31 @@ def eval_model(
             forward_name=forward_name,
         )
         result_dict.update(res)
+
+        # And autoscaling
+        scales_dict, autoscale_id = ctc_label_sync_eval_auto_scale(
+            asr_model=asr_model,
+            train_data=train_data,
+            tune_datasets=dev_dataset_tuples,
+            evaluation_name=evaluation_name,
+        )
+        res, _ = tune_and_evaluate_helper(
+            training_name + f"{forward_name}/{autoscale_id}/{epoch}",
+            asr_model,
+            decoder_config,
+            lm_scales=lm_scales,
+            prior_scales=prior_scales,
+            dev_dataset_tuples=dev_dataset_tuples,
+            decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
+            vocab_opts=train_data.train.dataset.target_options,
+            forward_name=forward_name,
+            scales=scales_dict
+            )
 
     if run_best_4:
         asr_model_best4 = prepare_asr_model(
@@ -159,6 +189,7 @@ def tune_and_evaluate_helper(
     debug: bool = False,
     run_test: bool = False,
         forward_name: str = None,
+        scales = None
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -182,12 +213,18 @@ def tune_and_evaluate_helper(
             decoder_config.lm_weight = lm_weight
             decoder_config.prior_scale = prior_scale
             search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+
+            decoder_args = {"config": asdict(decoder_config)}
+            if scales is not None:
+                decoder_args["ctc_scale"] = scales[Scales.CTC.value]
+                decoder_args["sllm_scale"] = scales[Scales.SLLM.value]
+
             search_jobs, wers = search(
                 search_name,
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
+                decoder_args=decoder_args,
                 test_dataset_tuples=dev_dataset_tuples,
                 use_gpu=use_gpu,
                 debug=debug,
@@ -210,12 +247,18 @@ def tune_and_evaluate_helper(
             decoder_config = copy.deepcopy(base_decoder_config)
             decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+
+            decoder_args = {"config": asdict(decoder_config)}
+            if scales is not None:
+                decoder_args["ctc_scale"] = scales[Scales.CTC.value]
+                decoder_args["sllm_scale"] = scales[Scales.SLLM.value]
+
             search_jobs, wers = search(
                 training_name,
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
+                decoder_args=decoder_args,
                 test_dataset_tuples={key: test_dataset_tuples[key]},
                 use_gpu=use_gpu,
                 vocab_opts=vocab_opts,
