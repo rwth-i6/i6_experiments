@@ -536,7 +536,7 @@ def e3_pre15():
     ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL])
 
 def e3_pre15_hpc():
-    ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC], itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC])#, itc_training=True)
 
 def e3_pre5_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_V2])  # , itc_training=True)

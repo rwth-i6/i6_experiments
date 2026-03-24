@@ -17,7 +17,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     beam_search_baseline,
     greedy,
     beam_search_multiple_beams,
-    single_beam, beam_search_multiple_beams_v2, beam_search_multiple_beams_v3,
+    single_beam, beam_search_multiple_beams_v2, beam_search_multiple_beams_v3, beam_search_multiple_beams_v4,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
@@ -244,6 +244,9 @@ def search_baseline_v2_multiple_beams_v2() -> SearchConfig:
 def search_baseline_v2_multiple_beams_v3() -> SearchConfig:
     return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams_v3())
 
+def search_baseline_v2_multiple_beams_v4() -> SearchConfig:
+    return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams_v4(), batch_size=5000)
+
 def search_v4_ctc_sllm_multiple_beams() -> SearchConfig:
     return dataclasses.replace(V4_CTC_SLLM(), beam_search=beam_search_multiple_beams())
 
@@ -252,6 +255,12 @@ def search_v4_ctc_sllm_multiple_beams_autoscale() -> SearchConfig:
 
 def search_v4_ctc_sllm_multiple_beams_autoscale_v3() -> SearchConfig:
     return dataclasses.replace(V4_CTC_SLLM_autoscaling(), beam_search=beam_search_multiple_beams_v3())
+
+def search_v4_ctc_sllm_multiple_beams_autoscale_v4() -> SearchConfig:
+    return dataclasses.replace(V4_CTC_SLLM_autoscaling(), beam_search=BeamSearchConfig(beam_sizes=[64, 128]), batch_size=5000)
+
+def search_v4_ctc_sllm_multiple_beams_autoscale_v5() -> SearchConfig:
+    return dataclasses.replace(V4_CTC_SLLM_autoscaling(), beam_search=BeamSearchConfig(beam_sizes=[64]), batch_size=2000)
 
 """
 ctc decoding

@@ -48,7 +48,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     V4_autoscaling_64_all_combs, V4_autoscaling_64_ext_llm_combs, V4_autoscaling_good_combs_1,
     V4_autoscaling_good_combs_1_reduced, search_baseline_v2_multiple_beams_v2,
     search_v4_ctc_sllm_multiple_beams_autoscale, search_v4_ctc_sllm_multiple_beams_autoscale_v3,
-    search_baseline_v2_multiple_beams_v3, )
+    search_baseline_v2_multiple_beams_v3, search_baseline_v2_multiple_beams_v4,
+    search_v4_ctc_sllm_multiple_beams_autoscale_v4, search_v4_ctc_sllm_multiple_beams_autoscale_v5, )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
     training_baseline,
@@ -368,8 +369,9 @@ def exp_v7_with_beam() -> ExperimentConfig:
         #search_v4_ctc_sllm_multiple_beams(),
         #search_v4_ctc_sllm_multiple_beams_autoscale(),
 
-        search_baseline_v2_multiple_beams_v3(),
-        search_v4_ctc_sllm_multiple_beams_autoscale_v3(),
+        #search_baseline_v2_multiple_beams_v3(), search_baseline_v2_multiple_beams_v4(),
+        #search_v4_ctc_sllm_multiple_beams_autoscale_v3(), search_v4_ctc_sllm_multiple_beams_autoscale_v4(),
+        search_v4_ctc_sllm_multiple_beams_autoscale_v5(),
         ])
 
 def exp_v7_with_beam_ln() -> ExperimentConfig:
@@ -377,8 +379,8 @@ def exp_v7_with_beam_ln() -> ExperimentConfig:
         #search_baseline_v2_multiple_beams_v2(),
         #replace(search_baseline_v2_multiple_beams_v2(), length_norm_exponent=0.0),
 
-        search_baseline_v2_multiple_beams_v3(),
-        replace(search_baseline_v2_multiple_beams_v3(), length_norm_exponent=0.0),
+        search_baseline_v2_multiple_beams_v3(), search_baseline_v2_multiple_beams_v4(),
+        replace(search_baseline_v2_multiple_beams_v3(), length_norm_exponent=0.0), replace(search_baseline_v2_multiple_beams_v4(), length_norm_exponent=0.0),
     ])
 
 

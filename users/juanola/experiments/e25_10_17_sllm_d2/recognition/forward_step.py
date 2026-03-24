@@ -216,6 +216,9 @@ def forward_step_greedy_ctc(
     *,
     model: BaseEncoderDecoderModel,
     extern_data: TensorDict,
+
+    aux_layer_idx: int = -1,
+
     **kwargs,
 ):
     """
@@ -225,13 +228,17 @@ def forward_step_greedy_ctc(
     data: Tensor = data_.raw_tensor
     seq_len: Tensor = data_.dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
+
+    print(f"Using layer: {aux_layer_idx}")
+
+
     ## ENCODING FORWARD
     decoder_state, aux_logits, encoder_lens = model.forward_encoder(
         data,
         seq_len,
         initial_beam_size=1,
     )
-    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[-1], dim=-1)  # [B, T, V]
+    ctc_log_prob = torch.nn.functional.log_softmax(aux_logits[aux_layer_idx], dim=-1)  # [B, T, V]
     greedy_ids = torch.argmax(ctc_log_prob, dim=-1)  # [B, T]
     greedy_log_prob = torch.gather(ctc_log_prob, dim=-1, index=greedy_ids.unsqueeze(-1)).squeeze(-1)  # [B, T]
     tokens_list, seq_log_prob = _ctc_greedy_collapse(greedy_ids, greedy_log_prob, encoder_lens, model.blank_idx)
