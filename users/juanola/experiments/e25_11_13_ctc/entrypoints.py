@@ -16,7 +16,9 @@ Experiments entry points
 """
 
 def e5():
-    ex5.ctc_ep([CTCExperimentVersion.V1_BASELINE])
+    ex5.ctc_ep([CTCExperimentVersion.V1_BASELINE],
+               only_specific_epochs=True,
+               specific_recognition_epochs={500},)
 
 
 """
