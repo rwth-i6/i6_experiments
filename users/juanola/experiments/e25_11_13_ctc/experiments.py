@@ -112,7 +112,7 @@ def ctc_ep(
             epochs_to_evaluate = default_returnn_keep_epochs(partition_epochs, keep_last_epoch=True) | specific_epochs
 
         if only_specific_epochs:
-            run_test = run_best_4 = run_best = False
+            #run_test = run_best_4 = run_best = False
             epochs_to_evaluate = specific_recognition_epochs
 
         forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"

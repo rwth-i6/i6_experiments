@@ -86,7 +86,7 @@ def search_ctc_greedy_2nd_layer() -> SearchConfig:
         avg_best_loss_name="dev_loss_ctc-2", # Third ctc loss
         max_seqs=200,
 
-        ctc_layer_to_eval=2,
+        ctc_layer_to_eval=1,
     )
 
 

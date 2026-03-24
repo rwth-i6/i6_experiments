@@ -255,7 +255,7 @@ def tune_and_evaluate_model(
     # TEST
     if run_test and test_dataset_tuples is not None:
         _, wers = search(
-            evaluation_name,
+            search_name,
             search_config,
             asr_model=asr_model,
             forward_module=RECOGNITION_PACKAGE,
