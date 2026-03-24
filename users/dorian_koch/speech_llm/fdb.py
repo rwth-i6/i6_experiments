@@ -1,4 +1,5 @@
 from glob import glob
+import json
 from pathlib import Path
 from typing import List, Sequence, Tuple
 from sisyphus import Job, Task, tk
@@ -157,6 +158,121 @@ def moshi_server():
                 server_process.wait()
 
 
+@contextmanager
+def vllm_server(hf_model: str):
+    # first: find a free port
+    if "SLURM_JOB_ID" in os.environ:
+        job_id = int(os.environ["SLURM_JOB_ID"])
+        port = 18998 + (job_id % 1000)
+    else:
+        port = 18998 + random.randint(0, 999)
+    # check if in use
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        for _ in range(50):
+            try:
+                s.bind(("localhost", port))
+                break
+            except OSError:
+                port += 1
+
+    print(f"Selected port {port} for vLLM server")
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "vllm.entrypoints.openai.api_server",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--model",
+        hf_model,
+        "--gpu-memory-utilization",
+        "0.9",
+        "--enable-prefix-caching",
+        "true",
+    ]
+
+    print(f"Starting vLLM server: {' '.join(cmd)}")
+    server_process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+        preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+
+    max_wait = 15 * 60  # seconds
+    start_time = time.time()
+    server_ready = False
+
+    def read_server_output():
+        nonlocal server_ready
+        if server_process.stdout:
+            for line in iter(server_process.stdout.readline, ""):
+                if line:
+                    print(f"[vLLM Server] {line.rstrip()}", flush=True)
+                if (
+                    "Uvicorn running on" in line
+                    or "Application startup complete" in line
+                ):
+                    server_ready = True
+        print("vLLM server output thread exiting")
+
+    import threading
+
+    output_thread = threading.Thread(target=read_server_output, daemon=True)
+    output_thread.start()
+
+    while time.time() - start_time < max_wait:
+        if server_process.poll() is not None:
+            stdout, _ = server_process.communicate()
+            raise RuntimeError(f"vLLM server died during startup:\n{stdout}")
+
+        try:
+            sock = socket.create_connection(("localhost", port), timeout=1)
+            sock.close()
+            if server_ready:
+                print("vLLM server is ready and accepting connections")
+                break
+            else:
+                print("vLLM server port is open but server not ready yet")
+        except (ConnectionRefusedError, socket.timeout):
+            pass
+
+        time.sleep(0.5)
+    else:
+        raise TimeoutError(f"vLLM server not ready after {max_wait} seconds")
+    print("vLLM server started successfully")
+
+    try:
+        yield f"http://localhost:{port}/v1"
+    finally:
+        if server_process and server_process.poll() is None:
+            print("Stopping vLLM server...")
+            try:
+                if hasattr(os, "killpg"):
+                    os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
+                else:
+                    server_process.terminate()
+
+                server_process.wait(timeout=10)
+                print("vLLM server stopped gracefully")
+            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+                print("Force killing vLLM server...")
+                if hasattr(os, "killpg"):
+                    try:
+                        os.killpg(os.getpgid(server_process.pid), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                else:
+                    server_process.kill()
+                server_process.wait()
+
+
 class Tee:
     def __init__(self, *files):
         self.files = files
@@ -259,11 +375,33 @@ class FullDuplexBenchEval_Inference(Job):
 
 
 class FullDuplexBenchEval_Evaluation(Job):
-    def __init__(self, *, fdb_task: str, in_audios: tk.Path):
+    def __init__(
+        self,
+        *,
+        fdb_task: str,
+        in_audios: tk.Path,
+        hf_model: str = "openai/gpt-oss-120b",
+    ):
         self.fdb_task = fdb_task
 
         self.in_audios = in_audios
-        self.out_eval = self.output_path("evaluation_output.txt")
+        self.out_log = self.output_path("evaluation_output.txt")
+        self.out_eval = self.output_path("eval.json")
+        self.needs_llm_inference = FDB_TASK_MAP.get(self.fdb_task, self.fdb_task) in [
+            "user_interruption",
+            "behavior",
+            "general_before_after",
+        ]
+        if self.needs_llm_inference:
+            self.rqmt = {
+                "gpu": 1,
+                "cpu": 2,
+                "mem": 16,
+                "time": 2,
+            }
+            self.hf_model = hf_model
+        else:
+            self.rqmt = None
 
     @classmethod
     def hash(cls, parsed_args):
@@ -272,7 +410,10 @@ class FullDuplexBenchEval_Evaluation(Job):
         return super().hash(d)
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        if self.rqmt is None:
+            yield Task("run", mini_task=True)
+        else:
+            yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         # pys evaluate.py --task backchannel --root_dir ../dataset/v1.0/icc_backchannel
@@ -285,7 +426,7 @@ class FullDuplexBenchEval_Evaluation(Job):
             self.in_audios.get_path(),
         ]
         # also now record stdout into a file (but still also regular stdout) in self.output_path("evaluation_output.txt")
-        with open(self.out_eval, "w", encoding="utf-8") as f:
+        with open(self.out_log, "w", encoding="utf-8") as f:
             # redirect stdout to both console and file
             tee = Tee(sys.stdout, f)
             sys.stdout = tee
@@ -293,7 +434,17 @@ class FullDuplexBenchEval_Evaluation(Job):
             # add the path of evaluate.py to sys.path so it can import modules
             sys.path.append(str(Path(moshified_fdb_v1_v15_evaluate.__file__).parent))
 
-            evaluate_main()
+            if self.needs_llm_inference:
+                # TODO fdb code would be faster if it utilized batching...
+                with vllm_server(self.hf_model) as llm_url:
+                    sys.argv += ["--llm-api-url", llm_url, "--llm-model", self.hf_model]
+                    # set OPENAI_API_KEY
+                    os.environ["OPENAI_API_KEY"] = "fake_key_for_vllm"
+                    res = evaluate_main()
+            else:
+                res = evaluate_main()
+            with open(self.out_eval, "w", encoding="utf-8") as f_eval:
+                json.dump(res, f_eval, indent=4)
             sys.stdout = sys.__stdout__  # restore original stdout
 
 
