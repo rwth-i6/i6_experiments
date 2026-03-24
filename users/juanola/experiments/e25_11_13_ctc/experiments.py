@@ -117,22 +117,23 @@ def ctc_ep(
 
         forward_training_name = training_name if not test_forward_output_path else f"tests/{training_name}"
 
-        # Tune-Eval
-        results: Dict[str, Any] = create_tune_and_evaluate_jobs(
-            training_name=forward_training_name,
-            train_job=train_job,
-            network_import_path=network_import_path,
-            net_args=network_args,
-            search_config=exp_config.search,
-            train_data=training_datasets,
-            dev_dataset_tuples=dev_dataset_tuples,
-            test_dataset_tuples=test_dataset_tuples,
-            specific_epochs=epochs_to_evaluate,
-            run_test=run_test,
-            run_best=run_best,
-            run_best_4=run_best_4,
-        )
-        results_per_experiment[exp_name] = results
+        for search_config in exp_config.search:
+            # Tune-Eval
+            results: Dict[str, Any] = create_tune_and_evaluate_jobs(
+                training_name=forward_training_name,
+                train_job=train_job,
+                network_import_path=network_import_path,
+                net_args=network_args,
+                search_config=search_config,
+                train_data=training_datasets,
+                dev_dataset_tuples=dev_dataset_tuples,
+                test_dataset_tuples=test_dataset_tuples,
+                specific_epochs=epochs_to_evaluate,
+                run_test=run_test,
+                run_best=run_best,
+                run_best_4=run_best_4,
+            )
+            results_per_experiment[exp_name] = results
 
         # REPORTING
         # Experiment Report

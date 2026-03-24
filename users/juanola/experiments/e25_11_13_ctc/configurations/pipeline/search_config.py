@@ -37,6 +37,8 @@ class SearchConfig:
 
     debug_returnn_param: bool = True
 
+    ctc_layer_to_eval: int = None
+
     def __post_init__(self):
         """
         Assertions for parameters.
@@ -67,6 +69,24 @@ def search_ctc_greedy() -> SearchConfig:
         ctc_scales=[0.0],
         avg_best_loss_name="dev_loss_ctc-2", # Third ctc loss
         max_seqs=200,
+    )
+
+def search_ctc_greedy_2nd_layer() -> SearchConfig:
+    return SearchConfig(
+        forward_method="forward_step_greedy_ctc",
+        batch_size=15_000,
+        batch_size_factor=160,
+        use_gpu=True,
+        gpu_memory=11,
+        beam_search=beam_search_baseline(),
+        prior=prior_v1(),
+        lm_scales=[0.0],
+        prior_scales=[0.0],
+        ctc_scales=[0.0],
+        avg_best_loss_name="dev_loss_ctc-2", # Third ctc loss
+        max_seqs=200,
+
+        ctc_layer_to_eval=2,
     )
 
 

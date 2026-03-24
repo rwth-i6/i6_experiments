@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List
 
 from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.data.dataset_config import DatasetConfig, \
     dataset_baseline
@@ -7,7 +8,7 @@ from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.data.
 from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.network.network_config import NetworkConfig, \
     network_baseline
 from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.pipeline.search_config import SearchConfig, \
-    search_ctc_greedy
+    search_ctc_greedy, search_ctc_greedy_2nd_layer
 from i6_experiments.users.juanola.experiments.e25_11_13_ctc.configurations.pipeline.training_config import \
     TrainingConfig, training_baseline
 
@@ -27,7 +28,7 @@ class ExperimentConfig:
     network: NetworkConfig
 
     training: TrainingConfig
-    search: SearchConfig
+    search: List[SearchConfig]
 
 
 """
@@ -41,7 +42,7 @@ def exp_baseline() -> ExperimentConfig:
         labels=label_baseline(),
         network=network_baseline(),
         training=training_baseline(),
-        search=search_ctc_greedy(),
+        search=[search_ctc_greedy(), search_ctc_greedy_2nd_layer()],
     )
 
 # For inheritance use: dataclasses.replace(OriginalClass, elements_to_modify)

@@ -228,6 +228,9 @@ def tune_and_evaluate_model(
     # Define params per forward_step
     if forward_method is None or forward_method == "forward_step_greedy_ctc":
         forward_args = {}
+        if search_config.ctc_layer_to_eval is not None:
+            forward_args["aux_layer_idx"] = search_config.ctc_layer_to_eval
+
         search_name = f"{evaluation_name}/ctc_greedy"
     else:
         raise ValueError(f"Unknown forward method: {forward_method}")
