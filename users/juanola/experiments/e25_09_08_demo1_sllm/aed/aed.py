@@ -68,9 +68,8 @@ def aed_baseline():
         #DecoderConfig(beam_size=6),
         #DecoderConfig(beam_size=12),
         #DecoderConfig(beam_size=32),
-
         #DecoderConfig(beam_size=64),
-        DecoderConfig(beam_size=124),
+        #DecoderConfig(beam_size=128),
         DecoderConfig(beam_size=256),
 
         #DecoderConfig(beam_size=1, length_norm=False),
@@ -79,8 +78,8 @@ def aed_baseline():
         #DecoderConfig(beam_size=32, length_norm=False),
 
         #DecoderConfig(beam_size=64, length_norm=False),
-        DecoderConfig(beam_size=124, length_norm=False),
-        DecoderConfig(beam_size=256, length_norm=False),
+        #DecoderConfig(beam_size=128, length_norm=False),
+        #DecoderConfig(beam_size=256, length_norm=False),
     ]
 
     #decoding_steps = ["forward_step_greedy_ctc", "forward_step", "forward_step_ctc_decoding_v2"]

@@ -138,8 +138,6 @@ def search(
         search_name = prefix_name + "/%s" % key
         mem = 12
 
-
-
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
