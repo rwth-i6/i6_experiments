@@ -136,12 +136,10 @@ def search(
     search_jobs = []
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         search_name = prefix_name + "/%s" % key
-        if "hubert_tune" in search_name:
-            mem = 30
-        elif "RelPosEnc" in search_name:
-            mem = 16
-        else:
-            mem = 12
+        mem = 12
+
+
+
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -154,6 +152,10 @@ def search(
             mem_rqmt=mem,
         )
         search_jobs.append(search_job)
+
+        if "config" in decoder_args and "beam_size" in decoder_args["config"]:
+            if decoder_args["config"]["beam_size"] >= 124:
+                search_job.rqmt["gpu_mem"] = 24
 
     return search_jobs, wers
 

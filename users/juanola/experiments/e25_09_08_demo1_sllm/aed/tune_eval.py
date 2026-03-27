@@ -86,29 +86,30 @@ def eval_model(
         result_dict.update(res)
 
         # And autoscaling
-        scales_dict, autoscale_id = ctc_label_sync_eval_auto_scale(
-            asr_model=asr_model,
-            train_data=train_data,
-            tune_datasets=dev_dataset_tuples,
-            evaluation_name=evaluation_name,
-        )
-        res, _ = tune_and_evaluate_helper(
-            training_name + f"{forward_name}/{autoscale_id}/{epoch}",
-            asr_model,
-            decoder_config,
-            lm_scales=lm_scales,
-            prior_scales=prior_scales,
-            dev_dataset_tuples=dev_dataset_tuples,
-            decoder_module=decoder_module,
-            use_gpu=use_gpu,
-            debug=debug,
-            extra_forward_config=extra_forward_config,
-            run_test=run_test,
-            test_dataset_tuples=test_dataset_tuples,
-            vocab_opts=train_data.train.dataset.target_options,
-            forward_name=forward_name,
-            scales=scales_dict
+        if forward_name == "forward_step_ctc_decoding_v2":
+            scales_dict, autoscale_id = ctc_label_sync_eval_auto_scale(
+                asr_model=asr_model,
+                train_data=train_data,
+                tune_datasets=dev_dataset_tuples,
+                evaluation_name=evaluation_name,
             )
+            res, _ = tune_and_evaluate_helper(
+                training_name + f"{forward_name}/{autoscale_id}/{epoch}",
+                asr_model,
+                decoder_config,
+                lm_scales=lm_scales,
+                prior_scales=prior_scales,
+                dev_dataset_tuples=dev_dataset_tuples,
+                decoder_module=decoder_module,
+                use_gpu=use_gpu,
+                debug=debug,
+                extra_forward_config=extra_forward_config,
+                run_test=run_test,
+                test_dataset_tuples=test_dataset_tuples,
+                vocab_opts=train_data.train.dataset.target_options,
+                forward_name=forward_name,
+                scales=scales_dict
+                )
 
     if run_best_4:
         asr_model_best4 = prepare_asr_model(
@@ -212,7 +213,10 @@ def tune_and_evaluate_helper(
             decoder_config = copy.deepcopy(base_decoder_config)
             decoder_config.lm_weight = lm_weight
             decoder_config.prior_scale = prior_scale
-            search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+            search_name = training_name + f"/search_beam{decoder_config.beam_size}"
+
+            if not decoder_config.length_norm:
+                search_name += "_no_length_norm"
 
             decoder_args = {"config": asdict(decoder_config)}
             if scales is not None:

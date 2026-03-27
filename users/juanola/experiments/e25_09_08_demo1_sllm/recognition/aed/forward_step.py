@@ -21,6 +21,9 @@ def forward_step(
     beam_size: int,
     max_tokens_per_sec: Optional[int] = None,
     sample_rate: Optional[int] = None,
+
+    length_norm_exponent: float = 1.0,
+
     **kwargs,
 ):
     """
@@ -47,6 +50,7 @@ def forward_step(
         decoder_state=decoder_state,
         device=data.device,
         max_seq_len=max_seq_len,
+        length_norm_exponent=length_norm_exponent,
     )
 
     beam_dim = Dim(beam_size, name="beam")

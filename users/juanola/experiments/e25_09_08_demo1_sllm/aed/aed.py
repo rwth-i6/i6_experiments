@@ -61,7 +61,31 @@ def aed_baseline():
     epochs = 500
     batch_size_factor = 160
     batch_size = 15_000
-    default_decoder_config = DecoderConfig()
+
+    #default_decoder_config = DecoderConfig()
+    decoder_configs = [
+        #DecoderConfig(beam_size=1),
+        #DecoderConfig(beam_size=6),
+        #DecoderConfig(beam_size=12),
+        #DecoderConfig(beam_size=32),
+
+        #DecoderConfig(beam_size=64),
+        DecoderConfig(beam_size=124),
+        DecoderConfig(beam_size=256),
+
+        #DecoderConfig(beam_size=1, length_norm=False),
+        #DecoderConfig(beam_size=6, length_norm=False),
+        #DecoderConfig(beam_size=12, length_norm=False),
+        #DecoderConfig(beam_size=32, length_norm=False),
+
+        #DecoderConfig(beam_size=64, length_norm=False),
+        DecoderConfig(beam_size=124, length_norm=False),
+        DecoderConfig(beam_size=256, length_norm=False),
+    ]
+
+    #decoding_steps = ["forward_step_greedy_ctc", "forward_step", "forward_step_ctc_decoding_v2"]
+    decoding_steps = ["forward_step"]
+
 
     # Build network, train, eval, report for each configuration in model_configs
     for model_config, model_alias in [
@@ -104,27 +128,27 @@ def aed_baseline():
         training_name = prefix_name + "/" + network_module + f"/{model_alias}"
         train_job = create_training_job(training_name, train_data, train_args, epochs, **ROOT_RETURNN_ROOT)
 
-        for forward_method in ["forward_step_greedy_ctc", "forward_step", "forward_step_ctc_decoding_v2"]:
-
-            # MODEL EVALUATION
-            results = eval_model(
-                training_name=training_name,
-                train_job=train_job,
-                train_args=train_args,
-                train_data=train_data,
-                decoder_config=default_decoder_config,
-                decoder_module="recognition.aed",
-                dev_dataset_tuples=dev_dataset_tuples,
-                specific_epoch=[500],  # epochs,
-                lm_scales=[0.0],
-                prior_scales=[0.0],
-                run_test=True,
-                test_dataset_tuples=test_dataset_tuples,
-                run_best=False,
-                run_best_4=False,
-                use_gpu=True,  # CPU is way too slow for AED decoding
-                forward_name=forward_method,
-            )
+        for forward_method in decoding_steps:
+            for decoder_config in decoder_configs:
+                # MODEL EVALUATION
+                results = eval_model(
+                    training_name=training_name,
+                    train_job=train_job,
+                    train_args=train_args,
+                    train_data=train_data,
+                    decoder_config=decoder_config,
+                    decoder_module="recognition.aed",
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    specific_epoch=[500],  # epochs,
+                    lm_scales=[0.0],
+                    prior_scales=[0.0],
+                    run_test=False,
+                    test_dataset_tuples=test_dataset_tuples,
+                    run_best=False,
+                    run_best_4=False,
+                    use_gpu=True,  # CPU is way too slow for AED decoding
+                    forward_name=forward_method,
+                )
 
         # MODEL REPORT
         generate_report(results=results, exp_name=training_name)

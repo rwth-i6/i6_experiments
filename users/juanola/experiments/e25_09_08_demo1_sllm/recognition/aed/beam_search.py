@@ -55,6 +55,7 @@ class LabelScorer(Protocol, Generic[State]):
 class DecoderConfig:
     # search related options:
     beam_size: int = 12
+    length_norm: bool = True
 
     # additional search options
     lm_weight: float = 0.0

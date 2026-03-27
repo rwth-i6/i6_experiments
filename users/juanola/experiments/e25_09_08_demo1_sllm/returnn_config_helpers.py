@@ -184,6 +184,13 @@ def get_forward_config(
     if forward_name == "forward_step_ctc_decoding_v2":
         base_config["batch_size"] = 5_000 * 160
 
+    if "config" in decoder_args and "beam_size" in decoder_args["config"]:
+        if decoder_args["config"]["beam_size"] >= 64:
+            base_config["batch_size"] = 5_000 * 160
+        elif decoder_args["config"]["beam_size"] >= 256:
+            base_config["batch_size"] = 2_000 * 160
+
+
     config = {**base_config, **copy.deepcopy(config)}
 
     # RC - POST CONFIG

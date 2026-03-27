@@ -139,6 +139,16 @@ def serialize_forward(
         "sample_rate": 16_000,
     }
 
+    if "config" in forward_init_args and "beam_size" in forward_init_args["config"]:
+        decoder_params["beam_size"] = forward_init_args["config"]["beam_size"]
+    else:
+        assert False, "beam size not found"
+
+    if "config" in forward_init_args and "length_norm" in forward_init_args["config"] and forward_init_args["config"]["length_norm"] == False:
+        decoder_params["length_norm_exponent"] = 0.0
+
+
+
     if forward_step_name == "forward_step_ctc_decoding_v2":
         decoder_params["ctc_scale"] = 1.0
         decoder_params["sllm_scale"] = 1.0
