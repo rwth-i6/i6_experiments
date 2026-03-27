@@ -543,10 +543,10 @@ def get_forward_step_parameters_and_search_name(
             forward_args["sllm_as_llm"] = True
 
         # TODO: make the name depend on the external ctc + lm checkpoints
-        if for_test:
-            search_name = f"{evaluation_name}/{prefix}-optimal_params"
-        elif search_config.auto_scaling:
+        if search_config.auto_scaling:
             search_name = f"{evaluation_name}/{prefix}-beam{beam_size}_{autoscale_id}"
+        elif for_test:
+            search_name = f"{evaluation_name}/{prefix}-optimal_params"
         else:
             search_name = f"{evaluation_name}/{prefix}-beam{beam_size}_sllm{sllm_scale:.1f}_lm{lm_scale:.1f}_prior{prior_scale:.1f}_ctc{ctc_scale:.1f}"
     else:

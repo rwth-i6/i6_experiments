@@ -1,3 +1,4 @@
+import dataclasses
 import warnings
 from dataclasses import dataclass, replace
 from typing import List
@@ -49,7 +50,8 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     V4_autoscaling_good_combs_1_reduced, search_baseline_v2_multiple_beams_v2,
     search_v4_ctc_sllm_multiple_beams_autoscale, search_v4_ctc_sllm_multiple_beams_autoscale_v3,
     search_baseline_v2_multiple_beams_v3, search_baseline_v2_multiple_beams_v4,
-    search_v4_ctc_sllm_multiple_beams_autoscale_v4, search_v4_ctc_sllm_multiple_beams_autoscale_v5, )
+    search_v4_ctc_sllm_multiple_beams_autoscale_v4, search_v4_ctc_sllm_multiple_beams_autoscale_v5,
+    V4_slides_combs_without_prior, search_baseline_v2_multiple_beams_v5, )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.training_config import (
     TrainingConfig,
     training_baseline,
@@ -298,7 +300,37 @@ def exp_v7_with_ctc_gd() -> ExperimentConfig:
             *V4_autoscaling_good_combs_1_reduced(
                 ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
                 ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value
-            )
+            ),
+            # *V4_autoscaling_good_combs_1( # TODO: run
+            #     ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+            #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value
+            # )
+
+            V4_autoscaling_64_ctc_prior_sllm_lm(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+                use_ctc=True,
+                use_sllm=False,
+                use_llm=True,
+                use_prior=True,
+                auto_scaling_use_ctc_sum_scores=True,
+                prior_relative_to=Scales.LLM.value,
+            ),
+            V4_autoscaling_64_ctc_prior_sllm_lm(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_2_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+                use_ctc=True,
+                use_sllm=False,
+                use_llm=True,
+                use_prior=False,
+                auto_scaling_use_ctc_sum_scores=True,
+                prior_relative_to=None,
+            ),
+
+            *V4_slides_combs_without_prior(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,
+            ),
 
 
             # V4_ctc_sllm_lm_combinations( # CTC finetuned
@@ -379,8 +411,14 @@ def exp_v7_with_beam_ln() -> ExperimentConfig:
         #search_baseline_v2_multiple_beams_v2(),
         #replace(search_baseline_v2_multiple_beams_v2(), length_norm_exponent=0.0),
 
-        search_baseline_v2_multiple_beams_v3(), search_baseline_v2_multiple_beams_v4(),
-        replace(search_baseline_v2_multiple_beams_v3(), length_norm_exponent=0.0), replace(search_baseline_v2_multiple_beams_v4(), length_norm_exponent=0.0),
+        #search_baseline_v2_multiple_beams_v3(), search_baseline_v2_multiple_beams_v4(),
+        #replace(search_baseline_v2_multiple_beams_v3(), length_norm_exponent=0.0), replace(search_baseline_v2_multiple_beams_v4(), length_norm_exponent=0.0),
+
+        dataclasses.replace(search_baseline_v2_multiple_beams_v4(), gpu_memory=24),
+        replace(search_baseline_v2_multiple_beams_v4(), length_norm_exponent=0.0, gpu_memory=24),
+
+        dataclasses.replace(search_baseline_v2_multiple_beams_v5(), gpu_memory=24),
+        replace(search_baseline_v2_multiple_beams_v5(), length_norm_exponent=0.0, gpu_memory=24),
     ])
 
 
@@ -778,7 +816,31 @@ def exp_v14_3ctc() -> ExperimentConfig:
         network=network_base_v2_3ctc(),
         training=itc_v2_80k(),
         search=[
-            *base_searches(),
+            # *base_searches(),
+
+            V4_autoscaling_64_ctc_prior_sllm_lm(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                use_ctc=True,
+                use_sllm=False,
+                use_llm=True,
+                use_prior=True,
+                auto_scaling_use_ctc_sum_scores=True,
+                prior_relative_to=Scales.LLM.value,
+            ),
+            V4_autoscaling_64_ctc_prior_sllm_lm(
+                ext_encoder=PretrainedExternalModules.CTC_STANDALONE_3_LAYERS.value,
+                ext_decoder=PretrainedExternalModules.LLM_SMALL_COMBINED_V2.value,
+                use_ctc=True,
+                use_sllm=False,
+                use_llm=True,
+                use_prior=False,
+                auto_scaling_use_ctc_sum_scores=True,
+                prior_relative_to=None,
+            )
+
+
+
             # V4_ctc_sllm_lm_combinations( # CTC finetuned
             #     # CTC finetuned
             #     ext_decoder=PretrainedExternalModules.LLM_BASE_COMBINED_V2.value,

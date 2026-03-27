@@ -18,6 +18,7 @@ from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.p
     greedy,
     beam_search_multiple_beams,
     single_beam, beam_search_multiple_beams_v2, beam_search_multiple_beams_v3, beam_search_multiple_beams_v4,
+    beam_search_multiple_beams_v5,
 )
 from i6_experiments.users.juanola.experiments.e25_10_17_sllm_d2.configurations.pipeline.prior_config import (
     prior_v1,
@@ -247,6 +248,9 @@ def search_baseline_v2_multiple_beams_v3() -> SearchConfig:
 def search_baseline_v2_multiple_beams_v4() -> SearchConfig:
     return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams_v4(), batch_size=5000)
 
+def search_baseline_v2_multiple_beams_v5() -> SearchConfig:
+    return dataclasses.replace(search_baseline_v2(), beam_search=beam_search_multiple_beams_v5(), batch_size=2000)
+
 def search_v4_ctc_sllm_multiple_beams() -> SearchConfig:
     return dataclasses.replace(V4_CTC_SLLM(), beam_search=beam_search_multiple_beams())
 
@@ -467,6 +471,57 @@ def V4_autoscaling_64_ext_llm_combs(
         force_ext_llm=True,
         prior_relative_to=prior_relative_to,
     )
+
+def V4_slides_combs_without_prior(
+        ext_encoder: Optional[tuple[str, NetworkConfig]],
+        ext_decoder: Optional[tuple[str, NetworkConfig]],
+        auto_scaling_use_ctc_sum_scores: bool = True,
+) -> List[SearchConfig]:
+    """
+    Forces ext LLM to be used
+    :param ext_encoder:
+    :param ext_decoder:
+    :param auto_scaling_use_ctc_sum_scores:
+    :return:
+    """
+    to_run = []
+
+    to_run.append(V4_autoscaling_64_ctc_prior_sllm_lm(
+        use_ctc=True,
+        use_sllm=True,
+        use_llm=False,
+        use_prior=False,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+    ))
+
+    to_run.append(V4_autoscaling_64_ctc_prior_sllm_lm(
+        use_ctc=True,
+        use_sllm=True,
+        use_llm=True,
+        use_prior=False,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+    ))
+
+    to_run.append(V4_autoscaling_64_ctc_prior_sllm_lm(
+        ext_decoder=ext_decoder,
+        use_ctc=True,
+        use_sllm=True,
+        use_llm=True,
+        use_prior=False,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+    ))
+
+    to_run.append(V4_autoscaling_64_ctc_prior_sllm_lm(
+        ext_encoder=ext_encoder,
+        ext_decoder=ext_decoder,
+        use_ctc=True,
+        use_sllm=True,
+        use_llm=True,
+        use_prior=False,
+        auto_scaling_use_ctc_sum_scores=auto_scaling_use_ctc_sum_scores,
+    ))
+
+    return to_run
 
 
 

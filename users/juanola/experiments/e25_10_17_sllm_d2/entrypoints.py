@@ -143,7 +143,11 @@ def e3v7_ctc(
 
 
 def e3v7_beam():
-    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_BEAM])  # , itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_BEAM],
+                run_best=False,
+                run_best_4=False,
+                run_test=False,
+                )  # , itc_training=True)
 
 def e3v7_beam_ln():
     ex3.sllm_ep([ExperimentVersion.V7_TUNED_DROPOUT_BEAM_LN])  # , itc_training=True)
@@ -535,8 +539,17 @@ def e3_pre12_v2():
 def e3_pre15():
     ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL])
 
-def e3_pre15_hpc():
-    ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC])#, itc_training=True)
+def e3_pre15_hpc(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
+    ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC],
+                run_best=best,
+                run_best_4=best4,
+                only_specific_epochs=not last,
+                specific_recognition_epochs=set({})
+                )#, itc_training=True)
 
 def e3_pre5_v2():
     ex3.sllm_ep([ExperimentVersion.SLLM_BV2_PRE_ED_S_C_V2])  # , itc_training=True)
@@ -551,7 +564,6 @@ def e3_pre10_v2(
                 run_best=best,
                 run_best_4=best4,
                 only_specific_epochs=not last,
-
                 specific_recognition_epochs=set({})
                 )  # , itc_training=True)
 
@@ -564,8 +576,17 @@ def e3_ft2_v2():
     ex3.sllm_ep([ExperimentVersion.V15_SMALL_SLLM_LR5_V2])  # , itc_training=True)
 
 
-def e3_pre8_v2():
-    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_V2], itc_training=True)
+def e3_pre8_v2(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
+    ex3.sllm_ep([ExperimentVersion.SLLM_BV2_DS_PRE_ED_B_C_V2],
+                run_best=best,
+                run_best_4=best4,
+                only_specific_epochs=not last,
+                specific_recognition_epochs=set({})
+                )#, itc_training=True)
 
 
 def e3_pre9_v2():
@@ -612,8 +633,17 @@ def best_pretrained():
 def e3_best_large():
     ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_B_PRE_ED_C_F20], itc_training=True) # Already run!! 
 
-def e3_best_small():
-    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_S_PRE_ED_LM], itc_training=True)
+def e3_best_small(
+        last: bool = True,
+        best: bool = False,
+        best4: bool = False,
+):
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_S_PRE_ED_LM],
+                run_best=best,
+                run_best_4=best4,
+                only_specific_epochs=not last,
+                specific_recognition_epochs=set({})
+                )#, itc_training=True)
 
 
 """
@@ -630,9 +660,53 @@ def final_v4_decoding():
     e3_pre10_v2()
     e3v14_pre2_v2()
 
+def final_v4_decoding_v2():
+    e3v7_ctc()
+    e3_pre15_hpc()
+
+    # Pretrainings
+    e3_pre8_v2()
+    e3_best_small()
 
 
 
+def test_ctc_lm():
+    ex3.sllm_ep(
+        [ExperimentVersion.V14_SLLM_3CTC],
+        run_test=True,
+        run_best=False,
+        run_best_4=False,
+        # run_only_dev_other=True,
+    )
+
+def test_best():
+    ex3.sllm_ep([ExperimentVersion.V14_SLLM_3CTC_S_PRE_ED_V2],
+                run_test=True,
+                run_best=True,
+                run_best_4=False,
+                only_specific_epochs=True,
+                run_only_last=False,
+                specific_recognition_epochs=set({})
+                )
+
+
+def test_best_v2():
+    ex3.sllm_ep([ExperimentVersion.SLLM_3CTC_S_PRE_ED_LM], # Best SLLM+CTC
+                run_test=True,
+                run_best=False,
+                run_best_4=False,
+                only_specific_epochs=False,
+                run_only_last=True,
+                specific_recognition_epochs=set({})
+                )#, itc_training=True)
+    ex3.sllm_ep([ExperimentVersion.V15_SLLM_3CTC_SMALL_HPC],
+                run_test=True,
+                run_best=False,
+                run_best_4=False,
+                only_specific_epochs=False,
+                run_only_last=True,
+                specific_recognition_epochs=set({})
+                )#, itc_training=True)
 
 
 

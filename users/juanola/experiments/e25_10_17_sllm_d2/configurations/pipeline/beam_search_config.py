@@ -44,6 +44,8 @@ def beam_search_multiple_beams_v3() -> BeamSearchConfig:
 def beam_search_multiple_beams_v4() -> BeamSearchConfig:
     return BeamSearchConfig(beam_sizes=[128])
 
+def beam_search_multiple_beams_v5() -> BeamSearchConfig:
+    return BeamSearchConfig(beam_sizes=[256])
 
 
 def greedy() -> BeamSearchConfig:
