@@ -1,16 +1,18 @@
 from dataclasses import dataclass
 from typing import Union
+
 from i6_core.lm.lm_image import CreateLmImageJob
 from i6_core.rasr.config import RasrConfig
 from i6_core.rasr.crp import CommonRasrParameters, crp_add_default_output
 from i6_core.returnn import Checkpoint, PtCheckpoint
 from i6_experiments.common.datasets.librispeech.language_model import get_arpa_lm_dict
+from i6_experiments.common.datasets.librispeech.vocab import get_lm_vocab
 from sisyphus import tk
 
-from ...experiments.librispeech import bpe_lstm_lm, word_transformer_lm
+from ...experiments.librispeech.training import bpe_lstm_lm, word_transformer_lm
 from ...model_pipelines.lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
-from ...model_pipelines.transformer_lm.export import export_model
-from ...model_pipelines.transformer_lm.lm_config import get_lm_config
+from ...model_pipelines.transformer_lm.export import export_model_stateless, export_model_kv_cached
+from ...model_pipelines.transformer_lm.lm_config import get_lm_config_stateless, get_lm_config_kv_cached
 from ...tools import rasr_binary_path
 
 
@@ -40,25 +42,43 @@ def _get_arpa_lm_config(lexicon_file: tk.Path, params: ArpaLmParams) -> RasrConf
 @dataclass
 class TransformerLmParams:
     scale: float = 1.0
+    layers: int = 96
+    use_kv_cache: bool = True  # Generally, kv cache is slower on GPU because setting up the cache inputs takes so long
     use_gpu: bool = False
 
 
 def _get_transformer_lm_config(params: TransformerLmParams) -> RasrConfig:
-    # train_job, model_config = word_transformer_lm.run_training()
-    # checkpoint: PtCheckpoint = train_job.out_checkpoints[max(train_job.out_checkpoints)]  # type: ignore
-    # vocab_file = get_lm_vocab(output_prefix="").vocab
+    train_options = word_transformer_lm.get_train_options()
+    train_options.register_outputs = False
     model_config = word_transformer_lm.get_model_config()
-    checkpoint = PtCheckpoint(
-        tk.Path(
-            "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.WuilWP7i1fS2/output/models/epoch.030.pt"
+    model_config.num_layers = params.layers
+    word_transformer_model = word_transformer_lm.run(train_options=train_options, model_config=model_config)
+    vocab_file = get_lm_vocab(output_prefix="").vocab
+    # checkpoint = PtCheckpoint(
+    #     tk.Path(
+    #         "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.WuilWP7i1fS2/output/models/epoch.030.pt"
+    #     )
+    # )
+    if params.use_kv_cache:
+        onnx_model = export_model_kv_cached(
+            model_config=word_transformer_model.model_config, checkpoint=word_transformer_model.get_checkpoint()
         )
-    )
-    onnx_model = export_model(model_config=model_config, checkpoint=checkpoint)
-    vocab_file = tk.Path(
-        "/work/asr4/berger/dependencies/librispeech/lm/kazuki_transformerlm_2019interspeech/vocabulary"
-    )
+    else:
+        onnx_model = export_model_stateless(
+            model_config=word_transformer_model.model_config, checkpoint=word_transformer_model.get_checkpoint()
+        )
+    # vocab_file = tk.Path(
+    #     "/work/asr4/berger/dependencies/librispeech/lm/kazuki_transformerlm_2019interspeech/vocabulary"
+    # )
 
-    return get_lm_config(onnx_model=onnx_model, vocab_file=vocab_file, lm_scale=params.scale, use_gpu=params.use_gpu)
+    if params.use_kv_cache:
+        return get_lm_config_kv_cached(
+            onnx_model=onnx_model, vocab_file=vocab_file, lm_scale=params.scale, use_gpu=params.use_gpu
+        )
+    else:
+        return get_lm_config_stateless(
+            onnx_model=onnx_model, vocab_file=vocab_file, lm_scale=params.scale, use_gpu=params.use_gpu
+        )
 
 
 @dataclass

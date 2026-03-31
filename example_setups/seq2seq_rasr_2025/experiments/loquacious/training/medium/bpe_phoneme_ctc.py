@@ -149,6 +149,7 @@ def get_train_options(bpe_size: int = 128) -> CTCMultiOutputTrainOptions:
         max_seqs=None,
         max_seq_length=None,
         target_names=["phoneme", "bpe"],
+        register_outputs=True,
     )
 
 

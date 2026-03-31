@@ -18,6 +18,12 @@ def run_all() -> None:
         with ExperimentContext("phoneme_ctc/baseline_model"):
             phoneme_ctc_model = training.phoneme_ctc.run()
 
+        with ExperimentContext("bpe_transformer_lm/baseline_model"):
+            training.bpe_transformer_lm.run()
+
+        with ExperimentContext("word_transformer_lm/baseline_model"):
+            training.word_transformer_lm.run()
+
     with ExperimentContext("recognition"):
         with ExperimentContext("bpe_aed/baseline_model/baseline_recog"):
             register_recog_report(recognition.bpe_aed.run(aed_model))

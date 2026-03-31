@@ -1,8 +1,10 @@
 from typing import Optional
 
-from i6_experiments.common.datasets.librispeech.vocab import get_lm_vocab
-
-from ....data.librispeech.datasets import get_default_word_lm_cv_data, get_default_word_lm_train_data
+from ....data.librispeech.bpe import bpe_to_vocab_size
+from ....data.librispeech.datasets import (
+    get_default_bpe_lm_cv_data,
+    get_default_bpe_lm_train_data,
+)
 from ....model_pipelines.common.learning_rates import NewbobRelConfig
 from ....model_pipelines.common.optimizer import SGDConfig
 from ....model_pipelines.common.train import TrainedModel, TrainOptions
@@ -16,9 +18,9 @@ from ....model_pipelines.transformer_lm.pytorch_modules import (
 from ....model_pipelines.transformer_lm.train import train
 
 
-def get_model_config() -> TransformerLmConfig:
+def get_model_config(bpe_size: int = 128) -> TransformerLmConfig:
     return TransformerLmConfig(
-        vocab_dim=get_lm_vocab(output_prefix="").vocab_size,
+        vocab_dim=bpe_to_vocab_size(bpe_size),
         embed_dim=128,
         hid_dim=512,
         num_layers=96,
@@ -39,10 +41,10 @@ def get_model_config() -> TransformerLmConfig:
     )
 
 
-def get_train_options() -> TrainOptions:
+def get_train_options(bpe_size: int = 128) -> TrainOptions:
     return TrainOptions(
-        train_data_config=get_default_word_lm_train_data(),
-        cv_data_config=get_default_word_lm_cv_data(),
+        train_data_config=get_default_bpe_lm_train_data(bpe_size),
+        cv_data_config=get_default_bpe_lm_cv_data(bpe_size),
         save_epochs=[10, 20, 25, 26, 27, 28, 29, 30],
         batch_size=900,
         accum_grad_multiple_step=1,
@@ -59,7 +61,7 @@ def get_train_options() -> TrainOptions:
         ),
         num_workers_per_gpu=1,
         automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
+        gpu_mem_rqmt=48,
         max_seqs=64,
         max_seq_length=602,
         register_outputs=True,

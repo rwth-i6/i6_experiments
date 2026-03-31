@@ -38,10 +38,11 @@ def default_lexfree_recog_variant() -> AEDCTCRecogVariant:
     return AEDCTCRecogVariant(
         descriptor="recog_lexfree_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            max_beam_sizes=[16, 8],
-            length_norm_scale=1.2,
+            score_thresholds=[4.0, 4.0],
+            max_beam_sizes=[8, 4],
+            length_norm_scale=0.0,
         ),
-        ctc_score_scale=0.3,
+        ctc_score_scale=0.5,
     )
 
 
@@ -49,10 +50,11 @@ def default_lexfree_timesync_recog_variant() -> AEDCTCRecogVariant:
     return AEDCTCRecogVariant(
         descriptor="recog_lexfree_timesync",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
-            max_beam_sizes=[16, 8],
+            max_beam_sizes=[1024, 32],
+            score_thresholds=[4.0, 4.0],
             collapse_repeated_labels=True,
         ),
-        ctc_score_scale=0.3,
+        ctc_score_scale=0.4,
     )
 
 

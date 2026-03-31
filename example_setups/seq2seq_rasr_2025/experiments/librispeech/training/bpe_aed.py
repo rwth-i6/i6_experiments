@@ -172,6 +172,7 @@ def get_train_options(bpe_size: int = 128) -> AEDTrainOptions:
         gpu_mem_rqmt=24,
         max_seqs=None,
         max_seq_length=None,
+        register_outputs=True,
     )
 
 

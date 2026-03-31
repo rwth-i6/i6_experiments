@@ -74,6 +74,7 @@ def export_model(
             model_serializers,
             forward_step_import,
         ],  # type: ignore
+        sort_config=False,
     )
     export_job = TorchOnnxExportJob(
         returnn_config=returnn_config,

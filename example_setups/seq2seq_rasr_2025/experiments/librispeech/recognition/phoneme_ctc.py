@@ -50,11 +50,11 @@ def default_offline_4gram_recog_variant() -> CTCRecogVariant:
         descriptor="recog_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[512],
-            score_thresholds=[12.0],
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
-            max_word_end_beam_size=16,
+            score_thresholds=[12.0],
+            max_beam_sizes=[512],
             word_end_score_threshold=0.5,
+            max_word_end_beam_size=8,
         ),
         prior_scale=0.2,
     )
@@ -67,7 +67,7 @@ def default_offline_trafo_recog_variant() -> CTCRecogVariant:
             collapse_repeated_labels=True,
             max_beam_sizes=[512],
             score_thresholds=[14.0],
-            word_lm_params=librispeech_lm.KazukiTrafoLmParams(scale=0.8),
+            word_lm_params=librispeech_lm.TransformerLmParams(scale=0.8),
             max_word_end_beam_size=16,
             word_end_score_threshold=0.5,
         ),

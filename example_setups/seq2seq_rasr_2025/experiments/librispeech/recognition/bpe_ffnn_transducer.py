@@ -70,8 +70,8 @@ def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
         descriptor="recog_lexfree_bpe-LSTM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[30, 20],
-            score_thresholds=[8.0, 8.0],
+            max_beam_sizes=[512, 256],
+            score_thresholds=[12.0, 8.0],
         ),
         ilm_scale=0.2,
         bpe_lstm_lm_scale=0.8,
@@ -83,8 +83,8 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
         descriptor="recog_tree",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[256],
-            score_thresholds=[14.0],
+            max_beam_sizes=[8],
+            score_thresholds=[6.0],
         ),
     )
 
@@ -94,11 +94,11 @@ def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
         descriptor="recog_tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[256],
-            score_thresholds=[14.0],
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
-            word_end_score_threshold=0.5,
-            max_word_end_beam_size=16,
+            max_beam_sizes=[128],
+            score_thresholds=[12.0],
+            word_end_score_threshold=0.4,
+            max_word_end_beam_size=4,
         ),
         ilm_scale=0.2,
     )
@@ -122,14 +122,14 @@ def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
         descriptor="recog_tree_4gram_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[150, 100],
-            score_thresholds=[10.0, 10.0],
-            word_end_score_threshold=1.0,
-            max_word_end_beam_size=30,
+            max_beam_sizes=[16, 16],
+            score_thresholds=[8.0, 8.0],
+            word_end_score_threshold=0.7,
+            max_word_end_beam_size=8,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.2),
         ),
-        ilm_scale=0.0,
-        bpe_lstm_lm_scale=0.6,
+        ilm_scale=0.2,
+        bpe_lstm_lm_scale=0.3,
     )
 
 
@@ -138,11 +138,27 @@ def default_offline_tree_trafo_recog_variant() -> TransducerRecogVariant:
         descriptor="recog_tree_trafoLM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[512],
-            score_thresholds=[14.0],
-            word_lm_params=librispeech_lm.KazukiTrafoLmParams(scale=0.8),
-            max_word_end_beam_size=16,
-            word_end_score_threshold=0.5,
+            score_thresholds=[16.0],
+            max_beam_sizes=[1024],
+            word_end_score_threshold=0.6,
+            max_word_end_beam_size=64,
+            word_lm_params=librispeech_lm.TransformerLmParams(scale=0.8),
+        ),
+        search_mode_params=OfflineRecogParameters(),
+        ilm_scale=0.2,
+    )
+
+
+def default_offline_tree_trafo_recog_variant_gpu() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="recog_tree_trafoLM_gpu",
+        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            score_thresholds=[16.0],
+            max_beam_sizes=[1024],
+            word_end_score_threshold=0.6,
+            max_word_end_beam_size=64,
+            word_lm_params=librispeech_lm.TransformerLmParams(scale=0.8, use_kv_cache=False, use_gpu=True),
         ),
         search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
         ilm_scale=0.2,
@@ -185,7 +201,8 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
         default_offline_tree_4gram_recog_variant(),
         default_offline_tree_lstm_recog_variant(),
         default_offline_tree_lstm_4gram_recog_variant(),
-        # default_offline_tree_trafo_recog_variant(),
+        default_offline_tree_trafo_recog_variant(),
+        default_offline_tree_trafo_recog_variant_gpu(),
         default_streaming_lexfree_recog_variant(),
         default_streaming_tree_4gram_recog_variant(),
     ]

@@ -159,6 +159,7 @@ def get_train_options() -> FFNNTransducerTrainOptions:
         gpu_mem_rqmt=48,
         max_seqs=None,
         max_seq_length=None,
+        register_outputs=True,
     )
 
 

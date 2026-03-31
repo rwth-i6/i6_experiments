@@ -33,6 +33,7 @@ def _add_label_scorers_to_rasr_config(label_scorer_configs: List[RasrConfig], ra
 class LexiconfreeTimesyncRecogParams:
     max_beam_sizes: List[int]
     collapse_repeated_labels: bool
+    acoustic_lookahead_temporal_approximation_scale: float = 0.0
     score_thresholds: Optional[List[float]] = None
     allow_blank_after_sentence_end: bool = False
     log_stepwise_statistics: bool = True
@@ -91,6 +92,10 @@ def get_lexiconfree_timesync_recog_config(
             rasr_config.lib_rasr.search_algorithm.maximum_stable_delay_pruning_interval = (
                 params.maximum_stable_delay_pruning_interval
             )
+    if params.acoustic_lookahead_temporal_approximation_scale != 0.0:
+        rasr_config.lib_rasr.search_algorithm.acoustic_lookahead_temporal_approximation_scale = (
+            params.acoustic_lookahead_temporal_approximation_scale
+        )
     rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = params.collapse_repeated_labels
     rasr_config.lib_rasr.search_algorithm.allow_blank_after_sentence_end = params.allow_blank_after_sentence_end
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = params.log_stepwise_statistics

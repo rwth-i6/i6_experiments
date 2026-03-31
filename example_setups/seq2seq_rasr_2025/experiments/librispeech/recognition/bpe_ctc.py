@@ -72,8 +72,8 @@ def default_offline_lexfree_recog_variant() -> CTCRecogVariant:
         descriptor="recog_lexfree",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1],
             score_thresholds=[0.0],
+            max_beam_sizes=[1],
         ),
     )
 
@@ -83,8 +83,8 @@ def default_offline_lexfree_lstm_recog_variant() -> CTCRecogVariant:
         descriptor="recog_lexfree_bpe-LSTM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[150, 70],
-            score_thresholds=[8.0, 8.0],
+            score_thresholds=[14.0, 12.0],
+            max_beam_sizes=[2048, 256],
         ),
         prior_scale=0.2,
         bpe_lstm_lm_scale=0.8,
@@ -96,8 +96,10 @@ def default_offline_tree_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1024],
-            score_thresholds=[14.0],
+            score_thresholds=[6.0],
+            max_beam_sizes=[8],
+            word_end_score_threshold=0.0,
+            max_word_end_beam_size=1,
         ),
     )
 
@@ -107,10 +109,11 @@ def default_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1024],
-            score_thresholds=[14.0],
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
+            score_thresholds=[12.0],
+            max_beam_sizes=[256],
             word_end_score_threshold=0.5,
+            max_word_end_beam_size=16,
         ),
         prior_scale=0.2,
     )
@@ -121,10 +124,10 @@ def default_offline_tree_lstm_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[80, 30],
-            score_thresholds=[12.0, 12.0],
-            word_end_score_threshold=1.0,
-            max_word_end_beam_size=20,
+            score_thresholds=[12.0, 10.0],
+            max_beam_sizes=[128, 64],
+            word_end_score_threshold=0.6,
+            max_word_end_beam_size=16,
         ),
         prior_scale=0.2,
         bpe_lstm_lm_scale=0.8,
@@ -136,14 +139,14 @@ def default_offline_tree_lstm_4gram_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree_4gram_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[80, 70],
-            score_thresholds=[12.0, 12.0],
-            word_end_score_threshold=1.0,
-            max_word_end_beam_size=20,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.3),
+            score_thresholds=[10.0, 10.0],
+            max_beam_sizes=[128, 64],
+            word_end_score_threshold=0.5,
+            max_word_end_beam_size=32,
+            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.2),
         ),
         prior_scale=0.2,
-        bpe_lstm_lm_scale=0.8,
+        bpe_lstm_lm_scale=0.6,
     )
 
 
@@ -152,10 +155,27 @@ def default_offline_tree_trafo_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree_trafoLM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1024],
-            score_thresholds=[14.0],
+            score_thresholds=[16.0],
+            max_beam_sizes=[256],
             word_end_score_threshold=0.5,
-            word_lm_params=librispeech_lm.KazukiTrafoLmParams(scale=0.8),
+            max_word_end_beam_size=16,
+            word_lm_params=librispeech_lm.TransformerLmParams(scale=0.8),
+        ),
+        search_mode_params=OfflineRecogParameters(),
+        prior_scale=0.2,
+    )
+
+
+def default_offline_tree_trafo_recog_variant_gpu() -> CTCRecogVariant:
+    return CTCRecogVariant(
+        descriptor="recog_tree_trafoLM_gpu",
+        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
+            collapse_repeated_labels=True,
+            score_thresholds=[16.0],
+            max_beam_sizes=[256],
+            word_end_score_threshold=0.5,
+            max_word_end_beam_size=16,
+            word_lm_params=librispeech_lm.TransformerLmParams(scale=0.8, use_gpu=True, use_kv_cache=False),
         ),
         search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
         prior_scale=0.2,
@@ -167,8 +187,8 @@ def default_streaming_lexfree_recog_variant() -> CTCRecogVariant:
         descriptor="recog_streaming_lexfree",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1],
             score_thresholds=[0.0],
+            max_beam_sizes=[1],
         ),
         search_mode_params=StreamingRecogParameters(encoder_frame_shift_seconds=0.04),
     )
@@ -179,8 +199,8 @@ def default_streaming_tree_4gram_recog_variant() -> CTCRecogVariant:
         descriptor="recog_streaming_tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1024],
             score_thresholds=[14.0],
+            max_beam_sizes=[1024],
             word_end_score_threshold=0.5,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
         ),
@@ -196,7 +216,8 @@ def default_recog_variants() -> List[CTCRecogVariant]:
         default_offline_tree_4gram_recog_variant(),
         default_offline_tree_lstm_recog_variant(),
         default_offline_tree_lstm_4gram_recog_variant(),
-        # default_offline_tree_trafo_recog_variant(),
+        default_offline_tree_trafo_recog_variant(),
+        default_offline_tree_trafo_recog_variant_gpu(),
         default_streaming_lexfree_recog_variant(),
         default_streaming_tree_4gram_recog_variant(),
     ]

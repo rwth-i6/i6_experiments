@@ -157,6 +157,7 @@ def get_train_options(num_epochs: int = 100, speed_perturbation: bool = True) ->
         gpu_mem_rqmt=24,
         max_seqs=None,
         max_seq_length=None,
+        register_outputs=True,
     )
 
 

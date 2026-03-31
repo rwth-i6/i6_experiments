@@ -38,6 +38,7 @@ def get_train_options(bpe_size: int = 128) -> TrainOptions:
         gpu_mem_rqmt=11,
         max_seqs=None,
         max_seq_length=None,
+        register_outputs=True,
     )
 
 

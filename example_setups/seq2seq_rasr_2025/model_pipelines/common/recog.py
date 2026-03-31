@@ -230,9 +230,13 @@ def _traceback_to_ctm_str(traceback: List[TracebackItem], ms_per_frame: int) -> 
     current_word = ""
     confidences = []
     for item in traceback:
-        if item.confidence_score is not None:
+        if hasattr(item, "confidence_score"):
+            if item.confidence_score is not None:
+                for _ in range(item.start_time, item.end_time):
+                    confidences.append(item.confidence_score)
+        else:
             for _ in range(item.start_time, item.end_time):
-                confidences.append(item.confidence_score)
+                confidences.append(0.99)
         if item.lemma.startswith("[") and item.lemma.endswith("]"):
             continue
         if item.lemma.startswith("<") and item.lemma.endswith(">"):
@@ -865,6 +869,8 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
             run_ctx.expected_outputs["unstable_latencies"].dims[
                 1
             ].dyn_size_ext.raw_tensor = unstable_latency_lengths_array
+        # print(unstable_latencies_tensor.raw_tensor)
+        # print(unstable_latencies_tensor.dims[1].dyn_size_ext)
         run_ctx.mark_as_output(unstable_latencies_tensor, name="unstable_latencies")
 
         stable_latency_arrays_padded = [
@@ -1009,7 +1015,28 @@ def recog_rasr_offline(
         )
     if compute_search_errors:
         search_error_job = ExtractSearchErrorDataJob(recog_job.out_files["search_errors.py"])
+        tk.register_output(
+            f"{recog_corpus.corpus_name}/{descriptor}/search_error_rate", search_error_job.out_search_error_rate
+        )
+        tk.register_output(
+            f"{recog_corpus.corpus_name}/{descriptor}/model_error_rate", search_error_job.out_model_error_rate
+        )
+        tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/correct_rate", search_error_job.out_correct_rate)
+        tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/skipped_rate", search_error_job.out_skipped_rate)
+
     rtf_job = ExtractRTFDataJob(recog_job.out_files["rtf.py"])
+    tk.register_output(
+        f"{recog_corpus.corpus_name}/{descriptor}/enc_rtf",
+        rtf_job.out_enc_rtf,
+    )
+    tk.register_output(
+        f"{recog_corpus.corpus_name}/{descriptor}/search_rtf",
+        rtf_job.out_search_rtf,
+    )
+    tk.register_output(
+        f"{recog_corpus.corpus_name}/{descriptor}/total_rtf",
+        rtf_job.out_total_rtf,
+    )
 
     score_job = recog_corpus.score_ctm(recog_job.out_files["search_out.ctm"])
     tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/scoring_reports", score_job.out_report_dir)

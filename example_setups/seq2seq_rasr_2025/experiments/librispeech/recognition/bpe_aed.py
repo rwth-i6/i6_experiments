@@ -36,8 +36,9 @@ def default_lexfree_recog_variant() -> AEDRecogVariant:
     return AEDRecogVariant(
         descriptor="recog_lexfree",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            max_beam_sizes=[8],
-            length_norm_scale=1.2,
+            max_beam_sizes=[1],
+            score_thresholds=[0.0],
+            length_norm_scale=None,
         ),
     )
 
@@ -46,10 +47,11 @@ def default_lexfree_lstm_recog_variant() -> AEDRecogVariant:
     return AEDRecogVariant(
         descriptor="recog_lexfree_bpe-LSTM",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            max_beam_sizes=[16, 8],
-            length_norm_scale=1.2,
+            max_beam_sizes=[32, 8],
+            score_thresholds=[6.0, 4.0],
+            length_norm_scale=1.0,
         ),
-        bpe_lstm_lm_scale=0.6,
+        bpe_lstm_lm_scale=0.2,
     )
 
 
@@ -57,10 +59,11 @@ def default_lexfree_aed_ctc_recog_variant() -> AEDRecogVariant:
     return AEDRecogVariant(
         descriptor="recog_lexfree_aed+ctc_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            max_beam_sizes=[16, 8],
-            length_norm_scale=1.2,
+            max_beam_sizes=[2, 2],
+            score_thresholds=[2.0, 2.0],
+            length_norm_scale=1.0,
         ),
-        ctc_score_scale=0.3,
+        ctc_score_scale=0.5,
     )
 
 
@@ -68,10 +71,11 @@ def default_lexfree_aed_ctc_timesync_recog_variant() -> AEDRecogVariant:
     return AEDRecogVariant(
         descriptor="recog_lexfree_aed+ctc_timesync",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
-            max_beam_sizes=[16, 8],
             collapse_repeated_labels=True,
+            max_beam_sizes=[512, 32],
+            score_thresholds=[4.0, 4.0],
         ),
-        ctc_score_scale=0.3,
+        ctc_score_scale=0.2,
     )
 
 
@@ -80,7 +84,10 @@ def default_tree_aed_ctc_recog_variant() -> AEDRecogVariant:
         descriptor="recog_tree_aed+ctc",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[16, 8],
+            max_beam_sizes=[128, 128],
+            score_thresholds=[8.0, 8.0],
+            max_word_end_beam_size=4,
+            word_end_score_threshold=0.3,
         ),
         ctc_score_scale=0.3,
     )
@@ -91,10 +98,13 @@ def default_tree_aed_ctc_4gram_recog_variant() -> AEDRecogVariant:
         descriptor="recog_tree_aed+ctc_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[16, 8],
+            max_beam_sizes=[256, 128],
+            score_thresholds=[12.0, 12.0],
+            word_end_score_threshold=0.4,
+            max_word_end_beam_size=16,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
         ),
-        ctc_score_scale=0.3,
+        ctc_score_scale=0.6,
     )
 
 
