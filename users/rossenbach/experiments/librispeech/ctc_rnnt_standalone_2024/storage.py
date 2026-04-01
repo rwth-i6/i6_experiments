@@ -80,7 +80,13 @@ def add_lm(name: str, lm_model: NeuralLM):
 
 def get_lm_model(name: str) -> NeuralLM:
     global _lm_models
-    return _lm_models[name]
+    try:
+        return _lm_models[name]
+    except KeyError as e:
+        for lm in _lm_models.keys():
+            print(lm)
+        raise KeyError()
+
 
 
 # Vocoder Models -------------------------------------------------------------------------------------------------------

@@ -208,3 +208,19 @@ def eow_phon_ls100_0824_base():
     )
     add_ctc_model(name=network_module_conv_first + name, asr_model=asr_model)
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+    from i6_core.tools.git import CloneGitRepositoryJob
+    MINI_RETURNN_ROOT_LOW_MEM = CloneGitRepositoryJob(
+        "https://github.com/JackTemaki/MiniReturnn", commit="70d5e14615c818b3bebf0d3e28a2a10f28ecd29a"
+    ).out_repository.copy()
+    MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
+    low_mem_returnn = {
+        "returnn_exe": RETURNN_EXE,
+        "returnn_root": MINI_RETURNN_ROOT_LOW_MEM,
+    }
+    train_data_low_mem = copy.deepcopy(train_data)
+    train_data_low_mem.train.datasets["zip_dataset"]["hash_seq_names"] = True
+    train_data_low_mem.devtrain.datasets["zip_dataset"]["hash_seq_names"] = True
+
+    train_job = training(training_name + "low_ogg_mem_test", train_data_low_mem, train_args_conv_first, num_epochs=300, **low_mem_returnn)
+

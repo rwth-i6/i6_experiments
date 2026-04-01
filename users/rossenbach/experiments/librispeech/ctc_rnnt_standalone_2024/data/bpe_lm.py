@@ -7,7 +7,8 @@ from typing import Any, Dict, Optional
 
 from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
 from i6_core.corpus.convert import CorpusToTxtJob
-from i6_core.text.processing import ConcatenateJob
+from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
+from i6_core.text.processing import ConcatenateJob, HeadJob
 from i6_core.returnn.config import CodeWrapper
 
 from i6_experiments.common.setups.returnn.datasets import MetaDataset, ControlDataset, Dataset
@@ -46,6 +47,7 @@ class LmDataset(ControlDataset):
         seq_ordering: Optional[str] = None,
         random_subset: Optional[int] = None,
         additional_options: Optional[Dict] = None,
+        allow_unknown: bool = False,
     ):
         super().__init__(
             partition_epoch=partition_epoch,
@@ -57,6 +59,7 @@ class LmDataset(ControlDataset):
 
         self.corpus_file = corpus_file
         self.vocab_file = vocab_file
+        self.allow_unknown = allow_unknown
 
     def as_returnn_opts(self) -> Dict[str, Any]:
         d = {
@@ -66,7 +69,7 @@ class LmDataset(ControlDataset):
             "orth_replace_map_file": "",
             "word_based": True,
             "seq_end_symbol": "</s>",
-            "auto_replace_unknown_symbol": False,
+            "auto_replace_unknown_symbol": self.allow_unknown,
             "unknown_symbol": "<unk>",
             "add_delayed_seq_data": True,
             "delayed_seq_data_start_symbol": "<s>",
@@ -99,7 +102,7 @@ def get_subword_repo():
     subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"
     return subword_nmt_repo
 
-def build_lm_training_datasets(prefix, librispeech_key, bpe_size, settings: LMDatasetSettings):
+def build_lm_training_datasets(prefix, librispeech_key, bpe_size, settings: LMDatasetSettings, transcript_only=False):
     
     #data_map = {SOURCE_DATASTREAM_KEY: ("lm_dataset", "data"), TARGET_DATASTREAN_KEY: ("lm_dataset", "delayed")}
     #def make_meta(dataset: LmDataset):
@@ -120,7 +123,7 @@ def build_lm_training_datasets(prefix, librispeech_key, bpe_size, settings: LMDa
         gzip=True,
     ).out_txt
     full_train_text = ConcatenateJob(
-        text_files=[lm_data, ls_train_text],
+        text_files=[ls_train_text] if transcript_only else [lm_data, ls_train_text],
         zip_out=True,
     ).out
     lm_bpe_data_job = ApplyBPEToTextJob(
@@ -148,6 +151,13 @@ def build_lm_training_datasets(prefix, librispeech_key, bpe_size, settings: LMDa
         gzip_output=True,
         subword_nmt_repo=get_subword_repo(),
     )
+
+    # statistics
+    from i6_core.text.processing import PipelineJob
+    wordcount = PipelineJob(cv_text, ["wc -w"], mini_task=True).out
+    bpecount = PipelineJob(cv_bpe_data_job.out_bpe_text, ["wc -w"], mini_task=True).out
+    tk.register_output(prefix + "/wordcount", wordcount)
+    tk.register_output(prefix + "/bpecount", bpecount)
 
     #### datasets ####
     lm_train_dataset = LmDataset(
@@ -181,6 +191,96 @@ def build_lm_training_datasets(prefix, librispeech_key, bpe_size, settings: LMDa
         # devtrain=lm_devtrain_dataset,
         # TODO: Ultra hack for now
         devtrain=lm_cv_dataset,
+        datastreams={"data": bpe_datastream, "delayed": bpe_datastream},
+    )
+
+
+def build_lm_custom_training_datasets(prefix, librispeech_key, bpe_size, train_text, dev_text, settings: LMDatasetSettings):
+    """
+    Custom function for domain shift experiments
+    """
+
+    bpe_settings = get_subword_nmt_bpe_v2(corpus_key=librispeech_key, bpe_size=bpe_size, unk_label='<unk>')
+    bpe_datastream = BpeDatastream(available_for_inference=False, bpe_settings=bpe_settings)
+
+    #### Training Data ####
+
+    lm_bpe_data_job = ApplyBPEToTextJob(
+        text_file=train_text,
+        bpe_codes=bpe_settings.bpe_codes,
+        bpe_vocab=bpe_settings.bpe_count_vocab,
+        gzip_output=True,
+        subword_nmt_repo=get_subword_repo(),
+        mini_task=False,  # this is a large file, so run in cluster
+    )
+    lm_bpe_data_job.add_alias(os.path.join(prefix, "apply_bpe_to_train"))
+
+    #### Dev Data ####
+
+    cv_bpe_data_job = ApplyBPEToTextJob(
+        text_file=dev_text,
+        bpe_codes=bpe_settings.bpe_codes,
+        bpe_vocab=bpe_settings.bpe_count_vocab,
+        gzip_output=True,
+        subword_nmt_repo=get_subword_repo(),
+    )
+
+    #### Dev Train Data ####
+
+    # only shuffle, this is deterministic
+    shuffle_segment_file_job = ShuffleAndSplitSegmentsJob(
+        segment_file=train_text,
+        split={"shuffle": 1.0},
+        shuffle=True
+    )
+    segment_file = shuffle_segment_file_job.out_segments["shuffle"]
+    devtrain_text = HeadJob(segment_file, num_lines=3000).out
+    devtrain_bpe_data_job = ApplyBPEToTextJob(
+        text_file=devtrain_text,
+        bpe_codes=bpe_settings.bpe_codes,
+        bpe_vocab=bpe_settings.bpe_count_vocab,
+        gzip_output=True,
+        subword_nmt_repo=get_subword_repo(),
+    )
+
+    # statistics
+    from i6_core.text.processing import PipelineJob
+    wordcount = PipelineJob(dev_text, ["wc -w"], mini_task=True).out
+    bpecount = PipelineJob(cv_bpe_data_job.out_bpe_text, ["wc -w"], mini_task=True).out
+    tk.register_output(prefix + "/wordcount", wordcount)
+    tk.register_output(prefix + "/bpecount", bpecount)
+
+    #### datasets ####
+    lm_train_dataset = LmDataset(
+        corpus_file=lm_bpe_data_job.out_bpe_text,
+        vocab_file=bpe_settings.bpe_vocab,
+        partition_epoch=settings.train_partition_epoch,
+        segment_file=None,
+        seq_ordering=settings.train_seq_ordering,
+        allow_unknown=True,
+    )
+
+    lm_cv_dataset = LmDataset(
+        corpus_file=cv_bpe_data_job.out_bpe_text,
+        vocab_file=bpe_settings.bpe_vocab,
+        partition_epoch=1,
+        segment_file=None,
+        seq_ordering="sorted"
+    )
+
+    lm_devtrain_dataset = LmDataset(
+        corpus_file=devtrain_bpe_data_job.out_bpe_text,
+        vocab_file=bpe_settings.bpe_vocab,
+        partition_epoch=1,
+        segment_file=None,
+        seq_ordering="sorted",
+        allow_unknown=True,
+    )
+
+    return TrainingDatasets(
+        train=lm_train_dataset,
+        cv=lm_cv_dataset,
+        devtrain=lm_devtrain_dataset,
         datastreams={"data": bpe_datastream, "delayed": bpe_datastream},
     )
 

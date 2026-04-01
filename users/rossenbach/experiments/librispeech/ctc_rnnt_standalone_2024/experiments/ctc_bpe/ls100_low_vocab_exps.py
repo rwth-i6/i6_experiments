@@ -113,38 +113,39 @@ def bpe_ls100_0824_low_vocab_test():
                 tune_values_clean.append((wers[search_name + "/dev-clean"]))
                 tune_values_other.append((wers[search_name + "/dev-other"]))
 
-        for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
-            pick_optimal_params_job = GetOptimalParametersAsVariableJob(parameters=tune_parameters, values=tune_values,
-                                                                        mode="minimize")
-            pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
-            decoder_config = copy.deepcopy(base_decoder_config)
-            if hasattr(decoder_config, "lm_scale"):
-                decoder_config.lm_scale = pick_optimal_params_job.out_optimal_parameters[0]
-            else:
-                decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
-            decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
-            search_jobs, wers = search(
-                training_name,
-                forward_config=extra_forward_config if extra_forward_config else {},
-                asr_model=asr_model,
-                decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
-                unhashed_decoder_args={
-                    "extra_config": asdict(unhashed_decoder_config)} if unhashed_decoder_config else None,
-                test_dataset_tuples={key: test_dataset_tuples[key]},
-                use_gpu=use_gpu,
-                **default_returnn
-            )
-            report_values[key] = wers[training_name + "/" + key]
+        if test_dataset_tuples:
+            for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
+                pick_optimal_params_job = GetOptimalParametersAsVariableJob(parameters=tune_parameters, values=tune_values,
+                                                                            mode="minimize")
+                pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
+                decoder_config = copy.deepcopy(base_decoder_config)
+                if hasattr(decoder_config, "lm_scale"):
+                    decoder_config.lm_scale = pick_optimal_params_job.out_optimal_parameters[0]
+                else:
+                    decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
+                decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+                search_jobs, wers = search(
+                    training_name,
+                    forward_config=extra_forward_config if extra_forward_config else {},
+                    asr_model=asr_model,
+                    decoder_module=decoder_module,
+                    decoder_args={"config": asdict(decoder_config)},
+                    unhashed_decoder_args={
+                        "extra_config": asdict(unhashed_decoder_config)} if unhashed_decoder_config else None,
+                    test_dataset_tuples={key: test_dataset_tuples[key]},
+                    use_gpu=use_gpu,
+                    **default_returnn
+                )
+                report_values[key] = wers[training_name + "/" + key]
 
-        tune_and_evalue_report(
-            training_name=training_name,
-            tune_parameters=tune_parameters,
-            tuning_names=["LM", "Prior"],
-            tune_values_clean=tune_values_clean,
-            tune_values_other=tune_values_other,
-            report_values=report_values
-        )
+            tune_and_evalue_report(
+                training_name=training_name,
+                tune_parameters=tune_parameters,
+                tuning_names=["LM", "Prior"],
+                tune_values_clean=tune_values_clean,
+                tune_values_other=tune_values_other,
+                report_values=report_values
+            )
 
     def greedy_search_helper(
             training_name: str,
@@ -152,6 +153,8 @@ def bpe_ls100_0824_low_vocab_test():
             decoder_config: GreedyDecoderConfig,
             dev_dataset_tuples,
             test_dataset_tuples,
+            forward_config = None,
+            use_dynamic_quant = False,
         ):
         # remove prior if exists
         asr_model = copy.deepcopy(asr_model)
@@ -160,13 +163,14 @@ def bpe_ls100_0824_low_vocab_test():
         search_name = training_name + "/search_greedy"
         search_jobs, wers = search(
             search_name,
-            forward_config={},
+            forward_config={} if forward_config is None else forward_config,
             asr_model=asr_model,
-            decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+            decoder_module="ctc.decoder.greedy_bpe_ctc_v3_dynamic_quant" if use_dynamic_quant else "ctc.decoder.greedy_bpe_ctc_v3",
             decoder_args={"config": asdict(decoder_config)},
             test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
             **default_returnn,
         )
+        return search_jobs
 
     for BPE_SIZE in [0, 128, 512]:
 
@@ -253,12 +257,61 @@ def bpe_ls100_0824_low_vocab_test():
             training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data_bpe,
             get_specific_checkpoint=300
         )
-        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0, 2.2, 2.4, 2.6],
+        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
                                  prior_scales=[0.1, 0.2, 0.3, 0.4])
         greedy_decoder_config = GreedyDecoderConfig(
             returnn_vocab=label_datastream_bpe.vocab,
         )
         greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config, dev_dataset_tuples=dev_dataset_tuples, test_dataset_tuples=test_dataset_tuples)
+
+
+        # large search
+        decoder_config_ = copy.deepcopy(default_decoder_config_bpe)
+        decoder_config_.beam_size_token = 64
+        tune_and_evaluate_helper(training_name + "/beam_size_token_64", dev_dataset_tuples, None, asr_model, decoder_config_, lm_scales=[2.2, 2.4, 2.6, 2.8, 3.0, 3.2],
+                                 prior_scales=[0.2, 0.3, 0.4, 0.5])
+
+
+
+        # RESCALE TEST
+        if BPE_SIZE == 128:
+            search_jobs = greedy_search_helper(
+                training_name + "/DYNAMIC_QUANT_REFERENCE",
+                asr_model=asr_model,
+                decoder_config=greedy_decoder_config,
+                dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                test_dataset_tuples={},
+                forward_config={"seed": 3},  # baseline already ran this
+                use_dynamic_quant=False,
+            )
+            search_jobs = greedy_search_helper(
+                training_name + "/DYNAMIC_QUANT_TEST",
+                asr_model=asr_model,
+                decoder_config=greedy_decoder_config,
+                dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                test_dataset_tuples={},
+                forward_config=None,
+                use_dynamic_quant=True,
+            )
+            search_jobs = greedy_search_helper(
+                training_name + "/RTF_TEST",
+                asr_model=asr_model,
+                decoder_config=greedy_decoder_config,
+                dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                test_dataset_tuples={},
+                forward_config={"seed": 2}
+            )
+            search_jobs[0].rqmt["sbatch_args"] =  f"-p rescale_amd -A rescale_speed"
+            search_jobs = greedy_search_helper(
+                training_name + "/RTF_DYNAMIC_QUANT_TEST",
+                asr_model=asr_model,
+                decoder_config=greedy_decoder_config,
+                dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                test_dataset_tuples={},
+                forward_config={"seed": 4},
+                use_dynamic_quant=True,
+            )
+            search_jobs[0].rqmt["sbatch_args"] =  f"-p rescale_amd -A rescale_speed"
 
         # try this with LM
 

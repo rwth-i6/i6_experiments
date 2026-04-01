@@ -194,6 +194,7 @@ def bpe128_kazuki_trafo():
             prefix_name=training_name
         ))
 
+
         # 24 layer longer training
         train_config_modern_v1 = {
             "optimizer": {"class": "RAdam", "decoupled_weight_decay": True, "weight_decay": 0.005},
@@ -270,5 +271,80 @@ def bpe128_kazuki_trafo():
             network_module=network_module,
             prefix_name=training_name
         ))
+
+    # only the 24 layer 5 ep model for 2000
+    for BPE_SIZE in [2000]:
+        prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/lm_bpe/bpe_%i_trafo" % BPE_SIZE
+
+        train_settings_part100 = LMDatasetSettings(
+            train_partition_epoch=100,
+            train_seq_ordering="laplace:.100",
+        )
+
+        # build the training datasets object containing train, cv, dev-train and the extern_data dict
+        train_data_bpe128_part100 = build_lm_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-other-960",
+            bpe_size=BPE_SIZE,
+            settings=train_settings_part100,
+        )
+
+        label_datastream_bpe128 = cast(LabelDatastream, train_data_bpe128_part100.datastreams["data"])
+        vocab_size_without_blank = label_datastream_bpe128.vocab_size
+
+        # 24 layer
+        hidden_dim = 768
+        trafo_block_config = generate_transformer_block_config(
+            input_dim=hidden_dim,
+            ff_dim=4096,
+            output_dim=hidden_dim,
+            num_heads=8,
+            dropout=0.0,
+        )
+        trafo_base_config = TransformerLMConfig(
+            embed_dim=128,
+            hidden_dim=hidden_dim,
+            vocab_dim=vocab_size_without_blank,
+            num_layers=24,
+            block_config=trafo_block_config,
+            batch_first=True,  # very important, state management in decoder does not work otherwise
+            dropout=0.0,
+        )
+
+        # Extra version to debug LM dataset behavior
+        MINI_RETURNN_ROOT = CloneGitRepositoryJob(
+            "https://github.com/JackTemaki/MiniReturnn", commit="e37396f8838343ba5e2c5053103244c9271f916a"
+        ).out_repository.copy()
+        MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
+
+        lm_returnn = {
+            "returnn_exe": RETURNN_EXE,
+            "returnn_root": MINI_RETURNN_ROOT,
+        }
+
+        # 24 layer longer training
+        train_config_modern_v1 = {
+            "optimizer": {"class": "RAdam", "decoupled_weight_decay": True, "weight_decay": 0.005},
+            #############
+            "batch_size": 3000,  # BPE tokens
+            "accum_grad_multiple_step": 2,
+            "gradient_clip_norm": 2.0,
+            "learning_rates": list(np.linspace(5e-6, 3e-4, 100)) + list(np.linspace(3e-4, 1e-6, 400)),  # determined by OCLR test
+            "torch_amp_options": {"dtype": "bfloat16"},
+            "max_seq_length": 400,
+        }
+
+        train_args = {
+            "config": train_config_modern_v1,
+            "post_config": {"num_workers_per_gpu": 1},
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(trafo_base_config)},
+            "debug": True,
+            "add_cache_manager": True,
+        }
+
+        training_name = prefix_name + "/" + network_module + ".24x768_2x3k_RAdam_3e-4_5ep_reduce_gcn2.0"
+        train_job = training(training_name, train_data_bpe128_part100, train_args, num_epochs=500, **lm_returnn)
+        train_job.rqmt["gpu_mem"] = 24
 
 
