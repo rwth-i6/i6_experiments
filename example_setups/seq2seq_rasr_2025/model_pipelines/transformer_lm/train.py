@@ -12,6 +12,9 @@ from ..common.train import train as train_
 from .pytorch_modules import TransformerLm, TransformerLmConfig
 
 
+TrainedTransformerModel = TrainedModel[TransformerLmConfig]
+
+
 def _train_step(*, model: TransformerLm, data: dict, run_ctx: RunCtx, **_):
     targets = data["data"]  # [B, N]
     targets_size = data["data:size1"]  # [B]
@@ -40,7 +43,7 @@ def _train_step(*, model: TransformerLm, data: dict, run_ctx: RunCtx, **_):
 def train(
     options: TrainOptions,
     model_config: TransformerLmConfig,
-) -> TrainedModel[TransformerLmConfig]:
+) -> TrainedTransformerModel:
     model_serializers = get_model_serializers(model_class=TransformerLm, model_config=model_config)
     train_step_import = Import(
         code_object_path=f"{_train_step.__module__}.{_train_step.__name__}",

@@ -2,6 +2,7 @@ from dataclasses import dataclass, fields
 from typing import List, Literal, Optional, Tuple, Union
 
 import torch
+from i6_core.rasr.config import RasrConfig
 from i6_core.returnn import PtCheckpoint, ReturnnTrainingJob
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
@@ -39,6 +40,12 @@ from ...model_pipelines.ctc.pytorch_modules import (
     SpecaugmentByLengthConfig,
 )
 from ...model_pipelines.ctc.train import train
+from ...model_pipelines.transformer_lm.export import (
+    export_scorer as export_transformer_lm_scorer,
+    export_state_initializer as export_transformer_lm_state_initializer,
+    export_state_updater as export_transformer_lm_state_updater,
+)
+from .bpe_transformer_lm_baseline import run_bpe_transformer_lm_baseline
 
 
 def get_model_config(
@@ -170,6 +177,58 @@ def get_train_options(bpe_size: int = 128, num_epochs: int = 100) -> TrainOption
     )
 
 
+def get_bpe_transformer_lm_label_scorer_config(
+    bpe_size: int = 128,
+    use_gpu: bool = False,
+    scale: float = 1.0,
+) -> RasrConfig:
+    model_config, checkpoint = run_bpe_transformer_lm_baseline(bpe_size=bpe_size)
+
+    scorer_onnx_model = export_transformer_lm_scorer(model_config=model_config, checkpoint=checkpoint)
+    state_initializer_onnx_model = export_transformer_lm_state_initializer(
+        model_config=model_config, checkpoint=checkpoint
+    )
+    state_updater_onnx_model = export_transformer_lm_state_updater(model_config=model_config, checkpoint=checkpoint)
+
+    rasr_config = RasrConfig()
+    rasr_config.type = "stateful-onnx"
+    rasr_config.max_cached_score_vectors = 100000
+
+    rasr_config.scorer_model = RasrConfig()
+    rasr_config.scorer_model.session = RasrConfig()
+    rasr_config.scorer_model.session.file = scorer_onnx_model
+    rasr_config.scorer_model.session.inter_op_num_threads = 2
+    rasr_config.scorer_model.session.intra_op_num_threads = 2
+
+    rasr_config.scorer_model.io_map = RasrConfig()
+    rasr_config.scorer_model.io_map.scores = "scores"
+
+    rasr_config.state_initializer_model = RasrConfig()
+    rasr_config.state_initializer_model.session = RasrConfig()
+    rasr_config.state_initializer_model.session.file = state_initializer_onnx_model
+    rasr_config.state_initializer_model.session.inter_op_num_threads = 2
+    rasr_config.state_initializer_model.session.intra_op_num_threads = 2
+
+    rasr_config.state_updater_model = RasrConfig()
+    rasr_config.state_updater_model.session = RasrConfig()
+    rasr_config.state_updater_model.session.file = state_updater_onnx_model
+    rasr_config.state_updater_model.session.inter_op_num_threads = 2
+    rasr_config.state_updater_model.session.intra_op_num_threads = 2
+
+    rasr_config.state_updater_model.io_map = RasrConfig()
+    rasr_config.state_updater_model.io_map.token = "token"
+
+    if scale != 1.0:
+        rasr_config.scale = scale
+
+    if use_gpu:
+        rasr_config.scorer_model.session.execution_provider_type = "cuda"
+        rasr_config.state_initializer_model.session.execution_provider_type = "cuda"
+        rasr_config.state_updater_model.session.execution_provider_type = "cuda"
+
+    return rasr_config
+
+
 def run_training(
     model_config: Optional[ConformerCTCConfig] = None,
     train_options: Optional[TrainOptions] = None,
@@ -193,6 +252,7 @@ class RecogVariant:
     prior_scale: float = 0.0
     blank_penalty: float = 0.0
     bpe_lstm_lm_scale: float = 0.0
+    bpe_transformer_lm_scale: float = 0.0
     word_lm: Optional[Literal["4gram", "trafo", "kazuki-trafo"]] = None
     word_lm_scale: float = 0.0
     max_beam_sizes: Union[int, List[int]] = 1
@@ -283,6 +343,21 @@ def default_offline_tree_lstm_4gram_recog_variant() -> RecogVariant:
     )
 
 
+def default_offline_tree_bpe_transformer_recog_variant() -> RecogVariant:
+    return RecogVariant(
+        descriptor="recog_tree_bpe-trafo",
+        use_streaming=False,
+        tree_search=True,
+        prior_scale=0.2,
+        bpe_transformer_lm_scale=0.6,
+        max_beam_sizes=[80, 30],
+        max_word_end_beam_size=20,
+        score_thresholds=[12.0, 12.0],
+        word_end_score_threshold=1.0,
+        gpu_mem_rqmt=24,
+    )
+
+
 def default_offline_tree_trafo_recog_variant() -> RecogVariant:
     return RecogVariant(
         descriptor="recog_tree_word-trafoLM",
@@ -328,6 +403,7 @@ def default_recog_variants() -> List[RecogVariant]:
         default_offline_tree_4gram_recog_variant(),
         default_offline_tree_lstm_recog_variant(),
         default_offline_tree_lstm_4gram_recog_variant(),
+        # default_offline_tree_bpe_transformer_recog_variant(),
         # default_offline_tree_trafo_recog_variant(),
         default_streaming_lexfree_recog_variant(),
         default_streaming_tree_4gram_recog_variant(),
@@ -382,17 +458,26 @@ def run_recog_variants(
         label_scorer_config = get_no_op_label_scorer_config()
 
         use_lstm_lm = variant.bpe_lstm_lm_scale != 0.0
+        use_bpe_transformer_lm = variant.bpe_transformer_lm_scale != 0.0
+        use_bpe_lm = use_lstm_lm or use_bpe_transformer_lm
+
         if use_lstm_lm:
             lstm_lm_config = librispeech_lm.get_bpe_lstm_label_scorer_config(
                 bpe_size=bpe_size, scale=variant.bpe_lstm_lm_scale, use_gpu=variant.gpu_mem_rqmt > 0
             )
             label_scorer_config = [label_scorer_config, lstm_lm_config]
 
+        if use_bpe_transformer_lm:
+            transformer_lm_config = get_bpe_transformer_lm_label_scorer_config(
+                bpe_size=bpe_size, scale=variant.bpe_transformer_lm_scale, use_gpu=variant.gpu_mem_rqmt > 0
+            )
+            label_scorer_config = [label_scorer_config, transformer_lm_config]
+
         align_rasr_config_file = None
 
         if variant.tree_search:
             lexicon_file = get_bpe_bliss_lexicon(
-                bpe_size=bpe_size, add_blank=True, add_sentence_end_pron=(variant.bpe_lstm_lm_scale != 0.0)
+                bpe_size=bpe_size, add_blank=True, add_sentence_end_pron=use_bpe_lm
             )
             if variant.word_lm == "4gram":
                 lm_config = librispeech_lm.get_arpa_lm_config(
@@ -429,8 +514,8 @@ def run_recog_variants(
                     label_scorer_config=label_scorer_config,
                     lm_config=lm_config,
                     blank_index=blank_index,
-                    max_beam_sizes=[8192, 4096] if use_lstm_lm else 4096,
-                    score_thresholds=[26.0, 22.0] if use_lstm_lm else 22.0,
+                    max_beam_sizes=[8192, 4096] if use_bpe_lm else 4096,
+                    score_thresholds=[26.0, 22.0] if use_bpe_lm else 22.0,
                     logfile_suffix="align",
                 )
         else:
@@ -440,7 +525,7 @@ def run_recog_variants(
                 collapse_repeated_labels=True,
                 label_scorer_config=label_scorer_config,
                 blank_index=blank_index,
-                sentence_end_index=0 if use_lstm_lm else None,
+                sentence_end_index=0 if use_bpe_lm else None,
                 max_beam_sizes=variant.max_beam_sizes,
                 score_thresholds=variant.score_thresholds,
                 maximum_stable_delay=variant.maximum_stable_delay if variant.use_streaming else None,
@@ -455,9 +540,9 @@ def run_recog_variants(
                     collapse_repeated_labels=True,
                     label_scorer_config=label_scorer_config,
                     blank_index=blank_index,
-                    sentence_end_index=0 if use_lstm_lm else None,
-                    max_beam_sizes=[2048, 1024] if use_lstm_lm else 1024,
-                    score_thresholds=[18.0, 14.0] if use_lstm_lm else 14.0,
+                    sentence_end_index=0 if use_bpe_lm else None,
+                    max_beam_sizes=[2048, 1024] if use_bpe_lm else 1024,
+                    score_thresholds=[18.0, 14.0] if use_bpe_lm else 14.0,
                     logfile_suffix="align",
                 )
 

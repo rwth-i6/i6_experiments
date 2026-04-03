@@ -9,10 +9,13 @@ from i6_experiments.common.datasets.librispeech.language_model import get_arpa_l
 from i6_experiments.common.datasets.librispeech.vocab import get_lm_vocab
 from sisyphus import tk
 
-from ...experiments.librispeech.training import bpe_lstm_lm, word_transformer_lm
+from ...experiments.librispeech.training import bpe_lstm_lm, bpe_transformer_lm, word_transformer_lm
 from ...model_pipelines.lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
-from ...model_pipelines.transformer_lm.export import export_model_stateless, export_model_kv_cached
-from ...model_pipelines.transformer_lm.lm_config import get_lm_config_stateless, get_lm_config_kv_cached
+from ...model_pipelines.transformer_lm.export import export_model_kv_cached, export_model_stateless
+from ...model_pipelines.transformer_lm.label_scorer_config import (
+    get_bpe_transformer_lm_label_scorer_config,
+)
+from ...model_pipelines.transformer_lm.lm_config import get_lm_config_kv_cached, get_lm_config_stateless
 from ...tools import rasr_binary_path
 
 
@@ -141,6 +144,25 @@ def get_bpe_lstm_label_scorer_config(bpe_size: int = 128, use_gpu: bool = False,
     return get_lstm_lm_label_scorer_config(
         model_config=model_config,
         checkpoint=lstm_lm_checkpoint,
+        scale=scale,
+        execution_provider_type="cuda" if use_gpu else None,
+    )
+
+
+def get_bpe_transformer_label_scorer_config(
+    bpe_size: int = 128, num_layers: int = 96, use_gpu: bool = False, scale: float = 1.0
+) -> RasrConfig:
+    model_config = bpe_transformer_lm.get_model_config(bpe_size=bpe_size)
+    model_config.num_layers = num_layers
+
+    train_options = bpe_transformer_lm.get_train_options(bpe_size=bpe_size)
+    train_options.register_outputs = False
+
+    trafo_lm = bpe_transformer_lm.run(model_config=model_config, train_options=train_options)
+
+    return get_bpe_transformer_lm_label_scorer_config(
+        model_config=trafo_lm.model_config,
+        checkpoint=trafo_lm.get_checkpoint(),
         scale=scale,
         execution_provider_type="cuda" if use_gpu else None,
     )

@@ -28,6 +28,7 @@ from .common import BaseRecogVariant, run_single_bpe_variant
 class CTCRecogVariant(BaseRecogVariant):
     epoch: Optional[int] = None
     bpe_lstm_lm_scale: float = 0.0
+    bpe_trafo_lm_scale: float = 0.0
     prior_scale: float = 0.0
     blank_penalty: float = 0.0
 
@@ -63,6 +64,15 @@ def _get_label_scorer_configs(model: TrainedCTCModel, variant: CTCRecogVariant) 
                 use_gpu=variant.search_mode_params.gpu_mem_rqmt > 0,
             )
         )
+    if variant.bpe_trafo_lm_scale != 0.0:
+        label_scorer_configs.append(
+            librispeech_lm.get_bpe_transformer_label_scorer_config(
+                bpe_size=bpe_size,
+                num_layers=24,
+                use_gpu=variant.search_mode_params.gpu_mem_rqmt > 0,
+                scale=variant.bpe_trafo_lm_scale,
+            )
+        )
 
     return label_scorer_configs
 
@@ -88,6 +98,19 @@ def default_offline_lexfree_lstm_recog_variant() -> CTCRecogVariant:
         ),
         prior_scale=0.2,
         bpe_lstm_lm_scale=0.8,
+    )
+
+
+def default_offline_lexfree_trafo_recog_variant() -> CTCRecogVariant:
+    return CTCRecogVariant(
+        descriptor="recog_lexfree_bpe-TrafoLM",
+        search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            collapse_repeated_labels=True,
+            score_thresholds=[14.0, 12.0],
+            max_beam_sizes=[2048, 256],
+        ),
+        prior_scale=0.2,
+        bpe_trafo_lm_scale=0.8,
     )
 
 
@@ -212,6 +235,7 @@ def default_recog_variants() -> List[CTCRecogVariant]:
     return [
         default_offline_lexfree_recog_variant(),
         default_offline_lexfree_lstm_recog_variant(),
+        default_offline_lexfree_trafo_recog_variant(),
         default_offline_tree_recog_variant(),
         default_offline_tree_4gram_recog_variant(),
         default_offline_tree_lstm_recog_variant(),

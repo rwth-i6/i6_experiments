@@ -82,7 +82,10 @@ def run() -> None:
         with ExperimentContext("bpe_ctc"):
             with ExperimentContext("bpe_5k/baseline_recog"):
                 variants = list(
-                    filter(lambda variant: variant.bpe_lstm_lm_scale == 0, recognition.bpe_ctc.default_recog_variants())
+                    filter(
+                        lambda variant: variant.bpe_lstm_lm_scale == 0 and variant.bpe_trafo_lm_scale == 0,
+                        recognition.bpe_ctc.default_recog_variants(),
+                    )
                 )
                 register_recog_report(recognition.bpe_ctc.run(model=bpe_5k_ctc_model, variants=variants))
 

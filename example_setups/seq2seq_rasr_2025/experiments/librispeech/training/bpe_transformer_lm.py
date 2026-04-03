@@ -7,7 +7,7 @@ from ....data.librispeech.datasets import (
 )
 from ....model_pipelines.common.learning_rates import NewbobRelConfig
 from ....model_pipelines.common.optimizer import SGDConfig
-from ....model_pipelines.common.train import TrainedModel, TrainOptions
+from ....model_pipelines.common.train import TrainOptions
 from ....model_pipelines.transformer_lm.pytorch_modules import (
     PositionalEncodingConfig,
     TransformerBlockConfig,
@@ -15,7 +15,7 @@ from ....model_pipelines.transformer_lm.pytorch_modules import (
     TransformerLmConfig,
     TransformerMHSAConfig,
 )
-from ....model_pipelines.transformer_lm.train import train
+from ....model_pipelines.transformer_lm.train import TrainedTransformerModel, train
 
 
 def get_model_config(bpe_size: int = 128) -> TransformerLmConfig:
@@ -71,7 +71,7 @@ def get_train_options(bpe_size: int = 128) -> TrainOptions:
 def run(
     model_config: Optional[TransformerLmConfig] = None,
     train_options: Optional[TrainOptions] = None,
-) -> TrainedModel[TransformerLmConfig]:
+) -> TrainedTransformerModel:
     if model_config is None:
         model_config = get_model_config()
     if train_options is None:

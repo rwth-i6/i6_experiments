@@ -1,3 +1,20 @@
+__all__ = [
+    "TransformerLinearConfig",
+    "TransformerMHSAConfig",
+    "PositionalEncodingConfig",
+    "TransformerBlockConfig",
+    "TransformerLmConfig",
+    "TransformerMHSA",
+    "TransformerLinear",
+    "TransformerBlock",
+    "PositionalEncoding",
+    "TransformerLm",
+    "TransformerLmOnnxWrapper",
+    "TransformerLmScorer",
+    "TransformerLmStateInitializer",
+    "TransformerLmStateUpdater",
+]
+
 import math
 from dataclasses import dataclass
 from typing import Union
@@ -438,3 +455,88 @@ class TransformerLmOnnxWrapper(TransformerLm):
         return (scores, *new_states)
 
 
+class TransformerLmScorer(TransformerLm):
+    def forward(
+        self,
+        transformer_out: torch.Tensor,  # [B, D]
+    ) -> torch.Tensor:
+        logits = self.output_linear(transformer_out)  # [B, V]
+        return -torch.log_softmax(logits, dim=-1)  # [B, V]
+
+
+class TransformerLmStateInitializer(TransformerLm):
+    def forward(self) -> tuple[torch.Tensor]:
+        token = torch.zeros((1,), dtype=torch.int32)
+        device = token.device
+        dtype = torch.int64
+
+        labels_lens = torch.ones((1,), dtype=dtype, device=device)
+        state_lengths = torch.full((1,), 0, dtype=dtype, device=device)
+
+        x = token.reshape(1, 1)  # [1, 1]
+        x = self.embed(x)  # [1, 1, E]
+        x = self.positional_encoding.forward_with_offsets(x, state_lengths)  # [1, 1, E]
+        x = self.input_linear(x)  # [1, 1, D]
+
+        new_states = []
+
+        for block in self.transformer_blocks:
+            x, k_new, v_new = block.forward_with_kv_cache(
+                input=x,
+                labels_lens=labels_lens,
+                state_lengths=state_lengths,
+                k_cache=torch.zeros((1, 0, self.hid_dim), dtype=torch.float32),
+                v_cache=torch.zeros((1, 0, self.hid_dim), dtype=torch.float32),
+            )  # [1, 1, D], [1, 1, D], [1, 1, D]
+            new_states.append(k_new)
+            new_states.append(v_new)
+
+        x = self.output_layernorm(x)  # [1, 1, D]
+        x = self.dropout(x)  # [1, 1, D]
+        transformer_out = x.reshape(1, self.hid_dim)  # [1, D]
+
+        return (transformer_out, *new_states) # [1, D], [[1, 1, D], ...]
+
+
+class TransformerLmStateUpdater(TransformerLm):
+    def forward(
+        self,
+        token: torch.Tensor,  # [B]
+        state_lengths: torch.Tensor, # [B]
+        *kv_cache: torch.Tensor,
+    ) -> tuple[torch.Tensor, ...]:
+        assert (
+            len(kv_cache) == 2 * self.num_layers
+        ), f"Expected {2 * self.num_layers} KV cache tensors, got {len(kv_cache)}"
+
+        batch_size = token.size(0)
+        device = token.device
+        dtype = torch.int64
+
+        labels_lens = torch.ones((batch_size,), dtype=dtype, device=device)
+
+        x = token.reshape(batch_size, 1).transpose(0, 1)  # [1, B]
+        x = self.embed(x)  # [1, B, E]
+        x = self.positional_encoding.forward_with_offsets(x, state_lengths)  # [1, B, E]
+        x = self.input_linear(x)  # [1, B, D]
+
+        new_states = []
+
+        for layer_idx, block in enumerate(self.transformer_blocks):
+            k_cache = kv_cache[2 * layer_idx]  # [B, T, D]
+            v_cache = kv_cache[2 * layer_idx + 1]  # [B, T, D]
+
+            x, k_new, v_new = block.forward_with_kv_cache(
+                input=x,
+                labels_lens=labels_lens,
+                state_lengths=state_lengths,
+                k_cache=k_cache,
+                v_cache=v_cache,
+            )  # [1, B, D], [B, 1, D], [B, 1, D]
+            new_states.extend([torch.cat([k_cache, k_new], dim=1), torch.cat([v_cache, v_new], dim=1)])
+
+        x = self.output_layernorm(x) # [1, B, D]
+        x = self.dropout(x)  # [1, B, D]
+        transformer_out = x.reshape(batch_size, self.hid_dim)  # [B, D]
+
+        return (transformer_out, *new_states)
