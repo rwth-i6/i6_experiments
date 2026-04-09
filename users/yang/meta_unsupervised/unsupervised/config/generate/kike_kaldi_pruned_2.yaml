@@ -1,0 +1,33 @@
+w2l_decoder: KALDI
+post_process: silence
+blank_weight: 0
+sil_is_blank: true
+blank_mode: add
+unsupervised_tuning: 0 # tuning mode is 0
+
+
+
+fairseq:
+  task:
+    _name: unpaired_audio_text
+    data: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_u_audio_preprocessing/Wav2VecUFeaturizeAudioJob.TyJVh2DlIY8F/output/audio_features/precompute_pca512_cls128_mean
+    #text_data: /work/asr4/schmitt/sisyphus_work_dirs/2025_03_21_wav2vecu/i6_experiments/users/schmitt/experiments/exp2025_03_21_wav2vec_u/text/NormalizeLBSLMDataJob.7MP3Io7yzilY/output/corpus.norm.txt
+    text_data: ''
+    labels: phn
+    sort_by_length: false
+    shuffle: false
+
+targets: wrd
+
+viterbi_transcript: /u/enrique.leon.lozano/borrar.txt
+
+lexicon: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.4MFa7M4Sv5NB/output/text/lexicon.lst
+
+kaldi_decoder_config:
+  hlg_graph_path: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.4MFa7M4Sv5NB/output/text/fst/phn_to_words_sil/HLG.phn.kenlm.wrd.o40014.fst
+  #output_dict: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.qAz3oF4DdjlG/output/text/fst/phn_to_words_sil/kenlm.wrd.o40003.txt
+  output_dict: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.4MFa7M4Sv5NB/output/text/fst/phn_to_words_sil/kaldi_dict.kenlm.wrd.o40014.txt
+  acoustic_scale: 3
+
+
+results_path: /u/enrique.leon.lozano/setups/kaldi_decoding_wrd/

@@ -1,0 +1,16 @@
+w2l_decoder: KALDI
+post_process: silence
+blank_weight: 0
+sil_is_blank: true
+blank_mode: add
+unsupervised_tuning: 0 # tuning mode is 0
+viterbi_transcript: /u/enrique.leon.lozano/borrar.txt
+lexicon: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.qAz3oF4DdjlG/output/text/lexicon_filtered.lst
+min_vt_uer: 0.03
+min_lm_ppl: 7.842956636796915 # by running the command query on the phone LM
+targets: wrd
+kaldi_decoder_config:
+#acoustic_scale: 3
+hlg_graph_path: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.qAz3oF4DdjlG/output/text/fst/phn_to_words_sil/HLG.phn.kenlm.wrd.o40003.fst
+output_dict: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.qAz3oF4DdjlG/output/text/fst/phn_to_words_sil/kaldi_dict.kenlm.wrd.o40003.txt
+results_path: /u/enrique.leon.lozano/setups/kaldi_decoding_wrd/

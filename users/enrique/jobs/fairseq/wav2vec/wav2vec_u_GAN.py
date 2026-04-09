@@ -1,27 +1,32 @@
+from sisyphus import tools
 import os
 import subprocess as sp
 from typing import Optional, Type, List, Dict, Any
-from recipe.i6_experiments.users.enrique.jobs.fairseq.wav2vec.wav2vec_data_utils import get_fairseq_root, cache_path
+from i6_experiments.users.enrique.jobs.fairseq.wav2vec.wav2vec_data_utils import get_fairseq_root, cache_path
 from sisyphus import Job, Task, tk
 import logging
+import shutil
 
 
 class FairseqHydraTrainWav2VecUJob(Job):
     """
     Run the fairseq-hydra-train script with dynamically specified configurations for Wav2Vec training.
     """
+    __sis_hash_exclude__ = ["environment", "prefix", "fairseq_root"]
+    __sis_hash_constant__ = {}
 
     def __init__(
         self,
         environment: Optional[tk.Path],
         task_data: Type[tk.Path],
         task_text_data: Type[tk.Path],
-        task_kenlm_path: Type[tk.Path],
         fairseq_root: Type[tk.Path],
         prefix: str,
         config_dir: str,
         config_name: str,
-        configs: Dict[str, Any],
+        extra_configs: Dict[str, Any],
+        user_dir: Type[tk.Path],
+        task_kenlm_path: Type[tk.Path] = None,
     ):
         """
         :param environment: Path to the Python virtual environment.
@@ -32,33 +37,51 @@ class FairseqHydraTrainWav2VecUJob(Job):
         :param prefix: Prefix for the training run.
         :param config_dir: Path to the configuration directory.
         :param config_name: Name of the Hydra configuration yaml file.
-        :param configs: Dictionary of additional model and task configurations.
+        :param extra_configs: Dictionary of additional model and task configurations.
         :param seed_range: Range of seed values for experimentation (e.g., range(0, 5)).
         """
         self.environment = environment
         self.task_data = task_data
         self.task_text_data = task_text_data
-        self.task_kenlm_path = task_kenlm_path
+        # TODO : search for the specific lm inside the task_text_data folder
+        self.task_kenlm_path = (
+            os.path.join(task_text_data.get_path(), "lm.phones.filtered.04.bin")
+            if task_kenlm_path is None
+            else task_kenlm_path
+        )
         self.fairseq_root = fairseq_root
         self.prefix = prefix
         self.config_dir = config_dir
         self.config_name = config_name
-        self.configs = configs
+        self.configs = extra_configs
 
         self.out_dir = self.output_path("out_dir", directory=True)
+        self.out_best_model = self.output_path("out_dir/checkpoint_best.pt")
+        self.user_dir = user_dir
 
         # Resource requirements
-        self.rqmt = {"time": 1000, "cpu": 1, "gpu": 1, "mem": 32}
+        self.rqmt = {"time": 1000, "cpu": 1, "gpu": 1, "mem": 100, "gpu_mem": 24}
 
     def tasks(self):
+        yield Task("copy_dict_phn_txt", mini_task=True)
         yield Task("train", rqmt=self.rqmt)
+
+    def copy_dict_phn_txt(self):
+        dict_phn_path = os.path.join(self.task_text_data.get_path(), "dict.phn.txt")
+        dest = os.path.join(self.task_data.get_path(), "dict.phn.txt")
+        logging.info(f"coppied {dict_phn_path} to {dest}")
+        shutil.copy2(dict_phn_path, dest)
 
     def train(self):
 
         # Cache the paths for the task data, text data, and KenLM binary
         task_data = cache_path(self.task_data.get_path())
         task_text_data = cache_path(self.task_text_data.get_path())
-        task_kenlm_path = cache_path(self.task_kenlm_path.get_path())
+        task_kenlm_path = (
+            cache_path(self.task_kenlm_path.get_path())
+            if type(self.task_kenlm_path) is tk.Path
+            else self.task_kenlm_path
+        )
 
         # Construct the list of Hydra arguments dynamically based on the passed config
         hydra_args = []
@@ -69,7 +92,7 @@ class FairseqHydraTrainWav2VecUJob(Job):
                 hydra_args.append(f"{key}={','.join(map(str, value))}")
             elif isinstance(value, range):
                 # Format ranges properly for Hydra
-                hydra_args.append(f"{key}=range({value.start},{value.stop})")
+                hydra_args.append(f"'{key}=range({value.start},{value.stop})'")
             else:
                 # Directly append other value types as-is
                 hydra_args.append(f"{key}={value}")
@@ -85,65 +108,32 @@ class FairseqHydraTrainWav2VecUJob(Job):
             task.data={task_data} \
             task.text_data={task_text_data} \
             task.kenlm_path={task_kenlm_path} \
-            common.user_dir={self.fairseq_root.get_path()}/examples/wav2vec/unsupervised \
+            common.user_dir={self.user_dir.get_path()} \
+            checkpoint.save_dir={self.out_dir.get_path()} \
             {' '.join(hydra_args)} 
         """
         logging.info(f"Running command: {sh_call_str}")
         sp.run(["bash", "-c", sh_call_str], check=True)
 
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        d = {}
+        for k, v in parsed_args.items():
+            if k not in cls.__sis_hash_exclude__:
+                d[k] = v
 
-def gan():
-    # Example usage
-    # fairseq_root = get_fairseq_root(fairseq_python_exe="/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3/bin/python", commit="a0ceabc287e26f64517fadb13a54c83b71e8e469")
-    fairseq_root = tk.Path(
-        "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"
-    )
+        for k, org, replacement in cls.__sis_hash_overwrite__:
+            if k in d and d[k] == org:
+                d[k] = replacement
 
-    task_data = tk.Path(
-        "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/data/audio_test/processed_audio/prepare_audio_features/precompute_pca512_cls128_mean_pooled"
-    )
-    task_text_data = tk.Path(
-        "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.bGFecSJcedj2/output/audio/phones"
-    )
-    task_kenlm_path = tk.Path(
-        "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.bGFecSJcedj2/output/audio/phones/lm.phones.filtered.04.bin"
-    )
-    environment = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3")
+        for k, v in cls.__sis_hash_constant__.items():
+            d[k] = v
 
-    # Training configuration parameters
-    prefix = "w2v_unsup_gan_xp"
-    config_dir = fairseq_root.get_path() + "/examples/wav2vec/unsupervised/config/gan"
-    config_name = "w2vu"
-
-    # Configurations compatible with Fairseq-Hydra
-    configs = {
-        "model.code_penalty": [2, 4],
-        "model.gradient_penalty": [1.5, 2.0],
-        "model.smoothness_weight": [0.5, 0.75, 1.0],
-    }
-    seed_range = range(0, 5)  # Example seed range
-
-    # Create the job instance with all configurations
-    job = FairseqHydraTrainWav2VecUJob(
-        environment,
-        task_data,
-        task_text_data,
-        task_kenlm_path,
-        fairseq_root,
-        prefix,
-        config_dir,
-        config_name,
-        configs,
-        seed_range,
-    )
-
-    # Register task output (if applicable)
-    tk.register_output(f"{prefix}", job.out_text_dir)
-
-    # Start the process (if necessary)
-    logging.info("Job is set up and ready to run.")
-
-
-# Entry point of the script
-def py():
-    gan()
+        if cls.__sis_version__ is None:
+            return tools.sis_hash(d)
+        else:
+            return tools.sis_hash((d, cls.__sis_version__)) 

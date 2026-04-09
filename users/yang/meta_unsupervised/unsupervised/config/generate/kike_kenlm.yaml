@@ -1,0 +1,27 @@
+# @package _group_
+
+w2l_decoder: KENLM
+#post_process: silence
+
+lexicon: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.CsHVpj6ippjz/output/text/lexicon.lst
+
+#kenlm_model: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.CsHVpj6ippjz/output/text/phones/lm.phones.filtered.04.bin
+#lm_model: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.CsHVpj6ippjz/output/text/phones/lm.phones.filtered.04.bin
+
+#This is probably the correct language model
+lm_model: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_data_utils/PrepareWav2VecTextDataJob.CsHVpj6ippjz/output/text/kenlm.wrd.o40003.bin
+
+fairseq:
+  task:
+    _name: unpaired_audio_text
+    data: /u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/i6_experiments/users/enrique/jobs/wav2vec_u_audio_preprocessing/Wav2VecUFeaturizeAudioJob.TyJVh2DlIY8F/output/audio_features/precompute_pca512_cls128_mean
+    text_data: /work/asr4/schmitt/sisyphus_work_dirs/2025_03_21_wav2vecu/i6_experiments/users/schmitt/experiments/exp2025_03_21_wav2vec_u/text/NormalizeLBSLMDataJob.7MP3Io7yzilY/output/corpus.norm.txt
+    labels: phn
+    sort_by_length: false
+    shuffle: false
+
+#decode_stride: 1
+
+#viterbi_transcript: /u/enrique.leon.lozano/borrar.txt
+
+targets: words
