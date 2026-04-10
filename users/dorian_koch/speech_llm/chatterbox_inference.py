@@ -38,8 +38,6 @@ def gen_conversation(model, dialogue, device, speaker_dir, silence_length_sample
         model.prepare_conditionals(os.path.join(speaker_dir, s), exaggeration=turn["exaggeration"], norm_loudness=True)
         speak_map[s] = model.conds
 
-    audio_segments = {s: [] for s in speakers}
-
     # We synthesize per-speaker streams, then align them based on the sampled
     # silence lengths between consecutive turns.
     #
