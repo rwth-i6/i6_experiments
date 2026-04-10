@@ -31,6 +31,9 @@ class ModelConfig:
     variance_normalize: bool = False
     variance_path: Optional[tk.Path] = None
     pca_dim: Optional[int] = None
+    pca_state_path: Optional[tk.Path] = None
+    update_pca_during_training: bool = True
+    freeze_output_layers: bool = False
     generative_model: bool = False
     l2_norm: bool = False
 

@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from .wav2vec2_hf_ctc_v2_cfg import ModelConfig
-from i6_models.parts.best_rq.quantizer_with_pca import IncrementalPCA
+from ...extra_code.incremental_pca import IncrementalPCA
 
 
 _HF_CACHE_DIR = "/work/asr4/zyang/hf_cache"
@@ -95,8 +95,28 @@ class Model(nn.Module):
         if self.cfg.pca_dim:
             self.pca_dim = self.cfg.pca_dim
             self.pca = nn.ModuleList([IncrementalPCA(n_components=self.pca_dim) for _ in self.return_layers])
+            self.pca_component_buffer_names = []
+            self.pca_mean_buffer_names = []
+            self.pca_var_buffer_names = []
+            self.pca_init_buffer_names = []
+            hidden_size = self.wav2vec2.config.hidden_size
+            for i, _layer in enumerate(self.return_layers):
+                comp_name = f"pca_components_{i}"
+                mean_name = f"pca_mean_{i}"
+                var_name = f"pca_var_{i}"
+                init_name = f"pca_initialized_{i}"
+                self.register_buffer(comp_name, torch.zeros(self.pca_dim, hidden_size))
+                self.register_buffer(mean_name, torch.zeros(hidden_size))
+                self.register_buffer(var_name, torch.zeros(hidden_size))
+                self.register_buffer(init_name, torch.zeros((), dtype=torch.bool))
+                self.pca_component_buffer_names.append(comp_name)
+                self.pca_mean_buffer_names.append(mean_name)
+                self.pca_var_buffer_names.append(var_name)
+                self.pca_init_buffer_names.append(init_name)
         else:
             self.pca = None
+        if self.cfg.pca_state_path is not None:
+            self._load_pca_state(self.cfg.pca_state_path)
         self.hidden_size = self.wav2vec2.config.hidden_size if not self.pca else self.pca_dim
         self.classifiers = nn.ModuleList(
             [
@@ -104,6 +124,10 @@ class Model(nn.Module):
                 for _ in self.return_layers
             ]
         )
+        if self.cfg.freeze_output_layers:
+            for classifier in self.classifiers:
+                for param in classifier.parameters():
+                    param.requires_grad = False
         self.blank_index = (
             self.cfg.label_target_size if self.cfg.blank_index is None else self.cfg.blank_index
         )
@@ -123,21 +147,76 @@ class Model(nn.Module):
         output_lengths = self.wav2vec2._get_feat_extract_output_lengths(raw_audio_len)
         return encoder_out.hidden_states, output_lengths.to(dtype=torch.long)
 
+    def _sync_pca_buffers_from_module(self, pca: IncrementalPCA, idx: int):
+        if not hasattr(pca, "components_") or pca.components_ is None:
+            return
+        self._get_pca_component_buffer(idx).copy_(pca.components_.detach())
+        self._get_pca_mean_buffer(idx).copy_(pca.mean.detach())
+        self._get_pca_var_buffer(idx).copy_(pca.var.detach())
+        self._get_pca_is_initialized_buffer(idx).fill_(True)
+
+    def _get_pca_component_buffer(self, idx: int) -> torch.Tensor:
+        return getattr(self, self.pca_component_buffer_names[idx])
+
+    def _get_pca_mean_buffer(self, idx: int) -> torch.Tensor:
+        return getattr(self, self.pca_mean_buffer_names[idx])
+
+    def _get_pca_var_buffer(self, idx: int) -> torch.Tensor:
+        return getattr(self, self.pca_var_buffer_names[idx])
+
+    def _get_pca_is_initialized_buffer(self, idx: int) -> torch.Tensor:
+        return getattr(self, self.pca_init_buffer_names[idx])
+
+    def _get_pca_state_path(self, path) -> str:
+        return path.get_path() if hasattr(path, "get_path") else str(path)
+
+    def _load_pca_state(self, path) -> None:
+        if not self.pca:
+            raise RuntimeError("Received pca_state_path, but pca_dim is not configured for this model.")
+        pca_state = torch.load(self._get_pca_state_path(path), map_location="cpu")
+        if pca_state["return_layers"] != self.return_layers:
+            raise ValueError(
+                f"PCA state return_layers mismatch: expected {self.return_layers}, got {pca_state['return_layers']}"
+            )
+        if pca_state["pca_dim"] != self.pca_dim:
+            raise ValueError(f"PCA state pca_dim mismatch: expected {self.pca_dim}, got {pca_state['pca_dim']}")
+        for buffer_name, value in pca_state["buffers"].items():
+            getattr(self, buffer_name).copy_(value)
+
+    def export_pca_state(self) -> dict:
+        if not self.pca:
+            raise RuntimeError("Cannot export PCA state when pca_dim is not configured.")
+        buffer_names = (
+            self.pca_component_buffer_names
+            + self.pca_mean_buffer_names
+            + self.pca_var_buffer_names
+            + self.pca_init_buffer_names
+        )
+        return {
+            "return_layers": list(self.return_layers),
+            "pca_dim": self.pca_dim,
+            "buffers": {buffer_name: getattr(self, buffer_name).detach().cpu() for buffer_name in buffer_names},
+        }
+
     def transform_hidden_states(self, all_hidden_states, output_lengths, *, update_pca: bool):
         hidden_states_mask = mask_tensor(all_hidden_states[0], output_lengths)
         transformed_hidden_states = []
 
         if self.pca:
-            for layer_idx, pca in zip(self.return_layers, self.pca):
+            for idx, (layer_idx, pca) in enumerate(zip(self.return_layers, self.pca)):
                 hidden_states = all_hidden_states[layer_idx]
                 if update_pca:
                     pca.partial_fit(hidden_states[hidden_states_mask].detach())
-                elif not hasattr(pca, "components_"):
+                    self._sync_pca_buffers_from_module(pca, idx)
+                elif not bool(self._get_pca_is_initialized_buffer(idx)):
                     raise RuntimeError(
                         f"PCA components for layer {layer_idx} are not initialized. "
                         "Run training first or load a checkpoint with fitted PCA state."
                     )
-                transformed_hidden_states.append(hidden_states @ pca.components_.T)
+                centered_hidden_states = hidden_states - self._get_pca_mean_buffer(idx)
+                transformed_hidden_states.append(
+                    centered_hidden_states @ self._get_pca_component_buffer(idx).T
+                )
         else:
             for layer_idx in self.return_layers:
                 transformed_hidden_states.append(all_hidden_states[layer_idx])
@@ -151,7 +230,7 @@ class Model(nn.Module):
         transformed_hidden_states = self.transform_hidden_states(
             all_hidden_states,
             output_lengths,
-            update_pca=self.training,
+            update_pca=self.training and self.cfg.update_pca_during_training,
         )
         log_probs_list = []
         for hidden_states, classifier in zip(transformed_hidden_states, self.classifiers):
@@ -286,3 +365,34 @@ def variance_step(*, model: Model, data, run_ctx, **kwargs):
             run_ctx.sum[layer] += batch_sum
             run_ctx.sum_sq[layer] += batch_sum_sq
             run_ctx.sum_frames[layer] += batch_num_frames
+
+
+def pca_fit_init_hook(run_ctx, **kwargs):
+    run_ctx.model = None
+    run_ctx.num_batches = 0
+
+
+def pca_fit_finish_hook(run_ctx, **kwargs):
+    if run_ctx.model is None:
+        raise ValueError("No batches were processed while fitting PCA.")
+    torch.save(run_ctx.model.export_pca_state(), "pca_state.pt")
+    print(f"Saved PCA state after {run_ctx.num_batches} batches to pca_state.pt.")
+
+
+def pca_fit_step(*, model: Model, data, run_ctx, **kwargs):
+    if not model.pca:
+        raise RuntimeError("PCA fitting requires pca_dim to be configured.")
+    raw_audio = data["raw_audio"]
+    raw_audio_len = data["raw_audio:size1"].to(torch.long)
+
+    all_hidden_states, output_lengths = model.extract_hidden_states(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+    model.transform_hidden_states(
+        all_hidden_states,
+        output_lengths,
+        update_pca=True,
+    )
+    run_ctx.model = model
+    run_ctx.num_batches += 1

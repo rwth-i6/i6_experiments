@@ -230,6 +230,37 @@ def compute_feature_variance(
     return forward_job.out_files, forward_job
 
 
+@tk.block()
+def compute_pca_state(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    output_files: Optional[List[str]] = None,
+    mem_rqmt: int = 16,
+    use_gpu: bool = True,
+):
+    """
+    Run a forward-only job that fits PCA statistics and saves them as a standalone state artifact.
+    """
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=None,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files or ["pca_state.pt"],
+    )
+    forward_job.add_alias(prefix_name + "/pca_fit_job")
+    for output_file, out_file in forward_job.out_files.items():
+        tk.register_output(prefix_name + f"/{output_file}", out_file)
+    return forward_job.out_files, forward_job
+
+
 def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
     """
     :param training_name:
