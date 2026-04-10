@@ -1,10 +1,9 @@
 from pathlib import Path
-from typing import List, Sequence, Tuple
 from sisyphus import Job, Task, tk
 import os
 import subprocess
 from .common import HF_CACHE_DIR
-from contextlib import contextmanager
+
 
 class ChatterboxInference(Job):
     def __init__(
@@ -22,26 +21,28 @@ class ChatterboxInference(Job):
             "mem": 16,
             "time": 2,
         }
-        
+
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        #d["__version"] = 5
+        # d["__version"] = 5
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        
+
         this_file_path = Path(__file__).resolve()
         tts_script_path = this_file_path.parent / "chatterbox_inference.py"
 
         command = [
             self.venv_python_path.get(),
             str(tts_script_path),
-            "--in_text", str(self.in_text.get()),
-            "--out_dir", str(self.out_dir),
+            "--in_text",
+            str(self.in_text.get()),
+            "--out_dir",
+            str(self.out_dir),
         ]
         env = os.environ.copy()
         env["HF_HOME"] = HF_CACHE_DIR
@@ -56,35 +57,43 @@ class ParlerTTSInference(Job):
         self,
         *,
         venv_python_path: tk.Path,
+        voices_per_prompt: int = 5,
     ):
         self.venv_python_path = venv_python_path
         self.out_dir = self.output_path("parlertts_output", directory=True)
+        self.voices_per_prompt = voices_per_prompt
         self.rqmt = {
             "gpu": 1,
             "cpu": 2,
             "mem": 16,
             "time": 2,
         }
-        
+
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        #d["__version"] = 5
+        # d["__version"] = 5
         return super().hash(d)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        
+
         this_file_path = Path(__file__).resolve()
         tts_script_path = this_file_path.parent / "parlertts_inference.py"
 
         command = [
             self.venv_python_path.get(),
             str(tts_script_path),
-            "--voices_per_prompt", str(10),
-            "--out_dir", str(self.out_dir),
+            "--voices_per_prompt",
+            str(self.voices_per_prompt),
+            "--out_dir",
+            str(self.out_dir),
+            "--voice_description",
+            "A male speaker delivers a slightly expressive and animated speech with a moderate speed and deep pitch. "
+            "The recording is of very high quality, with the speaker's voice sounding clear and very close up, "
+            "recorded in a soundproof studio with zero background noise."
         ]
         env = os.environ.copy()
         env["HF_HOME"] = HF_CACHE_DIR

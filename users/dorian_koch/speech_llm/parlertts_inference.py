@@ -1,6 +1,6 @@
 import torch
 from parler_tts import ParlerTTSForConditionalGeneration
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, set_seed
 import soundfile as sf
 import argparse
 import os
@@ -20,48 +20,52 @@ def gen_voice(model, tokenizer, text_prompt, voice_description, device):
 
     return audio_arr
 
+DEFAULT_TEXT_PROMPT = "The quick brown fox jumps over the lazy dog.  Who could have possibly predicted that trees would drop leaves in October? So they herd us all out of the station into the freezing drizzle to wait for a rail replacement bus. But the bus driver hasn't got a clue where he's going, misses the turning, and ends up taking a massive detour through some dreary industrial estate in London."
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run parlertts TTS Inference")
     parser.add_argument("--out_dir", type=str, required=True, help="Directory to save output audio.")
+    parser.add_argument("--text", type=str, default=DEFAULT_TEXT_PROMPT, help="Text prompt to generate speech from.")
     parser.add_argument("--voices_per_prompt", type=int, default=1, help="Number of different voices to generate per prompt.")
+    # allow multiple voice prompts
+    parser.add_argument("--voice_description", type=str, action="append", help="Description of the voice to generate.")
     args = parser.parse_args()
 
     # Automatically use your GPU if available, otherwise fallback to CPU
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
-    print("Loading Parler-TTS Large... (This might take a moment, it's a 2.2B parameter model)")
-
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    set_seed(42)  # For reproducibility
     # Load the Parler-TTS Large model and its tokenizer
-    model_name = "parler-tts/parler-tts-large-v1"
+    model_name = "parler-tts/parler-tts-mini-v1.1"
+    print(f"Loading {model_name}...")
     model = ParlerTTSForConditionalGeneration.from_pretrained(model_name).to(device)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-
     # 1. The script you want the voice to read 
     # (Keep it around 10-15 seconds for Chatterbox cloning)
-    text_prompt = "The quick brown fox jumps over the lazy dog. We promptly judged antique ivory buckles for the next prize. It is easy to tell the depth of a well by dropping a stone into it."
-
+    
     # 2. The description of the random voice you want to generate
     # Change the gender, pitch, and speed to get completely different voices.
     # ALWAYS keep the quality descriptions at the end!
 
     # TODO random description
-    voice_description = (
-        "A male speaker delivers a slightly expressive and animated speech with a moderate speed and deep pitch. "
-        "The recording is of very high quality, with the speaker's voice sounding clear and very close up, "
-        "recorded in a soundproof studio with zero background noise."
-    )
+    # voice_description = (
+    #     "A male speaker delivers a slightly expressive and animated speech with a moderate speed and deep pitch. "
+    #     "The recording is of very high quality, with the speaker's voice sounding clear and very close up, "
+    #     "recorded in a soundproof studio with zero background noise."
+    # )
 
+    for voice_prompt in args.voice_description:
+        for i in range(args.voices_per_prompt):
+            print(f"Generating voice {i+1}/{args.voices_per_prompt}")
+            audio_arr = gen_voice(model, tokenizer, args.text, voice_prompt, device)
 
-    for i in range(args.voices_per_prompt):
-        audio_arr = gen_voice(model, tokenizer, text_prompt, voice_description, device)
+            # Save the generated audio to a WAV file
+            output_filename = f"voice_{i}.wav"
+            output_filename = os.path.join(args.out_dir, output_filename)
+            sf.write(output_filename, audio_arr, model.config.sampling_rate)
 
-        # Save the generated audio to a WAV file
-        output_filename = f"voice_{i}.wav"
-        output_filename = os.path.join(args.out_dir, output_filename)
-        sf.write(output_filename, audio_arr, model.config.sampling_rate)
-
-        print(f"Success! High-quality voice saved to {output_filename}")
+            print(f"Success! High-quality voice saved to {output_filename}")
 
 if __name__ == "__main__":
     main()
