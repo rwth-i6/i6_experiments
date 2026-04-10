@@ -4,10 +4,11 @@ import os
 import numpy as np
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from .wav2vec2_hf_ctc_v2_cfg import ModelConfig
 from ...extra_code.incremental_pca import IncrementalPCA
-
+from i6_experiments.users.yang.experiments.generative_ctc.example_setups.librispeech.ctc_rnnt_standalone_2024.loss.fixed_ctc_loss import torch_ctc_fixed_grad
 
 _HF_CACHE_DIR = "/work/asr4/zyang/hf_cache"
 os.environ["HF_HOME"] = _HF_CACHE_DIR
@@ -118,16 +119,41 @@ class Model(nn.Module):
         if self.cfg.pca_state_path is not None:
             self._load_pca_state(self.cfg.pca_state_path)
         self.hidden_size = self.wav2vec2.config.hidden_size if not self.pca else self.pca_dim
-        self.classifiers = nn.ModuleList(
-            [
-                nn.Linear(self.hidden_size, self.cfg.label_target_size + 1)
-                for _ in self.return_layers
-            ]
-        )
-        if self.cfg.freeze_output_layers:
-            for classifier in self.classifiers:
-                for param in classifier.parameters():
-                    param.requires_grad = False
+        self.variance_buffer_names = []
+        self.variance_init_buffer_names = []
+        self.use_variance_buffers = self.cfg.variance_normalize or self.cfg.variance_path is not None
+        if self.use_variance_buffers:
+            for i, _layer in enumerate(self.return_layers):
+                variance_name = f"feature_variance_{i}"
+                init_name = f"feature_variance_initialized_{i}"
+                self.register_buffer(variance_name, torch.ones(self.hidden_size))
+                self.register_buffer(init_name, torch.zeros((), dtype=torch.bool))
+                self.variance_buffer_names.append(variance_name)
+                self.variance_init_buffer_names.append(init_name)
+        if self.cfg.variance_path is not None:
+            self._load_variance_state(self.cfg.variance_path)
+        if self.cfg.generative_model:
+            self.classifiers = None
+            self.label_features = nn.ParameterList(
+                [
+                    nn.Parameter(torch.randn(self.cfg.label_target_size + 1, self.hidden_size))
+                    for _ in self.return_layers
+                ]
+            )
+            if self.cfg.freeze_output_layers:
+                for label_feature in self.label_features:
+                    label_feature.requires_grad = False
+        else:
+            self.classifiers = nn.ModuleList(
+                [
+                    nn.Linear(self.hidden_size, self.cfg.label_target_size + 1)
+                    for _ in self.return_layers
+                ]
+            )
+            if self.cfg.freeze_output_layers:
+                for classifier in self.classifiers:
+                    for param in classifier.parameters():
+                        param.requires_grad = False
         self.blank_index = (
             self.cfg.label_target_size if self.cfg.blank_index is None else self.cfg.blank_index
         )
@@ -170,6 +196,16 @@ class Model(nn.Module):
     def _get_pca_state_path(self, path) -> str:
         return path.get_path() if hasattr(path, "get_path") else str(path)
 
+    def _get_variance_buffer(self, idx: int) -> torch.Tensor:
+        if not self.use_variance_buffers:
+            raise RuntimeError("Variance buffers are not enabled for this model configuration.")
+        return getattr(self, self.variance_buffer_names[idx])
+
+    def _get_variance_is_initialized_buffer(self, idx: int) -> torch.Tensor:
+        if not self.use_variance_buffers:
+            raise RuntimeError("Variance buffers are not enabled for this model configuration.")
+        return getattr(self, self.variance_init_buffer_names[idx])
+
     def _load_pca_state(self, path) -> None:
         if not self.pca:
             raise RuntimeError("Received pca_state_path, but pca_dim is not configured for this model.")
@@ -198,6 +234,38 @@ class Model(nn.Module):
             "buffers": {buffer_name: getattr(self, buffer_name).detach().cpu() for buffer_name in buffer_names},
         }
 
+    def _load_variance_state(self, path) -> None:
+        path_str = self._get_pca_state_path(path)
+        if path_str.endswith(".pt"):
+            variance_state = torch.load(path_str, map_location="cpu")
+            if variance_state["return_layers"] != self.return_layers:
+                raise ValueError(
+                    f"Variance state return_layers mismatch: expected {self.return_layers}, got {variance_state['return_layers']}"
+                )
+            for idx, layer in enumerate(self.return_layers):
+                variance = variance_state["variances"][layer].to(dtype=self._get_variance_buffer(idx).dtype)
+                self._get_variance_buffer(idx).copy_(variance)
+                self._get_variance_is_initialized_buffer(idx).fill_(True)
+            return
+
+        if "{layer}" in path_str:
+            for idx, layer in enumerate(self.return_layers):
+                variance = torch.tensor(
+                    np.loadtxt(path_str.format(layer=layer), dtype="float32"),
+                    dtype=self._get_variance_buffer(idx).dtype,
+                )
+                self._get_variance_buffer(idx).copy_(variance)
+                self._get_variance_is_initialized_buffer(idx).fill_(True)
+            return
+
+        if len(self.return_layers) != 1:
+            raise ValueError(
+                "variance_path without '{layer}' placeholder is only supported when exactly one return layer is used."
+            )
+        variance = torch.tensor(np.loadtxt(path_str, dtype="float32"), dtype=self._get_variance_buffer(0).dtype)
+        self._get_variance_buffer(0).copy_(variance)
+        self._get_variance_is_initialized_buffer(0).fill_(True)
+
     def transform_hidden_states(self, all_hidden_states, output_lengths, *, update_pca: bool):
         hidden_states_mask = mask_tensor(all_hidden_states[0], output_lengths)
         transformed_hidden_states = []
@@ -221,6 +289,9 @@ class Model(nn.Module):
             for layer_idx in self.return_layers:
                 transformed_hidden_states.append(all_hidden_states[layer_idx])
 
+        if self.cfg.l2_norm:
+            transformed_hidden_states = [F.normalize(hidden_states, dim=-1) for hidden_states in transformed_hidden_states]
+
         return transformed_hidden_states
 
     def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
@@ -233,11 +304,28 @@ class Model(nn.Module):
             update_pca=self.training and self.cfg.update_pca_during_training,
         )
         log_probs_list = []
-        for hidden_states, classifier in zip(transformed_hidden_states, self.classifiers):
-            hidden_states = self.dropout(hidden_states)
-            logits = classifier(hidden_states)
-            log_probs = torch.log_softmax(logits, dim=-1)
-            log_probs_list.append(log_probs)
+        if self.cfg.generative_model:
+            for idx, (hidden_states, label_features) in enumerate(zip(transformed_hidden_states, self.label_features)):
+                hidden_states = self.dropout(hidden_states)
+                diffs = hidden_states.unsqueeze(-2) - label_features.unsqueeze(0).unsqueeze(0)
+                if self.cfg.variance_normalize:
+                    if not bool(self._get_variance_is_initialized_buffer(idx)):
+                        raise RuntimeError(
+                            f"Feature variance for layer {self.return_layers[idx]} is not initialized. "
+                            "Provide variance_path or run the variance computation job first."
+                        )
+                    variance = self._get_variance_buffer(idx).clamp_min(1e-12)
+                    squared_distances = torch.sum((diffs ** 2) / variance, dim=-1)
+                else:
+                    squared_distances = torch.sum(diffs ** 2, dim=-1)
+                log_probs = -squared_distances
+                log_probs_list.append(log_probs)
+        else:
+            for hidden_states, classifier in zip(transformed_hidden_states, self.classifiers):
+                hidden_states = self.dropout(hidden_states)
+                logits = classifier(hidden_states)
+                log_probs = torch.log_softmax(logits, dim=-1)
+                log_probs_list.append(log_probs)
 
         return log_probs_list, output_lengths
 
@@ -260,7 +348,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     for i, (log_probs, scale) in enumerate(zip(log_probs_list, model.scales)):
         if scale == 0.0:
             continue
-        ctc_loss = nn.functional.ctc_loss(
+        #ctc_loss = nn.functional.ctc_loss(
+        ctc_loss = torch_ctc_fixed_grad(
             torch.permute(log_probs, (1, 0, 2)),
             labels,
             input_lengths=output_lengths.cpu(),
@@ -304,7 +393,10 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     if run_ctx.sum_probs is None:
         run_ctx.sum_probs = {}
     for layer, log_probs in zip(model.return_layers, log_probs_list):
-        probs = torch.exp(log_probs)
+        if model.cfg.generative_model:
+            probs = torch.softmax(log_probs, dim=-1)
+        else:
+            probs = torch.exp(log_probs)
         if layer not in run_ctx.sum_probs:
             run_ctx.sum_probs[layer] = torch.sum(probs, dim=(0, 1))
         else:
@@ -318,6 +410,7 @@ def variance_init_hook(run_ctx, **kwargs):
 
 
 def variance_finish_hook(run_ctx, **kwargs):
+    variance_state = {"return_layers": list(run_ctx.sum.keys()), "variances": {}}
     for layer in sorted(run_ctx.sum.keys(), key=lambda x: (x == -1, x)):
         num_frames = run_ctx.sum_frames[layer]
         if num_frames == 0:
@@ -331,6 +424,9 @@ def variance_finish_hook(run_ctx, **kwargs):
         with open(filename, "w") as f:
             np.savetxt(f, variance, delimiter=" ")
         print(f"Saved variance for layer {layer} with {num_frames} frames to {filename}.")
+        variance_state["variances"][layer] = torch.from_numpy(variance)
+    torch.save(variance_state, "variance_state.pt")
+    print("Saved variance state to variance_state.pt.")
 
 
 def variance_step(*, model: Model, data, run_ctx, **kwargs):

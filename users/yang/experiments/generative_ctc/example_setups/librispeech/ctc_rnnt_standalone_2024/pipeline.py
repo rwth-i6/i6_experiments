@@ -202,7 +202,7 @@ def compute_prior(
 def compute_feature_variance(
     prefix_name: str,
     returnn_config: ReturnnConfig,
-    checkpoint: tk.Path,
+    checkpoint: Optional[tk.Path],
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
     output_files: Optional[List[str]] = None,
