@@ -8,6 +8,25 @@ import random
 
 SAMPLE_RATE = 24000 # Chatterbox default output is 24kHz
 
+
+def _silence_audio(device: str, wav_like: torch.Tensor, seconds: float) -> torch.Tensor:
+    """Create (possibly negative) silence.
+
+    Semantics for negative silence lengths (speaker overlap):
+    - Positive seconds: return that many zeros (delay).
+    - Zero: return empty tensor.
+    - Negative seconds: return empty tensor.
+
+    Negative overlap is handled later by truncating/aligning each speaker's
+    concatenation, so at this level we never create a "negative" tensor.
+    """
+    if seconds <= 0.0:
+        return torch.empty(1, 0, device=device, dtype=wav_like.dtype)
+    n = int(SAMPLE_RATE * seconds)
+    if n <= 0:
+        return torch.empty(1, 0, device=device, dtype=wav_like.dtype)
+    return torch.zeros(1, n, device=device, dtype=wav_like.dtype)
+
 def gen_conversation(model, dialogue, device, speaker_dir, silence_length_sampler) -> map[str, torch.Tensor]:
 
     print("Generating conversation...")
@@ -21,10 +40,28 @@ def gen_conversation(model, dialogue, device, speaker_dir, silence_length_sample
 
     audio_segments = {s: [] for s in speakers}
 
-    for turn in dialogue:
+    # We synthesize per-speaker streams, then align them based on the sampled
+    # silence lengths between consecutive turns.
+    #
+    # Let each speaker stream be: previous utterances + (silence/overlap) + next utterance.
+    # - For silence_length > 0: insert silence after each turn for other speakers.
+    # - For silence_length < 0: overlap means the *other* speaker starts their next
+    #   utterance earlier by -silence_length seconds.
+    #
+    # To implement this robustly for all configurations, we build explicit utterance
+    # start times and then render each speaker's timeline.
+    
+    # First pass: precompute each utterance wav and each utterance start time.
+    utterances = []  # list of dict: speaker, wav, start_sample
+    t_samples = 0
+    for idx, turn in enumerate(dialogue):
         print(f"Synthesizing {turn['speaker']}'s line...")
+
+        if "pre_silence" in turn:
+            assert turn["pre_silence"] >= 0, "Pre-silence must be non-negative"
+            print(f"Adding pre-silence of {turn['pre_silence']} seconds for {turn['speaker']}")
+            t_samples += int(SAMPLE_RATE * turn["pre_silence"])
         
-        # TODO defaults for these
         model.conds = speak_map[turn["speaker"]]
         wav = model.generate(
             text=turn["text"],
@@ -34,19 +71,40 @@ def gen_conversation(model, dialogue, device, speaker_dir, silence_length_sample
         )
         model.conds = None
 
-        wav_silence = torch.zeros_like(wav).to(device)
-        silence = torch.zeros(1, int(SAMPLE_RATE * silence_length_sampler())).to(device)
+        wav = wav.to(device)
+        start = t_samples
+        utterances.append({"speaker": turn["speaker"], "wav": wav, "start": start})
 
-        for s in speakers:
-            if s == turn["speaker"]:
-                audio_segments[s].append(wav)
-                audio_segments[s].append(silence)
-            else:
-                audio_segments[s].append(wav_silence)
-                audio_segments[s].append(silence)
+        t_samples += wav.shape[-1]
+        # Advance global time by the silence length between this and next turn.
+        # Negative silence means the next turn starts earlier (overlap), so we
+        # subtract samples but never let time go below current utterance start.
+        silence_seconds = float(silence_length_sampler())
+        delta = int(SAMPLE_RATE * silence_seconds)
+        if silence_seconds >= 0:
+            t_samples += delta
+        else:
+            t_samples = max(start, t_samples + delta)
 
-    return {s: torch.cat(audio_segments[s][:-1], dim=-1) for s in speakers}
-    
+    # Second pass: render per-speaker timelines using utterance start times.
+    # Determine total length.
+    end_samples = 0
+    for u in utterances:
+        end_samples = max(end_samples, u["start"] + u["wav"].shape[-1])
+
+    rendered = {}
+    for s in speakers:
+        # single channel tensor
+        rendered[s] = torch.zeros(1, end_samples, device=device, dtype=utterances[0]["wav"].dtype)
+
+    for u in utterances:
+        s = u["speaker"]
+        st = u["start"]
+        en = st + u["wav"].shape[-1]
+        rendered[s][0, st:en] += u["wav"][0]
+
+    return rendered
+
 
 # chatterbox inference gets its own venv, so we let the job execute this file directly
 def main():
@@ -59,7 +117,10 @@ def main():
 
     # TODO figure out good way to sample silence
     def silence_length_sampler():
-        return 0.5 + random.random() # between 0.5 and 1.5 seconds of silence between turns
+        val = random.gauss(0.2, 0.4)
+        while val < -0.3 or val > 0.6: # TODO vibe based, make this better later
+            val = random.gauss(0.2, 0.4)
+        return val
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = ChatterboxTurboTTS.from_pretrained(device=device)
@@ -103,7 +164,7 @@ def main():
             # speakers must not contain path symbols
             assert all("/" not in turn["speaker"] and "\\" not in turn["speaker"] for turn in dialogue), "Speaker names must not contain path symbols"
 
-            audios_per_speaker = gen_conversation(model, dialogue, device, args.speaker_directory)
+            audios_per_speaker = gen_conversation(model, dialogue, device, args.speaker_directory, silence_length_sampler)
 
             for speaker, audio in audios_per_speaker.items():
                 torchaudio.save(f"{output_dir}/{speaker}.wav", audio.cpu(), SAMPLE_RATE)
