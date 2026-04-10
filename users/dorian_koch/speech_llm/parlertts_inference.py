@@ -9,18 +9,18 @@ def gen_voice(model, tokenizer, text_prompt, voice_description, device):
     print("Generating voice...")
 
     # Tokenize the description and the text
-    input_ids = tokenizer(voice_description, return_tensors="pt").input_ids.to(device)
-    prompt_input_ids = tokenizer(text_prompt, return_tensors="pt").input_ids.to(device)
+    input = tokenizer(voice_description, return_tensors="pt").to(device)
+    prompt = tokenizer(text_prompt, return_tensors="pt").to(device)
 
     # Generate the audio
-    generation = model.generate(input_ids=input_ids, prompt_input_ids=prompt_input_ids)
+    generation = model.generate(input_ids=input.input_ids, attention_mask=input.attention_mask, prompt_input_ids=prompt.input_ids, prompt_attention_mask=prompt.attention_mask, do_sample=True)
 
     # Convert the generated tensor to a numpy array
     audio_arr = generation.cpu().numpy().squeeze()
 
     return audio_arr
 
-DEFAULT_TEXT_PROMPT = "The quick brown fox jumps over the lazy dog.  Who could have possibly predicted that trees would drop leaves in October? So they herd us all out of the station into the freezing drizzle to wait for a rail replacement bus. But the bus driver hasn't got a clue where he's going, misses the turning, and ends up taking a massive detour through some dreary industrial estate in London."
+DEFAULT_TEXT_PROMPT = "The quick brown fox jumps over the lazy dog. Who could have possibly predicted that trees would drop leaves in October? But the bus driver hasn't got a clue where he's going, misses the turning, and ends up taking a massive detour through some dreary industrial estate in London."
 
 
 def main():
@@ -56,7 +56,7 @@ def main():
     # )
 
     for voice_prompt in args.voice_description:
-        for i in range(args.voices_per_prompt):
+        for i in range(args.voices_per_prompt): # TODO batch https://github.com/huggingface/parler-tts/blob/main/INFERENCE.md
             print(f"Generating voice {i+1}/{args.voices_per_prompt}")
             audio_arr = gen_voice(model, tokenizer, args.text, voice_prompt, device)
 
