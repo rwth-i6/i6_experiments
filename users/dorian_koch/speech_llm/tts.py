@@ -72,7 +72,7 @@ class ParlerTTSInference(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        # d["__version"] = 5
+        d["__version"] = 1
         return super().hash(d)
 
     def tasks(self):
@@ -93,7 +93,7 @@ class ParlerTTSInference(Job):
             "--voice_description",
             "A male speaker delivers a slightly expressive and animated speech with a moderate speed and deep pitch. "
             "The recording is of very high quality, with the speaker's voice sounding clear and very close up, "
-            "recorded in a soundproof studio with zero background noise."
+            "recorded in a soundproof studio with zero background noise.",
         ]
         env = os.environ.copy()
         env["HF_HOME"] = HF_CACHE_DIR

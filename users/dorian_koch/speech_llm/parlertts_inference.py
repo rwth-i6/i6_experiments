@@ -36,10 +36,11 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     set_seed(42)  # For reproducibility
     # Load the Parler-TTS Large model and its tokenizer
-    model_name = "parler-tts/parler-tts-mini-v1.1"
-    print(f"Loading {model_name}...")
-    model = ParlerTTSForConditionalGeneration.from_pretrained(model_name).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+   
+    print(f"Loading parler model...")
+    # parler-tts is a bit broken, need specific revision https://github.com/rsxdalv/TTS-WebUI/issues/444#issuecomment-2927135363
+    model = ParlerTTSForConditionalGeneration.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9").to(device)
+    tokenizer = AutoTokenizer.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9")
 
     # 1. The script you want the voice to read 
     # (Keep it around 10-15 seconds for Chatterbox cloning)
