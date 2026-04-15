@@ -20,7 +20,7 @@ def gen_voice(model, tokenizer, text_prompt, voice_description, device):
 
     return audio_arr
 
-DEFAULT_TEXT_PROMPT = "The quick brown fox jumps over the lazy dog. Who could have possibly predicted that trees would drop leaves in October? But the bus driver hasn't got a clue where he's going, misses the turning, and ends up taking a massive detour through some dreary industrial estate in London."
+DEFAULT_TEXT_PROMPT = "The quick brown fox jumps over the lazy dog. Who could have possibly predicted that trees would drop leaves in October? But the bus driver hasn't got a clue where he's going, and ends up taking a massive detour through some dreary industrial estate in London."
 
 
 def main():
@@ -56,13 +56,13 @@ def main():
     #     "recorded in a soundproof studio with zero background noise."
     # )
 
-    for voice_prompt in args.voice_description:
+    for prompt_idx, voice_prompt in enumerate(args.voice_description):
         for i in range(args.voices_per_prompt): # TODO batch https://github.com/huggingface/parler-tts/blob/main/INFERENCE.md
             print(f"Generating voice {i+1}/{args.voices_per_prompt}")
             audio_arr = gen_voice(model, tokenizer, args.text, voice_prompt, device)
 
             # Save the generated audio to a WAV file
-            output_filename = f"voice_{i}.wav"
+            output_filename = f"prompt_{prompt_idx}_voice_{i}.wav"
             output_filename = os.path.join(args.out_dir, output_filename)
             sf.write(output_filename, audio_arr, model.config.sampling_rate)
 
