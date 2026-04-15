@@ -6,6 +6,7 @@ from sisyphus import tk
 import os
 from typing import Optional, Union
 
+from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
@@ -26,6 +27,7 @@ from .common import (
     get_zip,
     build_training_datasets,
     build_training_datasets_with_optional_hdf,
+    build_training_datasets_with_train_devtrain_segments,
     build_training_datasets_with_hdf,
     TrainingDatasets,
     DatasetSettings,
@@ -328,3 +330,71 @@ def build_eow_phon_test_dataset_with_optional_hdf(
         seq_ordering="sorted_reverse",
     )
     return dataset, bliss_dataset
+
+
+def build_eow_phon_training_datasets_95_5_split(
+    prefix: str,
+    librispeech_key: str,
+    settings: DatasetSettings,
+    *,
+    train_fraction: float = 0.99,
+    devtrain_fraction: float = 0.01,
+    lexicon_librispeech_key: Optional[str] = None,
+    hdf_file: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    hdf_datastream: Optional[Datastream] = None,
+    hdf_stream_name: str = "alignments",
+    hdf_data_key: str = "data",
+    train_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    cv_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    devtrain_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    prior_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+) -> TrainingDatasets:
+    """
+    Build phoneme datasets where the training corpus itself is deterministically split into
+    ``train_fraction`` for training and ``devtrain_fraction`` for in-domain evaluation.
+
+    This does not modify the existing helpers and can be used independently.
+    """
+    if abs(train_fraction + devtrain_fraction - 1.0) > 1e-10:
+        raise ValueError("train_fraction and devtrain_fraction must sum to 1.0")
+
+    label_datastream = get_eow_vocab_datastream(
+        prefix=prefix, g2p_librispeech_key=lexicon_librispeech_key or librispeech_key
+    )
+
+    train_bliss, train_ogg = get_eow_bliss_and_zip(
+        librispeech_key=librispeech_key, g2p_librispeech_key=librispeech_key, remove_unk_seqs=False
+    )
+    _, dev_clean_ogg = get_eow_bliss_and_zip(
+        librispeech_key="dev-clean", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
+    )
+    _, dev_other_ogg = get_eow_bliss_and_zip(
+        librispeech_key="dev-other", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
+    )
+
+    all_train_segments = SegmentCorpusJob(train_bliss, 1).out_single_segment_files[1]
+    split_job = ShuffleAndSplitSegmentsJob(
+        segment_file=all_train_segments,
+        split={"train": train_fraction, "devtrain": devtrain_fraction},
+        shuffle=True,
+    )
+    split_job.add_alias(os.path.join(prefix, f"{librispeech_key}", "train_devtrain_95_5_split"))
+
+    return build_training_datasets_with_train_devtrain_segments(
+        train_ogg=train_ogg,
+        dev_clean_ogg=dev_clean_ogg,
+        dev_other_ogg=dev_other_ogg,
+        label_datastream=label_datastream,
+        settings=settings,
+        train_segment_file=split_job.out_segments["train"],
+        devtrain_segment_file=split_job.out_segments["devtrain"],
+        prior_segment_file=split_job.out_segments["train"],
+        hdf_file=hdf_file,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        train_hdf=train_hdf,
+        cv_hdf=cv_hdf,
+        devtrain_hdf=devtrain_hdf,
+        prior_hdf=prior_hdf,
+    )

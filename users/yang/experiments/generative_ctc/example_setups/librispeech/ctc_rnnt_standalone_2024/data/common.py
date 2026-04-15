@@ -453,6 +453,108 @@ def build_training_datasets_with_optional_hdf(
     )
 
 
+def build_training_datasets_with_train_devtrain_segments(
+    train_ogg: Union[tk.Path, List[tk.Path]],
+    dev_clean_ogg: tk.Path,
+    dev_other_ogg: tk.Path,
+    label_datastream: LabelDatastream,
+    settings: DatasetSettings,
+    *,
+    train_segment_file: tk.Path,
+    devtrain_segment_file: tk.Path,
+    prior_segment_file: Optional[tk.Path] = None,
+    hdf_file: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    hdf_datastream: Optional[Datastream] = None,
+    hdf_stream_name: str = "alignments",
+    hdf_data_key: str = "data",
+    train_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    cv_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    devtrain_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    prior_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+) -> TrainingDatasets:
+    """
+    Like ``build_training_datasets_with_optional_hdf`` but uses explicit segment files to split the
+    training corpus into a train subset and a devtrain subset.
+
+    This is intended for setups where e.g. 95% of the training corpus is used for actual training
+    and 5% is held out as an in-domain evaluation set.
+    """
+    if (hdf_file is None) != (hdf_datastream is None):
+        raise ValueError("hdf_file and hdf_datastream must either both be set or both be None.")
+
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+    training_audio_opts = audio_datastream.as_returnn_audio_opts()
+    prior_segment_file = prior_segment_file or train_segment_file
+
+    train_hdf = train_hdf or hdf_file
+    cv_hdf = cv_hdf or hdf_file
+    devtrain_hdf = devtrain_hdf or hdf_file
+    prior_hdf = prior_hdf or train_hdf
+
+    train_dataset, datastreams = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=train_ogg,
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=train_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        partition_epoch=settings.train_partition_epoch,
+        segment_file=train_segment_file,
+        seq_ordering=settings.train_seq_ordering,
+        additional_options=settings.train_additional_options,
+    )
+
+    cv_dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=[dev_clean_ogg, dev_other_ogg],
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=cv_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        segment_file=get_mixed_cv_segments(),
+        seq_ordering="sorted_reverse",
+    )
+
+    devtrain_dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=train_ogg,
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=devtrain_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        segment_file=devtrain_segment_file,
+        seq_ordering="sorted_reverse",
+    )
+
+    prior_dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=train_ogg,
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=prior_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        partition_epoch=1,
+        segment_file=prior_segment_file,
+        seq_ordering="sorted_reverse",
+        additional_options=None,
+    )
+
+    if hdf_file is None:
+        datastreams = {"raw_audio": audio_datastream, "labels": label_datastream}
+
+    return TrainingDatasets(
+        train=train_dataset,
+        cv=cv_dataset,
+        devtrain=devtrain_dataset,
+        datastreams=datastreams,
+        prior=prior_dataset,
+    )
+
+
 def build_test_dataset(
     dataset_key: str,
     settings: DatasetSettings,

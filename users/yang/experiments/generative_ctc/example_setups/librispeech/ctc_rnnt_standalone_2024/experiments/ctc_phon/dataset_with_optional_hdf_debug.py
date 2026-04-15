@@ -8,6 +8,7 @@ from ...config import get_forward_config
 from ...data.common import DatasetSettings, build_oggzip_dataset_with_optional_hdf, get_audio_raw_datastream
 from ...data.hdf_seq_whitelist import ExtractSeqListFromHDFJob
 from ...data.phon import (
+    build_eow_phon_training_datasets_95_5_split,
     get_eow_bliss_and_zip,
     build_eow_phon_test_dataset_with_optional_hdf,
     get_eow_vocab_datastream,
@@ -146,4 +147,50 @@ def eow_phon_training_dataset_with_optional_hdf_debug():
     _make_dataset_debug_forward_job(prefix_name=prefix_name, forward_dataset=forward_dataset)
 
 
-py = eow_phon_training_dataset_with_optional_hdf_debug
+def eow_phon_training_dataset_95_5_split_with_optional_hdf_debug():
+    prefix_name = (
+        "example_setups/librispeech/ctc_rnnt_standalone_2024/"
+        "ls960_ctc_eow_phon_training_dataset_95_5_split_with_optional_hdf_debug"
+    )
+
+    settings = DatasetSettings(
+        preemphasis=0.97,
+        peak_normalization=True,
+        train_partition_epoch=1,
+        train_seq_ordering="sorted_reverse",
+    )
+
+    librispeech_key = "train-other-960"
+
+    label_datastream = get_eow_vocab_datastream(
+        prefix=prefix_name,
+        g2p_librispeech_key=librispeech_key,
+    )
+
+    alignment_hdf = [
+        tk.Path(f"/work/asr3/zyang/share/joerg/generative/hsmm/alignments/lbs_mono_phone/train_960/alignment_{i}.hdf")
+        for i in range(1, 201)
+    ]
+
+    alignment_datastream = LabelDatastream(
+        available_for_inference=False,
+        vocab=label_datastream.vocab,
+        vocab_size=label_datastream.vocab_size,
+        unk_label=label_datastream.unk_label,
+    )
+
+    training_datasets = build_eow_phon_training_datasets_95_5_split(
+        prefix=prefix_name,
+        librispeech_key=librispeech_key,
+        settings=settings,
+        hdf_file=alignment_hdf,
+        hdf_datastream=alignment_datastream,
+        hdf_stream_name="alignments",
+        hdf_data_key="classes",
+    )
+
+    _make_dataset_debug_forward_job(prefix_name=prefix_name + "/train", forward_dataset=training_datasets.train)
+    _make_dataset_debug_forward_job(prefix_name=prefix_name + "/devtrain", forward_dataset=training_datasets.devtrain)
+
+
+py = eow_phon_training_dataset_95_5_split_with_optional_hdf_debug
