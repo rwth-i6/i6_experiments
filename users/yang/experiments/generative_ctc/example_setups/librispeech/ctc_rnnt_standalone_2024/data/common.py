@@ -98,6 +98,70 @@ def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
 # --------------------------- Dataset functions  -----------------------------------
 
 
+def build_oggzip_dataset_with_optional_hdf(
+    *,
+    ogg_files: Union[tk.Path, List[tk.Path]],
+    audio_datastream: AudioRawDatastream,
+    label_datastream: Optional[LabelDatastream] = None,
+    hdf_file: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    hdf_datastream: Optional[Datastream] = None,
+    hdf_stream_name: str = "alignments",
+    hdf_data_key: str = "data",
+    partition_epoch: Optional[int] = None,
+    segment_file: Optional[tk.Path] = None,
+    seq_ordering: Optional[str] = None,
+    random_subset: Optional[int] = None,
+    additional_options: Optional[Dict[str, Any]] = None,
+    control_dataset: str = "zip_dataset",
+) -> Tuple[Dataset, Dict[str, Datastream]]:
+    """
+    Build a MetaDataset around an OggZipDataset and an optional HDF side stream.
+
+    The HDF dataset is expected to share sequence tags with the OggZip dataset.
+    If ``hdf_file`` is not provided, the resulting MetaDataset only contains the OggZip dataset.
+    """
+    if (hdf_file is None) != (hdf_datastream is None):
+        raise ValueError("hdf_file and hdf_datastream must either both be set or both be None.")
+
+    datastreams: Dict[str, Datastream] = {"raw_audio": audio_datastream}
+    data_map: Dict[str, Tuple[str, str]] = {"raw_audio": ("zip_dataset", "data")}
+    target_options = None
+    if label_datastream is not None:
+        datastreams["labels"] = label_datastream
+        data_map["labels"] = ("zip_dataset", "classes")
+        target_options = label_datastream.as_returnn_targets_opts()
+
+    zip_dataset = OggZipDataset(
+        files=ogg_files,
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=target_options,
+        partition_epoch=partition_epoch,
+        segment_file=segment_file,
+        seq_ordering=seq_ordering,
+        random_subset=random_subset,
+        additional_options=additional_options,
+    )
+    datasets: Dict[str, Dataset] = {"zip_dataset": zip_dataset}
+
+    if hdf_file is not None:
+        datastreams[hdf_stream_name] = hdf_datastream
+        data_map[hdf_stream_name] = ("hdf_dataset", hdf_data_key)
+        datasets["hdf_dataset"] = HDFDataset(
+            files=hdf_file,
+            partition_epoch=partition_epoch,
+            segment_file=segment_file,
+            seq_ordering=seq_ordering,
+            random_subset=random_subset,
+        )
+
+    dataset = MetaDataset(
+        data_map=data_map,
+        datasets=datasets,
+        seq_order_control_dataset=control_dataset,
+    )
+    return dataset, datastreams
+
+
 def build_training_datasets(
     train_ogg: Union[tk.Path, List[tk.Path]],
     dev_clean_ogg: tk.Path,
@@ -283,6 +347,102 @@ def build_training_datasets_with_hdf(
         seq_ordering="sorted_reverse",
     )
     prior_dataset = make_meta(prior_zip_dataset, prior_hdf_dataset)
+
+    return TrainingDatasets(
+        train=train_dataset,
+        cv=cv_dataset,
+        devtrain=devtrain_dataset,
+        datastreams=datastreams,
+        prior=prior_dataset,
+    )
+
+
+def build_training_datasets_with_optional_hdf(
+    train_ogg: Union[tk.Path, List[tk.Path]],
+    dev_clean_ogg: tk.Path,
+    dev_other_ogg: tk.Path,
+    label_datastream: LabelDatastream,
+    settings: DatasetSettings,
+    *,
+    hdf_file: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    hdf_datastream: Optional[Datastream] = None,
+    hdf_stream_name: str = "alignments",
+    hdf_data_key: str = "data",
+    train_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    cv_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    devtrain_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    prior_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+) -> TrainingDatasets:
+    """
+    Like ``build_training_datasets`` but can optionally add an HDF-backed stream to each MetaDataset.
+    """
+    if hdf_file is None and hdf_datastream is None:
+        return build_training_datasets(
+            train_ogg=train_ogg,
+            dev_clean_ogg=dev_clean_ogg,
+            dev_other_ogg=dev_other_ogg,
+            label_datastream=label_datastream,
+            settings=settings,
+        )
+    if hdf_file is None or hdf_datastream is None:
+        raise ValueError("hdf_file and hdf_datastream must either both be set or both be None.")
+
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+    training_audio_opts = audio_datastream.as_returnn_audio_opts()
+
+    train_hdf = train_hdf or hdf_file
+    cv_hdf = cv_hdf or hdf_file
+    devtrain_hdf = devtrain_hdf or train_hdf
+    prior_hdf = prior_hdf or train_hdf
+
+    train_dataset, datastreams = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=train_ogg,
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=train_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        partition_epoch=settings.train_partition_epoch,
+        seq_ordering=settings.train_seq_ordering,
+        additional_options=settings.train_additional_options,
+    )
+
+    cv_dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=[dev_clean_ogg, dev_other_ogg],
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=cv_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        segment_file=get_mixed_cv_segments(),
+        seq_ordering="sorted_reverse",
+    )
+
+    devtrain_dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=train_ogg,
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=devtrain_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        seq_ordering="sorted_reverse",
+        random_subset=3000,
+    )
+
+    prior_dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=train_ogg,
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=prior_hdf,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        partition_epoch=1,
+        seq_ordering="sorted_reverse",
+    )
 
     return TrainingDatasets(
         train=train_dataset,

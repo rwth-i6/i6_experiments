@@ -1,5 +1,6 @@
 # a generative version possible
 
+from dataclasses import dataclass
 import os
 import numpy as np
 import torch
@@ -119,15 +120,19 @@ class Model(nn.Module):
         if self.cfg.pca_state_path is not None:
             self._load_pca_state(self.cfg.pca_state_path)
         self.hidden_size = self.wav2vec2.config.hidden_size if not self.pca else self.pca_dim
+        self.variance_mean_buffer_names = []
         self.variance_buffer_names = []
         self.variance_init_buffer_names = []
         self.use_variance_buffers = self.cfg.variance_normalize or self.cfg.variance_path is not None
         if self.use_variance_buffers:
             for i, _layer in enumerate(self.return_layers):
+                mean_name = f"feature_mean_{i}"
                 variance_name = f"feature_variance_{i}"
                 init_name = f"feature_variance_initialized_{i}"
+                self.register_buffer(mean_name, torch.zeros(self.hidden_size))
                 self.register_buffer(variance_name, torch.ones(self.hidden_size))
                 self.register_buffer(init_name, torch.zeros((), dtype=torch.bool))
+                self.variance_mean_buffer_names.append(mean_name)
                 self.variance_buffer_names.append(variance_name)
                 self.variance_init_buffer_names.append(init_name)
         if self.cfg.variance_path is not None:
@@ -196,6 +201,11 @@ class Model(nn.Module):
     def _get_pca_state_path(self, path) -> str:
         return path.get_path() if hasattr(path, "get_path") else str(path)
 
+    def _get_variance_mean_buffer(self, idx: int) -> torch.Tensor:
+        if not self.use_variance_buffers:
+            raise RuntimeError("Variance buffers are not enabled for this model configuration.")
+        return getattr(self, self.variance_mean_buffer_names[idx])
+
     def _get_variance_buffer(self, idx: int) -> torch.Tensor:
         if not self.use_variance_buffers:
             raise RuntimeError("Variance buffers are not enabled for this model configuration.")
@@ -243,17 +253,28 @@ class Model(nn.Module):
                     f"Variance state return_layers mismatch: expected {self.return_layers}, got {variance_state['return_layers']}"
                 )
             for idx, layer in enumerate(self.return_layers):
+                if "means" not in variance_state:
+                    raise ValueError(
+                        "Variance state does not contain means. Re-run the variance computation job to store them."
+                    )
+                mean = variance_state["means"][layer].to(dtype=self._get_variance_mean_buffer(idx).dtype)
                 variance = variance_state["variances"][layer].to(dtype=self._get_variance_buffer(idx).dtype)
+                self._get_variance_mean_buffer(idx).copy_(mean)
                 self._get_variance_buffer(idx).copy_(variance)
                 self._get_variance_is_initialized_buffer(idx).fill_(True)
             return
 
         if "{layer}" in path_str:
             for idx, layer in enumerate(self.return_layers):
+                mean = torch.tensor(
+                    np.loadtxt(self._get_mean_path_from_variance_path(path_str.format(layer=layer)), dtype="float32"),
+                    dtype=self._get_variance_mean_buffer(idx).dtype,
+                )
                 variance = torch.tensor(
                     np.loadtxt(path_str.format(layer=layer), dtype="float32"),
                     dtype=self._get_variance_buffer(idx).dtype,
                 )
+                self._get_variance_mean_buffer(idx).copy_(mean)
                 self._get_variance_buffer(idx).copy_(variance)
                 self._get_variance_is_initialized_buffer(idx).fill_(True)
             return
@@ -262,9 +283,25 @@ class Model(nn.Module):
             raise ValueError(
                 "variance_path without '{layer}' placeholder is only supported when exactly one return layer is used."
             )
+        mean = torch.tensor(
+            np.loadtxt(self._get_mean_path_from_variance_path(path_str), dtype="float32"),
+            dtype=self._get_variance_mean_buffer(0).dtype,
+        )
         variance = torch.tensor(np.loadtxt(path_str, dtype="float32"), dtype=self._get_variance_buffer(0).dtype)
+        self._get_variance_mean_buffer(0).copy_(mean)
         self._get_variance_buffer(0).copy_(variance)
         self._get_variance_is_initialized_buffer(0).fill_(True)
+
+    @staticmethod
+    def _get_mean_path_from_variance_path(path_str: str) -> str:
+        dirname, basename = os.path.split(path_str)
+        if "variance_" in basename:
+            return os.path.join(dirname, basename.replace("variance_", "mean_", 1))
+        if "variance" in basename:
+            return os.path.join(dirname, basename.replace("variance", "mean", 1))
+        raise ValueError(
+            f"Cannot infer mean path from variance path {path_str!r}. Expected the file name to contain 'variance'."
+        )
 
     def transform_hidden_states(self, all_hidden_states, output_lengths, *, update_pca: bool):
         hidden_states_mask = mask_tensor(all_hidden_states[0], output_lengths)
@@ -306,18 +343,18 @@ class Model(nn.Module):
         log_probs_list = []
         if self.cfg.generative_model:
             for idx, (hidden_states, label_features) in enumerate(zip(transformed_hidden_states, self.label_features)):
-                hidden_states = self.dropout(hidden_states)
-                diffs = hidden_states.unsqueeze(-2) - label_features.unsqueeze(0).unsqueeze(0)
                 if self.cfg.variance_normalize:
                     if not bool(self._get_variance_is_initialized_buffer(idx)):
                         raise RuntimeError(
                             f"Feature variance for layer {self.return_layers[idx]} is not initialized. "
                             "Provide variance_path or run the variance computation job first."
                         )
-                    variance = self._get_variance_buffer(idx).clamp_min(1e-12)
-                    squared_distances = torch.sum((diffs ** 2) / variance, dim=-1)
-                else:
-                    squared_distances = torch.sum(diffs ** 2, dim=-1)
+                    mean = self._get_variance_mean_buffer(idx)
+                    std = torch.sqrt(self._get_variance_buffer(idx).clamp_min(1e-12))
+                    hidden_states = (hidden_states - mean) / std
+                hidden_states = self.dropout(hidden_states)
+                diffs = hidden_states.unsqueeze(-2) - label_features.unsqueeze(0).unsqueeze(0)
+                squared_distances = torch.sum(diffs ** 2, dim=-1)
                 log_probs = -squared_distances
                 log_probs_list.append(log_probs)
         else:
@@ -410,7 +447,7 @@ def variance_init_hook(run_ctx, **kwargs):
 
 
 def variance_finish_hook(run_ctx, **kwargs):
-    variance_state = {"return_layers": list(run_ctx.sum.keys()), "variances": {}}
+    variance_state = {"return_layers": list(run_ctx.sum.keys()), "means": {}, "variances": {}}
     for layer in sorted(run_ctx.sum.keys(), key=lambda x: (x == -1, x)):
         num_frames = run_ctx.sum_frames[layer]
         if num_frames == 0:
@@ -420,10 +457,15 @@ def variance_finish_hook(run_ctx, **kwargs):
         mean = total_sum / num_frames
         variance = total_sum_sq / num_frames - np.square(mean)
         variance = np.maximum(variance, 0.0)
+        mean_filename = f"mean_{layer}.txt"
+        with open(mean_filename, "w") as f:
+            np.savetxt(f, mean, delimiter=" ")
+        print(f"Saved mean for layer {layer} with {num_frames} frames to {mean_filename}.")
         filename = f"variance_{layer}.txt"
         with open(filename, "w") as f:
             np.savetxt(f, variance, delimiter=" ")
         print(f"Saved variance for layer {layer} with {num_frames} frames to {filename}.")
+        variance_state["means"][layer] = torch.from_numpy(mean)
         variance_state["variances"][layer] = torch.from_numpy(variance)
     torch.save(variance_state, "variance_state.pt")
     print("Saved variance state to variance_state.pt.")
@@ -492,3 +534,78 @@ def pca_fit_step(*, model: Model, data, run_ctx, **kwargs):
     )
     run_ctx.model = model
     run_ctx.num_batches += 1
+
+
+@dataclass
+class ForcedAlignConfig:
+    decode_layer_index: int | None = None
+    output_filename: str = "forced_align.txt"
+    returnn_vocab: str | None = None
+    write_ids: bool = True
+    write_labels: bool = True
+
+
+def forced_align_init_hook(run_ctx, **kwargs):
+    config = ForcedAlignConfig(**kwargs.get("config", {}))
+    run_ctx.output_file = open(config.output_filename, "wt")
+    run_ctx.decode_layer_index = config.decode_layer_index
+    run_ctx.write_ids = config.write_ids
+    run_ctx.write_labels = config.write_labels
+    run_ctx.labels = None
+    if config.returnn_vocab is not None and config.write_labels:
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
+        run_ctx.labels = vocab.labels
+
+
+def forced_align_finish_hook(run_ctx, **kwargs):
+    run_ctx.output_file.close()
+
+
+def forced_align_step(*, model: Model, data, run_ctx, **kwargs):
+    import torchaudio
+
+    def _label_id_to_symbol(label_id: int) -> str:
+        if label_id == model.blank_index:
+            return "<blank>"
+        if run_ctx.labels is None:
+            raise RuntimeError("Forced alignment label output requested but no returnn_vocab was provided.")
+        if 0 <= label_id < len(run_ctx.labels):
+            return run_ctx.labels[label_id]
+        return f"<id:{label_id}>"
+
+    raw_audio = data["raw_audio"]
+    raw_audio_len = data["raw_audio:size1"].to(torch.long)
+    labels = data["labels"]
+    labels_len = data["labels:size1"].to(torch.long)
+    tags = data["seq_tag"]
+
+    log_probs_list, output_lengths = model(raw_audio=raw_audio, raw_audio_len=raw_audio_len)
+    log_probs = model.get_log_probs_by_layer(log_probs_list, decode_layer_index=run_ctx.decode_layer_index)
+
+    for batch_idx, tag in enumerate(tags):
+        seq_len = int(output_lengths[batch_idx].item())
+        target_len = int(labels_len[batch_idx].item())
+        seq_log_probs = log_probs[batch_idx : batch_idx + 1, :seq_len]
+        seq_targets = labels[batch_idx : batch_idx + 1, :target_len]
+        aligned_labels, _scores = torchaudio.functional.forced_align(
+            seq_log_probs,
+            seq_targets,
+            input_lengths=torch.tensor([seq_len], device=seq_log_probs.device, dtype=torch.long),
+            target_lengths=torch.tensor([target_len], device=seq_log_probs.device, dtype=torch.long),
+            blank=model.blank_index,
+        )
+        argmax_labels = torch.argmax(seq_log_probs[0], dim=-1)
+        run_ctx.output_file.write(f"{tag}\n")
+        forced_align_ids = aligned_labels[0].detach().cpu().tolist()
+        argmax_ids = argmax_labels.detach().cpu().tolist()
+        if run_ctx.write_ids:
+            run_ctx.output_file.write(f"forced align ids: {forced_align_ids}\n")
+            run_ctx.output_file.write(f"argmax ids: {argmax_ids}\n")
+        if run_ctx.write_labels:
+            forced_align_label_seq = [_label_id_to_symbol(label_id) for label_id in forced_align_ids]
+            argmax_label_seq = [_label_id_to_symbol(label_id) for label_id in argmax_ids]
+            run_ctx.output_file.write(f"forced align labels: {forced_align_label_seq}\n")
+            run_ctx.output_file.write(f"argmax labels: {argmax_label_seq}\n")
+        run_ctx.output_file.write("\n")

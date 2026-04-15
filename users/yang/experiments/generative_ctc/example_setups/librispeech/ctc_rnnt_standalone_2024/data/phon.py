@@ -16,10 +16,20 @@ from i6_experiments.common.datasets.librispeech import (
     get_bliss_corpus_dict,
     get_bliss_lexicon,
 )
+from i6_experiments.common.setups.returnn.datasets import MetaDataset, OggZipDataset
 from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
-from .common import get_zip, build_training_datasets, build_training_datasets_with_hdf, TrainingDatasets, DatasetSettings
+from .common import (
+    build_oggzip_dataset_with_optional_hdf,
+    get_audio_raw_datastream,
+    get_zip,
+    build_training_datasets,
+    build_training_datasets_with_optional_hdf,
+    build_training_datasets_with_hdf,
+    TrainingDatasets,
+    DatasetSettings,
+)
 
 
 def get_eow_lexicon(g2p_librispeech_key: Optional[str], with_g2p: bool) -> tk.Path:
@@ -150,6 +160,40 @@ def build_eow_phon_training_datasets(
     )
 
 
+def build_eow_phon_test_dataset_with_labels(
+    dataset_key: str,
+    settings: DatasetSettings,
+    label_datastream: LabelDatastream,
+    *,
+    g2p_librispeech_key: str,
+):
+    """
+    Build a single dev/test dataset with both raw audio and phoneme labels.
+    """
+    remove_unk_seqs = dataset_key.startswith("dev-")
+    bliss_dataset, test_ogg = get_eow_bliss_and_zip(
+        librispeech_key=dataset_key,
+        g2p_librispeech_key=g2p_librispeech_key,
+        remove_unk_seqs=remove_unk_seqs,
+    )
+
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+    data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=label_datastream.as_returnn_targets_opts(),
+        seq_ordering="sorted_reverse",
+    )
+    test_dataset = MetaDataset(
+        data_map=data_map,
+        datasets={"zip_dataset": test_zip_dataset},
+        seq_order_control_dataset="zip_dataset",
+    )
+    return test_dataset, bliss_dataset
+
+
 def build_eow_phon_training_datasets_with_hdf(
     prefix: str,
     librispeech_key: str,
@@ -198,3 +242,89 @@ def build_eow_phon_training_datasets_with_hdf(
         devtrain_hdf=devtrain_hdf,
         prior_hdf=prior_hdf,
     )
+
+
+def build_eow_phon_training_datasets_with_optional_hdf(
+    prefix: str,
+    librispeech_key: str,
+    settings: DatasetSettings,
+    *,
+    hdf_file: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    hdf_datastream: Optional[Datastream] = None,
+    hdf_stream_name: str = "alignments",
+    hdf_data_key: str = "data",
+    train_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    cv_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    devtrain_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    prior_hdf: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    lexicon_librispeech_key: Optional[str] = None,
+) -> TrainingDatasets:
+    """
+    Like ``build_eow_phon_training_datasets`` but can optionally add an HDF-backed stream
+    (e.g. frame alignments) to the resulting MetaDatasets.
+    """
+    label_datastream = get_eow_vocab_datastream(
+        prefix=prefix, g2p_librispeech_key=lexicon_librispeech_key or librispeech_key
+    )
+
+    _, train_ogg = get_eow_bliss_and_zip(
+        librispeech_key=librispeech_key, g2p_librispeech_key=librispeech_key, remove_unk_seqs=False
+    )
+    _, dev_clean_ogg = get_eow_bliss_and_zip(
+        librispeech_key="dev-clean", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
+    )
+    _, dev_other_ogg = get_eow_bliss_and_zip(
+        librispeech_key="dev-other", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
+    )
+
+    return build_training_datasets_with_optional_hdf(
+        train_ogg=train_ogg,
+        dev_clean_ogg=dev_clean_ogg,
+        dev_other_ogg=dev_other_ogg,
+        settings=settings,
+        label_datastream=label_datastream,
+        hdf_file=hdf_file,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        train_hdf=train_hdf,
+        cv_hdf=cv_hdf,
+        devtrain_hdf=devtrain_hdf,
+        prior_hdf=prior_hdf,
+    )
+
+
+def build_eow_phon_test_dataset_with_optional_hdf(
+    dataset_key: str,
+    settings: DatasetSettings,
+    label_datastream: LabelDatastream,
+    *,
+    g2p_librispeech_key: str,
+    hdf_file: Optional[Union[tk.Path, list[tk.Path]]] = None,
+    hdf_datastream: Optional[Datastream] = None,
+    hdf_stream_name: str = "alignments",
+    hdf_data_key: str = "data",
+    segment_file: Optional[tk.Path] = None,
+):
+    """
+    Build a single dev/test dataset with raw audio, labels, and an optional HDF side stream.
+    """
+    remove_unk_seqs = dataset_key.startswith("dev-")
+    bliss_dataset, test_ogg = get_eow_bliss_and_zip(
+        librispeech_key=dataset_key,
+        g2p_librispeech_key=g2p_librispeech_key,
+        remove_unk_seqs=remove_unk_seqs,
+    )
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+    dataset, _ = build_oggzip_dataset_with_optional_hdf(
+        ogg_files=[test_ogg],
+        audio_datastream=audio_datastream,
+        label_datastream=label_datastream,
+        hdf_file=hdf_file,
+        hdf_datastream=hdf_datastream,
+        hdf_stream_name=hdf_stream_name,
+        hdf_data_key=hdf_data_key,
+        segment_file=segment_file,
+        seq_ordering="sorted_reverse",
+    )
+    return dataset, bliss_dataset

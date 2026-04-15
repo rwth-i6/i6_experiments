@@ -212,6 +212,44 @@ def get_pca_fit_config(
     return ReturnnConfig(config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer])
 
 
+def get_forced_align_config(
+    forward_dataset,
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    forward_args: Optional[Dict[str, Any]] = None,
+    unhashed_forward_args: Optional[Dict[str, Any]] = None,
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    debug: bool = False,
+):
+    """
+    Get a config for forward-only forced-alignment / argmax dumping jobs.
+    """
+
+    post_config = {"backend": "torch"}
+
+    base_config = {
+        "num_workers_per_gpu": 2,
+        "batch_size": 500 * 16000,
+        "max_seqs": 240,
+        "forward": copy.deepcopy(forward_dataset.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+
+    serializer = serialize_forward(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        forward_module=None,
+        forward_step_name="forced_align",
+        forward_init_args=forward_args,
+        unhashed_forward_init_args=unhashed_forward_args,
+        debug=debug,
+    )
+    python_prolog = [TorchCollection([])]
+    return ReturnnConfig(config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer])
+
+
 def get_forward_config(
     network_module: str,
     config: Dict[str, Any],
