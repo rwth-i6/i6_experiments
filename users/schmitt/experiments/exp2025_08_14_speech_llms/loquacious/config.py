@@ -48,6 +48,7 @@ def get_training_config(
         "stop_on_nonfinite_train_score": True,
         "backend": "torch",
         "torch_log_memory_usage": True,
+        "watch_memory": True,
     }
 
     base_config = {
@@ -100,6 +101,8 @@ def get_training_config(
         # )
         # python_prolog = [prolog_serializer]
         config["train"]["dataset"]["audio"]["pre_process"] = speed_pert_librosa_config
+    else:
+        config.pop("speed_pert_discrete_values", None)
 
     returnn_config = ReturnnConfig(
         config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
@@ -181,7 +184,10 @@ def get_forward_config(
     """
 
     # changing these does not change the hash
-    post_config = {}
+    post_config = {
+        "torch_log_memory_usage": True,
+        "watch_memory": True,
+    }
 
     # changeing these does change the hash
     base_config = {

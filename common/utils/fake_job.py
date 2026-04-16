@@ -5,7 +5,25 @@ This makes sense when the output is already computed,
 and the remaining graph is not needed.
 """
 
+import re
 import sisyphus
+
+
+def make_path(path: str) -> sisyphus.Path:
+    """
+    Given a path, which is the job_id + output
+    make a fake job for the creator of that path, and return a path with that creator.
+
+    :param path: example: "i6_core/audio/encoding/BlissChangeEncodingJob.vUdgDkgc97ZK/output/corpus.xml.gz"
+    :return: sisyphus Path object with fake job as creator,
+        such that the hash of the path is the same as the hash of the original path.
+    """
+    m = re.match("(.+)/([A-Z][A-Za-z0-9_]+)\\.([A-Za-z0-9]+)/output/(.+)", path)
+    assert m, f"Path {path} does not match expected format."
+    module = m.group(1).replace("/", ".")
+    name = m.group(2)
+    sis_hash = m.group(3)
+    return sisyphus.Path(m.group(4), creator=make_fake_job(module=module, name=name, sis_hash=sis_hash))
 
 
 def make_fake_job(*, module: str, name: str, sis_hash: str) -> sisyphus.Job:
@@ -51,6 +69,26 @@ class _FakeJobBase(sisyphus.Job):
         Sisyphus job hash
         """
         return parsed_args["sis_hash"]
+
+    def tasks(self):
+        """tasks
+
+        This is the same as the base job class.
+        This is just here to make this clear that we have this task.
+        We must have at least one task, otherwise Job._sis_tasks will raise an error.
+        This here will just be a dummy task.
+
+        SISGraph.get_jobs_by_status.<locals>.get_unfinished_jobs will call Job._sis_tasks.
+        """
+        yield sisyphus.Task("run")
+
+    def run(self):
+        """dummy method for the dummy "run" task. See doc in :func:`tasks` above.
+
+        This method must exist because Job._sis_tasks / Task.set_job checks for it.
+
+        """
+        raise Exception("Fake job should never be run.")
 
     def __reduce__(self):
         return _make_fake_job, (self.__class__.__module__, self.__class__.__name__, self.sis_hash)

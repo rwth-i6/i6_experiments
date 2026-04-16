@@ -1,0 +1,240 @@
+"""
+Given some Sisyphus config,
+check any not-running job (given some conditions),
+and run the provided actions.
+"""
+
+from __future__ import annotations
+import sys
+import os
+import re
+import argparse
+import logging
+import threading
+from functools import reduce
+from typing import TypeVar
+import subprocess as sp
+import better_exchook
+
+
+_my_dir = os.path.dirname(__file__)
+_base_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
+_sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
+
+T = TypeVar("T")
+
+
+def _setup():
+    # In case the user started this script directly.
+    if not globals().get("__package__"):
+        globals()["__package__"] = "i6_experiments.users.zeyer.sis_tools"
+        if _base_dir not in sys.path:
+            sys.path.append(_base_dir)
+        if _sis_dir not in sys.path:
+            sys.path.append(_sis_dir)
+
+
+_setup()
+
+
+def main():
+    import sisyphus.logging_format
+    from sisyphus.loader import config_manager
+    import sisyphus.toolkit as tk
+    import sisyphus
+    from sisyphus import Job, Task
+    from sisyphus import gs
+    from sisyphus.manager import Manager, create_aliases
+    from i6_core.returnn.training import ReturnnTrainingJob
+    from i6_core.returnn.forward import ReturnnForwardJobV2, ReturnnForwardJob
+
+    arg_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    arg_parser.add_argument("config")
+    arg_parser.add_argument("--log-level", type=int, default=20)
+    arg_parser.add_argument(
+        "--job-type",
+        help="Type of job to consider."
+        " 'returnn' for all returnn jobs,"
+        " 'returnn-forward' for all returnn forward jobs,"
+        " or a regex to match the job id."
+        " If not given (default), all runnable jobs are considered.",
+    )
+    arg_parser.add_argument("--sis-command", help="Sisyphus command (gs.SIS_COMMAND). can automatically be inferred")
+    arg_parser.add_argument(
+        "--loop", action="store_true", help="Loop and check for new runnable jobs after finishing the current ones."
+    )
+    arg_parser.add_argument("--cpu-only", action="store_true", help="Only consider CPU tasks.")
+    args = arg_parser.parse_args()
+
+    # See Sisyphus __main__ for reference.
+
+    sisyphus.logging_format.add_coloring_to_logging()
+    logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=args.log_level)
+
+    better_exchook.install()
+    better_exchook.replace_traceback_format_tb()
+
+    config_manager.load_configs(args.config)
+
+    if args.sis_command:
+        gs.SIS_COMMAND = args.sis_command.split()
+    else:
+        gs.SIS_COMMAND = [sys.executable, os.path.normpath(os.path.dirname(sisyphus.__file__) + "/../sis")]
+    logging.info(f"Using Sisyphus command: {gs.SIS_COMMAND}")
+
+    sis_graph = tk.sis_graph
+    job_engine = tk.cached_engine()
+    job_engine.start_engine()
+    threading._register_atexit(job_engine.stop_engine)
+
+    # We are not really starting/using the manager thread,
+    # but it comes with many useful utilities that we use here.
+    manager = Manager(sis_graph=sis_graph, job_engine=job_engine)
+
+    # Don't run manager.startup() directly but replicate the relevant parts here.
+    manager.job_engine.reset_cache()
+    manager.update_jobs()
+    manager.update_state_overview()
+    manager.print_state_overview()
+    if not manager.jobs:
+        logging.info("All calculations are done. Nothing to do.")
+        return
+
+    def clear_error():
+        manager.clear_states(state=gs.STATE_ERROR)
+        manager.clear_errors_once = False
+
+    def clear_interrupted():
+        manager.clear_states(state=gs.STATE_INTERRUPTED_NOT_RESUMABLE)
+        manager.clear_interrupts_once = False
+
+    def maybe_clear_state(state, always_clear, action):
+        if state in manager.jobs:
+            if always_clear:
+                action()
+            elif not manager.ignore_once:
+                answer = manager.input(f"Clear jobs in {state} state? [y/N] ")
+
+                if answer.lower() == "y":
+                    action()
+                    manager.print_state_overview()
+
+    maybe_clear_state(gs.STATE_ERROR, manager.clear_errors_once, clear_error)
+    maybe_clear_state(gs.STATE_INTERRUPTED_NOT_RESUMABLE, manager.clear_interrupts_once, clear_interrupted)
+
+    # See Task.finished
+    gs.SKIP_IS_FINISHED_TIMEOUT = True
+
+    if not args.job_type:
+        is_job_match = lambda job: True
+    elif args.job_type == "returnn":
+        job_types = (ReturnnForwardJobV2, ReturnnForwardJob, ReturnnTrainingJob)
+        is_job_match = lambda job: isinstance(job, job_types)
+    elif args.job_type == "returnn-forward":
+        job_types = (ReturnnForwardJobV2, ReturnnForwardJob)
+        is_job_match = lambda job: isinstance(job, job_types)
+    else:
+        is_job_match = lambda job: re.search(args.job_type, job._sis_id(), re.IGNORECASE)
+
+    if args.cpu_only:
+
+        def is_job_match_cpu_only(job: Job, *, prev_is_job_match=is_job_match) -> bool:
+            if not prev_is_job_match(job):
+                return False
+            for task in job._sis_tasks():
+                task: Task
+                if task.rqmt().get("gpu", 0):
+                    return False
+            return True
+
+        is_job_match = is_job_match_cpu_only
+
+    logging.info("Runnable matching jobs:")
+    job_count = 0
+    for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
+        job: Job
+        if is_job_match(job):
+            logging.info(manager.get_job_info_string(gs.STATE_RUNNABLE, job))
+            job_count += 1
+
+    if job_count == 0:
+        logging.error("No matching runnable job found.")
+        sys.exit(1)
+
+    manager.input("Press Enter to run those job, or Ctrl-C to cancel...")
+
+    while True:
+        cur_iter_job_count = 0
+
+        # Same order as the manager shows them in the overview.
+        for job in sorted(manager.jobs.get(gs.STATE_RUNNABLE, []), key=lambda j: str(j)):
+            job: Job
+            if not is_job_match(job):
+                continue
+
+            # See Manager.run_jobs
+            logging.info(f"Runnable matching job: {manager.get_job_info_string(gs.STATE_RUNNABLE, job)}")
+            job_count += 1
+            cur_iter_job_count += 1
+
+            logging.info("Setup.")
+            job._sis_setup_directory()
+            logging.info("Create aliases.")
+            create_aliases([job])
+
+            for task in job._sis_tasks():
+                finished = task.finished()
+                logging.info(f"Task: {task.name()} {finished=}")
+                if finished:
+                    continue
+                for task_id in task.task_ids():
+                    if task.finished(task_id):
+                        continue
+                    logging.info(f"Run task {task.name()}.{task_id}")
+                    # Replicate Task.get_worker_call but slightly adapted,
+                    # to add the --redirect_output flag before _sis_worker_wrapper.
+                    if isinstance(gs.SIS_COMMAND, list):
+                        call = gs.SIS_COMMAND[:]
+                    else:
+                        call = gs.SIS_COMMAND.split()
+                    call += [
+                        gs.CMD_WORKER,
+                        os.path.relpath(task.path()),
+                        task.name(),
+                        str(task_id),
+                        # Unsure here. Now we don't see it anymore on stdout?
+                        # "--redirect_output",
+                    ]
+                    call = job._sis_worker_wrapper(job, task.name(), call)
+                    run(*call)
+                    assert task.finished(task_id)
+
+            logging.info("All tasks finished. Check output.")
+            manager.check_output(write_output=True)
+
+        if not args.loop or cur_iter_job_count == 0:
+            break
+
+        # After running all currently runnable jobs, check for new ones.
+        if not manager.continue_manager_loop():
+            break
+        manager.job_engine.reset_cache()
+        manager.update_jobs()
+        manager.update_state_overview()
+        manager.print_state_overview()
+
+    logging.info(f"Done. {job_count} matching jobs were run.")
+
+
+def run(*args):
+    print("Running:", *args)
+    return sp.check_call(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    finally:
+        for thread in threading.enumerate():
+            if thread.is_alive() and not thread.daemon and thread is not threading.current_thread():
+                logging.info(f"Non-daemon thread still alive: {thread}")

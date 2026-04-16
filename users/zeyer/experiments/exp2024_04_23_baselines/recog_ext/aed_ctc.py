@@ -50,7 +50,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     prefix: str,
     task: Task,
     aed_ctc_model: ModelWithCheckpoint,
-    aux_ctc_layer: int,
+    aux_ctc_layer: Optional[int],
     vocab_file: tk.Path = NotSpecified,
     vocab_opts_file: tk.Path = NotSpecified,
     ctc_soft_collapse_threshold: Optional[float] = 0.8,  # default
@@ -83,7 +83,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
         "recog_recomb": recomb_type,
         "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
-        "aux_loss_layers": [aux_ctc_layer],
+        "aux_loss_layers": [aux_ctc_layer] if aux_ctc_layer is not None else [],
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
@@ -456,6 +456,94 @@ def aed_rescore_def(
 aed_rescore_def: RescoreDef
 
 
+# like lm_score
+def ctc_best_path_score(
+    recog_output: RecogOutput,
+    *,
+    dataset: DatasetConfig,  # for encoder inputs (e.g. audio)
+    model: ModelWithCheckpoint,
+    config: Dict[str, Any],
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    :param recog_output:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+        We ignore the scores here and just use the text of the hyps.
+    :param dataset: the orig data which was used to generate recog_output
+    :param model: AED model, where there are CTC aux layers
+    :param config:
+    :param vocab: labels (line-based, maybe gzipped)
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param rescore_rqmt:
+    """
+    assert "aux_loss_layers" in config
+    return rescore(
+        recog_output=recog_output,
+        dataset=dataset,
+        model=model,
+        config=config,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=ctc_best_path_model_rescore_def,
+        forward_rqmt=rescore_rqmt,
+    )
+
+
+def ctc_best_path_model_rescore_def(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+) -> Tensor:
+    """
+    RescoreDef API
+    """
+    from i6_experiments.users.zeyer.nn_rf.fsa import best_path_ctc
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    data_batch_dims = data.remaining_dims(data_spatial_dim)
+
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})
+
+    # Note: best_path_ctc might potentially allow broadcasting of the logits dim,
+    # but this is not yet implemented.
+    log_prob_targets_seq_ = []
+    for beam_idx in range(targets_beam_dim.get_dim_value()):
+        targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
+        targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+        targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
+        _, log_prob_targets_seq = best_path_ctc(
+            logits=log_probs,
+            logits_normalized=True,
+            targets=targets_b,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_b_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        log_prob_targets_seq_.append(log_prob_targets_seq)
+    log_prob_targets_seq, _ = rf.stack(log_prob_targets_seq_, out_dim=targets_beam_dim)
+
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
+
+
+ctc_best_path_model_rescore_def: RescoreDef
+
+
 # like lm_labelwise_prior_rescore
 def aed_labelwise_prior_rescore(
     res: RecogOutput,
@@ -563,10 +651,8 @@ def get_aed_ctc_and_labelwise_prior(
         config = {}
 
     # Add prior.
-    if prior is not None:
-        assert prior_scale is not None
-    if prior_scale is not None:
-        assert prior is not None
+    if prior is not None or prior_scale is not None:
+        assert prior is not None and prior_scale is not None
         config.update({"labelwise_prior": {"type": prior_type, "file": prior, "scale": prior_scale}})
 
     config.update({"aed_scale": aed_scale})
@@ -655,13 +741,10 @@ def model_recog_with_recomb(
     """
     import returnn
     from returnn.config import get_global_config
-    from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
 
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
-    ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
-    ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
     aed_scale = config.float("aed_scale", 1.0)
     ctc_scale = config.float("ctc_scale", 1.0)
 
@@ -674,8 +757,11 @@ def model_recog_with_recomb(
         batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     else:
         batch_dims = data.remaining_dims(data_spatial_dim)
-    enc_collected_outputs = {}
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=enc_collected_outputs)
+
+    ctc_label_log_prob, enc_out, enc_spatial_dim = model.encode_and_get_ctc_log_probs(
+        data, in_spatial_dim=data_spatial_dim
+    )
+    enc = model.decoder.transform_encoder(enc_out.enc_output, axis=enc_out.enc_spatial_dim)
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -684,18 +770,6 @@ def model_recog_with_recomb(
     neg_inf = float("-inf")
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
-    ctc_layer_idx = model.enc_aux_logits[-1]
-    linear = getattr(model, f"enc_aux_logits_{ctc_layer_idx}")
-    ctc_logits = linear(enc_collected_outputs[str(ctc_layer_idx - 1)])
-    ctc_label_log_prob = rf.log_softmax(ctc_logits, axis=model.wb_target_dim)  # Batch, Spatial, VocabWB
-    if ctc_soft_collapse_threshold is not None:
-        ctc_label_log_prob, enc_spatial_dim = soft_collapse_repeated(
-            ctc_label_log_prob,
-            spatial_dim=enc_spatial_dim,
-            classes_dim=model.wb_target_dim,
-            threshold=ctc_soft_collapse_threshold,
-            reduce_type=ctc_soft_collapse_reduce_type,
-        )
     ctc_label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         ctc_label_log_prob,

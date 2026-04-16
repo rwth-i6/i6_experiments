@@ -39,6 +39,8 @@ from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognit
 from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.recognition.torchaudio_ctc import CtcModel
 from i6_experiments.users.schmitt.experiments.exp2025_08_14_speech_llms.training.aed_ctc_train_step import AedCtcModel
 
+from .. import PACKAGE
+
 
 def _relu_sq(x):
     """Squared ReLU."""
@@ -144,13 +146,14 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         # RF Defaults
         dropout: float = 0.1,
         dropout_broadcast_axes: Optional[Literal["B", "BT", "T"]] = "BT",
-        specaug_start: Union[int, Tuple[int, int, int]] = 10,
+        specaug_start: Optional[Union[int, Tuple[int, int, int]]] = 10,
         specaug_args: Optional[Dict[str, int]] = None,
         use_rf_init: bool = True,
         logits_bias: bool = False,
         share_embedding: bool = True,
         aux_logits_bias: bool = False,
         feature_extraction_config: Optional[Dict[str, Any]] = None,
+        lm_opts: Optional[Dict[str, Any]] = None,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -328,6 +331,15 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
             _apply_filter(self.decoder, _init_rf)
             _apply_filter(self.out_aux_logits, _init_rf)
 
+        self.external_lm = None
+        if lm_opts is not None:
+            self.external_lm = __import__(
+                f"{PACKAGE}.pytorch_networks.{lm_opts['lm_module']}",
+                fromlist=["Model"],
+            ).Model(
+                lm_opts["lm_network_args"],
+            )
+
     def _apply_specaug(self, data: Tensor, data_len: Tensor) -> Tensor:
         if not self.training:
             return data
@@ -372,7 +384,8 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
     def forward(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> Tuple[Tensor, List[Tensor], Tensor, Tensor]:
         raw_audio = raw_audio.squeeze(dim=2).float()
         data, seq_lens = self.mel_frontend(raw_audio, raw_audio_lens)
-        data = self._apply_specaug(data, seq_lens)
+        if self.specaug_start is not None:
+            data = self._apply_specaug(data, seq_lens)
 
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers)
@@ -392,17 +405,19 @@ class Model(nn.Module, AedCtcModel, CtcModel, EncoderDecoderModel):
         _, ctc_logits, ctc_len, _ = self.forward(raw_audio, raw_audio_lens)
         return ctc_logits, ctc_len
 
-    def forward_encoder(self, raw_audio: Tensor, raw_audio_lens: Tensor) -> TransformerDecoderV1State:
-        state, *_ = self.forward_encoder_with_ctc(raw_audio, raw_audio_lens)
-        return state
+    def forward_encoder(
+            self, raw_audio: Tensor, raw_audio_lens: Tensor
+    ) -> Tuple[TransformerDecoderV1State, Tensor, Tensor, Tensor]:
+        state, ctc_logits, lens, encoder_out = self.forward_encoder_with_ctc(raw_audio, raw_audio_lens)
+        return state, ctc_logits, lens, encoder_out
 
     def forward_encoder_with_ctc(
         self, raw_audio: Tensor, raw_audio_lens: Tensor
-    ) -> Tuple[TransformerDecoderV1State, Tensor, Tensor]:
+    ) -> Tuple[TransformerDecoderV1State, Tensor, Tensor, Tensor]:
         encoder_out, ctc_logits, lens, _ = self.forward(raw_audio, raw_audio_lens)
         state = self.decoder.get_initial_state()
         state = self.decoder.transform_encoder_output(encoder_out.unsqueeze(1), lens.unsqueeze(1), state)
-        return state, ctc_logits[-1], lens
+        return state, ctc_logits[-1], lens, encoder_out
 
     def step_decoder(
         self, labels: Tensor, state: TransformerDecoderV1State

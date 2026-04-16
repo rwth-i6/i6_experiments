@@ -76,6 +76,11 @@ u22_rasr_path_tf = tk.Path(
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF214",
 )
 
+u22_rasr_path_tf_ffmpeg = tk.Path(
+    get_rasr_binary_path("/work/tools/users/raissi/rasr/rasr_tf2.14_ffmpeg"),
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF214",
+)
+
 #used by samir, should not be recompiled
 u22_rasr_path_tf_test = tk.Path(
     get_rasr_binary_path("/work/tools22/users/raissi/rasr/rasr_tf2.14"),

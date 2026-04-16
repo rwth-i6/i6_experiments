@@ -64,6 +64,16 @@ def bpe128_kazuki_lstm():
             init_args=default_init_args,
         )
 
+        lstm_large_config = ModelConfig(
+            vocab_dim=vocab_size_without_blank,
+            embed_dim=512,
+            hidden_dim=4096,
+            n_lstm_layers=2,
+            use_bottle_neck=False,
+            dropout=0.0,
+            init_args=default_init_args,
+        )
+
         train_config_modern_v1 = {
             "optimizer": {"class": "RAdam"},
             #############
@@ -125,3 +135,14 @@ def bpe128_kazuki_lstm():
             network_module=network_module,
             prefix_name=training_name
         ))
+
+        if BPE_SIZE == 128:
+            train_args_large_long = copy.deepcopy(train_args)
+            train_args_large_long["config"]["learning_rates"] = ([1e-3] * 100) + list(np.linspace(1e-3, 1e-6, 400))
+            train_args_large_long["net_args"] = {"model_config_dict": asdict(lstm_large_config)}
+            train_args_large_long["debug"] = False
+
+            training_name = prefix_name + "/" + network_module + ".2x4096_1k_RAdam_1e-3_5ep_reduce_gcn1.0"
+            train_job = training(training_name, train_data_bpe128_part100, train_args_large_long, num_epochs=500, **lm_returnn)
+            train_job.rqmt["gpu_mem"] = 48
+

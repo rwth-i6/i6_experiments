@@ -656,6 +656,7 @@ NETWORK_CONFIG_KWARGS = {
 BLANK_IDX = 3
 
 def get_model_and_vocab(fine_tuned_model: bool = False):
+    old_worker_wrapper = gs.worker_wrapper
     from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoints
     if fine_tuned_model:
         from i6_experiments.users.zhang.experiments.apptek.am.ctc_streaming_finetuning import py as FT_py, ctc_model_def as ctc_FT_model_def
@@ -671,6 +672,7 @@ def get_model_and_vocab(fine_tuned_model: bool = False):
     ).out_repository
     from i6_core.serialization.base import ExternalImport
     i6_models = ExternalImport(import_path=i6_models_repo)
+    gs.worker_wrapper = old_worker_wrapper
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=training_job), vocab, i6_models
 
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:

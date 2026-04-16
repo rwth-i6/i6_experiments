@@ -953,7 +953,7 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
         k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
         name_parts.append(f"{k_s}={v}")
     job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_target(), output_format="txt")
-    job.rqmt["mem"] = 10
+    job.rqmt.update({"mem": 10, "time": 5})
     tk.register_output(_alias_prefix + f"seq_len_{name}-" + "%s.txt" % "-".join(name_parts), job.out_file)
     return job.out_file
 
@@ -1386,6 +1386,52 @@ def get_librispeech_lm_dataset(
 
     _librispeech_lm_dataset_raw_cache[cache_key] = train_dataset
     return train_dataset
+
+
+_librispeech_lm_task_raw_cache = {}
+
+
+def get_librispeech_lm_task(
+    *, vocab: Union[VocabConfig, str], train_vocab_opts: Optional[Dict[str, Any]] = None, **opts
+) -> Task:
+    if isinstance(vocab, str):
+        vocab = get_vocab_by_str(vocab)
+
+    cache_key = make_hashable((vocab, train_vocab_opts, opts))
+    if cache_key in _librispeech_lm_task_raw_cache:
+        return _librispeech_lm_task_raw_cache[cache_key]
+
+    opts = opts.copy()
+    if train_vocab_opts:
+        assert "train_vocab" not in opts
+        opts["train_vocab"] = vocab.copy(**train_vocab_opts)
+
+    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
+    train_dataset = LibrispeechLmDataset(vocab=vocab, **opts)
+
+    eval_datasets = {
+        key: LibrispeechLmDataset(vocab=vocab, main_key=f"transcriptions-{key}")
+        for key in [
+            "dev-clean",
+            "dev-other",
+            "test-clean",
+            "test-other",
+        ]
+    }
+
+    task = Task(
+        name="librispeech_lm",
+        train_dataset=train_dataset,
+        train_epoch_split=train_dataset.train_epoch_split,
+        dev_dataset=eval_datasets["dev-other"],
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="Perplexity"),
+        main_measure_name="dev-other",
+        score_recog_output_func=None,  # TODO not sure..
+    )
+
+    _librispeech_lm_task_raw_cache[cache_key] = task
+    return task
 
 
 def get_librispeech_lm_combined_txt() -> tk.Path:

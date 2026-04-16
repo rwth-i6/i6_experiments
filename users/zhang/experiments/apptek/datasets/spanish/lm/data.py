@@ -175,8 +175,11 @@ def _get_ogg_zip(
     corpus: tk.Path, name: str, split: int, returnn_root: Union[str, tk.Path], alias_prefix: str,
 ) -> tk.Path:
     segment_job = SegmentCorpusJob(corpus, split)
-    if "dev_conversation" in name:
+    if any(infix in name for infix in ["dev_conversation","common_voice_two_speakers"]): # Actually this should be done right after the creation of corpus
         corpus = BlissStripOrthPunctJob(corpus).out_corpus
+        if "common_voice_two_speakers" in name:
+            from i6_experiments.users.zhang.experiments.apptek.datasets.tools import FixInfEndInBlissJob
+            corpus = FixInfEndInBlissJob(in_corpus=corpus).out_corpus
     oggzip_job = BlissToOggZipJob(corpus, segments=segment_job.out_segment_path, returnn_root=returnn_root)
     oggzip_job.rqmt = {"cpu": 1, "mem": 2}
     oggzip_job.merge_rqmt = None  # merge on local machine, to be more robust against slowness due to slow FS
@@ -211,7 +214,7 @@ def _get_lm_eval_ogg_zip( # any data set inside "dev" or "test" will affect the 
     elif key == "test": # During Training
         ogg_zip_files = []
         for k, eval_info in lm_corpora.test.items():
-            if str(eval_info.segmenter_type) == "ref":
+            if str(eval_info.segmenter_type) == "ref" and "mbw" not in k:
                 ogg_zip_files.append(_get_ogg_zip(
                     eval_info.segmented_corpus,
                     name=f"seg.{eval_info.segmenter_type}/{k}",
@@ -233,7 +236,7 @@ def _get_lm_eval_ogg_zip( # any data set inside "dev" or "test" will affect the 
                         alias_prefix=alias_prefix,
                     )
                     )
-        elif "eval" in key:
+        elif "eval" in key or "mbw" in key:
             for k, eval_info in corpora.test.items():
                 if key in k and str(eval_info.segmenter_type) == "ref":
                     ogg_zip_files.append(_get_ogg_zip(

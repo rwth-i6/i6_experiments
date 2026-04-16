@@ -118,6 +118,36 @@ feature_bundles = {
     ),
 }
 
+ivec_bundles = {
+    "train": Path(
+        ("/").join(
+            [
+                prepath_dependencies,
+                "ivectors_kitza/IVectorExtractionJob.OswBVUkmHda7/output/ivec.bundle",
+            ]
+        ),
+        hash_overwrite="legacy_train_ivec",
+    ),
+    "hub500": Path(
+        ("/").join(
+            [
+                prepath_dependencies,
+                "ivectors_kitza/IVectorExtractionJob.uzLwtiDVMXbk/output/ivec.bundle",
+            ]
+        ),
+        hash_overwrite="legacy_dev_ivec",
+    ),
+    "hub501": Path(
+        ("/").join(
+            [
+                prepath_dependencies,
+                "ivectors_kitza/IVectorExtractionJob.y0lvADStXyyL/output/ivec.bundle",
+            ]
+        ),
+        hash_overwrite="legacy_eval_ivec",
+    ),
+}
+
 
 merged_train_cv = {
     "pre_path": ("/").join([prepath_dependencies, "cv-from-hub5-00"]),

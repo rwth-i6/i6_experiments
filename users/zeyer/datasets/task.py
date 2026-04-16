@@ -49,7 +49,9 @@ class Task:
         """using main_measure_name as the main key in score_results"""
         from .score_results import join_score_results
 
-        return join_score_results(score_results, main_measure_key=self.main_measure_name)
+        return join_score_results(
+            score_results, main_measure_key=self.main_measure_name if self.main_measure_name in score_results else None
+        )
 
     collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = None
 

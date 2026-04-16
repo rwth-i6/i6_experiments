@@ -26,6 +26,7 @@ from i6_experiments.users.zeyer.recog import (
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
+    from i6_experiments.users.zhang.experiments.decoding.prior_rescoring import Prior
 
 
 def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]], alias: Optional[str] = "") -> RecogOutput:
@@ -545,6 +546,8 @@ class RescoreSearchErrorJob(Job):
         self.combined_search_py_output = combined_search_py_output
         self.combined_gt_py_output = combined_gt_py_output
         self.out_search_errors = self.output_path("search_errors")
+        self.out_missing_gt_dict = self.output_path("missing_gt_dict.json")
+        self.out_search_errors_seq_dict = self.output_path("search_errors_seq_dict.py")
 
     def tasks(self):
         """task"""
@@ -552,6 +555,9 @@ class RescoreSearchErrorJob(Job):
 
     def run(self):
         """run"""
+        def _normalize_text(text):
+            return text
+            #return ' '.join([word for word in text.split() if "<" not in word and word != "▁"])
         n_lists = eval(util.uopen(self.combined_search_py_output, "rt").read(),
                        {"nan": float("nan"), "inf": float("inf")})  # {seq_tag:[(score, hyp)]}
         gts = eval(util.uopen(self.combined_gt_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
@@ -562,46 +568,65 @@ class RescoreSearchErrorJob(Job):
         search_error = 0
         gt_present_num = 0
         gt_absent_num = 0
-        for seq_tag in seq_tags:
-            is_search_error = False
-            gt_present = False
+        missing_gt_dict = dict()
+        self.out_search_errors_seq_dict = self.output_path("search_errors_seq_dict.py")
+        self.out_missing_gt_dict = self.output_path("missing_gt_dict.json")
+        with util.uopen(self.out_search_errors_seq_dict, "wt") as out:
+            out.write("{\n")
+            for seq_tag in seq_tags:
+                is_search_error = False
+                gt_present = False
 
-            gt_score, gt = gts[seq_tag][0]
-            gt = " ".join(gt.split())
-            hyps = [" ".join(x[1].split()) for x in n_lists[seq_tag]]
-            targets_search_str = "["
-            for hyp in hyps:
-                if hyp == gt:
-                    targets_search_str += f"\n\t [{hyp}] \n\t"
-                    gt_present = True
-                    gt_present_num += 1
-                else:
-                    targets_search_str += f"\n\t {hyp} \n\t"
+                gt_score, gt = gts[seq_tag][0]
+                gt = " ".join(gt.split()).strip()
+                hyps = [" ".join(_normalize_text(x[1]).split()).strip() for x in n_lists[seq_tag]]
+                targets_search_str = "["
+                gt_count = 0
+                for hyp in hyps:
+                    if hyp == gt:
+                        targets_search_str += f"\n\t [{hyp}] \n\t"
+                        gt_present = True
+                        if gt_count == 0:
+                            gt_present_num += 1
+                        gt_count += 1
+                    else:
+                        targets_search_str += f"\n\t {hyp} \n\t"
+                targets_search_str += " ]"
+                if gt_count > 1:
+                    targets_search_str += f"\n\t Duplicated {gt_count} GT!"
+                if gt_count == 0:
                     gt_absent_num += 1
-            targets_search_str += " ]"
-            if len(n_lists[seq_tag]) > 1:
-                max_hyp_score = max([x[0] for x in n_lists[seq_tag] if x[1]])
-            else:
-                max_hyp_score = n_lists[seq_tag][0][0]
-            if not gt_present and gt_score >= max_hyp_score:
-                search_error += 1
-                is_search_error = True
-
-            with open("search_errors_log", "a") as f:
-                log_txt = "\nSeq Tag: %s\n\tGround-truth score: %f\n\tMax Search score: %f" % (
-                    seq_tag,
-                    gt_score,
-                    max_hyp_score,
-                )
-                log_txt += "\n\tGround-truth seq: %s\n\tSearch seq:       %s" % (
-                    gt,
-                    targets_search_str,
-                )
-                log_txt += "\n\tGT_present in N-list: %s\n\t-> %s" % (
-                    str(gt_present),
-                    "Search error!" if is_search_error else "No search error!",
-                )
-                f.write(log_txt)
+                sorted_hyp_pairs = sorted(n_lists[seq_tag], key=lambda n: n[0], reverse=True)
+                # if len(n_lists[seq_tag]) > 1:
+                #
+                #     #max_hyp_score = max([x[0] for x in n_lists[seq_tag] if x[1]])
+                # else:
+                #     max_hyp_score = n_lists[seq_tag][0][0]
+                max_hyp_score = sorted_hyp_pairs[0][0]
+                best_hyp = sorted_hyp_pairs[0][1]
+                if not gt_present and gt_score >= max_hyp_score:
+                    missing_gt_dict[seq_tag] = gt
+                    out.write(f"{seq_tag!r}: {gt!r},\n")
+                    search_error += 1
+                    is_search_error = True
+                else:
+                    out.write(f"{seq_tag!r}: {' '.join(best_hyp.split()).strip()!r},\n")
+                with open("search_errors_log", "a") as f:
+                    log_txt = "\nSeq Tag: %s\n\tGround-truth score: %f\n\tMax Search score: %f" % (
+                        seq_tag,
+                        gt_score,
+                        max_hyp_score,
+                    )
+                    log_txt += "\n\tGround-truth seq: %s\n\tSearch seq:       %s" % (
+                        gt,
+                        targets_search_str,
+                    )
+                    log_txt += "\n\tGT_present in N-list: %s\n\t-> %s" % (
+                        str(gt_present),
+                        "Search error!" if is_search_error else "No search error!",
+                    )
+                    f.write(log_txt)
+            out.write("}\n")
         with open("search_errors_log", "a") as f:
             log_txt = "\n\n\tGT presents: %s\n\tNum_seq: %f\n\t" % (
                 gt_present_num,
@@ -609,20 +634,28 @@ class RescoreSearchErrorJob(Job):
             )
             f.write(log_txt)
             num_seqs = gt_absent_num + gt_present_num
-            f.write("Search errors: %.2f%%" % ((search_error / len(seq_tags)) * 100) + "\n" +
-                    "Search errors/total errors: %.2f%%" % ((search_error / gt_absent_num) * 100) + "\n" +
-                    "Sent_ER: %.2f%%" % ((search_error / num_seqs) * 100) + "\n")
+            if gt_absent_num != 0:
+                f.write("Search errors: %.2f%%" % ((search_error / len(seq_tags)) * 100) + "\n" +
+                        "Search errors/total errors: %.2f%%" % ((search_error / gt_absent_num) * 100) + "\n" +
+                        "Sent_ER: %.2f%%" % ((gt_absent_num / num_seqs) * 100) + "\n")
+            else:
+                f.write("Search errors: %.2f%%" % ((search_error / len(seq_tags)) * 100) + "\n" +
+                        "Sent_ER: %.2f%%" % ((gt_absent_num / num_seqs) * 100) + "\n")
         with open(self.out_search_errors.get_path(), "w+") as f:
             f.write("Search errors: %.2f%%" % ((search_error / len(seq_tags)) * 100))  # + "\n" +
             # "Search errors/total errors: %.2f%%" % ((num_search_errors / num_unequal) * 100) + "\n" +
             # "Sent_ER: %.2f%%" % ((num_unequal / num_seqs) * 100) + "\n" +
             # "Sent_OOV: %.2f%%" % ((sent_oov / num_seqs) * 100) + "\n" +
             # "OOV: %.2f%%" % ((num_oov / num_words) * 100) + "\n")
+        import json
+        with open(self.out_missing_gt_dict.get_path(), "w+") as f:
+            json.dump(missing_gt_dict, f, indent=2, ensure_ascii=False)
 
 
 def rescore(
     *,
     recog_output: RecogOutput,
+    recog_output_for_lm: Optional[RecogOutput] = None,
     dataset: Optional[DatasetConfig] = None,
     vocab: tk.Path,
     vocab_opts_file: Optional[tk.Path] = None,
@@ -634,6 +667,7 @@ def rescore(
     forward_device: str = "gpu",
     forward_alias_name: Optional[str] = None,
     to_word_func: Optional[Callable] = None,
+    prior: Optional[Prior] = None,
 ) -> RecogOutput:
     """
     Rescore on the specific dataset, given some hypotheses, using the :class:`RescoreDef` interface.
@@ -666,6 +700,7 @@ def rescore(
         model_checkpoint=model_ckpt,
         returnn_config=_returnn_rescore_config(
             recog_output=recog_output,
+            recog_output_for_lm=recog_output_for_lm,
             vocab=vocab,
             vocab_opts_file=vocab_opts_file,
             dataset=dataset,
@@ -674,6 +709,7 @@ def rescore(
             config=config,
             post_config=forward_post_config,
             to_word_func=to_word_func,
+            prior=prior,
         ),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -705,6 +741,7 @@ def _returnn_rescore_config(
     *,
     recog_output: RecogOutput,
     vocab: tk.Path,
+    recog_output_for_lm: Optional[RecogOutput] = None,
     vocab_opts_file: Optional[tk.Path] = None,
     dataset: Optional[DatasetConfig] = None,
     model_def: Union[ModelDef, ModelDefWithCfg],
@@ -712,6 +749,7 @@ def _returnn_rescore_config(
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
     to_word_func: Optional[Callable] = None,
+    prior: Optional[Prior] = None,
 ) -> ReturnnConfig:
     """
     Create config for rescoring.
@@ -772,16 +810,50 @@ def _returnn_rescore_config(
                 from sisyphus.delayed_ops import DelayedFormat
                 assert isinstance(delayed,DelayedFormat)
                 orig_data["path"] = delayed.kwargs["file"]
-
-        forward_data = {
-            "class": "MetaDataset",
-            "datasets": {"orig_data": orig_data, "hyps": forward_data},
-            "data_map": {
-                **{key: ("orig_data", key) for key in ds_extern_data if key != ds_target},
-                "data_flat": ("hyps", "data_flat"),
-                "data_seq_lens": ("hyps", "data_seq_lens"),
-            },
-            "seq_order_control_dataset": "hyps",
+        if recog_output_for_lm:
+            config["separate_lm_stream"] = True
+            forward_data = {
+                "class": "MetaDataset",
+                "datasets": {
+                    "orig_data": orig_data,
+                    "hyps": {"class": "TextDictDataset",
+                             "filename": recog_output.output,
+                             "vocab": vocab_opts,
+                             "seq_ordering": "default"
+                    },
+                    "hyps_lm": {"class": "TextDictDataset",
+                                "filename": recog_output_for_lm.output,
+                                "vocab": vocab_opts,
+                                "seq_ordering": "default",
+                    }
+                },
+                "data_map": {
+                    **{key: ("orig_data", key) for key in ds_extern_data if key != ds_target},
+                    "data_flat": ("hyps", "data_flat"),
+                    "data_seq_lens": ("hyps", "data_seq_lens"),
+                    "data_flat_lm": ("hyps_lm", "data_flat"),
+                    "data_seq_lens_lm": ("hyps_lm", "data_seq_lens"),
+                },
+                "seq_order_control_dataset": "default",
+            }
+        else:
+            forward_data = {
+                "class": "MetaDataset",
+                "datasets": {"orig_data": orig_data, "hyps": forward_data},
+                "data_map": {
+                    **{key: ("orig_data", key) for key in ds_extern_data if key != ds_target},
+                    "data_flat": ("hyps", "data_flat"),
+                    "data_seq_lens": ("hyps", "data_seq_lens"),
+                },
+                "seq_order_control_dataset": "hyps",
+            }
+    # Add extern_data entries for the LM stream (same dims, same vocab)
+    if recog_output_for_lm:
+        extern_data["data_flat_lm"] = {
+            "dims": [batch_dim, data_flat_spatial_dim], "dtype": "int32", "vocab": vocab_opts
+        }
+        extern_data["data_seq_lens_lm"] = {
+            "dims": [batch_dim, beam_dim], "dtype": "int32"
         }
 
     config.update(
@@ -854,6 +926,8 @@ def _returnn_rescore_config(
     # When us a word Ngram LM
     if to_word_func:
         config["to_word_func"] = to_word_func
+    if prior:
+        config["prior"] = prior
     #Hot fix for f16kHz model
     path = "/nas/models/asr/hzhang/setups/2025-07-20--combined/work/i6_core/tools/git/CloneGitRepositoryJob.maXwYTjr7NZe/output/i6_models"
     return ReturnnConfigWithNewSerialization(config, post_config, extra_sys_paths=[path])
@@ -888,21 +962,31 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets_spatial_dim = Dim(rf.copy_to_device(targets_seq_lens, "cpu"), name="targets_spatial")
     targets = rf.pad_packed(targets_flat, in_dim=targets_flat_time_dim, dims=[targets_beam_dim, targets_spatial_dim])
 
+    targets_lm = None
+    targets_spatial_dim_lm = None
+    separate_lm_stream = config.bool("separate_lm_stream", False)
+    if config.bool("separate_lm_stream", False):
+        targets_lm = rf.get_extern_data("data_flat_lm")  # filtered tokens
+        targets_spatial_dim_lm = rf.get_extern_data("data_seq_lens_lm")
+
     rescore_def: RescoreDef = config.typed_value("_rescore_def")
     # # TODO: Skip this static check for now, later should define your own protocol
     # rescore_def = config.typed_value("_rescore_def")
     try:
         to_word_func = config.typed_value("to_word_func")
+        prior = config.typed_value("prior")
     except KeyError:
         to_word_func = None
+        prior = None
     scores = rescore_def(
         model=model,
         data=data,
         data_spatial_dim=data_spatial_dim,
-        targets=targets,
-        targets_spatial_dim=targets_spatial_dim,
+        targets=targets_lm if separate_lm_stream else targets,
+        targets_spatial_dim=targets_spatial_dim_lm if separate_lm_stream else targets_spatial_dim,
         targets_beam_dim=targets_beam_dim,
         to_word_func=to_word_func,
+        prior=prior,
     )
     assert isinstance(scores, Tensor)
     rf.get_run_ctx().mark_as_output(targets, "hyps", dims=[batch_dim, targets_beam_dim, targets_spatial_dim])

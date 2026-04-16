@@ -197,7 +197,8 @@ class ActivationQuantizer(nn.Module):
         assert (
                 self.scale is not None and self.zero_point is not None
         ), "Need to calibrate before applying quant, disable apply_calibration"
-        tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
+        with torch.autocast(device_type=tensor.device.type, enabled=False, dtype=torch.bfloat16):
+            tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
 
     def set_scale_and_zp(self):
@@ -540,9 +541,13 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
         # value = self.W_v(value)
         assert query is value is key, "currently only this case is implemented"
 
+        print("vvvvvvvvvvvvvvvv")
+        print(f"{query = }")
         query = self.in_proj_in_quant(query)
         x = self.in_proj(query, self.in_proj_in_quant)
+        print(f"{x = }")
         x = self.in_proj_out_quant(x)
+        print(f"{self.in_proj_out_quant = }")
         hidden_dim = query.size(-1)
         query, key, value = x.unflatten(-1, (3, hidden_dim)).unsqueeze(0).transpose(0, -2).squeeze(-2).contiguous()
 
@@ -562,9 +567,18 @@ class QuantizedMultiheadAttentionStreamable(StreamableModule):
 
         query = self.dot_in_quant(query)
         key = self.dot_in_quant(key)
+        print(f"{self.dot_in_quant = }")
         dot = torch.matmul(query, key)  # [B, D//H, T, T]
+        print(f"{query = }")
+        print(f"{key = }")
         dot = self.norm_in_quant(dot)
         norm = self.norm_in_quant(self.norm.to(device=dot.device))
+        print(f"{dot = }")
+        # dot[0, 0].plt.fig.savefig(f"dot_{id(self)}")
+        # torch.save(dot[0, 0], f"tensor_{id(self)}")
+        print(f"{self.norm_in_quant = }")
+        print(f"{norm = }")
+        print()
         dot = dot / norm
         dot = self.norm_out_quant(dot)
 

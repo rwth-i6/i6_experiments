@@ -1,7 +1,10 @@
 import subprocess
 import os
 import shutil
+from typing import Optional, List
+import copy
 
+from tqdm import tqdm
 import numpy as np
 
 from sisyphus import Path, Job, Task
@@ -165,8 +168,16 @@ class GetBlissCorpusStatisticsJob(Job):
   def __init__(
           self,
           bliss_corpus: Path,
+          max_seq_len: Optional[int] = None
   ):
+    """
+
+    Args:
+      bliss_corpus:
+      max_seq_len: in seconds
+    """
     self.bliss_corpus = bliss_corpus
+    self.max_seq_len = max_seq_len
 
     self.out_statistics = self.output_path("statistics")
     self.out_seq_len_histogram_png = self.output_path("seq_len_histogram.png")
@@ -183,8 +194,15 @@ class GetBlissCorpusStatisticsJob(Job):
 
     seq_lens = []
     for segment in corpus_.segments():
-      assert segment.start == 0.0
-      seq_lens.append(segment.end)
+      # not sure why i did this originally.
+      # assert segment.start == 0.0
+      # seq_lens.append(segment.end)
+
+      # this is the correct way. let's leave it like this for now
+      seq_len = segment.end - segment.start
+      if self.max_seq_len is not None and seq_len > self.max_seq_len:
+        continue
+      seq_lens.append(seq_len)
 
     sum_len = np.sum(seq_lens)
     num_seqs = len(seq_lens)
@@ -205,3 +223,60 @@ class GetBlissCorpusStatisticsJob(Job):
     plt.grid()
     plt.savefig(self.out_seq_len_histogram_png.get_path())
     plt.savefig(self.out_seq_len_histogram_pdf.get_path())
+
+  @classmethod
+  def hash(cls, kwargs):
+    d = copy.deepcopy(kwargs)
+    if d["max_seq_len"] is None:
+      d.pop("max_seq_len")
+
+    return super().hash(d)
+
+
+class GetBlissCorpusListStatisticsJob(Job):
+  def __init__(
+          self,
+          bliss_corpora: List[Path],
+          max_seq_len: Optional[int] = None
+  ):
+    """
+
+    Args:
+      bliss_corpus:
+      max_seq_len: in seconds
+    """
+    self.bliss_corpora = bliss_corpora
+    self.max_seq_len = max_seq_len
+
+    self.out_statistics = self.output_path("statistics")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+  def run(self):
+    num_seqs = 0
+    total_len = 0
+    max_len = 0
+    min_len = 0
+
+    for corpus_path in tqdm(self.bliss_corpora):
+      corpus_ = corpus.Corpus()
+      corpus_.load(corpus_path.get_path())
+
+      for segment in corpus_.segments():
+        seq_len = segment.end - segment.start
+        if self.max_seq_len is not None and seq_len > self.max_seq_len:
+          continue
+        num_seqs += 1
+        total_len += seq_len
+        max_len = max(max_len, seq_len)
+        min_len = min(min_len, seq_len)
+
+    with open(self.out_statistics.get_path(), "w+") as stat_file:
+      stat_file.write("Statistics\n")
+      stat_file.write(f"Max len: {max_len:.1f}s \n")
+      stat_file.write(f"Min len: {min_len:.1f}s \n")
+      stat_file.write(f"Mean len: {total_len / num_seqs:.1f}s \n")
+      # stat_file.write(f"Std len: {np.std(seq_lens):.1f}s \n")
+      stat_file.write(f"Sum len: {total_len:.1f}s = {(total_len / 60):.1f}min = {(total_len / 3600):.2f}h \n")
+      stat_file.write("Number of sequences: " + str(num_seqs) + "\n")

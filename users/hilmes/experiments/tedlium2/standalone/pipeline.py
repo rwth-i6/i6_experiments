@@ -81,15 +81,16 @@ def search_single(
         recog_words_file=search_job.out_files["search_out.py"],
         bliss_corpus=recognition_bliss_corpus,
     )
-    search_ctm_job.add_alias(prefix_name + "/ctm_job")
+    # search_ctm_job.add_alias(prefix_name + "/ctm_job")
+    # search_ctm_job.set_vis_name(prefix_name + "/ctm_job")
     search_ctm = search_ctm_job.out_ctm_file
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
     sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=3)
-    sclite_job.add_alias(prefix_name + "/sclite_job")
+    # sclite_job.set_vis_name(prefix_name + "/sclite_job")
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
-    tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+    # tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
     return sclite_job.out_wer, search_job
 
@@ -109,6 +110,7 @@ def search(
     debug: bool = False,
     additional_outputs: Optional[List[str]] = None,
     unhashed_decoder_args: Optional = None,
+    run_rasr: bool = False,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -135,6 +137,7 @@ def search(
         debug=debug,
         import_memristor=import_memristor,
         unhashed_decoder_args=unhashed_decoder_args,
+        run_rasr=run_rasr,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -148,7 +151,7 @@ def search(
             mem = 60
         elif "rtf_amd" in search_name or "rtf_intel" in search_name:  # RTF with larger search space might need more mem
             mem = 40
-        elif "largerer" in search_name:
+        elif "larger" in search_name:
             mem = 32
         else:
             mem = 16
@@ -200,9 +203,11 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
+    search_job.has_priority = True
     if "hubert_tune_v1_xlarge" in prefix_name or "hubert_tune_v2_xlarge" in prefix_name:
         search_job.rqmt["time"] += 12
     search_job.add_alias(prefix_name + "/prior_job")
+    # search_job.set_vis_name(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
 
 
@@ -305,7 +310,8 @@ def prepare_asr_model(
                 key=loss_key,
                 index=index,
             )
-            best_job.add_alias(training_name + f"/get_best_job_{index}")
+            # best_job.add_alias(training_name + f"/get_best_job_{index}")
+            # best_job.set_vis_name(training_name + f"/get_best_job_{index}")
             checkpoints.append(best_job.out_checkpoint)
         if num_checkpoints > 1:
             # perform averaging
@@ -316,7 +322,8 @@ def prepare_asr_model(
             if "v6_20_1024" in training_name:
                 avg.rqmt["mem"] += 2
             checkpoint = avg.out_checkpoint
-            avg.add_alias(training_name + "/avg_best_%i_cpkt/avrg_job" % num_checkpoints)
+            # avg.add_alias(training_name + "/avg_best_%i_cpkt/avrg_job" % num_checkpoints)
+            # avg.set_vis_name(training_name + "/avg_best_%i_cpkt/avrg_job" % num_checkpoints)
             training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
         else:
             # we only have one
@@ -330,7 +337,8 @@ def prepare_asr_model(
             returnn_python_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
         )
-        avg.add_alias(training_name + "/avg_last_%i_cpkt/avrg_job" % num_checkpoints)
+        # avg.add_alias(training_name + "/avg_last_%i_cpkt/avrg_job" % num_checkpoints)
+        # avg.set_vis_name(training_name + "/avg_last_%i_cpkt/avrg_job" % num_checkpoints)
         checkpoint = avg.out_checkpoint
         training_name = training_name + "/avg_last_%i_cpkt" % num_checkpoints
     else:

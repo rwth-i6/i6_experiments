@@ -248,3 +248,5 @@ def bpe_ls960_1023_base():
         returnn_vocab=label_datastream_bpe5000.vocab,
     )
     greedy_search_helper(training_name=training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+

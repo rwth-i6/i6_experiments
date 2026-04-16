@@ -3,6 +3,7 @@ import os.path
 from ...default_tools import RETURNN_EXE, QUANT_RETURNN, MINI_RETURNN_ROOT
 from ...pipeline import search, ASRModel, quantize_static, prepare_asr_model
 from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+from ...pytorch_networks.ctc.decoder.rasr_ctc_v1 import DecoderConfig as RasrDecoderConfig
 from typing import List, Optional, Dict, Any, List, Union, Tuple
 from ...data.common import TrainingDatasets
 from dataclasses import dataclass, asdict
@@ -12,6 +13,7 @@ from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from sisyphus import tk
 from i6_core.returnn import ReturnnTrainingJob, ReturnnForwardJobV2
 from functools import partial
+from i6_core.rasr.config import WriteRasrConfigJob
 
 
 @dataclass
@@ -33,6 +35,20 @@ class RTFArgs:
     decoder_module: Optional[str] = None
     type: Optional[str] = None
     include_gpu: bool = False
+    include_cpu: bool = True
+    run_quant: bool = True
+    forward_args: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class RasrRTFArgs:
+    max_beam_size: Optional[List[int]] = None
+    score_threshold: Optional[List[float]] = None
+    decoder_module: Optional[str] = None
+    type: Optional[str] = None
+    include_gpu: bool = False
+    include_cpu: bool = True
+    run_quant: bool = True
 
 
 default_returnn = {
@@ -63,11 +79,12 @@ def eval_model(
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     prior_args: Optional[Dict[str, Any]] = None,
     run_rtf: bool = False,  # for now only for last epoch
-    rtf_args: Optional[RTFArgs] = None,
+    rtf_args: Optional[Union[RTFArgs, RasrRTFArgs]] = None,
     with_prior: bool = True,
     get_best_params: bool = False,
-    run_search_on_hpc:bool = False,
-    unhashed_decoder_args: Optional = None
+    run_search_on_hpc: bool = False,
+    unhashed_decoder_args: Optional = None,
+    run_rasr: bool = False,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -89,7 +106,9 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_specific_checkpoint=epoch,
-            prior_config={"import_memristor": import_memristor} if import_memristor is True and with_prior is True else None,
+            prior_config={"import_memristor": import_memristor}
+            if import_memristor is True and with_prior is True
+            else None,
         )
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
@@ -113,6 +132,7 @@ def eval_model(
             get_best_params=get_best_params,
             run_search_on_hpc=run_search_on_hpc,
             unhashed_decoder_args=unhashed_decoder_args,
+            run_rasr=run_rasr,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -123,7 +143,9 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
-            prior_config={"import_memristor": import_memristor} if import_memristor is True and with_prior is True else None,
+            prior_config={"import_memristor": import_memristor}
+            if import_memristor is True and with_prior is True
+            else None,
         )
         if prior_args is not None:
             asr_model_best4.net_args = train_args["net_args"]
@@ -142,7 +164,8 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
-            unhashed_decoder_args=unhashed_decoder_args
+            unhashed_decoder_args=unhashed_decoder_args,
+            run_rasr=run_rasr,
         )
         result_dict.update(res)
     if run_best is True:
@@ -153,7 +176,9 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
-            prior_config={"import_memristor": import_memristor} if import_memristor is True and with_prior is True else None,
+            prior_config={"import_memristor": import_memristor}
+            if import_memristor is True and with_prior is True
+            else None,
         )
         if prior_args is not None:
             asr_model_best.net_args = train_args["net_args"]
@@ -172,7 +197,8 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
-            unhashed_decoder_args=unhashed_decoder_args
+            unhashed_decoder_args=unhashed_decoder_args,
+            run_rasr=run_rasr,
         )
         result_dict.update(res)
     if get_best_params is True:
@@ -184,7 +210,7 @@ def eval_model(
 def tune_and_evaluate_helper(
     training_name: str,
     asr_model: ASRModel,
-    base_decoder_config: DecoderConfig,
+    base_decoder_config: Union[DecoderConfig, RasrDecoderConfig],
     lm_scales: List[float],
     prior_scales: List[float],
     dev_dataset_tuples: Dict[str, Any],
@@ -200,8 +226,9 @@ def tune_and_evaluate_helper(
     run_rtf: bool = False,
     rtf_args: Optional[RTFArgs] = None,
     get_best_params: bool = False,
-    run_search_on_hpc:bool = False,
+    run_search_on_hpc: bool = False,
     unhashed_decoder_args: Optional = None,
+    run_rasr: bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -226,11 +253,21 @@ def tune_and_evaluate_helper(
             else:
                 search_name = "lm%.1f_prior%.1f" % (lm_weight, prior_scale)
             if not lm_weight == 0.0:
-                decoder_config.lm_weight = lm_weight
+                if not run_rasr:
+                    decoder_config.lm_weight = lm_weight
+                else:
+                    decoder_config.rasr_config_file.lib_rasr.lm.scale = lm_weight
             if not prior_scale == 0.0:
                 decoder_config.prior_scale = prior_scale
             # else:
             #    assert asr_model.prior_file is None, "Prior scale is set to 0"
+            if run_rasr:
+                recog_rasr_config_path = WriteRasrConfigJob(
+                    decoder_config.rasr_config_file, decoder_config.rasr_post_config
+                ).out_config
+                decoder_config.rasr_config_file = recog_rasr_config_path
+                decoder_config.rasr_post_config = None
+
             search_name = training_name + f"/search_{search_name}"
             search_jobs, wers = search(
                 search_name,
@@ -238,17 +275,19 @@ def tune_and_evaluate_helper(
                 asr_model=asr_model,
                 decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
-                unhashed_decoder_args={"extra_config": asdict(unhashed_decoder_args) if unhashed_decoder_args is not None else {}},
+                unhashed_decoder_args={
+                    "extra_config": asdict(unhashed_decoder_args) if unhashed_decoder_args is not None else {}
+                },
                 test_dataset_tuples=dev_dataset_tuples,
                 use_gpu=use_gpu,
                 import_memristor=import_memristor,
                 debug=debug,
+                run_rasr=run_rasr,
                 **default_returnn,
             )
             if run_search_on_hpc is True:
                 for job in search_jobs:
-                    if not os.path.exists(
-                        f"{job._sis_path()}/finished.run.1"):  # sync back was successful
+                    if not os.path.exists(f"{job._sis_path()}/finished.run.1"):  # sync back was successful
                         job.rqmt["cpu"] = 24
                         job.hold()
                         job.move_to_hpc = True
@@ -334,6 +373,7 @@ def tune_and_evaluate_helper(
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={"test": test_dataset_tuples["test"]},
                 use_gpu=use_gpu,
+                run_rasr=run_rasr,
                 **default_returnn,
             )
         results.update(wers)
@@ -345,17 +385,19 @@ def tune_and_evaluate_helper(
                 parameters=tune_parameters, values=tune_values, mode="minimize"
             )
             pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
-            run_rtf_test(
-                search_name=training_name + f"/rtf_amd",
-                base_decoder_config=base_decoder_config,
-                lm_scales=[pick_optimal_params_job.out_optimal_parameters[0]],
-                prior_scales=[pick_optimal_params_job.out_optimal_parameters[1]],
-                dev_dataset_tuples=dev_dataset_tuples,
-                device="amd",
-                asr_model=asr_model,
-                rtf_args=rtf_args,
-                extra_forward_config=extra_forward_config or None,
-            )
+            if rtf_args.include_cpu is True:
+                run_rtf_test(
+                    search_name=training_name + f"/rtf_amd",
+                    base_decoder_config=base_decoder_config,
+                    lm_scales=[pick_optimal_params_job.out_optimal_parameters[0]],
+                    prior_scales=[pick_optimal_params_job.out_optimal_parameters[1]],
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    device="amd",
+                    asr_model=asr_model,
+                    rtf_args=rtf_args,
+                    extra_forward_config=extra_forward_config or None,
+                    import_memristor=import_memristor,
+                )
             if rtf_args.include_gpu is True:
                 run_rtf_test(
                     search_name=training_name + f"/rtf_gpu",
@@ -368,6 +410,7 @@ def tune_and_evaluate_helper(
                     rtf_args=rtf_args,
                     use_gpu=True,
                     extra_forward_config=extra_forward_config or None,
+                    import_memristor=import_memristor,
                 )
     if get_best_params is True:
         pick_optimal_params_job = GetOptimalParametersAsVariableJob(
@@ -379,7 +422,7 @@ def tune_and_evaluate_helper(
 
 def run_rtf_test(
     search_name: str,
-    base_decoder_config: DecoderConfig,
+    base_decoder_config: Union[DecoderConfig, RasrDecoderConfig],
     lm_scales: List[float],
     prior_scales: List[float],
     dev_dataset_tuples: Dict[str, Any],
@@ -389,229 +432,343 @@ def run_rtf_test(
     extra_forward_config: Optional[dict[str, Any]] = None,
     use_gpu: bool = False,
     debug: bool = False,
-    rtf_args: Optional[RTFArgs] = None,
+    rtf_args: Optional[Union[RTFArgs, RasrRTFArgs]] = None,
 ):
     assert len(lm_scales) == len(prior_scales) == 1, "Currently only support for one scale"
-    if rtf_args.type == "greedy":
-        report = {}
-        from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_rescale_measure_v1 import DecoderConfig
-        decoder_module = rtf_args.decoder_module or "ctc.greedy_bpe_ctc_rescale_measure_v1"
-        for turn_off_quant in [False, "leave_as_is"]:
-            decoder_config = DecoderConfig(
-                returnn_vocab=base_decoder_config.returnn_vocab,
-                energy_device=device,
-                turn_off_quant=turn_off_quant,
+    if isinstance(rtf_args, RTFArgs):
+        if rtf_args.forward_args is not None:
+            extra_forward_config = {**(extra_forward_config or {}), **rtf_args.forward_args}
+        if rtf_args.type == "greedy":
+            report = {}
+            from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_rescale_measure_v1 import DecoderConfig
+
+            decoder_module = rtf_args.decoder_module or "ctc.greedy_bpe_ctc_rescale_measure_v1"
+            for turn_off_quant in [False, "leave_as_is"]:
+                decoder_config = DecoderConfig(
+                    returnn_vocab=base_decoder_config.returnn_vocab,
+                    energy_device=device,
+                    turn_off_quant=turn_off_quant,
+                )
+                s = "quant" if turn_off_quant == False else "full"
+                name = search_name + "/" + s
+                search_jobs: List[ReturnnForwardJobV2]
+                search_jobs, wers = search(
+                    name,
+                    forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
+                    asr_model=asr_model,
+                    decoder_module=decoder_module,
+                    decoder_args={"config": asdict(decoder_config)},
+                    test_dataset_tuples=dev_dataset_tuples,
+                    use_gpu=use_gpu,
+                    import_memristor=import_memristor,
+                    debug=debug,
+                    additional_outputs=["rtf", "energy"],
+                    **default_returnn,
+                )
+                for job in search_jobs:
+                    job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
+                    job.rqmt["cpu"] = 2
+                assert len(search_jobs) == 1, "Only one search job is supported for now"
+                tk.register_output(search_name + f"/wer_{s}", list(wers.values())[0])
+                report[s] = (
+                    search_jobs[0].out_files["rtf"],
+                    search_jobs[0].out_files["energy"],
+                    list(wers.values())[0],
+                )
+
+            tk.register_report(
+                f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-4]}_greedy",
+                partial(build_greedy_rtf_report, report),
             )
-            s = "quant" if turn_off_quant == False else "full"
-            name = search_name + "/" + s
-            search_jobs: List[ReturnnForwardJobV2]
-            search_jobs, wers = search(
-                name,
-                forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
-                asr_model=asr_model,
-                decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
-                test_dataset_tuples=dev_dataset_tuples,
-                use_gpu=use_gpu,
-                import_memristor=import_memristor,
-                debug=debug,
-                additional_outputs=["rtf", "energy"],
-                **default_returnn,
+        elif rtf_args.type == "nn_lm":
+            report = {}
+            from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v4_rescale_measure import DecoderConfig
+            from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v4_rescale_measure import DecoderExtraConfig
+            from ... import PACKAGE
+
+            decoder_module = rtf_args.decoder_module or "ctc.beam_search_bpe_ctc_v4_rescale_measure"
+            for turn_off_quant in [False, "leave_as_is"]:
+                decoder_config = DecoderConfig(
+                    **asdict(base_decoder_config),
+                    energy_device=device,
+                    turn_off_quant=turn_off_quant,
+                )
+                decoder_config.lm_weight = lm_scales[0]
+                decoder_config.prior_scale = prior_scales[0]
+                decoder_unhashed_config_v3 = DecoderExtraConfig(
+                    lm_package=PACKAGE,
+                )
+                s = "quant" if turn_off_quant == False else "full"
+                name = search_name + "/" + s
+                search_jobs: List[ReturnnForwardJobV2]
+                search_jobs, wers = search(
+                    name,
+                    forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
+                    asr_model=asr_model,
+                    decoder_module=decoder_module,
+                    decoder_args={"config": asdict(decoder_config)},
+                    unhashed_decoder_args={"extra_config": asdict(decoder_unhashed_config_v3)},
+                    test_dataset_tuples=dev_dataset_tuples,
+                    use_gpu=use_gpu,
+                    import_memristor=import_memristor,
+                    debug=debug,
+                    additional_outputs=["rtf", "energy"],
+                    **default_returnn,
+                )
+                for job in search_jobs:
+                    job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
+                    job.rqmt["cpu"] = 2
+                assert len(search_jobs) == 1, "Only one search job is supported for now"
+                tk.register_output(search_name + f"/wer_{s}", list(wers.values())[0])
+                report[s] = (
+                    search_jobs[0].out_files["rtf"],
+                    search_jobs[0].out_files["energy"],
+                    list(wers.values())[0],
+                )
+            tk.register_report(
+                f"reports/{search_name.split('/')[-4]}/{search_name.split('/')[-3]}/{search_name.split('/')[-1]}_nn_lm",
+                partial(build_nnlm_rtf_report, report),
             )
-            for job in search_jobs:
-                job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
-                job.rqmt["cpu"] = 2
-            assert len(search_jobs) == 1, "Only one search job is supported for now"
-            tk.register_output(
-                search_name + f"/wer_{s}", list(wers.values())[0]
-            )
-            report[s] = (
-                search_jobs[0].out_files["rtf"],
-                search_jobs[0].out_files["energy"],
-                list(wers.values())[0],
+        else:
+            decoder_module = rtf_args.decoder_module or "ctc.decoder.flashlight_ctc_v6_rescale_measure"
+            from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1_rescale_measure import DecoderConfig
+            from ...pytorch_networks.ctc.decoder.flashlight_ctc_v5_rescale_measure import (
+                DecoderConfig as QuantDecoderConfig,
             )
 
-        tk.register_report(
-            f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-4]}_greedy", partial(build_greedy_rtf_report, report)
-        )
-    elif rtf_args.type == "nn_lm":
-        report = {}
-        from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v4_rescale_measure import DecoderConfig
-        from ...pytorch_networks.ctc.decoder.beam_search_bpe_ctc_v4_rescale_measure import DecoderExtraConfig
-        from ... import PACKAGE
-        decoder_module = rtf_args.decoder_module or "ctc.beam_search_bpe_ctc_v4_rescale_measure"
-        for turn_off_quant in [False, "leave_as_is"]:
-            decoder_config = DecoderConfig(
-                **asdict(base_decoder_config),
-                energy_device=device,
-                turn_off_quant=turn_off_quant,
+            report = {}
+            for lm_weight in lm_scales:
+                for prior_scale in prior_scales:
+                    beam_sizes = rtf_args.beam_sizes or [base_decoder_config.beam_size]
+                    beam_size_tokens = rtf_args.beam_size_tokens or [base_decoder_config.beam_size_token]
+                    beam_thresholds = rtf_args.beam_thresholds or [base_decoder_config.beam_threshold]
+                    for beam_size in beam_sizes:
+                        for beam_size_token in beam_size_tokens:
+                            for beam_threshold in beam_thresholds:
+                                decoder_config = DecoderConfig(
+                                    beam_size=beam_size,
+                                    beam_size_token=beam_size_token,
+                                    beam_threshold=beam_threshold,
+                                    lm_weight=lm_weight,
+                                    prior_scale=prior_scale,
+                                    lexicon=base_decoder_config.lexicon,
+                                    returnn_vocab=base_decoder_config.returnn_vocab,
+                                    energy_device=device,
+                                    arpa_lm=base_decoder_config.arpa_lm,
+                                )
+                                name = search_name + f"/{beam_size}_{beam_size_token}_{beam_threshold}"
+                                search_jobs: List[ReturnnForwardJobV2]
+                                search_jobs, wers = search(
+                                    name,
+                                    forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
+                                    asr_model=asr_model,
+                                    decoder_module=decoder_module,
+                                    decoder_args={"config": asdict(decoder_config)},
+                                    test_dataset_tuples=dev_dataset_tuples,
+                                    use_gpu=use_gpu,
+                                    import_memristor=import_memristor,
+                                    debug=debug,
+                                    additional_outputs=["rtf", "energy"] if not "v8" in decoder_module else ["rtf", "energy", "energy_software"],
+                                    **default_returnn,
+                                )
+                                for job in search_jobs:
+                                    job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
+                                    job.rqmt["cpu"] = 2
+                                assert len(search_jobs) == 1, "Only one search job is supported for now"
+                                # tk.register_output(
+                                #     search_name + f"/rtf_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                #     search_jobs[0].out_files["rtf"],
+                                # )
+                                # tk.register_output(
+                                #     search_name + f"/energy_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                #     search_jobs[0].out_files["energy"],
+                                # )
+                                tk.register_output(
+                                    search_name + f"/wer_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                    list(wers.values())[0],
+                                )
+                                if "v8" in decoder_module:
+                                    report[f"{beam_size}_{beam_size_token}_{beam_threshold}"] = (
+                                        search_jobs[0].out_files["rtf"],
+                                        search_jobs[0].out_files["energy"],
+                                        list(wers.values())[0],
+                                        search_jobs[0].out_files["energy_software"],
+                                    )
+                                else:
+                                    report[f"{beam_size}_{beam_size_token}_{beam_threshold}"] = (
+                                        search_jobs[0].out_files["rtf"],
+                                        search_jobs[0].out_files["energy"],
+                                        list(wers.values())[0],
+                                    )
+            tk.register_report(
+                f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}", partial(build_rtf_report, report)
             )
-            decoder_config.lm_weight = lm_scales[0]
-            decoder_config.prior_scale = prior_scales[0]
-            decoder_unhashed_config_v3 = DecoderExtraConfig(
-                lm_package=PACKAGE,
+            if not rtf_args.run_quant:
+                return
+            report = {}
+            for lm_weight in lm_scales:
+                for prior_scale in prior_scales:
+                    beam_sizes = rtf_args.beam_sizes or [base_decoder_config.beam_size]
+                    beam_size_tokens = rtf_args.beam_size_tokens or [base_decoder_config.beam_size_token]
+                    beam_thresholds = rtf_args.beam_thresholds or [base_decoder_config.beam_threshold]
+                    for beam_size in beam_sizes:
+                        for beam_size_token in beam_size_tokens:
+                            for beam_threshold in beam_thresholds:
+                                decoder_config = QuantDecoderConfig(
+                                    beam_size=beam_size,
+                                    beam_size_token=beam_size_token,
+                                    beam_threshold=beam_threshold,
+                                    lm_weight=lm_weight,
+                                    prior_scale=prior_scale,
+                                    lexicon=base_decoder_config.lexicon,
+                                    returnn_vocab=base_decoder_config.returnn_vocab,
+                                    energy_device=device,
+                                    arpa_lm=base_decoder_config.arpa_lm,
+                                    turn_off_quant=False,
+                                )
+                                name = search_name + f"/{beam_size}_{beam_size_token}_{beam_threshold}_quantized"
+                                search_jobs: List[ReturnnForwardJobV2]
+                                search_jobs, wers = search(
+                                    name,
+                                    forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
+                                    asr_model=asr_model,
+                                    decoder_module=decoder_module,
+                                    decoder_args={"config": asdict(decoder_config)},
+                                    test_dataset_tuples=dev_dataset_tuples,
+                                    use_gpu=use_gpu,
+                                    import_memristor=import_memristor,
+                                    debug=debug,
+                                    additional_outputs=["rtf", "energy"] if not "v8" in decoder_module else ["rtf", "energy", "energy_software"],
+                                    **default_returnn,
+                                )
+                                for job in search_jobs:
+                                    job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
+                                    job.rqmt["cpu"] = 2
+                                assert len(search_jobs) == 1, "Only one search job is supported for now"
+                                # tk.register_output(
+                                #     search_name + f"/rtf_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                #     search_jobs[0].out_files["rtf"],
+                                #     )
+                                # tk.register_output(
+                                #     search_name + f"/energy_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                #     search_jobs[0].out_files["energy"],
+                                #     )
+                                tk.register_output(
+                                    search_name + f"/wer_{beam_size}_{beam_size_token}_{beam_threshold}_quant",
+                                    list(wers.values())[0],
+                                )
+                                if "v8" in decoder_module:
+                                    report[f"{beam_size}_{beam_size_token}_{beam_threshold}"] = (
+                                        search_jobs[0].out_files["rtf"],
+                                        search_jobs[0].out_files["energy"],
+                                        list(wers.values())[0],
+                                        search_jobs[0].out_files["energy_software"],
+                                    )
+                                else:
+                                    report[f"{beam_size}_{beam_size_token}_{beam_threshold}"] = (
+                                    search_jobs[0].out_files["rtf"],
+                                    search_jobs[0].out_files["energy"],
+                                    list(wers.values())[0],
+                                    )
+            tk.register_report(
+                f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}_quantized",
+                partial(build_rtf_report, report),
             )
-            s = "quant" if turn_off_quant == False else "full"
-            name = search_name + "/" + s
-            search_jobs: List[ReturnnForwardJobV2]
-            search_jobs, wers = search(
-                name,
-                forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
-                asr_model=asr_model,
-                decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
-                unhashed_decoder_args={"extra_config": asdict(decoder_unhashed_config_v3)},
-                test_dataset_tuples=dev_dataset_tuples,
-                use_gpu=use_gpu,
-                import_memristor=import_memristor,
-                debug=debug,
-                additional_outputs=["rtf", "energy"],
-                **default_returnn,
-            )
-            for job in search_jobs:
-                job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
-                job.rqmt["cpu"] = 2
-            assert len(search_jobs) == 1, "Only one search job is supported for now"
-            tk.register_output(
-                search_name + f"/wer_{s}", list(wers.values())[0]
-            )
-            report[s] = (
-                search_jobs[0].out_files["rtf"],
-                search_jobs[0].out_files["energy"],
-                list(wers.values())[0],
-            )
-        tk.register_report(
-            f"reports/{search_name.split('/')[-3]}/{search_name.split('/')[-1]}_nn_lm",
-            partial(build_nnlm_rtf_report, report)
-        )
     else:
-        decoder_module = rtf_args.decoder_module or "ctc.decoder.flashlight_ctc_v5_rescale_measure"
-        from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1_rescale_measure import DecoderConfig
-        from ...pytorch_networks.ctc.decoder.flashlight_ctc_v5_rescale_measure import \
-            DecoderConfig as QuantDecoderConfig
-        report = {}
-        for lm_weight in lm_scales:
-            for prior_scale in prior_scales:
-                beam_sizes = rtf_args.beam_sizes or [base_decoder_config.beam_size]
-                beam_size_tokens = rtf_args.beam_size_tokens or [base_decoder_config.beam_size_token]
-                beam_thresholds = rtf_args.beam_thresholds or [base_decoder_config.beam_threshold]
-                for beam_size in beam_sizes:
-                    for beam_size_token in beam_size_tokens:
-                        for beam_threshold in beam_thresholds:
-                            decoder_config = DecoderConfig(
-                                beam_size=beam_size,
-                                beam_size_token=beam_size_token,
-                                beam_threshold=beam_threshold,
-                                lm_weight=lm_weight,
-                                prior_scale=prior_scale,
-                                lexicon=base_decoder_config.lexicon,
-                                returnn_vocab=base_decoder_config.returnn_vocab,
-                                energy_device=device,
-                                arpa_lm=base_decoder_config.arpa_lm,
-                            )
-                            name = search_name + f"/{beam_size}_{beam_size_token}_{beam_threshold}"
-                            search_jobs: List[ReturnnForwardJobV2]
-                            search_jobs, wers = search(
-                                name,
-                                forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
-                                asr_model=asr_model,
-                                decoder_module=decoder_module,
-                                decoder_args={"config": asdict(decoder_config)},
-                                test_dataset_tuples=dev_dataset_tuples,
-                                use_gpu=use_gpu,
-                                import_memristor=import_memristor,
-                                debug=debug,
-                                additional_outputs=["rtf", "energy"],
-                                **default_returnn,
-                            )
-                            for job in search_jobs:
-                                job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
-                                job.rqmt["cpu"] = 2
-                            assert len(search_jobs) == 1, "Only one search job is supported for now"
-                            # tk.register_output(
-                            #     search_name + f"/rtf_{beam_size}_{beam_size_token}_{beam_threshold}",
-                            #     search_jobs[0].out_files["rtf"],
-                            # )
-                            # tk.register_output(
-                            #     search_name + f"/energy_{beam_size}_{beam_size_token}_{beam_threshold}",
-                            #     search_jobs[0].out_files["energy"],
-                            # )
-                            tk.register_output(
-                                search_name + f"/wer_{beam_size}_{beam_size_token}_{beam_threshold}", list(wers.values())[0]
-                            )
-                            report[f"{beam_size}_{beam_size_token}_{beam_threshold}"] = (
-                                search_jobs[0].out_files["rtf"],
-                                search_jobs[0].out_files["energy"],
-                                list(wers.values())[0],
-                            )
-        tk.register_report(
-            f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}", partial(build_rtf_report, report)
-        )
-        report = {}
-        for lm_weight in lm_scales:
-            for prior_scale in prior_scales:
-                beam_sizes = rtf_args.beam_sizes or [base_decoder_config.beam_size]
-                beam_size_tokens = rtf_args.beam_size_tokens or [base_decoder_config.beam_size_token]
-                beam_thresholds = rtf_args.beam_thresholds or [base_decoder_config.beam_threshold]
-                for beam_size in beam_sizes:
-                    for beam_size_token in beam_size_tokens:
-                        for beam_threshold in beam_thresholds:
-                            decoder_config = QuantDecoderConfig(
-                                beam_size=beam_size,
-                                beam_size_token=beam_size_token,
-                                beam_threshold=beam_threshold,
-                                lm_weight=lm_weight,
-                                prior_scale=prior_scale,
-                                lexicon=base_decoder_config.lexicon,
-                                returnn_vocab=base_decoder_config.returnn_vocab,
-                                energy_device=device,
-                                arpa_lm=base_decoder_config.arpa_lm,
-                                turn_off_quant=False,
-                            )
-                            name = search_name + f"/{beam_size}_{beam_size_token}_{beam_threshold}_quantized"
-                            search_jobs: List[ReturnnForwardJobV2]
-                            search_jobs, wers = search(
-                                name,
-                                forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
-                                asr_model=asr_model,
-                                decoder_module=decoder_module,
-                                decoder_args={"config": asdict(decoder_config)},
-                                test_dataset_tuples=dev_dataset_tuples,
-                                use_gpu=use_gpu,
-                                import_memristor=import_memristor,
-                                debug=debug,
-                                additional_outputs=["rtf", "energy"],
-                                **default_returnn,
-                            )
-                            for job in search_jobs:
-                                job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
-                                job.rqmt["cpu"] = 2
-                            assert len(search_jobs) == 1, "Only one search job is supported for now"
-                            # tk.register_output(
-                            #     search_name + f"/rtf_{beam_size}_{beam_size_token}_{beam_threshold}",
-                            #     search_jobs[0].out_files["rtf"],
-                            #     )
-                            # tk.register_output(
-                            #     search_name + f"/energy_{beam_size}_{beam_size_token}_{beam_threshold}",
-                            #     search_jobs[0].out_files["energy"],
-                            #     )
-                            tk.register_output(
-                                search_name + f"/wer_{beam_size}_{beam_size_token}_{beam_threshold}_quant", list(wers.values())[0]
-                            )
-                            report[f"{beam_size}_{beam_size_token}_{beam_threshold}"] = (
-                                search_jobs[0].out_files["rtf"],
-                                search_jobs[0].out_files["energy"],
-                                list(wers.values())[0],
-                            )
-        tk.register_report(
-            f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}_quantized", partial(build_rtf_report, report)
-        )
+        if rtf_args.type == "greedy":
+            raise NotImplementedError
+        elif rtf_args.type == "nn_lm":
+            raise NotImplementedError
+        else:
+            decoder_module = rtf_args.decoder_module or "ctc.decoder.rasr_ctc_v1_rescale_measure_v1"
+            from ...pytorch_networks.ctc.decoder.rasr_ctc_v1_rescale_measure_v1 import DecoderConfig
+            quant_ls = ["leave_as_is"]
+            if rtf_args.run_quant == True:
+                quant_ls.append(False)
+            if rtf_args.run_quant == "torch":
+                quant_ls.append("torch")
+            for turn_off_quant in quant_ls:
+                if turn_off_quant == False or turn_off_quant == "torch":
+                    s = "/quant"
+                else:
+                    s = "/full"
+                report = {}
+                for lm_weight in lm_scales:
+                    for prior_scale in prior_scales:
+                        max_beam_sizes = rtf_args.max_beam_size or [
+                            base_decoder_config.rasr_config_file.lib_rasr.search_algorithm.max_beam_size
+                        ]
+                        score_thresholds = rtf_args.score_threshold or [
+                            base_decoder_config.rasr_config_file.lib_rasr.search_algorithm.score_threshold
+                        ]
+                        for max_beam_size in max_beam_sizes:
+                            for score_threshold in score_thresholds:
+                                from ...pytorch_networks.ctc.decoder.rasr_ctc_v1_rescale_measure_v1 import DecoderConfig
+                                decoder_config = copy.deepcopy(base_decoder_config)
+                                decoder_config.rasr_config_file.lib_rasr.search_algorithm.max_beam_size = max_beam_size
+                                decoder_config.rasr_config_file.lib_rasr.search_algorithm.score_threshold = (
+                                    score_threshold
+                                )
+                                decoder_config.rasr_config_file.lib_rasr.lm.scale = lm_weight
+                                recog_rasr_config_path = WriteRasrConfigJob(
+                                    decoder_config.rasr_config_file, decoder_config.rasr_post_config
+                                ).out_config
+                                decoder_config = DecoderConfig(
+                                    energy_device=device,
+                                    rasr_config_file=recog_rasr_config_path,
+                                    rasr_post_config=None,
+                                    blank_log_penalty=decoder_config.blank_log_penalty,
+                                    prior_scale=prior_scale,
+                                    prior_file=decoder_config.prior_file,
+                                    turn_off_quant=turn_off_quant,
+                                )
+                                name = search_name + s + f"/{max_beam_size}_{score_threshold}"
+                                search_jobs: List[ReturnnForwardJobV2]
+                                search_jobs, wers = search(
+                                    name,
+                                    forward_config=extra_forward_config or {"num_workers_per_gpu": 0},
+                                    asr_model=asr_model,
+                                    decoder_module=decoder_module,
+                                    decoder_args={"config": asdict(decoder_config)},
+                                    test_dataset_tuples=dev_dataset_tuples,
+                                    use_gpu=use_gpu,
+                                    import_memristor=import_memristor,
+                                    debug=debug,
+                                    additional_outputs=["rtf", "energy"],
+                                    run_rasr=True,
+                                    **default_returnn,
+                                )
+                                for job in search_jobs:
+                                    job.rqmt["sbatch_args"] = f"-p rescale_{device} -A rescale_speed"
+                                    job.rqmt["cpu"] = 2
+                                assert len(search_jobs) == 1, "Only one search job is supported for now"
+                                # tk.register_output(
+                                #     search_name + f"/rtf_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                #     search_jobs[0].out_files["rtf"],
+                                # )
+                                # tk.register_output(
+                                #     search_name + f"/energy_{beam_size}_{beam_size_token}_{beam_threshold}",
+                                #     search_jobs[0].out_files["energy"],
+                                # )
+                                tk.register_output(
+                                    search_name + f"/wer_{max_beam_size}_{score_threshold}" + s, list(wers.values())[0]
+                                )
+                                report[f"{max_beam_size}_{score_threshold}"] = (
+                                    search_jobs[0].out_files["rtf"],
+                                    search_jobs[0].out_files["energy"],
+                                    list(wers.values())[0],
+                                )
+                tk.register_report(
+                    f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}{s}",
+                    partial(build_rasr_rtf_report, report),
+                )
 
 
 from i6_core.util import instanciate_delayed
 
 
 def build_report(report: Dict):
+    report = copy.deepcopy(report)
     line = []
     best_dc = {}
     for exp, dic in report.items():
@@ -708,6 +865,7 @@ def build_distill_report(report: Dict):
 
 
 def build_hubert_report(report: Dict):
+    report = copy.deepcopy(report)
     best_dc = {}
     for exp, dic in report.items():
         instanciate_delayed(dic)
@@ -728,6 +886,7 @@ def build_hubert_report(report: Dict):
 
 
 def build_base_report(report: Dict):
+    report = copy.deepcopy(report)
     best_dc = {}
     for exp, dic in report.items():
         instanciate_delayed(dic)
@@ -750,14 +909,13 @@ def build_base_report(report: Dict):
         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
     return "\n".join(line)
 
+
 def build_greedy_rtf_report(report: Dict):
     report = copy.deepcopy(report)
     instanciate_delayed(report)
     line = []
 
-    line.append("Name".ljust(7)        + "WER".ljust(7)
-        + "Energy".ljust(12)
-        + "AM RTF".ljust(7))
+    line.append("Name".ljust(7) + "WER".ljust(7) + "AM RTF".ljust(12) + "Energy".ljust(12))
 
     for res in report:
         if os.path.exists(report[res][0]):
@@ -774,12 +932,13 @@ def build_greedy_rtf_report(report: Dict):
         line.append(
             f"{res}".ljust(7)
             + f"{wer}".ljust(7)
+            + f"{am_rtf} ".ljust(12)
             + f"{float(energy):.2f}".ljust(12)
-            + f"{am_rtf} ".ljust(7)
             + f"{float(wer):.1f}".ljust(7)
             + f"{float(wer):.2f}".ljust(7)
         )
     return "\n".join(line)
+
 
 def build_nnlm_rtf_report(report: Dict):
 
@@ -791,9 +950,9 @@ def build_nnlm_rtf_report(report: Dict):
         "Name".ljust(7)
         + "WER".ljust(7)
         + "Search RTF".ljust(12)
+        + "AM RTF".ljust(12)
+        + "LM RTF".ljust(12)
         + "Energy".ljust(12)
-        + "AM RTF".ljust(7)
-        + "LM RTF".ljust(7)
         + "Total".ljust(7)
     )
     for res in report:
@@ -818,14 +977,15 @@ def build_nnlm_rtf_report(report: Dict):
             f"{res}".ljust(7)
             + f"{wer}".ljust(7)
             + f"{search_rtf} ".ljust(12)
+            + f"{am_rtf} ".ljust(12)
+            + f"{lm_rtf} ".ljust(12)
+            + f"{total_rtf} ".ljust(12)
             + f"{float(energy):.2f}".ljust(12)
-            + f"{am_rtf} ".ljust(7)
-            + f"{lm_rtf} ".ljust(7)
-            + f"{total_rtf} ".ljust(7)
             + f"{float(wer):.1f}".ljust(7)
             + f"{float(wer):.2f}".ljust(7)
         )
     return "\n".join(line)
+
 
 def build_rtf_report(report: Dict):
     beam_sizes = set()
@@ -843,15 +1003,17 @@ def build_rtf_report(report: Dict):
     line = []
     min_line = ""
     min_score = 10000
+
     line.append(
         "Beam".ljust(7)
         + f"Token".ljust(7)
         + "Thresh".ljust(7)
         + "WER".ljust(7)
         + "Search RTF".ljust(12)
+        + "AM RTF".ljust(12)
+        + "Total".ljust(12)
         + "Energy".ljust(12)
-        + "AM RTF".ljust(7)
-        + "Total".ljust(7)
+        + "Energy Software".ljust(12)
     )
     for beam in sorted(beam_sizes):
         for token in sorted(beam_size_tokens):
@@ -872,15 +1034,23 @@ def build_rtf_report(report: Dict):
                     energy = "0"
                 wer = report[f"{beam}_{token}_{thresh}"][2] or "0"
 
+                if len(report[f"{beam}_{token}_{thresh}"]) == 4 and os.path.exists(report[f"{beam}_{token}_{thresh}"][3]): # then this is v8 also including the software
+                    import json
+                    d = json.load(open(report[f"{beam}_{token}_{thresh}"][3], "rt"))
+                    energy_soft = float(d['cpu-power']['measurements']['run']) / 3600
+                else:
+                    energy_soft = "0"
+
                 line.append(
                     f"{beam}".ljust(7)
                     + f"{token}".ljust(7)
                     + f"{thresh}".ljust(7)
                     + f"{wer}".ljust(7)
                     + f"{search_rtf} ".ljust(12)
+                    + f"{am_rtf} ".ljust(12)
+                    + f"{total_rtf} ".ljust(12)
                     + f"{float(energy):.2f}".ljust(12)
-                    + f"{am_rtf} ".ljust(7)
-                    + f"{total_rtf} ".ljust(7)
+                    + f"{float(energy_soft):.2f}".ljust(12)
                     + f"{float(wer):.1f}".ljust(7)
                     + f"{float(wer):.2f}".ljust(7)
                 )
@@ -891,13 +1061,85 @@ def build_rtf_report(report: Dict):
                         + f"{thresh}".ljust(7)
                         + f"{wer}".ljust(7)
                         + f"{search_rtf} ".ljust(12)
+                        + f"{am_rtf} ".ljust(12)
+                        + f"{total_rtf} ".ljust(12)
                         + f"{float(energy):.2f}".ljust(12)
-                        + f"{am_rtf} ".ljust(7)
-                        + f"{total_rtf} ".ljust(7)
+                        + f"{float(energy_soft):.2f}".ljust(12)
                         + f"{float(wer):.1f}".ljust(7)
                         + f"{float(wer):.2f}".ljust(7)
                     )
                     min_score = wer
+
+    line.insert(0, min_line)
+    line.insert(1, " ")
+    return "\n".join(line)
+
+
+def build_rasr_rtf_report(report: Dict):
+    max_beam_sizes = set()
+    score_thresholds = set()
+
+    report = copy.deepcopy(report)
+    instanciate_delayed(report)
+    for exp in report:
+        beam, thresh = exp.split("_")
+        max_beam_sizes.add(int(beam))
+        score_thresholds.add(float(thresh))
+
+    line = []
+    min_line = ""
+    min_score = 10000
+    line.append(
+        "Beam".ljust(7)
+        + "Thresh".ljust(7)
+        + "WER".ljust(7)
+        + "Search RTF".ljust(12)
+        + "AM RTF".ljust(12)
+        + "Total".ljust(12)
+        + "Energy".ljust(12)
+    )
+    for beam in sorted(max_beam_sizes):
+        for thresh in sorted(score_thresholds):
+            if os.path.exists(report[f"{beam}_{thresh}"][0]):
+                rtf = open(report[f"{beam}_{thresh}"][0], "rt").read()
+                search_rtf = rtf.split(",")[2].split(":")[1].split("\n")[0].strip()
+                am_rtf = rtf.split(",")[1].split(":")[1].split("\n")[0].strip()
+                total_rtf = rtf.split(",")[4].split(":")[1].split("\n")[0].strip()
+            else:
+                search_rtf = "None"
+                am_rtf = "None"
+                total_rtf = "None"
+
+            if os.path.exists(report[f"{beam}_{thresh}"][1]):
+                energy = float(open(report[f"{beam}_{thresh}"][1], "rt").read()) / 3600
+            else:
+                energy = "0"
+            wer = report[f"{beam}_{thresh}"][2] or "0"
+
+            line.append(
+                f"{beam}".ljust(7)
+                + f"{thresh}".ljust(7)
+                + f"{wer}".ljust(7)
+                + f"{search_rtf} ".ljust(12)
+                + f"{am_rtf} ".ljust(12)
+                + f"{total_rtf} ".ljust(12)
+                + f"{float(energy):.2f}".ljust(12)
+                + f"{float(wer):.1f}".ljust(7)
+                + f"{float(wer):.2f}".ljust(7)
+            )
+            if isinstance(wer, float) and wer < min_score:
+                min_line = (
+                    f"{beam}".ljust(7)
+                    + f"{thresh}".ljust(7)
+                    + f"{wer}".ljust(7)
+                    + f"{search_rtf} ".ljust(12)
+                    + f"{am_rtf} ".ljust(12)
+                    + f"{total_rtf} ".ljust(12)
+                    + f"{float(energy):.2f}".ljust(12)
+                    + f"{float(wer):.1f}".ljust(7)
+                    + f"{float(wer):.2f}".ljust(7)
+                )
+                min_score = wer
 
     line.insert(0, min_line)
     line.insert(1, " ")
@@ -1053,10 +1295,11 @@ def build_hubert_distill_report(report: Dict):
     return "\n".join(line)
 
 
-def build_qat_report(report: Dict):
+def build_qat_report(report: Dict, print_larger_params: bool = True):
     import numpy as np
-    exps = ["baseline", "correction", "noise", "cycle", "smaller", "greedy", "correction_baseline", "seed"]
 
+    exps = ["baseline", "correction", "noise", "cycle", "smaller", "greedy", "correction_baseline", "quant_out", "seed"]
+    report = copy.deepcopy(report)
     best_dc = {}
     bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
     for exp, dic in report.items():
@@ -1109,36 +1352,166 @@ def build_qat_report(report: Dict):
                     pref = "_".join(exp.split("_")[:3])
                     w_bits.add(exp.split("_")[3])
                     a_bits.add(exp.split("_")[4])
-                    starts.add(exp.split("_")[5][len("noise"):])
+                    starts.add(exp.split("_")[5][len("noise") :])
                     devs.add(exp.split("_")[6])
-                    dropouts.add(exp.split("_")[7].split(" ")[0][len("drop"):])
+                    dropouts.add(exp.split("_")[7].split(" ")[0][len("drop") :])
             if all(len(x) == 0 for x in [w_bits, a_bits, starts, devs, dropouts]):
                 continue
             line.append(x)
-            line.append("Weight B".ljust(10) + "Start".ljust(10) + "Dropout".ljust(10) + "Deviation".ljust(10) + "No Noise".ljust(10) + "Noise".ljust(10) + "Memristor".ljust(10))
+            line.append(
+                "Weight B".ljust(10)
+                + "Start".ljust(10)
+                + "Dropout".ljust(10)
+                + "Deviation".ljust(10)
+                + "No Noise".ljust(10)
+                + "Noise".ljust(10)
+                + "Memristor".ljust(10)
+            )
             for w_bit in sorted(w_bits, reverse=True):
                 for a_bit in sorted(a_bits, reverse=True):
                     for start in sorted(starts):
                         for dev in sorted(devs):
                             for dropout in sorted(dropouts):
-                                if pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" without_noise" in best_dc:
-                                    no_noise = best_dc[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" without_noise"]
-                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" without_noise"]
+                                if (
+                                    pref
+                                    + "_"
+                                    + w_bit
+                                    + "_"
+                                    + a_bit
+                                    + "_noise"
+                                    + start
+                                    + "_"
+                                    + dev
+                                    + "_drop"
+                                    + dropout
+                                    + " without_noise"
+                                    in best_dc
+                                ):
+                                    no_noise = best_dc[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_noise"
+                                        + start
+                                        + "_"
+                                        + dev
+                                        + "_drop"
+                                        + dropout
+                                        + " without_noise"
+                                    ]
+                                    del tmp[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_noise"
+                                        + start
+                                        + "_"
+                                        + dev
+                                        + "_drop"
+                                        + dropout
+                                        + " without_noise"
+                                    ]
                                 else:
                                     no_noise = "NaN"
-                                if pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" with_noise" in best_dc:
-                                    noise = best_dc[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" with_noise"]
-                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" with_noise"]
+                                if (
+                                    pref
+                                    + "_"
+                                    + w_bit
+                                    + "_"
+                                    + a_bit
+                                    + "_noise"
+                                    + start
+                                    + "_"
+                                    + dev
+                                    + "_drop"
+                                    + dropout
+                                    + " with_noise"
+                                    in best_dc
+                                ):
+                                    noise = best_dc[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_noise"
+                                        + start
+                                        + "_"
+                                        + dev
+                                        + "_drop"
+                                        + dropout
+                                        + " with_noise"
+                                    ]
+                                    del tmp[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_noise"
+                                        + start
+                                        + "_"
+                                        + dev
+                                        + "_drop"
+                                        + dropout
+                                        + " with_noise"
+                                    ]
                                 else:
                                     noise = "NaN"
-                                if pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" cycle_combined" in best_dc:
-                                    cycle = best_dc[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" cycle_combined"]
-                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_noise"+start+"_"+dev+"_drop"+dropout+" cycle_combined"]
+                                if (
+                                    pref
+                                    + "_"
+                                    + w_bit
+                                    + "_"
+                                    + a_bit
+                                    + "_noise"
+                                    + start
+                                    + "_"
+                                    + dev
+                                    + "_drop"
+                                    + dropout
+                                    + " cycle_combined"
+                                    in best_dc
+                                ):
+                                    cycle = best_dc[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_noise"
+                                        + start
+                                        + "_"
+                                        + dev
+                                        + "_drop"
+                                        + dropout
+                                        + " cycle_combined"
+                                    ]
+                                    del tmp[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_noise"
+                                        + start
+                                        + "_"
+                                        + dev
+                                        + "_drop"
+                                        + dropout
+                                        + " cycle_combined"
+                                    ]
                                 else:
                                     cycle = "NaN"
                                 if all(x == "NaN" for x in [no_noise, noise, cycle]):
                                     continue
-                                line.append(f"{str(w_bit).ljust(10)}{str(start).ljust(10)}{str(dropout).ljust(10)}{str(dev).ljust(10)}{no_noise[0].ljust(10)}{noise[0].ljust(10)}{cycle[0].ljust(10)}{' '.join(cycle[1].split(' ')[1:]).ljust(25)} {' ' if len(cycle[1]) <= 1 else cycle[1].split('/')[-2]}")
+                                line.append(
+                                    f"{str(w_bit).ljust(10)}{str(start).ljust(10)}{str(dropout).ljust(10)}{str(dev).ljust(10)}{no_noise[0].ljust(10)}{noise[0].ljust(10)}{cycle[0].ljust(10)}{' '.join(cycle[1].split(' ')[1:]).ljust(25)} {' ' if len(cycle[1]) <= 1 else cycle[1].split('/')[-2]}"
+                                )
             line.append("")
         elif x == "correction":
             w_bits = set()
@@ -1152,39 +1525,105 @@ def build_qat_report(report: Dict):
                     w_bits.add(exp.split("_")[3])
                     a_bits.add(exp.split("_")[4])
                     cycles.add(exp.split("_")[6])
-                    devs.add(exp.split("_")[8][:-len(" cycle")])
+                    devs.add(exp.split("_")[8][: -len(" cycle")])
                     tests.add(exp.split("_")[7])
             if all(len(x) == 0 for x in [w_bits, a_bits, cycles, devs, tests]):
                 continue
             line.append(x)
-            line.append("Weight B".ljust(10) + "Cycles".ljust(10) + "Test Val".ljust(10) + "Deviation".ljust(10) + "Correction".ljust(10))
+            line.append(
+                "Weight B".ljust(10)
+                + "Cycles".ljust(10)
+                + "Test Val".ljust(10)
+                + "Deviation".ljust(10)
+                + "Correction".ljust(10)
+            )
             for w_bit in sorted(w_bits, reverse=True):
                 for a_bit in sorted(a_bits, reverse=True):
-                    line.append(f"{w_bit.ljust(10)}Baseline: {best_dc[pref + '_' + w_bit + '_' + a_bit + '_correction_baseline'][0]}")
                     line.append(
-                        f"{w_bit.ljust(10)}No Correction:      {best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][0]}                 {' '.join(best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split(' ')[1:])} {best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split('/')[-2] if len(best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split('/')) > 1 else ''}")
-                    del tmp[pref + '_' + w_bit + '_' + a_bit + '_correction_baseline']
-                    del tmp[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined']
+                        f"{w_bit.ljust(10)}Baseline: {best_dc[pref + '_' + w_bit + '_' + a_bit + '_correction_baseline'][0]}"
+                    )
+                    line.append(
+                        f"{w_bit.ljust(10)}No Correction:      {best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][0]}                 {' '.join(best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split(' ')[1:])} {best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split('/')[-2] if len(best_dc[pref + '_' + w_bit + '_' + a_bit + '_no_correction cycle_combined'][1].split('/')) > 1 else ''}"
+                    )
+                    del tmp[pref + "_" + w_bit + "_" + a_bit + "_correction_baseline"]
+                    del tmp[pref + "_" + w_bit + "_" + a_bit + "_no_correction cycle_combined"]
                     for test_v in sorted(tests):
                         for dev in sorted(devs):
                             for cycle in sorted(cycles):
-                                if pref+"_"+w_bit+"_"+a_bit+"_correction_"+cycle+"_"+test_v+"_"+dev+" cycle_combined" in best_dc:
-                                    mem = best_dc[pref+"_"+w_bit+"_"+a_bit+"_correction_"+cycle+"_"+test_v+"_"+dev+" cycle_combined"]
-                                    del tmp[pref+"_"+w_bit+"_"+a_bit+"_correction_"+cycle+"_"+test_v+"_"+dev+" cycle_combined"]
+                                if (
+                                    pref
+                                    + "_"
+                                    + w_bit
+                                    + "_"
+                                    + a_bit
+                                    + "_correction_"
+                                    + cycle
+                                    + "_"
+                                    + test_v
+                                    + "_"
+                                    + dev
+                                    + " cycle_combined"
+                                    in best_dc
+                                ):
+                                    mem = best_dc[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_correction_"
+                                        + cycle
+                                        + "_"
+                                        + test_v
+                                        + "_"
+                                        + dev
+                                        + " cycle_combined"
+                                    ]
+                                    del tmp[
+                                        pref
+                                        + "_"
+                                        + w_bit
+                                        + "_"
+                                        + a_bit
+                                        + "_correction_"
+                                        + cycle
+                                        + "_"
+                                        + test_v
+                                        + "_"
+                                        + dev
+                                        + " cycle_combined"
+                                    ]
                                 else:
                                     continue
-                                line.append(f"{str(w_bit).ljust(10)}{str(cycle).ljust(10)}{str(test_v).ljust(10)}{str(dev).ljust(10)}{mem[0].ljust(10)}{' '.join(mem[1].split(' ')[1:])} {' ' if len(mem[1]) <= 1 else mem[1].split('/')[-2].ljust(25)}")
+                                line.append(
+                                    f"{str(w_bit).ljust(10)}{str(cycle).ljust(10)}{str(test_v).ljust(10)}{str(dev).ljust(10)}{mem[0].ljust(10)}{' '.join(mem[1].split(' ')[1:])} {' ' if len(mem[1]) <= 1 else mem[1].split('/')[-2].ljust(25)}"
+                                )
             line.append("")
         else:
             for exp, value in best_dc.items():
                 if x in exp:
                     if x == "baseline" and "correction_baseline" in exp:
                         continue
+                    if any(y in exp for y in ["larger_search", "largerer_search"]):
+                        continue
                     if first is True:
                         line.append(x)
                         line.append("")
                         first = False
-                    line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[7:8] + value[1].split('/')[9:])}")
+                    ln = f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[7:])}"
+                    wers = [value[0]]
+                    if exp + "_larger_search" in best_dc:
+                        ln += f";  {best_dc[exp + '_larger_search'][0]} {' '.join(best_dc[exp + '_larger_search'][1].split('/')[7:9] if print_larger_params else '')}"
+                        wers.append(best_dc[exp + "_larger_search"][0])
+                        del tmp[exp + "_larger_search"]
+                    if exp + "_largerer_search" in best_dc:
+                        if not exp + "_larger_search" in best_dc:
+                            ln += "None     "
+                        ln += f";  {best_dc[exp + '_largerer_search'][0]} {' '.join(best_dc[exp + '_largerer_search'][1].split('/')[7:9]) if print_larger_params else ''}"
+                        wers.append(best_dc[exp + "_largerer_search"][0])
+                        del tmp[exp + "_largerer_search"]
+                    ln += f"  {', '.join(wers)}"
+                    line.append(ln)
                     del tmp[exp]
         if first is False:
             line.append("")

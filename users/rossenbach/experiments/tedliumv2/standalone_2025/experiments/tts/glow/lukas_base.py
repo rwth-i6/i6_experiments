@@ -13,11 +13,11 @@ from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterba
 
 from ....data.tts.aligner import build_training_dataset
 from ....config import get_forward_config
-from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
+from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2, extract_durations
 from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
 
 from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ....storage import vocoders
+from ....storage import vocoders, add_duration
 
 
 def run_flow_tts():
@@ -135,6 +135,28 @@ def run_flow_tts():
                                                          merge_strategy=MergeStrategy.FLAT
                                                          )
         return realpath_corpus.out_merged_corpus
+    
+    def local_extract_durations(name, tts_model: TTSModel, debug=False):
+        forward_config = get_forward_config(
+            network_module=tts_model.network_module,
+            net_args=tts_model.net_args,
+            decoder="glow_tts.duration_extraction_decoder",
+            decoder_args={},
+            config={
+                "forward": training_datasets.joint.as_returnn_opts()
+            },
+            debug=debug,
+        )
+        durations_hdf = extract_durations(
+            prefix_name=prefix + name,
+            returnn_config=forward_config,
+            checkpoint=tts_model.checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        tk.register_output(prefix + name + "/durations.hdf", durations_hdf)
+        add_duration(name, durations_hdf)
+        return durations_hdf
 
     log_mel_datastream = get_tts_log_mel_datastream(silence_preprocessed=False)
 
@@ -275,3 +297,51 @@ def run_flow_tts():
     train_job.rqmt["gpu_mem"] = 48
     tts_model = prepare_tts_model(train_name, train_job, train_args, get_specific_checkpoint=400)
     eval_exp("base", tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options)
+
+    local_extract_durations(train_name, tts_model=tts_model)
+
+    for noise in [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+        decoder_options_local = copy.deepcopy(decoder_options_synthetic)
+        decoder_options_synthetic["glowtts_noise_scale"] = noise
+        eval_exp("noise_test/noise_%.2f" % noise, tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options_local)
+
+
+
+    # test generation of Tedlium LM data
+
+
+    # prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tedliumv2_lm_data"
+    # from ....data.tts.generation import create_data_lexicon, bliss_from_text
+    # from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+    # lm_data = get_librispeech_normalized_lm_data()
+    # # lm_data_bliss =
+
+    # # misuse shuffle and split segments
+    # from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
+    # shuffle_job = ShuffleAndSplitSegmentsJob(
+    #     segment_file=lm_data,
+    #     split={"part%i" % (i + 1): 1.0 / 750.0 for i in range(750)}
+    # )
+    # shuffle_job.add_alias(prefix + "/shuffle_job")
+
+    # # Full lexicon for albert
+    # lm_data_bliss = bliss_from_text(prefix=prefix, name="librispeech-full", lm_text=lm_data)
+    # lm_data_lexicon = create_data_lexicon(prefix=prefix + "/librispeech-full_lexicon", lexicon_bliss=lm_data_bliss)
+    # l = Lexicon()
+    # l.add_lemma(
+    #     Lemma(
+    #         orth=["HHHH"],
+    #         phon=["HH HH AH"]
+    #     )
+    # )
+    # l.add_lemma(
+    #     Lemma(
+    #         orth=["HHH"],
+    #         phon=["HH HH AH"]
+    #     )
+    # )
+    # lexicon_edit_full = WriteLexiconJob(static_lexicon=l).out_bliss_lexicon
+    # lm_data_lexicon = MergeLexiconJob(bliss_lexica=[lm_data_lexicon, lexicon_edit_full]).out_bliss_lexicon
+    # tk.register_output(prefix + "librispeech-full_lexicon.xml.gz", lm_data_lexicon)
+
+    # add_synthetic_data_lexicon("ls_lm_data_lexicon", lm_data_lexicon)

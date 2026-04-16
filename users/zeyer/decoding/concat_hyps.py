@@ -8,6 +8,29 @@ from sisyphus import Job, Task, tk
 
 import i6_core.util as util
 
+from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+
+
+def concat_hyps(search_py_output: List[tk.Path]) -> tk.Path:
+    """
+    Concatenate N-best lists
+
+    :param search_py_output: search output file from RETURNN in python format (n-best list)
+    :param output_gzip: gzip the output
+    :return: path to concatenated output
+    """
+    job = SearchConcatHypsJob(search_py_output)
+    return job.out_search_results
+
+
+def concat_hyps_recog_out(search_py_output: List[RecogOutput]) -> RecogOutput:
+    """
+    Concatenate N-best lists
+    """
+    paths = [r.output for r in search_py_output]
+    out_path = concat_hyps(paths)
+    return RecogOutput(output=out_path)
+
 
 class SearchConcatHypsJob(Job):
     """
@@ -53,5 +76,90 @@ class SearchConcatHypsJob(Job):
                 out.write(f"{seq_tag!r}: [\n")
                 for d__ in data_:
                     out.write(f"{d__!r},\n")
+                out.write("],\n")
+            out.write("}\n")
+
+
+class ExtendSingleRefToHypsJob(Job):
+    """
+    Takes a number of files, each with some N-best list of hyps, and concatenates them,
+    such that you get a single M-best list, M=sum(each N).
+    """
+
+    __sis_version__ = 3
+
+    def __init__(self, ref_py_output: tk.Path, *, output_gzip: bool = True, score: float = 0.0):
+        """
+        :param ref_py_output: search output file from RETURNN in python format (single hyp per seq)
+        :param output_gzip: gzip the output
+        """
+        self.ref_py_output = ref_py_output
+        self.score = score
+        self.out_hyps = self.output_path("hyps.py" + (".gz" if output_gzip else ""))
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        data: Dict[str, str] = eval(
+            util.uopen(self.ref_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")}
+        )
+        score_repr = repr(self.score)
+
+        with util.uopen(self.out_hyps, "wt") as out:
+            out.write("{\n")
+            for seq_tag, text in data.items():
+                assert isinstance(text, str)
+                # n-best list as [(score, text), ...]
+                out.write(f"{seq_tag!r}: [({score_repr}, {text!r})],\n")
+            out.write("}\n")
+
+
+class ReplaceHypsJob(Job):
+    """
+    Replace hyps in N-best list with new hyps, while keeping the original scores.
+    This does not do any checks on the hyp, except that the number of hyps is the same.
+    So make sure they are in the same order.
+    """
+
+    def __init__(self, search_py_output: tk.Path, new_hyps_py_output: tk.Path, *, output_gzip: bool = True):
+        """
+        :param search_py_output: search output file from RETURNN in python format (n-best list)
+        :param new_hyps_py_output: new hyps to replace the old ones
+        :param output_gzip: gzip the output
+        """
+        self.search_py_output = search_py_output
+        self.new_hyps_py_output = new_hyps_py_output
+        self.out_search_results = self.output_path("search_results.py" + (".gz" if output_gzip else ""))
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        data: Dict[str, List[Tuple[float, str]]] = eval(
+            util.uopen(self.search_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")}
+        )
+        new_hyps_data: Dict[str, List[Tuple[float, str]]] = eval(
+            util.uopen(self.new_hyps_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")}
+        )
+
+        assert set(data.keys()) == set(new_hyps_data.keys()), "inconsistent seq tags"
+
+        with util.uopen(self.out_search_results, "wt") as out:
+            out.write("{\n")
+            for seq_tag, orig_hyps in data.items():
+                orig_hyps: List[Tuple[float, str]]
+                assert isinstance(orig_hyps, list)
+                new_hyps: List[Tuple[float, str]] = new_hyps_data[seq_tag]
+                assert isinstance(new_hyps, list)
+                assert len(orig_hyps) == len(new_hyps), "inconsistent n-best list lengths"
+                # n-best list as [(score, text), ...]
+                out.write(f"{seq_tag!r}: [\n")
+                for (orig_score, orig_hyp), (new_score, new_hyp) in zip(orig_hyps, new_hyps):
+                    out.write(f"({orig_score!r}, {new_hyp!r}),\n")
                 out.write("],\n")
             out.write("}\n")

@@ -14,14 +14,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any
 import copy
 import functools
+from sisyphus import gs, tk
+from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_add_global_startup_callback_to_post_config
 from .serialization_v2 import ReturnnConfigWithNewSerialization
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
     from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
 def train(
@@ -50,7 +53,6 @@ def train(
     Note, there is *no* logic for unhashed_package_root here.
     """
     from sisyphus import tk
-    from i6_core.returnn.training import ReturnnTrainingJob
     from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.zeyer.recog import SharedPostConfig
@@ -65,7 +67,12 @@ def train(
         elif "partition_epoch" in train_dataset_dict:
             train_epoch_split = train_dataset_dict["partition_epoch"]
     # Usually always apply MultiProcDataset. But some exceptions for now:
-    apply_multi_proc = train_dataset_dict["class"] not in {"LmDataset", "DistributeFilesDataset"}
+    apply_multi_proc = train_dataset_dict["class"] not in {
+        "LmDataset",
+        "DistributeFilesDataset",
+        "MultiProcDataset",
+        "HuggingFaceDataset",
+    }
     del train_dataset_dict
     del task
 
@@ -179,6 +186,8 @@ def train(
             continue
         returnn_train_config.post_config[k] = v
 
+    maybe_add_global_startup_callback_to_post_config(returnn_train_config.config, returnn_train_config.post_config)
+
     for k, v in dict(
         log_verbosity=5,
         num_epochs=150,
@@ -193,10 +202,15 @@ def train(
     returnn_train_job.add_alias(prefix_name + "/train")
     if gpu_mem:
         returnn_train_job.rqmt["gpu_mem"] = gpu_mem
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        # Explicitly set TMPDIR, because DEFAULT_ENVIRONMENT_SET might not be applied (CLEANUP_ENVIRONMENT=False),
+        # but we really might want this, and Slurm might overwrite it otherwise.
+        returnn_train_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
     if env_updates:
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
     tk.register_output(prefix_name + "/train_scores", returnn_train_job.out_learning_rates)
+    tk.register_output(f"{prefix_name}/train_time_hours", _train_hours(returnn_train_job))
 
     res = ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
     train_models_by_prefix[prefix_name] = res
@@ -239,3 +253,23 @@ def _returnn_train_step(*, model, extern_data: TensorDict, train_def: TrainDef, 
         targets=targets,
         targets_spatial_dim=targets_spatial_dim,
     )
+
+
+def _train_hours(exp: Union[ModelWithCheckpoints, ReturnnTrainingJob]) -> tk.Variable:
+    from i6_experiments.users.zeyer.utils.write_delayed_job import DelayedToVariableJob
+    from sisyphus.delayed_ops import DelayedFunctionV2
+    from i6_experiments.users.zeyer.returnn.total_runtime_from_training import GetTotalRuntimeFromReturnnTrainingJob
+
+    if isinstance(exp, ModelWithCheckpoints):
+        exp = exp.get_training_job()
+
+    return DelayedToVariableJob(
+        DelayedFunctionV2(
+            round,
+            (
+                GetTotalRuntimeFromReturnnTrainingJob(exp.out_learning_rates).out_train_time_secs / 60 / 60,
+                1,
+            ),
+            {},
+        )
+    ).out

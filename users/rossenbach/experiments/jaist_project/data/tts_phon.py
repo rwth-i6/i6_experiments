@@ -223,15 +223,27 @@ def build_durationtts_training_dataset(
         duration_hdf,
         ls_corpus_key="train-clean-100",
         partition_epoch=1,
+        custom_transcription_bliss=None,
     ) -> FeatureModelTrainingDatasets:
     """
 
     :param duration_hdf:
     :param ls_corpus_key:
     :param partition_epoch:
+    :param custom_transcription_bliss:
     :return:
     """
-    bliss_dataset, zip_dataset = get_tts_bliss_and_zip(ls_corpus_key=ls_corpus_key, silence_preprocessed=False)
+    if custom_transcription_bliss:
+        bliss_dataset = custom_transcription_bliss
+        zip_dataset = BlissToOggZipJob(
+            bliss_corpus=bliss_dataset,
+            no_conversion=True,
+            returnn_python_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        ).out_ogg_zip
+
+    else:
+        bliss_dataset, zip_dataset = get_tts_bliss_and_zip(ls_corpus_key=ls_corpus_key, silence_preprocessed=False)
 
     # segments for train-clean-100-tts-train and train-clean-100-tts-dev
     # (1004 segments for dev, 4 segments for each of the 251 speakers)
@@ -333,6 +345,7 @@ def build_fixed_speakers_generating_dataset(
         num_splits: int,
         ls_corpus_key: str = "train-clean-100",
         randomize_speaker=True,
+        limit_speakers_to: Optional[int] = None,
 ):
     """
 
@@ -340,6 +353,7 @@ def build_fixed_speakers_generating_dataset(
     :param num_splits: split via segments for parallel generation
     :param ls_corpus_key: base corpus to take speakers from
     :param randomize_speaker: Assign shuffled speakers from refrence corpus
+    :param limit_speakers_to: only use a fixed number of speakers
     :return:
     """
     speaker_reference_bliss_dataset, _ = get_tts_bliss_and_zip(ls_corpus_key=ls_corpus_key)
@@ -349,6 +363,7 @@ def build_fixed_speakers_generating_dataset(
     generating_bliss = RandomAssignSpeakersFromCorpus(
         bliss_corpus=text_bliss,
         speaker_reference_bliss_corpus=speaker_reference_bliss_dataset,
+        limit_speakers_to=limit_speakers_to,
     ).out_corpus
 
     if randomize_speaker:

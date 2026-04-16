@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 import copy
-from typing import Tuple
+from typing import Tuple, Optional, List
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.config import ModuleFactoryV1
@@ -32,8 +32,8 @@ from .memristor_v8_cfg import (
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .memristor_v8_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
-from torch.nn.quantized._reference.modules import Conv1d
+from .memristor_v8_modules import QuantizedMultiheadAttention, LinearQuant, Conv1dQuant, ActivationQuantizer
+from torch.nn.quantized._reference.modules import Linear, Conv1d
 
 # from lovely_tensors import monkey_patch
 
@@ -167,6 +167,34 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.lin_1_in_quant = nn.Identity()
         self.lin_2_in_quant = nn.Identity()
 
+    def prep_torch_quant(self):
+        self.linear_ff.weight_quantizer.set_scale_and_zp()
+        self.linear_ff = Linear.from_float(
+            self.linear_ff,
+            weight_qparams={
+                "qscheme": self.linear_ff.weight_quantizer.method,
+                "dtype": self.linear_ff.weight_quant_dtype,
+                "zero_point": self.linear_ff.weight_quantizer.zero_point,
+                "scale": self.linear_ff.weight_quantizer.scale,
+                "quant_min": self.linear_ff.weight_quantizer.quant_min,
+                "quant_max": self.linear_ff.weight_quantizer.quant_max,
+            },
+        )
+        self.linear_out.weight_quantizer.set_scale_and_zp()
+        self.linear_out = Linear.from_float(
+            self.linear_out,
+            weight_qparams={
+                "qscheme": self.linear_out.weight_quantizer.method,
+                "dtype": self.linear_out.weight_quant_dtype,
+                "zero_point": self.linear_out.weight_quantizer.zero_point,
+                "scale": self.linear_out.weight_quantizer.scale,
+                "quant_min": self.linear_out.weight_quantizer.quant_min,
+                "quant_max": self.linear_out.weight_quantizer.quant_max,
+            },
+        )
+        self.lin_1_in_quant = nn.Identity()
+        self.lin_2_in_quant = nn.Identity()
+
 
 class ConformerMHSAQuant(torch.nn.Module):
     """
@@ -189,16 +217,19 @@ class ConformerMHSAQuant(torch.nn.Module):
         :param sequence_mask: bool mask of shape (B, T), True signals within sequence, False outside, will be inverted
         which will be applied/added to dot product, used to mask padded key positions out
         """
-        inv_sequence_mask = compat.logical_not(sequence_mask)
-        output_tensor = self.layernorm(input_tensor)  # [B,T,F]
+        # inv_sequence_mask = compat.logical_not(sequence_mask)
+        # output_tensor = self.layernorm(input_tensor)  # [B,T,F]
 
-        output_tensor, _ = self.mhsa(output_tensor, output_tensor, output_tensor, mask=inv_sequence_mask)  # [B,T,F]
-        output_tensor = torch.nn.functional.dropout(output_tensor, p=self.dropout, training=self.training)  # [B,T,F]
+        output_tensor = self.mhsa(input_tensor, sequence_mask=sequence_mask)  # [B,T,F]
+        # output_tensor = torch.nn.functional.dropout(output_tensor, p=self.dropout, training=self.training)  # [B,T,F]
 
         return output_tensor
 
     def prep_quant(self):
         self.mhsa.prep_quant()
+
+    def prep_torch_quant(self):
+        self.mhsa.prep_torch_quant()
 
 
 class ConformerConvolutionQuant(nn.Module):
@@ -402,6 +433,49 @@ class ConformerConvolutionQuant(nn.Module):
         self.pconv_1_in_quant = nn.Identity()
         self.pconv_2_in_quant = nn.Identity()
 
+    def prep_torch_quant(self):
+        self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
+        self.pointwise_conv1 = Linear.from_float(
+            self.pointwise_conv1,
+            weight_qparams={
+                "qscheme": self.pointwise_conv1.weight_quantizer.method,
+                "dtype": self.pointwise_conv1.weight_quant_dtype,
+                "zero_point": self.pointwise_conv1.weight_quantizer.zero_point,
+                "scale": self.pointwise_conv1.weight_quantizer.scale,
+                "quant_min": self.pointwise_conv1.weight_quantizer.quant_min,
+                "quant_max": self.pointwise_conv1.weight_quantizer.quant_max,
+            },
+        )
+        self.depthwise_conv.weight_quantizer.set_scale_and_zp()
+        self.depthwise_conv = Conv1d.from_float(
+            self.depthwise_conv,
+            weight_qparams={
+                "qscheme": self.depthwise_conv.weight_quantizer.method,
+                "dtype": self.depthwise_conv.weight_quant_dtype,
+                "zero_point": self.depthwise_conv.weight_quantizer.zero_point,
+                "scale": self.depthwise_conv.weight_quantizer.scale,
+                "quant_min": self.depthwise_conv.weight_quantizer.quant_min,
+                "quant_max": self.depthwise_conv.weight_quantizer.quant_max,
+            },
+        )
+        self.pointwise_conv2.weight_quantizer.set_scale_and_zp()
+        self.pointwise_conv2 = Linear.from_float(
+            self.pointwise_conv2,
+            weight_qparams={
+                "qscheme": self.pointwise_conv2.weight_quantizer.method,
+                "dtype": self.pointwise_conv2.weight_quant_dtype,
+                "zero_point": self.pointwise_conv2.weight_quantizer.zero_point,
+                "scale": self.pointwise_conv2.weight_quantizer.scale,
+                "quant_min": self.pointwise_conv2.weight_quantizer.quant_min,
+                "quant_max": self.pointwise_conv2.weight_quantizer.quant_max,
+            },
+        )
+        self.pconv_1_in_quant = nn.Identity()
+        self.pconv_1_out_quant = nn.Identity()
+        self.dconv_1_in_quant = nn.Identity()
+        self.dconv_1_out_quant = nn.Identity()
+        self.pconv_2_in_quant = nn.Identity()
+        self.pconv_2_out_quant = nn.Identity()
 
 class ConformerBlockQuant(nn.Module):
     """
@@ -447,6 +521,10 @@ class ConformerBlockQuant(nn.Module):
         for module in self.module_list:
             module.prep_quant()
 
+    def prep_torch_quant(self):
+        for module in self.module_list:
+            module.prep_torch_quant()
+
 
 class ConformerEncoderQuant(nn.Module):
     """
@@ -464,7 +542,7 @@ class ConformerEncoderQuant(nn.Module):
         self.frontend = cfg.frontend()
         self.module_list = torch.nn.ModuleList([ConformerBlockQuant(cfg.block_cfg) for _ in range(cfg.num_layers)])
 
-    def forward(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor, return_layers: Optional[List[int]] = None) -> Tuple[List[torch.Tensor], torch.Tensor]:
         """
         :param data_tensor: input tensor of shape [B, T', F]
         :param sequence_mask: mask tensor where 0 defines positions within the sequence and 1 outside, shape: [B, T']
@@ -475,19 +553,30 @@ class ConformerEncoderQuant(nn.Module):
         F: input feature dim, F': internal and output feature dim
         T': data time dim, T: down-sampled time dim (internal time dim)
         """
-        x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # [B, T, F']
-        for module in self.module_list:
-            x = module(x, sequence_mask)  # [B, T, F']
+        if return_layers is None:
+            return_layers = [len(self.module_list) - 1]
 
-        return x, sequence_mask
+        x, sequence_mask = self.frontend(data_tensor, sequence_mask)  # [B, T, F']
+
+        outputs = []
+        assert (
+            max(return_layers) < len(self.module_list) and min(return_layers) >= 0
+        ), f"invalid layer index, should be between 0 and {len(self.module_list)-1}"
+
+        for i in range(max(return_layers) + 1):
+            x = self.module_list[i](x, sequence_mask)  # [B, T, F']
+            if i in return_layers:
+                outputs.append(x)
+
+        return outputs, sequence_mask
 
     def prep_quant(self):
         for module in self.module_list:
             module.prep_quant()
 
-    def prep_dequant(self):
+    def prep_torch_quant(self):
         for module in self.module_list:
-            module.prep_dequant()
+            module.prep_torch_quant()
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -605,6 +694,7 @@ class Model(torch.nn.Module):
 
         self.num_output_linears = 1 if self.train_config.aux_ctc_loss_layers is None else len(self.train_config.aux_ctc_loss_layers)
         if self.train_config.quantize_output is True:
+            assert False, "this is broken at the moment"
             self.lin_out = [
                 LinearQuant(
                     in_features=self.train_config.conformer_size,
@@ -668,8 +758,11 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
+        from lovely_tensors import monkey_patch
+        monkey_patch()
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
+
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
 
             run_ctx = get_run_ctx()
@@ -703,7 +796,7 @@ class Model(torch.nn.Module):
         return log_probs_list, torch.sum(out_mask, dim=1)
 
     def prep_quant(self):
-        print("Converting Model for efficient inference")
+        print("Simulating Model with Memristor Hardware")
         if self.train_config.quantize_output is True:
             self.lin_out[-1].weight_quantizer.set_scale_and_zp()
             self.lin_out_in_quant[-1].set_scale_and_zp()
@@ -723,8 +816,31 @@ class Model(torch.nn.Module):
                 num_cycles_init=self.train_config.num_cycles,
                 correction_settings=self.train_config.correction_settings
             )
-            self.final_linear = [mem_lin]
+            self.final_linear = torch.nn.ModuleList([mem_lin])
         self.conformer.prep_quant()
+
+    def prep_torch_quant(self):
+        print("Converting Model for efficient inference")
+        if self.train_config.quantize_output is True:
+            print(self.lin_out)
+            print(self.lin_out[0])
+            print(self.lin_out[-1])
+            self.lin_out[-1].weight_quantizer.set_scale_and_zp()
+            lin_out = self.lin_out[-1]
+            final_lin = Linear.from_float(
+                lin_out,
+                weight_qparams={
+                    "qscheme": lin_out.weight_quantizer.method,
+                    "dtype": lin_out.weight_quant_dtype,
+                    "zero_point": lin_out.weight_quantizer.zero_point,
+                    "scale": lin_out.weight_quantizer.scale,
+                    "quant_min": lin_out.weight_quantizer.quant_min,
+                    "quant_max": lin_out.weight_quantizer.quant_max,
+                },
+            )
+            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant[-1], final_lin, self.lin_out_out_quant[-1])
+        self.conformer.prep_torch_quant()
+
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -746,7 +862,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             labels,
             input_lengths=audio_features_len,
             target_lengths=labels_len,
-            blank=model.cfg.label_target_size,
+            blank=model.train_config.label_target_size,
             reduction="sum",
             zero_infinity=True,
         )

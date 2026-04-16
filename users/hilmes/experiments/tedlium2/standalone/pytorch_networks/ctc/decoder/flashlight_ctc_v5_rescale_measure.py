@@ -288,6 +288,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
 
     tmp = logprobs_cpu.detach().numpy()
+    assert False, "use v6"
     am_time = time.time() - am_start
     run_ctx.total_am_time += am_time
 

@@ -44,6 +44,7 @@ from ...common import Mode, create_chunk_mask, add_lookahead
 from .._base_streamable_ctc import StreamableCTC as Model
 from ...trainers import train_handler
 
+import lovely_tensors as lt
 
 
 class ConformerPositionwiseFeedForwardQuant(nn.Module):
@@ -263,7 +264,7 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         init.ones_(self.layer_norm_scale)
         init.zeros_(self.layer_norm_bias)
 
-    def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward_offline(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Apply layer norm and multi-head self attention and dropout
 
@@ -272,18 +273,39 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         which will be applied/added to dot product, used to mask padded key positions out
         """
         inv_sequence_mask = compat.logical_not(sequence_mask)
-        if attn_mask is not None:
-            inv_attn_mask = compat.logical_not(attn_mask)
+        inv_attn_mask = None if attn_mask is None else compat.logical_not(attn_mask)
 
+        # offline_tensor = input_tensor.flatten(1, 2)
+        print(f"{input_tensor = }")
         input_tensor = self.layer_norm_in_quant(input_tensor)
+        print(f"{self.layer_norm_in_quant = }")
         input_tensor = input_tensor - torch.mean(input_tensor, dim=-1, keepdim=True)
-        output_tensor = input_tensor / (torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5))
+        denom = torch.sum(torch.abs(input_tensor), dim=-1, keepdim=True)  / input_tensor.size(-1)  + torch.tensor(1e-5)
+        # denom = torch.clamp(denom, min=0.01)
+        # print(f"{denom = }")
+        output_tensor = input_tensor / denom
+        print(f"{output_tensor = }")
         output_tensor = output_tensor * self.layer_norm_scale + self.layer_norm_bias
+        print(f"{self.layer_norm_scale = }")
+        print(f"{self.layer_norm_bias = }")
         # print(
         #     "Post norm MHSA", output_tensor[0, 0, :10], torch.sum(torch.abs(output_tensor), dim=-1, keepdim=True)[0, 0]
         # )
         # output_tensor = self.layernorm(input_tensor)  # [B,T,F]
         output_tensor = self.layer_norm_out_quant(output_tensor) # [B,T,F] or [B,N,C,F] (but we only do layernorm across last dim so its fine)
+        
+        #################################################
+        print(f"{self.layer_norm_out_quant = }")
+
+        # offline_tensor = self.layer_norm_in_quant(offline_tensor)
+        # offline_tensor = offline_tensor - torch.mean(offline_tensor, dim=-1, keepdim=True)
+        # off_output_tensor = offline_tensor / (torch.sum(torch.abs(offline_tensor), dim=-1, keepdim=True)  / offline_tensor.size(-1)  + torch.tensor(1e-5))
+        # off_output_tensor = off_output_tensor * self.layer_norm_scale + self.layer_norm_bias
+        # off_output_tensor = self.layer_norm_out_quant(off_output_tensor) # [B,T,F] or [B,N,C,F] (but we only do layernorm across last dim so its fine)
+        # assert torch.all(off_output_tensor == output_tensor.flatten(1, 2))
+        # >>> True
+
+        #################################################
 
         output_tensor, _ = self.mhsa(
             output_tensor, output_tensor, output_tensor, sequence_mask=inv_sequence_mask, attn_mask=inv_attn_mask
@@ -312,9 +334,9 @@ class ConformerMHSAQuantStreamable(StreamableModule):
         # x.shape: [t, F]
         attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
         y = self.forward_offline(
-            input_tensor=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask)
+            input_tensor=x[None, None], sequence_mask=seq_mask[None, None], attn_mask=attn_mask)  # [1, 1, t, F]
         
-        return y[0, -ext_chunk_sz:]  # [C+R, F]
+        return y[0, 0, -ext_chunk_sz:]  # [C+R, F]
 
     def prep_quant(self, extra_act_quant: bool, decompose: bool):
         self.mhsa.prep_quant(extra_act_quant, decompose=decompose)
@@ -849,6 +871,7 @@ class ConformerBlockQuantStreamable(StreamableModule):
 
         bsz, num_chunks, chunk_sz, _ = x.shape
 
+        print(f"{x = }")
         y = self.ff1(x)
         y = self.add_1_in_quant(y)
         x = self.add_1_in_quant(x)
@@ -1066,14 +1089,14 @@ class ConformerEncoderQuantStreamable(StreamableModule):
             input: torch.Tensor,
             lengths: torch.Tensor,
             states: Optional[List[List[torch.Tensor]]],
-            chunk_size: int,
+            chunk_size_frames: int,
             lookahead_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
         """
         :param input: [1, P*C', F], where P is the number of future chunks we need for the future frames of current chunk
         :param lengths: the number of non-padding frames [1,]
         :param states: list of encoder block outputs of previous chunks (each output having shape [C, F'])
-        :param chunk_size: C'
+        :param chunk_size_frames: C
         :param lookahead_size: R
         :return: encoder outputs of the current chunk, number of (non-padding) encoder outputs, intermediate encoder block outputs
         """
@@ -1081,7 +1104,6 @@ class ConformerEncoderQuantStreamable(StreamableModule):
 
         # chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(chunk_size))
         # audio_features, audio_features_len = self.feature_extraction.infer(input, lengths, chunk_size_frames)
-        chunk_size_frames = chunk_size
         audio_features, audio_features_len = input, lengths
 
         # [1, P*C', F] -> [P, C, F']
@@ -1111,7 +1133,7 @@ class ConformerEncoderQuantStreamable(StreamableModule):
         layer_outs = [x]
         prev_layer = curr_layer = None
 
-        for i, module in enumerate(self.encoder_blocks):
+        for i, module in enumerate(self.module_list):
             if states is not None:
                 # first chunk is not provided with any previous states
                 prev_layer = [prev_chunk[-1][i] for prev_chunk in states]
@@ -1299,6 +1321,10 @@ class Model(StreamableModule):
 
         self.cfg = self.train_config  # FIXME: need this for train_step, specifically CTCTrainStepMode
 
+
+        # FIXME
+        lt.monkey_patch()
+
     def forward_offline(
         self,
         raw_audio: torch.Tensor,
@@ -1372,7 +1398,7 @@ class Model(StreamableModule):
             chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(chunk_size))
             conformer_in, mask = self.feature_extraction.infer(input, lengths, chunk_size_frames)
             encoder_out, encoder_out_lengths, state = self.conformer.infer(
-                conformer_in, mask, states, chunk_size=chunk_size, lookahead_size=lookahead_size
+                conformer_in, mask, states, chunk_size_frames=chunk_size_frames, lookahead_size=lookahead_size
             )
             if self.train_config.quantize_output is True:
                 logits = self.lin_out_in_quant(encoder_out)

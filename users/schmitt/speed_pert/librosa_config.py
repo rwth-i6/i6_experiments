@@ -1,11 +1,20 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Union, List, Tuple
+
+from i6_core.returnn.config import ReturnnConfig
+
+from i6_experiments.common.setups.serialization import PartialImport
 
 if TYPE_CHECKING:
     import numpy as np
 
 
-def speed_pert_librosa_config(audio: np.ndarray, sample_rate: int, random_state: np.random.RandomState) -> np.ndarray:
+def speed_pert_librosa_config(
+    audio: np.ndarray,
+    sample_rate: int,
+    random_state: np.random.RandomState,
+    discrete_values: Union[Dict[float, float], List[float], Tuple[float, ...]],
+) -> np.ndarray:
     """
     Speed perturbation, configurable via RETURNN config.
 
@@ -30,7 +39,7 @@ def speed_pert_librosa_config(audio: np.ndarray, sample_rate: int, random_state:
     # Mapping factor -> prob.
     # Factor is e.g. 0.9, 1.0, 1.1 or so.
     # Prob will be renormalized, so does not need to sum to 1.
-    discrete_values: Dict[float, float] = config.typed_value("speed_pert_discrete_values")
+    # discrete_values: Dict[float, float] = config.typed_value("speed_pert_discrete_values")
     if isinstance(discrete_values, (tuple, list)):
         discrete_values = {k: 1 for k in discrete_values}  # evenly distributed, all the same prob
     assert (
@@ -55,3 +64,17 @@ def speed_pert_librosa_config(audio: np.ndarray, sample_rate: int, random_state:
     if new_sample_rate != sample_rate:
         audio = librosa.core.resample(audio, orig_sr=sample_rate, target_sr=new_sample_rate, res_type="kaiser_fast")
     return audio
+
+
+def get_speed_pert_config(discrete_values) -> ReturnnConfig:
+    speed_pert_import = PartialImport(
+        code_object_path="i6_experiments.users.schmitt.speed_pert.librosa_config.speed_pert_librosa_config",
+        import_as="speed_pert_librosa_config",
+        hashed_arguments={"discrete_values": discrete_values},
+        unhashed_arguments={},
+        unhashed_package_root=None,
+    )
+    return ReturnnConfig(
+        config={"learning_rate_control": "constant"},
+        python_prolog=[speed_pert_import],
+    )

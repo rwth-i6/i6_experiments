@@ -22,10 +22,12 @@ from i6_experiments.users.enrique.jobs.fairseq.wav2vec.wav2vec_data_utils import
     PrepareWav2VecTextDataJob,
     calculate_all_configs,
 )
+from i6_core.returnn.search import ReturnnComputeWERJob
+
 from sisyphus import tk
 
 
-def get_w2vu_model():
+def run_meta_experiments():
     environment = "/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3"
     fairseq_root = get_fairseq_root(
         python_env=tk.Path(environment),
@@ -33,6 +35,8 @@ def get_w2vu_model():
             "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"
         ),
     )
+
+
     ################################################################
     ########## Configuration for the Wav2VecU pipeline ##########
     ################################################################
@@ -40,7 +44,8 @@ def get_w2vu_model():
     max_audios_per_manifest = (
         None  # Used to limit the number of audio files in each manifest file, mainly for debugging purposes
     )
-    max_models_for_each_decoding = 100000  # Number of models to use for each decoding job, this is useful to limit the number of models used for decoding, mainly for debugging purposes
+    max_models_for_each_decoding = 1  # Number of models to use for each decoding job, this is useful to limit the number of models used for decoding, mainly for debugging purposes
+    decode_training_data = True
 
     w2v2model = "large_60kh"  # Options: "base", "large_960h", "large_60kh"
     feature_extraction_layer = 14  # Layer to extract features from the Wav2Vec2 model, w2v-u paper uses layer 14
@@ -77,7 +82,6 @@ def get_w2vu_model():
             "subset": "dev-clean",
         },
     ]
-    # --- End of new configuration section ---
 
     decoding_concurrent = 2  # Number of concurrent processes to run for audio processing
     decoding_config_dir = "/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_06_02/work/EXTERNAL_SOFTWARE/fairseq_w2vu/fairseq/examples/wav2vec/unsupervised/config/generate"
@@ -88,12 +92,18 @@ def get_w2vu_model():
     language = "en"  # Language of the text data
     tts_engine = "G2P"  # Text-to-speech engine to use for text normalization
     text_file_path = "/work/asr4/schmitt/sisyphus_work_dirs/2025_03_21_wav2vec-u/i6_experiments/users/schmitt/experiments/exp2025_03_21_wav2vec_u/text/NormalizeLBSLMDataJob.7MP3Io7yzilY/output/corpus.norm.txt"
+    #text_file_path = "/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/data/text_raw/BNCCorpus.txt"
     text_file_path = tk.Path(text_file_path)
     sil_prob = 0.25
     vocab_size = 1000  # TODO: THIS IS NOT THE VOCAB SIZE, IT IS THE MIN NUMBER OF TIMES A PHONEME NEEDS TO APPEAR FOR IT TO NOT BE DISCARTED
     fasttext_model = DownloadJob(
         url="https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin", target_filename="lid.176.bin"
     ).out_file
+    training_lm_pruning = [0,0,0,3]
+
+    #decoding_lm_prunings = [[0,0,0,4], [0,0,1,4], [0,0,2,5]]
+    decoding_lm_prunings = [[0,0,1,4], [0,0,2,5], [0,0,3,6]]
+    #decoding_lm_prunings = [[0,0,1,4]]
 
     alias = "wav2vec_u_librispeech_gan_training_" + training_audio + "_" + w2v2model
     audio_alias = os.path.join(alias, "audio")
@@ -163,10 +173,10 @@ def get_w2vu_model():
     )
 
     ################################################################
-    ########### text data and LM (runs once) ############
+    ########### text data and LM ############
     ################################################################
 
-    prepare_text_job = PrepareWav2VecTextDataJob(
+    prepare_text_job_training = PrepareWav2VecTextDataJob(
         fairseq_root=fairseq_root,
         language=language,
         text_file_path=text_file_path,
@@ -176,9 +186,28 @@ def get_w2vu_model():
         sil_prob=sil_prob,
         fairseq_python_env=environment,
         vocab_size=vocab_size,
+        lm_pruning=training_lm_pruning,
     )
 
-    prepare_text_job.add_alias(os.path.join(alias, "text_data"))
+    prepare_text_job_training.add_alias(os.path.join(alias, "text_data"))
+
+    prepare_text_job_decoding = []
+    for prun in decoding_lm_prunings:
+        job = PrepareWav2VecTextDataJob(
+            fairseq_root=fairseq_root,
+            language=language,
+            text_file_path=text_file_path,
+            kenlm_root=KENLM_BINARY_PATH,
+            tts_engine=tts_engine,
+            fasttext_model=fasttext_model,
+            sil_prob=sil_prob,
+            fairseq_python_env=environment,
+            vocab_size=vocab_size,
+            lm_pruning=prun,
+        )
+        job.add_alias(os.path.join(alias, f"text_data_pruning_{prun}"))
+        prepare_text_job_decoding.append(job)
+
 
     ################################################################
     ########### Training (runs once) ############
@@ -192,7 +221,7 @@ def get_w2vu_model():
         GAN_job = FairseqHydraTrainWav2VecUJob(
             environment=environment,
             task_data=featurize_training_audio_job.out_features_precompute_pca512_cls128_mean_pooled,
-            task_text_data=prepare_text_job.processed_phn_data_and_LM,
+            task_text_data=prepare_text_job_training.processed_phn_data_and_LM,
             fairseq_root=fairseq_root,
             prefix=alias,
             config_dir=config_dir,
@@ -201,12 +230,17 @@ def get_w2vu_model():
         )
         training_jobs.append(GAN_job)
         GAN_job.add_alias(os.path.join(alias, f"GAN_training_{conf}"))
-        tk.register_output(f"{alias}", GAN_job.out_dir)
+        #tk.register_output(f"{alias}", GAN_job.out_dir)
 
     ################################################################
     ########### Decoding/Recognition/Generate (loops over datasets) ############
     ################################################################
-
+    fairseq_root_decoding = get_fairseq_root(
+            python_env=tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3"),
+            fairseq_root=tk.Path(
+                "/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_06_02/work/EXTERNAL_SOFTWARE/fairseq_w2vu/fairseq"
+            ),
+        )
     # This is the main loop for decoding multiple datasets
     for dec_config in decoding_datasets:
         decoding_audio_name = dec_config["name"]
@@ -245,27 +279,82 @@ def get_w2vu_model():
         )
 
         # Generate results for the current decoding dataset using all trained models
-        generate_jobs = []
         for training_job in training_jobs[:max_models_for_each_decoding]:
-            generate_job = FairseqGenerateWav2VecUJob(
-                environment=environment,
-                fairseq_root=fairseq_root,
-                task_data=decoding_featurize_job.out_features_precompute_pca512_cls128_mean,
-                prepare_text=prepare_text_job.out_text_dir,
-                checkpoints_path=training_job.out_dir,
-                config_name=decoding_config_name,
-                config_dir=decoding_config_dir,
-                extra_config=extra_config,
-            )
-            generate_jobs.append(generate_job)
 
-            # Create a unique alias for each generation job
-            job_alias = os.path.join(alias, "decoding", decoding_audio_name, f"generate_{dec_config['subset']}")
-            output_path = os.path.join(alias, "decoding_results", decoding_audio_name)
+            for lm_job in prepare_text_job_decoding:
+                generate_job = FairseqGenerateWav2VecUJob(
+                    decoding_audio_name=decoding_audio_name,
+                    environment=environment,
+                    fairseq_root=fairseq_root_decoding,
+                    task_data=decoding_featurize_job.out_features_precompute_pca512_cls128_mean,
+                    prepare_text=lm_job.out_text_dir,
+                    checkpoints_path=training_job.out_dir,
+                    config_name=decoding_config_name,
+                    config_dir=decoding_config_dir,
+                    extra_config=extra_config,
+                )
 
-            generate_job.add_alias(job_alias)
-            tk.register_output(output_path, generate_job.results_path)
+                # Create a unique alias for each generation job
+                job_alias = os.path.join(
+                    alias,
+                    "decoding",
+                    decoding_audio_name,
+                    f"generate_{dec_config['subset']}_pruning_{lm_job.lm_pruning}",
+                )
+                output_path = os.path.join(
+                    alias, "decoding_results", decoding_audio_name, f"pruning_{lm_job.lm_pruning}"
+                )
 
+                generate_job.add_alias(job_alias)
+                tk.register_output(output_path, generate_job.results_path)
+
+                # wer_job = ReturnnComputeWERJob(reference=generate_job.ground_truth_transcription, hypothesis=generate_job.transcription_generated)
+                # wer_job.add_alias(job_alias + "_WER")
+                # tk.register_output(os.path.join(output_path, "WER"), wer_job.out_wer)
+
+    if decode_training_data:
+        
+
+        # Generate results for the training data itself, using all trained models
+        decoding_audio_name = training_audio
+        decoding_audio_alias = os.path.join(audio_alias, decoding_audio_name)
+
+        for training_job in training_jobs[:1]:
+
+            for lm_job in prepare_text_job_decoding[:1]:
+                generate_job = FairseqGenerateWav2VecUJob(
+                    decoding_audio_name=decoding_audio_name,
+                    environment=environment,
+                    fairseq_root=fairseq_root_decoding,
+                    task_data=featurize_training_audio_job.out_features_precompute_pca512_cls128_mean,
+                    prepare_text=lm_job.out_text_dir,
+                    checkpoints_path=training_job.out_dir,
+                    config_name=decoding_config_name,
+                    #config_name="viterbi",
+                    config_dir=decoding_config_dir,
+                    extra_config=extra_config,
+                    gen_subset="train"
+                )
+
+                # Create a unique alias for each generation job
+                job_alias = os.path.join(
+                    alias,
+                    "decoding",
+                    decoding_audio_name,
+                    f"generate_train_pruning_{lm_job.lm_pruning}",
+                )
+                output_path = os.path.join(
+                    alias, "decoding_results", decoding_audio_name, f"pruning_{lm_job.lm_pruning}"
+                )
+
+                generate_job.add_alias(job_alias)
+                tk.register_output(output_path, generate_job.results_path)
+
+                # wer_job = ReturnnComputeWERJob(reference=generate_job.ground_truth_transcription, hypothesis=generate_job.transcription_generated)
+                # wer_job.add_alias(job_alias + "_WER")
+                # tk.register_output(os.path.join(output_path, "WER"), wer_job.out_wer)
+    
+                
 
 def py():
-    get_w2vu_model()
+    run_meta_experiments()

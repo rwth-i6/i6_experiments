@@ -1,17 +1,15 @@
 [tool.black]
 line-length = 120
-target-version = ["py38"]
-# exclude = 'users'
+target-version = ["py37"]
+exclude = 'users'
 
 [tool.ruff]
 line-length = 120
-
-[tool.pyright]
-reportMissingModuleSource = false
-reportUnusedImport = true
-pythonVersion = "3.8"
-typeCheckingMode = "basic"
-extraPaths = [
-  "../",
-  "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard/",
+target-version = "py38"  # https://github.com/rwth-i6/returnn/issues/1326
+extend-exclude = [
+    "users",
 ]
+
+[tool.ruff.lint]
+# Disable fix for unused imports (`F401`).
+unfixable = ["F401"]

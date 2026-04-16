@@ -460,9 +460,11 @@ def run_experiments(**kwargs):
                 test_version=0.0,
             )
 
+            prior_mem_rqmt = 16 if model_config.chunk_size > 0.6 * 16e3 else 24
             asr_model = prepare_asr_model(
                 training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-                get_specific_checkpoint=num_epochs
+                get_specific_checkpoint=num_epochs,
+                mem_rqmt=prior_mem_rqmt
             )
             greedy_search_helper(
                 training_name + "/streaming/keep_%i" % num_epochs,
@@ -481,7 +483,8 @@ def run_experiments(**kwargs):
             # beam-search w/ arpa 4gram lm
             asr_model = prepare_asr_model(
                 training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-                get_specific_checkpoint=num_epochs
+                get_specific_checkpoint=num_epochs,
+                mem_rqmt=prior_mem_rqmt
             )
 
             search_config = CTCSearchConfig(
@@ -534,7 +537,8 @@ def run_experiments(**kwargs):
             # beam-search w/ LSTM-LM
             asr_model = prepare_asr_model(
                 training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
-                get_specific_checkpoint=num_epochs
+                get_specific_checkpoint=num_epochs,
+                mem_rqmt=prior_mem_rqmt
             )
 
             search_config = CTCBeamSearchLMConfig(
@@ -685,23 +689,23 @@ def ls960_streamable_ctc_refactored():
             "keep": [300]  # early checkpoint to see if model training working
         },
 
-        "ctc.28frames": {
-            "model_params": {
-                "chunk_size": [0.27],
-                "lookahead_size": [8],
-                "carry_over_size": [1],
-                "dual_mode": [False],
+        # "ctc.28frames": {
+        #     "model_params": {
+        #         "chunk_size": [1.67],
+        #         "lookahead_size": [8],
+        #         "carry_over_size": [1],
+        #         "dual_mode": [False],
 
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "training_strategy": [TrainMode.OFFLINE, TrainMode.STREAMING, TrainMode.SWITCHING]
-            },
-            "network_module": "ctc.models.model",
-            "accum_grads": 1,
-            "gpu_mem": 48,
-            "num_epochs": 1000,
-            "keep": [300]  # early checkpoint to see if model training working
-        },
+        #         "kernel_size": [31],
+        #         "specauc_start_epoch": [11],
+        #         "training_strategy": [TrainMode.OFFLINE, TrainMode.STREAMING, TrainMode.SWITCHING]
+        #     },
+        #     "network_module": "ctc.models.model",
+        #     "accum_grads": 1,
+        #     "gpu_mem": 48,
+        #     "num_epochs": 1000,
+        #     "keep": [300]  # early checkpoint to see if model training working
+        # },
     }
 
     run_experiments(experiments_config=experiment_configs, bpe_size=128)

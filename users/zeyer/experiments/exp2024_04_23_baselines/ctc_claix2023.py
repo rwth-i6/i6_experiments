@@ -18,11 +18,13 @@ from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
+from ...model_interfaces import ModelWithCheckpoint
+from i6_experiments.users.zeyer.datasets.task import Task
+from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerPositionwiseFeedForward
-from ...model_interfaces import ModelWithCheckpoint
 
 
 def py():
@@ -2110,8 +2112,14 @@ def recog_ext_with_lm(
     ctc_model_name: str,
     ctc_model: Optional[ModelWithCheckpoint] = None,
     lm_name: str,
-    ctc_soft_collapse_threshold: float = 0.8,
-):
+    lm: Optional[ModelWithCheckpoint] = None,
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
+    eval_task: Optional[Task] = None,
+    prefix: str = "ctc",
+    postfix: str = "",
+) -> ScoreResultCollection:
     from .ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         _get_lm_model,
@@ -2127,7 +2135,6 @@ def recog_ext_with_lm(
         ExtendVocabLabelsByNewLabelJob,
     )
 
-    prefix = "ctc"
     ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
@@ -2157,26 +2164,21 @@ def recog_ext_with_lm(
     tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
     name_postfix = ""
-    extra_config = {}
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
-        extra_config.update(
-            {
-                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
-                "ctc_soft_collapse_reduce_type": "max_renorm",
-            }
-        )
-    ctc_recog_recomb_labelwise_prior_auto_scale(
-        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
-        task=task,
+    return ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb"
+        f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
+        f"-lm_{lm_name}{name_postfix}{postfix}",
+        task=eval_task or task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-        lm=_get_lm_model(_lms[lm_name]),
+        lm=lm or _get_lm_model(_lms[lm_name]),
         vocab_file=vocab_file,
         vocab_opts_file=vocab_opts_file,
-        n_best_list_size=64,
-        first_pass_recog_beam_size=64,
-        extra_config=extra_config,
+        n_best_list_size=n_best_list_size,
+        first_pass_recog_beam_size=first_pass_recog_beam_size,
+        ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
     )
 
 
@@ -2185,8 +2187,12 @@ def recog_ext_labelwise_with_lm(
     ctc_model_name: str,
     ctc_model: Optional[ModelWithCheckpoint] = None,
     lm_name: str,
+    lm: Optional[ModelWithCheckpoint] = None,
+    prefix: str = "ctc",
     ctc_soft_collapse_threshold: float = 0.8,
-):
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
+) -> ScoreResultCollection:
     from .ctc_recog_ext import (
         ctc_labelwise_recog_auto_scale,
         _get_lm_model,
@@ -2202,7 +2208,6 @@ def recog_ext_labelwise_with_lm(
         ExtendVocabLabelsByNewLabelJob,
     )
 
-    prefix = "ctc"
     ctc_model = ctc_model or _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
@@ -2232,26 +2237,21 @@ def recog_ext_labelwise_with_lm(
     tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
     name_postfix = ""
-    extra_config = {}
     if ctc_soft_collapse_threshold is not None:
         name_postfix += f"-sct{ctc_soft_collapse_threshold}"
-        extra_config.update(
-            {
-                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
-                "ctc_soft_collapse_reduce_type": "max_renorm",
-            }
-        )
-    ctc_labelwise_recog_auto_scale(
-        prefix=f"{prefix}/{ctc_model_name}/recog-labelsync-beam64-fp64-lm_{lm_name}{name_postfix}",
+    return ctc_labelwise_recog_auto_scale(
+        prefix=f"{prefix}/{ctc_model_name}/recog-labelsync"
+        f"-beam{n_best_list_size}-fp{first_pass_recog_beam_size}"
+        f"-lm_{lm_name}{name_postfix}",
         task=task,
         ctc_model=ctc_model,
         labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-        lm=_get_lm_model(_lms[lm_name]),
+        lm=lm or _get_lm_model(_lms[lm_name]),
         vocab_file=vocab_file,
         vocab_opts_file=vocab_opts_file,
-        n_best_list_size=64,
-        first_pass_recog_beam_size=64,
-        extra_config=extra_config,
+        n_best_list_size=n_best_list_size,
+        first_pass_recog_beam_size=first_pass_recog_beam_size,
+        ctc_soft_collapse_threshold=ctc_soft_collapse_threshold,
     )
 
 
@@ -2325,12 +2325,6 @@ def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
         extra_config = {}
         if sct is not None:
             name_postfix += f"-sct{sct}"
-            extra_config.update(
-                {
-                    "ctc_soft_collapse_threshold": sct,
-                    "ctc_soft_collapse_reduce_type": "max_renorm",
-                }
-            )
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/{ctc_model_name}/recog-timesync-labelprior-recomb-beam64-fp64-lm_{lm_name}{name_postfix}",
             task=task,
@@ -2342,6 +2336,7 @@ def recog_ext_with_lm_exps(*, ctc_model_name: str, lm_name: str):
             n_best_list_size=64,
             first_pass_recog_beam_size=64,
             extra_config=extra_config,
+            ctc_soft_collapse_threshold=sct,
         )
 
     for sct, smp_top_p, smp_mnp in [

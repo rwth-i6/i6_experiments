@@ -2,7 +2,6 @@
 More on grad align
 """
 
-
 from __future__ import annotations
 
 from typing import Optional, Any, List, Sequence, Dict, Tuple
@@ -88,77 +87,53 @@ def py():
         (  # ctc forced align: 111.5/52.9ms
             "base",  # 5.77/6.03
             # output/ctc/v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
         (  # ctc forced align: 116.8/74.4ms
             "lpNormedGradC05_11P1",  # 5.71/5.87
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-lpNormedGradC05_11P1",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
             "spm10k",
         ),
         (
             "lpNormedGradC05_11P1Seq",  # 5.83/5.91
             "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-lpNormedGradC05_11P1Seq",
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1Seq",
             "spm10k",
         ),
         (
             "lpNormedGradC01_11P1",  # 6.21/6.55
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-lpNormedGradC01_11P1",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC01_11P1",
             "spm10k",
         ),
         (  # ctc forced align: 98.5/77.6ms
             "blankSep",  # 5.73/6.02
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-blankSep",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep",
             "spm10k",
         ),
         (
             "lpNormedGradC05_11P1+blankSep",  # 5.73/6.08
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
             "spm10k",
         ),
         (  # ctc forced align: 75.4/42.7ms
             "base-spm512",  # 5.97/6.21
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm512-bpeSample001",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm512-bpeSample001",
             "spm512",
         ),
         (  # ctc forced align: 59.6/48.5ms
             "base-spm512-blankSep",  # 6.02/6.04
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm512-bpeSample001"
-            "-blankSep",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm512-bpeSample001-blankSep",
             "spm512",
         ),
         (  # ctc forced align: 113.9/68.1ms
             "base-bpe10k",  # 6.18/6.35
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-bpe10k-bpeSample001",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-bpe10k-bpeSample001",
             "bpe10k",
         ),
         (  # ctc forced align: 84.9/64.2ms
             "base-bpe10k-blankSep",  # 5.98/6.13
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-bpe10k-bpeSample001"
-            "-blankSep",
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-bpe10k-bpeSample001-blankSep",
             "bpe10k",
         ),
         # (
@@ -762,7 +737,6 @@ def sis_get_ctc_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
         )
 
     else:
-
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import py as ctc_py, _train_experiments
 
         global _called_ctc_py_once
@@ -1298,7 +1272,6 @@ def visualize_grad_scores():
         "ctc-grad-align/base-spm512-blankSep-blankStopGrad-inclBlankState-p0.1",
         "aed-grad-align/base-p0.1",
     ]:
-
         score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{name}/input_grads.hdf")
         score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
         basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}

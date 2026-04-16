@@ -2,12 +2,15 @@ __all__ = ["State", "LabelScorer", "beam_search_v1"]
 
 from abc import abstractmethod
 from functools import partial
-from typing import Generic, List, Protocol, Sequence, Tuple, TypeVar
+from typing import Generic, List, Protocol, Sequence, Tuple, TypeVar, Dict, Optional
 from dataclasses import dataclass
+
+from sisyphus import Path
 
 import torch
 from torch import Tensor
 import torch.nn.functional as F
+from torch import nn
 import tree
 
 
@@ -36,6 +39,8 @@ class LabelScorer(Protocol, Generic[State]):
     num_labels: int
     """Number of labels including BOS/EOS."""
 
+    external_lm: Optional[nn.Module]
+
     @abstractmethod
     def step_decoder(self, labels: Tensor, state: State) -> Tuple[Tensor, State]:
         """
@@ -55,11 +60,32 @@ class LabelScorer(Protocol, Generic[State]):
 @dataclass
 class DecoderConfig:
     # search related options:
-    beam_size: int = 12
+    beam_size: int
+    max_tokens_per_sec: int
+    sample_rate: int
 
-    # additional search options
-    lm_weight: float = 0.0
-    ilm_weight: float = 0.0
+    def __str__(self) -> str:
+        return f"beam-{self.beam_size}"
+
+
+@dataclass
+class DecoderWithLmConfig(DecoderConfig):
+    lm_scale: float
+
+    def __str__(self) -> str:
+        return f"beam-{self.beam_size}-lmw-{self.lm_scale}-ilmw-{0.0}"
+
+
+@dataclass
+class DecoderWithLmAndIlmConfig(DecoderWithLmConfig):
+    ilm_scale: float
+    ilm_type: str = "zero_att"  # only supported type so far
+
+    def __post_init__(self):
+        assert self.ilm_type == "zero_att"
+
+    def __str__(self) -> str:
+        return f"beam-{self.beam_size}-lmw-{self.lm_scale}-ilmw-{self.ilm_scale}"
 
 
 def _batch_gather(values: Tensor, *, indices: Tensor, batch_dim: int = 0, index_dim: int = 1) -> Tensor:
@@ -129,7 +155,12 @@ def _gather_backrefs(state: _T, *, backrefs: Tensor, beam_size: int) -> _T:
         f"Beam dim must either be 1 or beam_size ({beam_size}) but is {state.shape[1]}"
     )
     if state.shape[1] == 1:
-        return state  # broadcast, e.g. encoder state in [B,1,T,F]
+        # this happens in the first step, where the initial beam is 1
+        # in this case, we expand the state to the full beam size
+        # we need to do this for the LM states, since we combine the batch and beam dim there, so we cannot
+        # use broadcasting as for the AED model, where batch and beam dim are separate
+        return state.expand(-1, beam_size, *[-1] * (state.ndim - 2))  # expand broadcast dim
+        # return state  # broadcast, e.g. encoder state in [B,1,T,F]
     assert backrefs.ndim == 2, "need at least batch and beam dims in backrefs"
     return _batch_gather(state, indices=backrefs, index_dim=1)
 
@@ -172,6 +203,9 @@ def beam_search_v1(
     device: torch.device,
     length_norm_exponent: float = 1.0,
     max_seq_len: Tensor,
+    lm_scale: float = 0.0,
+    ilm_scale: float = 0.0,
+    ilm_decoder_state: Optional[State] = None,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     Eager-mode implementation of beam search.
@@ -190,6 +224,7 @@ def beam_search_v1(
         assert beam_size > 0
         assert batch_size > 0
         assert (max_seq_len > 0).all()
+        assert ilm_scale == 0.0 or ilm_decoder_state is not None, "ilm_scale > 0 requires an ILM decoder state"
 
         # First step uses beam=1, since the start state is the same for all beams, and multiple
         # beams containing the same contents cause issues in top-k search.
@@ -198,6 +233,7 @@ def beam_search_v1(
         ended = torch.full([batch_size, initial_beam], False, device=device)  # Batch, Beam
         seq_log_prob = torch.full([batch_size, initial_beam], 0.0, dtype=torch.float32, device=device)  # Batch, Beam
         out_seq_len = torch.full([batch_size, initial_beam], 0, dtype=torch.int32, device=device)  # Batch, Beam
+        lm_cache = None
 
         ended_default = F.one_hot(torch.tensor(model.eos_idx, device=device), num_classes=model.num_labels)
         ended_default = torch.where(ended_default.bool(), 0.0, -1e30)
@@ -212,6 +248,32 @@ def beam_search_v1(
             label_log_prob = F.log_softmax(logits, dim=-1)  # Batch, Beam, Vocab
             assert label_log_prob.shape[-2] == 1, f"time dim mismatch, is {label_log_prob.shape[-2]} but should be 1"
             label_log_prob = label_log_prob.squeeze(-2)
+
+            if model.external_lm is not None:
+                target_merged = target.reshape(-1)  # (B, beam) -> (B*beam)
+                if lm_cache is not None:
+                    lm_cache = tree.map_structure(lambda x: x.reshape(-1, *x.shape[2:]), lm_cache)  # (B, beam, ...F) -> (B*beam, ...F)
+                lm_logits, lm_cache = model.external_lm(
+                    target_merged.unsqueeze(-1),
+                    torch.ones_like(target_merged),
+                    lm_cache,
+                    out_seq_len.reshape(-1)
+                )
+                lm_log_prob = F.log_softmax(lm_logits, dim=-1)
+                lm_log_prob = lm_log_prob.reshape(label_log_prob.shape)  # (B*beam, V) -> (B, beam, V)
+                lm_cache = tree.map_structure(
+                    lambda x: x.reshape(label_log_prob.shape[0], label_log_prob.shape[1], *x.shape[1:]), lm_cache
+                )
+
+                label_log_prob = label_log_prob + lm_log_prob * lm_scale
+
+            if ilm_decoder_state is not None:
+                ilm_logits, ilm_decoder_state = model.step_decoder(target.unsqueeze(-1), ilm_decoder_state)
+                ilm_log_prob = F.log_softmax(ilm_logits, dim=-1)  # Batch, Beam, Vocab
+                assert ilm_log_prob.shape[-2] == 1, f"time dim mismatch, is {ilm_log_prob.shape[-2]} but should be 1"
+                ilm_log_prob = ilm_log_prob.squeeze(-2)
+                label_log_prob = label_log_prob - ilm_log_prob * ilm_scale
+
             label_log_prob = torch.where(
                 ended[:, :, None], ended_default[None, None, :], label_log_prob
             )  # filter out finished beams
@@ -234,6 +296,14 @@ def beam_search_v1(
             decoder_state = tree.map_structure(
                 partial(_gather_backrefs, backrefs=backrefs, beam_size=beam_size), decoder_state
             )
+            if lm_cache is not None:
+                lm_cache = tree.map_structure(
+                    partial(_gather_backrefs, backrefs=backrefs, beam_size=beam_size), lm_cache
+                )
+            if ilm_decoder_state is not None:
+                ilm_decoder_state = tree.map_structure(
+                    partial(_gather_backrefs, backrefs=backrefs, beam_size=beam_size), ilm_decoder_state
+                )
             ended = _gather_backrefs(ended, backrefs=backrefs, beam_size=beam_size)
             out_seq_len = _gather_backrefs(out_seq_len, backrefs=backrefs, beam_size=beam_size)
 

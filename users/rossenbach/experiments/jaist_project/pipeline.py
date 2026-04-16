@@ -318,7 +318,7 @@ def tts_eval_v2(
         checkpoint,
         returnn_exe,
         returnn_root,
-        mem_rqmt=8,
+        mem_rqmt=16,
         store_log_mels=False,
 ):
     """
@@ -400,6 +400,7 @@ def generate_synthetic(
         debug: bool = False,
         splits: int = 10,
         randomize_speaker: bool = True,
+        limit_speakers_to: Optional[int] = None,
         use_subset=False,
 ):
     """
@@ -437,6 +438,7 @@ def generate_synthetic(
         num_splits=splits,
         ls_corpus_key="train-clean-100",  # this is always ls100
         randomize_speaker=randomize_speaker,
+        limit_speakers_to=limit_speakers_to,
     )
     split_out_bliss = []
     for i in range(splits):
@@ -458,6 +460,7 @@ def generate_synthetic(
             checkpoint=checkpoint,
             returnn_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
+            mem_rqmt=40, # somehow OOM issues, TODO: investigate
         )
         split_out_bliss.append(forward_job.out_files["out_corpus.xml.gz"])
 
@@ -535,6 +538,7 @@ def tts_training(
         debug: bool = False,
         num_epochs=200,
         evaluate_swer: Optional[str] = None,
+        custom_transcription_bliss = None,
 ) -> Tuple[ReturnnTrainingJob, ReturnnForwardJobV2]:
     """
 
@@ -549,10 +553,13 @@ def tts_training(
     :param use_custom_engine:
     :param debug:
     :param num_epochs:
+    :param custom_transcription_bliss:
+        When using GMM alignments, we might get different pronunciation variants selected
+        This requires to also change the training bliss
     :return:
     """
     if duration_hdf is not None:
-        training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf)
+        training_datasets = build_durationtts_training_dataset(duration_hdf=duration_hdf, custom_transcription_bliss=custom_transcription_bliss)
     else:
         training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 

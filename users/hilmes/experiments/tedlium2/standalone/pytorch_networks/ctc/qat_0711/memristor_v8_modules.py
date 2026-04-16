@@ -15,6 +15,7 @@ from returnn.torch.context import get_run_ctx
 import numpy
 from i6_models.util import compat
 from i6_models.parts.dropout import BroadcastDropout
+from torch.nn.quantized._reference.modules import Linear
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):
@@ -37,8 +38,9 @@ def get_quantization_range_from_bit_precision(bits, dtype):
     else:
         raise ValueError(f"Unrecognized dtype {dtype}")
 
-    return torch.tensor(quant_min, dtype=torch.int32), torch.tensor(quant_max, dtype=torch.int32)
-
+    # return torch.tensor(quant_min, dtype=torch.int32, device="cpu"), torch.tensor(quant_max, dtype=torch.int32, device="cpu")
+    # TODO: this was a fix for the non symmetric case, not sure if symmetric needs this
+    return quant_min, quant_max
 
 class WeightQuantizer(nn.Module):
     def __init__(
@@ -57,17 +59,20 @@ class WeightQuantizer(nn.Module):
         self.quant_fn, self.observer = self.__get_quant_fn_and_observer_for_method(method)
         self.scale = None
         self.zero_point = None
+        self.method = None
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if self.quant_fn is not None and self.observer is not None:
             return self.quant_fn, self.observer
         if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_affine
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
         elif method == "per_tensor_symmetric":
             quant_fn = torch.fake_quantize_per_tensor_affine
+            self.method = torch.per_tensor_symmetric
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min,
                 quant_max=self.quant_max,
@@ -188,7 +193,8 @@ class ActivationQuantizer(nn.Module):
         assert (
             self.scale is not None and self.zero_point is not None
         ), "Need to calibrate before applying quant, disable apply_calibration"
-        tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
+        with torch.autocast(device_type=tensor.device.type, enabled=False, dtype=torch.bfloat16):
+            tensor = self.quant_fn(tensor.float(), self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
 
     def set_scale_and_zp(self):
@@ -487,6 +493,7 @@ class QuantizedMultiheadAttention(nn.Module):
             self.pos_bias_v = nn.parameter.Parameter(torch.empty(self.num_heads, self.embed_dim_per_head))
 
         self.dropout = BroadcastDropout(cfg.dropout, dropout_broadcast_axes=cfg.dropout_broadcast_axes)
+        self.cfg = cfg
 
         self._reset_parameters()
 
@@ -506,7 +513,6 @@ class QuantizedMultiheadAttention(nn.Module):
         :param sequence_mask: bool mask of shape (B, T), True signals within sequence, False outside
         """
         output_tensor = self.layernorm(input_tensor)  # [B, T, F]
-
         time_dim_size = output_tensor.shape[1]
         batch_dim_size = output_tensor.shape[0]
 
@@ -669,7 +675,7 @@ class QuantizedMultiheadAttention(nn.Module):
             correction_settings=self.cfg.correction_settings,
             num_cycles_init=self.cfg.num_cycles,
         )
-        self.in_proj = mem_lin
+        self.qkv_proj = mem_lin
         self.in_proj_in_quant = nn.Identity()
 
         if self.cfg.with_linear_pos:
@@ -693,3 +699,29 @@ class QuantizedMultiheadAttention(nn.Module):
             self.learn_emb_in_quant = nn.Identity()
 
         print("Finished MHSA")
+
+    def prep_torch_quant(self):
+        self.out_proj.weight_quantizer.set_scale_and_zp()
+        self.out_proj = Linear.from_float(
+            self.out_proj,
+            weight_qparams={
+                "qscheme": self.out_proj.weight_quantizer.method,
+                "dtype": self.out_proj.weight_quant_dtype,
+                "zero_point": self.out_proj.weight_quantizer.zero_point,
+                "scale": self.out_proj.weight_quantizer.scale,
+                "quant_min": self.out_proj.weight_quantizer.quant_min,
+                "quant_max": self.out_proj.weight_quantizer.quant_max,
+            },
+        )
+        self.qkv_proj.weight_quantizer.set_scale_and_zp()
+        self.qkv_proj = Linear.from_float(
+            self.qkv_proj,
+            weight_qparams={
+                "qscheme": self.qkv_proj.weight_quantizer.method,
+                "dtype": self.qkv_proj.weight_quant_dtype,
+                "zero_point": self.qkv_proj.weight_quantizer.zero_point,
+                "scale": self.qkv_proj.weight_quantizer.scale,
+                "quant_min": self.qkv_proj.weight_quantizer.quant_min,
+                "quant_max": self.qkv_proj.weight_quantizer.quant_max,
+            },
+        )

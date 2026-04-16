@@ -457,6 +457,41 @@ def prepare_tts_model(
 
 
 @tk.block()
+def extract_durations(
+        prefix_name: str,
+        returnn_config: ReturnnConfig,
+        checkpoint: tk.Path,
+        returnn_exe: tk.Path,
+        returnn_root: tk.Path,
+        mem_rqmt: int = 8,
+):
+    """
+    Run phoneme duration extraction
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=1,
+        device="gpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["durations.hdf"],
+    )
+    search_job.add_alias(prefix_name + "/duration_extraction_job")
+    return search_job.out_files["durations.hdf"]
+
+
+@tk.block()
 def quantize_static(
     prefix_name: str,
     returnn_config: ReturnnConfig,

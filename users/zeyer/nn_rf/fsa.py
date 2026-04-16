@@ -243,6 +243,7 @@ def best_path(
     input_spatial_dim: Dim,
     fsa: FSA,
     return_transition_indices: bool = False,
+    return_state_indices: bool = False,
 ) -> Tuple[Tensor, Tensor]:
     """
     Forward score using the maximum approximation, i.e. the Viterbi algorithm,
@@ -271,6 +272,7 @@ def best_path(
     :param fsa:
     :param return_transition_indices: whether to return the transition indices of the FSA (in A)
         instead of the label indices (in L).
+    :param return_state_indices: whether to return the state indices of the FSA (in S)
     :return: tuple (best path, score).
         best path are the label indices in L if not return_transition_indices else transition indices in A.
         The score has shape [B...].
@@ -328,10 +330,10 @@ def best_path(
     # assert not final_scores_.raw_tensor.isinf().all(), "no path to final state"
 
     state_idx = rf.gather(fsa.final_states, indices=final_idx)  # [B] -> S
-    best_path_ = []
+    best_path_: List[Tensor] = []
     for t in range(input_spatial_dim.get_dim_value() - 1, -1, -1):
         transition_idx = rf.gather(backpointers[t], indices=state_idx)  # [B] -> A
-        best_path_.append(transition_idx)
+        best_path_.append(state_idx if return_state_indices else transition_idx)
         state_idx = rf.where(
             t < input_spatial_dim.get_size_tensor(device=device),
             rf.gather(fsa.trans_prev_state, indices=transition_idx),
@@ -340,14 +342,30 @@ def best_path(
 
     # assert (state_idx == fsa_start_states).all()
     best_path_.reverse()
-    best_path_, _ = rf.stack(best_path_, out_dim=input_spatial_dim)  # [B,T]->A
+    best_path__, _ = rf.stack(best_path_, out_dim=input_spatial_dim)  # [B,T]->A
 
-    if not return_transition_indices:
-        best_path_ = rf.gather(fsa.trans_batch_label_idx, indices=best_path_)  # [B,T] -> B*L
-        best_path_ %= fsa.label_dim.get_dim_value_tensor()  # [B,T] -> L
-        best_path_.sparse_dim = fsa.label_dim
+    if not return_transition_indices and not return_state_indices:
+        best_path__ = rf.gather(fsa.trans_batch_label_idx, indices=best_path__)  # [B,T] -> B*L
+        best_path__ %= fsa.label_dim.get_dim_value_tensor()  # [B,T] -> L
+        best_path__.sparse_dim = fsa.label_dim
 
-    return best_path_, final_scores_
+    return best_path__, final_scores_
+
+
+def transform_state_indices_to_ext(state_indices: Tensor, *, fsa: FSA) -> Tensor:
+    """
+    :param state_indices: [...] -> S
+    :param fsa:
+    :return: state_indices_ext: [...] -> S_
+    """
+    device = state_indices.device
+    # Like pack_padded but with batch dims.
+    mask = rf.sequence_mask(list(fsa.batch_dims) + [fsa.num_states_dim_ext], device=device)  # [B...,S_]
+    indices = rf.range_over_dim(fsa.num_states_dim_ext, device=device)  # [S_]->S_
+    indices, _ = rf.masked_select(
+        indices, mask=mask, dims=list(fsa.batch_dims) + [fsa.num_states_dim_ext], out_dim=fsa.num_states_dim
+    )  # [S]->S_
+    return rf.gather(indices, indices=state_indices)  # [...] -> S_
 
 
 def fsa_for_ctc(
@@ -459,15 +477,22 @@ def fsa_for_ctc(
     )  # [B,ext4]->L
 
     # We want to index into the packed state indices (S), not the ext state indices (S_).
-    trans_prev_state_ext = {i: state + state_idx_offsets for i, state in trans_prev_state_ext.items()}  # [B,ext]->S
-    trans_next_state_ext = {i: state + state_idx_offsets for i, state in trans_next_state_ext.items()}  # [B,ext]->S
+    trans_prev_state_ext = {
+        i: rf.combine_bc(state, "+", state_idx_offsets) for i, state in trans_prev_state_ext.items()
+    }  # [B,ext]->S
+    trans_next_state_ext = {
+        i: rf.combine_bc(state, "+", state_idx_offsets) for i, state in trans_next_state_ext.items()
+    }  # [B,ext]->S
     for state in list(trans_prev_state_ext.values()) + list(trans_next_state_ext.values()):
         state.sparse_dim = num_states_dim
     # And also, we want to index into the merged batch_label_idx (B*L).
     batch_range = (
         rf.range_over_merged_dims(batch_dims, device=targets.device) * labels_with_blank_dim.get_dim_value_tensor()
     )
-    trans_batch_label_idx_ext = {i: batch_range + label for i, label in trans_label_idx_ext.items()}  # [B,ext]->(B*L)
+    trans_batch_label_idx_ext = {
+        i: rf.combine_bc(batch_range, "+", label) for i, label in trans_label_idx_ext.items()
+    }  # [B,ext]->(B*L)
+
     batch_label_dim = batch_range.sparse_dim * labels_with_blank_dim
     for label in trans_batch_label_idx_ext.values():
         label.sparse_dim = batch_label_dim
@@ -572,6 +597,97 @@ def best_path_ctc(
     return best_path(logits=logits, logits_normalized=logits_normalized, fsa=fsa, input_spatial_dim=input_spatial_dim)
 
 
+def best_path_ctc_durations(
+    *,
+    logits: Tensor,
+    logits_normalized: bool = False,
+    input_spatial_dim: Dim,
+    targets: Tensor,
+    targets_spatial_dim: Dim,
+    labels_with_blank_dim: Dim,
+    blank_index: int,
+    out_spatial_dim: Optional[Dim] = None,
+) -> Tuple[Tensor, Dim]:
+    # See best_path_ctc
+    fsa: FSA = fsa_for_ctc(
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+        labels_with_blank_dim=labels_with_blank_dim,
+        blank_index=blank_index,
+    )
+    alignment, _ = best_path(
+        logits=logits,
+        logits_normalized=logits_normalized,
+        input_spatial_dim=input_spatial_dim,
+        fsa=fsa,
+        return_state_indices=True,
+    )  # [batch, input_spatial_dim] -> S
+    alignment = transform_state_indices_to_ext(alignment, fsa=fsa)  # [batch, input_spatial_dim] -> S_
+
+    # Now from alignment, compute durations.
+    # Note: S_ = 2*targets_spatial_dim + 1, because of blanks, and CTC topology (see fsa_for_ctc).
+    durations = rf.scatter(
+        rf.ones(alignment.dims, device=alignment.device, dtype="int32"),
+        indices=alignment,
+        indices_dim=input_spatial_dim,
+    )  # [batch, S_] -> counts, or durations
+
+    if out_spatial_dim is None:
+        out_spatial_dim = fsa.num_states_dim_ext
+
+    else:
+        # Assume out_spatial_dim == 2 * targets_spatial_dim + 1 == S_.
+        # We have fsa.num_states_dim_ext == out_spatial_dim,
+        # but not exactly same dim tags, as dim math is slightly different.
+        durations = rf.replace_dim_v2(
+            durations,
+            in_dim=fsa.num_states_dim_ext,
+            out_dim=out_spatial_dim,
+            allow_expand=False,
+            allow_shrink=False,
+        )
+
+    return durations, out_spatial_dim
+
+
+def best_path_ctc_durations_v2(
+    *,
+    logits: Tensor,
+    logits_normalized: bool = False,
+    input_spatial_dim: Dim,
+    targets: Tensor,
+    targets_spatial_dim: Dim,
+    labels_with_blank_dim: Optional[Dim] = None,
+    blank_index: int,
+    out_spatial_dim: Optional[Dim] = None,
+    check_dims: bool = True,
+    stop_on_failed_check: bool = True,
+) -> Tuple[Tensor, Dim]:
+    """
+    CTC durations
+    """
+    if labels_with_blank_dim is not None:
+        assert labels_with_blank_dim == logits.feature_dim
+    path = rf.ctc_best_path(
+        logits=logits,
+        logits_normalized=logits_normalized,
+        input_spatial_dim=input_spatial_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+        blank_index=blank_index,
+    )
+    durations, out_spatial_dim = rf.ctc_durations_from_path(
+        path=path,
+        path_spatial_dim=input_spatial_dim,
+        blank_index=blank_index,
+        targets_spatial_dim=targets_spatial_dim,
+        out_spatial_dim=out_spatial_dim,
+        check_dims=check_dims,
+        stop_on_failed_check=stop_on_failed_check,
+    )
+    return durations, out_spatial_dim
+
+
 def _safe_add(a: Tensor, b: Tensor) -> Tensor:
     """safe add, handles the case of -inf values."""
     return rf.where(rf.is_finite(a), a + b, a)
@@ -618,6 +734,10 @@ def _scatter_safe_logsumexp(
     tensor = rf.where(rf.is_neg_infinite(max_x), rf.zeros((), dtype=source.dtype, device=source.device), tensor)
     tensor += max_x
     return tensor, out_dim
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Tests
 
 
 def setup_module(**_kwargs):  # run by pytest
@@ -910,3 +1030,45 @@ def test_ctc_loss():
     )
     print(loss_ref)
     torch.testing.assert_allclose(loss.raw_tensor, loss_ref)
+
+
+def test_best_path_ctc_durations_torch_compile():
+    import torch
+    from returnn.torch.frontend import compile_helper
+
+    compile_helper.setup()
+    rf.select_backend_torch()
+
+    f = torch.compile(best_path_ctc_durations)
+
+    for step in range(10):
+        batch_dim = Dim(rf.random_uniform([], minval=1, maxval=5, dtype="int32"), name="batch")
+        labels_dim = Dim(5, name="labels")
+        targets_spatial_dim = Dim(
+            rf.random_uniform([batch_dim], minval=1, maxval=6, dtype="int32"), name="targets_spatial"
+        )
+        targets = rf.random_uniform(
+            [batch_dim, targets_spatial_dim],
+            minval=0,
+            maxval=labels_dim.dimension,
+            sparse_dim=labels_dim,
+            dtype="int32",
+        )
+
+        time_dim = Dim(rf.random_uniform([batch_dim], minval=3, maxval=12, dtype="int32"), name="time")
+        logits = rf.random_normal([batch_dim, time_dim, labels_dim], stddev=2.0, feature_dim=labels_dim)
+        logits = rf.log_softmax(logits, axis=labels_dim)
+
+        durations, time_ext_dim = f(
+            logits=logits,
+            input_spatial_dim=time_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            labels_with_blank_dim=labels_dim,
+            blank_index=0,
+        )
+        assert durations.dims_set == {batch_dim, time_ext_dim}, (
+            f"got {durations.dims_set}, expected {{{batch_dim}, {time_ext_dim}}}"
+        )
+        durations = durations.copy_masked(0)
+        print(durations.raw_tensor)

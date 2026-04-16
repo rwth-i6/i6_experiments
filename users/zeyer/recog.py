@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collecti
 import functools
 
 import sisyphus
-from sisyphus import tk
+from sisyphus import tk, gs
 from sisyphus import tools as sis_tools
 
 from i6_core.returnn import ReturnnConfig
@@ -37,6 +37,10 @@ from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoin
 from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
+from i6_experiments.users.zeyer.returnn.global_startup_callback import (
+    maybe_serialize_global_startup_callback,
+    maybe_add_global_startup_callback_to_post_config,
+)
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -158,9 +162,10 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 12,
     search_rqmt: Optional[Dict[str, Any]] = None,
-    dev_sets: Optional[Collection[str]] = None,
+    eval_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
+    dev_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
     """
@@ -185,7 +190,8 @@ def recog_model(
         and ``raw_res_labels`` (e.g. BPE labels).
     :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
     :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
-    :param dev_sets: which datasets to evaluate on. None means all defined by ``task``
+    :param eval_sets: which datasets to evaluate on. None means all defined by ``task``
+    :param dev_sets: compat, old arg name for eval_sets
     :param name: defines ``search_alias_name`` for the search job
     :return: scores over all datasets (defined by ``task``) using the main measure (defined by the ``task``),
         specifically what comes out of :func:`search_dataset`,
@@ -193,12 +199,20 @@ def recog_model(
         then collected via ``task.collect_score_results_func``.
     """
     if dev_sets is not None:
-        assert all(k in task.eval_datasets for k in dev_sets)
+        assert eval_sets is None, "cannot specify both eval_sets and dev_sets"
+        eval_sets = dev_sets
+    if eval_sets is not None:
+        assert eval_sets
+        if isinstance(eval_sets, dict):
+            pass
+        else:
+            assert all(k in task.eval_datasets for k in eval_sets)
+            eval_sets = {k: task.eval_datasets[k] for k in eval_sets}
+    else:
+        eval_sets = task.eval_datasets
     outputs = {}
-    for dataset_name, dataset in task.eval_datasets.items():
-        if dev_sets is not None:
-            if dataset_name not in dev_sets:
-                continue
+    for dataset_name, dataset in eval_sets.items():
+        assert isinstance(dataset_name, str) and isinstance(dataset, DatasetConfig)
         recog_out = search_dataset(
             dataset=dataset,
             model=model,
@@ -223,7 +237,7 @@ def search_dataset(
     recog_def: RecogDef,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 12,
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -313,6 +327,10 @@ def search_dataset(
         res = search_job.out_files[_v2_forward_out_filename]
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        # Explicitly set TMPDIR, because DEFAULT_ENVIRONMENT_SET might not be applied (CLEANUP_ENVIRONMENT=False),
+        # but we really might want this, and Slurm might overwrite it otherwise.
+        search_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
     if env_updates:
         for k, v in env_updates.items():
             search_job.set_env(k, v)
@@ -512,6 +530,7 @@ def search_config_v2(
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
+                    *maybe_serialize_global_startup_callback(config, post_config),
                     serialization.PythonModelineNonhashedCode,
                 ]
             )
@@ -583,7 +602,7 @@ def search_config_v3(
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
 
     config_ = config
-    config = dict(
+    config: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
@@ -639,6 +658,8 @@ def search_config_v3(
         if k in config or k in post_config:
             continue
         post_config[k] = v
+
+    maybe_add_global_startup_callback_to_post_config(config, post_config)
 
     return ReturnnConfigWithNewSerialization(config, post_config)
 

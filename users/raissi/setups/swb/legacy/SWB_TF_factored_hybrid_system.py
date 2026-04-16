@@ -1,3 +1,4 @@
+
 __all__ = ["SWBTFFactoredHybridSystem"]
 
 import copy
@@ -101,6 +102,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
 
 from i6_experiments.users.raissi.experiments.swb.legacy.data_preparation.legacy_constants_and_paths_swb1 import (
     feature_bundles,
+    ivec_bundles,
     concurrent,
 )
 
@@ -218,7 +220,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
 
     # -------------------- External helpers --------------------
 
-    def set_gammatone_features(self):
+    def set_gammatone_features(self, add_ivectors=False):
         feature_name = self.feature_info.feature_type.get()
         for corpus_key in ["train", "hub500", "hub501"]:
             self.feature_bundles[corpus_key] = {feature_name: feature_bundles[corpus_key]}
@@ -227,6 +229,21 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             cache_pattern = feature_bundles[corpus_key].get_path().split(".bundle")[0]
             caches = [tk.Path(f"{cache_pattern}.{i}") for i in range(1, concurrent[mapping[corpus_key]] + 1)]
             self.feature_caches[corpus_key] = {feature_name: caches}
+        if add_ivectors:
+            self._concat_features_with_ivectors_for_feature_flow()
+
+    def _concat_features_with_ivectors_for_feature_flow(self):
+        for k in self.feature_bundles.keys():
+            ivec_cached_bundle = ivec_bundles[k]
+
+            ivector_cached_path = rasr.FlagDependentFlowAttribute("cache_mode",
+                                                                  {
+                                                                      "bundle":ivec_cached_bundle,
+                                                                    "task_dependent": ivec_cached_bundle
+                                                                  }
+                                                                  )
+            ft_k = self.feature_info.feature_type.get()
+            self.feature_flows[k][ft_k] = self.concat_features_with_ivec(feature_net=self.feature_flows[k][ft_k], ivec_path=ivector_cached_path)
 
     def set_stm_and_glm(self):
         for corpus in ["hub500", "hub501"]:

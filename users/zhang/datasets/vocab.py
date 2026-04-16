@@ -1,10 +1,10 @@
 import tempfile
 
 from sisyphus import Job, tk, Task, gs
-from typing import Optional, Any, Dict, Type
+from typing import Optional, Any, Dict, Type, List, Tuple, Union
 from i6_experiments.users.zhang.datasets.librispeech import get_vocab_by_str
 import subprocess as sp
-import shutil
+import shutil, ast, re, gzip, string
 import os
 import sys
 import sentencepiece
@@ -254,7 +254,7 @@ class ApplySentencepieceToWordOutputJob(Job):
         self.enable_unk = enable_unk
         self.out_search_results = self.output_path("search_results.py" + (".gz" if gzip_output else ""))
 
-        self.rqmt: Optional[Dict[str, Any]] = {"cpu": 1, "mem": 2.0, "time": 2.0}
+        self.rqmt: Optional[Dict[str, Any]] = {"cpu": 1, "mem": 6.0, "time": 2.0}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, mini_task=self.rqmt is None)
@@ -284,7 +284,364 @@ class ApplySentencepieceToWordOutputJob(Job):
                     out.write("%r: %r,\n" % (seq_tag, _transform_text(entry)))
             out.write("}\n")
 
+class ApplyBPEToWordOutputJob(Job):
+    """
+    Apply Subword-NMT BPE codes to a recog_out (search_py_output) dict of words.
+
+    Input format (Python dict, possibly gzipped):
+      {
+        "seq_tag_1": "WORD WORD WORD",
+        "seq_tag_2": [(score, "WORD WORD"), (score, "WORD WORD ...")],   # n-best
+        ...
+      }
+
+    Output format mirrors input, but texts are BPE-encoded (with @@ joins).
+    """
+
+    def __init__(
+        self,
+        *,
+        search_py_output: tk.Path,
+        bpe_codes: tk.Path,
+        bpe_vocab: Optional[tk.Path] = None,
+        subword_nmt_repo: Optional[tk.Path] = None,
+        gzip_output: bool = True,
+        vocabulary_threshold: int = 50,
+    ):
+        """
+        :param search_py_output: words recog_out file to convert to BPE (py dict; .py / .py.gz)
+        :param bpe_codes: BPE codes file (e.g. ReturnnTrainBpeJob.out_bpe_codes)
+        :param bpe_vocab: optional vocabulary file to revert merges producing OOV
+                          (e.g. ReturnnTrainBpeJob.out_bpe_dummy_count_vocab)
+        :param subword_nmt_repo: path to a Subword-NMT checkout; if None, try import from env
+        :param gzip_output: if True, write gzipped output (.py.gz)
+        :param vocabulary_threshold: Subword-NMT vocabulary threshold (default 50, like CLI)
+        """
+        self.search_py_output = search_py_output
+        self.bpe_codes = bpe_codes
+        self.bpe_vocab = bpe_vocab
+        self.subword_nmt_repo = util.get_subword_nmt_repo(subword_nmt_repo) if subword_nmt_repo else None
+        self.gzip_output = gzip_output
+        self.vocabulary_threshold = vocabulary_threshold
+
+        self.out_search_results = self.output_path("search_results.py" + (".gz" if gzip_output else ""))
+
+        # Tiny CPU+RAM; this is pure text processing
+        self.rqmt: Optional[Dict[str, Any]] = {"cpu": 1, "mem": 4.0, "time": 2.0}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, mini_task=self.rqmt is None)
+
+    def _load_bpe(self):
+        repo_path = self.subword_nmt_repo.get_path() if self.subword_nmt_repo else None
+
+        try:
+            # Works when the package is actually installed
+            from subword_nmt.apply_bpe import BPE, read_vocabulary
+        except ModuleNotFoundError:
+            if repo_path and repo_path not in sys.path:
+                sys.path.insert(0, repo_path)
+            try:
+                # Works with a plain git checkout (scripts at repo root)
+                from apply_bpe import BPE, read_vocabulary
+            except ModuleNotFoundError as exc:
+                raise RuntimeError(
+                    "Cannot import Subword-NMT. Either install the package "
+                    "(pip install subword-nmt) or provide a valid repo path."
+                ) from exc
+
+        def _read_vocab_robust(vocab_path: tk.Path, threshold: int):
+            """
+            Return a set of tokens allowed by vocabulary.
+            Supports:
+              1) Plain 'token freq' per line (Subword-NMT native)
+              2) Python/JSON dict-like { 'token': id, ... } (we treat *all* keys as allowed)
+            """
+            with util.uopen(vocab_path, "rt") as f:
+                head = f.read(1024)
+                f.seek(0)
+
+                # Heuristic: dict-like file starts with '{' (possibly after whitespace/newlines)
+                if head.lstrip().startswith("{"):
+                    # Parse as Python literal first; if that fails, try JSON
+                    text = f.read()
+                    try:
+                        vocab_map = eval(text, {})  # trusted file in your pipeline
+                    except Exception:
+                        import json
+                        vocab_map = json.loads(text)
+                    if not isinstance(vocab_map, dict):
+                        raise ValueError("Vocabulary file looks like a dict but does not parse to a dict.")
+                    # Keep all keys regardless of id; threshold is irrelevant here
+                    return set(map(str, vocab_map.keys()))
+                else:
+                    # Native Subword-NMT format
+                    return read_vocabulary(f, threshold)
+
+        vocab = None
+        if self.bpe_vocab:
+            # We ignore threshold semantics for dict-like files (include all keys)
+            vocab = _read_vocab_robust(self.bpe_vocab, self.vocabulary_threshold)
+
+        with util.uopen(self.bpe_codes, "rt") as cf:
+            bpe = BPE(cf, merges=-1, separator="@@", vocab=vocab, glossaries=None)
+        return bpe
+
+    @staticmethod
+    def _bpe_encode_line(bpe, s: str) -> str:
+        """
+        Apply BPE to a single whitespace-tokenized line.
+        Compatible with multiple subword-nmt versions.
+        """
+        line = s.rstrip("\n")
+
+        # Newer forks sometimes have `process_line`
+        if hasattr(bpe, "process_line"):
+            return bpe.process_line(line)
+
+        # Classic rsennrich/subword-nmt exposes `segment` (string -> string)
+        if hasattr(bpe, "segment"):
+            return bpe.segment(line)
+
+        # Fallback: use `segment_tokens` (list[str] -> list[str])
+        if hasattr(bpe, "segment_tokens"):
+            return " ".join(bpe.segment_tokens(line.split()))
+
+        raise AttributeError(
+            "Unsupported BPE API: expected one of process_line/segment/segment_tokens on BPE."
+        )
+
+    def run(self):
+        # Load recog dict
+        raw = util.uopen(self.search_py_output, "rt").read()
+        d = eval(raw, {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "search_py_output must eval to a dict"
+        assert not os.path.exists(self.out_search_results.get_path()), "Output already exists"
+
+        # Prepare encoder
+        bpe = self._load_bpe()
+
+        def _transform_text(s: str) -> str:
+            return self._bpe_encode_line(bpe, s)
+
+        # Write transformed dict
+        mode = "wt" if not self.gzip_output else "wt"  # util.uopen handles gzip by file extension
+        with util.uopen(self.out_search_results, mode) as out:
+            out.write("{\n")
+            for seq_tag, entry in d.items():
+                if isinstance(entry, list):
+                    # n-best list as [(score, text), ...]
+                    out.write("%r: [\n" % (seq_tag,))
+                    for score, text in entry:
+                        out.write("(%f, %r),\n" % (score, _transform_text(text)))
+                    out.write("],\n")
+                else:
+                    # 1-best as text
+                    out.write("%r: %r,\n" % (seq_tag, _transform_text(entry)))
+            out.write("}\n")
+
+def RecogOut_words_to_BPE(data: RecogOutput, bpe:Bpe):
+    """words to spms"""
+    from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+    spms = ApplyBPEToWordOutputJob(search_py_output=data.output, bpe_codes=bpe.codes, bpe_vocab=bpe.vocab, subword_nmt_repo=get_returnn_subword_nmt(), gzip_output=True).out_search_results
+    return RecogOutput(output=spms)
+
 def RecogOut_words_to_spm(data: RecogOutput, spm:SentencePieceModel):
     """words to spms"""
     spms = ApplySentencepieceToWordOutputJob(search_py_output=data.output, sentencepiece_model=spm.model_file, enable_unk=False ,gzip_output=True).out_search_results
     return RecogOutput(output=spms)
+
+class FilterOOVHypsJob(Job):
+    """
+    Filter LLM-expanded N-best lists by an SPM or BPE vocabulary.
+
+    Input:
+        - nbest_py: path to a .py or .py.gz file containing a Python dict:
+            {utt_id: [(score, hyp_str), ...], ...}
+
+        - vocab_type: "spm" or "bpe"
+
+        - spm_model: path to SentencePiece model (.model)  (for vocab_type="spm")
+
+        - bpe_vocab: path to a BPE vocab text file         (for vocab_type="bpe")
+          Format: one token per line, optionally with counts, e.g:
+            ▁hello 123
+            world 42
+
+        - strip_punctuation: if True, we try to strip punctuation characters
+          before deciding a hyp is hopelessly OOV.
+    """
+
+    def __init__(
+        self,
+        nbest_py: tk.Path,
+        vocab: Union[Bpe | SentencePieceModel],
+        strip_punctuation: bool = True,
+        num_eff_hyps: Optional[tk.Variable] = None,
+    ):
+        super().__init__()
+        self.nbest_py = nbest_py
+        self.strip_punctuation = strip_punctuation
+        self.vocab_type = None
+        if isinstance(vocab, SentencePieceModel):
+            self.vocab_type = "spm"
+            self.spm_model = vocab.model_file
+        if isinstance(vocab, Bpe):
+            self.vocab_type = "bpe"
+            self.bpe_vocab = vocab.vocab
+        assert self.vocab_type is not None, f"Unknown vocab type {vocab}"
+        self.num_eff_hyps = num_eff_hyps
+        # Output: filtered N-best in the same py-dict style, gzipped
+        self.out_filtered_nbest = self.output_path("filtered_nbest.py.gz")
+        self.out_delta_hyps = self.output_var("delta_hyps")
+        self.rqmt: Optional[Dict[str, Any]] = {"cpu": 1, "mem": 4.0, "time": 1.0}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, mini_task=self.rqmt is None)
+
+    # ------------- helpers -------------
+
+    def _load_nbest(self, path: str) -> Dict[str, List[Tuple[float, str]]]:
+        if path.endswith(".gz"):
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                text = f.read()
+        else:
+            with open(path, "rt", encoding="utf-8") as f:
+                text = f.read()
+        # The file is a Python dict literal
+        return ast.literal_eval(text)
+
+    def _save_nbest(self, data: Dict[str, List[Tuple[float, str]]], path: str):
+        with gzip.open(path, "wt", encoding="utf-8") as f:
+            # use pretty-ish repr for readability
+            f.write(repr(data))
+
+    # ---- punctuation handling ----
+
+    _punct_re = re.compile(r"[{}]".format(re.escape(string.punctuation)))
+
+    def _strip_punctuation(self, text: str) -> str:
+        # Replace punctuation with space, then collapse spaces
+        text = self._punct_re.sub(" ", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    # ---- vocab / OOV logic ----
+
+    def _init_spm(self):
+        import sentencepiece as spm  # lazy import
+
+        sp = spm.SentencePieceProcessor()
+        sp.load(self.spm_model.get_path())
+        self._spm = sp
+
+    def _init_bpe_charset(self):
+        """
+        Build a set of allowed characters from the BPE vocab tokens.
+        This is a pragmatic, char-level OOV check that catches weird
+        characters (e.g., 'à', emojis, etc.) generated by the LLM.
+        """
+        allowed_chars = set()
+        with open(self.bpe_vocab.get_path(), "rt", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                # typical format: "token count"
+                token = line.split()[0]
+                for ch in token:
+                    allowed_chars.add(ch)
+
+        # Always allow whitespace
+        allowed_chars.update({" ", "\t", "\n"})
+        self._bpe_allowed_chars = allowed_chars
+
+    def _in_vocab_spm(self, text: str) -> bool:
+        if not hasattr(self, "_spm"):
+            self._init_spm()
+
+        if not text:
+            # Empty string: you can decide; here we accept it.
+            return True
+
+        ids = self._spm.encode(text, out_type=int)
+        unk_id = self._spm.unk_id()
+        # If SPM uses a dedicated UNK id, any occurrence means OOV
+        return all(tid != unk_id for tid in ids)
+
+    def _in_vocab_bpe(self, text: str) -> bool:
+        if not hasattr(self, "_bpe_allowed_chars"):
+            self._init_bpe_charset()
+
+        if not text:
+            return True
+
+        for ch in text:
+            if ch.isspace():
+                continue
+            if ch not in self._bpe_allowed_chars:
+                return False
+        return True
+
+    def _in_vocab(self, text: str) -> bool:
+        if self.vocab_type == "spm":
+            return self._in_vocab_spm(text)
+        elif self.vocab_type == "bpe":
+            return self._in_vocab_bpe(text)
+        else:
+            raise ValueError(f"Unknown vocab_type: {self.vocab_type}")
+
+    # ------------- main -------------
+
+    def run(self):
+        in_path = self.nbest_py.get_path()
+        out_path = self.out_filtered_nbest.get_path()
+
+        nbest_dict = self._load_nbest(in_path)
+
+        num_seg = len(nbest_dict.keys())
+        total_hyps = 0
+        kept_hyps = 0
+        dropped_hyps = 0
+        cleaned_punct_hyps = 0
+
+        filtered_dict: Dict[str, List[Tuple[float, str]]] = {}
+
+        for utt, hyp_list in nbest_dict.items():
+            new_list: List[Tuple[float, str]] = []
+            hyp_list = list({t[1].strip(): t for t in hyp_list[::-1]}.values())[::-1] # Deduplicate
+            for score, hyp_text in hyp_list:
+                total_hyps += 1
+                hyp_text = hyp_text.strip()
+                # 1) Check original text
+                if self._in_vocab(hyp_text):
+                    new_list.append((score, hyp_text))
+                    kept_hyps += 1
+                    continue
+
+                # 2) Try stripping punctuation if requested
+                if self.strip_punctuation:
+                    stripped = self._strip_punctuation(hyp_text)
+                    if stripped and self._in_vocab(stripped):
+                        new_list.append((score, stripped))
+                        kept_hyps += 1
+                        cleaned_punct_hyps += 1
+                        continue
+
+                # 3) Fully OOV, drop it
+                dropped_hyps += 1
+
+            filtered_dict[utt] = new_list
+        if self.num_eff_hyps:
+            self.num_eff_hyps = self.num_eff_hyps.get()
+        else:
+            self.num_eff_hyps = 0
+        self.out_delta_hyps.set(abs(kept_hyps - self.num_eff_hyps))
+        self._save_nbest(filtered_dict, out_path)
+
+        # a bit of logging for sanity
+        print(f"[FilterOOVHypsJob] total hyps:    {total_hyps}")
+        print(f"[FilterOOVHypsJob] kept hyps:     {kept_hyps}")
+        print(f"[FilterOOVHypsJob] dropped hyps:  {dropped_hyps}")
+        print(f"[FilterOOVHypsJob] fixed by strip punctuation: {cleaned_punct_hyps}")
+        print(f"[FilterOOVHypsJob] effective expanded hyps:    {kept_hyps - self.num_eff_hyps}") # This is not correct, the kept_hyps here is deduplicated TODO: get this number with original Nbest stats

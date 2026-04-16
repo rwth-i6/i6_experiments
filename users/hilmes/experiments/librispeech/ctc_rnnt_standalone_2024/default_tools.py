@@ -55,3 +55,17 @@ TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
     branch="bene_cycle",
 ).out_repository.copy()
 TORCH_MEMRISTOR_PATH.hash_overwrite = "LIBRISPEECH_STANDALONE_DEFAULT_TORCH_MEMRISTOR"
+
+rasr_path = "/work/asr4/hilmes/dev/rasr_librasr_19_09_25/"
+rasr_root = tk.Path(rasr_path, hash_overwrite="LIBRISPEECH_STANDALONE_DEFAULT_RASR_ROOT").copy()
+rasr_binary_path = tk.Path(
+    f"{rasr_path}arch/linux-x86_64-standard",
+    hash_overwrite="RASR_BINARY_PATH",
+).copy()
+
+I6_CORE_REPO_PATH = CloneGitRepositoryJob(
+    url="https://github.com/rwth-i6/i6_core",
+    commit="fd5b07bd902e4027d5ca9b15e9d88687699ea274",
+    checkout_folder_name="i6_core",
+).out_repository.copy()
+I6_CORE_REPO_PATH.hash_overwrite = "LIBRISPEECH_STANDALONE_DEFAULT_I6_CORE"

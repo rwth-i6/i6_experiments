@@ -55,6 +55,9 @@ class DatasetSettings:
     train_seq_ordering: str
     train_additional_options: Optional[Dict[str, Any]] = None
 
+    # multiproc settings
+    num_workers: int = 2
+
 
 # --------------------------- Helper functions  -----------------------------------
 
@@ -98,11 +101,11 @@ def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
 # --------------------------- Dataset functions  -----------------------------------
 
 
-def make_multi_proc(dataset: OggZipDataset):
+def make_multi_proc(dataset: OggZipDataset, num_workers):
     return MultiProcDataset(
         dataset=dataset,
         buffer_size=10,
-        num_workers=4
+        num_workers=num_workers
     )
 
 
@@ -129,14 +132,7 @@ def build_training_datasets(
         "labels": label_datastream,
     }
 
-    data_map = {"data": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
-
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
-
-    def make_meta(dataset: OggZipDataset):
-        return MetaDataset(
-            data_map=data_map, datasets={"zip_dataset": dataset}, seq_order_control_dataset="zip_dataset"
-        )
 
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -146,7 +142,7 @@ def build_training_datasets(
         seq_ordering=settings.train_seq_ordering,
         additional_options=settings.train_additional_options,
     )
-    train_dataset = make_multi_proc(train_zip_dataset)
+    train_dataset = make_multi_proc(train_zip_dataset, num_workers=settings.num_workers)
 
     cv_zip_dataset = OggZipDataset(
         files=[dev_ogg],
@@ -155,7 +151,7 @@ def build_training_datasets(
         segment_file=dev_segments,
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_multi_proc(cv_zip_dataset)
+    cv_dataset = make_multi_proc(cv_zip_dataset, num_workers=settings.num_workers)
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -164,7 +160,7 @@ def build_training_datasets(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_multi_proc(devtrain_zip_dataset)
+    devtrain_dataset = make_multi_proc(devtrain_zip_dataset, num_workers=settings.num_workers)
 
     return TrainingDatasets(
         train=train_dataset,
@@ -196,7 +192,7 @@ def build_test_dataset(
     test_zip_dataset = OggZipDataset(
         files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
     )
-    test_dataset = make_multi_proc(test_zip_dataset)
+    test_dataset = make_multi_proc(test_zip_dataset, num_workers=settings.num_workers)
     # test_dataset = MetaDataset(
     #     data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
     # )

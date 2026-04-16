@@ -222,28 +222,28 @@ def forward_finish_hook(run_ctx, **kwargs):
 
     if run_ctx.print_rtf:
         print(
-            "Total-AM-Time: %.2fs, AM-RTF: %.4f"
+            "Total-AM-Time: %.2fs, AM-RTF: %.6f"
             % (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s)
         )
         run_ctx.rtf_file.write(
-            "Total-AM-Time: %.2fs, AM-RTF: %.4f \n"
+            "Total-AM-Time: %.2fs, AM-RTF: %.6f \n"
             % (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s)
         )
         print(
-            "Total-Search-Time: %.2fs, Search-RTF: %.4f"
+            "Total-Search-Time: %.2fs, Search-RTF: %.6f"
             % (run_ctx.total_search_time, run_ctx.total_search_time / run_ctx.running_audio_len_s)
         )
         run_ctx.rtf_file.write(
-            "Total-Search-Time: %.2fs, Search-RTF: %.4f \n"
+            "Total-Search-Time: %.2fs, Search-RTF: %.6f \n"
             % (run_ctx.total_search_time, run_ctx.total_search_time / run_ctx.running_audio_len_s)
         )
         total_proc_time = run_ctx.total_am_time + run_ctx.total_search_time
         print(
-            "Total-time: %.2f, Total-recog-time: %.2f, Batch-RTF: %.4f"
+            "Total-time: %.2f, Total-recog-time: %.2f, Batch-RTF: %.6f"
             % (time.time() - run_ctx.start_time, total_proc_time, total_proc_time / run_ctx.running_audio_len_s)
         )
         run_ctx.rtf_file.write(
-            "Total-time: %.2f, Total-recog-time: %.2f, Batch-RTF: %.4f \n"
+            "Total-time: %.2f, Total-recog-time: %.2f, Batch-RTF: %.6f \n"
             % (time.time() - run_ctx.start_time, total_proc_time, total_proc_time / run_ctx.running_audio_len_s)
         )
         run_ctx.rtf_file.close()
@@ -301,9 +301,9 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     run_ctx.total_search_time += search_time
 
     if run_ctx.print_rtf:
-        print("Batch-AM-Time: %.2fs, AM-RTF: %.4f" % (am_time, am_time / audio_len_batch))
-        print("Batch-Search-Time: %.2fs, Search-RTF: %.4f" % (search_time, search_time / audio_len_batch))
-        print("Batch-time: %.2f, Batch-RTF: %.4f" % (am_time + search_time, (am_time + search_time) / audio_len_batch))
+        print("Batch-AM-Time: %.2fs, AM-RTF: %.6f" % (am_time, am_time / audio_len_batch))
+        print("Batch-Search-Time: %.2fs, Search-RTF: %.6f" % (search_time, search_time / audio_len_batch))
+        print("Batch-time: %.2f, Batch-RTF: %.6f" % (am_time + search_time, (am_time + search_time) / audio_len_batch))
 
     for hyp, tag in zip(hypothesis, tags):
         words = hyp[0].words

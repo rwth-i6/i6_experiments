@@ -5,7 +5,7 @@ CTC recognition with LM
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Dict
+from typing import Optional, Union, Any, Collection, Tuple, Dict, Callable
 import functools
 import numpy as np
 
@@ -19,15 +19,17 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
+from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_w_blank_file_from_task
+from i6_experiments.users.zeyer.decoding.rescoring import rescore, RescoreDef
+from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
 
-from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq, RecogOutput
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
-
-if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
+from .lm import lm_model_def
 
 
 _ctc_model_name = (
@@ -72,7 +74,7 @@ _lms = {
         "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp400-spm10k", "v4", "lm_claix2023"
     ),
     "n32-d1280-claix2023": _Lm(
-        "trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k", "v4", "lm_claix2023"
+        "trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_15k-spm10k", "v4", "lm_claix2023"
     ),
 }
 
@@ -805,13 +807,35 @@ def get_ctc_with_lm_and_labelwise_prior(
 
     # Add LM.
     # LM has _model_def_dict in config. Put that as _lm_model_def_dict.
-    config.update(
-        {
-            "_lm_model_def_dict": language_model.definition.config["_model_def_dict"],
-            "lm_scale": lm_scale,
-        }
-    )
-    config.setdefault("preload_from_files", {})["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+    lm_def = language_model.definition
+    assert isinstance(lm_def, ModelDefWithCfg)
+    lm_config = lm_def.config.copy()
+    if lm_def.model_def is lm_model_def:
+        config["_lm_model_def_dict"] = lm_config.pop("_model_def_dict")
+    else:
+        config["_lm_model_def"] = lm_def.model_def
+    config["lm_scale"] = lm_scale
+    config["preload_from_files"] = config["preload_from_files"].copy() if config.get("preload_from_files") else {}
+    if language_model.checkpoint:
+        config["preload_from_files"]["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+    lm_config_preload_from_files = lm_config.pop("preload_from_files", None)
+    if lm_config_preload_from_files:
+        for k, v in lm_config_preload_from_files.items():
+            assert k not in config["preload_from_files"], (
+                f"key {k!r} already in {config['preload_from_files']=}, cannot set to value {v}"
+            )
+            assert isinstance(v, dict)
+            v = v.copy()
+            v["prefix"] = "lm." + v["prefix"]
+            if v.get("custom_missing_load_func"):
+                # example: speech_llm.prefix_lm.model.custom_missing_load_funcs.qwen.qwen_load_tied_embedding_matrices
+                v["custom_missing_load_func"] = functools.partial(
+                    _lm_wrapped_custom_missing_load_func,
+                    prefix="lm.",
+                    orig_custom_missing_load_func=v["custom_missing_load_func"],
+                )
+            config["preload_from_files"][k] = v
+    assert not lm_config
 
     combined_model_def = ctc_model_ext_def
     if ctc_model_def_ is not ctc_model_def:
@@ -831,6 +855,72 @@ def get_ctc_with_lm_and_labelwise_prior(
     )
 
 
+def _lm_wrapped_custom_missing_load_func(
+    name: str, shape, preload_model_state: Dict[str, Any], *, prefix: str, orig_custom_missing_load_func, **kwargs
+):
+    if not name.startswith(prefix):
+        return None
+
+    name_ = name[len(prefix) :]
+    preload_model_state_ = {k[len(prefix) :]: v for k, v in preload_model_state.items() if k.startswith(prefix)}
+    return orig_custom_missing_load_func(name_, shape, preload_model_state_, **kwargs)
+
+
+def get_ctc_with_ngram_lm_and_framewise_prior(
+    *,
+    ctc_model: ModelWithCheckpoint,
+    prior: Optional[tk.Path] = None,
+    prior_type: str = "prob",
+    prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
+    ngram_language_model: Optional[tk.Path] = None,
+    lm_scale: Union[float, tk.Variable],
+    ctc_decoder_opts: Dict[str, Any],  # for torchaudio.models.decoder.ctc_decoder, lexicon, nbest, beam_size, etc.
+) -> ModelWithCheckpoint:
+    """Combined CTC model with LM and prior"""
+    # Keep CTC model config as-is, extend below for prior and LM.
+    ctc_model_def_ = ctc_model.definition
+    if isinstance(ctc_model_def_, ModelDefWithCfg):
+        config: Dict[str, Any] = ctc_model_def_.config.copy()
+    else:
+        config = {}
+
+    # Add prior.
+    # Then the CTC Model log_probs_wb_from_logits will include the prior.
+    if prior is not None:
+        assert prior_scale is not None
+    if prior_scale is not None:
+        assert prior is not None
+        config.update(
+            {
+                "ctc_prior_type": "static",
+                "ctc_prior_scale": prior_scale,
+                "static_prior": {"type": prior_type, "file": prior},
+            }
+        )
+
+    # Add LM.
+    if lm_scale:
+        assert ngram_language_model is not None
+    assert isinstance(ctc_decoder_opts, dict)
+    config.update({"lm_scale": lm_scale, "lm_ngram_file": ngram_language_model, "ctc_decoder_opts": ctc_decoder_opts})
+
+    # Use functools.partial to bind orig_ctc_model_def.
+    # Need to make it a proper ModelDef.
+    # noinspection PyTypeChecker
+    ctc_model_ext_def_: ModelDef = functools.partial(ctc_model_ext_def, orig_ctc_model_def=ctc_model_def_)
+    # Make it a proper ModelDef
+    ctc_model_ext_def_.behavior_version = max(ctc_model_ext_def.behavior_version, ctc_model_def_.behavior_version)
+    ctc_model_ext_def_.backend = ctc_model_def_.backend
+    ctc_model_ext_def_.batch_size_factor = ctc_model_def_.batch_size_factor
+    # Need new recog serialization for the partial.
+    config["__serialization_version"] = max(2, config.get("__serialization_version", 0))
+
+    return ModelWithCheckpoint(
+        definition=ModelDefWithCfg(model_def=ctc_model_ext_def_, config=config),
+        checkpoint=ctc_model.checkpoint,
+    )
+
+
 def ctc_model_ext_def(
     *, epoch: int, in_dim: Dim, target_dim: Dim, orig_ctc_model_def: ModelDef = ctc_model_def
 ) -> Model:
@@ -841,21 +931,66 @@ def ctc_model_ext_def(
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
 
-    lm = rf.build_from_dict(config.typed_value("_lm_model_def_dict"), vocab_dim=target_dim)
+    # (framewise) ctc_prior_type / static_prior handled by orig_ctc_model_def.
+    model: Model = orig_ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+
     lm_scale = config.typed_value("lm_scale", None)
     assert isinstance(lm_scale, (int, float))
-
-    # (framewise) ctc_prior_type / static_prior handled by ctc_model_def.
-    model = orig_ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
-    model.lm = lm
     model.lm_scale = lm_scale
+    lm_model_def_dict = config.typed_value("_lm_model_def_dict", None)
+    lm_model_def = config.typed_value("_lm_model_def", None)
+    lm_ngram_file = config.typed_value("lm_ngram_file", None)
+    ctc_decoder_opts = config.typed_value("ctc_decoder_opts", None)
+    if lm_model_def_dict:
+        model.lm = rf.build_from_dict(lm_model_def_dict, vocab_dim=target_dim)
+    elif lm_model_def:
+        model.lm = lm_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+    elif lm_ngram_file or ctc_decoder_opts is not None:
+        assert isinstance(ctc_decoder_opts, dict)  # e.g. lexicon, nbest, beam_size, etc, see below
+
+        from torchaudio.models.decoder import ctc_decoder
+
+        assert target_dim.vocab
+        assert model.blank_idx is not None
+        wb_target_dim = model.wb_target_dim
+        assert wb_target_dim.vocab
+        blank_token = wb_target_dim.vocab.labels[model.blank_idx]
+
+        model.decoder = ctc_decoder(
+            lm=lm_ngram_file,
+            lm_weight=lm_scale,
+            tokens=wb_target_dim.vocab.labels,
+            blank_token=blank_token,
+            sil_token=blank_token,
+            **ctc_decoder_opts,
+            # lexicon=self.lexicon,
+            # nbest=self.n_best,
+            # beam_size=self.beam_size,
+            # beam_size_token=self.beam_size_token,
+            # beam_threshold=self.beam_threshold,
+            # sil_score=self.sil_score,
+            # word_score=self.word_score,
+        )
+
+    else:
+        raise ValueError("no LM specified")
 
     labelwise_prior = config.typed_value("labelwise_prior", None)
     if labelwise_prior:
+        labelwise_prior_dim = config.typed_value("labelwise_prior_dim", None)
+        if labelwise_prior_dim is None:
+            labelwise_prior_dim = target_dim
+        elif isinstance(labelwise_prior_dim, Dim):
+            pass
+        elif isinstance(labelwise_prior_dim, str) and labelwise_prior_dim == "lm_vocab":
+            labelwise_prior_dim = model.lm.vocab_dim
+        else:
+            raise ValueError(f"invalid labelwise_prior_dim {labelwise_prior_dim!r} {type(labelwise_prior_dim)}")
         assert isinstance(labelwise_prior, dict) and set(labelwise_prior.keys()) == {"type", "file", "scale"}
         v = numpy.loadtxt(labelwise_prior["file"])
-        assert v.shape == (target_dim.dimension,), (
-            f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r}, expected dim {target_dim}"
+        assert v.shape == (labelwise_prior_dim.dimension,), (
+            f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r},"
+            f" expected dim {labelwise_prior_dim}"
         )
         # The `type` is about what is stored in the file.
         # We always store it in log prob here, so we potentially need to convert it.
@@ -867,7 +1002,7 @@ def ctc_model_ext_def(
             raise ValueError(f"invalid static_prior type {labelwise_prior['type']!r}")
         v *= labelwise_prior["scale"]  # can already apply now
         model.labelwise_prior = rf.Parameter(
-            rf.convert_to_tensor(v, dims=[target_dim], dtype=rf.get_default_float_dtype()),
+            rf.convert_to_tensor(v, dims=[labelwise_prior_dim], dtype=rf.get_default_float_dtype()),
             auxiliary=True,
             non_critical_for_restore=True,
         )
@@ -947,6 +1082,44 @@ model_recog_flashlight.output_blank_label = "<blank>"
 model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
+def get_ctc_prior(
+    *,
+    ctc_model: ModelWithCheckpoint,
+    extra_config: Optional[Dict[str, Any]] = None,
+    framewise_prior_dataset: DatasetConfig,
+    vocab_w_blank_file: Optional[tk.Path] = None,
+    task: Optional[Task] = None,
+    blank_label: Optional[str] = None,
+    blank_idx: Optional[int] = None,
+) -> Prior:
+    if blank_label is None:
+        from .ctc import model_recog as model_recog_ctc_only
+
+        blank_label = model_recog_ctc_only.output_blank_label
+
+    if blank_idx is None:
+        from .ctc import _ctc_model_def_blank_idx
+
+        blank_idx = _ctc_model_def_blank_idx
+
+    config = {
+        "behavior_version": 24,  # should make it independent from batch size
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
+        "batch_size": 200_000 * ctc_model.definition.batch_size_factor,
+        "max_seqs": 2000,
+    }
+    if extra_config:
+        config = dict_update_deep(config, extra_config)
+
+    prior = get_ctc_prior_probs(ctc_model, framewise_prior_dataset, config=config)
+
+    if vocab_w_blank_file is None:
+        assert task
+        vocab_w_blank_file = get_vocab_w_blank_file_from_task(task, blank_label=blank_label, blank_idx=blank_idx)
+
+    return Prior(file=prior, type="prob", vocab=vocab_w_blank_file)
+
+
 def get_ctc_prior_probs(
     ctc_model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
 ) -> tk.Path:
@@ -1021,15 +1194,7 @@ def _ctc_model_softmax_prior_returnn_forward(
     source: Tensor, /, in_spatial_dim: Dim, model: Model
 ) -> Tuple[Tensor, Dim]:
     """ForwardDef API"""
-    import returnn.frontend as rf
-    from returnn.tensor import Tensor, Dim
-
-    logits, enc, enc_spatial_dim = model(source, in_spatial_dim=in_spatial_dim)
-    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
-    assert logits.feature_dim  # we expect a feature dim
-    assert enc_spatial_dim in logits.dims
-    log_probs = model.log_probs_wb_from_logits(logits)
-    assert isinstance(log_probs, Tensor)
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(source, in_spatial_dim=in_spatial_dim)
     probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
     return probs, enc_spatial_dim
 
@@ -1044,15 +1209,7 @@ def ctc_model_rescore(
     targets_spatial_dim: Dim,
 ) -> Tensor:
     """RescoreDef API"""
-    import returnn.frontend as rf
-    from returnn.tensor import Tensor, Dim
-
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
-    assert logits.feature_dim  # we expect a feature dim
-    assert enc_spatial_dim in logits.dims
-    log_probs = model.log_probs_wb_from_logits(logits)
-    assert isinstance(log_probs, Tensor)
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
 
@@ -1100,6 +1257,81 @@ def _ctc_model_rescore(
         targets_beam_dim=targets_beam_dim,
         targets_spatial_dim=targets_spatial_dim,
     )
+
+
+# like lm_score
+def ctc_best_path_score(
+    recog_output: RecogOutput,
+    *,
+    dataset: DatasetConfig,  # for encoder inputs (e.g. audio)
+    model: ModelWithCheckpoint,
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    :param recog_output:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+        We ignore the scores here and just use the text of the hyps.
+    :param dataset: the orig data which was used to generate recog_output
+    :param model: AED model
+    :param vocab: labels (line-based, maybe gzipped)
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param rescore_rqmt:
+    """
+    return rescore(
+        recog_output=recog_output,
+        dataset=dataset,
+        model=model,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=ctc_best_path_model_rescore_def,
+        forward_rqmt=rescore_rqmt,
+    )
+
+
+def ctc_best_path_model_rescore_def(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+) -> Tensor:
+    """
+    RescoreDef API
+
+    Also see :func:`ctc_model_rescore` above.
+    """
+    from i6_experiments.users.zeyer.nn_rf.fsa import best_path_ctc
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    data_batch_dims = data.remaining_dims(data_spatial_dim)
+
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    assert set(batch_dims) == set(data_batch_dims).union({targets_beam_dim})
+
+    _, neg_log_prob = best_path_ctc(
+        logits=log_probs,
+        logits_normalized=True,
+        targets=targets,
+        input_spatial_dim=enc_spatial_dim,
+        targets_spatial_dim=targets_spatial_dim,
+        blank_index=model.blank_idx,
+    )
+    log_prob_targets_seq = -neg_log_prob
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
+
+
+ctc_best_path_model_rescore_def: RescoreDef
 
 
 def ctc_prior_full_sum_rescore(
@@ -1401,15 +1633,26 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     prefix: str,
     task: Task,
     ctc_model: ModelWithCheckpoint,
-    labelwise_prior: Prior,
+    use_prior: bool = True,
+    labelwise_prior: Optional[Prior] = None,
+    prior_dataset: Optional[DatasetConfig] = None,
+    prior_custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None,
     lm: ModelWithCheckpoint,
-    vocab_file: tk.Path,
-    vocab_opts_file: tk.Path,
-    n_best_list_size: int,
-    first_pass_recog_beam_size: int,
+    lm_rescore_config: Optional[Dict[str, Any]] = None,
+    vocab_file: Optional[tk.Path] = None,
+    vocab_opts_file: Optional[tk.Path] = None,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
+    first_pass_extra_config: Optional[Dict[str, Any]] = None,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     recomb_type: str = "max",
     extra_config: Optional[Dict[str, Any]] = None,
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
+    recog_version: int = 10,
+    recog_def: Optional[RecogDef[Model]] = None,
+    ctc_only_recog_version: Optional[int] = None,
+    ctc_only_recog_def: Optional[RecogDef[Model]] = None,
+    eval_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_with_recomb`` and recomb enabled to get N-best list on ``task.dev_dataset``,
@@ -1418,34 +1661,92 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     then rescore on all ``task.eval_datasets`` using those scales,
     and also do first-pass recog (``model_recog_with_recomb``) with those scales.
     """
-    from i6_experiments.users.zeyer.decoding.lm_rescoring import (
-        lm_labelwise_prior_rescore,
-        prior_score,
-        lm_score,
-    )
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_labelwise_prior_rescore, prior_score, lm_score
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
-    from .recog_ext.ctc import model_recog_with_recomb
+    from .ctc import _ctc_model_def_blank_idx
+
+    if recog_def is None:
+        from .recog_ext.ctc import model_recog_with_recomb as recog_def
+
+    if ctc_only_recog_version is None:
+        ctc_only_recog_version = recog_version
+
+    if ctc_only_recog_def is None:
+        ctc_only_recog_def = recog_def
+
+    if vocab_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
+
+        vocab_file = get_vocab_file_from_task(task)
+
+    if vocab_opts_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_opts_file_from_task
+
+        vocab_opts_file = get_vocab_opts_file_from_task(task)
+
+    if labelwise_prior is None and use_prior:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import ExtendVocabLabelsByNewLabelJob
+        from i6_experiments.users.zeyer.decoding.prior_rescoring import PriorRemoveLabelRenormJob
+
+        prior = get_ctc_prior_probs(
+            ctc_model,
+            prior_dataset or task.train_dataset.copy_train_as_static(),
+            config={
+                "behavior_version": 24,
+                "batch_size": 200_000 * _batch_size_factor,
+                "max_seqs": 2000,
+                **(extra_config or {}),
+            },
+        )
+        prior.creator.add_alias(f"{prefix}/prior")
+        tk.register_output(f"{prefix}/prior.txt", prior)
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+        ).out_vocab
+        tk.register_output(f"{prefix}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+        log_prior_wo_blank = PriorRemoveLabelRenormJob(
+            prior_file=prior,
+            prior_type="prob",
+            vocab=vocab_w_blank_file,
+            remove_label=model_recog.output_blank_label,
+            out_prior_type="log_prob",
+        ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
+        labelwise_prior = Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file)
 
     base_config = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
-        "recog_version": 10,
         "recog_recomb": recomb_type,
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
+    if ctc_soft_collapse_threshold is not None:
+        base_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
+        )
+    ctc_only_config = {**base_config, "recog_version": ctc_only_recog_version, "beam_size": n_best_list_size}
+
+    # CTC-only recog
+    res = recog_model(
+        task=task, eval_sets=eval_sets, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config
+    )
+    tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
 
     # see recog_model, lm_labelwise_prior_rescore
     dataset = task.dev_dataset
     asr_scores = search_dataset(
-        dataset=dataset,
-        model=ctc_model,
-        recog_def=model_recog_with_recomb,
-        config={**base_config, "beam_size": n_best_list_size},
-        keep_beam=True,
+        dataset=dataset, model=ctc_model, recog_def=ctc_only_recog_def, config=ctc_only_config, keep_beam=True
     )
-    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
-    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+    prior_scores = (
+        prior_score(asr_scores, prior=labelwise_prior, custom_vocab_convert_labels=prior_custom_vocab_convert_labels)
+        if use_prior
+        else None
+    )
+    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, config=lm_rescore_config)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
@@ -1458,42 +1759,54 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
     for f in task.recog_post_proc_funcs:  # BPE to words or so
         asr_scores = f(asr_scores)
-        prior_scores = f(prior_scores)
+        prior_scores = f(prior_scores) if use_prior else None
         lm_scores = f(lm_scores)
         ref = f(ref)
 
     from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
 
-    opt_scales_job = ScaleTuningJob(
-        scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
-        ref=ref.output,
-        fixed_scales={"am": 1.0},
-        negative_scales={"prior"},
-        scale_relative_to={"prior": "lm"},
-        evaluation="edit_distance",
+    opt_scales_job = (
+        ScaleTuningJob(
+            scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+            ref=ref.output,
+            fixed_scales={"am": 1.0},
+            negative_scales={"prior"},
+            scale_relative_to={"prior": "lm"},
+            evaluation="edit_distance",
+        )
+        if use_prior
+        else ScaleTuningJob(
+            scores={"am": asr_scores.output, "lm": lm_scores.output},
+            ref=ref.output,
+            fixed_scales={"am": 1.0},
+            evaluation="edit_distance",
+        )
     )
     tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
     tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
     # We use the real scales.
     # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
     # (The DelayedBase logic on the Sis Variable should handle this.)
-    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1) if use_prior else 0
     lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
 
     # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
     res = recog_model(
         task=task,
+        eval_sets=eval_sets,
         model=ctc_model,
-        recog_def=model_recog_with_recomb,
-        config={**base_config, "beam_size": n_best_list_size},
+        recog_def=ctc_only_recog_def,
+        config=ctc_only_config,
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 lm_labelwise_prior_rescore,
                 # framewise standard prior
                 prior=labelwise_prior,
                 prior_scale=prior_scale,
+                prior_custom_vocab_convert_labels=prior_custom_vocab_convert_labels,
                 lm=lm,
                 lm_scale=lm_scale,
+                lm_rescore_config=lm_rescore_config,
                 lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
@@ -1504,9 +1817,9 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
 
     model = get_ctc_with_lm_and_labelwise_prior(
         ctc_model=ctc_model,
-        prior=labelwise_prior.file,
-        prior_type=labelwise_prior.type,
-        prior_scale=prior_scale,
+        prior=labelwise_prior.file if use_prior else None,
+        prior_type=labelwise_prior.type if use_prior else "none",
+        prior_scale=prior_scale if use_prior else None,
         language_model=lm,
         lm_scale=lm_scale,
     )
@@ -1515,10 +1828,13 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     first_pass_search_rqmt.setdefault("mem", 50)
     res = recog_model(
         task=task,
+        eval_sets=eval_sets,
         model=model,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={
             **base_config,
+            **(first_pass_extra_config or {}),
+            "recog_version": recog_version,
             "beam_size": first_pass_recog_beam_size,
             # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
             # So when the beam size is larger, reduce batch size.
@@ -1539,14 +1855,16 @@ def ctc_labelwise_recog_auto_scale(
     prefix: str,
     task: Task,
     ctc_model: ModelWithCheckpoint,
-    labelwise_prior: Prior,
+    labelwise_prior: Optional[Prior] = None,
+    prior_dataset: Optional[DatasetConfig] = None,
     lm: ModelWithCheckpoint,
-    vocab_file: tk.Path,
-    vocab_opts_file: tk.Path,
-    n_best_list_size: int,
-    first_pass_recog_beam_size: int,
+    vocab_file: Optional[tk.Path] = None,
+    vocab_opts_file: Optional[tk.Path] = None,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
     first_pass_search_rqmt: Optional[Dict[str, int]] = None,
     extra_config: Optional[Dict[str, Any]] = None,
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
     extra_config_n_best_list: Optional[Dict[str, Any]] = None,
 ) -> ScoreResultCollection:
     """
@@ -1561,11 +1879,52 @@ def ctc_labelwise_recog_auto_scale(
         prior_score,
         lm_score,
     )
+    from .ctc import _ctc_model_def_blank_idx
     from .recog_ext.ctc_label_sync_espnet import model_recog_label_sync_v2
     from i6_core.returnn.search import SearchTakeBestJob
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
     from i6_experiments.users.zeyer.datasets.task import RecogOutput
     from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import sclite_score_recog_out_to_ref
+
+    if vocab_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
+
+        vocab_file = get_vocab_file_from_task(task)
+
+    if vocab_opts_file is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_opts_file_from_task
+
+        vocab_opts_file = get_vocab_opts_file_from_task(task)
+
+    if labelwise_prior is None:
+        from i6_experiments.users.zeyer.datasets.utils.vocab import ExtendVocabLabelsByNewLabelJob
+        from i6_experiments.users.zeyer.decoding.prior_rescoring import PriorRemoveLabelRenormJob
+
+        prior = get_ctc_prior_probs(
+            ctc_model,
+            prior_dataset or task.train_dataset.copy_train_as_static(),
+            config={
+                "behavior_version": 24,
+                "batch_size": 200_000 * _batch_size_factor,
+                "max_seqs": 2000,
+                **(extra_config or {}),
+            },
+        )
+        prior.creator.add_alias(f"{prefix}/prior")
+        tk.register_output(f"{prefix}/prior.txt", prior)
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+        ).out_vocab
+        tk.register_output(f"{prefix}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+        log_prior_wo_blank = PriorRemoveLabelRenormJob(
+            prior_file=prior,
+            prior_type="prob",
+            vocab=vocab_w_blank_file,
+            remove_label=model_recog.output_blank_label,
+            out_prior_type="log_prob",
+        ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
+        labelwise_prior = Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file)
 
     dataset = task.dev_dataset
     ref = RecogOutput(
@@ -1579,10 +1938,17 @@ def ctc_labelwise_recog_auto_scale(
     # Note: Still requires lots of memory. E.g. batch size 64, without LM, with ctc_soft_collapse_threshold,
     # takes more than 40GB.
     # Could maybe use forward_auto_split_batch_on_oom when we are sure that the batch size does not matter.
-    base_config = {
+    base_config: Dict[str, Any] = {
         "behavior_version": 24,  # should make it independent from batch size
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},  # OOM maybe otherwise
     }
+    if ctc_soft_collapse_threshold is not None:
+        base_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
+        )
     if extra_config:
         config_dict_update_(base_config, extra_config)
     config_n_best = {**base_config, "beam_size": n_best_list_size}

@@ -54,13 +54,17 @@ _setup()
 
 
 from sisyphus import tk
-from . import sis_common
+from i6_experiments.users.zeyer.sis_tools import sis_common
 from i6_experiments.users.zeyer.utils.job_file_open import read_job_file
 
 
 def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("job", help="path to job, with or without 'work/' prefix")
+    arg_parser.add_argument("--report-only-wer", action="store_true", help="only report WER summary")
+    arg_parser.add_argument("--report-timings", action="store_true", help="report timings summary")
+    arg_parser.add_argument("--verbosity", default=3, type=int, help="0-4, default 3")
+    arg_parser.add_argument("--corpora", nargs="*", help="if given, only report for these corpora")
     args = arg_parser.parse_args()
     job = sis_common.get_job_from_arg(args.job, set_setup_base_dir=True)
 
@@ -73,27 +77,38 @@ def main():
         job, corpus, scoring = queue.pop(0)
         if job in visited:
             continue
+        if corpus is not None and args.corpora and corpus not in args.corpora:
+            continue
         visited.add(job)
-        print(f"{corpus or '?'}: {job}")
+        if args.verbosity >= 3:
+            print(f"{corpus or '?'}: {job}")
         if "/JoinScoreResultsJob." in job:
-            _report_join_score_results_job(job)
+            if args.verbosity >= 2:
+                _report_join_score_results_job(job)
         elif job.startswith("i6_experiments/users/zeyer/recog/GetBestRecogTrainExp."):
             _report_get_best_recog_train_exp_job(job)
             for job_ in _get_best_recog_train_exp_job_deps(job):
                 queue.append((job_, corpus, scoring))
             continue  # do not follow all the other deps
         elif job.startswith("i6_core/recognition/scoring/ScliteJob."):
-            print(
-                f"* {corpus or '?'}: Found scoring. Aliases:", " ".join(sis_common.get_job_aliases(job) or ["<None?>"])
-            )
+            if args.verbosity >= 2:
+                print(
+                    f"* {corpus or '?'}: Found scoring: {job}, aliases:",
+                    " ".join(sis_common.get_job_aliases(job) or ["<None?>"]),
+                )
             scoring = job
             scoring_per_corpus[corpus] = job
         elif job.startswith("i6_core/returnn/forward/ReturnnForwardJobV2."):
-            print(
-                f"* {corpus or '?'}: Found search. Aliases:", " ".join(sis_common.get_job_aliases(job) or ["<None?>"])
-            )
+            if args.verbosity >= 2:
+                print(
+                    f"* {corpus or '?'}: Found search: {job}, aliases:",
+                    " ".join(sis_common.get_job_aliases(job) or ["<None?>"]),
+                )
             search_per_corpus[corpus] = job
             continue  # deps of this don't matter
+        elif job.startswith("i6_core/audio/encoding/BlissChangeEncodingJob."):
+            # Ignore these.
+            continue
         if not scoring:
             for corpus_, job_ in sis_common.get_inputs_per_key(job).items():
                 queue.append((job_, corpus if scoring else corpus_, scoring))
@@ -104,11 +119,17 @@ def main():
         print("Nothing found. Exit.")
         sys.exit(1)
 
-    for corpus, sclite_job in scoring_per_corpus.items():
-        sclite_pra_report_worst_seqs(corpus or "?", sclite_job)
+    if args.report_only_wer:
+        for corpus, sclite_job in scoring_per_corpus.items():
+            sclite_pra_report_wer_sub_del_ins(corpus or "?", sclite_job, verbosity=args.verbosity)
 
-    for corpus, search_job in search_per_corpus.items():
-        search_log_report_timings_summary(corpus or "?", search_job)
+    else:
+        for corpus, sclite_job in scoring_per_corpus.items():
+            sclite_pra_report_worst_seqs(corpus or "?", sclite_job)
+
+    if args.report_timings:
+        for corpus, search_job in search_per_corpus.items():
+            search_log_report_timings_summary(corpus or "?", search_job)
 
 
 def _report_join_score_results_job(job: str):
@@ -139,6 +160,44 @@ def _get_best_recog_train_exp_job_deps(job: str) -> list[str]:
     assert isinstance(p, tk.Path)
     dep = sis_common.get_job_from_work_output(p.get_path())
     return [dep]
+
+
+def sclite_pra_report_wer_sub_del_ins(prefix: str, sclite_job: str, *, verbosity: int = 3):
+    fn = sis_common.get_work_dir_prefix() + sclite_job + "/output/reports/sclite.pra"
+    if verbosity >= 3:
+        print(f"({prefix}: read {fn})")
+    with open(fn) as f:
+        lines = f.read().splitlines()
+    total_ref_num_token = 0
+    total_num_err = 0
+    total_num_sub = 0
+    total_num_del = 0
+    total_num_ins = 0
+    total_num_seqs = 0
+    cur_seq = []
+    for line in lines:
+        if not line.strip():
+            cur_seq = []
+        else:
+            cur_seq.append(line)
+        if line.startswith("Scores: (#C #S #D #I) "):
+            line = line[len("Scores: (#C #S #D #I) ") :]
+            num_correct, num_err_sub, num_err_del, num_err_ins = map(int, line.split())
+            ref_num_token = num_correct + num_err_sub + num_err_del
+            assert ref_num_token > 0, f"unexpected empty: line: {line}\n" + "\n".join(cur_seq)
+            total_ref_num_token += ref_num_token
+            num_err = num_err_sub + num_err_del + num_err_ins
+            total_num_err += num_err
+            total_num_sub += num_err_sub
+            total_num_del += num_err_del
+            total_num_ins += num_err_ins
+            total_num_seqs += 1
+    print(
+        f"{prefix}: WER: {total_num_err / total_ref_num_token * 100.0:.2f}%"
+        f" (sub: {total_num_sub / total_ref_num_token * 100.0:.2f}%,"
+        f" del {total_num_del / total_ref_num_token * 100.0:.2f}%,"
+        f" ins {total_num_ins / total_ref_num_token * 100.0:.2f}%)"
+    )
 
 
 def sclite_pra_report_worst_seqs(
@@ -188,14 +247,14 @@ def sclite_pra_report_worst_seqs(
                 total_broken_num_seqs += 1
                 total_broken_seq_len += ref_num_token
     print(
-        f"{prefix}: WER: {total_num_err / total_ref_num_token * 100.:.2f}%"
-        f" (sub: {total_num_sub / total_ref_num_token * 100.:.2f}%,"
-        f" del {total_num_del / total_ref_num_token * 100.:.2f}%,"
-        f" ins {total_num_ins / total_ref_num_token * 100.:.2f}%)"
+        f"{prefix}: WER: {total_num_err / total_ref_num_token * 100.0:.2f}%"
+        f" (sub: {total_num_sub / total_ref_num_token * 100.0:.2f}%,"
+        f" del {total_num_del / total_ref_num_token * 100.0:.2f}%,"
+        f" ins {total_num_ins / total_ref_num_token * 100.0:.2f}%)"
     )
     print(
-        f"{prefix}: num broken (>={broken_seq_threshold_rel*100.:.0f}% WER, >={broken_seq_threshold_abs} errs) seqs:"
-        f" {total_broken_num_seqs}/{total_num_seqs} = {total_broken_num_seqs/total_num_seqs*100.:.1f}%,"
+        f"{prefix}: num broken (>={broken_seq_threshold_rel * 100.0:.0f}% WER, >={broken_seq_threshold_abs} errs) seqs:"
+        f" {total_broken_num_seqs}/{total_num_seqs} = {total_broken_num_seqs / total_num_seqs * 100.0:.1f}%,"
         f" avg seq len: {total_broken_seq_len / total_broken_num_seqs if total_broken_num_seqs else 0:.1f} words"
     )
     print(f"{prefix}: worst {len(worst_seqs)} seqs:")

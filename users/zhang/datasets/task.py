@@ -43,7 +43,12 @@ class Task:
 
     def default_collect_score_results(self, score_results: Dict[str, ScoreResult]) -> ScoreResultCollection:
         """using main_measure_name as the main key in score_results"""
-        from i6_experiments.users.zeyer.datasets.score_results import join_score_results
+        # from i6_experiments.users.zhang.experiments.apptek_exp_wer_ppl import PLOT # Just for keep hash of some finished exp
+        # if PLOT:
+        #     from i6_experiments.users.zhang.datasets.score_results import join_score_results
+        # else:
+        #     from i6_experiments.users.zeyer.datasets.score_results import join_score_results
+        from i6_experiments.users.zhang.datasets.score_results import join_score_results
         return join_score_results(score_results, main_measure_key=self.main_measure_name)
 
     collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = None

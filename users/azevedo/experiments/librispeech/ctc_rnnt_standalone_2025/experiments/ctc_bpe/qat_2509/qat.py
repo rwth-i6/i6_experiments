@@ -25,7 +25,7 @@ from ....pytorch_networks.common import Mode
 from ....pytorch_networks.trainers.train_handler import TrainMode
 
 
-def bpe_lib_qat_comparisons():
+def bpe_lib_qat_comparisons_old():
     prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2025/ctc_bpe/256/qat_comparison"
 
     train_settings = DatasetSettings(
@@ -220,6 +220,7 @@ def bpe_lib_qat_comparisons():
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
         "gradient_clip_norm": 1.0,
+        "torch_amp_options": {"dtype": "bfloat16"},
     }
     # from ..ctc_phon.tune_eval import RTFArgs
 
@@ -233,11 +234,11 @@ def bpe_lib_qat_comparisons():
 
     ####################################################################################################
     # QAT Baseline
-    # network_module_v4 = "ctc.qat_2509.baseline_qat_v4"
+    network_module_v4 = "ctc.qat_2509.baseline_qat_v4"
     # from ....pytorch_networks.ctc.qat_2509.baseline_qat_v4_cfg import QuantModelTrainConfigV4
     
-    network_module_v4_streamable = "ctc.qat_2509.baseline_qat_v4_streamable"
-    from ....pytorch_networks.ctc.qat_2509.baseline_qat_v4_streamable_cfg import QuantModelTrainConfigV4
+    # network_module_v4_streamable = "ctc.qat_2509.baseline_qat_v4_streamable"
+    from ....pytorch_networks.ctc.qat_2509.baseline_qat_v4_cfg import QuantModelTrainConfigV4
 
     model_config = QuantModelTrainConfigV4(
         feature_extraction_config=fe_config,
@@ -272,25 +273,25 @@ def bpe_lib_qat_comparisons():
         observer_only_in_train=False,
 
         # streaming params
-        chunk_size=0.27 * 16000,  # samples corresponding to 28 frames
-        lookahead_size=8,
-        carry_over_size=1,
-        dual_mode=False,
-        streaming_scale=1,
-        train_mode=str(TrainMode.STREAMING),
+        # chunk_size=1.67 * 16000,  # samples corresponding to 28 frames
+        # lookahead_size=8,
+        # carry_over_size=1,
+        # dual_mode=False,
+        # streaming_scale=1,
+        # train_mode=str(TrainMode.STREAMING),
 
     )
 
     train_args = {
         "config": train_config,
-        "network_module": network_module_v4_streamable,
+        "network_module": network_module_v4,
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
         "post_config": {"num_workers_per_gpu": 8},
         "use_speed_perturbation": True,
     }
 
-    training_name = prefix_name + "/" + network_module_v4_streamable + f"_8_8_bpe"
+    training_name = prefix_name + "/" + network_module_v4 + f"_8_8_bpe"
     train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
     results = {}
@@ -395,6 +396,7 @@ def bpe_lib_qat_comparisons():
     #     decoder_module="ctc.decoder.beam_search_bpe_ctc_v4_rescale_measure_v3",
     # )
 
+    """
     from ....pytorch_networks.search.decoder_module import DecoderConfig, ExtraConfig
     from ....pytorch_networks.ctc.search import CTCBeamSearchConfig
 
@@ -456,7 +458,6 @@ def bpe_lib_qat_comparisons():
             debug=True,
             use_gpu=False,
         )
-
 
         # beam_search_decoder_config_v4_lstmlm = BeamSearchDecoderConfigv4(
         #     returnn_vocab=label_datastream_bpe256.vocab,
@@ -682,7 +683,7 @@ def bpe_lib_qat_comparisons():
         "use_speed_perturbation": True,
     }
 
-    training_name = prefix_name + "/" + network_module_v1 + f"_{8}_{8}"
+    training_name = prefix_name + "/" + network_module_v1 + f"_{8}_{8}" + "/streaming"
     train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
     train_job.rqmt["gpu_mem"] = 48
 
@@ -936,7 +937,7 @@ def bpe_lib_qat_comparisons():
             "use_speed_perturbation": True,
         }
 
-        training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_{ff_dim}"
+        training_name = prefix_name + "/" + network_module_v1 + f"_8_8_512_{ff_dim}" + "/streaming"
         train_job = training(training_name, train_data_bpe256, train_args, num_epochs=250, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
 
@@ -1019,7 +1020,6 @@ def bpe_lib_qat_comparisons():
         # )
         # generate_report(results=results, exp_name=training_name + "_greedy")
         # qat_report[training_name + "_greedy"] = results
-        """
         ########################################################################
         # FF 512 and 512 with mean abs
         network_module_v1_mean = "ctc.qat_0711.full_qat_v1_mean_abs_norm"

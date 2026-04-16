@@ -3,12 +3,15 @@ Dataset helpers for aligner system or TTS systems that perform internal alignmen
 
 Basically means that audio, phonemes and speaker is provided, but no extra duration HDF
 """
+from sisyphus import tk
 from dataclasses import dataclass
+from typing import Optional, Union
 
 from i6_core.returnn.dataset import SpeakerLabelHDFFromBlissJob
 
 from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, HDFDataset
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.common.setups.returnn.datastreams.base import FeatureDatastream
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments
 
@@ -36,7 +39,9 @@ class AlignmentTrainingDatasets(TrainingDatasets):
 
 def build_training_dataset(
         ls_corpus_key:str = "train-clean-100",
-        partition_epoch: int = 1
+        partition_epoch: int = 1,
+        dynamic_speaker_embeddings: Optional[tk.Path] = None,
+        dynamic_speaker_embedding_size: Optional[Union[int, tk.Variable]] = None,
     ) -> AlignmentTrainingDatasets:
     """
 
@@ -52,21 +57,35 @@ def build_training_dataset(
     vocab_datastream = get_vocab_datastream(with_blank=True, corpus_key=ls_corpus_key)
     audio_datastream = get_audio_raw_datastream()
 
+    use_dynamic_embeddings = False
     # we currently assume that train and cv share the same corpus file
-    speaker_label_job = SpeakerLabelHDFFromBlissJob(
-        bliss_corpus=bliss_dataset,
-        returnn_root=MINI_RETURNN_ROOT,
-    )
-    joint_speaker_hdf = speaker_label_job.out_speaker_hdf
+    if dynamic_speaker_embeddings is None:
+        assert dynamic_speaker_embedding_size is None
+        speaker_label_job = SpeakerLabelHDFFromBlissJob(
+            bliss_corpus=bliss_dataset,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        joint_speaker_hdf = speaker_label_job.out_speaker_hdf
 
-    joint_speaker_dataset = HDFDataset(
-        files=[joint_speaker_hdf]
-    )
-    speaker_datastream = LabelDatastream(
-        available_for_inference=True,
-        vocab_size=speaker_label_job.out_num_speakers,
-        vocab=speaker_label_job.out_speaker_dict,
-    )
+        joint_speaker_dataset = HDFDataset(
+            files=[joint_speaker_hdf]
+        )
+        speaker_datastream = LabelDatastream(
+            available_for_inference=True,
+            vocab_size=speaker_label_job.out_num_speakers,
+            vocab=speaker_label_job.out_speaker_dict,
+        )
+    else:
+        assert dynamic_speaker_embedding_size is not None
+        use_dynamic_embeddings = True
+        joint_speaker_dataset = HDFDataset(
+            files=[dynamic_speaker_embeddings],
+        )
+        speaker_datastream = FeatureDatastream(
+            available_for_inference=True,
+            feature_size=dynamic_speaker_embedding_size
+        )
+
 
     # ----- Ogg and Meta datasets
 
@@ -78,7 +97,7 @@ def build_training_dataset(
         partition_epoch=partition_epoch,
         seq_ordering="laplace:.1000"
     )
-    train_dataset = make_tts_meta_dataset(train_ogg_dataset, joint_speaker_dataset)
+    train_dataset = make_tts_meta_dataset(train_ogg_dataset, joint_speaker_dataset, dynamic_speakers=use_dynamic_embeddings)
 
     cv_ogg_dataset = OggZipDataset(
         files=zip_dataset,
@@ -88,7 +107,7 @@ def build_training_dataset(
         partition_epoch=1,
         seq_ordering="sorted",
     )
-    cv_dataset = make_tts_meta_dataset(cv_ogg_dataset, joint_speaker_dataset)
+    cv_dataset = make_tts_meta_dataset(cv_ogg_dataset, joint_speaker_dataset, dynamic_speakers=use_dynamic_embeddings)
     
     devtrain_zip_dataset = OggZipDataset(
         files=zip_dataset,
@@ -98,7 +117,7 @@ def build_training_dataset(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_tts_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset)
+    devtrain_dataset = make_tts_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, dynamic_speakers=use_dynamic_embeddings)
 
     joint_ogg_zip = OggZipDataset(
         files=zip_dataset,
@@ -107,15 +126,18 @@ def build_training_dataset(
         partition_epoch=1,
         seq_ordering="sorted",
     )
-    joint_metadataset = make_tts_meta_dataset(joint_ogg_zip, joint_speaker_dataset)
+    joint_metadataset = make_tts_meta_dataset(joint_ogg_zip, joint_speaker_dataset, dynamic_speakers=use_dynamic_embeddings)
 
     # ----- final outputs
 
     datastreams = {
         "audio_features": audio_datastream,
         "phonemes": vocab_datastream,
-        "speaker_labels": speaker_datastream,
     }
+    if dynamic_speaker_embeddings is None:
+        datastreams["speaker_labels"] = speaker_datastream
+    else:
+        datastreams["speaker_embeddings"] = speaker_datastream
 
     align_datasets = AlignmentTrainingDatasets(
         train=train_dataset,

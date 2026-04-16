@@ -1,5 +1,6 @@
 """
 CTC experiments.
+Backbone stuff taken from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc
 """
 
 from __future__ import annotations
@@ -283,8 +284,10 @@ def train_exp(
     recog: bool = False,
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
+    dev_dataset_keys_for_first_pass_tune: Sequence[str] = None,
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str,Any]]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path],
+Optional[tk.Path], Optional[tk.Path], Optional[Dict[str,Any]], Optional[Dict[str,Any]],Optional[Dict[str,Any]]]:
 
     """
     Train experiment
@@ -383,6 +386,7 @@ def train_exp(
         recog_epoch=recog_epoch,
         batch_size=batch_size,
         dev_dataset_keys=dev_dataset_keys,
+        dev_dataset_keys_for_first_pass_tune=dev_dataset_keys_for_first_pass_tune,
         eval_dataset_keys=eval_dataset_keys,
     )
 
@@ -398,7 +402,7 @@ def train_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_res, None, None, None, None
+    return model_with_checkpoints, recog_res, None, None, None, None, None
 
 
 def build_search_config(
@@ -488,8 +492,10 @@ def recog_exp(
     search_rqmt: dict = None,
     batch_size: int = None,
     dev_dataset_keys: Sequence[str] = ["dev-other"],
+    dev_dataset_keys_for_first_pass_tune: Sequence[str] = None,
     eval_dataset_keys: Sequence[str] = ["test-other","dev-other"],
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path], Optional[Dict[str, Any]]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.Path], Optional[tk.Path], Optional[tk.Path],
+Optional[tk.Path], Optional[tk.Path], Optional[Dict[str, Any]], Optional[Dict[str, tk.Path]], Optional[Dict[str, Any]]]:
     """
     Train experiment
     """
@@ -530,6 +536,7 @@ def recog_exp(
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
     tune_with_cheat = decoding_config.pop("cheat_tune", False)
+    tune_with_orig_nbest = decoding_config.pop("tune_with_orig_Nbest",False)
     base_one_pass_for_tune_setting = decoding_config.pop("base_one_pass", None)
     diagnose = decoding_config.pop("diagnose", False)
     two_round_tune = decoding_config.pop("two_round_tune", False)
@@ -542,16 +549,22 @@ def recog_exp(
     def tune_parameter_by_WER_with_rescoring(decoding_config, tune_range, param_key, *,
                                              update_config: dict = {},
                                              first_pass_name: str = None, tune_with_cheat: bool = False,
-                                             diagonise: bool = False):
+                                             diagonise: bool = False, tune_first_pass: bool=False):
         original_params = decoding_config
         params = copy.deepcopy(original_params)
         datasets = dev_dataset_keys if not diagonise else list(set(dev_dataset_keys + eval_dataset_keys))
+        datasets = dev_dataset_keys_for_first_pass_tune if tune_first_pass and dev_dataset_keys_for_first_pass_tune is not None else datasets
         # This is necessary for reducing to minimal hash:
         if not tune_with_cheat:
             params.pop("cheat", None)
         params.pop("check_search_error_rescore", None)
         params.pop("tune_range_2", None)
         params.pop("tune_range", None)
+        params.pop("EC_config", None)
+        if tune_with_orig_nbest:
+            params.pop("Nlist_configs", None)
+            params.pop("Nbest_dataset", None)
+            params.pop("combine_with_given_Nlist",None)
         search_config_copy = None
         #first_pass_wo_lm = not decoding_config.get("use_lm", False)
         if update_config:
@@ -559,6 +572,9 @@ def recog_exp(
             params.pop("prior_weight", None)
             params.pop("lm_weight_tune", None)
             params.pop("prior_weight_tune", None)
+            params.pop("Nlist_configs", None)
+            params.pop("Nbest_dataset", None)
+            params.pop("combine_with_given_Nlist",None)
             if TUNE_ON_GREEDY_N_LIST: # or first_pass_wo_lm: # First pass with Greedy(No lm)
                 params.update(update_config)
                 if search_config.get("network_config_kwargs", False):
@@ -771,7 +787,7 @@ def recog_exp(
                 "rescore_lm_name": first_pass_lmname,
                 "rescore_lmscale": decoding_config.get("lm_weight", 0.5),
                 "rescore_priorscale": decoding_config.get("prior_weight", 0.3),
-                "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES"),
+                "lm_rescore": get_lm_by_name(first_pass_lmname, task_name="ES" if "ES" in first_pass_lmname else "LBS"),
                 "lm_vocab": None,
                 } if TUNE_ON_GREEDY_N_LIST else \
                 {
@@ -783,7 +799,7 @@ def recog_exp(
                 "use_lm": True,
                 "lm_order": lm_name_for_tuning,
                 "lm": None,
-                "recog_language_model":get_lm_by_name(lm_name_for_tuning, task_name="ES", as_ckpt=False),
+                "recog_language_model":get_lm_by_name(lm_name_for_tuning, task_name="ES" if "ES" in first_pass_lmname else "LBS", as_ckpt=False),
                 "rescoring": True,
                 "rescore_lmscale": decoding_config.get("lm_weight", 0.5),
                 "rescore_priorscale": decoding_config.get("prior_weight", 0.3),
@@ -796,7 +812,7 @@ def recog_exp(
         alias_tune_name = "_".join(first_pass_name.split("_")[:4]) + f"b{update_config['beam_size']}n{update_config['nbest']}" + f"{'NoLM' if TUNE_ON_GREEDY_N_LIST else lm_name_for_tuning}" + f"_tune_scale-{first_pass_lmname}"
         best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls,
                                                                            "rescore_lmscale", update_config=copy.deepcopy(update_config),
-                                                                           first_pass_name=alias_tune_name)
+                                                                           first_pass_name=alias_tune_name, tune_first_pass=True)
         tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best", best_lm_scale)
         decoding_config["lm_weight"] = best_lm_scale
 
@@ -805,8 +821,13 @@ def recog_exp(
 
         prior_tune_ls = [decoding_config["prior_weight"] + scale / 100 for scale in range(-30, 21, 5)] if not tune_config_updates.get("prior_tune_range") \
         else tune_config_updates["prior_tune_range"]
+
+        print(
+        f"{prefix} \n -> tune 1rd pass scales with rescoring!"  # defaults_lm {decoding_config['rescore_lmscale']} prior{decoding_config['rescore_priorscale']} "
+        f"\n lm_range:[{min(lm_tune_ls), max(lm_tune_ls)}]\n "
+        f"prior_range:[{min(prior_tune_ls), max(prior_tune_ls)}]")
         best_prior_scale = tune_parameter_by_WER_with_rescoring(decoding_config, prior_tune_ls, "rescore_priorscale",
-                                                           update_config=copy.deepcopy(update_config), first_pass_name=alias_tune_name)
+                                                           update_config=copy.deepcopy(update_config), first_pass_name=alias_tune_name, tune_first_pass=True)
         tk.register_output(alias_tune_name + "/tune/priot_weight_tune_best", best_prior_scale)
         decoding_config["prior_weight"] = best_prior_scale
 
@@ -820,7 +841,7 @@ def recog_exp(
 
             best_lm_scale = tune_parameter_by_WER_with_rescoring(decoding_config, lm_tune_ls, "rescore_lmscale",
                                                                       update_config=copy.deepcopy(update_config),
-                                                                      first_pass_name=alias_tune_name + "_second_tune")
+                                                                      first_pass_name=alias_tune_name + "_second_tune", tune_first_pass=True)
             tk.register_output(alias_tune_name + "/tune/lm_weight_tune_best_1", best_lm_scale)
             #decoding_config["lm_weight_tune"] = best_lm_tune_1 + best_lm_tune# This is the total offset to best_lm_scale
             decoding_config["lm_weight"] = best_lm_scale
@@ -892,12 +913,14 @@ def recog_exp(
     if recog_config_updates:
         print(f"recog_config_updates{recog_config_updates}")
         decoding_config.update(recog_config_updates)
-    search_error_check = True if decoding_config.get("lm_order", False) else False
+
+
+    search_error_check = decoding_config.get("lm_order", False)
 
     '''Final recog with tuned scale'''
     #print(f"{prefix}: \n model_config{model_config}")
-    print(f"\n\n{prefix}: \n decoding_config['lm_weight']{decoding_config['lm_weight']}, best_lm_scale {best_lm_scale}")
-    recog_result, search_error, search_error_rescore, output_dict = recog_exp_(
+    print(f"\n\n{prefix}: \n decoding_config['lm_weight']{decoding_config.get('lm_weight',None)}, best_lm_scale {best_lm_scale}")
+    recog_result, search_error, search_error_rescore, output_dict, rescor_ppls, miscs = recog_exp_(
         prefix, task, model_with_checkpoints,
         first_pass_name=first_pass_name + "final_recog",
         epoch=recog_epoch,
@@ -916,7 +939,7 @@ def recog_exp(
     )
 
     _train_experiments[name] = model_with_checkpoints
-    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_scale, best_prior_scale, output_dict
+    return model_with_checkpoints, recog_result, search_error, search_error_rescore, best_lm_scale, best_prior_scale, output_dict, rescor_ppls, miscs
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -1267,33 +1290,72 @@ def model_recog_lm(
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     if use_lexicon:
         print("Use words directly!")
-        if CHECK_DECODER_CONSISTENCY:
-            for l1 in decoder_results:
-                for l2 in l1:
-                    lexicon_words = " ".join(l2.words)
-                    token_words = " ".join([configs["tokens"][t] for t in l2.tokens])
-                    assert not token_words.endswith(
-                        "@@"), f"Token words ends with @@: {token_words}, Lexicon words: {lexicon_words}"
-                    token_words = token_words.replace("@@ ", "")
-                    assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
-
-        words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
-
-        if  len(decoder_results) != batch_dim.get_dim_value().item():
-            pdb.set_trace()
-
-        words = np.array(words)
-        words = np.expand_dims(words, axis=2)
-        scores = [[l2.score for l2 in l1] for l1 in decoder_results]
-        scores = torch.tensor(scores)
-
-        beam_dim = Dim(words.shape[1], name="beam_dim")
-        enc_spatial_dim = Dim(1, name="spatial_dim")
-        words = rf._numpy_backend.NumpyBackend.convert_to_tensor(words, dims=[batch_dim, beam_dim, enc_spatial_dim],
-                                                                 dtype="string", name="hyps")
-        scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores)
+        # if CHECK_DECODER_CONSISTENCY:
+        #     for l1 in decoder_results:
+        #         for l2 in l1:
+        #             lexicon_words = " ".join(l2.words)
+        #             token_words = " ".join([configs["tokens"][t] for t in l2.tokens])
+        #             assert not token_words.endswith(
+        #                 "@@"), f"Token words ends with @@: {token_words}, Lexicon words: {lexicon_words}"
+        #             token_words = token_words.replace("@@ ", "")
+        #             assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
+        # pdb.set_trace()
+        # words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
+        #
+        # if  len(decoder_results) != batch_dim.get_dim_value().item():
+        #     pdb.set_trace()
+        #
+        # words = np.array(words)
+        # words = np.expand_dims(words, axis=2)
+        # scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        # scores = torch.tensor(scores)
+        #
+        # beam_dim = Dim(words.shape[1], name="beam_dim")
+        # enc_spatial_dim = Dim(1, name="spatial_dim")
+        # words = rf._numpy_backend.NumpyBackend.convert_to_tensor(words, dims=[batch_dim, beam_dim, enc_spatial_dim],
+        #                                                          dtype="string", name="hyps")
+        # scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores)
 
         #pdb.set_trace()
+        B = len(decoder_results)
+        beam = max(len(hyps) for hyps in decoder_results)
+
+        # Build rectangular Python lists first (no dtype yet).
+        words_2d = []
+        scores_2d = []
+        for hyps in decoder_results:
+            row_w, row_s = [], []
+            for n in range(beam):
+                if n < len(hyps):
+                    r = hyps[n]
+                    # r.words might be list[str] or list[int]. You said you don't have an ID->word dict,
+                    # so stringify ints if needed.
+                    if r.words and not isinstance(r.words[0], str):
+                        seq_str = " ".join(str(x) for x in r.words)
+                    else:
+                        seq_str = " ".join(r.words) if r.words else ""
+                    row_w.append(seq_str)
+                    row_s.append(float(r.score))
+                else:
+                    row_w.append("")  # pad missing beams with empty string
+                    row_s.append(-np.inf)  # so downstream argmax won't pick it
+            words_2d.append(row_w)
+            scores_2d.append(row_s)
+
+        # Now convert to real Unicode array (NOT object).
+        words_mat = np.array(words_2d, dtype=np.str_)  # shape (B, beam), dtype '<U...'
+        words_mat = np.expand_dims(words_mat, axis=2)  # (B, beam, 1)
+        scores_mat = np.asarray(scores_2d, dtype=np.float32)  # (B, beam)
+
+        # RETURNN dims + tensors
+        beam_dim = Dim(words_mat.shape[1], name="beam_dim")
+        enc_spatial_dim = Dim(words_mat.shape[2], name="spatial_dim")  # =1
+
+        words = rf._numpy_backend.NumpyBackend.convert_to_tensor(
+            words_mat, dims=[batch_dim, beam_dim, enc_spatial_dim], dtype="string", name="hyps"
+        )
+        scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores_mat)
+
         return words, scores, enc_spatial_dim, beam_dim
     else:
         def _pad_blanks(tokens, max_len):
@@ -2797,14 +2859,11 @@ def scoring_v2(
         data_spatial_dim: Dim,
         hyperparameters: dict,
         prior_file: tk.Path = None,
-        lm: str,
-        lexicon: str = None,
-        seq_tags: Tensor = None,
 ) -> Tensor:
     """
     Function is run within RETURNN.
-
-    Uses a LM interpolation and prior correction.
+    Mask the emission(logprob) with alignment of ground truth and get their scores (AM LM Prior)
+    Alignment is computed with torchaudio.forced_align
 
     :return:
         scores of groundtruth(targets) {batch, beam, out_spatial},
@@ -2813,16 +2872,13 @@ def scoring_v2(
         final beam_dim
     """
     # Get the logits from the model
-
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
 
-    hyp_params = copy.copy(hyperparameters)
+    hyp_params = copy.copy(hyperparameters) # Decoding config for later call of search method
     lm_name = hyp_params.pop("lm_order", None)
 
-    # prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    # lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
     print(f"Piror weight: {prior_weight}")
@@ -2830,51 +2886,6 @@ def scoring_v2(
         if isinstance(hyp_params["lm_weight"], tk.Variable):
             hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
         print(f"LM weight: {hyp_params['lm_weight']}")
-    # if prior_weight_tune is not None:
-    #     if isinstance(prior_weight_tune, float):
-    #         pass
-    #     elif isinstance(prior_weight_tune, tk.Path) or isinstance(prior_weight_tune, str):
-    #         prior_weight_tune = json.load(open(prior_weight_tune))
-    #         prior_weight_tune = prior_weight_tune["best_tune"]
-    #     else:
-    #         assert isinstance(prior_weight_tune, tk.Variable)
-    #         prior_weight_tune: tk.Variable
-    #         prior_weight_tune = prior_weight_tune.get()
-    #     assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-    #     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    #     if isinstance(prior_weight, tk.Variable):
-    #         prior_weight = prior_weight.get()
-    #     print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-    #     prior_weight += prior_weight_tune
-    # if lm_weight_tune is not None:
-    #     if isinstance(prior_weight_tune, float):
-    #         pass
-    #     elif isinstance(lm_weight_tune, tk.Path) or isinstance(lm_weight_tune, str):
-    #         lm_weight_tune = json.load(open(lm_weight_tune))
-    #         lm_weight_tune = lm_weight_tune["best_tune"]
-    #     else:
-    #         assert isinstance(lm_weight_tune, tk.Variable)
-    #         lm_weight_tune: tk.Variable
-    #         lm_weight_tune = lm_weight_tune.get()
-    #     assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-    #     old_lm_weight = hyp_params.get("lm_weight", 0.0)
-    #     if isinstance(old_lm_weight, tk.Variable):
-    #         old_lm_weight = old_lm_weight.get()
-    #     print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-    #     hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
-
-    if lm_name is not None:
-        assert lm_name.startswith("ffnn") or lm_name.startswith("trafo"), "Not supported LM type!" + " " + lm_name
-        assert model.recog_language_model
-        assert model.recog_language_model.vocab_dim == model.target_dim
-        if isinstance(model.recog_language_model, FeedForwardLm):
-            lm: FeedForwardLm = model.recog_language_model
-        elif isinstance(model.recog_language_model, TransformerDecoder):
-            lm: TransformerDecoder = model.recog_language_model
-        else:
-            raise Exception("No supported language model:" + lm_name + f"{model.recog_language_model}")
-        # noinspection PyUnresolvedReferences
-        lm_scale: float = hyp_params["lm_weight"]
 
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
@@ -2917,7 +2928,6 @@ def scoring_v2(
         return None
 
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.to(torch.int64)
-    target_spatial_dim_torch = targets.remaining_dims(batch_dim)[0].dyn_size_ext.raw_tensor.to(torch.int64)
 
     def _ctc_preflight_check(i, logp, labels, seq_tag, blank_idx):
         # logp: [T,C] on CUDA; labels: [L] on same device
@@ -2985,7 +2995,7 @@ def scoring_v2(
                             logp.squeeze(0),
                             labels.squeeze(0),
                             seq_tag,
-                            model.blank_idx)
+                            model.blank_idx) if lm_name is None or "ES" in lm_name else "[OK]"
         if check_info != "[OK]":
             # Skip or handle specially:
             # e.g., write seq_tag to a "bad_samples.txt" and continue
@@ -3030,79 +3040,11 @@ def scoring_v2(
 
     # Convert back to RETURNN tensor
     masked_label_log_prob_ret = rtf.TorchBackend.convert_to_tensor(masked_label_log_prob.to("cuda"), dims=label_log_prob.dims, dtype="float32")
-    # masked_label_log_prob_ret = Tensor("label_log_prob", dims=label_log_prob.dims, dtype="float32",
-    #                 raw_tensor=masked_label_log_prob)
 
-
+    # Run decoding (evtl with LM) on masked log_porbs
     seq_targets_wb, scores, out_spatial_dim, beam_dim = decode_nn(model=model, label_log_prob=masked_label_log_prob_ret,
                                   enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
                                   prior_file= prior_file, scoring=True) # TODO: use passed param to determine which decoder to use
-
-    """---------TEST--------------"""
-    # No masking just for test
-    # import pdb; pdb.set_trace()
-    # seq_targets_wb_, scores_, _, _ = decode_nn(model=model, label_log_prob=label_log_prob, #masked_label_log_prob_ret,
-    #                               enc_spatial_dim=enc_spatial_dim, batch_dims=batch_dims, hyperparameters=hyperparameters,
-    #                               prior_file= prior_file, scoring=True)
-    #
-    # for i in range(label_log_prob_raw.shape[0]):
-    #     # alignments_, viterbi_score = forced_align(
-    #     #     label_log_prob_raw.to("cuda")[i][:enc_spatial_dim_torch[i].item()].unsqueeze(0),
-    #     #     #targets.raw_tensor[i].unsqueeze(0),
-    #     #     trim_padded_sequence(ctc_collapse(seq_targets_wb_.raw_tensor[:, i, 0], model.blank_idx)).unsqueeze(0).to("cuda"),
-    #     #     #input_lengths=enc_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
-    #     #     #target_lengths=target_spatial_dim_torch[i].unsqueeze(0).to("cuda"),
-    #     #     blank=model.blank_idx
-    #     # )
-    #     print(
-    #         f"\n{seq_tags.raw_tensor[i]}:\nsearch_score:{scores_.raw_tensor[i]}\n "
-    #         #f"viterbi_score:{viterbi_score[0][:enc_spatial_dim_torch[i]].sum()}\n"
-    #         f"forced_score(GT score):{scores.raw_tensor[i]}\n")
-    #         #f"GT_score:{viterbi_scores[i]}")
-    #
-    #     # Assert this only for greedy
-    #     #assert torch.abs(viterbi_score[0][:enc_spatial_dim_torch[i]].sum() - scores_.raw_tensor[i]) < 1e-03
-    #
-    #     #assert viterbi_scores[i] < scores_.raw_tensor[i].item() or torch.abs(viterbi_scores[i] - scores_.raw_tensor[i]) < 1e-06
-    #     if scores.raw_tensor[i] > scores_.raw_tensor[i].item():
-    #         if trim_padded_sequence(ctc_collapse(seq_targets_wb_.raw_tensor[:, i, 0], model.blank_idx)).tolist() != trim_padded_sequence(ctc_collapse(seq_targets_wb.raw_tensor[:, i, 0], model.blank_idx)).tolist() :
-    #             print(f"This is a search error seq!: {seq_tags.raw_tensor[i]}\n\n")
-    #
-    #
-    #     # if seq_tags:
-    #     #     if seq_tags.raw_tensor[i] in ["test-other/3331-159605-0008/3331-159605-0008", "test-other/5442-32873-0006/5442-32873-0006", "test-other/5484-24317-0017/5484-24317-0017"]:
-    #     #         print(f"========================"
-    #     #               f"This is a search error seq!: {seq_tags.raw_tensor[i]}\n\n")
-    #     #         #pdb.set_trace()
-
-    """---------TEST--------------"""
-    # lm_scores = lm_scoring(model=lm, targets=targets, targets_spatial_dim=targets.get_time_dim_tag())
-    # combined_score = torch.tensor(viterbi_scores, device="cuda") + (lm_scale * lm_scores.raw_tensor)
-    # for i in range(label_log_prob.raw_tensor.shape[0]):
-    #     assert seq_targets_wb.raw_tensor[:, i, 0].tolist() == alignments[i][0].tolist(), f"{i}_th sequence is not the same!"
-    # scores_raw = scores.raw_tensor[:, 0].to("cpu")
-    # combined_score = [score.item() for score in combined_score]
-    # difference = abs(np.mean(np.array(scores_raw) - combined_score))
-    # import pdb; pdb.set_trace()
-    # assert difference < 1e-03, (f"Scores are not the same!\n Decodede:{scores_raw}"
-    #                                                                      f"\n Viterbi:{combined_score}\n Difference:{difference}")
-
-    #Compare viterbi score and scores
-    # Compare seq_targets with alignments
-    #
-        # lm_scores = []
-        # for i in range(label_log_prob.shape[0]):
-        #     seq = trim_padded_sequence(targets.raw_tensor[i, :])
-        #     token_list = [model.target_dim.vocab.id_to_label(idx) for idx in seq]
-        #     target_words = " ".join(token_list)
-        #     target_words = target_words.replace("@@ ", "")
-        #     target_words = target_words.replace(" <s>", "")
-        #     word_seq = seq.tolist()
-        #     lm_score = CTClm_score(word_seq, recog_lm)
-        #     lm_scores.append(lm_score)
-        #     scores.append(viterbi_scores[i] + hyp_params["lm_weight"] * lm_score)
-    """-----------------------"""
-    #````````````````````````````````````````````
 
     score_dim = Dim(1, name="score_dim")
     scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
@@ -3597,41 +3539,6 @@ def decode_nn(
         if isinstance(hyp_params["lm_weight"], tk.Variable):
             hyp_params["lm_weight"] = hyp_params["lm_weight"].get()
         print(f"LM weight: {hyp_params['lm_weight']}")
-    # prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
-    # lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
-
-    # if prior_weight_tune is not None:
-    #     if isinstance(prior_weight_tune, float):
-    #         pass
-    #     elif isinstance(prior_weight_tune, tk.Path) or isinstance(prior_weight_tune, str):
-    #         prior_weight_tune = json.load(open(prior_weight_tune))
-    #         prior_weight_tune = prior_weight_tune["best_tune"]
-    #     else:
-    #         assert isinstance(prior_weight_tune, tk.Variable)
-    #         prior_weight_tune: tk.Variable
-    #         prior_weight_tune = prior_weight_tune.get()
-    #     assert type(prior_weight_tune) == float or type(prior_weight_tune) == int, "Prior weight tune is not a float!"
-    #     prior_weight = hyp_params.pop("prior_weight", 0.0)
-    #     if isinstance(prior_weight, tk.Variable):
-    #         prior_weight = prior_weight.get()
-    #     print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
-    #     prior_weight += prior_weight_tune
-    # if lm_weight_tune is not None:
-    #     if isinstance(prior_weight_tune, float):
-    #         pass
-    #     elif isinstance(lm_weight_tune, tk.Path) or isinstance(lm_weight_tune, str):
-    #         lm_weight_tune = json.load(open(lm_weight_tune))
-    #         lm_weight_tune = lm_weight_tune["best_tune"]
-    #     else:
-    #         assert isinstance(lm_weight_tune, tk.Variable)
-    #         lm_weight_tune: tk.Variable
-    #         lm_weight_tune = lm_weight_tune.get()
-    #     assert type(lm_weight_tune) == float  or type(lm_weight_tune) == int, "LM weight tune is not a float!"
-    #     old_lm_weight = hyp_params.get("lm_weight", 0.0)
-    #     if isinstance(old_lm_weight, tk.Variable):
-    #         old_lm_weight = old_lm_weight.get()
-    #     print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
-    #     hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
 
     dev_s = rf.get_default_device()

@@ -1,3 +1,4 @@
+from sisyphus import tools
 import os
 import subprocess as sp
 from typing import Optional, Type, List, Dict, Any
@@ -11,6 +12,8 @@ class FairseqHydraTrainWav2VecUJob(Job):
     """
     Run the fairseq-hydra-train script with dynamically specified configurations for Wav2Vec training.
     """
+    __sis_hash_exclude__ = ["environment", "prefix", "fairseq_root"]
+    __sis_hash_constant__ = {}
 
     def __init__(
         self,
@@ -52,9 +55,10 @@ class FairseqHydraTrainWav2VecUJob(Job):
         self.configs = extra_configs
 
         self.out_dir = self.output_path("out_dir", directory=True)
+        self.out_best_model = self.output_path("out_dir/checkpoint_best.pt")
 
         # Resource requirements
-        self.rqmt = {"time": 1000, "cpu": 1, "gpu": 1, "mem": 32}
+        self.rqmt = {"time": 1000, "cpu": 1, "gpu": 1, "mem": 100}
 
     def tasks(self):
         yield Task("copy_dict_phn_txt", mini_task=True)
@@ -86,7 +90,7 @@ class FairseqHydraTrainWav2VecUJob(Job):
                 hydra_args.append(f"{key}={','.join(map(str, value))}")
             elif isinstance(value, range):
                 # Format ranges properly for Hydra
-                hydra_args.append(f"{key}=range({value.start},{value.stop})")
+                hydra_args.append(f"'{key}=range({value.start},{value.stop})'")
             else:
                 # Directly append other value types as-is
                 hydra_args.append(f"{key}={value}")
@@ -108,3 +112,26 @@ class FairseqHydraTrainWav2VecUJob(Job):
         """
         logging.info(f"Running command: {sh_call_str}")
         sp.run(["bash", "-c", sh_call_str], check=True)
+
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        d = {}
+        for k, v in parsed_args.items():
+            if k not in cls.__sis_hash_exclude__:
+                d[k] = v
+
+        for k, org, replacement in cls.__sis_hash_overwrite__:
+            if k in d and d[k] == org:
+                d[k] = replacement
+
+        for k, v in cls.__sis_hash_constant__.items():
+            d[k] = v
+
+        if cls.__sis_version__ is None:
+            return tools.sis_hash(d)
+        else:
+            return tools.sis_hash((d, cls.__sis_version__)) 

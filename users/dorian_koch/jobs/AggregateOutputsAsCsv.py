@@ -1,4 +1,5 @@
-from typing import List, Tuple
+from __future__ import annotations
+from typing import Union
 from sisyphus import Job, Task, tk
 from i6_core.util import uopen
 
@@ -40,7 +41,7 @@ class WriteFinishedPathsAsCsv(Job):
     def __init__(
         self,
         *,
-        inputs: list[tuple[str, tk.AbstractPath | str]],
+        inputs: list[tuple[str, Union[tk.AbstractPath, str]]],
         seperator: str = ",",
     ):
         self.inputs = inputs

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+
 """
 Cleanup unused train model checkpoints in the work dir,
 and also from active finished train jobs.
+
+You provide the Sisyphus config(s),
+which are used to determine whether a train job is active or unused.
 """
 
 import os
@@ -98,7 +102,7 @@ def main():
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths_dict = {}  # job path -> job object
     active_train_job_finished_list = []  # list of job objects
-    for job in graph.graph.jobs():
+    for job in graph.graph.jobs(update_graph=False):
         job: ReturnnTrainingJob
         # noinspection PyProtectedMember
         job_path: str = job._sis_path()
@@ -306,7 +310,7 @@ def main():
             print("Remove model:", fn)
             os.remove(fn)
     elif args.mode == "dryrun":
-        print("Dry-run mode, not removing.")
+        print("Dry-run mode, not removing. (use --mode remove to actually remove)")
     else:
         raise ValueError("invalid mode: %r" % args.mode)
 

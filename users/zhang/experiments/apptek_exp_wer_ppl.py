@@ -28,14 +28,19 @@ RETURNN_ROOT = "/home/mgunz/setups/2024-07-08--zeyer-setup-apptek/recipe/returnn
 FINE_TUNED_MODEL = True # If use the FT model
 CKPT_EPOCH = 25 if FINE_TUNED_MODEL else 625
 
-PLOT = False
+PLOT = True
 ONLY_TRANSCRIPT = False
 # --- Decoding Parameters ---
 USE_flashlight_decoder = False
-seg_key = "ref" #aptk_leg ref
+
+EXCLUDE_LIST = ["napoli", "callcenter", "voice_call", "tvshows", "mtp_eval-v2"]
+
+seg_key = "aptk_leg" #aptk_leg ref
 DEV_DATASET_KEYS = [f"test_set.ES_ES.f8kHz.mtp_eval-v2.{seg_key}.ff_wer"] + [f"{key}.{seg_key}.ff_wer" for key in DEV_KEYS if "callhome" not in key] #if "conversation" not in key] #Evaluate on concatenated DEV_KEYS-> not implemented
 EVAL_DATASET_KEYS = DEV_DATASET_KEYS + [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval-v2" not in key]#["test_set.ES_ES.f16kHz.eval_voice_call-v3.ref.ff_wer", "test_set.ES_US.f16kHz.dev_conversations_202411-v2.ref.ff_wer"]#[f"{key}.ref.ff_wer" for key in DEV_KEYS + TEST_KEYS]#['test_set.ES.f8kHz.mtp_dev_heldout-v2.aptk_leg.ff_wer', 'test_set.ES.f8kHz.mtp_dev_heldout-v2.ref.ff_wer'] #
-EVAL_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if "mtp_eval_p" in key] + [f"test_set.ES_US.f16kHz.dev_conversations_202411-v2.{seg_key}.ff_wer"] if PLOT else EVAL_DATASET_KEYS
+EVAL_DATASET_KEYS = [f"{key}.{seg_key}.ff_wer" for key in TEST_KEYS if not any(exclude in key for exclude in EXCLUDE_LIST)] if PLOT else EVAL_DATASET_KEYS
+# EVAL_DATASET_KEYS = DEV_DATASET_KEYS if PLOT else EVAL_DATASET_KEYS
+
 DEFAULT_PRIOR_WEIGHT = 0.3
 DEFAULT_PRIOR_TUNE_RANGE = [-0.1, -0.05, 0.0, 0.05, 0.1]
 DEFAULT_LM_WEIGHT = 0.5
@@ -43,14 +48,17 @@ DEFAULT_LM_SCALE_DICT = {"Llama-3.1-8B": 0.35, "Qwen3-1.7B-Base": 0.3, "phi-4": 
 DEFAULT_PRIOR_SCALE_DICT = {"Llama-3.1-8B": 0.22, "Qwen3-1.7B-Base": 0.18, "phi-4": 0.26}
 DEFAUL_RESCOR_LM_SCALE = DEFAULT_LM_WEIGHT # Keep this same, otherwise tune with rescoring will broken
 
+AGGREGATE_WER = True and not PLOT
+
 CHEAT_N_BEST = False
-TUNE_WITH_CHEAT = False
+TUNE_WITH_CHEAT = True and CHEAT_N_BEST
 TUNE_TWO_ROUND = True
 DIAGNOSE = True and not PLOT# Check scales vs WER for every dataset
 
 TUNE_ON_GREEDY_N_LIST = False # No effect more beyond this setting, #TODO, there is a shadow name in ctc recog_exp, clean it
 
 BEAM_SIZE = 500
+FFNN_BEAM = 300
 NBEST = 100 # Use 100 for plot
 
 # These are actually controlled by other exp.py
@@ -101,7 +109,7 @@ def get_decoding_config(lmname: str, lm, vocab: str, encoder: str, nbest: int =5
 
     if "ffnn" in lmname:
         tune_hyperparameters = True
-        decoding_config["beam_size"] = BEAM_SIZE if vocab == "bpe128" else (300 if PLOT else 150)
+        decoding_config["beam_size"] = FFNN_BEAM
         decoding_config["lm_weight"] = DEFAULT_LM_WEIGHT
         tune_config_updates["tune_range"] = [scale / 100 for scale in range(-50, 51, 5)]
 
@@ -188,7 +196,7 @@ def ctc_exp(
         lm_vocab = vocab
     #       --- get Task ---
     from i6_experiments.users.zhang.experiments.apptek.datasets.spanish.f16kHz.task import get_asr_task_given_spm
-    task = get_asr_task_given_spm(spm=vocab_config, returnn_root=tk.Path(RETURNN_ROOT))
+    task = get_asr_task_given_spm(spm=vocab_config, returnn_root=tk.Path(RETURNN_ROOT), aggregate_wer=not PLOT)
     #print(f"datasetkeys: {task.eval_datasets.keys()}")
     (
         decoding_config,
@@ -215,7 +223,7 @@ def ctc_exp(
     elif vocab == "bpe10k":
         recog_epoch = 500
     elif vocab == "spm10k":
-        recog_epoch = 625
+        recog_epoch = CKPT_EPOCH
 
     # For not-training, recog should be True
     recog = not train
@@ -228,6 +236,7 @@ def ctc_exp(
         if "ffnn" in rescore_lm_name:
             tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2) if default_lm + scale / 100 > 0]
             tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
+            # tune_config_updates["insertion_bonus_tune_range"]
 
         elif "trafo" in rescore_lm_name:
             tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2) if default_lm + scale / 100 > 0]
@@ -236,7 +245,7 @@ def ctc_exp(
             # tune_config_updates[prior_key] = [scale / 100 for scale in range(-10, 21, 2)]
 
         elif "gram" in rescore_lm_name: # and "word" not in rescore_lm_name:
-            tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2) if default_lm + scale / 100 > 0]
+            tune_config_updates[lm_key] = [default_lm + scale / 100 for scale in range(-50, 31, 2) if default_lm + scale / 100 >= 0]
             tune_config_updates[prior_key] = [default_prior + scale / 100 for scale in range(-30, 21, 2)]
 
         elif any(llmname in rescore_lm_name for llmname in ["Llama", "Qwen", "phi"]):
@@ -264,7 +273,7 @@ def ctc_exp(
     #                            first_pass=True)  # !!This overwrites the setting done in get_decoding_config
     if PLOT and lm is not None:
         from i6_experiments.users.zhang.experiments.lm_getter import get_lm_by_name
-        first_pass_lmname = "ffnn4_50_spm10k_ES_trans"
+        first_pass_lmname = "ffnn4_50_spm10k_ES"
         decoding_config["base_one_pass"] = {
             "nbest": 100,
             "beam_size": 100,
@@ -280,9 +289,9 @@ def ctc_exp(
             } if TUNE_ON_GREEDY_N_LIST else \
             {
             "nbest": 100,
-            "beam_size": 150,
-            "lm_weight": 0.19,
-            "prior_weight": 0.14,
+            "beam_size": 300,
+            "lm_weight": 0.30,
+            "prior_weight": 0.21,
             "use_logsoftmax": True,
             "use_lm": True,
             "lm_order": first_pass_lmname,
@@ -416,46 +425,179 @@ PRIOR_PATH = {("spm10k", "ctc", "conformer"): tk.Path("/nas/models/asr/hzhang/se
 
 from sisyphus import Job, Task
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
+from pathlib import Path
 PRINTED = False
 class GetOutPutsJob(Job):
     """
-    Collect all wer reports from recogs.
+    Collect WER reports and produce per-dataset S/D/I tables by parsing sclite .dtl files.
+    Outputs:
+      - wer_report.py (unchanged mapping for paths)
+      - sdi_<dataset>.tsv (LM rows with Sub/Del/Ins counts)
     """
-    def __init__(
-        self,
-        *,
-        outputs: Dict[str, Dict[str, ScoreResult]],
-    ):
-        """
-        :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
-        :param recog_and_score_func: epoch -> scores. called in graph proc
-        """
-        super(GetOutPutsJob, self).__init__()
+    def __init__(self, *, outputs: Dict[str, Dict[str, "ScoreResult"]]):
+        super().__init__()
         global PRINTED
-        self.outputs = outputs  # type: Dict[str, Dict[str, ScoreResult]]
+        self.outputs = outputs  # type: Dict[str, Dict[str, "ScoreResult"]]
         self.out_report_dict = self.output_path("wer_report.py")
+
         if not PRINTED:
-            for k,v in self.outputs.items():
+            for k, v in self.outputs.items():
                 for dataset, report in v.items():
                     print(f"{k}:\n{dataset}: {report}")
                     break
-            #print(self.outputs)
             PRINTED = True
 
     def tasks(self) -> Iterator[Task]:
-        """tasks"""
-        yield Task("run", rqmt={"cpu":1, "time":1})#mini_task=True)
+        yield Task("run", rqmt={"cpu": 1, "time": 3})
+
+    # ---------------------------
+    # Helpers
+    # ---------------------------
+
+    def _find_dtl(self, report_dir: Path) -> Optional[Path]:
+        """
+        Heuristic: prefer a top-level *.dtl; otherwise first *.dtl anywhere.
+        """
+        if not report_dir.exists():
+            return None
+        top = list(report_dir.glob("*.dtl"))
+        if top:
+            # If multiple, a stable pick; optionally bias filenames with 'dtl' in stem (already is)
+            return sorted(top)[0]
+        for p in report_dir.rglob("*.dtl"):
+            return p
+        return None
+
+    # Match both percent and count:  Percent Substitution =   3.3%   (1703)
+    _RE_SUB = re.compile(r"Percent\s+Substitution\s*=\s*([0-9.]+)%\s*\(\s*(\d+)\s*\)")
+    _RE_DEL = re.compile(r"Percent\s+Deletions\s*=\s*([0-9.]+)%\s*\(\s*(\d+)\s*\)")
+    _RE_INS = re.compile(r"Percent\s+Insertions\s*=\s*([0-9.]+)%\s*\(\s*(\d+)\s*\)")
+
+    def _parse_sdi_counts(self, dtl_path: Path) -> Optional[Dict[str, float]]:
+        """
+        Returns dict with percent and count for S/D/I, e.g.
+        {'sub%': 3.3, 'sub#': 1703, 'del%': 0.4, 'del#': 191, 'ins%': 0.4, 'ins#': 211}
+        """
+        try:
+            txt = dtl_path.read_text(errors="ignore")
+        except Exception:
+            return None
+
+        def extract(rx):
+            m = rx.search(txt)
+            return (float(m.group(1)), int(m.group(2))) if m else (float("nan"), 0)
+
+        sub_p, sub_c = extract(self._RE_SUB)
+        del_p, del_c = extract(self._RE_DEL)
+        ins_p, ins_c = extract(self._RE_INS)
+
+        if any(x != x for x in (sub_p, del_p, ins_p)):  # NaN check
+            return None
+
+        return {
+            "sub%": sub_p, "sub#": sub_c,
+            "del%": del_p, "del#": del_c,
+            "ins%": ins_p, "ins#": ins_c,
+        }
+
+    def _safe_name(self, s: str) -> str:
+        return re.sub(r"[^\w.-]+", "_", s)
+
+    # ---------------------------
+    # Main
+    # ---------------------------
 
     def run(self):
-        """run"""
+        # Keep the original wer_report.py for reference
         with open(self.out_report_dict.get_path(), "wt") as out:
             out.write("{\n")
             for lm, wer_dict in self.outputs.items():
-                out.write(f"\t{lm!r}" +":{\n")
+                out.write(f"\t{lm!r}" + ":{\n")
                 for dataset, score_res in wer_dict.items():
                     out.write(f"{dataset!r}: {score_res.report}\n")
                 out.write("\t}\n")
             out.write("}\n")
+
+        # Aggregate S/D/I per dataset across LMs
+        per_dataset: Dict[str, Dict[str, Dict[str, int]]] = {}
+
+        for lm, wer_dict in self.outputs.items():
+            for dataset, score_res in wer_dict.items():
+                report_dir = Path(str(score_res.report))
+                dtl = self._find_dtl(report_dir)
+                sdi = self._parse_sdi_counts(dtl) if dtl else None
+                if sdi is None:
+                    # If missing, fill zeros to keep table rectangular
+                    sdi = {"sub": 0, "del": 0, "ins": 0}
+                per_dataset.setdefault(dataset, {})[lm] = sdi
+
+        # Emit one TSV per dataset
+        for dataset, lm_map in sorted(per_dataset.items()):
+            tsv_path = self.output_path(f"sdi_{self._safe_name(dataset)}.csv")
+            with open(tsv_path.get_path(), "wt") as f:
+                f.write(",".join(["LM", "Sub(%)", "Sub(#)", "Del(%)", "Del(#)", "Ins(%)", "Ins(#)"]) + "\n")
+                for lm, sdi in sorted(lm_map.items()):
+                    f.write(",".join([
+                        lm,
+                        f"{sdi['sub%']:.2f}", str(sdi['sub#']),
+                        f"{sdi['del%']:.2f}", str(sdi['del#']),
+                        f"{sdi['ins%']:.2f}", str(sdi['ins#']),
+                    ]) + "\n")
+
+        # Compute LM-wise averages over datasets
+        # We macro-average percentages over datasets that have valid numbers,
+        # and sum counts over those same datasets.
+        lm_stats: Dict[str, Dict[str, float]] = {}
+        lm_counts: Dict[str, int] = {}  # number of datasets contributing to averages per LM
+
+        def _is_num(x) -> bool:
+            try:
+                return x is not None and x == x  # not NaN
+            except Exception:
+                return False
+
+        for dataset, lm_map in per_dataset.items():
+            for lm, vals in lm_map.items():
+                subp, delp, insp = vals.get("sub%"), vals.get("del%"), vals.get("ins%")
+                subn, deln, insn = vals.get("sub#"), vals.get("del#"), vals.get("ins#")
+                # Only count datasets where all three percentages were parsed
+                if _is_num(subp) and _is_num(delp) and _is_num(insp):
+                    st = lm_stats.setdefault(lm, {"sub%_sum": 0.0, "del%_sum": 0.0, "ins%_sum": 0.0,
+                                                  "sub#_sum": 0.0, "del#_sum": 0.0, "ins#_sum": 0.0})
+                    st["sub%_sum"] += float(subp)
+                    st["del%_sum"] += float(delp)
+                    st["ins%_sum"] += float(insp)
+                    if _is_num(subn): st["sub#_sum"] += float(subn)
+                    if _is_num(deln): st["del#_sum"] += float(deln)
+                    if _is_num(insn): st["ins#_sum"] += float(insn)
+                    lm_counts[lm] = lm_counts.get(lm, 0) + 1
+
+        # Emit LM-average TSV
+        avg_path = self.output_path("sdi_average.csv")
+        with open(avg_path.get_path(), "wt") as f:
+            f.write(",".join([
+                "LM",
+                "Datasets(#)",
+                "Sub(%)_avg", "Del(%)_avg", "Ins(%)_avg",
+                "Sub(#)_sum", "Del(#)_sum", "Ins(#)_sum",
+            ]) + "\n")
+            for lm in sorted(lm_stats.keys() | lm_counts.keys()):
+                k = lm_counts.get(lm, 0)
+                st = lm_stats.get(lm, None)
+                if not st or k == 0:
+                    f.write(",".join([lm, "0", "NaN", "NaN", "NaN", "0", "0", "0"]) + "\n")
+                    continue
+                sub_avg = st["sub%_sum"] / k
+                del_avg = st["del%_sum"] / k
+                ins_avg = st["ins%_sum"] / k
+                f.write(",".join([
+                    lm,
+                    str(k),
+                    f"{sub_avg:.2f}", f"{del_avg:.2f}", f"{ins_avg:.2f}",
+                    str(int(round(st["sub#_sum"]))),
+                    str(int(round(st["del#_sum"]))),
+                    str(int(round(st["ins#_sum"]))),
+                ]) + "\n")
 
 class DummyJob(Job):
     """
@@ -494,6 +636,7 @@ def py():
     encoder = "conformer"
     train = False
     cuts = {"conformer": 65, "blstm":37}
+    greedy_first_pass = True
     # ---- Set up model and config ----
     from i6_experiments.users.zhang.experiments.apptek.am.ctc_spm10k_16khz_mbw import get_model_and_vocab, \
         NETWORK_CONFIG_KWARGS
@@ -517,36 +660,60 @@ def py():
                   "spm10k",
                   ]:
         word_ppl = not PLOT # Default, set to false ONlY when do plot
+
+        first_pass_lm_name = "ffnn4_50_spm10k_ES"
         # LM that do first pass,
-        lm_kinds = {#"ffnn",
+        lm_kinds = {"ffnn",
                     #"trafo", #nn has better result on second pass for cfm
                     #"trafo_ES_wo_trans",
-                    "ffnn_ES_wo_trans",
+                    #"ffnn_ES_wo_trans",
                     #"word_ngram_apptek",
                     }
         lm_kinds_2 = {#"ngram", # LM that do second pass
                     #"word_ngram",
                     #"word_ngram_apptek",
+                    #"4gram",
                     "ffnn",
-                    "ffnn_ES_wo_trans",
+                    #"ffnn_ES_wo_trans",
+                    #"trafo_ES_wo_trans",
                     #"trafo",
                     #"LLM"
                     }
-        if PLOT:
-            assert all("word" not in name and "LLM" not in name for name in lm_kinds_2)
+
+        ngrams = {"6gram", "6gram_pr1_3e-8", "6gram_pr6_7e-8",
+                  "4gram_fr03_pr1_0e-7", "4gram_pr3_0e-7",
+                  "5gram_fr08_pr1_0e-6",
+                  "5gram_fr06_pr3_0e-6", "5gram_pr3_0e-6",
+                  "6gram_fr06_pr1_0e-5", "5gram_fr06_pr1_0e-5",
+                  "5gram_pr1_0e-5",
+                  "6gram_pr3_0e-5", #"6gram_fr06_pr3_0e-5",
+                  "5gram_fr06_pr3_0e-5", "5gram_fr08_pr3_0e-5",
+                  "5gram_pr3_0e-5",
+                  "6gram_pr5_0e-2", "6gram_fr01_pr5_0e-2", "2gram_fr01_pr5_0e-2",
+                  "2gram_fr03_pr1_0e-3", "3gram_fr06_pr1_0e-3",  "3gram_pr1_0e-3"
+                  }
+        # if PLOT:
+        #     lm_kinds_2.update(ngrams)
+        #     assert all("word" not in name and "LLM" not in name for name in lm_kinds_2)
         lm_combination = { #Specify lm_comb for PLOTs
             ("trafo", "trafo"), # TWO pass same LM :
+            ("trafo", "ngram"),
             # -> First pass only in plot(or double rescoring(more tuning) depends on which is better)
             ("ffnn", "ffnn"),
             ("ffnn4_50", "ngram"),
             ("NoLM", "NoLM")
         }
-        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=not PLOT, task_name="ES", only_transcript=ONLY_TRANSCRIPT)
-        #lms = {}
-        #ppl_results = {}
+        lms, ppl_results, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds, word_ppl=word_ppl, only_best=True, task_name="ES", only_transcript=ONLY_TRANSCRIPT)
+
+
+        # lms = {}
+        # ppl_results = {}
+
         lms.update({"NoLM": None})
         rescor_lms, ppl_results_2, _ = build_all_lms(vocab_config, lm_kinds=lm_kinds_2, as_ckpt=True, word_ppl=word_ppl, task_name="ES", only_best= not PLOT, only_transcript=ONLY_TRANSCRIPT)
-        rescor_lms.update({"NoLM": None})
+
+        # rescor_lms = {}
+        # ppl_results_2 = {}
 
         rescor_lms.update({"NoLM": None})
         ppl_results_2.update({"uniform": {k:10240.0 for k in EVAL_DATASET_KEYS}})
@@ -556,6 +723,8 @@ def py():
 
 
         def matching_comb_pair(name1, name2):
+            if name1 == first_pass_lm_name:
+                return True
             for infix1, infix2 in lm_combination:
                 if infix1 == infix2 and (name1 == name2):
                     return True
@@ -567,7 +736,7 @@ def py():
 
             #return infix in name or ("gram" in infix and "gram" in name)
         def first_pass_with_lm_exp(exp, model_name, lms, rescor_lms, lm_kinds, lm_kinds_2):
-            if not PLOT:
+            if not greedy_first_pass:
                 lms.pop("NoLM",None)
             nonlocal vocab, encoder, train, ppl_results_2, word_ppl, lm_combination
             wer_results = dict()
@@ -595,7 +764,7 @@ def py():
                     if name_2 == name:
                         one_pass_lm = name_2
                         if one_pass_lm != "NoLM" or not PLOT: #
-                            print(f"\n\n{one_pass_lm}!!! {one_pass_res[-6]} {one_pass_res[-5]}\n\n")
+                            #print(f"\n\n{one_pass_lm}!!! {one_pass_res[-6]} {one_pass_res[-5]}\n\n")
                             # TODO: This will be overwritten by results from last loop, and not the res from outer loop
                             wer_ppl_results_2[one_pass_lm] = (
                                 ppl_results_2.get(one_pass_lm), *one_pass_res
@@ -604,20 +773,22 @@ def py():
                                 # dafault_lm_scale,
                                 # dafault_prior_scale
                             )
-                            wer_results[one_pass_lm] = one_pass_res[-4]
-                            if PLOT: # Only keep first pass results
-                                continue
+                            wer_results[one_pass_lm] = one_pass_res[-5]
+                            # if PLOT: # Only keep first pass results
+                            #     continue
                             # If not ploting, Will do another rescoring recog
                         else: # Greedy and do plot
                             wer_ppl_results_2["uniform"] = (
-                                ppl_results_2.get("uniform"), wer_result_path, search_error, search_error_rescore,
-                                None,
-                                None, 0, 0)
-                            wer_results["uniform"] = output_dict
+                                ppl_results_2.get("uniform"), *one_pass_res,
+                                # wer_result_path, search_error, search_error_rescore,
+                                # None,
+                                # None, 0, 0
+                            )
+                            wer_results["uniform"] = one_pass_res[-5]
                             continue # Skip further rescoring
                         two_pass_same_lm = True
 
-                    (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict,
+                    (wer_result_path, search_error, search_error_rescore, lm_tune, prior_tune, output_dict, rescor_ppls,
                      lm_hyperparamters_str, dafault_lm_scale, dafault_prior_scale) = exp(
                         name, lm, vocab,
                         rescore_lm=lm_2,
@@ -645,7 +816,7 @@ def py():
                         wer_results["uniform"] = output_dict
 
             if wer_ppl_results_2 and not train:
-                print(wer_ppl_results_2)
+                #print(wer_ppl_results_2)
                 names, res = zip(*wer_ppl_results_2.items())
                 results = [(x[0], x[1]) for x in res]
                 search_errors = [x[2] for x in res]
@@ -657,12 +828,13 @@ def py():
 
                 summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_tunes, prior_tunes, search_errors,
                                                        search_errors_rescore,
+                                                       aggregated=AGGREGATE_WER,
                                                        eval_dataset_keys=EVAL_DATASET_KEYS)
                 gnuplotjob = GnuPlotJob(summaryjob.out_summary, EVAL_DATASET_KEYS, curve_point=cuts[encoder])
                 llm_related_name_ext = f"{'prompted' if LLM_WITH_PROMPT else ''}{'_eg' if LLM_WITH_PROMPT_EXAMPLE else ''}_LLMs" + ((f"ctx{LLM_FXIED_CTX_SIZE}" if LLM_FXIED_CTX else "") + (
                     f"prev_{CTX_LEN_LIMIT}ctx" if LLM_PREV_ONE_CTX else "")) if "LLM" in lm_kinds_2 else ""
                 alias_prefix = (
-                        f"wer_ppl/{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
+                        f"wer_ppl/{seg_key}_{f'1st_pass_{name}'}2rd_pass{len(rescor_lms)}_" + model_name + "_" + vocab + encoder
                         + ("n_best_cheat" if CHEAT_N_BEST else "")
                         + llm_related_name_ext + (f"Beam_{BEAM_SIZE}_{NBEST}_best"))
 

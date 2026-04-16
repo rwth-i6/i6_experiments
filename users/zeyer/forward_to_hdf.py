@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict, Tuple
 
-from sisyphus import tk
+from sisyphus import tk, gs
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
@@ -23,6 +23,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardRFDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
+from i6_experiments.users.zeyer.returnn.config import pop_from_config_post_config
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
@@ -80,11 +81,12 @@ def forward_to_hdf(
     :return: HDF file path
     """
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
-    env_updates = None
-    if (config and config.get("__env_updates")) or (forward_post_config and forward_post_config.get("__env_updates")):
-        env_updates = (config and config.pop("__env_updates", None)) or (
-            forward_post_config and forward_post_config.pop("__env_updates", None)
-        )
+    config, forward_post_config, env_updates = pop_from_config_post_config(
+        config, forward_post_config, key="__env_updates"
+    )
+    config, forward_post_config, forward_rqmt = pop_from_config_post_config(
+        config, forward_post_config, key="__rqmt_updates", prev=forward_rqmt
+    )
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint.path if model else None,
         returnn_config=(_returnn_forward_config_v2 if _config_v2 else _returnn_forward_config)(
@@ -103,6 +105,10 @@ def forward_to_hdf(
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        # Explicitly set TMPDIR, because DEFAULT_ENVIRONMENT_SET might not be applied (CLEANUP_ENVIRONMENT=False),
+        # but we really might want this, and Slurm might overwrite it otherwise.
+        forward_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
     if env_updates:
         for k, v in env_updates.items():
             forward_job.set_env(k, v)
@@ -447,7 +453,7 @@ def _returnn_forward_config_v2(
     Create config for collecting stats.
     """
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
-    from returnn.tensor import Tensor, batch_dim
+    from returnn.tensor import Tensor, Dim, batch_dim
 
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
     if not forward_def and not forward_step:
@@ -483,12 +489,22 @@ def _returnn_forward_config_v2(
     model_outputs: Dict[str, Dict[str, Any]] = config["model_outputs"]
     for k, v in model_outputs.items():
         v_ = v.copy()
+        if (
+            v_.get("sparse", False)
+            and v_.get("dim", None) is None
+            and v_.get("sparse_dim", None) is None
+            and v_.get("vocab")
+        ):
+            # Special case. Sparse specified, with vocab which would infer the dim,
+            # but we don't want to load the vocab here.
+            # Workaround:
+            v_["sparse_dim"] = Dim(None, name="unknown_sparse_dim")
         v_.pop("vocab", None)  # not needed here
         out_templ = Tensor(k, **v_)
         assert out_templ.dims and out_templ.dims[0] == batch_dim
-        assert all(
-            dim.dimension is not None for dim in out_templ.dims[2:]
-        ), f"all except the first dim (after batch dim) must be static, got {out_templ}"
+        assert all(dim.dimension is not None for dim in out_templ.dims[2:]), (
+            f"all except the first dim (after batch dim) must be static, got {out_templ}"
+        )
         if k != "output" and len(out_templ.dims) >= 3 and out_templ.dim != out_templ.dims[-1].dimension:
             # Need new version because of new behavior when the out_templ.dim is not matching the last dim.
             __forward_config_v2_extra_version = max(__forward_config_v2_extra_version, 3)
@@ -498,9 +514,9 @@ def _returnn_forward_config_v2(
             config["backend"] = model_def.backend
         config["behavior_version"] = max(model_def.behavior_version, config.get("behavior_version", 0))
     else:
-        assert (
-            config and config.get("backend") and config.get("behavior_version")
-        ), f"config: {config}\nbackend: {config.get('backend')}, behavior_version: {config.get('behavior_version')}"
+        assert config and config.get("backend") and config.get("behavior_version"), (
+            f"config: {config}\nbackend: {config.get('backend')}, behavior_version: {config.get('behavior_version')}"
+        )
 
     if isinstance(model_def, ModelDefWithCfg):
         config["_model_def"] = model_def.model_def
@@ -600,7 +616,7 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
         batch_size = int(batch_dim.get_dim_value())
         for batch_idx in range(batch_size):
             seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
-            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+            print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")

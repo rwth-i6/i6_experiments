@@ -15,6 +15,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncode
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
+from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
@@ -497,9 +498,9 @@ def py():
     )
 
     # Now with featBN and bpeSample001.
+    # {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
     train_exp(  # 5.77
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
@@ -513,9 +514,9 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # {"dev-clean": 2.34, "dev-other": 5.76, "test-clean": 2.59, "test-other": 5.81}
     train_exp(
-        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        "-featBN-speedpertV2-spm10k-bpeSample001",
+        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k-featBN-speedpertV2-spm10k-bpeSample001",
         config_24gb_v6,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
@@ -548,27 +549,30 @@ def py():
     # )
 
     # CTC label smoothing (ctcLS01). (baseline: 5.77)
-    train_exp(  # 5.74
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
+    # wrong gradient?
+    # baseline: {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
+    # {"dev-clean": 2.45, "dev-other": 5.74, "test-clean": 2.55, "test-other": 5.98}
+    # train_exp(  # 5.74
+    #     "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-ctcLS01",
+    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    #     model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+    #         "ctc_label_smoothing": 0.1,
+    #     },
+    #     vocab="spm10k",
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    # )
 
     # CTC label smoothing with fixed grad
+    # baseline: {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
+    # {"dev-clean": 2.35, "dev-other": 5.8, "test-clean": 2.59, "test-other": 6.17}
     train_exp(
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01-ctcFixGrad",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-ctcLS01-ctcFixGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
@@ -585,23 +589,25 @@ def py():
     )
 
     # CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
-    train_exp(  # 5.78 (but dev-clean, test-clean, test-other are better than without ctcLS01xB!)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01xB",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-            "ctc_label_smoothing_exclude_blank": True,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
+    # wrong gradient?
+    # baseline: {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
+    # {"dev-clean": 2.37, "dev-other": 5.78, "test-clean": 2.54, "test-other": 5.99}
+    # train_exp(  # 5.78
+    #     "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-ctcLS01xB",
+    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    #     model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+    #         "ctc_label_smoothing": 0.1,
+    #         "ctc_label_smoothing_exclude_blank": True,
+    #     },
+    #     vocab="spm10k",
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    # )
 
     # TODO max_seq_len_via_audio seems to hurt a bit with sampling?
     #   Probably because now we don't filter when the seq gets very long, and that confuses training.
@@ -653,8 +659,7 @@ def py():
     # 5.63 {"dev-clean": 2.37, "dev-other": 5.63, "test-clean": 2.61, "test-other": 5.78}
     # (but no clear improvement on test)
     train_exp(
-        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        "-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
+        "v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
         config_24gb_v6,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -674,9 +679,9 @@ def py():
     )
 
     # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
+    # gradient wrong?
     train_exp(  # 6.14. A bit unclear why so much worse, maybe some bug?
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -808,14 +813,16 @@ def py():
 
     # Log prob normed gradient (lpNormedGrad)
     # Baseline without lpNormedGrad: 5.77/6.03
+    #   {"dev-clean": 2.44, "dev-other": 5.77, "test-clean": 2.59, "test-other": 6.03}
     for name, opts in {
         # 5.71/5.87 (!!) (i.e. better than without)
+        # {"dev-clean": 2.42, "dev-other": 5.71, "test-clean": 2.64, "test-other": 5.87}
         "C05_11P1": {
             "log_prob_normed_grad": {
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
             }
         },
-        #
+        # {"dev-clean": 2.5, "dev-other": 5.87, "test-clean": 2.66, "test-other": 5.98}
         "C05_11P1-ctcFixGrad": {
             "log_prob_normed_grad": {
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
@@ -837,12 +844,14 @@ def py():
         #   "log_prob_normed_grad": {"func": {"clamp_min": 0.8, "clamp_max": 1.1,
         #   "scale_type": "inv_num_labels", "prior_exp": 1.0}}},
         # 5.83/5.91
+        # {"dev-clean": 2.46, "dev-other": 5.83, "test-clean": 2.62, "test-other": 5.91}
         "C05_11P1Seq": {
             "log_prob_normed_grad": {
                 "prior": "seq_grad",
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
             },
         },
+        # {"dev-clean": 2.37, "dev-other": 5.84, "test-clean": 2.54, "test-other": 6.11}
         "C05_11P1Seq-ctcFixGrad": {
             "log_prob_normed_grad": {
                 "prior": "seq_grad",
@@ -869,8 +878,7 @@ def py():
         },
     }.items():
         train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-            f"-speedpertV2-spm10k-bpeSample001-lpNormedGrad{name}",
+            f"v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGrad{name}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={
                 "enc_conformer_layer": enc_conformer_layer_default,
@@ -896,8 +904,7 @@ def py():
     # (Baseline without lpNormedGrad: 5.77/6.03)
     # Log prob normed gradient (lpNormedGrad) (excl blank) with blank separated (blankSep)
     train_exp(  # 6.05 (so lpNormedGrad is worse here, but specifically in combination with blankSep?)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -924,8 +931,7 @@ def py():
     # (Baseline without lpNormedGrad: 5.77/6.03)
     # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep)
     train_exp(  # 5.73/6.08
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -952,9 +958,8 @@ def py():
 
     # (Baseline without lpNormedGrad: 5.77/6.03)
     # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep) and fixed grad
-    train_exp(  # 5.73/6.08
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank-ctcFixGrad",
+    train_exp(  # 5.90/6.01
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank-ctcFixGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
@@ -1159,8 +1164,7 @@ def py():
 
     # lpNormedGrad C05_11P1 (Baseline: 5.65)
     # train_exp(  # 5.83. so made it worse.
-    #     "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
+    #     "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
     #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
     #     model_config={
     #         "enc_conformer_layer": rf.build_dict(
@@ -1696,7 +1700,7 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = ctc_training
-    serialization_version = config.get("__serialization_version", None)
+    serialization_version = get_from_config((config, model_def), "__serialization_version", None)
     train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
     train_kwargs = {}
     if epilog:
@@ -1993,8 +1997,8 @@ def model_recog(
 
     config = get_global_config()
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
     beam_size = config.int("beam_size", 12)
 
     # Eager-mode implementation of beam search.
@@ -2003,7 +2007,6 @@ def model_recog(
     batch_dims_ = [beam_dim] + batch_dims
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, Vocab
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
@@ -2351,6 +2354,20 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         logits = self.enc_logits(enc)
         return logits, enc, enc_spatial_dim
+
+    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Any, Dim]:
+        """
+        :param source: [B*, in_spatial_dim, in_dim]
+        :param in_spatial_dim:
+        :return: log_probs [B*, enc_spatial_dim', wb_target_dim], enc, enc_spatial_dim
+        """
+        logits, enc, enc_spatial_dim = self(source, in_spatial_dim=in_spatial_dim)
+        assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+        assert logits.feature_dim  # we expect a feature dim
+        assert enc_spatial_dim in logits.dims
+        log_probs = self.log_probs_wb_from_logits(logits)
+        assert isinstance(log_probs, Tensor)
+        return log_probs, enc, enc_spatial_dim
 
     def aux_logits_from_collected_outputs(self, aux_layer: int, collected_outputs: Dict[str, Tensor]) -> Tensor:
         """

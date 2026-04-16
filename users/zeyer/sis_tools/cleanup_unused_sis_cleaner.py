@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+
 """
 Cleanup unused jobs and directories in the work dir.
 This calls Sisyphus ``tk.cleaner.cleanup_unused``.
+
+You provide the Sisyphus config,
+which is used to determine whether a train job is active or unused.
 """
 
 import sys

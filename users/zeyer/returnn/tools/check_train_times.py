@@ -7,10 +7,35 @@ Call this via:
     python3 -m i6_experiments.users.zeyer.returnn.tools.check_train_times ...
 """
 
-from typing import Optional, Union, Any, Dict, Set, List, Tuple
+from typing import Optional, Union, Any, TypeVar, Dict, Set, List, Tuple
 import os
+import sys
 import re
+from functools import reduce
+
 import numpy as np
+
+
+_my_dir = os.path.dirname(__file__)
+_base_dir = reduce(lambda p, _: os.path.dirname(p), range(5), _my_dir)
+_sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
+
+T = TypeVar("T")
+
+
+def _setup():
+    # In case the user started this script directly.
+    if not globals().get("__package__"):
+        globals()["__package__"] = "i6_experiments.users.zeyer.returnn.tools"
+        if _base_dir not in sys.path:
+            sys.path.append(_base_dir)
+        if _sis_dir not in sys.path:
+            sys.path.append(_sis_dir)
+
+
+_setup()
+
+
 from sisyphus import Job
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
@@ -19,10 +44,10 @@ from i6_experiments.users.zeyer.utils.job_dir import get_job_base_dir
 def get_training_times_per_epoch(
     training_job: Union[str, ReturnnTrainingJob],
     *,
-    expected_gpu: str,
+    expected_gpu: Optional[str] = None,
     ignore_first_n_epochs: int = 0,
     min_required: Optional[int] = None,
-) -> List[Union[float, int]]:
+) -> Tuple[str, List[Union[float, int]]]:
     """
     :param training_job: reads out_learning_rates and the log from it
     :param expected_gpu: e.g. "NVIDIA GeForce GTX 1080 Ti"
@@ -30,7 +55,7 @@ def get_training_times_per_epoch(
         e.g. because we might use smaller models, or data filtering, or so,
         so they are much faster and not comparable to the others
     :param min_required:
-    :return: avg time per epoch in secs
+    :return: (gpu,times). times per epoch in secs
     """
     # We can read the learning_rates to get the time per epoch in secs.
     job_dir = get_job_base_dir(training_job)
@@ -39,23 +64,44 @@ def get_training_times_per_epoch(
         scores_and_lr_filename = f"{job_dir}/output/learning_rates"
     scores = _read_scores_and_learning_rates(scores_and_lr_filename)
     scores = {epoch: v for epoch, v in scores.items() if epoch > ignore_first_n_epochs}
+    if expected_gpu is None:
+        res = {v.get(":meta:device") for epoch, v in scores.items()}
+        assert len(res) == 1, f"expected to have only one device, found: {res}"
+        expected_gpu = res.pop()
     scores, filtered_by_device = _filter_learning_rates_by_device(
-        scores, device=expected_gpu, min_required=min_required or len(scores)
+        scores, device=expected_gpu, min_required=min_required or 1
     )
-    epoch_times = _read_epoch_times_from_scores_and_learning_rates(scores)
-    epoch_times = {ep: t for ep, t in epoch_times.items()}
+
     epoch_steps = _read_epoch_steps_from_scores_and_learning_rates(scores)
     epoch_steps = {ep: t for ep, t in epoch_steps.items()}
+
+    # filter out outliers
+    steps_values = list(epoch_steps.values())
+    filtered_steps_values = _z_score_outlier_removal(steps_values, threshold=1.0)
+    valid_steps = set(filtered_steps_values)
+    scores = {ep: v for ep, v in scores.items() if epoch_steps[ep] in valid_steps}
+    assert len(scores) >= (min_required or 1), (
+        f"not enough epochs after outlier removal, have {len(scores)}, required {min_required}"
+    )
+    epoch_steps = {ep: t for ep, t in epoch_steps.items() if ep in scores}
     epoch_steps_min = min(epoch_steps.values())
     epoch_steps_max = max(epoch_steps.values())
-    assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, f"epoch_steps: {epoch_steps}"  # sanity check
+    assert epoch_steps_max - epoch_steps_min <= epoch_steps_max * 0.1, (
+        f"{epoch_steps_min = }, {epoch_steps_max = }, "
+        f"{np.mean(list(epoch_steps.values())), np.std(list(epoch_steps.values())) = }, "
+        f"{epoch_steps_max - epoch_steps_min = }, "
+        f"{epoch_steps_max * 0.1 = }, {epoch_steps = }"
+    )  # sanity check
+
+    epoch_times = _read_epoch_times_from_scores_and_learning_rates(scores)
+    epoch_times = {ep: t for ep, t in epoch_times.items()}
 
     if not filtered_by_device:
         # We also need to check that we have the same GPU. For that, we currently need to check the log.
         gpus = _read_used_gpus_from_log(job_dir)
         assert gpus == {expected_gpu}, f"expected GPU {expected_gpu}, found in log: {gpus}"
 
-    return list(epoch_times.values())
+    return expected_gpu, list(epoch_times.values())
 
 
 def _read_scores_and_learning_rates(filename: str) -> Dict[int, Dict[str, Union[float, Any]]]:
@@ -125,17 +171,18 @@ def main():
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("job", help="job dir")
-    arg_parser.add_argument("--gpu", required=True, help="expected GPU, e.g. 'NVIDIA GeForce GTX 1080 Ti'")
+    arg_parser.add_argument("--gpu", help="expected GPU, e.g. 'NVIDIA GeForce GTX 1080 Ti'")
     arg_parser.add_argument("--ignore-first-n-epochs", type=int, default=0)
     arg_parser.add_argument("--take-n-fastest-epochs", type=int, default=None, help="take the N fastest epochs")
     args = arg_parser.parse_args()
 
-    times_per_epoch = get_training_times_per_epoch(
+    gpu, times_per_epoch = get_training_times_per_epoch(
         args.job,
         expected_gpu=args.gpu,
         ignore_first_n_epochs=args.ignore_first_n_epochs,
         min_required=args.take_n_fastest_epochs,
     )
+    print(f"GPU: {gpu}")
     print("times per epoch:")
     print(f"(num epochs: {len(times_per_epoch)})")
     print(f"min, max: {min(times_per_epoch):.2f}, {max(times_per_epoch):.2f}")
@@ -152,7 +199,7 @@ def main():
 
 
 def _z_score_outlier_removal(ls: List[float], threshold: float = 3.0) -> List[float]:
-    ls = np.array(ls)
+    ls = np.array(ls).astype(np.float64)
     mean = np.mean(ls)
     std = np.std(ls)
     z_scores = (ls - mean) / std
@@ -180,4 +227,10 @@ def _debug_out_job_logs(job: str):
 
 
 if __name__ == "__main__":
+    try:
+        import better_exchook
+
+        better_exchook.install()
+    except ImportError:
+        pass  # ignore
     main()

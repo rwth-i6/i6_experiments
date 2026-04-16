@@ -13,7 +13,7 @@ BIGRAM_LM_LBS = tk.Path(
     cached=True,
     hash_overwrite="BIGRAM_LM_LBS",
 )
-FOURGRAM_LM = tk.Path(
+FOURGRAM_LM_LBS = tk.Path(
     "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/discr_lms/word/kn4.no_pruning.gz",
     cached=True,
     hash_overwrite="FOURGRAM_LM_LBS",

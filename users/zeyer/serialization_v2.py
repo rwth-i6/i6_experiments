@@ -46,6 +46,7 @@ from typing import Optional, Union, Any, Sequence, Collection, Dict, List, Tuple
 import types
 from types import FunctionType, BuiltinFunctionType, MethodType, ModuleType
 from dataclasses import dataclass
+from contextlib import contextmanager
 import subprocess
 
 from returnn.tensor import Dim, batch_dim, single_step_dim
@@ -70,11 +71,33 @@ def serialize_config(
         config=config, post_config=post_config, known_modules=known_modules, sis_path_handling=sis_path_handling
     )
     for path in extra_sys_paths:
-        serializer.add_sys_path(path, recursive=False)
-    serializer.work_queue()
-    if inlining:
-        serializer.work_inlining()
+        serializer.add_sys_path(path, recursive=False, code_comment="# extra sys.path\n")
+    with _set_in_serialize_config_ctx():
+        serializer.work_queue()
+        if inlining:
+            serializer.work_inlining()
     return SerializedConfig(code_list=list(serializer.assignments_dict_by_idx.values()))
+
+
+_in_serialize_config_flag = False
+
+
+def in_serialize_config() -> bool:
+    """
+    Whether we are currently inside a serialize_config call.
+    """
+    return _in_serialize_config_flag
+
+
+@contextmanager
+def _set_in_serialize_config_ctx(value: bool = True):
+    global _in_serialize_config_flag
+    old_value = _in_serialize_config_flag
+    _in_serialize_config_flag = value
+    try:
+        yield
+    finally:
+        _in_serialize_config_flag = old_value
 
 
 class SisPathHandling(enum.Enum):
@@ -689,7 +712,7 @@ class _Serializer:
                 raise SerializationError(
                     f"cannot handle {value!r} (type {type(value).__name__}) as global,"
                     f" qualname {qualname} not found,"
-                    f" no {'.'.join(qualname_parts[:i + 1])} in module {mod_name}"
+                    f" no {'.'.join(qualname_parts[: i + 1])} in module {mod_name}"
                 )
             obj.append(getattr(obj[-1], qualname_parts[i]))
         if obj[-1] is not value:
@@ -748,10 +771,10 @@ class _Serializer:
         if not hasattr(mod, "__file__"):
             return  # assume builtin module or so
         mod_path = _get_module_path_from_module(mod)
-        self.add_sys_path(mod_path)
+        self.add_sys_path(mod_path, code_comment=f"# for module {mod_name}\n")
         self.known_modules.add(mod_name)
 
-    def add_sys_path(self, path: str, *, recursive: bool = True):
+    def add_sys_path(self, path: str, *, recursive: bool = True, code_comment: str = ""):
         """
         Add an entry to sys.path if it is not already there.
         """
@@ -783,10 +806,14 @@ class _Serializer:
             self._next_sys_path_insert_idx += 1
         if insert_idx is not None:
             code = PyCode(
-                py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n"
+                py_name=None,
+                value=None,
+                py_code=f"{code_comment}{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n",
             )
         else:
-            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.append({path!r})\n")
+            code = PyCode(
+                py_name=None, value=None, py_code=f"{code_comment}{sys_s.py_inline()}.path.append({path!r})\n"
+            )
         code.idx = self._next_assignment_idx
         self._next_assignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code

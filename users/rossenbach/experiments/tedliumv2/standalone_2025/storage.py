@@ -97,6 +97,15 @@ def add_vocoder(name: str, vocoder: VocoderPackage):
     assert name not in vocoders.keys()
     vocoders[name] = vocoder
 
+# Alignments -----------------------------------------------------------------------------------------------------------
+
+duration_alignments = {}
+
+def add_duration(name: str, duration_hdf: tk.Path):
+    global duration_alignments
+    assert name not in duration_alignments.keys()
+    duration_alignments[name] = duration_hdf
+
 
 # Synthetic data -------------------------------------------------------------------------------------------------------
 

@@ -12,9 +12,9 @@ from .configs import (
     _get_cfg_lrlin_oclr_by_bs_nep_v3,
     _get_cfg_lrlin_oclr_by_bs_nep_v4,
 )
-from .lm import lm_train_def, lm_model_def
+from .lm import lm_train_def, lm_model_def, lm_eval
 
-from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
+from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset, get_librispeech_task_text_only
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 
 import returnn.frontend as rf
@@ -23,6 +23,8 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 
 def py():
     # ----- LM experiments -----
+
+    task_spm10k = get_librispeech_task_text_only(vocab="spm10k")
 
     # Note: We had the batch_size wrong initially with batch size factor.
     # I think 20k without factor is reasonable with bf16 AMP.
@@ -58,8 +60,9 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(  # 33.9 (!!)
-        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+    name = "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k"
+    exp = train(  # 33.9 (!!)
+        name,
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -89,8 +92,9 @@ def py():
         ),
         train_def=lm_train_def,
     )
+    lm_eval(prefix=name, task=task_spm10k, lm=exp)
 
-    for n_ep in [100, 200, 300, 400]:
+    for n_ep in [20, 50, 100, 200, 300, 400]:
         train(
             f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp{n_ep}-spm10k",
             config=dict_update_deep(
@@ -127,7 +131,7 @@ def py():
 
     # batch size max_seqs 2k
     train(
-        f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-nEp200-spm10k",
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-nEp200-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -149,9 +153,7 @@ def py():
                     pos_enc=None,
                     norm=rf.build_dict(rf.RMSNorm),
                     ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                    decoder_layer_opts=dict(
-                        self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)
-                    ),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
                     dropout=0.0,
                     att_dropout=0.0,
                 )
@@ -160,8 +162,42 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(  # 32.88 (!!)
-        "lm/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k",
+    # More dropout (specifically for longer training). 33.35. (baseline: 34.39)
+    train(
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp200-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 200, batch_size_factor=1),
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.1,
+                    att_dropout=0.1,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    name = "lm/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_15k-spm10k"
+    exp = train(  # 32.88 (!!)
+        name,
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -191,6 +227,7 @@ def py():
         ),
         train_def=lm_train_def,
     )
+    lm_eval(prefix=name, task=task_spm10k, lm=exp)
 
     # online_shuffle_batches 100, laplace 100k
     # train(  # 38.28

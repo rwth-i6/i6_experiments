@@ -3,7 +3,7 @@ Use a prior to rescore some recog output.
 """
 
 from __future__ import annotations
-from typing import Dict, List
+from typing import Optional, Dict, List, Callable
 from dataclasses import dataclass
 
 from sisyphus import Job, Task, tk
@@ -11,6 +11,7 @@ from i6_core import util
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 from .rescoring import combine_scores
+from .convert_labels import CombineScoresAndSeparateSearchOutputJob
 
 
 @dataclass
@@ -23,19 +24,29 @@ class Prior:
     vocab_is_chars: bool = False
 
 
-def prior_score(res: RecogOutput, *, prior: Prior) -> RecogOutput:
+def prior_score(
+    res: RecogOutput, *, prior: Prior, custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None
+) -> RecogOutput:
     """
     Use prior to score some recog output.
 
     :param res: previous recog output, some hyps to rescore. the score in those hyps is ignored
     :param prior:
+    :param custom_vocab_convert_labels:
     :return: recog output with prior scores instead
     """
-    return RecogOutput(
-        output=SearchPriorRescoreJob(
-            res.output, prior=prior.file, prior_type=prior.type, vocab=prior.vocab, vocab_is_chars=prior.vocab_is_chars
+    hyps = res.output
+    if custom_vocab_convert_labels:
+        hyps = custom_vocab_convert_labels(hyps)
+    result = SearchPriorRescoreJob(
+        hyps, prior=prior.file, prior_type=prior.type, vocab=prior.vocab, vocab_is_chars=prior.vocab_is_chars
+    ).out_search_results
+    if custom_vocab_convert_labels:
+        # Convert hypotheses back to the original format, and keep the scores from the prior.
+        result = CombineScoresAndSeparateSearchOutputJob(
+            search_py_output=res.output, scores_py_output=result
         ).out_search_results
-    )
+    return RecogOutput(output=result)
 
 
 def prior_rescore(res: RecogOutput, *, prior: Prior, prior_scale: float, orig_scale: float = 1.0) -> RecogOutput:
@@ -188,6 +199,51 @@ class PriorRemoveLabelRenormJob(Job):
         prior = np.concatenate([prior[:remove_label_idx], prior[remove_label_idx + 1 :]])
         assert prior.shape == (len(vocab) - 1,), f"prior shape {prior.shape} vs vocab size {len(vocab) - 1}"
         prior = prior - _logsumexp(prior)
+
+        if self.out_prior_type == "log_prob":
+            pass
+        elif self.out_prior_type == "prob":
+            prior = np.exp(prior)
+        else:
+            raise ValueError(f"invalid out_prior_type {self.out_prior_type!r}")
+        np.savetxt(self.out_prior.get_path(), prior)
+
+
+class PriorLabelSmoothingJob(Job):
+    """
+    Gets some prior, apply label smoothing
+    """
+
+    def __init__(self, *, prior_file: tk.Path, prior_type: str, uniform_weight: float, out_prior_type: str):
+        self.prior_file = prior_file
+        self.prior_type = prior_type
+        self.uniform_weight = uniform_weight
+        self.out_prior_type = out_prior_type
+
+        self.out_prior = self.output_path("prior.txt")
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import numpy as np
+
+        prior = np.loadtxt(self.prior_file.get_path())
+        assert prior.ndim == 1, f"prior shape {prior.shape} is not 1D"
+        # The `type` is about what is stored in the file.
+        # We always want it in log prob here, so we potentially need to convert it.
+        if self.prior_type == "log_prob":
+            pass  # already log prob
+        elif self.prior_type == "prob":
+            prior = np.log(prior)
+        else:
+            raise ValueError(f"invalid static_prior type {self.prior_type!r}")
+        vocab_size = prior.shape[0]
+
+        uniform_log_prob = -np.log(vocab_size)
+        prior = np.logaddexp(prior + np.log(1 - self.uniform_weight), uniform_log_prob + np.log(self.uniform_weight))
 
         if self.out_prior_type == "log_prob":
             pass

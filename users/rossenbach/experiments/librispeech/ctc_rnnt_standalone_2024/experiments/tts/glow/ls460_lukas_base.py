@@ -15,9 +15,12 @@ from ....data.tts.aligner import build_training_dataset
 from ....config import get_forward_config
 from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
 from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
+from ....data.tts.tts_phon import build_fixed_speakers_generating_dataset
+from ....data.common import get_bliss_corpus_dict
+from ....data.tts.tts_phon import get_tts_extended_bliss
 
 from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ....storage import vocoders
+from ....storage import vocoders, add_synthetic_data_lexicon
 
 
 def run_flow_tts_460h():
@@ -310,9 +313,7 @@ def run_flow_tts_460h():
         decoder_options_noised["glowtts_noise_scale"] = noise_scale
         eval_exp("noise_%.1f" % noise_scale, tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options_noised)
 
-    from ....data.tts.tts_phon import build_fixed_speakers_generating_dataset
-    from ....data.common import get_bliss_corpus_dict
-    from ....data.tts.tts_phon import get_tts_extended_bliss
+
 
     train_clean_360_tts_bliss = get_tts_extended_bliss(ls_corpus_key="train-clean-360", lexicon_ls_corpus_key="train-clean-460")
     train_clean_360_bliss = get_bliss_corpus_dict()["train-clean-360"]
@@ -428,6 +429,7 @@ def run_flow_tts_460h():
     lm_data_lexicon = MergeLexiconJob(bliss_lexica=[lm_data_lexicon, lexicon_edit_full]).out_bliss_lexicon
     tk.register_output(prefix + "librispeech-full_lexicon.xml.gz", lm_data_lexicon)
 
+    add_synthetic_data_lexicon("ls_lm_data_lexicon", lm_data_lexicon)
 
     for i in range(750):
         index = i+1
@@ -492,6 +494,7 @@ def run_flow_tts_460h():
                 ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
                 ogg_zip_job.add_alias(prefix + "/part%i_ogg_zip" % index)
                 tk.register_output(prefix + "/lm_data_part%i_ogg.zip" % index, ogg_zip_job.out_ogg_zip)
+                add_synthetic_data("glowtts460_lm_data_%i" % i, ogg_zip_job.out_ogg_zip, bliss=merged_corpus_with_text)
 
     def construct_domain_test_set(name, corpus_name, bliss, lexicon, decoder_options=decoder_options_synthetic, seed=None):
         from i6_experiments.users.rossenbach.setups.tts.preprocessing import process_corpus_text_with_extended_lexicon

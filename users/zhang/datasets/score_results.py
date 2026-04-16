@@ -37,7 +37,7 @@ class ScoreResultCollection:
     Intended to cover all relevant results over all eval datasets (for one specific checkpoint).
     """
 
-    main_measure_value: tk.Path
+    main_measure_value: Optional[tk.Path]
     "single float value, as text. e.g. the best WER% on dev-other, defined by task.collect_score_results_func"
     output: tk.Path
     "JSON dict with all score outputs for each eval dataset"
@@ -82,6 +82,6 @@ class JoinScoreResultsJob(sisyphus.Job):
 def join_score_results(score_results: Dict[str, ScoreResult], main_measure_key: str) -> ScoreResultCollection:
     """join score results"""
     return ScoreResultCollection(
-        main_measure_value=score_results[main_measure_key].main_measure_value,
+        main_measure_value=score_results[main_measure_key].main_measure_value if main_measure_key in score_results else None,
         output=JoinScoreResultsJob(score_results).out_score_results,
     )

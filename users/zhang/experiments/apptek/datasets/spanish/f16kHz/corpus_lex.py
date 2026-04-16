@@ -87,11 +87,15 @@ test_corpora_def = {
     "test_set.ES_ES.f8kHz": [
         "mtp_eval-v2", #present but bug in data loader
     ],
+    "test_set.ES.mbw": [
+        "common_voice_two_speakers-v1",
+    ],
     # "test_set.ES.f16kHz": [
     #     "mtp_eval_heldout-v2",
     # ],
     "test_set.ES_ES.f16kHz": [
         "eval_voice_call-v3", #present but bug in data loader
+        "eval_voice_call-v2",
         "eval_napoli_202210-v3",
     ],
     "test_set.ES_US.f8kHz": [ #ok
@@ -153,7 +157,9 @@ segmenter_flow_artefact = (
 )
 rasr_artefact = (
     "rasr",
-    "streaming-rasr-2024-06-21",
+    "streaming-rasr-2025-07-12"
+    #"streaming-rasr-2025-07-12_haotian"
+    #"streaming-rasr-2024-06-21",
 )
 
 
@@ -272,7 +278,7 @@ def _get_train_cv_corpus(namespace: str, corpus_key: str) -> tk.Path:
 
 @cache
 def _get_eval_corpus(
-    namespace: str, corpus_key: str, segmenter_type: SegmenterType, measure_type: WerMeasure, alias_prefix: str
+    namespace: str, corpus_key: str, segmenter_type: SegmenterType, measure_type: WerMeasure, alias_prefix: str, skip_non_speech: bool = True,
 ) -> EvalInfo:
     aar = AbstractArtefactRepository()
 
@@ -282,7 +288,7 @@ def _get_eval_corpus(
     khz = namespace.split(".")[-1]
     if khz == "f16kHz":
         audio_files = artefact["audio_files"]
-    elif khz == "f8kHz":
+    elif khz == "f8kHz" or khz == "mbw":
         resample_job = ChangeEncodingJob(
             file_list=artefact["audio_files"],
             output_filenames=[os.path.basename(p) for p in artefact["audio_files"]],
@@ -293,7 +299,7 @@ def _get_eval_corpus(
         audio_files = list(resample_job.out_files.values())
     else:
         raise ValueError(f"unknown sample rate {khz}")
-    full_corpus = StmToBlissCorpusJob(artefact["stm"], audio_files, skip_non_speech=True).out_bliss
+    full_corpus = StmToBlissCorpusJob(artefact["stm"], audio_files, skip_non_speech=skip_non_speech).out_bliss
     out_corpus_file = full_corpus
 
     segmenter_opts = segmenter_type.get_opts()
@@ -378,15 +384,15 @@ def _compute_merged_costa(name: str, corpus_dict: Dict[str, EvalInfo], alias_pre
         ]
         merge_corpora_job = MergeCorporaJob(corpora_to_merge, merge_strategy=MergeStrategy.CONCATENATE, name=name)
         stats_job = ComputeCorpusStatisticsJob(merge_corpora_job.out_merged_corpus, audio_dir=None)
-        tk.register_output(
-            f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length",
-            stats_job.average_segment_length,
-        )
-        tk.register_output(
-            f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length-std",
-            stats_job.average_segment_length_std,
-        )
-        tk.register_output(f"{alias_prefix}/costa/{name}.{segmenter_type}/duration", stats_job.corpus_duration)
+        # tk.register_output(
+        #     f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length",
+        #     stats_job.average_segment_length,
+        # )
+        # tk.register_output(
+        #     f"{alias_prefix}/costa/{name}.{segmenter_type}/avg-seg-length-std",
+        #     stats_job.average_segment_length_std,
+        # )
+        # tk.register_output(f"{alias_prefix}/costa/{name}.{segmenter_type}/duration", stats_job.corpus_duration)
 
 
 @cache
@@ -405,7 +411,7 @@ def get_corpora(
     }
     dev_corpora = {
         f"{corpus_ns}.{corpus}.{segmenter_type}.{measure_type}": _get_eval_corpus(
-            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix
+            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix, skip_non_speech=for_lm
         )
         for corpus_ns, corpus_list in (LM_dev_corpora_def.items() if for_lm else dev_corpora_def.items())
         for corpus in corpus_list
@@ -418,7 +424,7 @@ def get_corpora(
     _compute_merged_costa("dev", dev_corpora, alias_prefix)
     test_corpora = {
         f"{corpus_ns}.{corpus}.{segmenter_type}.{measure_type}": _get_eval_corpus(
-            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix
+            corpus_ns, corpus, segmenter_type, measure_type, alias_prefix, skip_non_speech=for_lm
         )
         for corpus_ns, corpus_list in (LM_test_corpora_def.items() if for_lm else test_corpora_def.items())
         for corpus in corpus_list

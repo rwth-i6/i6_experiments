@@ -184,7 +184,8 @@ class ActivationQuantizer(nn.Module):
         assert (
             self.scale is not None and self.zero_point is not None
         ), "Need to calibrate before applying quant, disable apply_calibration"
-        tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
+        with torch.autocast(device_type=tensor.device.type, enabled=False, dtype=torch.bfloat16):
+            tensor = self.quant_fn(tensor.float(), self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
 
     def set_scale_and_zp(self):

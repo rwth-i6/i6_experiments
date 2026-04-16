@@ -12,7 +12,17 @@ import glob
 from sisyphus import tools
 import gc
 
-def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root, initial_manifests_dir: Optional[tk.Path] = None, concurrent, layer, model_path, dim:Optional[int] = 512, alias_prefix, alias_delete, alias_feat, existing_clusters: Optional[tk.Path] = None, existing_pca: Optional[tk.Path] = None, max_n_audios_per_manifest: Optional[int] = None, name_the_manifests_just_train_and_valid: Optional[bool] = True):
+def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root, initial_manifests_dir: Optional[tk.Path] = None, concurrent: int = 8, delete_silence_concurrent: int = None, featurize_audio_concurrent: int = None, layer, model_path, dim:Optional[int] = 512, alias_prefix, alias_delete: str = None, alias_feat : str = None, existing_clusters: Optional[tk.Path] = None, existing_pca: Optional[tk.Path] = None, max_n_audios_per_manifest: Optional[int] = None, name_the_manifests_just_train_and_valid: Optional[bool] = True):
+    if alias_delete is None:
+        alias_delete = alias_prefix+"/audio/delete_silences"
+    if alias_feat is None:
+        alias_feat = alias_prefix+"/audio/featurize_audio"
+
+    if delete_silence_concurrent is None:
+        delete_silence_concurrent = concurrent
+    if featurize_audio_concurrent is None:
+        featurize_audio_concurrent = concurrent
+
     delete_silences_job = Wav2VecUDeleteSilencesInAudioJob(
         environment=env,
         fairseq_root=fairseq_root,
@@ -36,8 +46,9 @@ def process_audio(*, env, fairseq_root, audio_dir, valid_percent, ext, rvad_root
         input_audio_manifests=delete_silences_job.out_preprocessed_manifest,
         concurrent=concurrent,
     )
+    print(featurize_job._sis_hash())
     featurize_job.add_alias(os.path.join(alias_prefix, alias_feat))
-    return delete_silences_job, featurize_job
+    return delete_silences_job, featurize_job, delete_silences_job.out_preprocessed_manifest
 
 class Wav2VecUDeleteSilencesInAudioJob(Job):
     """

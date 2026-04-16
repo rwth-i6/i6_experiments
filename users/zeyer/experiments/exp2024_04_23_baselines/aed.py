@@ -16,6 +16,7 @@ import functools
 from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
 import numpy
 import tree
+from dataclasses import dataclass
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -441,6 +442,7 @@ def train_exp(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
+    recog_def: Optional[RecogDef[Model]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
@@ -499,7 +501,13 @@ def train_exp(
         time_rqmt=time_rqmt,
         env_updates=env_updates,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(
+        prefix,
+        task,
+        model_with_checkpoint,
+        recog_def=recog_def or model_recog,
+        search_mem_rqmt=config.get("__mem_rqmt") or 6,
+    )
 
     _train_experiments[name] = model_with_checkpoint
     return model_with_checkpoint
@@ -521,10 +529,9 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
+    # real input is raw audio, internally it does logmel
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
-    # real input is raw audio, internally it does logmel
-    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
     enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
     if enc_conformer_layer:
@@ -547,11 +554,13 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             num_heads=8,
         )
 
+    feature_extraction = config.typed_value("feature_extraction", None)
+
     blank_idx = _aed_model_def_blank_idx
     if blank_idx < 0:
         blank_idx = target_dim.dimension + 1 + blank_idx
     return Model(
-        in_dim,
+        feature_extraction=feature_extraction,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=config.int("num_enc_layers", 12),
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
@@ -607,6 +616,7 @@ def _get_eos_idx(target_dim: Dim) -> int:
 def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
+    from returnn.util.collect_outputs_dict import CollectOutputsDict
 
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers") or ()
@@ -639,7 +649,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     else:
         ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
 
-    collected_outputs = {}
+    collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(layer_idx - 1) for layer_idx in aux_loss_layers])
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     for i, layer_idx in enumerate(aux_loss_layers):
         if layer_idx > len(model.encoder.layers):
@@ -699,7 +709,9 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             lambda: (input_labels, targets_w_eos, targets_w_eos_spatial_dim),
         )
 
-    collected_outputs = {}
+    collected_outputs = CollectOutputsDict(
+        allowed_key_patterns=[str(layer_idx - 1) for layer_idx in dec_aux_loss_layers]
+    )
     logits, _ = model.decoder(
         input_labels,
         spatial_dim=targets_w_eos_spatial_dim,
@@ -781,7 +793,7 @@ def model_recog(
 
     search_version = config.int("search_version", 1)
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12 if search_version == 1 else config.int("beam_size", 12)
     length_normalization_exponent = 1.0 if search_version == 1 else config.float("length_normalization_exponent", 1.0)
@@ -894,8 +906,8 @@ class Model(rf.Module):
 
     def __init__(
         self,
-        in_dim: Dim,
         *,
+        feature_extraction: Optional[Dict[str, Any]] = None,
         num_enc_layers: int = 12,
         num_dec_layers: int = 6,
         target_dim: Dim,
@@ -934,6 +946,16 @@ class Model(rf.Module):
             dec_sequential = functools.partial(SequentialLayerDrop, layer_drop=dec_layer_drop)
         else:
             dec_sequential = rf.Sequential
+
+        if not feature_extraction:
+            feat_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+            feature_extraction = rf.build_dict(
+                rf.Functional,
+                func=functools.partial(rf.audio.log_mel_filterbank_from_raw, sampling_rate=16_000, out_dim=feat_dim),
+                attribs={"out_dim": feat_dim},
+            )
+        self.feature_extraction = rf.build_from_dict(feature_extraction)
+        in_dim = self.feature_extraction.out_dim
 
         self.in_dim = in_dim
         if enc_build_dict:
@@ -1052,7 +1074,7 @@ class Model(rf.Module):
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
             "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
             "max_consecutive_feature_dims": config.typed_value("specaugment_max_consecutive_feature_dims")
-            or (_log_mel_feature_dim // 5),
+            or (in_dim.dimension // 5),
             "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
         }
 
@@ -1062,17 +1084,41 @@ class Model(rf.Module):
 
             self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
 
+        self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
+        self.ctc_framewise_prior_scale = config.float("ctc_prior_scale", 0.0)
+        self.ctc_framewise_prior_type = config.value("ctc_prior_type", "batch")
+        # framewise prior for CTC
+        ctc_framewise_static_prior = config.typed_value("static_prior")
+        self.ctc_framewise_static_prior = None  # in log prob, if set
+        if ctc_framewise_static_prior:
+            assert isinstance(ctc_framewise_static_prior, dict)
+            assert set(ctc_framewise_static_prior.keys()) == {"file", "type"}
+            v = numpy.loadtxt(ctc_framewise_static_prior["file"])
+            # The `type` is about what is stored in the file.
+            # We always store it in log prob here, so we potentially need to convert it.
+            if ctc_framewise_static_prior["type"] == "log_prob":
+                pass  # already log prob
+            elif ctc_framewise_static_prior["type"] == "prob":
+                v = numpy.log(v)
+            else:
+                raise ValueError(f"invalid static_prior type {ctc_framewise_static_prior['type']!r}")
+            self.ctc_framewise_static_prior = rf.Parameter(
+                rf.convert_to_tensor(v, dims=[self.wb_target_dim], dtype=rf.get_default_float_dtype()),
+                auxiliary=True,
+                non_critical_for_restore=True,
+            )
+
         from i6_experiments.users.zeyer.nn_rf.variational_noise import maybe_apply_variational_noise_from_config
 
         maybe_apply_variational_noise_from_config(self, config)
 
-    def encode(
+    def encode_no_transform(
         self,
         source: Tensor,
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
-    ) -> Tuple[rf.State, Dim]:
+    ) -> Tuple[Tensor, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
             source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
@@ -1100,7 +1146,77 @@ class Model(rf.Module):
         )
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
+        return enc, enc_spatial_dim
+
+    def encode(
+        self, source: Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
+    ) -> Tuple[rf.State, Dim]:
+        enc, enc_spatial_dim = self.encode_no_transform(
+            source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+        )
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
+
+    def encode_and_get_ctc_log_probs(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, EncoderOutput, Dim]:
+        """
+        :param source: [B*, in_spatial_dim, in_dim]
+        :param in_spatial_dim:
+        :return: log_probs [B*, enc_spatial_dim', wb_target_dim], enc, enc_spatial_dim
+        """
+        from returnn.config import get_global_config
+        from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
+        from returnn.util.collect_outputs_dict import CollectOutputsDict
+
+        # TODO/WARNING: many users of this function (encode_and_get_ctc_log_probs)
+        #   also do the same soft_collapse_repeated again outside,
+        #   which is redundant, inefficient, and maybe even could cause problems?
+        config = get_global_config()
+        ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)  # e.g. 0.8
+        ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "max_renorm")
+
+        if source.feature_dim and source.feature_dim.dimension == 1:
+            source = rf.squeeze(source, axis=source.feature_dim)
+
+        ctc_layer_idx = self.enc_aux_logits[-1]
+        enc_collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(ctc_layer_idx - 1)])
+        enc, enc_spatial_dim = self.encode_no_transform(
+            source, in_spatial_dim=in_spatial_dim, collected_outputs=enc_collected_outputs
+        )
+
+        out: Tensor = enc_collected_outputs[str(ctc_layer_idx - 1)]
+        assert enc_spatial_dim in out.dims
+        linear = getattr(self, f"enc_aux_logits_{ctc_layer_idx}")
+        logits = linear(out)
+        log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)  # Batch, Spatial, VocabWB
+        log_probs_spatial_dim = enc_spatial_dim
+        if ctc_soft_collapse_threshold is not None:
+            log_probs, log_probs_spatial_dim = soft_collapse_repeated(
+                log_probs,
+                spatial_dim=log_probs_spatial_dim,
+                classes_dim=self.wb_target_dim,
+                threshold=ctc_soft_collapse_threshold,
+                reduce_type=ctc_soft_collapse_reduce_type,
+            )
+        log_probs.feature_dim = self.wb_target_dim
+
+        if self.ctc_am_scale != 1:
+            log_probs = log_probs * self.ctc_am_scale
+        if self.ctc_framewise_prior_scale:
+            if self.ctc_framewise_prior_type == "static":
+                log_prob_prior = self.ctc_framewise_static_prior
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            else:
+                raise NotImplementedError(f"ctc_framewise_prior_type {self.ctc_framewise_prior_type!r}")
+            log_probs -= log_prob_prior * self.ctc_framewise_prior_scale
+
+        return log_probs, EncoderOutput(enc, enc_spatial_dim=enc_spatial_dim), log_probs_spatial_dim
+
+
+@dataclass
+class EncoderOutput:
+    """encoder output"""
+
+    enc_output: Tensor
+    enc_spatial_dim: Dim
 
 
 def log_probs_with_eos_separated(logits: Tensor, *, target_dim: Dim, eos_idx: int) -> Tensor:

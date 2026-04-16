@@ -243,6 +243,75 @@ class TextDictToDummyRecogOutJob(Job):
                 out.write("],\n")
             out.write("}\n")
 
+
+class GetCorpusStatsJob(Job):
+    """
+    Convert pure text dict to Recogout: seq_tag: {[dummyscore, seq]}
+    """
+
+    def __init__(self, *, text_file: tk.Path):
+        super().__init__()
+        self.text_file = text_file
+        self.out_seg_report = self.output_path("seg_report.json")
+        self.out_rec_report = self.output_path("rec_report.json")
+
+    def tasks(self):
+        """task"""
+        yield SisTask("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import i6_core.util as util
+        import numpy as np
+        import json
+        d_rec = eval(util.uopen(self.text_file, "rt").read(),
+                      {"nan": float("nan"), "inf": float("inf")})  # {seq_tag:[(score, hyp)]}
+        rec_length = dict()
+        for seq_tag, raw_line in d_rec.items():
+            current_record = extract_record_id(seq_tag)
+            rec_length.setdefault(current_record, []).append(len(raw_line.split()))
+        # --- recording-level lengths ---
+        rec_lens = [sum(segs) for segs in rec_length.values()]
+        rec_arr = np.array(rec_lens)
+
+        recording_stats = {
+            "num_recordings": len(rec_length),
+            "min_length": int(rec_arr.min()),
+            "max_length": int(rec_arr.max()),
+            "mean_length": float(rec_arr.mean()),
+            "median_length": float(np.median(rec_arr)),
+            "std_dev": float(rec_arr.std()),
+            "percentiles": {
+                "p25": float(np.percentile(rec_arr, 25)),
+                "p75": float(np.percentile(rec_arr, 75)),
+                "p90": float(np.percentile(rec_arr, 90)),
+            },
+        }
+
+        # --- segment-level lengths ---
+        seg_lens = [l for segs in rec_length.values() for l in segs]
+        seg_arr = np.array(seg_lens)
+
+        segment_stats = {
+            "num_segments": len(seg_lens),
+            "min_length": int(seg_arr.min()),
+            "max_length": int(seg_arr.max()),
+            "mean_length": float(seg_arr.mean()),
+            "median_length": float(np.median(seg_arr)),
+            "std_dev": float(seg_arr.std()),
+            "percentiles": {
+                "p25": float(np.percentile(seg_arr, 25)),
+                "p75": float(np.percentile(seg_arr, 75)),
+                "p90": float(np.percentile(seg_arr, 90)),
+            },
+        }
+
+        with open(self.out_rec_report.get_path(), "wt") as out:
+            json.dump(recording_stats, out, indent=2)
+        with open(self.out_seg_report.get_path(), "wt") as out:
+            json.dump(segment_stats, out, indent=2)
+
+
 class MetaDataset():
     """
     Represents :class:`MetaDataset` in RETURNN

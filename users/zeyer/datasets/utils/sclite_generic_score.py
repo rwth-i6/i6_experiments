@@ -15,7 +15,7 @@ def generic_sclite_score_recog_out(
     dataset: DatasetConfig,
     recog_output: RecogOutput,
     *,
-    post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]],
+    post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> ScoreResult:
     """
     score

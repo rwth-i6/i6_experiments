@@ -27,7 +27,7 @@ def hook_task(task, collected_results: list):
     return original_collect_scores
 
 
-def make_target_to_output_map(collected_results: list):
+def make_target_to_output_map(collected_results: list) -> dict[str, tk.AbstractPath]:
     from sisyphus import graph
 
     targs = graph.graph.targets

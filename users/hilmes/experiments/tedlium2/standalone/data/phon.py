@@ -12,10 +12,15 @@ from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 from i6_core.returnn.oggzip import BlissToOggZipJob
+from i6_core.util import write_xml
+from sisyphus import Job, Task, tk
 
 from i6_experiments.common.datasets.tedlium2.corpus import get_bliss_corpus_dict
 from i6_experiments.common.datasets.tedlium2.lexicon import get_bliss_lexicon, get_g2p_augmented_bliss_lexicon
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+
+from i6_core.lib.lexicon import Lemma, Lexicon
+from i6_core.lexicon.modification import MergeLexiconJob, WriteLexiconJob
 
 from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 
@@ -92,6 +97,48 @@ def get_eow_vocab_datastream(prefix: str) -> LabelDatastream:
     )
 
     return vocab_datastream
+
+
+class RemoveSpecialLemmasFromLexiconJob(Job):
+    def __init__(self, lexicon_file: tk.Path) -> None:
+        self.lexicon_file = lexicon_file
+        self.out_lexicon = self.output_path("lexicon.xml.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        lexicon = Lexicon()
+        lexicon.load(self.lexicon_file.get_path())
+
+        remaining_lemmas = []
+        for lemma in lexicon.lemmata:
+            if lemma.special is None:
+                remaining_lemmas.append(lemma)
+
+        lexicon.lemmata = remaining_lemmas
+
+        write_xml(self.out_lexicon.get_path(), lexicon.to_xml())
+
+
+def get_bliss_phoneme_lexicon() -> tk.Path:
+    lexicon_file = get_bliss_lexicon(output_prefix="tedliumv2_eow_datasets", add_silence=False, add_unknown_phoneme_and_mapping=False)
+    cleaned_lexicon_file = RemoveSpecialLemmasFromLexiconJob(lexicon_file).out_lexicon
+    eow_lexicon_file = AddEowPhonemesToLexiconJob(bliss_lexicon=cleaned_lexicon_file).out_lexicon
+
+    lexicon_ext = Lexicon()
+    # lexicon_ext.add_phoneme("<unk>", variation="none")
+    lexicon_ext.add_phoneme("<blank>", variation="none")
+
+    lexicon_ext.add_lemma(Lemma(orth=["[SENTENCE-BEGIN]"], synt=["<s>"], special="sentence-begin"))
+    lexicon_ext.add_lemma(Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-end"))
+    # lexicon_ext.add_lemma(Lemma(orth=["[UNKNOWN]"], phon=["<unk>"], synt=["<UNK>"], special="unknown"))
+    lexicon_ext.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], synt=[], eval=[], special="silence"))
+    lexicon_ext.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], special="blank"))
+
+    lexicon_ext_file = WriteLexiconJob(lexicon_ext).out_bliss_lexicon
+
+    return MergeLexiconJob([eow_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
 
 
 def get_text_lexicon() -> tk.Path:

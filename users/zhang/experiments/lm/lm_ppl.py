@@ -62,6 +62,7 @@ def lm_forward_def(*, model: rf.Module, targets: Tensor, targets_spatial_dim: Di
 
 
     else:
+        # Assume the LM padding bos internally
         logits, _ = model(
             targets,
             spatial_dim=targets_spatial_dim,
@@ -69,11 +70,22 @@ def lm_forward_def(*, model: rf.Module, targets: Tensor, targets_spatial_dim: Di
             state=model.default_initial_state(batch_dims=batch_dims),
         )
     # import pdb; pdb.set_trace()
-    log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
-    log_prob_targets = rf.gather(log_prob, indices=targets_w_eos, axis=model.vocab_dim) # Why before it is indices = targets_w_eos?
-    log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
-    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    # log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
+    # log_prob_targets = rf.gather(log_prob, indices=targets_w_eos, axis=model.vocab_dim) # Why before it is indices = targets_w_eos?
+    # log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
+    # assert log_prob_targets_seq.dims_set == set(batch_dims)
 
+    log_prob = rf.log_softmax(logits, axis=model.vocab_dim)  # bf16
+
+    log_prob_targets = rf.gather(log_prob, indices=targets_w_eos, axis=model.vocab_dim)  # bf16
+
+    # Upcast only for accumulation to avoid precision loss
+    log_prob_targets_seq = rf.reduce_sum(
+        rf.cast(log_prob_targets, "float32"),
+        axis=targets_w_eos_spatial_dim
+    )  # f32 accumulator
+
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
     return targets_w_eos, log_prob_targets_seq
 
 
@@ -243,12 +255,13 @@ def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: U
             res.add_alias(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_ppl")
             tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_{'word' if word_ppl else ''}ppl", ppl_job.out_ppl)
             ppls[f"epoch{epoch}"][dataset_key_] = ppl_job.out_ppl
+
             # if prefix_name == "ES/trafo-n32-d1280-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-spm10k":
             #     print(f"Add PPLs on {dataset_key_} for epoch {epoch}:\n -> {ppls}\n")
             # if dataset_key_ == "test-other":
             #     ppls[f"epoch{epoch}"]["test-other"] = ppl_job.out_ppl
     for epoch in check_epochs:
-        tk.register_output(f"ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
+        tk.register_output(f"test/ppl/{prefix_name}/{epoch}/{task_name}/{'word' if word_ppl else ''}ppl_report", ReportDictJob(outputs=ppls[f"epoch{epoch}"]).out_report_dict)
     return ppls
 
 def compute_ppl_single_epoch(*, prefix_name, model_with_checkpoint, epoch, dataset, dataset_keys: Union[str, List[str]], word_ppl: bool = False, same_seq:bool=False, batch_size:int=80_000, vocab: [str | VocabConfig] = "bpe128", task_name: str = "LBS", **kwargs_unused):
@@ -366,7 +379,7 @@ class ComputePPLOnRecogOutJob(tk.Job):
         lm_weight: float = 1.0,    # divide stored scores by this if they were scaled
         include_eos_per_seq: int = 1,  # add this many tokens per hypothesis (e.g., 1 to count EOS if score included it)
         allow_inf_nan: bool = True,    # allow 'inf', 'nan' in the dict
-        to_word_func: Callable[[list[str]],str] = None,
+        to_word_func: Callable[[str],str] = None,
     ):
         super().__init__()
         self.input_scores = input_scores if isinstance(input_scores, tk.Path) else tk.Path(input_scores)
@@ -434,7 +447,7 @@ class ComputePPLOnRecogOutJob(tk.Job):
 
                     # token count: split on whitespace; add EOS if requested
                     if self.to_word_func:
-                        txt = self.to_word_func(txt.split())
+                        txt = self.to_word_func(txt)
                     tokens = txt.split()
                     T = len(tokens) + int(self.include_eos_per_seq)
 

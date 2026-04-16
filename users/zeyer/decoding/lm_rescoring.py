@@ -33,7 +33,7 @@ However, to keep it generic, we don't do this here.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict
+from typing import TYPE_CHECKING, Optional, Union, Any, Literal, Callable, Dict, List
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedBase
@@ -42,6 +42,7 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 from .rescoring import combine_scores, rescore
 from .prior_rescoring import prior_score, Prior
+from .concat_hyps import ReplaceHypsJob
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -108,15 +109,18 @@ def lm_labelwise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+    # all the remainings are not given, and you might want to bind them via functools.partial
     orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
     lm_scale: Union[float, tk.Variable, DelayedBase],
+    lm_rescore_config: Optional[Dict[str, Any]] = None,
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
     prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
-    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+    prior_custom_vocab_convert_labels: Optional[Callable[[tk.Path], tk.Path]] = None,
 ) -> RecogOutput:
     """
     With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
@@ -132,20 +136,29 @@ def lm_labelwise_prior_rescore(
     :param orig_scale: scale for the original scores
     :param lm: language model
     :param lm_scale: scale for the LM scores
+    :param lm_rescore_config:
     :param lm_rescore_rqmt:
     :param vocab: for LM labels in res / raw_res_labels
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param prior:
     :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param prior_custom_vocab_convert_labels:
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     dataset, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
     res_labels_lm_scores = lm_score(
-        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+        raw_res_labels,
+        lm=lm,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        config=lm_rescore_config,
+        rescore_rqmt=lm_rescore_rqmt,
     )
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
-        res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
+        res_labels_prior_scores = prior_score(
+            raw_res_labels, prior=prior, custom_vocab_convert_labels=prior_custom_vocab_convert_labels
+        )
         scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
         assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
@@ -282,12 +295,84 @@ def lm_am_labelwise_prior_ngram_rescore(
     return combine_scores(scores)
 
 
+def ngram_lm_framewise_prior_rescore(
+    res: RecogOutput,
+    *,
+    dataset: DatasetConfig,
+    raw_res_search_labels: RecogOutput,
+    raw_res_labels: RecogOutput,
+    orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
+    ngram_language_model: tk.Path,
+    lm_label_level: Literal["word", "task"] = "word",
+    labels_to_words: Union[
+        None, List[Callable[[RecogOutput], RecogOutput]], Callable[[RecogOutput], RecogOutput]
+    ] = None,
+    lm_scale: Union[float, tk.Variable, DelayedBase],
+    prior: Optional[Prior] = None,
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+) -> RecogOutput:
+    """
+    With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
+
+    :param res:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
+    :param raw_res_search_labels:
+    :param raw_res_labels:
+    :param orig_scale: scale for the original scores
+    :param ngram_language_model: language model
+    :param lm_label_level: "word" or "task"
+    :param labels_to_words: function to convert the labels to words (only needed if lm_label_level=="word")
+    :param lm_scale: scale for the LM scores
+    :param prior:
+    :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param search_labels_to_labels: function to convert the search labels to the labels.
+        (search labels are potentially with blanks, labels are without blanks;
+         but labels are usually still on subword level)
+    """
+    dataset  # noqa  # unused here
+    if lm_label_level == "word":
+        assert labels_to_words is not None
+        if isinstance(labels_to_words, list):
+            lm_labels = raw_res_labels
+            for f in labels_to_words:
+                lm_labels = f(lm_labels)
+        else:
+            assert callable(labels_to_words)
+            lm_labels = labels_to_words(raw_res_labels)
+    elif lm_label_level == "task":
+        lm_labels = raw_res_labels
+    else:
+        raise ValueError(f"invalid lm_label_level: {lm_label_level!r}")
+    res_labels_lm_scores = ngram_score_v2(lm_labels, lm=ngram_language_model)
+    if lm_label_level == "word":
+        # Need to have consistent hyps for combine_scores
+        res_labels_lm_scores = RecogOutput(
+            output=ReplaceHypsJob(
+                res_labels_lm_scores.output, new_hyps_py_output=raw_res_labels.output
+            ).out_search_results
+        )
+    scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
+    if prior and prior_scale:
+        assert search_labels_to_labels
+        res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
+        # Need to have consistent hyps for combine_scores
+        res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
+    else:
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
+    return combine_scores(scores)
+
+
 def lm_score(
     recog_output: RecogOutput,
     *,
     lm: ModelWithCheckpoint,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
+    config: Optional[Dict[str, Any]] = None,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
@@ -300,6 +385,7 @@ def lm_score(
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param config: additional config
     :param rescore_rqmt:
     """
     return rescore(
@@ -308,23 +394,66 @@ def lm_score(
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_def=lm_rescore_def,
+        config=config,
         forward_rqmt=rescore_rqmt,
     )
 
 
 def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
+    from returnn.tensor import Tensor, Dim
     import returnn.frontend as rf
+    from returnn.config import get_global_config
 
     targets_beam_dim  # noqa  # unused here
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
 
     # noinspection PyTypeChecker
     model: TransformerDecoder
+
+    returnn_config = get_global_config(return_empty_if_none=True)
+
+    # This is supposed to follow the same API as used in
+    # i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2.
+    default_data_convert_labels_func = returnn_config.typed_dict.get("default_data_convert_labels_func")
+    if default_data_convert_labels_func:
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_debugging import (
+            _generic_seq_label_print,
+        )
+
+        _generic_seq_label_print(targets, targets_spatial_dim, prefix="AM labels", dims_no_iter=batch_dims)
+        new_lm_labels, new_lm_labels_spatial_dim, num_am_labels_converted = default_data_convert_labels_func(
+            new_am_labels=targets,
+            new_am_labels_spatial_dim=targets_spatial_dim,
+            lm_target_dim=model.vocab_dim,
+            first_am_labels=True,
+            last_am_labels=True,
+        )
+        assert (
+            isinstance(new_lm_labels, Tensor)
+            and isinstance(new_lm_labels_spatial_dim, Dim)
+            and isinstance(num_am_labels_converted, Tensor)
+        )
+        assert new_lm_labels.sparse_dim == model.vocab_dim
+        # print(f"seq lens {targets_spatial_dim}: {targets_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
+        # print(f"seq lens {new_lm_labels_spatial_dim}: {new_lm_labels_spatial_dim.get_size_tensor().raw_tensor.numpy()}")
+        assert (num_am_labels_converted == targets_spatial_dim.get_size_tensor()).raw_tensor.all(), (
+            f"expected all {targets_spatial_dim} {targets_spatial_dim.get_size_tensor().raw_tensor} AM labels"
+            f" to be converted, got {num_am_labels_converted} {num_am_labels_converted.raw_tensor}"
+            f" converted via {default_data_convert_labels_func}"
+        )
+        new_lm_labels = rf.copy_to_device(new_lm_labels, device=targets.device)
+        targets, targets_spatial_dim = new_lm_labels, new_lm_labels_spatial_dim
+        _generic_seq_label_print(targets, targets_spatial_dim, prefix="LM labels", dims_no_iter=batch_dims)
+
+    assert targets.sparse_dim == model.vocab_dim
+
     vocab = model.vocab_dim.vocab
     assert vocab.bos_label_id is not None and vocab.eos_label_id is not None
 
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
     )
+    targets_w_eos_spatial_dim: Dim
     targets_w_eos, _ = rf.pad(
         targets,
         axes=[targets_spatial_dim],
@@ -333,18 +462,33 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
         out_dims=[targets_w_eos_spatial_dim],
     )
 
-    batch_dims = targets.remaining_dims(targets_spatial_dim)
-    logits, _ = model(
-        input_labels,
-        spatial_dim=targets_w_eos_spatial_dim,
-        encoder=None,
-        state=model.default_initial_state(batch_dims=batch_dims),
-    )
+    chunk_size = returnn_config.typed_value("chunk_size_for_lm_rescoring", None)
 
-    log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
-    log_prob_targets = rf.gather(
-        log_prob, indices=targets_w_eos, axis=model.vocab_dim
-    )  # [batch,beam,targets_spatial_w_eos]
+    state = model.default_initial_state(batch_dims=batch_dims)
+    if chunk_size:
+        log_prob_targets_collected = []
+        for chunk_start in range(0, targets_w_eos_spatial_dim.get_dim_value(), chunk_size):
+            end = rf.minimum(targets_w_eos_spatial_dim.get_size_tensor(), chunk_start + chunk_size)
+            input_labels_chunk, chunk_spatial_dim = rf.slice(
+                input_labels, axis=targets_w_eos_spatial_dim, start=chunk_start, end=end
+            )
+            targets_w_eos_chunk, _ = rf.slice(
+                targets_w_eos, axis=targets_w_eos_spatial_dim, start=chunk_start, end=end, out_dim=chunk_spatial_dim
+            )
+            logits_chunk, state = model(input_labels_chunk, spatial_dim=chunk_spatial_dim, encoder=None, state=state)
+            log_prob_chunk = rf.log_softmax(logits_chunk, axis=model.vocab_dim)
+            log_prob_targets_chunk = rf.gather(
+                log_prob_chunk, indices=targets_w_eos_chunk, axis=model.vocab_dim
+            )  # [batch,beam,chunk_spatial_dim]
+            log_prob_targets_collected.append((log_prob_targets_chunk, chunk_spatial_dim))
+        log_prob_targets, _ = rf.concat(*log_prob_targets_collected, out_dim=targets_w_eos_spatial_dim)
+    else:
+        logits, _ = model(input_labels, spatial_dim=targets_w_eos_spatial_dim, encoder=None, state=state)
+        log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
+        log_prob_targets = rf.gather(
+            log_prob, indices=targets_w_eos, axis=model.vocab_dim
+        )  # [batch,beam,targets_spatial_w_eos]
+
     log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
     assert log_prob_targets_seq.dims_set == set(batch_dims)
     return log_prob_targets_seq
@@ -369,7 +513,6 @@ def ngram_score(
         We ignore the scores here and just use the text of the hyps.
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
-    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param rescore_rqmt:
     """
     return rescore(
@@ -384,10 +527,47 @@ def ngram_score(
     )
 
 
+def ngram_score_v2(
+    recog_output: RecogOutput,
+    *,
+    lm: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    v2: use byte-based vocab internally, does not need a vocab file.
+    We pass the raw text directly to KenLM anyway.
+    The words are written out in the ARPA file (or LM binary).
+
+    :param recog_output:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+        We ignore the scores here and just use the text of the hyps.
+    :param lm: language model
+    :param rescore_rqmt:
+    """
+    return rescore(
+        recog_output=recog_output,
+        model=ModelWithCheckpoint(
+            definition=ModelDefWithCfg(model_def=ngram_model_def, config={"_lm_file": lm}), checkpoint=None
+        ),
+        vocab_opts={"class": "Utf8ByteTargets"},
+        rescore_def=ngram_rescore_def,
+        forward_rqmt=rescore_rqmt,
+        forward_device="cpu",
+    )
+
+
 def ngram_model_def(**_other):
     import torch
     from returnn.config import get_global_config
-    import kenlm  # pip install kenlm
+
+    # pip install kenlm, or:
+    # pip install git+https://github.com/kpu/kenlm.git
+    # (note: make sure that CPATH is correct, does not point to some different Python version.
+    # on RWTH HPC, `module load Python/3.12` or so will influence this)
+    import kenlm
 
     config = get_global_config()
 
